@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cogworks-vision-benchmark"
+version = "0.1.0"
+description = "Public practice contract for the CogWorks vision-recognition benchmark"
+requires-python = ">=3.8"
+dependencies = ["cogworks-benchmark>=0.1,<0.2"]
+
+[project.entry-points."cogworks.benchmarks.v1"]
+vision-recognition = "cogworks_vision_benchmark:VisionRecognitionBenchmark"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+cogworks_vision_benchmark = ["public_cases.json", "descriptor.json", "py.typed"]

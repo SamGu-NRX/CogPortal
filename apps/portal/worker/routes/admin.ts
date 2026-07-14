@@ -1,0 +1,229 @@
+import type { Hono } from "hono";
+import { and, asc, count, desc, eq, isNull } from "drizzle-orm";
+import { z } from "zod";
+import {
+  AdminAddMemberRequestSchema,
+  AdminCohortPatchSchema,
+  AdminOverviewSchema,
+  AdminTeamSummarySchema,
+  UpdateTeamRequestSchema,
+} from "@cogworks/contracts/schema";
+import type { AdminTeamSummary, TeamMember } from "@cogworks/contracts/schema";
+import { requireStaff } from "../auth/roles";
+import type { Database } from "../db/client";
+import { getDb } from "../db/client";
+import type { AppEnv } from "../env";
+import {
+  cohorts,
+  leaderboardSelections,
+  officialAttempts,
+  runMetrics,
+  runs,
+  teamMembers,
+  teams,
+  users,
+} from "../db/schema";
+import { ApiHttpError } from "../http/errors";
+import { parseBody, respond } from "../http/respond";
+
+const AdminCohortSchema = z.object({
+  slug: z.string(),
+  name: z.string(),
+  joinCode: z.string(),
+  active: z.boolean(),
+});
+
+function memberRole(role: string): TeamMember["role"] {
+  if (role === "admin" || role === "maintain" || role === "write") return role;
+  throw new Error("Team member has an invalid role.");
+}
+
+async function getAdminTeamSummary(
+  db: Database,
+  teamId: string,
+): Promise<AdminTeamSummary> {
+  const [[team], members, [practice], [official], [published]] = await Promise.all([
+    db.select().from(teams).where(eq(teams.id, teamId)).limit(1),
+    db
+      .select({
+        login: users.githubLogin,
+        name: users.name,
+        role: teamMembers.role,
+      })
+      .from(teamMembers)
+      .innerJoin(users, eq(teamMembers.userId, users.id))
+      .where(eq(teamMembers.teamId, teamId)),
+    db
+      .select({ value: count() })
+      .from(runs)
+      .where(and(eq(runs.teamId, teamId), eq(runs.mode, "practice"))),
+    db
+      .select({ value: count() })
+      .from(officialAttempts)
+      .where(eq(officialAttempts.teamId, teamId)),
+    db
+      .select({ value: runMetrics.value })
+      .from(leaderboardSelections)
+      .innerJoin(
+        runMetrics,
+        and(
+          eq(runMetrics.runId, leaderboardSelections.runId),
+          eq(runMetrics.isPrimary, true),
+        ),
+      )
+      .where(eq(leaderboardSelections.teamId, teamId))
+      .orderBy(desc(leaderboardSelections.selectedAt))
+      .limit(1),
+  ]);
+  if (!team) throw new ApiHttpError(404, "not_found", "Team not found.");
+  const roleOrder: Record<TeamMember["role"], number> = {
+    admin: 0,
+    maintain: 1,
+    write: 2,
+  };
+  const serializedMembers = members
+    .map((member) => ({
+      login: member.login,
+      name: member.name,
+      role: memberRole(member.role),
+    }))
+    .sort(
+      (left, right) =>
+        roleOrder[left.role] - roleOrder[right.role] || left.login.localeCompare(right.login),
+    );
+  return {
+    id: team.id,
+    name: team.name,
+    repoFullName: team.repoFullName,
+    members: serializedMembers,
+    practiceUsed: practice?.value ?? 0,
+    officialUsed: official?.value ?? 0,
+    publishedScore: published?.value ?? null,
+  };
+}
+
+async function getManagedCohort(db: Database) {
+  const [cohort] = await db
+    .select()
+    .from(cohorts)
+    .orderBy(desc(cohorts.active), asc(cohorts.id))
+    .limit(1);
+  if (!cohort) throw new ApiHttpError(404, "not_found", "Cohort not found.");
+  return cohort;
+}
+
+function newJoinCode(): string {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const bytes = new Uint8Array(8);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (value) => alphabet[value % alphabet.length]).join("");
+}
+
+export function registerAdminRoutes(app: Hono<AppEnv>): void {
+  app.get("/admin/overview", async (c) => {
+    await requireStaff(c);
+    const db = getDb(c.env);
+    const cohort = await getManagedCohort(db);
+    const [teamRows, unassigned] = await Promise.all([
+      db.select({ id: teams.id }).from(teams).where(eq(teams.cohortId, cohort.id)).orderBy(asc(teams.name)),
+      db
+        .select({
+          login: users.githubLogin,
+          name: users.name,
+          joinedAt: users.cohortJoinedAt,
+        })
+        .from(users)
+        .leftJoin(teamMembers, eq(teamMembers.userId, users.id))
+        .where(and(eq(users.cohortId, cohort.id), isNull(teamMembers.teamId)))
+        .orderBy(asc(users.githubLogin)),
+    ]);
+    const summaries = await Promise.all(
+      teamRows.map((team) => getAdminTeamSummary(db, team.id)),
+    );
+    return respond(c, AdminOverviewSchema, {
+      cohort: {
+        slug: cohort.slug,
+        name: cohort.name,
+        joinCode: cohort.joinCode,
+        active: cohort.active,
+      },
+      teams: summaries,
+      unassigned,
+    });
+  });
+
+  app.patch("/admin/cohort", async (c) => {
+    await requireStaff(c);
+    const body = await parseBody(c, AdminCohortPatchSchema);
+    const db = getDb(c.env);
+    const cohort = await getManagedCohort(db);
+    const updates: { joinCode?: string; active?: boolean } = {};
+    if (body.rotateJoinCode === true) updates.joinCode = newJoinCode();
+    if (body.active !== undefined) updates.active = body.active;
+    if (Object.keys(updates).length > 0) {
+      await db.update(cohorts).set(updates).where(eq(cohorts.id, cohort.id));
+    }
+    const updated = await getManagedCohort(db);
+    return respond(c, AdminCohortSchema, {
+      slug: updated.slug,
+      name: updated.name,
+      joinCode: updated.joinCode,
+      active: updated.active,
+    });
+  });
+
+  app.patch("/admin/teams/:teamId", async (c) => {
+    await requireStaff(c);
+    const body = await parseBody(c, UpdateTeamRequestSchema);
+    const db = getDb(c.env);
+    const teamId = c.req.param("teamId");
+    const [team] = await db.select({ id: teams.id }).from(teams).where(eq(teams.id, teamId)).limit(1);
+    if (!team) throw new ApiHttpError(404, "not_found", "Team not found.");
+    const updates: { name?: string; description?: string | null } = {};
+    if (body.name !== undefined) updates.name = body.name;
+    if (body.description !== undefined) updates.description = body.description;
+    await db.update(teams).set(updates).where(eq(teams.id, teamId));
+    return respond(c, AdminTeamSummarySchema, await getAdminTeamSummary(db, teamId));
+  });
+
+  app.post("/admin/teams/:teamId/members", async (c) => {
+    await requireStaff(c);
+    const body = await parseBody(c, AdminAddMemberRequestSchema);
+    const db = getDb(c.env);
+    const teamId = c.req.param("teamId");
+    const [[team], [user]] = await Promise.all([
+      db.select({ id: teams.id }).from(teams).where(eq(teams.id, teamId)).limit(1),
+      db.select({ id: users.id }).from(users).where(eq(users.githubLogin, body.login)).limit(1),
+    ]);
+    if (!team || !user) {
+      throw new ApiHttpError(404, "not_found", !team ? "Team not found." : "User not found.");
+    }
+    await db
+      .insert(teamMembers)
+      .values({ teamId, userId: user.id, role: "write" })
+      .onConflictDoUpdate({
+        target: [teamMembers.teamId, teamMembers.userId],
+        set: { role: "write" },
+      });
+    return respond(c, AdminTeamSummarySchema, await getAdminTeamSummary(db, teamId));
+  });
+
+  app.delete("/admin/teams/:teamId/members/:login", async (c) => {
+    await requireStaff(c);
+    const db = getDb(c.env);
+    const teamId = c.req.param("teamId");
+    const [team] = await db.select({ id: teams.id }).from(teams).where(eq(teams.id, teamId)).limit(1);
+    if (!team) throw new ApiHttpError(404, "not_found", "Team not found.");
+    const [user] = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.githubLogin, c.req.param("login")))
+      .limit(1);
+    if (user) {
+      await db
+        .delete(teamMembers)
+        .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, user.id)));
+    }
+    return respond(c, AdminTeamSummarySchema, await getAdminTeamSummary(db, teamId));
+  });
+}

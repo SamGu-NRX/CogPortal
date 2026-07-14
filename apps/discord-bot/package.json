@@ -1,0 +1,23 @@
+{
+  "name": "@cogworks/discord-bot",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/wrangler-safe.mjs dev",
+    "build": "node scripts/wrangler-safe.mjs build",
+    "check": "tsc -p tsconfig.json",
+    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "deploy": "pnpm check && node scripts/wrangler-safe.mjs deploy",
+    "commands:register": "node scripts/register-commands.mjs"
+  },
+  "dependencies": {
+    "@cogworks/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260713.1",
+    "@types/node": "^26.1.1",
+    "typescript": "^7.0.2",
+    "wrangler": "^4.110.0"
+  }
+}

@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cogworks.dev/protocols/v1/run-event.schema.json",
+  "title": "RunEventV1",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": ["protocolVersion", "eventId", "runId", "sequence", "occurredAt", "type", "status"],
+      "properties": {
+        "protocolVersion": { "const": "1" },
+        "eventId": { "type": "string" },
+        "runId": { "type": "string" },
+        "sequence": { "type": "integer", "minimum": 0 },
+        "occurredAt": { "type": "integer", "minimum": 1 },
+        "type": { "const": "status" },
+        "status": { "enum": ["preparing", "installing", "contract_check", "evaluating", "scoring"] }
+      }
+    },
+    {
+      "type": "object",
+      "required": ["protocolVersion", "eventId", "runId", "sequence", "occurredAt", "type", "result", "preparedArtifactId", "environmentDigest", "sanitizedLog"],
+      "properties": {
+        "protocolVersion": { "const": "1" },
+        "eventId": { "type": "string" },
+        "runId": { "type": "string" },
+        "sequence": { "type": "integer", "minimum": 0 },
+        "occurredAt": { "type": "integer", "minimum": 1 },
+        "type": { "const": "completed" },
+        "result": { "$ref": "benchmark-result.schema.json" },
+        "preparedArtifactId": { "type": "string" },
+        "environmentDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "sanitizedLog": { "type": ["string", "null"], "maxLength": 8192 }
+      }
+    },
+    {
+      "type": "object",
+      "required": ["protocolVersion", "eventId", "runId", "sequence", "occurredAt", "type", "failure"],
+      "properties": {
+        "protocolVersion": { "const": "1" },
+        "eventId": { "type": "string" },
+        "runId": { "type": "string" },
+        "sequence": { "type": "integer", "minimum": 0 },
+        "occurredAt": { "type": "integer", "minimum": 1 },
+        "type": { "const": "failed" },
+        "failure": {
+          "type": "object",
+          "required": ["category", "phase", "detail", "infrastructure"],
+          "properties": {
+            "category": { "type": "string" },
+            "phase": { "type": "string" },
+            "detail": { "type": ["string", "null"], "maxLength": 240 },
+            "infrastructure": { "type": "boolean" }
+          }
+        }
+      }
+    }
+  ]
+}

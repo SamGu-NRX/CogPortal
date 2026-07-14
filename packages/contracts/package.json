@@ -1,0 +1,24 @@
+{
+  "name": "@cogworks/contracts",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    "./schema": "./src/schema.ts",
+    "./failures": "./src/failures.ts",
+    "./fixtures": "./src/fixtures.ts",
+    "./protocol": "./src/protocol.ts",
+    "./discord": "./src/discord.ts"
+  },
+  "scripts": {
+    "check": "tsc -p tsconfig.json",
+    "test": "node --experimental-strip-types --test test/*.test.ts"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "typescript": "^7.0.2"
+  }
+}

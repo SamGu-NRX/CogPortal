@@ -1,0 +1,18 @@
+{
+  "protocolVersion": "1",
+  "benchmarkId": "vision-recognition",
+  "benchmarkVersion": 1,
+  "metrics": [
+    {
+      "key": "recognition_accuracy",
+      "label": "Recognition accuracy",
+      "value": 0.9,
+      "unit": null,
+      "higherIsBetter": true,
+      "primary": true,
+      "precision": 3
+    }
+  ],
+  "diagnostics": [],
+  "outputDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+}

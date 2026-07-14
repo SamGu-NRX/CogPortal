@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CogWorks template catalog",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "templates"],
+  "properties": {
+    "version": { "const": 1 },
+    "templates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "benchmarkId", "sourceRepositoryId", "fullName", "revision", "minimumSdkVersion"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+          "benchmarkId": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+          "sourceRepositoryId": { "type": "integer", "minimum": 1 },
+          "fullName": { "type": "string", "pattern": "^[^/\\s]+/[^/\\s]+$" },
+          "revision": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+          "minimumSdkVersion": { "type": "string" }
+        }
+      }
+    }
+  }
+}

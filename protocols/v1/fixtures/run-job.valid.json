@@ -1,0 +1,33 @@
+{
+  "protocolVersion": "1",
+  "jobId": "job_01",
+  "runId": "run_01",
+  "mode": "practice",
+  "preparedArtifactId": null,
+  "source": {
+    "repositoryId": 123,
+    "fullName": "course/team-project",
+    "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "archiveUrl": "https://api.github.com/repos/course/team-project/tarball/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "benchmark": {
+    "id": "vision-recognition",
+    "version": 1,
+    "contractVersion": "cogworks.submissions.v1",
+    "pluginVersion": "0.1.0",
+    "datasetVersion": "practice-v1",
+    "scorerVersion": "1"
+  },
+  "runtime": {
+    "pythonVersion": "3.11",
+    "imageDigest": "python:3.11-slim@sha256:example",
+    "cpu": 1,
+    "memoryMb": 2048,
+    "timeoutSeconds": 900,
+    "maxOutputBytes": 8192
+  },
+  "callback": {
+    "url": "https://portal.example/api/internal/v1/runner/events",
+    "keyId": "runner-v1"
+  }
+}

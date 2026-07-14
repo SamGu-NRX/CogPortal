@@ -1,66 +1,103 @@
-# Cog\*Portal
+# CogWorks benchmark platform
 
-Hosted benchmark control plane for the BWSI CogWorks capstones. Students fork
-the course template, connect it here, run the practice benchmark with
-actionable diagnostics, promote successful candidates to attempt-limited
-official runs, and publish team-selected results to a per-track leaderboard.
+This repository is the control plane and developer tooling for CogPortal,
+CogBench, CogBot, and the trusted benchmark runner. The design puts student
+accessibility first: local practice works offline after installation, hosted
+practice gives reproducible diagnostics, and official evaluation remains a
+separate, attempt-limited trust tier.
 
-**Authoritative plan:** [`handoff-plan.md`](./handoff-plan.md) (supersedes the
-earlier draft in `context.md`).
+## Honest status
 
-## Status
+- Portal, Discord interactions, account linking, the offline CLI, shared
+  protocols, fixture execution, migrations, and CI are implemented.
+- Modal execution is implemented behind a disabled provider gate. It must not
+  be enabled until the live M0 isolation probe passes and course-owned hidden
+  datasets are provisioned.
+- The included vision plugin contains small public contract fixtures, not the
+  final course dataset or scorer.
+- The template catalog is intentionally empty until canonical course-owned
+  repositories and immutable GitHub repository IDs exist.
+- Nothing in this change deploys services, publishes Python packages, creates
+  cloud resources, or registers Discord commands.
 
-| Milestone | State |
-| --- | --- |
-| M0 — Cloudflare Sandbox provider gate (§9) | **Not started** — Workers Paid + pinned SDK/container spike |
-| M1 — End-to-end run | ✅ Deterministic fixture execution adapter |
-| M2 — Official path + leaderboard | ✅ Promotion, atomic 3-attempt quota, refunds, selection, log suppression |
-| M3 — Student experience | ✅ Setup-guide landing, team creation/management, per-track standings |
-| GitHub App | ✅ OAuth identity, repo listing, permission + template-fork checks, HMAC webhook |
-| M4 — Ronaldo's vision plugin | Blocked on the finalized `vision-recognition/v1` contract + datasets |
+See [platform architecture](docs/architecture/platform.md), [MVP scope](docs/mvp.md),
+and the [deployment runbook](docs/runbooks/platform.md) before enabling external
+services.
 
-Real sandbox execution plugs in behind `worker/execution/adapter.ts` after the
-M0 spike; nothing else changes.
+## Repository map
 
-## Stack
-
-React 19 + Vite + Tailwind v4 SPA · Hono Worker API · D1 + Drizzle · shared
-Zod contract (`shared/schema.ts`) · single Cloudflare deployment. R2,
-Workflows, and Containers bindings are staged in `wrangler.jsonc` (commented)
-pending Milestone 0.
-
+```text
+apps/portal/                 React portal + Hono Worker + D1 owner
+apps/discord-bot/            Discord interactions Worker; Portal RPC client only
+apps/runner-modal/           Trusted Modal controller and isolated sandboxes
+packages/contracts/          TypeScript browser, API, RPC, and runner contracts
+protocols/v1/                Language-neutral JSON Schemas and golden fixtures
+python/cogbench/             Offline-first Python SDK and CLI
+benchmarks/vision-recognition/ Public benchmark plugin/contract fixtures
+template-catalog/            Immutable metadata for separately owned templates
+docs/                        Architecture decisions, scope, and operations
 ```
-shared/     Zod contract, failure catalog, fixture scenarios  ← both sides
-worker/     Hono API, Drizzle schema, auth, GitHub App, fixture engine
-src/        SPA (paper/ink design system, shiki code highlighting)
-migrations/ D1 SQL
-```
 
-## Run locally
+Student template repositories stay independent GitHub repositories. They are
+not Git submodules and are not copied into this monorepo.
+
+## Local development
+
+Requirements: Node 24+, pnpm 10.30.3, and Python 3.8+ (Python 3.11 for the Modal
+runner).
 
 ```sh
-pnpm install
-pnpm dev        # applies local D1 migrations, then vite dev
+pnpm install --frozen-lockfile
+cp apps/portal/.dev.vars.example apps/portal/.dev.vars
+pnpm dev
 ```
 
-Local sign-in (shown while `DEV_AUTH=enabled`) takes any username. Cohort
-join code is seeded as `VISION26`. Connecting a repository creates the team —
-the first connector names it and becomes its admin (`/team` to manage).
-Fixture branch names script run outcomes (`main` succeeds; `missing-adapter`,
-`heavy-model`, `raw-tuples`, … fail with their category).
+`pnpm dev` applies local D1 migrations and starts CogPortal. With
+`DEV_AUTH=enabled`, local sign-in accepts a development username; the seeded
+cohort code is `VISION26`. After the monorepo move, an old root-level
+`.dev.vars` is intentionally not loaded; copy only the values you still need
+into `apps/portal/.dev.vars`.
 
-To exercise real GitHub sign-in, copy `.dev.vars.example` → `.dev.vars` and
-fill in the GitHub App credentials; set `GITHUB_TEMPLATE_REPO` to enforce
-fork-of-template on connect.
+Install the local Python packages in a virtual environment:
 
-## Deploy
+```sh
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e python/cogbench -e benchmarks/vision-recognition
+cogbench doctor --benchmark vision-recognition
+```
 
-1. `wrangler d1 create cogportal-db` → real `database_id` in `wrangler.jsonc`;
-   apply migrations remotely.
-2. Set `ENVIRONMENT=production`, `DEV_AUTH=disabled`; configure the GitHub App
-   secrets.
-3. Complete the Milestone-0 sandbox spike before `EXECUTION_PROVIDER=sandbox`;
-   fall back to E2B if the spike fails (plan §9).
+CogBench local commands do not require a CogPortal account or network after
+the project and plugin are installed. `cogbench link` and `cogbench sync` are
+optional, explicit actions.
 
-Public deployment, CogWeb attribution, and any biometric dataset use require
-BWSI/MIT confirmation first (plan §11).
+## Verification
+
+```sh
+pnpm check
+pnpm test
+pnpm db:migrate:local
+pnpm build
+```
+
+The Discord worker scripts include a narrow staging workaround because the
+literal `*` in this repository directory name is otherwise interpreted as an
+entry glob by Wrangler/esbuild. It keeps one live source tree, uses a temporary
+path without metacharacters, and removes that path when Wrangler exits.
+
+## Non-negotiable boundaries
+
+- GitHub is the primary user identity; Discord and CLI devices are revocable
+  links to that account.
+- CogBot has no D1 binding and calls only the Portal's typed private service
+  entrypoint.
+- CogBench never uploads source, paths, datasets, environment variables, raw
+  logs, or predictions. Synced results are visibly self-reported and can never
+  be promoted.
+- Hidden labels exist only in the trusted Modal controller. Evaluation
+  sandboxes receive inputs, have no secrets, and have outbound networking
+  blocked.
+- Official runs must reuse the exact prepared artifact from a successful
+  hosted practice run at the same commit.
+- Fixture execution remains the safe default until the external M0 gate is
+  explicitly completed.

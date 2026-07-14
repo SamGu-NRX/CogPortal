@@ -3,6 +3,12 @@ node_modules/
 dist/
 coverage/
 *.tsbuildinfo
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.cogbench/
+.pytest_cache/
 
 # Cloudflare local state
 .wrangler/

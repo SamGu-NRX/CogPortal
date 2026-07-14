@@ -1,0 +1,8 @@
+{
+  "protocolVersion": "2",
+  "eventId": "event_bad",
+  "runId": "run_01",
+  "sequence": -1,
+  "occurredAt": 0,
+  "type": "completed"
+}

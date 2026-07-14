@@ -1,0 +1,17 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "cogbot",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "services": [
+    {
+      "binding": "PORTAL",
+      "service": "cogportal",
+      "entrypoint": "PortalRpc"
+    }
+  ],
+  "vars": {
+    "COURSE_GUILD_ID": "configure-with-your-course-guild-id"
+  }
+}

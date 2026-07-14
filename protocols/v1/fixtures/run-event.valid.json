@@ -1,0 +1,29 @@
+{
+  "protocolVersion": "1",
+  "eventId": "event_01",
+  "runId": "run_01",
+  "sequence": 6,
+  "occurredAt": 1784000000000,
+  "type": "completed",
+  "result": {
+    "protocolVersion": "1",
+    "benchmarkId": "vision-recognition",
+    "benchmarkVersion": 1,
+    "metrics": [
+      {
+        "key": "recognition_accuracy",
+        "label": "Recognition accuracy",
+        "value": 0.9,
+        "unit": null,
+        "higherIsBetter": true,
+        "primary": true,
+        "precision": 3
+      }
+    ],
+    "diagnostics": [],
+    "outputDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "preparedArtifactId": "im-snapshot-01",
+  "environmentDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "sanitizedLog": "contract check passed"
+}

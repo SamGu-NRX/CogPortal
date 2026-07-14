@@ -1,0 +1,9 @@
+packages:
+  - "apps/portal"
+  - "apps/discord-bot"
+  - "packages/*"
+
+onlyBuiltDependencies:
+  - esbuild
+  - sharp
+  - workerd

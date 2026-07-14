@@ -1,0 +1,44 @@
+from __future__ import annotations
+
+from importlib import metadata
+from typing import Any, Iterable, List
+
+
+class PluginError(RuntimeError):
+    pass
+
+
+def _entry_points(group: str) -> Iterable[Any]:
+    discovered = metadata.entry_points()
+    if hasattr(discovered, "select"):
+        return discovered.select(group=group)
+    return discovered.get(group, [])  # type: ignore[no-any-return,union-attr]
+
+
+def plugin_names(group: str) -> List[str]:
+    return sorted(point.name for point in _entry_points(group))
+
+
+def load_plugin(group: str, name: str) -> Any:
+    matches = [point for point in _entry_points(group) if point.name == name]
+    if not matches:
+        available = ", ".join(plugin_names(group)) or "none"
+        raise PluginError(
+            'Entry-point group "{}" has no "{}" registration (available: {}).'.format(
+                group, name, available
+            )
+        )
+    if len(matches) > 1:
+        raise PluginError('More than one "{}" plugin is installed in "{}".'.format(name, group))
+    loaded = matches[0].load()
+    if isinstance(loaded, type):
+        return loaded()
+    return loaded
+
+
+def load_benchmark(name: str) -> Any:
+    return load_plugin("cogworks.benchmarks.v1", name)
+
+
+def load_submission(name: str) -> Any:
+    return load_plugin("cogworks.submissions.v1", name)

@@ -1,0 +1,11 @@
+{
+  "id": "vision-recognition",
+  "version": 1,
+  "contractVersion": "cogworks.submissions.v1",
+  "pluginVersion": "0.1.0",
+  "datasetVersion": "practice-v1",
+  "scorerVersion": "1",
+  "runtimeVersion": "python-3.11",
+  "entryPointName": "vision-recognition",
+  "primaryMetricKey": "recognition_accuracy"
+}

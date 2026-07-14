@@ -1,0 +1,141 @@
+import { and, asc, eq } from "drizzle-orm";
+import {
+  RUN_PHASES,
+  type Benchmark,
+  type Metric,
+  type RunDetail,
+  type RunSummary,
+  type Team,
+} from "@cogworks/contracts/schema";
+import type { Database } from "../db/client";
+import {
+  leaderboardSelections,
+  runMetrics,
+  runPhases,
+  type BenchmarkRow,
+  type RunRow,
+  type TeamRow,
+} from "../db/schema";
+
+export function serializeBenchmark(row: BenchmarkRow): Benchmark {
+  return {
+    id: row.id,
+    version: row.version,
+    contractVersion: row.contractVersion,
+    entryPointName: row.entryPointName,
+    title: row.title,
+    module: row.module,
+    summary: row.summary,
+    active: row.active,
+    pluginVersion: row.pluginVersion,
+    datasetVersion: row.datasetVersion,
+    scorerVersion: row.scorerVersion,
+    runtimeVersion: row.runtimeVersion,
+  };
+}
+
+export function serializeTeam(row: TeamRow): Team {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    repo: {
+      owner: row.repoOwner,
+      name: row.repoName,
+      fullName: row.repoFullName,
+      url: row.repoUrl,
+      defaultBranch: row.defaultBranch,
+    },
+  };
+}
+
+export function serializeMetric(row: typeof runMetrics.$inferSelect): Metric {
+  return {
+    key: row.key,
+    label: row.label,
+    value: row.value,
+    unit: row.unit,
+    higherIsBetter: row.higherIsBetter,
+    primary: row.isPrimary,
+    precision: row.precision,
+  };
+}
+
+export async function serializeRunSummary(db: Database, row: RunRow): Promise<RunSummary> {
+  const [primary] = await db
+    .select()
+    .from(runMetrics)
+    .where(and(eq(runMetrics.runId, row.id), eq(runMetrics.isPrimary, true)))
+    .limit(1);
+
+  return {
+    id: row.id,
+    mode: row.mode,
+    status: row.status,
+    benchmarkId: row.benchmarkId,
+    benchmarkVersion: row.benchmarkVersion,
+    branch: row.branch,
+    sha: row.sha,
+    shortSha: row.sha.slice(0, 7),
+    createdAt: row.createdAt,
+    finishedAt: row.finishedAt,
+    attemptNumber: row.attemptNumber,
+    primaryMetric: primary ? serializeMetric(primary) : null,
+    failure:
+      row.failureCategory && row.failurePhase
+        ? {
+            category: row.failureCategory,
+            phase: row.failurePhase,
+            detail: row.failureDetail,
+            consumedAttempt: row.failureConsumedAttempt,
+          }
+        : null,
+  };
+}
+
+export async function serializeRunDetail(
+  db: Database,
+  row: RunRow,
+  team: TeamRow,
+): Promise<RunDetail> {
+  const [summary, phases, metrics, selection] = await Promise.all([
+    serializeRunSummary(db, row),
+    db.select().from(runPhases).where(eq(runPhases.runId, row.id)).orderBy(asc(runPhases.phase)),
+    db.select().from(runMetrics).where(eq(runMetrics.runId, row.id)).orderBy(asc(runMetrics.key)),
+    db
+      .select({ runId: leaderboardSelections.runId })
+      .from(leaderboardSelections)
+      .where(
+        and(
+          eq(leaderboardSelections.teamId, row.teamId),
+          eq(leaderboardSelections.benchmarkId, row.benchmarkId),
+          eq(leaderboardSelections.benchmarkVersion, row.benchmarkVersion),
+        ),
+      )
+      .limit(1),
+  ]);
+  const phaseOrder = new Map(RUN_PHASES.map((phase, index) => [phase, index]));
+
+  return {
+    ...summary,
+    contractVersion: row.contractVersion,
+    parentRunId: row.parentRunId,
+    repo: {
+      owner: team.repoOwner,
+      name: team.repoName,
+      fullName: team.repoFullName,
+      url: team.repoUrl,
+      defaultBranch: team.defaultBranch,
+    },
+    phases: phases
+      .sort((a, b) => (phaseOrder.get(a.phase) ?? 0) - (phaseOrder.get(b.phase) ?? 0))
+      .map((phase) => ({
+        phase: phase.phase,
+        startedAt: phase.startedAt,
+        endedAt: phase.endedAt,
+      })),
+    metrics: metrics.map(serializeMetric),
+    log: row.mode === "practice" ? row.log : null,
+    selected: selection[0]?.runId === row.id,
+  };
+}
