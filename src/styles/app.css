@@ -1,0 +1,196 @@
+@import "tailwindcss";
+
+/**
+ * Cog*Portal visual system (handoff-plan §8).
+ *
+ * A scientific field notebook and evaluation instrument: warm paper with a
+ * faint coordinate grid, deep ink, detector red as the vision accent, thin
+ * rules, and instrument panels. Detection-box corner brackets are the single
+ * geometric motif — focus, selection, and "the instrument is looking here".
+ */
+
+@theme {
+  /* ── Paper & ink ── */
+  --color-paper: #f7f3ea;
+  --color-paper-raised: #fdfbf5;
+  --color-paper-sunken: #efe9db;
+  --color-ink: #1c2637;
+  --color-ink-secondary: #4b566b;
+  --color-ink-faint: #7d8697;
+  --color-rule: rgb(28 38 55 / 0.16);
+  --color-rule-soft: rgb(28 38 55 / 0.08);
+
+  /* ── Module accents ── */
+  --color-detect: #c63d2f; /* vision — detector red */
+  --color-detect-deep: #a12e22;
+  --color-detect-wash: rgb(198 61 47 / 0.07);
+  --color-ochre: #9a6d10; /* audio — reserved */
+  --color-cobalt: #2b54c0; /* language — reserved */
+
+  /* ── Verdicts ── */
+  --color-verify: #2e6b4f;
+  --color-verify-deep: #245741;
+  --color-verify-wash: rgb(46 107 79 / 0.08);
+
+  /* ── Type ── */
+  --font-serif: "Source Serif 4 Variable", "Source Serif 4", Georgia, serif;
+  --font-sans: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", "SF Mono", Menlo, monospace;
+
+  /* ── Motion (plan §8: restrained, no springs) ── */
+  --ease-out-quart: cubic-bezier(0.165, 0.84, 0.44, 1);
+  --ease-in-out-cubic: cubic-bezier(0.645, 0.045, 0.355, 1);
+}
+
+@layer base {
+  html {
+    scrollbar-gutter: stable;
+  }
+
+  body {
+    background-color: var(--color-paper);
+    /* Nearly-invisible coordinate grid — texture, never decoration. */
+    background-image:
+      linear-gradient(to right, rgb(28 38 55 / 0.025) 1px, transparent 1px),
+      linear-gradient(to bottom, rgb(28 38 55 / 0.025) 1px, transparent 1px);
+    background-size: 48px 48px;
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: 15px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background: var(--color-detect);
+    color: var(--color-paper-raised);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-detect);
+    outline-offset: 2px;
+    border-radius: 1px;
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-serif);
+    font-weight: 600;
+    letter-spacing: -0.012em;
+    line-height: 1.12;
+    text-wrap: balance;
+  }
+
+  code,
+  pre,
+  kbd {
+    font-family: var(--font-mono);
+  }
+}
+
+@utility u-kicker {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--color-ink-secondary);
+}
+
+@utility u-tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+@utility u-pressable {
+  transition: transform 120ms var(--ease-out-quart);
+  &:active {
+    transform: scale(0.97);
+  }
+}
+
+@layer components {
+  /* Entrance used for page-load reveals and status swaps: opacity + 4px rise,
+     200ms ease-out (plan §8: 180–220ms, opacity/transform only). */
+  .anim-rise {
+    animation: rise 200ms var(--ease-out-quart) both;
+    animation-delay: var(--rise-delay, 0ms);
+  }
+
+  /* One orchestrated landing moment: slower, staggered via --rise-delay. */
+  .anim-rise-slow {
+    animation: rise 480ms var(--ease-out-quart) both;
+    animation-delay: var(--rise-delay, 0ms);
+  }
+
+  /* Live-run indicator — a restrained instrument "REC" pulse. The only
+     continuous motion in the interface, and it means: measuring now. */
+  .anim-live {
+    animation: live-pulse 1.9s var(--ease-in-out-cubic) infinite;
+  }
+
+  /* Phase-rail connector fill (on-screen movement → ease-in-out). */
+  .rail-fill {
+    transition: transform 300ms var(--ease-in-out-cubic);
+    transform-origin: left center;
+  }
+
+  .log-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-rule) transparent;
+  }
+
+  /* Shiki output: the wrapper owns the frame; the inner pre stays bare. */
+  .code-block pre {
+    margin: 0;
+    padding: 0;
+    background: transparent !important;
+    font-size: 12.5px;
+    line-height: 1.65;
+    overflow-x: auto;
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes live-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* Plan §8: disable all nonessential movement. */
+@media (prefers-reduced-motion: reduce) {
+  .anim-rise,
+  .anim-rise-slow {
+    animation-duration: 1ms;
+    animation-delay: 0ms;
+  }
+  .anim-live {
+    animation: none;
+    opacity: 1;
+  }
+  .rail-fill {
+    transition: none;
+  }
+  .u-pressable {
+    transition: none;
+    &:active {
+      transform: none;
+    }
+  }
+}

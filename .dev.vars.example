@@ -1,0 +1,14 @@
+# Copy to .dev.vars (gitignored) to enable real GitHub App sign-in locally.
+# GitHub App permissions: Contents (read-only) and Metadata (read-only).
+# Keep webhooks, Device Flow, and "Request user authorization during
+# installation" disabled for the current explicit /api/github/login flow.
+# Register both callback URLs in the GitHub App:
+#   http://localhost:5173/api/github/callback
+#   https://cogportal-dev.sillion.app/api/github/callback
+GITHUB_CLIENT_ID=""
+GITHUB_CLIENT_SECRET=""
+GITHUB_APP_SLUG=""
+# Leave empty while the GitHub App webhook is disabled.
+GITHUB_WEBHOOK_SECRET=""
+# Optional owner/repo allowlist for the course template.
+GITHUB_TEMPLATE_REPO=""
