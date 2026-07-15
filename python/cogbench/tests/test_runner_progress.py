@@ -58,16 +58,16 @@ class RunnerProgressTests(unittest.TestCase):
         self.assertEqual(report.metrics[0].value, 1.0)
 
     def test_terminal_batch_survives_a_saturated_progress_history(self):
-        with (
-            patch("cogbench.cli.send_local_run_event", return_value={"ok": True}),
-            patch("cogbench.cli.send_local_run_event_batch", return_value={"ok": True}) as batch,
-        ):
-            live = _LiveRun("https://portal.example", "device-token", "localrun_test")
-            for current in range(40):
-                live.progress("evaluating", current, 40)
-            live.failed(RuntimeError("private terminal detail"))
-            live._sender.join(timeout=1)
-            live._heartbeat.join(timeout=1)
+        with patch("cogbench.cli.send_local_run_event", return_value={"ok": True}):
+            with patch(
+                "cogbench.cli.send_local_run_event_batch", return_value={"ok": True}
+            ) as batch:
+                live = _LiveRun("https://portal.example", "device-token", "localrun_test")
+                for current in range(40):
+                    live.progress("evaluating", current, 40)
+                live.failed(RuntimeError("private terminal detail"))
+                live._sender.join(timeout=1)
+                live._heartbeat.join(timeout=1)
 
         events = batch.call_args.args[3]
         self.assertLessEqual(len(events), 32)

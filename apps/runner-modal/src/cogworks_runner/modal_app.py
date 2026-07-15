@@ -23,7 +23,7 @@ hidden_datasets = modal.Volume.from_name("cogworks-hidden-datasets", create_if_m
 job_store = modal.Dict.from_name("cogworks-runner-jobs", create_if_missing=True)
 
 benchmark_image = (
-    modal.Image.debian_slim(python_version="3.11")
+    modal.Image.debian_slim(python_version="3.8")
     .add_local_dir(str(REPO_ROOT / "python" / "cogbench" / "src"), "/opt/cogbench")
     .add_local_dir(
         str(REPO_ROOT / "benchmarks" / "vision-recognition" / "src"),
@@ -82,7 +82,14 @@ subprocess.run(
     timeout=420,
 )
 points = importlib.metadata.entry_points()
-matches = points.select(group="cogworks.submissions.v1", name=benchmark_id)
+if hasattr(points, "select"):
+    matches = points.select(group="cogworks.submissions.v1", name=benchmark_id)
+else:
+    matches = [
+        point
+        for point in points.get("cogworks.submissions.v1", ())
+        if point.name == benchmark_id
+    ]
 if len(list(matches)) != 1:
     raise RuntimeError("Submission adapter entry point is missing or ambiguous.")
 pathlib.Path("/tmp/project-root.txt").write_text(str(project), encoding="utf-8")
