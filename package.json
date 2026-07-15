@@ -2,7 +2,7 @@
   "name": "cogworks-platform",
   "private": true,
   "version": "0.1.0",
-  "packageManager": "pnpm@10.30.3",
+  "packageManager": "pnpm@10.34.5",
   "type": "module",
   "scripts": {
     "dev": "pnpm --filter @cogworks/portal dev",
