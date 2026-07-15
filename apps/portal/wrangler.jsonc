@@ -11,14 +11,18 @@
     {
       "pattern": "cogportal-dev.sillion.app",
       "custom_domain": true
+    },
+    {
+      "pattern": "cogactivity-dev.sillion.app",
+      "custom_domain": true
     }
   ],
 
   "assets": {
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    // API is the only path that must reach the Worker; everything else is static.
-    "run_worker_first": ["/api/*"]
+    // Host-aware Activity routing and API authorization must reach the Worker.
+    "run_worker_first": ["/*"]
   },
 
   "d1_databases": [
@@ -30,12 +34,31 @@
     }
   ],
 
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "RUN_SURFACES",
+        "class_name": "RunSurfaceHub"
+      }
+    ]
+  },
+
+  "migrations": [
+    {
+      "tag": "run-surfaces-v1",
+      "new_sqlite_classes": ["RunSurfaceHub"]
+    }
+  ],
+
   "vars": {
     "ENVIRONMENT": "production",
     "DEV_AUTH": "disabled",
     "GITHUB_CLIENT_ID": "Iv23liATo0NWltd5sZgi",
     "GITHUB_APP_SLUG": "cog-portal-beta",
     "PUBLIC_ORIGIN": "https://cogportal-dev.sillion.app",
+    "ACTIVITY_ORIGIN": "https://cogactivity-dev.sillion.app",
+    "DISCORD_CLIENT_ID": "1526706029356646460",
+    "COURSE_GUILD_ID": "1515858059027550321",
     "RUNNER_SIGNING_KEY_ID": "runner-v1",
     "RUNNER_PYTHON_VERSION": "3.11",
     "RUNNER_IMAGE_DIGEST": "cogworks-python-3.11:unpublished",

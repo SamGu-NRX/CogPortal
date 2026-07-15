@@ -7,7 +7,11 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { ACTIVE_RUN_POLL_MS, isTerminal } from "@cogworks/contracts/schema";
+import {
+  ACTIVE_RUN_POLL_MS,
+  isTerminal,
+  type AdminOverview,
+} from "@cogworks/contracts/schema";
 import { api } from "./api";
 
 export const DEFAULT_BENCHMARK = "vision-recognition";
@@ -53,6 +57,31 @@ export function useRun(runId: string) {
     refetchInterval: (query) => {
       const status = query.state.data?.status;
       return status && !isTerminal(status) ? ACTIVE_RUN_POLL_MS : false;
+    },
+  });
+}
+
+export function useRunSurface(surfaceId: string) {
+  return useQuery({
+    queryKey: ["run-surface", surfaceId],
+    queryFn: () => api.runSurface(surfaceId),
+  });
+}
+
+export function useMutateRunSurface() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      surfaceId,
+      action,
+    }: {
+      surfaceId: string;
+      action: "verify_hosted" | "promote_official" | "publish_result" | "rerun_hosted";
+    }) => api.mutateRunSurface(surfaceId, action),
+    onSuccess: (snapshot) => {
+      qc.setQueryData(["run-surface", snapshot.id], snapshot);
+      void qc.invalidateQueries({ queryKey: ["dashboard"] });
+      void qc.invalidateQueries({ queryKey: ["runs"] });
     },
   });
 }
@@ -125,12 +154,12 @@ export function useRevokeDevice() {
   });
 }
 
-/** Invalidate everything the session gates. */
+/** Invalidate everything the session gates. Returns the refetch promise so
+ *  mutation onSuccess can await it — navigation after joining/creating a team
+ *  must not race the stale session through a route guard. */
 function useInvalidateAll() {
   const qc = useQueryClient();
-  return () => {
-    void qc.invalidateQueries();
-  };
+  return () => qc.invalidateQueries();
 }
 
 export function useDevLogin() {
@@ -196,6 +225,74 @@ export function useChangeTeamRepo() {
   });
 }
 
+/** Setup-guide verification state. Polls gently (4s, focused tab only)
+ *  while terminal check-offs are still possible, so a step ticks itself
+ *  moments after the student runs the one-liner. */
+export function useSetupState(enabled = true) {
+  return useQuery({
+    queryKey: ["setup-state"],
+    queryFn: api.setupState,
+    enabled,
+    staleTime: 3_000,
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      if (!data) return false;
+      return data.verified.length >= 3 ? false : 4_000;
+    },
+  });
+}
+
+/* ── Joining a team & member management ───────────────────────────────── */
+
+export function useCohortTeams(enabled = true) {
+  return useQuery({
+    queryKey: ["cohort-teams"],
+    queryFn: api.cohortTeams,
+    enabled,
+    staleTime: 30_000,
+  });
+}
+
+export function useJoinTeam() {
+  const invalidate = useInvalidateAll();
+  return useMutation({ mutationFn: api.joinTeam, onSuccess: invalidate });
+}
+
+export function useInvitableUsers(enabled = true) {
+  return useQuery({
+    queryKey: ["invitable"],
+    queryFn: api.invitableUsers,
+    enabled,
+    staleTime: 30_000,
+  });
+}
+
+export function useAddTeamMember() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: api.addTeamMember,
+    onSuccess: (team) => {
+      qc.setQueryData(["team"], team);
+      void qc.invalidateQueries({ queryKey: ["invitable"] });
+      void qc.invalidateQueries({ queryKey: ["cohort-teams"] });
+      void qc.invalidateQueries({ queryKey: ["admin"] });
+    },
+  });
+}
+
+export function useRemoveTeamMember() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: api.removeTeamMember,
+    onSuccess: (team) => {
+      qc.setQueryData(["team"], team);
+      void qc.invalidateQueries({ queryKey: ["invitable"] });
+      void qc.invalidateQueries({ queryKey: ["cohort-teams"] });
+      void qc.invalidateQueries({ queryKey: ["admin"] });
+    },
+  });
+}
+
 /* ── Admin console (staff) ────────────────────────────────────────────── */
 
 export function useAdminOverview(enabled = true) {
@@ -215,8 +312,19 @@ function useAdminInvalidate() {
 }
 
 export function useAdminPatchCohort() {
-  const invalidate = useAdminInvalidate();
-  return useMutation({ mutationFn: api.adminPatchCohort, onSuccess: invalidate });
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: api.adminPatchCohort,
+    onSuccess: (cohort) => {
+      // The PATCH response is authoritative. Replace the visible cohort
+      // immediately instead of briefly showing the old credential while a
+      // follow-up request is in flight.
+      qc.setQueryData<AdminOverview>(["admin", "overview"], (overview) =>
+        overview ? { ...overview, cohort } : overview,
+      );
+      void qc.invalidateQueries({ queryKey: ["leaderboard"] });
+    },
+  });
 }
 
 export function useAdminPatchTeam() {

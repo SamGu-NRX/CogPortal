@@ -3,7 +3,9 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import threading
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
@@ -153,26 +155,92 @@ def _event(job: Dict[str, Any], sequence: int, event_type: str, **fields: Any) -
 
 def _post_event(job: Dict[str, Any], event: Dict[str, Any]) -> None:
     body = canonical_json(event)
-    timestamp = str(int(time.time()))
     secret = os.environ["RUNNER_SIGNING_SECRET"]
-    request = urllib.request.Request(
-        job["callback"]["url"],
-        data=body,
-        method="POST",
-        headers={
-            "Content-Type": "application/json",
-            "X-Cogworks-Timestamp": timestamp,
-            "X-Cogworks-Key-Id": job["callback"]["keyId"],
-            "X-Cogworks-Signature": "v1=" + signature(secret, timestamp, body),
-        },
-    )
-    with urllib.request.urlopen(request, timeout=15) as response:
-        if response.status // 100 != 2:
-            raise RuntimeError("Portal rejected runner event.")
+    for attempt in range(3):
+        timestamp = str(int(time.time()))
+        request = urllib.request.Request(
+            job["callback"]["url"],
+            data=body,
+            method="POST",
+            headers={
+                "Content-Type": "application/json",
+                "X-Cogworks-Timestamp": timestamp,
+                "X-Cogworks-Key-Id": job["callback"]["keyId"],
+                "X-Cogworks-Signature": "v1=" + signature(secret, timestamp, body),
+            },
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=15) as response:
+                if response.status // 100 != 2:
+                    raise RuntimeError("Portal rejected runner event.")
+                return
+        except urllib.error.HTTPError as error:
+            if error.code not in (429, 500, 502, 503, 504) or attempt == 2:
+                raise
+            retry_after = float(error.headers.get("Retry-After", "0") or 0)
+        except urllib.error.URLError:
+            if attempt == 2:
+                raise
+            retry_after = 0
+        time.sleep(max(retry_after, 0.25 * (2**attempt)))
 
 
-def _status(job: Dict[str, Any], sequence: int, status: str) -> None:
-    _post_event(job, _event(job, sequence, "status", status=status))
+class LiveReporter:
+    """Serializes idempotent runner callbacks and supplies real elapsed time."""
+
+    def __init__(self, job: Dict[str, Any]) -> None:
+        self.job = job
+        self.started_at = int(time.time() * 1000)
+        self.sequence = 0
+        self.lock = threading.Lock()
+
+    def event(self, event_type: str, **fields: Any) -> None:
+        with self.lock:
+            sequence = self.sequence
+            self.sequence += 1
+            _post_event(self.job, _event(self.job, sequence, event_type, **fields))
+
+    def status(
+        self,
+        status: str,
+        current: int | None = None,
+        total: int | None = None,
+    ) -> None:
+        fields: Dict[str, Any] = {
+            "status": status,
+            "elapsedMs": max(0, int(time.time() * 1000) - self.started_at),
+        }
+        if current is not None and total is not None:
+            fields["progress"] = {"current": current, "total": total, "unit": "cases"}
+        self.event("status", **fields)
+
+
+class StatusHeartbeat:
+    def __init__(
+        self,
+        reporter: LiveReporter,
+        status: str,
+        current: int | None = None,
+        total: int | None = None,
+    ) -> None:
+        self.reporter = reporter
+        self.status = status
+        self.current = current
+        self.total = total
+        self.stopped = threading.Event()
+        self.thread = threading.Thread(target=self._run, daemon=True)
+
+    def _run(self) -> None:
+        while not self.stopped.wait(2.0):
+            self.reporter.status(self.status, self.current, self.total)
+
+    def __enter__(self) -> "StatusHeartbeat":
+        self.thread.start()
+        return self
+
+    def __exit__(self, _type: object, _value: object, _traceback: object) -> None:
+        self.stopped.set()
+        self.thread.join(timeout=1.0)
 
 
 def _load_benchmark(job: Dict[str, Any]) -> Any:
@@ -225,7 +293,7 @@ def _cases(job: Dict[str, Any], benchmark: Any) -> Tuple[List[Any], List[Any]]:
     return [case["input"] for case in cases], [case["expected"] for case in cases]
 
 
-def _prepare(job: Dict[str, Any]) -> str:
+def _prepare(job: Dict[str, Any], reporter: LiveReporter) -> str:
     sandbox = None
     try:
         sandbox = modal.Sandbox.create(
@@ -241,16 +309,17 @@ def _prepare(job: Dict[str, Any]) -> str:
                 "files.pythonhosted.org",
             ],
         )
-        _status(job, 1, "preparing")
+        reporter.status("preparing")
         sandbox.filesystem.write_text(PREPARE_SCRIPT, "/tmp/cog-prepare.py")
-        _status(job, 2, "installing")
-        process = sandbox.exec(
-            "python",
-            "/tmp/cog-prepare.py",
-            job["source"]["archiveUrl"],
-            job["benchmark"]["id"],
-        )
-        process.wait()
+        reporter.status("installing")
+        with StatusHeartbeat(reporter, "installing"):
+            process = sandbox.exec(
+                "python",
+                "/tmp/cog-prepare.py",
+                job["source"]["archiveUrl"],
+                job["benchmark"]["id"],
+            )
+            process.wait()
         if process.returncode != 0:
             detail = process.stderr.read()[-240:]
             normalized = detail.lower()
@@ -259,7 +328,7 @@ def _prepare(job: Dict[str, Any]) -> str:
             if "entry point" in normalized:
                 raise RunnerFailure("adapter_missing", "contract_check", detail, False)
             raise RunnerFailure("dependency_install", "installing", detail or "Install failed.", False)
-        _status(job, 3, "contract_check")
+        reporter.status("contract_check")
         return sandbox.snapshot_filesystem().object_id
     except RunnerFailure:
         raise
@@ -335,21 +404,22 @@ def execute_job(job_value: Dict[str, Any]) -> None:
     if job_store.get(job["jobId"]) in ("running", "completed"):
         return
     job_store[job["jobId"]] = "running"
-    sequence = 0
+    reporter = LiveReporter(job)
     phase = "queued"
     try:
-        snapshot_id = job["preparedArtifactId"] or _prepare(job)
-        sequence = 3 if not job["preparedArtifactId"] else 0
+        snapshot_id = job["preparedArtifactId"] or _prepare(job, reporter)
         phase = "contract_check"
+        if job["preparedArtifactId"]:
+            reporter.status("contract_check")
         benchmark = _load_benchmark(job)
         inputs, expected = _cases(job, benchmark)
-        sequence += 1
         phase = "evaluating"
-        _status(job, sequence, "evaluating")
-        predictions, student_log = _evaluate(job, snapshot_id, inputs)
-        sequence += 1
+        reporter.status("evaluating", 0, len(inputs))
+        with StatusHeartbeat(reporter, "evaluating", 0, len(inputs)):
+            predictions, student_log = _evaluate(job, snapshot_id, inputs)
+        reporter.status("evaluating", len(inputs), len(inputs))
         phase = "scoring"
-        _status(job, sequence, "scoring")
+        reporter.status("scoring")
         metrics, diagnostics = benchmark.score(predictions, expected)
         output_digest = hashlib.sha256(
             json.dumps(predictions, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -369,17 +439,12 @@ def execute_job(job_value: Dict[str, Any]) -> None:
             "diagnostics": [str(item)[:240] for item in diagnostics[:32]],
             "outputDigest": output_digest,
         }
-        _post_event(
-            job,
-            _event(
-                job,
-                sequence + 1,
-                "completed",
-                result=result,
-                preparedArtifactId=snapshot_id,
-                environmentDigest=environment_digest,
-                sanitizedLog=student_log if job["mode"] == "practice" else None,
-            ),
+        reporter.event(
+            "completed",
+            result=result,
+            preparedArtifactId=snapshot_id,
+            environmentDigest=environment_digest,
+            sanitizedLog=student_log if job["mode"] == "practice" else None,
         )
         job_store[job["jobId"]] = "completed"
     except Exception as error:
@@ -398,19 +463,14 @@ def execute_job(job_value: Dict[str, Any]) -> None:
             failure_phase = phase
             infrastructure = True
         try:
-            _post_event(
-                job,
-                _event(
-                    job,
-                    sequence + 20,
-                    "failed",
-                    failure={
-                        "category": category,
-                        "phase": failure_phase,
-                        "detail": detail,
-                        "infrastructure": infrastructure,
-                    },
-                ),
+            reporter.event(
+                "failed",
+                failure={
+                    "category": category,
+                    "phase": failure_phase,
+                    "detail": detail,
+                    "infrastructure": infrastructure,
+                },
             )
         except Exception:
             pass

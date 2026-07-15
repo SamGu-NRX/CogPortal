@@ -47,6 +47,7 @@ class RepositoryState:
     full_name: Optional[str]
     sha: Optional[str]
     dirty: bool
+    branch: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -132,6 +133,7 @@ class LocalReport:
                 repository_id=value.get("repositoryId"),
                 full_name=value.get("repositoryFullName"),
                 sha=value.get("sha"),
+                branch=value.get("branch"),
                 dirty=bool(value["dirty"]),
             ),
             started_at=int(value["startedAt"]),

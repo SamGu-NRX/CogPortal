@@ -12,7 +12,8 @@
     "commands:register": "node scripts/register-commands.mjs"
   },
   "dependencies": {
-    "@cogworks/contracts": "workspace:*"
+    "@cogworks/contracts": "workspace:*",
+    "@cogworks/discord-kit": "workspace:*"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260713.1",

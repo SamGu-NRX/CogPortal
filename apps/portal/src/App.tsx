@@ -15,6 +15,8 @@ import { Landing } from "@/routes/Landing";
 import { LeaderboardPage } from "@/routes/LeaderboardPage";
 import { NotFound } from "@/routes/NotFound";
 import { RunDetailPage } from "@/routes/RunDetailPage";
+import { RunSurfacePage } from "@/routes/RunSurfacePage";
+import { SetupPage } from "@/routes/SetupPage";
 import { SignInPage } from "@/routes/SignInPage";
 import { TeamPage } from "@/routes/TeamPage";
 import { rememberConnectionReturn } from "@/lib/pending-return";
@@ -103,6 +105,14 @@ export function App() {
               }
             />
             <Route
+              path="setup"
+              element={
+                <RequireStage stage="team">
+                  <SetupPage />
+                </RequireStage>
+              }
+            />
+            <Route
               path="dashboard"
               element={
                 <RequireStage stage="team">
@@ -123,6 +133,14 @@ export function App() {
               element={
                 <RequireStage stage="team">
                   <RunDetailPage />
+                </RequireStage>
+              }
+            />
+            <Route
+              path="run-surfaces/:surfaceId"
+              element={
+                <RequireStage stage="team">
+                  <RunSurfacePage />
                 </RequireStage>
               }
             />

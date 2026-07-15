@@ -37,9 +37,11 @@ def repository_state(cwd: Path) -> RepositoryState:
         sha = None
     status = _git(cwd, ["status", "--porcelain"])
     remote = _git(cwd, ["remote", "get-url", "origin"])
+    branch = _git(cwd, ["symbolic-ref", "--short", "-q", "HEAD"])
     return RepositoryState(
         repository_id=None,
         full_name=_github_full_name(remote),
         sha=sha,
+        branch=branch or None,
         dirty=status is None or bool(status),
     )

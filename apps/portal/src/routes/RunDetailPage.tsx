@@ -127,7 +127,7 @@ export function RunDetailPage() {
         {live && (
           <p className="mt-5 border-t border-rule-soft pt-3 font-mono text-[11px] text-ink-faint">
             {run.mode === "official"
-              ? "Hidden evaluation — logs suppressed."
+              ? "Hidden evaluation; logs are suppressed."
               : "Updates every 2 s."}
           </p>
         )}
@@ -241,7 +241,7 @@ export function RunDetailPage() {
                 variant="primary"
                 className="mt-4"
                 label="Publish to leaderboard"
-                confirmLabel="Confirm — make this the public result"
+                confirmLabel="Confirm, make this the public result"
                 onConfirm={() => select.mutate(run.id)}
                 busy={select.isPending}
               />

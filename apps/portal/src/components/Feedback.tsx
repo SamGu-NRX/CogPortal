@@ -32,7 +32,7 @@ export function QueryError({
   const message =
     error instanceof ApiRequestError
       ? error.message
-      : "The portal hit an unexpected error while loading this view.";
+      : "This view couldn't load. Try again.";
   return (
     <Panel tone="alert" label="COULD NOT LOAD">
       <p className="max-w-prose text-[14px] text-ink">{message}</p>

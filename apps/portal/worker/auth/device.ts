@@ -9,6 +9,8 @@ import { sha256Hex } from "../util/crypto";
 export interface DeviceAuth {
   deviceId: string;
   userId: string;
+  name: string;
+  expiresAt: number;
 }
 
 export async function requireDevice(c: Context<AppEnv>): Promise<DeviceAuth> {
@@ -33,5 +35,5 @@ export async function requireDevice(c: Context<AppEnv>): Promise<DeviceAuth> {
     throw new ApiHttpError(401, "invalid_token", "This CogBench connection expired or was revoked.");
   }
   await db.update(cliDevices).set({ lastUsedAt: Date.now() }).where(eq(cliDevices.id, device.id));
-  return { deviceId: device.id, userId: device.userId };
+  return { deviceId: device.id, userId: device.userId, name: device.name, expiresAt: device.expiresAt };
 }

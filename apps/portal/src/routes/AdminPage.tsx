@@ -86,25 +86,76 @@ export function AdminPage() {
           {unassigned.length === 0 ? (
             <EmptyState message="Everyone in the cohort has a team." />
           ) : (
-            <ul className="divide-y divide-rule-soft">
-              {unassigned.map((student) => (
-                <li key={student.login} className="flex items-baseline gap-3 py-2">
-                  <span className="min-w-0 flex-1 truncate font-mono text-[13px] text-ink">
-                    {student.login}
-                    {student.name && <span className="ml-2 text-ink-faint">{student.name}</span>}
-                  </span>
-                  {student.joinedAt != null && (
-                    <span className="font-mono text-[11px] text-ink-faint">
-                      joined {formatTimeAgo(student.joinedAt)}
-                    </span>
-                  )}
-                </li>
-              ))}
-            </ul>
+            <>
+              <ul className="divide-y divide-rule-soft">
+                {unassigned.map((student) => (
+                  <UnassignedRow
+                    key={student.login}
+                    student={student}
+                    teams={teams.map((team) => ({ id: team.id, name: team.name }))}
+                  />
+                ))}
+              </ul>
+              <p className="mt-3 text-[12px] text-ink-faint">
+                Assigning here places the student on the team's roster. They
+                still need collaborator access to the team's fork to push.
+              </p>
+            </>
           )}
         </Panel>
       ) : null}
     </div>
+  );
+}
+
+/* ── Unassigned students: name, tenure, and a direct assignment ────────── */
+
+function UnassignedRow({
+  student,
+  teams,
+}: {
+  student: { login: string; name: string | null; joinedAt: number | null };
+  teams: { id: string; name: string }[];
+}) {
+  const add = useAdminAddMember();
+
+  return (
+    <li className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2">
+      <span className="min-w-0 flex-1 truncate font-mono text-[13px] text-ink">
+        {student.login}
+        {student.name && <span className="ml-2 text-ink-faint">{student.name}</span>}
+      </span>
+      {student.joinedAt != null && (
+        <span className="hidden font-mono text-[11px] text-ink-faint sm:inline">
+          joined {formatTimeAgo(student.joinedAt)}
+        </span>
+      )}
+      <span className="flex items-center gap-2">
+        {add.error && (
+          <span role="alert" className="text-[11px] text-detect-deep">
+            {add.error instanceof ApiRequestError ? add.error.message : "Assigning failed."}
+          </span>
+        )}
+        <select
+          aria-label={`Assign ${student.login} to a team`}
+          value=""
+          disabled={add.isPending || teams.length === 0}
+          onChange={(e) => {
+            if (e.target.value) add.mutate({ teamId: e.target.value, login: student.login });
+          }}
+          className="h-8 cursor-pointer border border-rule bg-paper-sunken px-2 font-mono text-[11px] tracking-[0.04em] text-ink-secondary uppercase transition-colors duration-150 hover:border-ink-secondary hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <option value="" disabled>
+            {add.isPending ? "Assigning…" : "Assign to team…"}
+          </option>
+          {teams.map((team) => (
+            <option key={team.id} value={team.id}>
+              {team.name}
+            </option>
+          ))}
+        </select>
+      </span>
+    </li>
   );
 }
 
@@ -168,7 +219,7 @@ function CohortPanel({
         <ConfirmButton
           variant="primary"
           label="Rotate join code"
-          confirmLabel="Confirm — the old code stops working"
+          confirmLabel="Confirm, the old code stops working"
           onConfirm={() => patch.mutate({ rotateJoinCode: true })}
           busy={patch.isPending}
         />

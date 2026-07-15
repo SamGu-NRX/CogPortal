@@ -16,7 +16,8 @@
     "skipLibCheck": true,
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
+    "allowImportingTsExtensions": true,
     "paths": {}
   },
-  "include": ["worker", "../../packages/contracts/src"]
+  "include": ["worker", "../../packages/contracts/src", "../../packages/discord-kit/src"]
 }

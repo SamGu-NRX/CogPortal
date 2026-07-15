@@ -174,6 +174,9 @@ export function registerAdminRoutes(app: Hono<AppEnv>): void {
     const scope = await getAdminScope(c);
     const db = getDb(c.env);
     const cohort = await getManagedCohort(db);
+    // Owner responses contain the active enrollment credential. They must
+    // always reflect D1 and must never be retained by a browser or intermediary.
+    c.header("Cache-Control", "private, no-store");
     const teamRows = scope.isOwner
       ? await db.select({ id: teams.id }).from(teams).where(eq(teams.cohortId, cohort.id)).orderBy(asc(teams.name))
       : scope.teamIds.length > 0

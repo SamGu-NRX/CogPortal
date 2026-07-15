@@ -320,6 +320,142 @@ export const LOCAL_RUN_PHASES = [
 export const LocalRunPhaseSchema = z.enum(LOCAL_RUN_PHASES);
 export type LocalRunPhase = z.infer<typeof LocalRunPhaseSchema>;
 
+export const RUN_LIFECYCLE_STAGES = [
+  "local",
+  "hosted",
+  "official",
+  "published",
+] as const;
+export const RunLifecycleStageSchema = z.enum(RUN_LIFECYCLE_STAGES);
+export type RunLifecycleStage = z.infer<typeof RunLifecycleStageSchema>;
+
+export const RUN_STREAM_EVENT_CODES = [
+  "repository.ready",
+  "repository.fetching",
+  "dependencies.installing",
+  "contract.checking",
+  "contract.passed",
+  "evaluation.started",
+  "evaluation.progress",
+  "scoring.started",
+  "run.completed",
+  "run.failed.repository",
+  "run.failed.dependencies",
+  "run.failed.contract",
+  "run.failed.runtime",
+  "run.failed.timeout",
+  "run.failed.memory",
+  "run.failed.output",
+  "run.failed.scorer",
+  "run.failed.provider",
+] as const;
+export const RunStreamEventCodeSchema = z.enum(RUN_STREAM_EVENT_CODES);
+export type RunStreamEventCode = z.infer<typeof RunStreamEventCodeSchema>;
+
+export const RunProgressSchema = z.object({
+  current: z.number().int().nonnegative(),
+  total: z.number().int().positive(),
+  unit: z.enum(["cases", "items"]),
+}).refine((value) => value.current <= value.total, {
+  message: "Progress cannot exceed its total.",
+});
+export type RunProgress = z.infer<typeof RunProgressSchema>;
+
+export const RunStreamEventSchema = z.object({
+  eventId: z.string().min(8).max(128),
+  source: z.enum(["local", "practice", "official", "system"]),
+  sourceRunId: z.string().min(1).max(128),
+  sourceSequence: z.number().int().nonnegative(),
+  phase: z.string().min(1).max(40),
+  code: RunStreamEventCodeSchema,
+  occurredAt: z.number().int().positive(),
+  elapsedMs: z.number().int().nonnegative().nullable(),
+  progress: RunProgressSchema.nullable(),
+});
+export type RunStreamEvent = z.infer<typeof RunStreamEventSchema>;
+
+/** Keeps only the newest heartbeat in a visually identical run of events.
+ * Durable history remains lossless; compact realtime projections use this. */
+export function collapseRepeatedRunEvents(events: readonly RunStreamEvent[]): RunStreamEvent[] {
+  const collapsed: RunStreamEvent[] = [];
+  for (const event of events) {
+    const previous = collapsed.at(-1);
+    const sameProgress = previous?.progress?.current === event.progress?.current
+      && previous?.progress?.total === event.progress?.total
+      && previous?.progress?.unit === event.progress?.unit;
+    if (
+      previous
+      && previous.sourceRunId === event.sourceRunId
+      && previous.phase === event.phase
+      && previous.code === event.code
+      && sameProgress
+    ) {
+      collapsed[collapsed.length - 1] = event;
+    } else {
+      collapsed.push(event);
+    }
+  }
+  return collapsed;
+}
+
+export const RunSurfaceActionSchema = z.enum([
+  "open_console",
+  "open_portal",
+  "verify_hosted",
+  "run_again",
+  "promote_official",
+  "rerun_hosted",
+  "publish_result",
+]);
+export type RunSurfaceAction = z.infer<typeof RunSurfaceActionSchema>;
+
+export const RunSurfaceSnapshotSchema = z.object({
+  id: z.string().regex(/^surface_[a-f0-9]{20}$/),
+  team: z.object({ id: z.string(), name: z.string() }),
+  benchmark: z.object({
+    id: z.string(),
+    version: z.number().int().positive(),
+    title: z.string(),
+  }),
+  actor: z.object({ login: z.string(), name: z.string().nullable() }),
+  sha: z.string().length(40),
+  shortSha: z.string(),
+  branch: z.string().nullable(),
+  dirty: z.boolean(),
+  stage: RunLifecycleStageSchema,
+  status: z.enum(["running", "succeeded", "failed", "cancelled"]),
+  phase: z.string().min(1).max(40),
+  createdAt: z.number().int(),
+  updatedAt: z.number().int(),
+  finishedAt: z.number().int().nullable(),
+  elapsedMs: z.number().int().nonnegative(),
+  progress: RunProgressSchema.nullable(),
+  primaryMetric: MetricSchema.nullable(),
+  localRunId: z.string().nullable(),
+  practiceRunId: z.string().nullable(),
+  officialRunId: z.string().nullable(),
+  published: z.boolean(),
+  nextOfficialAttempt: z.number().int().positive().nullable(),
+  events: z.array(RunStreamEventSchema).max(250),
+  actions: z.array(RunSurfaceActionSchema),
+  simulated: z.boolean(),
+});
+export type RunSurfaceSnapshot = z.infer<typeof RunSurfaceSnapshotSchema>;
+
+export function runSurfaceCurrentRunId(snapshot: RunSurfaceSnapshot): string | null {
+  if (snapshot.stage === "local") return snapshot.localRunId;
+  if (snapshot.stage === "hosted") return snapshot.practiceRunId;
+  return snapshot.officialRunId;
+}
+
+/** Projects the history for the lifecycle stage currently on screen.
+ * Durable history still retains every stage, but a live view must not describe
+ * a completed local run while hosted or official work is active. */
+export function runSurfaceCurrentEvents(snapshot: RunSurfaceSnapshot): RunStreamEvent[] {
+  const runId = runSurfaceCurrentRunId(snapshot);
+  return runId ? snapshot.events.filter((event) => event.sourceRunId === runId) : [];
+}
+
 export const StartLocalRunRequestSchema = z.object({
   clientRunId: z.string().regex(/^localrun_[a-f0-9]{32}$/),
   benchmarkId: z.string().min(1).max(120),
@@ -327,12 +463,14 @@ export const StartLocalRunRequestSchema = z.object({
   repositoryId: z.number().int().positive().nullable(),
   repositoryFullName: z.string().regex(/^[^/\s]+\/[^/\s]+$/),
   sha: z.string().regex(/^[a-f0-9]{40}$/),
+  branch: z.string().trim().min(1).max(255).nullable().optional(),
   dirty: z.boolean(),
 });
 export type StartLocalRunRequest = z.infer<typeof StartLocalRunRequestSchema>;
 
 export const StartLocalRunResponseSchema = z.object({
   sessionId: z.string().min(1).max(128),
+  surfaceId: z.string().regex(/^surface_[a-f0-9]{20}$/),
   discord: z.enum(["published", "channel_unbound", "unavailable"]),
 });
 export type StartLocalRunResponse = z.infer<typeof StartLocalRunResponseSchema>;
@@ -341,12 +479,15 @@ const LocalRunEventBaseSchema = z.object({
   eventId: z.string().min(8).max(128),
   sequence: z.number().int().nonnegative(),
   occurredAt: z.number().int().positive(),
+  elapsedMs: z.number().int().nonnegative().optional(),
 });
 
 export const LocalRunEventSchema = z.discriminatedUnion("type", [
   LocalRunEventBaseSchema.extend({
     type: z.literal("progress"),
     phase: LocalRunPhaseSchema,
+    code: RunStreamEventCodeSchema.optional(),
+    progress: RunProgressSchema.optional(),
   }),
   LocalRunEventBaseSchema.extend({
     type: z.literal("completed"),
@@ -355,10 +496,36 @@ export const LocalRunEventSchema = z.discriminatedUnion("type", [
   LocalRunEventBaseSchema.extend({
     type: z.literal("failed"),
     phase: LocalRunPhaseSchema,
-    detail: z.string().trim().min(1).max(240),
+    code: RunStreamEventCodeSchema.optional(),
+    /** Accepted for older CLIs, but never copied into a shared run surface. */
+    detail: z.string().trim().min(1).max(240).optional(),
   }),
 ]);
 export type LocalRunEvent = z.infer<typeof LocalRunEventSchema>;
+
+export const LocalRunEventBatchSchema = z.object({
+  events: z.array(LocalRunEventSchema).min(1).max(32),
+}).superRefine((value, context) => {
+  for (let index = 1; index < value.events.length; index += 1) {
+    if (value.events[index]!.sequence <= value.events[index - 1]!.sequence) {
+      context.addIssue({
+        code: "custom",
+        path: ["events", index, "sequence"],
+        message: "Batched local run events must be strictly ordered.",
+      });
+    }
+  }
+  for (let index = 0; index < value.events.length - 1; index += 1) {
+    if (value.events[index]!.type !== "progress") {
+      context.addIssue({
+        code: "custom",
+        path: ["events", index, "type"],
+        message: "A terminal local run event must be the final event in its batch.",
+      });
+    }
+  }
+});
+export type LocalRunEventBatch = z.infer<typeof LocalRunEventBatchSchema>;
 
 export const LocalRunEventResponseSchema = z.object({
   ok: z.literal(true),
@@ -366,6 +533,24 @@ export const LocalRunEventResponseSchema = z.object({
   discord: z.enum(["updated", "not_published", "unavailable"]),
 });
 export type LocalRunEventResponse = z.infer<typeof LocalRunEventResponseSchema>;
+
+export const LocalRunEventBatchResponseSchema = z.object({
+  ok: z.literal(true),
+  accepted: z.number().int().nonnegative(),
+  duplicate: z.boolean(),
+  discord: z.enum(["updated", "not_published", "unavailable"]),
+});
+export type LocalRunEventBatchResponse = z.infer<typeof LocalRunEventBatchResponseSchema>;
+
+export const DeviceStatusSchema = z.object({
+  githubLogin: z.string(),
+  teamName: z.string(),
+  repositoryFullName: z.string(),
+  discordChannelId: z.string().nullable(),
+  deviceName: z.string(),
+  deviceExpiresAt: z.number().int(),
+});
+export type DeviceStatus = z.infer<typeof DeviceStatusSchema>;
 
 /* ── Composite payloads ───────────────────────────────────────────────── */
 
@@ -487,6 +672,89 @@ export const ChangeTeamRepoRequestSchema = z.object({
   fullName: z.string().trim().regex(/^[^/\s]+\/[^/\s]+$/, "owner/name"),
 });
 
+/* ── Joining an existing team ─────────────────────────────────────────── */
+
+/** One team in the caller's cohort, as shown on the join-a-team browser.
+ *  Cohorts are classroom-sized, so the full member list ships inline. */
+export const CohortTeamSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string().nullable(),
+  repo: z.object({
+    fullName: z.string(),
+    url: z.string(),
+  }),
+  members: z.array(
+    z.object({
+      login: z.string(),
+      name: z.string().nullable(),
+      avatarUrl: z.string().nullable(),
+      role: z.enum(["admin", "maintain", "write"]),
+    }),
+  ),
+  /** GitHub login of the team creator — who to ask for access. */
+  adminLogin: z.string().nullable(),
+});
+export type CohortTeam = z.infer<typeof CohortTeamSchema>;
+
+/** GET /api/cohorts/teams — every team in the caller's cohort. */
+export const CohortTeamListSchema = z.array(CohortTeamSchema);
+
+/** POST /api/team/join — join by team id. The server verifies the caller
+ *  has write access to the team's repository (the repository is the team);
+ *  a 403 `repo_access_required` names the creator to ask. Responds with
+ *  the joined TeamDetail. */
+export const JoinTeamRequestSchema = z.object({
+  teamId: z.string().min(1),
+});
+
+/* ── Setup guide verification (terminal callback) ─────────────────────── */
+
+/** Machine-local setup steps a student can check off from their own
+ *  terminal: the guide embeds a signed one-liner; running it pings the
+ *  portal and the step marks itself. Deliberately explicit — its own
+ *  labeled command, never hidden inside an install line. */
+export const SETUP_STEPS = ["clone", "environment", "wiring"] as const;
+export const SetupStepSchema = z.enum(SETUP_STEPS);
+export type SetupStep = z.infer<typeof SetupStepSchema>;
+
+/** GET /api/v1/setup/state — the caller's verification state for their
+ *  current team, plus per-step signed tokens (~7 day validity) for the
+ *  copyable check-off commands. */
+export const SetupStateSchema = z.object({
+  verified: z.array(SetupStepSchema),
+  tokens: z.record(SetupStepSchema, z.string()),
+});
+export type SetupState = z.infer<typeof SetupStateSchema>;
+
+/* ── Team member management (team admin only) ─────────────────────────── */
+
+/** A cohort student who could be added to the caller's team. */
+export const InvitableUserSchema = z.object({
+  login: z.string(),
+  name: z.string().nullable(),
+  avatarUrl: z.string().nullable(),
+});
+export type InvitableUser = z.infer<typeof InvitableUserSchema>;
+
+/** GET /api/team/invitable — cohort members with no team yet. */
+export const InvitableUserListSchema = z.array(InvitableUserSchema);
+
+/** POST /api/team/members — add a cohort member to the team (role `write`).
+ *  Portal membership only; pushing still needs GitHub collaborator access.
+ *  Responds with the updated TeamDetail. */
+export const AddTeamMemberRequestSchema = z.object({
+  login: z
+    .string()
+    .trim()
+    .min(1)
+    .max(39)
+    .regex(/^[a-zA-Z0-9-]+$/),
+});
+
+/** DELETE /api/team/members/:login — remove a member (never the creator).
+ *  Responds with the updated TeamDetail. */
+
 /* ── Requests ─────────────────────────────────────────────────────────── */
 
 export const StartPracticeRequestSchema = z.object({
@@ -607,6 +875,11 @@ export const API_ERROR_CODES = [
   "link_conflict",
   "authorization_pending",
   "invalid_token",
+  "repo_access_required",
+  "already_on_team",
+  "not_in_cohort",
+  "cannot_remove_creator",
+  "user_not_found",
 ] as const;
 export const ApiErrorCodeSchema = z.enum(API_ERROR_CODES);
 export type ApiErrorCode = z.infer<typeof ApiErrorCodeSchema>;

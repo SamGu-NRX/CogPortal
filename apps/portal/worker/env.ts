@@ -1,9 +1,10 @@
-import type { D1Database, Fetcher, Queue } from "@cloudflare/workers-types";
+import type { D1Database, DurableObjectNamespace, Fetcher, Queue } from "@cloudflare/workers-types";
 import type { RunJobV1 } from "@cogworks/contracts/protocol";
 
 export interface Env {
   DB: D1Database;
   ASSETS: Fetcher;
+  RUN_SURFACES: DurableObjectNamespace;
   ENVIRONMENT: string;
   DEV_AUTH: "enabled" | "disabled";
   EXECUTION_PROVIDER: "fixture" | "modal";
@@ -11,6 +12,10 @@ export interface Env {
   COURSE_GUILD_ID?: string;
   /** Secret used only for posting/editing team run bubbles via Discord REST. */
   DISCORD_BOT_TOKEN?: string;
+  DISCORD_CLIENT_ID?: string;
+  DISCORD_CLIENT_SECRET?: string;
+  ACTIVITY_SESSION_SECRET?: string;
+  ACTIVITY_ORIGIN?: string;
   RUN_QUEUE?: Queue<RunJobV1>;
   MODAL_RUNNER_URL?: string;
   RUNNER_SIGNING_SECRET?: string;

@@ -4,7 +4,14 @@ import json
 import time
 import urllib.error
 import urllib.request
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
+
+from . import __version__
+
+
+USER_AGENT = "CogBench/{} (+https://cogportal-dev.sillion.app)".format(__version__)
+MAX_ATTEMPTS = 3
+RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 
 
 class PortalError(RuntimeError):
@@ -20,9 +27,14 @@ def request_json(
     path: str,
     body: Optional[Dict[str, Any]] = None,
     token: Optional[str] = None,
+    retry: bool = False,
+    timeout: float = 15,
 ) -> Dict[str, Any]:
     data = None if body is None else json.dumps(body).encode("utf-8")
-    headers = {"Accept": "application/json"}
+    headers = {
+        "Accept": "application/json",
+        "User-Agent": USER_AGENT,
+    }
     if data is not None:
         headers["Content-Type"] = "application/json"
     if token:
@@ -33,18 +45,28 @@ def request_json(
         headers=headers,
         method="POST" if data is not None else "GET",
     )
-    try:
-        with urllib.request.urlopen(request, timeout=15) as response:
-            return json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as error:
+    attempts = MAX_ATTEMPTS if retry else 1
+    for attempt in range(attempts):
         try:
-            payload = json.loads(error.read().decode("utf-8"))
-            message = payload["error"]["message"]
-        except (ValueError, KeyError, TypeError):
-            message = "CogPortal returned HTTP {}.".format(error.code)
-        raise PortalError(message) from error
-    except urllib.error.URLError as error:
-        raise PortalError("Could not reach CogPortal: {}".format(error.reason)) from error
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as error:
+            raw = error.read()
+            if error.code in RETRYABLE_STATUS_CODES and attempt < attempts - 1:
+                time.sleep(0.25 * (2**attempt))
+                continue
+            try:
+                payload = json.loads(raw.decode("utf-8"))
+                message = payload["error"]["message"]
+            except (ValueError, KeyError, TypeError):
+                message = "CogPortal returned HTTP {}.".format(error.code)
+            raise PortalError(message) from error
+        except urllib.error.URLError as error:
+            if attempt < attempts - 1:
+                time.sleep(0.25 * (2**attempt))
+                continue
+            raise PortalError("Could not reach CogPortal: {}".format(error.reason)) from error
+    raise PortalError("Could not reach CogPortal after {} attempts.".format(attempts))
 
 
 def start_device_link(portal: str) -> Dict[str, Any]:
@@ -66,13 +88,13 @@ def poll_device_link(portal: str, device_code: str, interval: int, expires_at: i
 
 def sync_report(portal: str, token: str, report: Dict[str, Any]) -> Dict[str, Any]:
     report.pop("outputDigest", None)
-    return request_json(portal, "/api/v1/local-reports", report, token=token)
+    return request_json(portal, "/api/v1/local-reports", report, token=token, retry=True)
 
 
 def start_local_run(
     portal: str, token: str, run: Dict[str, Any]
 ) -> Dict[str, Any]:
-    return request_json(portal, "/api/v1/local-runs", run, token=token)
+    return request_json(portal, "/api/v1/local-runs", run, token=token, retry=True)
 
 
 def send_local_run_event(
@@ -83,4 +105,25 @@ def send_local_run_event(
         "/api/v1/local-runs/{}/events".format(session_id),
         event,
         token=token,
+        retry=True,
     )
+
+
+def send_local_run_event_batch(
+    portal: str,
+    token: str,
+    session_id: str,
+    events: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    return request_json(
+        portal,
+        "/api/v1/local-runs/{}/events/batch".format(session_id),
+        {"events": events},
+        token=token,
+        retry=False,
+        timeout=5,
+    )
+
+
+def device_status(portal: str, token: str) -> Dict[str, Any]:
+    return request_json(portal, "/api/v1/cli/device/status", token=token, retry=True)

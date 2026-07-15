@@ -1,130 +1,43 @@
-import type { LocalRunPhase, Metric } from "@cogworks/contracts/schema";
+import type {
+  RunStreamEventCode,
+  RunSurfaceSnapshot,
+} from "@cogworks/contracts/schema";
+import { runSurfaceCurrentEvents } from "@cogworks/contracts/schema";
+import { ACCENT_DETECT, ACCENT_INK, ACCENT_VERIFY } from "@cogworks/discord-kit/accents";
+import {
+  IS_COMPONENTS_V2,
+  actionRow,
+  button,
+  linkButton,
+  section,
+  separator,
+  text,
+  type DiscordButton,
+  type DiscordContainerChild,
+} from "@cogworks/discord-kit/components";
+import { emojiFormatter } from "@cogworks/discord-kit/emoji";
+import { META_SEP, chip, elapsed, fitTextBudget, metaLine, metricValue } from "@cogworks/discord-kit/format";
+import { terminalButtons, watchLiveAvailable } from "@cogworks/discord-kit/policy";
+import { stageRail } from "@cogworks/discord-kit/rails";
+import { effectivePhase, failureTrace, loaderLine, loaderSteps } from "@cogworks/discord-kit/steps";
 import type { Env } from "../env";
+import { eq } from "drizzle-orm";
+import { getDb } from "../db/client";
+import { runSurfaces } from "../db/schema";
 
 const DISCORD_API = "https://discord.com/api/v10";
-const COMPONENTS_V2 = 1 << 15;
-const ACCENT_INK = 0x1c2637;
-const ACCENT_DETECT = 0xc63d2f;
-const ACCENT_VERIFY = 0x2e6b4f;
-const PHASES: LocalRunPhase[] = ["preparing", "contract_check", "evaluating", "scoring"];
-
-export interface LocalRunBubble {
-  teamName: string;
-  benchmarkId: string;
-  benchmarkTitle: string;
-  githubLogin: string;
-  sha: string;
-  dirty: boolean;
-  phase: LocalRunPhase;
-  status: "running" | "succeeded" | "failed";
-  primaryMetric?: Metric | null;
-  failureDetail?: string | null;
-}
 
 interface DiscordMessage {
   id: string;
 }
 
-function portalUrl(env: Env, benchmarkId: string): string | null {
-  if (!env.PUBLIC_ORIGIN) return null;
-  const url = new URL("/dashboard", env.PUBLIC_ORIGIN);
-  url.searchParams.set("benchmark", benchmarkId);
-  url.searchParams.set("from", "discord-live-run");
-  return url.toString();
-}
-
-function metricValue(metric: Metric): string {
-  const value = metric.value.toFixed(metric.precision);
-  return metric.unit ? `${value} ${metric.unit}` : value;
-}
-
-function phaseRail(run: LocalRunBubble): string {
-  const active = PHASES.indexOf(run.phase);
-  return PHASES.map((phase, index) => {
-    const label: Record<LocalRunPhase, string> = {
-      preparing: "prepare",
-      contract_check: "check",
-      evaluating: "evaluate",
-      scoring: "score",
-    };
-    const mark =
-      run.status === "succeeded" || index < active
-        ? "✓"
-        : run.status === "failed" && index === active
-          ? "×"
-          : index === active
-            ? "●"
-            : "○";
-    return `${mark} ${label[phase]}`;
-  }).join("  →  ");
-}
-
-function statusCopy(run: LocalRunBubble): string {
-  if (run.status === "succeeded") {
-    const result = run.primaryMetric ? ` **${metricValue(run.primaryMetric)}**` : "";
-    return `**Bench cleared. Nice work.**${result}`;
+export class DiscordRequestError extends Error {
+  constructor(
+    public readonly status: number,
+    public readonly retryAfterMs: number | null,
+  ) {
+    super(`Discord message request failed with HTTP ${status}.`);
   }
-  if (run.status === "failed") {
-    return `**Hit a snag during ${run.phase.replace("_", " ")}.**\n${run.failureDetail ?? "Open CogBench for the local error."}`;
-  }
-  const labels: Record<LocalRunPhase, string> = {
-    preparing: "Setting out the tools…",
-    contract_check: "Checking the submission contract…",
-    evaluating: "Running the public cases…",
-    scoring: "Reading the gauges…",
-  };
-  return `**${labels[run.phase]}**`;
-}
-
-export function localRunMessage(env: Env, run: LocalRunBubble) {
-  const children: Array<Record<string, unknown>> = [
-    {
-      type: 10,
-      content: [
-        `## ${run.status === "running" ? "◉" : run.status === "succeeded" ? "✓" : "×"} Local run · ${run.benchmarkTitle}`,
-        `**${run.teamName}** · @${run.githubLogin} · \`${run.sha.slice(0, 7)}\`${run.dirty ? " · dirty worktree" : ""}`,
-        "",
-        phaseRail(run),
-        "",
-        statusCopy(run),
-        "",
-        "-# Local · self-reported · source code and raw outputs stay on this device",
-      ].join("\n").slice(0, 4_000),
-    },
-  ];
-  const target = portalUrl(env, run.benchmarkId);
-  if (target && run.status !== "running") {
-    children.push(
-      { type: 14, divider: true, spacing: 1 },
-      {
-        type: 1,
-        components: [
-          {
-            type: 2,
-            style: 5,
-            label: run.status === "succeeded" && !run.dirty ? "Verify hosted ↗" : "Open CogPortal ↗",
-            url: target,
-          },
-        ],
-      },
-    );
-  }
-  return {
-    flags: COMPONENTS_V2,
-    components: [
-      {
-        type: 17,
-        accent_color:
-          run.status === "succeeded"
-            ? ACCENT_VERIFY
-            : run.status === "failed"
-              ? ACCENT_DETECT
-              : ACCENT_INK,
-        components: children,
-      },
-    ],
-    allowed_mentions: { parse: [] as string[] },
-  };
 }
 
 async function discordRequest<T>(
@@ -147,42 +60,185 @@ async function discordRequest<T>(
     if (response.ok) return (await response.json()) as T;
     if (response.status === 429 && attempt === 0) {
       const rate = (await response.json().catch(() => null)) as { retry_after?: number } | null;
-      const retryMs = Math.ceil((rate?.retry_after ?? 0) * 1_000);
+      const headerSeconds = Number(response.headers.get("Retry-After") ?? "0");
+      const resetSeconds = Number(response.headers.get("X-RateLimit-Reset-After") ?? "0");
+      const retryMs = Math.ceil(Math.max(rate?.retry_after ?? 0, headerSeconds, resetSeconds) * 1_000);
       if (retryMs > 0 && retryMs <= 2_000) {
         await new Promise((resolve) => setTimeout(resolve, retryMs));
         continue;
       }
+      throw new DiscordRequestError(response.status, retryMs > 0 ? retryMs : null);
     }
-    throw new Error(`Discord message request failed with HTTP ${response.status}.`);
+    throw new DiscordRequestError(response.status, null);
   }
   throw new Error("Discord message request was rate limited.");
 }
 
-export async function createLocalRunMessage(
-  env: Env,
-  channelId: string,
-  run: LocalRunBubble,
-): Promise<string> {
-  const message = await discordRequest<DiscordMessage>(
-    env,
-    "POST",
-    `/channels/${encodeURIComponent(channelId)}/messages`,
-    localRunMessage(env, run),
-  );
-  if (!/^\d{10,24}$/.test(message.id)) throw new Error("Discord returned an invalid message ID.");
-  return message.id;
+const EVENT_COPY: Record<RunStreamEventCode, string> = {
+  "repository.ready": "Repository ready",
+  "repository.fetching": "Fetching repository",
+  "dependencies.installing": "Installing dependencies",
+  "contract.checking": "Checking contract",
+  "contract.passed": "Contract passed",
+  "evaluation.started": "Evaluating",
+  "evaluation.progress": "Evaluating",
+  "scoring.started": "Scoring",
+  "run.completed": "Run complete",
+  "run.failed.repository": "Repository could not be prepared",
+  "run.failed.dependencies": "Dependencies could not be installed",
+  "run.failed.contract": "Contract check stopped",
+  "run.failed.runtime": "Evaluation stopped",
+  "run.failed.timeout": "Evaluation timed out",
+  "run.failed.memory": "Evaluation ran out of memory",
+  "run.failed.output": "Output could not be scored",
+  "run.failed.scorer": "Scoring stopped",
+  "run.failed.provider": "Runner unavailable",
+};
+
+function surfacePortalUrl(env: Env, surfaceId: string): string | null {
+  if (!env.PUBLIC_ORIGIN) return null;
+  return new URL(`/run-surfaces/${encodeURIComponent(surfaceId)}`, env.PUBLIC_ORIGIN).toString();
 }
 
-export async function updateLocalRunMessage(
-  env: Env,
-  channelId: string,
-  messageId: string,
-  run: LocalRunBubble,
-): Promise<void> {
-  await discordRequest<DiscordMessage>(
+/** Plain nouns for "Stopped during …" headlines. */
+const PHASE_NOUNS: Record<string, string> = {
+  queued: "preparation",
+  preparing: "preparation",
+  installing: "preparation",
+  contract_check: "the contract check",
+  evaluating: "evaluation",
+  scoring: "scoring",
+};
+
+function phaseNoun(phase: string): string {
+  return PHASE_NOUNS[phase] ?? phase.replaceAll("_", " ");
+}
+
+const STAGE_WORDS: Record<RunSurfaceSnapshot["stage"], string> = {
+  local: "local run",
+  hosted: "hosted practice",
+  official: "official attempt",
+  published: "published",
+};
+
+function surfaceMeta(snapshot: RunSurfaceSnapshot, lead: string): string {
+  return `-# ${metaLine([
+    lead,
+    chip(snapshot.shortSha),
+    `by ${snapshot.actor.name ?? snapshot.actor.login}`,
+    chip(elapsed(snapshot.elapsedMs)),
+    snapshot.dirty && "dirty worktree",
+    snapshot.simulated && "simulated",
+  ])}`;
+}
+
+/**
+ * The public run surface. While running it is a multi-step loader under the
+ * benchmark's name, with "Watch live" as the only control. At terminal it
+ * recomposes into a decision surface: the news as headline, provenance in a
+ * quiet footer rail, and at most three buttons with the primary action first.
+ */
+export function runSurfaceMessage(env: Env, snapshot: RunSurfaceSnapshot) {
+  const fmt = emojiFormatter(env.DISCORD_CLIENT_ID);
+  const events = runSurfaceCurrentEvents(snapshot);
+  const rail = stageRail(snapshot, fmt);
+  const children: DiscordContainerChild[] = [];
+  let accent = ACCENT_INK;
+
+  if (snapshot.status === "running") {
+    const head = `### ${snapshot.benchmark.title}\n${surfaceMeta(snapshot, STAGE_WORDS[snapshot.stage])}`;
+    const headDisplay = text(head);
+    children.push(
+      watchLiveAvailable(snapshot)
+        ? section(headDisplay, button(`cog:surface:${snapshot.id}:open_console`.slice(0, 100), "Watch live"))
+        : headDisplay,
+      separator(),
+    );
+    const stepLines = loaderSteps(snapshot, events).map((step) => loaderLine(step, fmt));
+    children.push(text(fitTextBudget([head, rail], stepLines).join("\n")), separator(), text(rail));
+  } else {
+    const score = snapshot.primaryMetric ? `${META_SEP}**${metricValue(snapshot.primaryMetric)}**` : "";
+    const lines: string[] = [];
+    if (snapshot.status === "succeeded" && snapshot.published) {
+      accent = ACCENT_VERIFY;
+      lines.push(`### ${fmt("cog_star")} Published${score}`);
+    } else if (snapshot.status === "succeeded") {
+      accent = ACCENT_VERIFY;
+      lines.push(`### ${fmt("cog_done")} Bench clear${score}`);
+    } else if (snapshot.status === "failed") {
+      accent = ACCENT_DETECT;
+      const stopped = effectivePhase(snapshot, events);
+      lines.push(`### ${fmt("cog_fail")} Stopped${stopped ? ` during ${phaseNoun(stopped)}` : " on the bench"}`);
+    } else {
+      const stopped = effectivePhase(snapshot, events);
+      lines.push(`### Cancelled${stopped ? ` during ${phaseNoun(stopped)}` : ""}`);
+    }
+    lines.push(surfaceMeta(snapshot, snapshot.benchmark.title));
+    if (snapshot.status === "failed" && snapshot.stage === "local") {
+      lines.push("-# the useful detail is in your terminal");
+    }
+    if (snapshot.status === "succeeded" && snapshot.dirty && snapshot.stage === "local") {
+      lines.push("-# workspace has uncommitted changes, so hosted verification needs a commit and push");
+    }
+    if (snapshot.status === "failed") {
+      lines.push("", ...failureTrace(snapshot, events, (code) => EVENT_COPY[code], fmt));
+    }
+    children.push(text(lines.join("\n")), separator(), text(rail));
+
+    const buttons: DiscordButton[] = terminalButtons(snapshot).map((spec) =>
+      button(`cog:surface:${snapshot.id}:${spec.action}`.slice(0, 100), spec.label, spec.style),
+    );
+    const target = surfacePortalUrl(env, snapshot.id);
+    if (target) buttons.push(linkButton(target, "Cog*Portal ↗"));
+    if (buttons.length) children.push(separator(false), actionRow(...buttons));
+  }
+
+  return {
+    flags: IS_COMPONENTS_V2,
+    components: [{ type: 17 as const, accent_color: accent, components: children }],
+    allowed_mentions: { parse: [] as string[] },
+  };
+}
+
+function nonce(snapshot: RunSurfaceSnapshot, generation: number): string {
+  return `${snapshot.id.slice(-18)}${generation.toString(36)}`.slice(0, 25);
+}
+
+export async function syncRunSurfaceMessage(env: Env, snapshot: RunSurfaceSnapshot): Promise<"updated" | "created" | "unbound"> {
+  const db = getDb(env);
+  const [surface] = await db.select().from(runSurfaces).where(eq(runSurfaces.id, snapshot.id)).limit(1);
+  if (!surface?.discordChannelId) return "unbound";
+  if (surface.discordMessageId) {
+    try {
+      await discordRequest<DiscordMessage>(
+        env,
+        "PATCH",
+        `/channels/${encodeURIComponent(surface.discordChannelId)}/messages/${encodeURIComponent(surface.discordMessageId)}`,
+        runSurfaceMessage(env, snapshot),
+      );
+      return "updated";
+    } catch (error) {
+      if (!(error instanceof DiscordRequestError) || error.status !== 404) throw error;
+      await db
+        .update(runSurfaces)
+        .set({ discordMessageId: null, discordNonceGeneration: surface.discordNonceGeneration + 1 })
+        .where(eq(runSurfaces.id, surface.id));
+      surface.discordMessageId = null;
+      surface.discordNonceGeneration += 1;
+    }
+  }
+  const body = {
+    ...runSurfaceMessage(env, snapshot),
+    nonce: nonce(snapshot, surface.discordNonceGeneration),
+    enforce_nonce: true,
+  };
+  const created = await discordRequest<DiscordMessage>(
     env,
-    "PATCH",
-    `/channels/${encodeURIComponent(channelId)}/messages/${encodeURIComponent(messageId)}`,
-    localRunMessage(env, run),
+    "POST",
+    `/channels/${encodeURIComponent(surface.discordChannelId)}/messages`,
+    body,
   );
+  if (!/^\d{10,24}$/.test(created.id)) throw new Error("Discord returned an invalid message ID.");
+  await db.update(runSurfaces).set({ discordMessageId: created.id }).where(eq(runSurfaces.id, surface.id));
+  return "created";
 }

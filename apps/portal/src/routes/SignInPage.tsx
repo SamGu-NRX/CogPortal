@@ -37,7 +37,7 @@ export function SignInPage() {
       <div className="anim-rise w-full max-w-sm">
         <h1 className="text-3xl">Sign in</h1>
         <p className="mt-2 text-[14px] text-ink-secondary">
-          Your GitHub account is your identity — no separate registration.
+          We use your GitHub account for sign-in, so you don't need a separate registration.
         </p>
 
         <div className="mt-8">
@@ -53,7 +53,7 @@ export function SignInPage() {
             <button
               disabled
               className="flex h-12 w-full cursor-not-allowed items-center justify-center gap-2.5 bg-ink/35 text-[14px] font-medium tracking-wide text-paper-raised"
-              title="GitHub sign-in is not configured for this deployment"
+              title="GitHub sign-in isn't configured. Ask course staff to enable it."
             >
               <GitHubIcon className="size-[18px]" />
               Continue with GitHub
@@ -62,8 +62,8 @@ export function SignInPage() {
           {oauthError && (
             <p role="alert" className="mt-3 text-center text-[13px] text-detect-deep">
               {oauthError === "oauth_denied"
-                ? "Sign-in was cancelled."
-                : "GitHub sign-in failed. Try again, or tell course staff."}
+                ? "GitHub sign-in was cancelled. Sign in again when you're ready."
+                : "GitHub sign-in failed. Try again."}
             </p>
           )}
         </div>

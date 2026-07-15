@@ -79,7 +79,7 @@ export function LeaderboardPage() {
         ) : !benchmark || !benchmark.active ? (
           <div className="border border-rule bg-paper-raised">
             <EmptyState
-              message={`${benchmark?.title ?? TRACKS.find((t) => t.module === module)?.label} — in progress. Standings open when the track is calibrated.`}
+              message={`${benchmark?.title ?? TRACKS.find((t) => t.module === module)?.label} is in progress. Standings open when the track is calibrated.`}
             />
           </div>
         ) : (
@@ -104,7 +104,7 @@ function Standings({ benchmarkId }: { benchmarkId: string }) {
   if (entries.length === 0) {
     return (
       <div className="border border-rule bg-paper-raised">
-        <EmptyState message="No official results published yet." />
+        <EmptyState message="No official results are published yet. Check again after teams publish their results." />
       </div>
     );
   }
@@ -126,7 +126,7 @@ function Standings({ benchmarkId }: { benchmarkId: string }) {
       </ol>
 
       <p className="mt-6 px-4 font-mono text-[11px] text-ink-faint">
-        {benchmark.id} / v{benchmark.version} — each team publishes one selected
+        {benchmark.id} / v{benchmark.version}. Each team publishes one selected
         official result.
       </p>
     </>

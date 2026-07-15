@@ -1,17 +1,19 @@
 import { ArrowRight01Icon, TeacherIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
-import type { GithubRepo } from "@cogworks/contracts/schema";
+import type { GithubRepo, TeamDetail } from "@cogworks/contracts/schema";
 import { Button } from "@/components/Button";
 import { ConfirmButton } from "@/components/ConfirmButton";
 import { LoadingMark, QueryError } from "@/components/Feedback";
 import { GrantAccess } from "@/components/GrantAccess";
+import { MemberPalette } from "@/components/MemberPalette";
 import { Panel } from "@/components/Panel";
 import { RepoPicker } from "@/components/RepoPicker";
 import { ApiRequestError } from "@/lib/api";
 import {
   useChangeTeamRepo,
+  useRemoveTeamMember,
   useRepositories,
   useTeam,
   useUpdateTeam,
@@ -114,7 +116,7 @@ export function TeamPage() {
             maxLength={280}
             rows={3}
             autoFocus
-            placeholder="One line about your approach — shown on the leaderboard."
+            placeholder="One line about your approach, shown on the leaderboard."
             className="w-full border border-rule bg-paper-sunken px-3 py-2 text-[14px] text-ink placeholder:text-ink-faint"
           />
           <div className="mt-2 flex items-center gap-2">
@@ -194,35 +196,7 @@ export function TeamPage() {
       </Panel>
 
       {/* ── Members ── */}
-      <Panel label="MEMBERS" className="mt-4">
-        <ul className="divide-y divide-rule-soft">
-          {t.members.map((m) => (
-            <li key={m.login} className="flex items-center gap-3 py-2.5">
-              {m.avatarUrl ? (
-                <img src={m.avatarUrl} alt="" className="size-6 rounded-[2px]" />
-              ) : (
-                <span
-                  aria-hidden="true"
-                  className="flex size-6 items-center justify-center border border-rule bg-paper-sunken font-mono text-[10px] text-ink-secondary uppercase"
-                >
-                  {m.login[0]}
-                </span>
-              )}
-              <span className="min-w-0 flex-1 truncate font-mono text-[13px] text-ink">
-                {m.login}
-                {m.name && <span className="ml-2 text-ink-faint">{m.name}</span>}
-              </span>
-              <span
-                className={`font-mono text-[10.5px] tracking-[0.08em] uppercase ${
-                  m.role === "admin" ? "text-detect-deep" : "text-ink-faint"
-                }`}
-              >
-                {ROLE_LABELS[m.role] ?? m.role}
-              </span>
-            </li>
-          ))}
-        </ul>
-      </Panel>
+      <MembersPanel team={t} />
 
       {/* ── Repository ── */}
       <Panel label="REPOSITORY" className="mt-4">
@@ -250,6 +224,130 @@ export function TeamPage() {
         <HugeiconsIcon icon={ArrowRight01Icon} size={15} strokeWidth={1.8} aria-hidden="true" />
       </Link>
     </div>
+  );
+}
+
+/** Members, and — for the creator — the door: add cohort students without a
+ *  team, remove anyone but the creator. Portal membership only; a GitHub
+ *  collaborator invite is still what lets them push. */
+function MembersPanel({ team }: { team: TeamDetail }) {
+  const [adding, setAdding] = useState(false);
+  // Remove unmounts the focused control — hand focus back to the panel
+  // toggle so keyboard users aren't dropped at the document root.
+  const toggleRef = useRef<HTMLButtonElement>(null);
+  const restoreFocus = () => toggleRef.current?.focus();
+
+  return (
+    <Panel
+      label="MEMBERS"
+      className="mt-4"
+      aside={
+        team.isAdmin ? (
+          <span className="relative">
+            <button
+              ref={toggleRef}
+              type="button"
+              aria-expanded={adding}
+              aria-haspopup="dialog"
+              onClick={() => setAdding((open) => !open)}
+              className="u-pressable min-h-8 font-mono text-[11px] tracking-[0.09em] text-ink-secondary uppercase hover:text-ink"
+            >
+              {adding ? "Close" : "Add member"}
+            </button>
+            <MemberPalette
+              open={adding}
+              onClose={() => setAdding(false)}
+              triggerRef={toggleRef}
+            />
+          </span>
+        ) : undefined
+      }
+    >
+      <ul className="divide-y divide-rule-soft">
+        {team.members.map((m) => (
+          <li key={m.login} className="flex items-center gap-3 py-2.5">
+            <MemberAvatar login={m.login} avatarUrl={m.avatarUrl} />
+            <span className="min-w-0 flex-1 truncate font-mono text-[13px] text-ink">
+              {m.login}
+              {m.name && <span className="ml-2 text-ink-faint">{m.name}</span>}
+            </span>
+            {team.isAdmin && m.role !== "admin" && (
+              <RemoveMember login={m.login} onRemoved={restoreFocus} />
+            )}
+            <span
+              className={`font-mono text-[10.5px] tracking-[0.08em] uppercase ${
+                m.role === "admin" ? "text-detect-deep" : "text-ink-faint"
+              }`}
+            >
+              {ROLE_LABELS[m.role] ?? m.role}
+            </span>
+          </li>
+        ))}
+      </ul>
+
+    </Panel>
+  );
+}
+
+/** Two-step inline remove — arm, then confirm; arming decays after 4s. */
+function RemoveMember({ login, onRemoved }: { login: string; onRemoved: () => void }) {
+  const remove = useRemoveTeamMember();
+  const [armed, setArmed] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current);
+    },
+    [],
+  );
+
+  const click = () => {
+    if (!armed) {
+      setArmed(true);
+      timer.current = setTimeout(() => setArmed(false), 4000);
+      return;
+    }
+    if (timer.current) clearTimeout(timer.current);
+    setArmed(false);
+    remove.mutate(login, { onSuccess: onRemoved });
+  };
+
+  return (
+    <span className="flex items-center gap-2">
+      {remove.error && (
+        <span role="alert" className="text-[11px] text-detect-deep">
+          {remove.error instanceof ApiRequestError ? remove.error.message : "Failed."}
+        </span>
+      )}
+      <button
+        type="button"
+        onClick={click}
+        disabled={remove.isPending}
+        aria-label={
+          armed ? `Confirm removing @${login}` : `Remove @${login} from the team`
+        }
+        aria-live="polite"
+        className={`u-pressable min-h-8 px-1.5 font-mono text-[10.5px] tracking-[0.08em] uppercase transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50 ${
+          armed ? "text-detect-deep" : "text-ink-faint hover:text-ink"
+        }`}
+      >
+        {remove.isPending ? "Removing…" : armed ? "Confirm remove?" : "Remove"}
+      </button>
+    </span>
+  );
+}
+
+function MemberAvatar({ login, avatarUrl }: { login: string; avatarUrl: string | null }) {
+  return avatarUrl ? (
+    <img src={avatarUrl} alt="" className="size-6 rounded-[2px]" />
+  ) : (
+    <span
+      aria-hidden="true"
+      className="flex size-6 items-center justify-center border border-rule bg-paper-sunken font-mono text-[10px] text-ink-secondary uppercase"
+    >
+      {login[0]}
+    </span>
   );
 }
 

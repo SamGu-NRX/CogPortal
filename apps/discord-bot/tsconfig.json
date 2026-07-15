@@ -16,5 +16,5 @@
     "verbatimModuleSyntax": true,
     "allowImportingTsExtensions": true
   },
-  "include": ["src", "test", "../../packages/contracts/src"]
+  "include": ["src", "test", "../../packages/contracts/src", "../../packages/discord-kit/src"]
 }

@@ -8,10 +8,12 @@ import {
   DeviceAuthorizationStartResponseSchema,
   DeviceTokenRequestSchema,
   DeviceTokenResponseSchema,
+  DeviceStatusSchema,
   DiscordLinkPreviewSchema,
   RevokeDeviceRequestSchema,
 } from "@cogworks/contracts/schema";
 import type { AppEnv } from "../env";
+import { requireDevice } from "../auth/device";
 import { requireTeam, requireUser } from "../auth/session";
 import { getDb } from "../db/client";
 import {
@@ -19,6 +21,9 @@ import {
   cliDevices,
   deviceAuthorizations,
   discordAccounts,
+  teamMembers,
+  teams,
+  users,
 } from "../db/schema";
 import {
   findActiveDiscordLink,
@@ -242,6 +247,27 @@ export function registerConnectionRoutes(app: Hono<AppEnv>): void {
   });
 
   app.get("/v1/cli/device/status", async (c) => {
+    if (c.req.header("Authorization")?.startsWith("Bearer cog_")) {
+      const device = await requireDevice(c);
+      const [membership] = await getDb(c.env)
+        .select({ team: teams, githubLogin: users.githubLogin })
+        .from(teamMembers)
+        .innerJoin(teams, eq(teamMembers.teamId, teams.id))
+        .innerJoin(users, eq(teamMembers.userId, users.id))
+        .where(eq(teamMembers.userId, device.userId))
+        .limit(1);
+      if (!membership) {
+        throw new ApiHttpError(403, "no_team", "Finish joining a team and connecting its repository first.");
+      }
+      return respond(c, DeviceStatusSchema, {
+        githubLogin: membership.githubLogin,
+        teamName: membership.team.name,
+        repositoryFullName: membership.team.repoFullName,
+        discordChannelId: membership.team.discordChannelId,
+        deviceName: device.name,
+        deviceExpiresAt: device.expiresAt,
+      });
+    }
     await requireUser(c);
     const code = c.req.query("user_code")?.toUpperCase();
     if (!code) throw new ApiHttpError(400, "invalid_request", "A device code is required.");

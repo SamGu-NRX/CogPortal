@@ -76,6 +76,15 @@ export const RunEventV1Schema = z.discriminatedUnion("type", [
       "evaluating",
       "scoring",
     ]),
+    elapsedMs: z.number().int().nonnegative().optional(),
+    progress: z
+      .object({
+        current: z.number().int().nonnegative(),
+        total: z.number().int().positive(),
+        unit: z.enum(["cases", "items"]),
+      })
+      .refine((value) => value.current <= value.total)
+      .optional(),
   }),
   RunEventBaseSchema.extend({
     type: z.literal("completed"),

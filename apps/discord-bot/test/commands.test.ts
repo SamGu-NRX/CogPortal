@@ -81,6 +81,24 @@ const basePortal: PortalRpcContract = {
   async bindTeamChannel() {
     return { linked: false };
   },
+  async getRunSurface() {
+    return null;
+  },
+  async verifyHosted() {
+    throw new Error("not configured");
+  },
+  async promoteOfficial() {
+    throw new Error("not configured");
+  },
+  async publishResult() {
+    throw new Error("not configured");
+  },
+  async rerunHosted() {
+    throw new Error("not configured");
+  },
+  async getRerunCommand() {
+    return { command: "cogbench run --benchmark vision-recognition --live" };
+  },
 };
 
 function portalWith(overrides: Partial<PortalRpcContract>): PortalRpcContract {

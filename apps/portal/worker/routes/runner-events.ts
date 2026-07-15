@@ -1,8 +1,8 @@
 import type { Context, Hono } from "hono";
-import { and, eq } from "drizzle-orm";
+import { and, eq, lt } from "drizzle-orm";
 import { z } from "zod";
 import { RunEventV1Schema, type RunEventV1 } from "@cogworks/contracts/protocol";
-import type { FailureCategory, RunPhase } from "@cogworks/contracts/schema";
+import type { FailureCategory, RunPhase, RunStreamEventCode } from "@cogworks/contracts/schema";
 import type { AppEnv } from "../env";
 import { getDb } from "../db/client";
 import {
@@ -17,6 +17,7 @@ import { hmacSignature } from "../execution/runner";
 import { ApiHttpError } from "../http/errors";
 import { respond } from "../http/respond";
 import { constantTimeTextEqual } from "../util/crypto";
+import { appendRunStreamEvent, runnerFailureCode } from "../services/run-surfaces";
 
 const OkSchema = z.object({ ok: z.literal(true), duplicate: z.boolean() });
 const MAX_CLOCK_SKEW_SECONDS = 300;
@@ -80,16 +81,18 @@ async function applyEvent(env: AppEnv["Bindings"], event: RunEventV1): Promise<v
 
   if (event.type === "status") {
     const phase = event.status;
-    const previous = previousPhase(phase);
-    await db
-      .update(runPhases)
-      .set({ startedAt: event.occurredAt })
-      .where(and(eq(runPhases.runId, run.id), eq(runPhases.phase, phase)));
-    if (previous) {
+    if (run.status !== phase) {
+      const previous = previousPhase(phase);
       await db
         .update(runPhases)
-        .set({ endedAt: event.occurredAt })
-        .where(and(eq(runPhases.runId, run.id), eq(runPhases.phase, previous)));
+        .set({ startedAt: event.occurredAt })
+        .where(and(eq(runPhases.runId, run.id), eq(runPhases.phase, phase)));
+      if (previous) {
+        await db
+          .update(runPhases)
+          .set({ endedAt: event.occurredAt })
+          .where(and(eq(runPhases.runId, run.id), eq(runPhases.phase, previous)));
+      }
     }
     if (run.mode === "official" && phase === "evaluating") {
       await db.update(officialAttempts).set({ consumed: true }).where(eq(officialAttempts.runId, run.id));
@@ -97,7 +100,7 @@ async function applyEvent(env: AppEnv["Bindings"], event: RunEventV1): Promise<v
     await db
       .update(runs)
       .set({ status: phase, lastEventSequence: event.sequence })
-      .where(eq(runs.id, run.id));
+      .where(and(eq(runs.id, run.id), lt(runs.lastEventSequence, event.sequence)));
     return;
   }
 
@@ -169,7 +172,7 @@ async function applyEvent(env: AppEnv["Bindings"], event: RunEventV1): Promise<v
         log: run.mode === "practice" ? event.sanitizedLog : null,
         lastEventSequence: event.sequence,
       })
-      .where(eq(runs.id, run.id));
+      .where(and(eq(runs.id, run.id), lt(runs.lastEventSequence, event.sequence)));
   } else {
     const consumedAttempt = failureConsumesAttempt(run.mode, event);
     await db
@@ -183,8 +186,24 @@ async function applyEvent(env: AppEnv["Bindings"], event: RunEventV1): Promise<v
         failureConsumedAttempt: consumedAttempt,
         lastEventSequence: event.sequence,
       })
-      .where(eq(runs.id, run.id));
+      .where(and(eq(runs.id, run.id), lt(runs.lastEventSequence, event.sequence)));
   }
+}
+
+export function runnerSurfaceStatusCode(
+  event: Extract<RunEventV1, { type: "status" }>,
+): RunStreamEventCode {
+  if (event.status === "evaluating" && event.progress && event.progress.current > 0) {
+    return "evaluation.progress";
+  }
+  const codes = {
+    preparing: "repository.fetching",
+    installing: "dependencies.installing",
+    contract_check: "contract.checking",
+    evaluating: "evaluation.started",
+    scoring: "scoring.started",
+  } as const satisfies Record<Extract<RunEventV1, { type: "status" }>["status"], RunStreamEventCode>;
+  return codes[event.status];
 }
 
 export function registerRunnerEventRoutes(app: Hono<AppEnv>): void {
@@ -198,14 +217,6 @@ export function registerRunnerEventRoutes(app: Hono<AppEnv>): void {
       throw new ApiHttpError(400, "invalid_request", "Runner event is invalid.");
     }
     const db = getDb(c.env);
-    const [existing] = await db
-      .select({ eventId: runEvents.eventId })
-      .from(runEvents)
-      .where(eq(runEvents.eventId, event.eventId))
-      .limit(1);
-    if (existing) return respond(c, OkSchema, { ok: true, duplicate: true });
-
-    await applyEvent(c.env, event);
     const inserted = await db
       .insert(runEvents)
       .values({
@@ -217,6 +228,51 @@ export function registerRunnerEventRoutes(app: Hono<AppEnv>): void {
       })
       .onConflictDoNothing();
     const duplicate = (inserted.meta.changes ?? 0) === 0;
+    if (duplicate) return respond(c, OkSchema, { ok: true, duplicate: true });
+    try {
+      await applyEvent(c.env, event);
+    } catch (error) {
+      await db.delete(runEvents).where(eq(runEvents.eventId, event.eventId));
+      throw error;
+    }
+    const [updated] = await db.select().from(runs).where(eq(runs.id, event.runId)).limit(1);
+    if (updated?.surfaceId) {
+      const code =
+        event.type === "status"
+          ? runnerSurfaceStatusCode(event)
+          : event.type === "completed"
+            ? "run.completed"
+            : runnerFailureCode(event.failure.category);
+      try {
+        await appendRunStreamEvent(c.env, updated.surfaceId, {
+          eventId: `stream_${event.eventId}`.slice(0, 128),
+          source: updated.mode,
+          sourceRunId: updated.id,
+          sourceSequence: event.sequence,
+          phase:
+            event.type === "status"
+              ? event.status
+              : event.type === "completed"
+                ? "scoring"
+                : event.failure.phase,
+          code,
+          occurredAt: event.occurredAt,
+          elapsedMs:
+            event.type === "status" && event.elapsedMs != null
+              ? event.elapsedMs
+              : Math.max(0, event.occurredAt - updated.createdAt),
+          progress: event.type === "status" ? (event.progress ?? null) : null,
+        });
+      } catch (error) {
+        console.error(
+          JSON.stringify({
+            event: "runner_surface_publish_failed",
+            runId: updated.id,
+            message: error instanceof Error ? error.message : "unknown",
+          }),
+        );
+      }
+    }
     return respond(c, OkSchema, { ok: true, duplicate });
   });
 }

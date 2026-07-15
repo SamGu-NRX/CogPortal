@@ -67,7 +67,11 @@ export const teamMembers = sqliteTable(
     userId: text("user_id").notNull().references(() => users.id),
     role: text("role").notNull(),
   },
-  (table) => [primaryKey({ columns: [table.teamId, table.userId] })],
+  (table) => [
+    primaryKey({ columns: [table.teamId, table.userId] }),
+    /** One team per student — closes the concurrent-join race (0011). */
+    uniqueIndex("team_members_user_unique").on(table.userId),
+  ],
 );
 
 export const teamTas = sqliteTable(
@@ -78,6 +82,17 @@ export const teamTas = sqliteTable(
     assignedAt: integer("assigned_at").notNull(),
   },
   (table) => [primaryKey({ columns: [table.teamId, table.userId] })],
+);
+
+export const setupVerifications = sqliteTable(
+  "setup_verifications",
+  {
+    userId: text("user_id").notNull().references(() => users.id),
+    teamId: text("team_id").notNull().references(() => teams.id),
+    step: text("step").notNull(),
+    verifiedAt: integer("verified_at").notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.userId, table.teamId, table.step] })],
 );
 
 export const benchmarks = sqliteTable(
@@ -157,6 +172,7 @@ export const runs = sqliteTable("runs", {
   runtimeVersion: text("runtime_version").notNull().default("python-3.11"),
   dispatchAttempts: integer("dispatch_attempts").notNull().default(0),
   lastEventSequence: integer("last_event_sequence").notNull().default(-1),
+  surfaceId: text("surface_id"),
 });
 
 export const templateSources = sqliteTable("template_sources", {
@@ -242,6 +258,7 @@ export const localRunSessions = sqliteTable("local_run_sessions", {
   repositoryId: integer("repository_id"),
   repositoryFullName: text("repository_full_name").notNull(),
   sha: text("sha").notNull(),
+  branch: text("branch"),
   dirty: integer("dirty", { mode: "boolean" }).notNull(),
   status: text("status", { enum: ["running", "succeeded", "failed"] }).notNull(),
   phase: text("phase", {
@@ -255,7 +272,55 @@ export const localRunSessions = sqliteTable("local_run_sessions", {
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
   finishedAt: integer("finished_at"),
+  surfaceId: text("surface_id"),
 });
+
+export const runSurfaces = sqliteTable(
+  "run_surfaces",
+  {
+    id: text("id").primaryKey(),
+    teamId: text("team_id").notNull().references(() => teams.id),
+    createdByUserId: text("created_by_user_id").notNull().references(() => users.id),
+    benchmarkId: text("benchmark_id").notNull(),
+    benchmarkVersion: integer("benchmark_version").notNull(),
+    localRunId: text("local_run_id"),
+    supersedesSurfaceId: text("supersedes_surface_id"),
+    discordChannelId: text("discord_channel_id"),
+    discordMessageId: text("discord_message_id"),
+    discordNonceGeneration: integer("discord_nonce_generation").notNull().default(0),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("run_surfaces_local_run_unique").on(table.localRunId),
+    uniqueIndex("run_surfaces_supersedes_unique").on(table.supersedesSurfaceId),
+  ],
+);
+
+export const runStreamEvents = sqliteTable(
+  "run_stream_events",
+  {
+    eventId: text("event_id").primaryKey(),
+    surfaceId: text("surface_id").notNull().references(() => runSurfaces.id),
+    source: text("source", { enum: ["local", "practice", "official", "system"] }).notNull(),
+    sourceRunId: text("source_run_id").notNull(),
+    sourceSequence: integer("source_sequence").notNull(),
+    phase: text("phase").notNull(),
+    code: text("code").notNull(),
+    elapsedMs: integer("elapsed_ms"),
+    progressCurrent: integer("progress_current"),
+    progressTotal: integer("progress_total"),
+    progressUnit: text("progress_unit", { enum: ["cases", "items"] }),
+    occurredAt: integer("occurred_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("run_stream_events_source_sequence_unique").on(
+      table.source,
+      table.sourceRunId,
+      table.sourceSequence,
+    ),
+  ],
+);
 
 export const runEvents = sqliteTable(
   "run_events",
@@ -349,6 +414,7 @@ export const schema = {
   teams,
   teamMembers,
   teamTas,
+  setupVerifications,
   benchmarks,
   runs,
   runPhases,
@@ -362,6 +428,8 @@ export const schema = {
   cliDevices,
   localReports,
   localRunSessions,
+  runSurfaces,
+  runStreamEvents,
   runEvents,
   outboxEvents,
 };
@@ -369,3 +437,4 @@ export const schema = {
 export type RunRow = typeof runs.$inferSelect;
 export type BenchmarkRow = typeof benchmarks.$inferSelect;
 export type TeamRow = typeof teams.$inferSelect;
+export type RunSurfaceRow = typeof runSurfaces.$inferSelect;

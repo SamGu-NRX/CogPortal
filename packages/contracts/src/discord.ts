@@ -5,6 +5,7 @@ import {
   LocalReportSchema,
   RunSummarySchema,
   TeamSchema,
+  RunSurfaceSnapshotSchema,
 } from "./schema";
 
 export const DiscordLinkStartSchema = z.object({
@@ -55,4 +56,34 @@ export interface PortalRpcContract {
     channelId: string,
   ): Promise<DiscordTeamStatus>;
   unlinkDiscord(guildId: string, discordUserId: string): Promise<{ unlinked: boolean }>;
+  getRunSurface(
+    guildId: string,
+    discordUserId: string,
+    surfaceId?: string,
+  ): Promise<z.infer<typeof RunSurfaceSnapshotSchema> | null>;
+  verifyHosted(
+    guildId: string,
+    discordUserId: string,
+    surfaceId: string,
+  ): Promise<z.infer<typeof RunSurfaceSnapshotSchema>>;
+  promoteOfficial(
+    guildId: string,
+    discordUserId: string,
+    surfaceId: string,
+  ): Promise<z.infer<typeof RunSurfaceSnapshotSchema>>;
+  publishResult(
+    guildId: string,
+    discordUserId: string,
+    surfaceId: string,
+  ): Promise<z.infer<typeof RunSurfaceSnapshotSchema>>;
+  rerunHosted(
+    guildId: string,
+    discordUserId: string,
+    surfaceId: string,
+  ): Promise<z.infer<typeof RunSurfaceSnapshotSchema>>;
+  getRerunCommand(
+    guildId: string,
+    discordUserId: string,
+    surfaceId: string,
+  ): Promise<{ command: string }>;
 }

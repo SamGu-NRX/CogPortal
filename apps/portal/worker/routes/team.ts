@@ -28,7 +28,7 @@ function memberRole(role: string): TeamMember["role"] {
   throw new Error("Team member has an invalid role.");
 }
 
-async function getTeamDetail(
+export async function getTeamDetail(
   db: Database,
   teamId: string,
   callerId: string,
@@ -91,7 +91,7 @@ async function getTeamDetail(
   };
 }
 
-async function requireTeamAdmin(
+export async function requireTeamAdmin(
   c: Context<AppEnv>,
 ): Promise<AuthState & { team: TeamRow }> {
   const auth = await requireTeam(c);
@@ -115,7 +115,7 @@ async function requireTeamAdmin(
   return auth;
 }
 
-function isUniqueConstraintError(error: unknown): boolean {
+export function isUniqueConstraintError(error: unknown): boolean {
   return error instanceof Error && /unique constraint failed/i.test(error.message);
 }
 

@@ -1,10 +1,8 @@
-import { ArrowDown01Icon, GitForkIcon } from "@hugeicons/core-free-icons";
+import { GitForkIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { GithubRepo } from "@cogworks/contracts/schema";
-import { useId, useRef, useState } from "react";
-import { motion, useReducedMotion } from "motion/react";
+import { Veil } from "@/components/Veil";
 import { formatTimeAgo } from "@/lib/format";
-import { EASE_OUT } from "@/lib/motion";
 
 /**
  * Enriched repository radio-card list — shared by Connect and Team settings.
@@ -28,10 +26,6 @@ export function RepoPicker({
   /** Progressively disclose long lists. Omit to show every repository. */
   initialVisibleCount?: number;
 }) {
-  const [showAll, setShowAll] = useState(false);
-  const reduceMotion = useReducedMotion();
-  const olderRepositoriesId = useId();
-  const olderRepositoriesRef = useRef<HTMLDivElement>(null);
   const sortedRepos = [...repos].sort(compareReposByRecency);
   const visibleCount = Math.max(1, initialVisibleCount ?? sortedRepos.length);
   const recentRepos = sortedRepos.slice(0, visibleCount);
@@ -53,82 +47,26 @@ export function RepoPicker({
         ))}
       </div>
 
-      {showAll && olderRepos.length > 0 ? (
-        <motion.div
-          ref={olderRepositoriesRef}
-          id={olderRepositoriesId}
-          initial={
-            reduceMotion
-              ? false
-              : { height: 0, opacity: 0, filter: "blur(2px)" }
-          }
-          animate={{ height: "auto", opacity: 1, filter: "blur(0px)" }}
-          transition={
-            reduceMotion
-              ? { duration: 0 }
-              : { duration: 0.22, ease: EASE_OUT }
-          }
-          className="overflow-hidden"
+      {olderRepos.length > 0 && (
+        <Veil
+          count={olderRepos.length}
+          moreLabel={`See ${olderRepos.length} more ${olderRepos.length === 1 ? "repository" : "repositories"}`}
+          fewerLabel="Show recent only"
+          detail="Older repositories · newest first"
+          focusSelector='input[type="radio"]'
         >
-          <div className="space-y-2 pt-2">
-            {olderRepos.map((repo) => (
-              <RepositoryOption
-                key={repo.fullName}
-                repo={repo}
-                selected={selected}
-                onPick={onPick}
-                disableClaimed={disableClaimed}
-                currentFullName={currentFullName}
-              />
-            ))}
-          </div>
-        </motion.div>
-      ) : null}
-
-      {!showAll && olderRepos.length > 0 ? (
-        <div className="relative pt-3">
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-x-3 top-0 h-6 border border-rule-soft bg-paper-raised/65 blur-[1.5px]"
-          />
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-x-6 top-1 h-6 border border-rule-soft bg-paper-raised/50 blur-[2px]"
-          />
-          <button
-            type="button"
-            aria-expanded="false"
-            aria-controls={olderRepositoriesId}
-            onClick={(event) => {
-              setShowAll(true);
-              if (event.detail === 0) {
-                requestAnimationFrame(() => {
-                  olderRepositoriesRef.current
-                    ?.querySelector<HTMLInputElement>('input[type="radio"]')
-                    ?.focus();
-                });
-              }
-            }}
-            className="u-pressable relative flex min-h-12 w-full items-center justify-between gap-4 border border-rule bg-paper-raised/85 px-4 py-2.5 text-left shadow-[0_2px_8px_rgb(28_38_55/0.06)] backdrop-blur-[3px] transition-colors duration-150 hover:border-ink-secondary hover:bg-paper-raised"
-          >
-            <span>
-              <span className="block text-[13.5px] font-medium text-ink">
-                See {olderRepos.length} more {olderRepos.length === 1 ? "repository" : "repositories"}
-              </span>
-              <span className="block font-mono text-[10.5px] text-ink-faint">
-                Older repositories · newest first
-              </span>
-            </span>
-            <HugeiconsIcon
-              icon={ArrowDown01Icon}
-              size={16}
-              strokeWidth={1.8}
-              className="shrink-0 text-ink-faint"
-              aria-hidden="true"
+          {olderRepos.map((repo) => (
+            <RepositoryOption
+              key={repo.fullName}
+              repo={repo}
+              selected={selected}
+              onPick={onPick}
+              disableClaimed={disableClaimed}
+              currentFullName={currentFullName}
             />
-          </button>
-        </div>
-      ) : null}
+          ))}
+        </Veil>
+      )}
     </fieldset>
   );
 }

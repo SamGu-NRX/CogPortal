@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import inspect
 import time
 from pathlib import Path
 from typing import Any, Callable, List, Optional
@@ -13,6 +14,21 @@ from .project import repository_state
 
 class ContractError(RuntimeError):
     pass
+
+
+def _accepts_progress_counts(callback: Callable[..., None]) -> bool:
+    try:
+        parameters = list(inspect.signature(callback).parameters.values())
+        return any(parameter.kind == parameter.VAR_POSITIONAL for parameter in parameters) or len(parameters) >= 3
+    except (TypeError, ValueError):
+        return False
+
+
+def _progress(callback: Callable[..., None], phase: str, current: Optional[int] = None, total: Optional[int] = None) -> None:
+    if _accepts_progress_counts(callback) and current is not None and total is not None:
+        callback(phase, current, total)
+    else:
+        callback(phase)
 
 
 def _predict(adapter: Any, inputs: List[Any]) -> List[Any]:
@@ -38,10 +54,10 @@ def execute(
     adapter: Any,
     cwd: Path,
     smoke: bool = False,
-    progress: Optional[Callable[[str], None]] = None,
+    progress: Optional[Callable[..., None]] = None,
 ) -> LocalReport:
     if progress:
-        progress("contract_check")
+        _progress(progress, "contract_check")
     cases = list(benchmark.public_cases())
     if not cases:
         raise ContractError("The benchmark plugin has no public practice cases.")
@@ -50,10 +66,12 @@ def execute(
     expected = [case["expected"] for case in selected]
     started_at = int(time.time() * 1000)
     if progress:
-        progress("evaluating")
+        _progress(progress, "evaluating", 0, len(inputs))
     predictions = _predict(adapter, inputs)
+    if progress and _accepts_progress_counts(progress):
+        _progress(progress, "evaluating", len(inputs), len(inputs))
     if progress:
-        progress("scoring")
+        _progress(progress, "scoring")
     metrics, diagnostics = benchmark.score(predictions, expected)
     if not all(isinstance(metric, Metric) for metric in metrics):
         raise ContractError("Benchmark scorer returned an invalid metric.")
@@ -77,10 +95,10 @@ def execute_installed(
     benchmark_id: str,
     cwd: Path,
     smoke: bool = False,
-    progress: Optional[Callable[[str], None]] = None,
+    progress: Optional[Callable[..., None]] = None,
 ) -> LocalReport:
     if progress:
-        progress("preparing")
+        _progress(progress, "preparing")
     return execute(
         load_benchmark(benchmark_id),
         load_submission(benchmark_id),

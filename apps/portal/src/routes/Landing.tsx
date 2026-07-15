@@ -67,8 +67,8 @@ export function Landing() {
               </a>
             ) : (
               <p className="text-[14px] text-ink-secondary">
-                Fork the course template repository your instructor shared. Keep
-                your fork public.
+                Fork the course template repository your instructor shared, and keep
+                your fork public so the portal can verify it.
               </p>
             )}
           </Step>
@@ -91,15 +91,15 @@ export function Landing() {
               code={`cogbench doctor --benchmark vision-recognition\ncogbench run --benchmark vision-recognition`}
             />
             <p className="mt-2 text-[13px] text-ink-secondary">
-              Same checks and scorer as the hosted run. Unlimited.
+              Practice runs use the same checks and scorer as hosted runs, with no run limit.
             </p>
           </Step>
 
           <Step n={4} title="Connect and run">
             <p className="text-[14px] text-ink-secondary">
-              Sign in with GitHub, connect your fork, and run the hosted
-              benchmark. Ten hosted practice runs, three official attempts —
-              your team picks which result publishes.
+              After you sign in with GitHub and connect your fork, your team gets ten
+              hosted practice runs and three official attempts. Your team picks which
+              result to publish.
             </p>
             {!authed && (
               <Link

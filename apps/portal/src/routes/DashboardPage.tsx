@@ -9,6 +9,7 @@ import { Panel } from "@/components/Panel";
 import { PhaseRail } from "@/components/PhaseRail";
 import { QuotaCells } from "@/components/QuotaCells";
 import { RunList } from "@/components/RunList";
+import { SetupNudge } from "@/components/SetupNudge";
 import { ShaChip } from "@/components/ShaChip";
 import { SimulatedChip } from "@/components/SimulatedChip";
 import { StatusChip } from "@/components/StatusChip";
@@ -84,6 +85,8 @@ export function DashboardPage() {
         </p>
       </header>
 
+      <SetupNudge />
+
       <div className="mt-8 grid gap-4 lg:grid-cols-3">
         {/* ── Left column: the live instrument ── */}
         <div className="space-y-4 lg:col-span-2">
@@ -110,39 +113,31 @@ export function DashboardPage() {
         <div className="space-y-4">
           <Panel label="CONNECTED SOURCE">
             {d.team.repo ? (
-              <dl className="space-y-3 text-[13.5px]">
-                <div>
-                  <dt className="u-kicker">Repository</dt>
-                  <dd className="mt-1">
-                    <a
-                      href={d.team.repo.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="font-mono text-[13px] text-ink underline decoration-rule underline-offset-4 hover:decoration-ink"
-                    >
-                      {d.team.repo.fullName}
-                    </a>
-                  </dd>
+              <div className="space-y-2.5">
+                <a
+                  href={d.team.repo.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-mono text-[13px] text-ink underline decoration-rule underline-offset-4 hover:decoration-ink"
+                >
+                  {d.team.repo.fullName}
+                </a>
+                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                  <span className="font-mono text-[10.5px] tracking-[0.07em] text-ink-faint uppercase">
+                    last tested
+                  </span>
+                  {d.lastResolvedSha ? (
+                    <ShaChip sha={d.lastResolvedSha} shortSha={d.lastResolvedSha.slice(0, 7)} />
+                  ) : (
+                    <span className="font-mono text-[12px] text-ink-faint">
+                      nothing yet; start a practice run
+                    </span>
+                  )}
                 </div>
-                <div>
-                  <dt className="u-kicker">Last resolved commit</dt>
-                  <dd className="mt-1">
-                    {d.lastResolvedSha ? (
-                      <ShaChip sha={d.lastResolvedSha} shortSha={d.lastResolvedSha.slice(0, 7)} />
-                    ) : (
-                      <span className="font-mono text-[12px] text-ink-faint">
-                        none yet — start a practice run
-                      </span>
-                    )}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="u-kicker">Runtime</dt>
-                  <dd className="mt-1 font-mono text-[12px] text-ink-secondary">
-                    {d.benchmark.runtimeVersion} · CPU · network blocked during evaluation
-                  </dd>
-                </div>
-              </dl>
+                <p className="border-t border-rule-soft pt-2.5 font-mono text-[11px] text-ink-faint">
+                  {d.benchmark.runtimeVersion} · CPU · network blocked during evaluation
+                </p>
+              </div>
             ) : (
               <EmptyState message="No repository connected." />
             )}
@@ -229,7 +224,7 @@ export function DashboardPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-rule-soft">
-                {localReports.data.slice(0, 10).map((report) => {
+                {localReports.data.slice(0, 5).map((report) => {
                   const primary = report.metrics.find((metric) => metric.primary);
                   return (
                     <tr key={report.reportId}>
@@ -249,6 +244,11 @@ export function DashboardPage() {
                 })}
               </tbody>
             </table>
+            {localReports.data.length > 5 && (
+              <p className="mt-2 font-mono text-[10.5px] text-ink-faint">
+                showing the 5 newest of {localReports.data.length} synced reports
+              </p>
+            )}
           </div>
         )}
       </Panel>
@@ -358,7 +358,7 @@ function CurrentRunPanel({
       {startError && (
         <p role="alert" className="mt-3 text-[13px] text-detect-deep">
           {startError.code === "active_run_exists"
-            ? "A run is already in progress — one at a time per benchmark."
+            ? "A run is already in progress; runs go one at a time per benchmark."
             : startError.message}
         </p>
       )}
@@ -385,7 +385,7 @@ function CurrentRunPanel({
             </div>
             <ConfirmButton
               label="Promote to official"
-              confirmLabel={`Confirm — uses attempt ${d.quota.officialUsed + 1} of ${OFFICIAL_LIMIT}`}
+              confirmLabel={`Confirm, uses attempt ${d.quota.officialUsed + 1} of ${OFFICIAL_LIMIT}`}
               onConfirm={() => promote.mutate(d.latestCandidate!.id)}
               busy={promote.isPending}
               disabled={officialLeft <= 0}

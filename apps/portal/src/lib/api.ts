@@ -8,7 +8,9 @@ import {
   AdminTeamSummarySchema,
   ApiErrorSchema,
   BenchmarkSchema,
+  CohortTeamListSchema,
   ConnectionSummarySchema,
+  InvitableUserListSchema,
   DashboardSchema,
   DiscordLinkPreviewSchema,
   GithubInstallationSchema,
@@ -16,8 +18,10 @@ import {
   LeaderboardSchema,
   LocalReportListSchema,
   RunDetailSchema,
+  RunSurfaceSnapshotSchema,
   RunSummarySchema,
   SessionSchema,
+  SetupStateSchema,
   StartRunResponseSchema,
   TeamDetailSchema,
   type ApiErrorCode,
@@ -134,6 +138,25 @@ export const api = {
       body: { fullName },
     }),
 
+  setupState: () => request("/api/v1/setup/state", SetupStateSchema),
+
+  cohortTeams: () => request("/api/cohorts/teams", CohortTeamListSchema),
+  joinTeam: (teamId: string) =>
+    request("/api/team/join", TeamDetailSchema, {
+      method: "POST",
+      body: { teamId },
+    }),
+  invitableUsers: () => request("/api/team/invitable", InvitableUserListSchema),
+  addTeamMember: (login: string) =>
+    request("/api/team/members", TeamDetailSchema, {
+      method: "POST",
+      body: { login },
+    }),
+  removeTeamMember: (login: string) =>
+    request(`/api/team/members/${encodeURIComponent(login)}`, TeamDetailSchema, {
+      method: "DELETE",
+    }),
+
   adminOverview: () => request("/api/admin/overview", AdminOverviewSchema),
   adminPatchCohort: (body: { rotateJoinCode?: boolean; active?: boolean }) =>
     request("/api/admin/cohort", AdminCohortSchema, { method: "PATCH", body }),
@@ -196,6 +219,19 @@ export const api = {
     request(`/api/runs/${encodeURIComponent(runId)}/promote`, StartRunResponseSchema, {
       method: "POST",
     }),
+  runSurfaces: () =>
+    request("/api/run-surfaces", z.array(RunSurfaceSnapshotSchema)),
+  runSurface: (surfaceId: string) =>
+    request(`/api/run-surfaces/${encodeURIComponent(surfaceId)}`, RunSurfaceSnapshotSchema),
+  mutateRunSurface: (
+    surfaceId: string,
+    action: "verify_hosted" | "promote_official" | "publish_result" | "rerun_hosted",
+  ) =>
+    request(
+      `/api/run-surfaces/${encodeURIComponent(surfaceId)}/actions/${action}`,
+      RunSurfaceSnapshotSchema,
+      { method: "POST" },
+    ),
 
   leaderboard: (benchmarkId?: string) =>
     request(

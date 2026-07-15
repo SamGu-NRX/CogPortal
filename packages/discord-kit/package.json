@@ -1,0 +1,30 @@
+{
+  "name": "@cogworks/discord-kit",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    "./components": "./src/components.ts",
+    "./accents": "./src/accents.ts",
+    "./format": "./src/format.ts",
+    "./emoji": "./src/emoji.ts",
+    "./rails": "./src/rails.ts",
+    "./steps": "./src/steps.ts",
+    "./policy": "./src/policy.ts"
+  },
+  "scripts": {
+    "check": "tsc -p tsconfig.json",
+    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "emoji:render": "node scripts/render-emojis.mjs",
+    "emoji:sync": "node scripts/sync-app-emojis.mjs"
+  },
+  "dependencies": {
+    "@cogworks/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2",
+    "@types/node": "^26.1.1",
+    "gifenc": "^1.0.3",
+    "typescript": "^7.0.2"
+  }
+}

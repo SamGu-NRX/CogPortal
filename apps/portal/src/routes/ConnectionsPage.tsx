@@ -74,7 +74,7 @@ export function ConnectionsPage() {
           ) : preview.isError ? (
             <div role="alert">
               <p className="text-[14px] text-detect-deep">
-                {errorMessage(preview.error, "This Discord request cannot be used.")}
+                {errorMessage(preview.error, "This Discord request can't be used. Start a new connection from Discord.")}
               </p>
               <Button className="mt-4" variant="quiet" onClick={clearDiscordToken}>
                 Dismiss
@@ -82,13 +82,13 @@ export function ConnectionsPage() {
             </div>
           ) : (
             <div>
-              <h2 className="text-xl">Let Cog recognize {preview.data.username}?</h2>
+              <h2 className="text-xl">Connect {preview.data.username} to Cog?</h2>
               <p className="mt-2 text-[13px] text-ink-secondary">
                 Cog can privately show this account your team’s status and synced local reports. A
                 leaderboard is shared to a channel only when you choose to share it.
               </p>
               <p className="mt-3 border-l-2 border-rule pl-3 text-[12px] text-ink-faint">
-                No source code access. No GitHub token. No permission to start an official evaluation.
+                Cog receives neither source code nor your GitHub token. It can't start an official evaluation.
               </p>
               <div className="mt-5 flex flex-wrap gap-2">
                 <Button
@@ -110,7 +110,7 @@ export function ConnectionsPage() {
               </div>
               {confirmDiscord.error && (
                 <p role="alert" className="mt-3 text-[13px] text-detect-deep">
-                  {errorMessage(confirmDiscord.error, "Discord could not be linked.")}
+                  {errorMessage(confirmDiscord.error, "Discord couldn't be connected. Try again.")}
                 </p>
               )}
             </div>
@@ -123,12 +123,12 @@ export function ConnectionsPage() {
           label="CONNECTION COMPLETE"
           tone="good"
           className="anim-rise mt-8"
-          aside={<span aria-hidden="true" className="font-mono text-[11px] text-verify-deep">✓ LINKED</span>}
+          aside={<span aria-hidden="true" className="font-mono text-[11px] text-verify-deep">LINKED</span>}
         >
           <h2 className="text-xl">You’re connected.</h2>
           <p className="mt-2 max-w-lg text-[13px] text-ink-secondary">
-            Cog now recognizes <strong className="font-medium text-ink">{linkedDiscord}</strong>.
-            Return to Discord and choose <strong className="font-medium text-ink">I’ve connected</strong>—your
+            Cog is now connected to <strong className="font-medium text-ink">{linkedDiscord}</strong>.
+            Return to Discord and choose <strong className="font-medium text-ink">I’ve connected</strong>. Your
             team bench will appear in the same message.
           </p>
         </Panel>
@@ -171,7 +171,7 @@ export function ConnectionsPage() {
             </Button>
             {approveDevice.error && (
               <p role="alert" className="mt-3 text-[13px] text-detect-deep">
-                {errorMessage(approveDevice.error, "The device could not be approved.")}
+                {errorMessage(approveDevice.error, "The device couldn't be approved. Try again.")}
               </p>
             )}
           </form>
