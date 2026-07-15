@@ -28,6 +28,7 @@ export function ConnectionsPage() {
   const connections = useConnections();
   const [searchParams] = useSearchParams();
   const [discordToken, setDiscordToken] = useState<string | null>(() => fragmentToken());
+  const [linkedDiscord, setLinkedDiscord] = useState<string | null>(null);
   const [deviceName, setDeviceName] = useState("CogBench CLI");
   const [deviceApproved, setDeviceApproved] = useState(false);
   const preview = useDiscordLinkPreview(discordToken);
@@ -38,11 +39,10 @@ export function ConnectionsPage() {
   const userCode = useMemo(() => searchParams.get("user_code")?.toUpperCase() ?? null, [searchParams]);
 
   useEffect(() => {
-    if (!discordToken) return;
     const onHashChange = () => setDiscordToken(fragmentToken());
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);
-  }, [discordToken]);
+  }, []);
 
   if (connections.isPending) return <LoadingMark label="Loading connections" />;
   if (connections.isError) {
@@ -82,21 +82,27 @@ export function ConnectionsPage() {
             </div>
           ) : (
             <div>
-              <h2 className="text-xl">Link Discord account {preview.data.username}?</h2>
+              <h2 className="text-xl">Let Cog recognize {preview.data.username}?</h2>
               <p className="mt-2 text-[13px] text-ink-secondary">
-                The course bot will be able to show this account your team’s status and synced local
-                reports. It cannot access your source code or start an official evaluation.
+                Cog can privately show this account your team’s status and synced local reports. A
+                leaderboard is shared to a channel only when you choose to share it.
+              </p>
+              <p className="mt-3 border-l-2 border-rule pl-3 text-[12px] text-ink-faint">
+                No source code access. No GitHub token. No permission to start an official evaluation.
               </p>
               <div className="mt-5 flex flex-wrap gap-2">
                 <Button
                   busy={confirmDiscord.isPending}
                   onClick={() =>
                     confirmDiscord.mutate(discordToken, {
-                      onSuccess: clearDiscordToken,
+                      onSuccess: (summary) => {
+                        setLinkedDiscord(summary.discord?.username ?? preview.data.username);
+                        clearDiscordToken();
+                      },
                     })
                   }
                 >
-                  Link Discord
+                  Connect Discord
                 </Button>
                 <Button variant="quiet" onClick={clearDiscordToken}>
                   Cancel
@@ -109,6 +115,22 @@ export function ConnectionsPage() {
               )}
             </div>
           )}
+        </Panel>
+      )}
+
+      {linkedDiscord && (
+        <Panel
+          label="CONNECTION COMPLETE"
+          tone="good"
+          className="anim-rise mt-8"
+          aside={<span aria-hidden="true" className="font-mono text-[11px] text-verify-deep">✓ LINKED</span>}
+        >
+          <h2 className="text-xl">You’re connected.</h2>
+          <p className="mt-2 max-w-lg text-[13px] text-ink-secondary">
+            Cog now recognizes <strong className="font-medium text-ink">{linkedDiscord}</strong>.
+            Return to Discord and choose <strong className="font-medium text-ink">I’ve connected</strong>—your
+            team bench will appear in the same message.
+          </p>
         </Panel>
       )}
 
@@ -192,7 +214,8 @@ export function ConnectionsPage() {
             </div>
           ) : (
             <p className="text-[13px] text-ink-secondary">
-              Not linked. In the course server, run <code>/cog link</code> to begin.
+              Not linked. In the course server, open <code>/cog</code> and Cog will offer a private
+              connection link.
             </p>
           )}
         </Panel>

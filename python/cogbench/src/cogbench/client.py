@@ -67,3 +67,20 @@ def poll_device_link(portal: str, device_code: str, interval: int, expires_at: i
 def sync_report(portal: str, token: str, report: Dict[str, Any]) -> Dict[str, Any]:
     report.pop("outputDigest", None)
     return request_json(portal, "/api/v1/local-reports", report, token=token)
+
+
+def start_local_run(
+    portal: str, token: str, run: Dict[str, Any]
+) -> Dict[str, Any]:
+    return request_json(portal, "/api/v1/local-runs", run, token=token)
+
+
+def send_local_run_event(
+    portal: str, token: str, session_id: str, event: Dict[str, Any]
+) -> Dict[str, Any]:
+    return request_json(
+        portal,
+        "/api/v1/local-runs/{}/events".format(session_id),
+        event,
+        token=token,
+    )

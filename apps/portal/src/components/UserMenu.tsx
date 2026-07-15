@@ -1,5 +1,6 @@
 import {
   ArrowDown01Icon,
+  CrownIcon,
   DashboardSquare01Icon,
   LinkSquare01Icon,
   Logout02Icon,
@@ -122,8 +123,18 @@ export function UserMenu({
             {user.login[0]}
           </span>
         )}
-        <span className="hidden font-mono text-[12px] text-ink sm:inline">
-          {firstName(user.name, user.login)}
+        <span className="hidden items-center gap-1.5 font-mono text-[12px] text-ink sm:flex">
+          <span>{firstName(user.name, user.login)}</span>
+          {user.isOwner ? (
+            <span
+              role="img"
+              aria-label="CogPortal owner"
+              title="CogPortal owner"
+              className="text-[#b7791f]"
+            >
+              <HugeiconsIcon icon={CrownIcon} size={15} strokeWidth={1.9} aria-hidden="true" />
+            </span>
+          ) : null}
         </span>
         <motion.span
           aria-hidden="true"

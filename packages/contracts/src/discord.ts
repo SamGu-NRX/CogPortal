@@ -20,6 +20,8 @@ export const DiscordTeamStatusSchema = z.discriminatedUnion("linked", [
     linked: z.literal(true),
     githubLogin: z.string(),
     team: TeamSchema.nullable(),
+    discordChannelId: z.string().nullable(),
+    canManageDiscordChannel: z.boolean(),
     activeRun: RunSummarySchema.nullable(),
     latestHosted: RunSummarySchema.nullable(),
     latestOfficial: RunSummarySchema.nullable(),
@@ -47,5 +49,10 @@ export interface PortalRpcContract {
     discordUserId: string,
     discordUsername: string,
   ): Promise<DiscordLinkStart>;
+  bindTeamChannel(
+    guildId: string,
+    discordUserId: string,
+    channelId: string,
+  ): Promise<DiscordTeamStatus>;
   unlinkDiscord(guildId: string, discordUserId: string): Promise<{ unlinked: boolean }>;
 }

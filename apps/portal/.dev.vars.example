@@ -16,9 +16,14 @@ GITHUB_WEBHOOK_SECRET=""
 # Optional owner/repo allowlist for the course template.
 GITHUB_TEMPLATE_REPO=""
 GITHUB_TEMPLATE_REPO_ID=""
+PLATFORM_STAFF_LOGINS=""
+PLATFORM_OWNER_LOGINS=""
 
 # Discord service-binding policy and Modal runner callback signing.
 COURSE_GUILD_ID=""
+# Required only for live team run bubbles. Keep this in .dev.vars locally and
+# set it with `wrangler secret put DISCORD_BOT_TOKEN` in deployed environments.
+DISCORD_BOT_TOKEN=""
 PUBLIC_ORIGIN="http://localhost:5173"
 RUNNER_SIGNING_KEY_ID="runner-v1"
 RUNNER_SIGNING_SECRET=""

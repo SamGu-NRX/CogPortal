@@ -29,7 +29,8 @@ flowchart LR
     GitHub --> Portal
     Discord --> Bot
     Bot -->|"typed private RPC"| Portal
-    CLI -->|"explicit structured report sync"| Portal
+    CLI -->|"explicit report or live lifecycle sync"| Portal
+    Portal -->|"create once; edit by message ID"| Discord
     Portal --> DB
     Portal --> Queue
     Queue -->|"signed RunJob v1"| Controller
@@ -59,17 +60,27 @@ label. Local reports have no run ID and no route into promotion or quotas.
 
 ## Identity linking
 
-GitHub OAuth creates the primary CogPortal user. `/cog link` creates a hashed,
+GitHub OAuth creates the primary CogPortal user. Opening `/cog` while unlinked creates a hashed,
 single-use, ten-minute token associated with a Discord user. The raw token is
 placed in the URL fragment, so it is not sent in HTTP requests or ordinary
 server logs. CogPortal shows the Discord identity and requires explicit user
-confirmation before inserting the link.
+confirmation before inserting the link. The original ephemeral Discord surface
+includes an **I've connected** action so the student can complete the handoff
+without learning another command.
 
 `cogbench link` uses a device authorization flow. The terminal receives a
 high-entropy device code, the browser displays a short user code, and the
 signed-in user approves a named device. Only a hash of the resulting scoped
 token is stored in D1. Tokens expire after 60 days and can be revoked on the
 Connections page.
+
+Discord and CLI linking require the GitHub-authenticated user to have already
+joined a cohort and a team with a connected repository. A team creator or
+maintainer explicitly maps one Discord channel from the private `/cog`
+surface. `cogbench run --live` then posts four sequenced, idempotent lifecycle
+events to CogPortal. CogPortal stores the message ID and edits that single
+Components V2 bubble; the CLI never receives a Discord token and never talks
+to Discord directly. A failed Discord delivery cannot fail the local run.
 
 ## Execution lifecycle
 

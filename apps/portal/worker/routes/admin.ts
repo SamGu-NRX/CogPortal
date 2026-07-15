@@ -1,15 +1,17 @@
 import type { Hono } from "hono";
-import { and, asc, count, desc, eq, isNull } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 import {
   AdminAddMemberRequestSchema,
+  AdminAssignTaRequestSchema,
   AdminCohortPatchSchema,
   AdminOverviewSchema,
   AdminTeamSummarySchema,
   UpdateTeamRequestSchema,
 } from "@cogworks/contracts/schema";
 import type { AdminTeamSummary, TeamMember } from "@cogworks/contracts/schema";
-import { requireStaff } from "../auth/roles";
+import { isPlatformOwner, requireStaff } from "../auth/roles";
+import type { AuthState } from "../auth/session";
 import type { Database } from "../db/client";
 import { getDb } from "../db/client";
 import type { AppEnv } from "../env";
@@ -20,6 +22,7 @@ import {
   runMetrics,
   runs,
   teamMembers,
+  teamTas,
   teams,
   users,
 } from "../db/schema";
@@ -42,7 +45,7 @@ async function getAdminTeamSummary(
   db: Database,
   teamId: string,
 ): Promise<AdminTeamSummary> {
-  const [[team], members, [practice], [official], [published]] = await Promise.all([
+  const [[team], members, tas, [practice], [official], [published]] = await Promise.all([
     db.select().from(teams).where(eq(teams.id, teamId)).limit(1),
     db
       .select({
@@ -53,6 +56,16 @@ async function getAdminTeamSummary(
       .from(teamMembers)
       .innerJoin(users, eq(teamMembers.userId, users.id))
       .where(eq(teamMembers.teamId, teamId)),
+    db
+      .select({
+        login: users.githubLogin,
+        name: users.name,
+        avatarUrl: users.avatarUrl,
+      })
+      .from(teamTas)
+      .innerJoin(users, eq(teamTas.userId, users.id))
+      .where(eq(teamTas.teamId, teamId))
+      .orderBy(asc(users.githubLogin)),
     db
       .select({ value: count() })
       .from(runs)
@@ -96,10 +109,47 @@ async function getAdminTeamSummary(
     name: team.name,
     repoFullName: team.repoFullName,
     members: serializedMembers,
+    tas,
     practiceUsed: practice?.value ?? 0,
     officialUsed: official?.value ?? 0,
     publishedScore: published?.value ?? null,
   };
+}
+
+type AdminScope = {
+  auth: AuthState;
+  isOwner: boolean;
+  teamIds: string[];
+};
+
+async function getAdminScope(c: Parameters<typeof requireStaff>[0]): Promise<AdminScope> {
+  const auth = await requireStaff(c);
+  const isOwner = isPlatformOwner(c.env, auth.user.githubLogin);
+  if (isOwner) return { auth, isOwner, teamIds: [] };
+  const assignments = await getDb(c.env)
+    .select({ teamId: teamTas.teamId })
+    .from(teamTas)
+    .where(eq(teamTas.userId, auth.user.id));
+  return { auth, isOwner, teamIds: assignments.map((assignment) => assignment.teamId) };
+}
+
+async function requireOwner(c: Parameters<typeof requireStaff>[0]): Promise<AuthState> {
+  const scope = await getAdminScope(c);
+  if (!scope.isOwner) {
+    throw new ApiHttpError(403, "forbidden", "Owner access required.");
+  }
+  return scope.auth;
+}
+
+async function requireTeamScope(
+  c: Parameters<typeof requireStaff>[0],
+  teamId: string,
+): Promise<AdminScope> {
+  const scope = await getAdminScope(c);
+  if (!scope.isOwner && !scope.teamIds.includes(teamId)) {
+    throw new ApiHttpError(403, "forbidden", "This team is not assigned to you.");
+  }
+  return scope;
 }
 
 async function getManagedCohort(db: Database) {
@@ -121,12 +171,16 @@ function newJoinCode(): string {
 
 export function registerAdminRoutes(app: Hono<AppEnv>): void {
   app.get("/admin/overview", async (c) => {
-    await requireStaff(c);
+    const scope = await getAdminScope(c);
     const db = getDb(c.env);
     const cohort = await getManagedCohort(db);
-    const [teamRows, unassigned] = await Promise.all([
-      db.select({ id: teams.id }).from(teams).where(eq(teams.cohortId, cohort.id)).orderBy(asc(teams.name)),
-      db
+    const teamRows = scope.isOwner
+      ? await db.select({ id: teams.id }).from(teams).where(eq(teams.cohortId, cohort.id)).orderBy(asc(teams.name))
+      : scope.teamIds.length > 0
+        ? await db.select({ id: teams.id }).from(teams).where(and(eq(teams.cohortId, cohort.id), inArray(teams.id, scope.teamIds))).orderBy(asc(teams.name))
+        : [];
+    const unassigned = scope.isOwner
+      ? await db
         .select({
           login: users.githubLogin,
           name: users.name,
@@ -135,16 +189,17 @@ export function registerAdminRoutes(app: Hono<AppEnv>): void {
         .from(users)
         .leftJoin(teamMembers, eq(teamMembers.userId, users.id))
         .where(and(eq(users.cohortId, cohort.id), isNull(teamMembers.teamId)))
-        .orderBy(asc(users.githubLogin)),
-    ]);
+        .orderBy(asc(users.githubLogin))
+      : [];
     const summaries = await Promise.all(
       teamRows.map((team) => getAdminTeamSummary(db, team.id)),
     );
     return respond(c, AdminOverviewSchema, {
+      scope: scope.isOwner ? "owner" : "ta",
       cohort: {
         slug: cohort.slug,
         name: cohort.name,
-        joinCode: cohort.joinCode,
+        joinCode: scope.isOwner ? cohort.joinCode : null,
         active: cohort.active,
       },
       teams: summaries,
@@ -153,7 +208,7 @@ export function registerAdminRoutes(app: Hono<AppEnv>): void {
   });
 
   app.patch("/admin/cohort", async (c) => {
-    await requireStaff(c);
+    await requireOwner(c);
     const body = await parseBody(c, AdminCohortPatchSchema);
     const db = getDb(c.env);
     const cohort = await getManagedCohort(db);
@@ -173,10 +228,10 @@ export function registerAdminRoutes(app: Hono<AppEnv>): void {
   });
 
   app.patch("/admin/teams/:teamId", async (c) => {
-    await requireStaff(c);
     const body = await parseBody(c, UpdateTeamRequestSchema);
     const db = getDb(c.env);
     const teamId = c.req.param("teamId");
+    await requireTeamScope(c, teamId);
     const [team] = await db.select({ id: teams.id }).from(teams).where(eq(teams.id, teamId)).limit(1);
     if (!team) throw new ApiHttpError(404, "not_found", "Team not found.");
     const updates: { name?: string; description?: string | null } = {};
@@ -187,10 +242,10 @@ export function registerAdminRoutes(app: Hono<AppEnv>): void {
   });
 
   app.post("/admin/teams/:teamId/members", async (c) => {
-    await requireStaff(c);
     const body = await parseBody(c, AdminAddMemberRequestSchema);
     const db = getDb(c.env);
     const teamId = c.req.param("teamId");
+    await requireTeamScope(c, teamId);
     const [[team], [user]] = await Promise.all([
       db.select({ id: teams.id }).from(teams).where(eq(teams.id, teamId)).limit(1),
       db.select({ id: users.id }).from(users).where(eq(users.githubLogin, body.login)).limit(1),
@@ -209,9 +264,9 @@ export function registerAdminRoutes(app: Hono<AppEnv>): void {
   });
 
   app.delete("/admin/teams/:teamId/members/:login", async (c) => {
-    await requireStaff(c);
     const db = getDb(c.env);
     const teamId = c.req.param("teamId");
+    await requireTeamScope(c, teamId);
     const [team] = await db.select({ id: teams.id }).from(teams).where(eq(teams.id, teamId)).limit(1);
     if (!team) throw new ApiHttpError(404, "not_found", "Team not found.");
     const [user] = await db
@@ -223,6 +278,40 @@ export function registerAdminRoutes(app: Hono<AppEnv>): void {
       await db
         .delete(teamMembers)
         .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, user.id)));
+    }
+    return respond(c, AdminTeamSummarySchema, await getAdminTeamSummary(db, teamId));
+  });
+
+  app.post("/admin/teams/:teamId/tas", async (c) => {
+    await requireOwner(c);
+    const body = await parseBody(c, AdminAssignTaRequestSchema);
+    const db = getDb(c.env);
+    const teamId = c.req.param("teamId");
+    const [[team], [user]] = await Promise.all([
+      db.select({ id: teams.id }).from(teams).where(eq(teams.id, teamId)).limit(1),
+      db.select({ id: users.id }).from(users).where(eq(users.githubLogin, body.login)).limit(1),
+    ]);
+    if (!team || !user) {
+      throw new ApiHttpError(404, "not_found", !team ? "Team not found." : "User must sign in before being assigned as a TA.");
+    }
+    await db
+      .insert(teamTas)
+      .values({ teamId, userId: user.id, assignedAt: Date.now() })
+      .onConflictDoNothing();
+    return respond(c, AdminTeamSummarySchema, await getAdminTeamSummary(db, teamId));
+  });
+
+  app.delete("/admin/teams/:teamId/tas/:login", async (c) => {
+    await requireOwner(c);
+    const db = getDb(c.env);
+    const teamId = c.req.param("teamId");
+    const [user] = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.githubLogin, c.req.param("login")))
+      .limit(1);
+    if (user) {
+      await db.delete(teamTas).where(and(eq(teamTas.teamId, teamId), eq(teamTas.userId, user.id)));
     }
     return respond(c, AdminTeamSummarySchema, await getAdminTeamSummary(db, teamId));
   });

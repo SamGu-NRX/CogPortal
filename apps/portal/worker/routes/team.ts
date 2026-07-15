@@ -12,7 +12,7 @@ import { githubConfigured } from "../env";
 import { requireTeam } from "../auth/session";
 import { getDb } from "../db/client";
 import type { Database } from "../db/client";
-import { runs, teamMembers, teams, users } from "../db/schema";
+import { runs, teamMembers, teamTas, teams, users } from "../db/schema";
 import type { AuthState } from "../auth/session";
 import type { TeamRow } from "../db/schema";
 import { RealGitHubClient } from "../github/client";
@@ -33,7 +33,7 @@ async function getTeamDetail(
   teamId: string,
   callerId: string,
 ): Promise<TeamDetail> {
-  const [[team], members, [callerMembership]] = await Promise.all([
+  const [[team], members, tas, [callerMembership]] = await Promise.all([
     db.select().from(teams).where(eq(teams.id, teamId)).limit(1),
     db
       .select({
@@ -46,6 +46,16 @@ async function getTeamDetail(
       .innerJoin(users, eq(teamMembers.userId, users.id))
       .where(eq(teamMembers.teamId, teamId))
       .orderBy(asc(teamMembers.role), asc(users.githubLogin)),
+    db
+      .select({
+        login: users.githubLogin,
+        name: users.name,
+        avatarUrl: users.avatarUrl,
+      })
+      .from(teamTas)
+      .innerJoin(users, eq(teamTas.userId, users.id))
+      .where(eq(teamTas.teamId, teamId))
+      .orderBy(asc(users.githubLogin)),
     db
       .select({ role: teamMembers.role })
       .from(teamMembers)
@@ -76,6 +86,7 @@ async function getTeamDetail(
       avatarUrl: member.avatarUrl,
       role: memberRole(member.role),
     })),
+    tas,
     isAdmin: callerMembership?.role === "admin",
   };
 }

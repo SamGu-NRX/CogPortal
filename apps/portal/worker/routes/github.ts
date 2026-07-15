@@ -241,7 +241,7 @@ export function registerGithubRoutes(app: Hono<AppEnv>): void {
       permission,
       body.teamName,
     );
-    return respond(c, SessionSchema, authToSession(c.env, await getAuth(c)));
+    return respond(c, SessionSchema, await authToSession(c.env, await getAuth(c)));
   });
 
   app.get("/github/installations", async (c) => {

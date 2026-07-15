@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import type {
   DiscordLocalReports,
   DiscordTeamStatus,
@@ -45,11 +45,24 @@ export async function getDiscordTeamStatus(
       linked: true,
       githubLogin: identity.githubLogin,
       team: null,
+      discordChannelId: null,
+      canManageDiscordChannel: false,
       activeRun: null,
       latestHosted: null,
       latestOfficial: null,
     };
   }
+
+  const [member] = await db
+    .select({ role: teamMembers.role })
+    .from(teamMembers)
+    .where(
+      and(
+        eq(teamMembers.teamId, membership.team.id),
+        eq(teamMembers.userId, identity.userId),
+      ),
+    )
+    .limit(1);
 
   const teamRuns = await syncTeamRuns(db, membership.team.id);
   const ordered = [...teamRuns].sort((left, right) => right.createdAt - left.createdAt);
@@ -60,10 +73,44 @@ export async function getDiscordTeamStatus(
     linked: true,
     githubLogin: identity.githubLogin,
     team: serializeTeam(membership.team),
+    discordChannelId: membership.team.discordChannelId,
+    canManageDiscordChannel: member?.role === "admin" || member?.role === "maintain",
     activeRun: active ? await serializeRunSummary(db, active) : null,
     latestHosted: hosted ? await serializeRunSummary(db, hosted) : null,
     latestOfficial: official ? await serializeRunSummary(db, official) : null,
   };
+}
+
+export async function bindDiscordTeamChannel(
+  env: Env,
+  discordUserId: string,
+  channelId: string,
+): Promise<DiscordTeamStatus> {
+  if (!/^\d{10,24}$/.test(channelId)) throw new Error("Discord channel ID is invalid.");
+  const identity = await discordIdentity(env, discordUserId);
+  if (!identity) throw new Error("Link Discord to your CogPortal account first.");
+  const db = getDb(env);
+  const [membership] = await db
+    .select({ team: teams, role: teamMembers.role })
+    .from(teamMembers)
+    .innerJoin(teams, eq(teamMembers.teamId, teams.id))
+    .where(eq(teamMembers.userId, identity.userId))
+    .limit(1);
+  if (!membership) throw new Error("Finish joining a team and connecting its repository first.");
+  if (membership.role !== "admin" && membership.role !== "maintain") {
+    throw new Error("A team creator or maintainer needs to choose the team channel.");
+  }
+  const [claimed] = await db
+    .select({ name: teams.name })
+    .from(teams)
+    .where(and(eq(teams.discordChannelId, channelId), ne(teams.id, membership.team.id)))
+    .limit(1);
+  if (claimed) throw new Error(`That channel already belongs to ${claimed.name}.`);
+  await db
+    .update(teams)
+    .set({ discordChannelId: channelId })
+    .where(eq(teams.id, membership.team.id));
+  return getDiscordTeamStatus(env, discordUserId);
 }
 
 export async function getDiscordLocalReports(

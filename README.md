@@ -58,18 +58,29 @@ cohort code is `VISION26`. After the monorepo move, an old root-level
 `.dev.vars` is intentionally not loaded; copy only the values you still need
 into `apps/portal/.dev.vars`.
 
-Install the local Python packages in a virtual environment:
+For the student-style path, install the local packages into the already active
+CogWorks prerequisite environment. Your environment may be named
+`cogworks_week1`, `week1`, or `week2`; the name is not part of the contract.
 
 ```sh
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -e python/cogbench -e benchmarks/vision-recognition
+conda activate cogworks_week1
+python -m pip install -e python/cogbench -e benchmarks/vision-recognition -e examples/week2-vision-submission
 cogbench doctor --benchmark vision-recognition
+cogbench test --benchmark vision-recognition
+cogbench run --benchmark vision-recognition
+cogbench report
 ```
 
 CogBench local commands do not require a CogPortal account or network after
-the project and plugin are installed. `cogbench link` and `cogbench sync` are
-optional, explicit actions.
+the project and plugins are installed. The bundled submission is a synthetic
+development example, not a student capstone implementation; real student
+templates remain separately owned repositories. `cogbench link` and
+`cogbench sync` are optional, explicit actions.
+
+Using `python -m pip` and a single-line install command keeps the instructions
+the same in macOS/Linux shells, Windows Command Prompt, and PowerShell. Platform
+developers who do not use the course conda environment may use any Python 3.8+
+virtual environment instead.
 
 ## Verification
 
@@ -80,10 +91,10 @@ pnpm db:migrate:local
 pnpm build
 ```
 
-The Discord worker scripts include a narrow staging workaround because the
-literal `*` in this repository directory name is otherwise interpreted as an
-entry glob by Wrangler/esbuild. It keeps one live source tree, uses a temporary
-path without metacharacters, and removes that path when Wrangler exits.
+The Discord worker scripts retain a narrow staging workaround for checkouts
+whose parent directories contain glob metacharacters. It keeps one live source
+tree, uses a temporary path without metacharacters, and removes that path when
+Wrangler exits.
 
 ## Non-negotiable boundaries
 

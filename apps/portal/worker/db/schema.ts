@@ -52,9 +52,11 @@ export const teams = sqliteTable(
     defaultBranch: text("default_branch").notNull(),
     repoId: integer("repo_id"),
     templateSourceRepoId: integer("template_source_repo_id"),
+    discordChannelId: text("discord_channel_id"),
   },
   (table) => [
     uniqueIndex("teams_cohort_repo_unique").on(table.cohortId, table.repoFullName),
+    uniqueIndex("teams_discord_channel_unique").on(table.discordChannelId),
   ],
 );
 
@@ -64,6 +66,16 @@ export const teamMembers = sqliteTable(
     teamId: text("team_id").notNull().references(() => teams.id),
     userId: text("user_id").notNull().references(() => users.id),
     role: text("role").notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.teamId, table.userId] })],
+);
+
+export const teamTas = sqliteTable(
+  "team_tas",
+  {
+    teamId: text("team_id").notNull().references(() => teams.id),
+    userId: text("user_id").notNull().references(() => users.id),
+    assignedAt: integer("assigned_at").notNull(),
   },
   (table) => [primaryKey({ columns: [table.teamId, table.userId] })],
 );
@@ -220,6 +232,31 @@ export const localReports = sqliteTable("local_reports", {
   syncedAt: integer("synced_at").notNull(),
 });
 
+export const localRunSessions = sqliteTable("local_run_sessions", {
+  id: text("id").primaryKey(),
+  teamId: text("team_id").notNull().references(() => teams.id),
+  userId: text("user_id").notNull().references(() => users.id),
+  deviceId: text("device_id").notNull().references(() => cliDevices.id),
+  benchmarkId: text("benchmark_id").notNull(),
+  benchmarkVersion: integer("benchmark_version").notNull(),
+  repositoryId: integer("repository_id"),
+  repositoryFullName: text("repository_full_name").notNull(),
+  sha: text("sha").notNull(),
+  dirty: integer("dirty", { mode: "boolean" }).notNull(),
+  status: text("status", { enum: ["running", "succeeded", "failed"] }).notNull(),
+  phase: text("phase", {
+    enum: ["preparing", "contract_check", "evaluating", "scoring"],
+  }).notNull(),
+  failureDetail: text("failure_detail"),
+  reportId: text("report_id").references(() => localReports.reportId),
+  discordChannelId: text("discord_channel_id"),
+  discordMessageId: text("discord_message_id"),
+  lastEventSequence: integer("last_event_sequence").notNull().default(-1),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+  finishedAt: integer("finished_at"),
+});
+
 export const runEvents = sqliteTable(
   "run_events",
   {
@@ -311,6 +348,7 @@ export const schema = {
   sessions,
   teams,
   teamMembers,
+  teamTas,
   benchmarks,
   runs,
   runPhases,
@@ -323,6 +361,7 @@ export const schema = {
   deviceAuthorizations,
   cliDevices,
   localReports,
+  localRunSessions,
   runEvents,
   outboxEvents,
 };

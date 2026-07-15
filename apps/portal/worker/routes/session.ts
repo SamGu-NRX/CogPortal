@@ -19,7 +19,7 @@ import { newId } from "../util/id";
 
 export function registerSessionRoutes(app: Hono<AppEnv>): void {
   app.get("/session", async (c) =>
-    respond(c, SessionSchema, authToSession(c.env, await getAuth(c))),
+    respond(c, SessionSchema, await authToSession(c.env, await getAuth(c))),
   );
 
   app.post("/dev/login", async (c) => {
@@ -64,7 +64,7 @@ export function registerSessionRoutes(app: Hono<AppEnv>): void {
 
     await createSession(c, userId);
     // The cookie was set on the RESPONSE — read auth by id, not from getAuth.
-    return respond(c, SessionSchema, authToSession(c.env, await getAuthForUser(c, userId)));
+    return respond(c, SessionSchema, await authToSession(c.env, await getAuthForUser(c, userId)));
   });
 
   app.post("/session/logout", async (c) => {

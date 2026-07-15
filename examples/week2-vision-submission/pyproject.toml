@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cogworks-week2-vision-submission"
+version = "0.1.0"
+description = "Development submission adapter for the CogWorks Week 2 vision benchmark"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+
+[project.entry-points."cogworks.submissions.v1"]
+vision-recognition = "cogworks_week2_submission:Week2VisionSubmission"
+
+[tool.setuptools.packages.find]
+where = ["src"]

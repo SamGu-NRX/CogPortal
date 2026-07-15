@@ -85,6 +85,18 @@ function parseRepository(value: unknown): GitHubRepository {
   };
 }
 
+function compareRepositoriesByRecency(
+  left: GitHubRepository,
+  right: GitHubRepository,
+): number {
+  const leftPushedAt = left.pushedAt ?? Number.NEGATIVE_INFINITY;
+  const rightPushedAt = right.pushedAt ?? Number.NEGATIVE_INFINITY;
+  if (leftPushedAt !== rightPushedAt) return rightPushedAt - leftPushedAt;
+  return `${left.owner.login}/${left.name}`.localeCompare(
+    `${right.owner.login}/${right.name}`,
+  );
+}
+
 function repoParts(fullName: string): [string, string] {
   const parts = fullName.split("/");
   if (parts.length !== 2 || !parts[0] || !parts[1]) {
@@ -204,7 +216,11 @@ export class RealGitHubClient implements GitHubClient {
         }
       }),
     );
-    const repositories = repositoryLists.flat().filter((repo) => !repo.private).slice(0, 50);
+    const repositories = repositoryLists
+      .flat()
+      .filter((repo) => !repo.private)
+      .sort(compareRepositoriesByRecency)
+      .slice(0, 50);
     return Promise.all(
       repositories.map(async (repo) => {
         const fullName = `${repo.owner.login}/${repo.name}`;

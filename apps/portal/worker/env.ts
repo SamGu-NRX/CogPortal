@@ -9,6 +9,8 @@ export interface Env {
   EXECUTION_PROVIDER: "fixture" | "modal";
   PUBLIC_ORIGIN?: string;
   COURSE_GUILD_ID?: string;
+  /** Secret used only for posting/editing team run bubbles via Discord REST. */
+  DISCORD_BOT_TOKEN?: string;
   RUN_QUEUE?: Queue<RunJobV1>;
   MODAL_RUNNER_URL?: string;
   RUNNER_SIGNING_SECRET?: string;
@@ -33,6 +35,9 @@ export interface Env {
   /** Comma-separated GitHub logins with staff (TA/instructor) access.
    *  Platform role is derived from this list at request time — no DB state. */
   PLATFORM_STAFF_LOGINS?: string;
+  /** Comma-separated GitHub logins shown as CogPortal owners. Owners also
+   *  receive staff access, so the two allowlists need not be duplicated. */
+  PLATFORM_OWNER_LOGINS?: string;
 }
 
 export function githubConfigured(env: Env): boolean {

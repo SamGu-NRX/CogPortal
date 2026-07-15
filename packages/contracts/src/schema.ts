@@ -196,6 +196,11 @@ export const SessionSchema = z.object({
       name: z.string().nullable(),
       avatarUrl: z.string().nullable(),
       platformRole: PlatformRoleSchema,
+      /** Product ownership is distinct from staff authorization; multiple
+       *  owners may be configured for a deployment. */
+      isOwner: z.boolean(),
+      /** True when this user is assigned to at least one project team as TA. */
+      isTa: z.boolean(),
     })
     .nullable(),
   cohort: z.object({ slug: z.string(), name: z.string() }).nullable(),
@@ -303,6 +308,65 @@ export type LocalReport = z.infer<typeof LocalReportSchema>;
 
 export const LocalReportListSchema = z.array(LocalReportSchema);
 
+/** Public-to-the-team lifecycle for an explicitly shared local CogBench run.
+ *  These phases describe the student process; they are intentionally smaller
+ *  than the hosted runner pipeline. */
+export const LOCAL_RUN_PHASES = [
+  "preparing",
+  "contract_check",
+  "evaluating",
+  "scoring",
+] as const;
+export const LocalRunPhaseSchema = z.enum(LOCAL_RUN_PHASES);
+export type LocalRunPhase = z.infer<typeof LocalRunPhaseSchema>;
+
+export const StartLocalRunRequestSchema = z.object({
+  clientRunId: z.string().regex(/^localrun_[a-f0-9]{32}$/),
+  benchmarkId: z.string().min(1).max(120),
+  benchmarkVersion: z.number().int().positive(),
+  repositoryId: z.number().int().positive().nullable(),
+  repositoryFullName: z.string().regex(/^[^/\s]+\/[^/\s]+$/),
+  sha: z.string().regex(/^[a-f0-9]{40}$/),
+  dirty: z.boolean(),
+});
+export type StartLocalRunRequest = z.infer<typeof StartLocalRunRequestSchema>;
+
+export const StartLocalRunResponseSchema = z.object({
+  sessionId: z.string().min(1).max(128),
+  discord: z.enum(["published", "channel_unbound", "unavailable"]),
+});
+export type StartLocalRunResponse = z.infer<typeof StartLocalRunResponseSchema>;
+
+const LocalRunEventBaseSchema = z.object({
+  eventId: z.string().min(8).max(128),
+  sequence: z.number().int().nonnegative(),
+  occurredAt: z.number().int().positive(),
+});
+
+export const LocalRunEventSchema = z.discriminatedUnion("type", [
+  LocalRunEventBaseSchema.extend({
+    type: z.literal("progress"),
+    phase: LocalRunPhaseSchema,
+  }),
+  LocalRunEventBaseSchema.extend({
+    type: z.literal("completed"),
+    report: LocalReportInputSchema,
+  }),
+  LocalRunEventBaseSchema.extend({
+    type: z.literal("failed"),
+    phase: LocalRunPhaseSchema,
+    detail: z.string().trim().min(1).max(240),
+  }),
+]);
+export type LocalRunEvent = z.infer<typeof LocalRunEventSchema>;
+
+export const LocalRunEventResponseSchema = z.object({
+  ok: z.literal(true),
+  duplicate: z.boolean(),
+  discord: z.enum(["updated", "not_published", "unavailable"]),
+});
+export type LocalRunEventResponse = z.infer<typeof LocalRunEventResponseSchema>;
+
 /* ── Composite payloads ───────────────────────────────────────────────── */
 
 export const SelectionSchema = z.object({
@@ -389,6 +453,13 @@ export const TeamDetailSchema = z.object({
   description: z.string().nullable(),
   repo: RepoRefSchema,
   members: z.array(TeamMemberSchema),
+  tas: z.array(
+    z.object({
+      login: z.string(),
+      name: z.string().nullable(),
+      avatarUrl: z.string().nullable(),
+    }),
+  ),
   /** Caller created the team (first to connect the repo) → may rename. */
   isAdmin: z.boolean(),
 });
@@ -458,6 +529,13 @@ export const AdminTeamSummarySchema = z.object({
       role: z.enum(["admin", "maintain", "write"]),
     }),
   ),
+  tas: z.array(
+    z.object({
+      login: z.string(),
+      name: z.string().nullable(),
+      avatarUrl: z.string().nullable(),
+    }),
+  ),
   practiceUsed: z.number().int(),
   officialUsed: z.number().int(),
   /** Currently published primary metric value, when a selection exists. */
@@ -467,10 +545,12 @@ export type AdminTeamSummary = z.infer<typeof AdminTeamSummarySchema>;
 
 /** GET /api/admin/overview */
 export const AdminOverviewSchema = z.object({
+  scope: z.enum(["owner", "ta"]),
   cohort: z.object({
     slug: z.string(),
     name: z.string(),
-    joinCode: z.string(),
+    /** Only owners receive enrollment credentials. */
+    joinCode: z.string().nullable(),
     active: z.boolean(),
   }),
   teams: z.array(AdminTeamSummarySchema),
@@ -504,6 +584,9 @@ export const AdminAddMemberRequestSchema = z.object({
     .max(39)
     .regex(/^[a-zA-Z0-9-]+$/),
 });
+
+/** POST /api/admin/teams/:teamId/tas */
+export const AdminAssignTaRequestSchema = AdminAddMemberRequestSchema;
 
 /* ── Error envelope ───────────────────────────────────────────────────── */
 

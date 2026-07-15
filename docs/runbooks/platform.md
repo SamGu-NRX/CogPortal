@@ -25,6 +25,8 @@ Python tests across Python 3.8, 3.11, and 3.13.
    immutable numeric ID; the name is only a human-readable fallback in
    development.
 3. Configure `PUBLIC_ORIGIN`, `COURSE_GUILD_ID`, and production GitHub secrets.
+   Add `DISCORD_BOT_TOKEN` with `wrangler secret put` only when live run
+   bubbles are ready to test; never place it in `wrangler.jsonc`.
 4. Apply migrations remotely only after reviewing the target account:
 
 ```sh
@@ -93,21 +95,29 @@ runs every five minutes and refunds stale official attempts idempotently.
 
 1. Create a Discord application and set its Interactions Endpoint URL to the
    deployed bot Worker.
-2. Set `COURSE_GUILD_ID` in both Workers. Add `DISCORD_PUBLIC_KEY` to CogBot as a
-   secret. CogBot does not need a bot token at runtime.
+2. Set `COURSE_GUILD_ID` in both Workers and `PORTAL_ORIGIN` in CogBot. Add
+   `DISCORD_PUBLIC_KEY` to CogBot as a secret. Add `DISCORD_BOT_TOKEN` to
+   CogPortal as a secret; the interaction Worker itself does not need it.
 3. Deploy CogPortal first so the `PortalRpc` service entrypoint exists, then:
 
 ```sh
 pnpm deploy:discord
 ```
 
-4. In a temporary operator shell, set `DISCORD_APPLICATION_ID`,
+4. Install the app to the course guild with `applications.commands` plus the
+   `bot` scope. Grant only View Channels and Send Messages in mapped team
+   channels. In a temporary operator shell, set `DISCORD_APPLICATION_ID`,
    `DISCORD_BOT_TOKEN`, and `COURSE_GUILD_ID`, then run
    `pnpm --filter @cogworks/discord-bot commands:register`. The bot token is
-   needed only for registration and must not be stored in `.dev.vars` or the
-   Worker.
-5. Verify PING, wrong-guild rejection, `/cog link` confirmation, `/cog status`,
-   self-reported labels, unlinking, and the 2.5-second failure response.
+   used for registration and for CogPortal's live message delivery. Keep it in
+   a temporary operator environment and the CogPortal Worker secret—never in
+   source-controlled variables.
+5. Upload `apps/discord-bot/assets/cog-avatar.png` as the application avatar and use the profile
+   copy in `apps/discord-bot/README.md`.
+6. Verify PING, wrong-guild rejection, `/cog` linking and in-place refresh, private team/local
+   views, explicit channel mapping, leaderboard sharing, and self-reported labels. Run one
+   `cogbench run --live` and confirm one message is created, edited for all four phases, and ends
+   with hosted verification rather than promotion.
 
 ## 6. Rollback and incident response
 

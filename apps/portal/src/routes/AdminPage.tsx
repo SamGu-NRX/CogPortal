@@ -1,6 +1,7 @@
 import {
   ArrowDown01Icon,
   Copy01Icon,
+  TeacherIcon,
   UserAdd01Icon,
   UserRemove01Icon,
 } from "@hugeicons/core-free-icons";
@@ -18,9 +19,11 @@ import { formatTimeAgo } from "@/lib/format";
 import { EASE_OUT } from "@/lib/motion";
 import {
   useAdminAddMember,
+  useAdminAssignTa,
   useAdminOverview,
   useAdminPatchCohort,
   useAdminRemoveMember,
+  useAdminRemoveTa,
 } from "@/lib/queries";
 
 /**
@@ -43,10 +46,12 @@ export function AdminPage() {
 
   return (
     <div className="anim-rise mx-auto w-full max-w-2xl py-12">
-      <p className="u-kicker">Admin</p>
+      <p className="u-kicker">{overview.data.scope === "owner" ? "Admin" : "TA workspace"}</p>
       <h1 className="mt-1 text-3xl">{cohort.name}</h1>
 
-      <CohortPanel cohort={cohort} />
+      {overview.data.scope === "owner" && cohort.joinCode ? (
+        <CohortPanel cohort={{ ...cohort, joinCode: cohort.joinCode }} />
+      ) : null}
 
       <Panel
         label="TEAMS"
@@ -62,41 +67,43 @@ export function AdminPage() {
         ) : (
           <ul className="divide-y divide-rule-soft">
             {teams.map((team) => (
-              <TeamRow key={team.id} team={team} />
+              <TeamRow key={team.id} team={team} canAssignTas={overview.data.scope === "owner"} />
             ))}
           </ul>
         )}
       </Panel>
 
-      <Panel
-        label="UNASSIGNED STUDENTS"
-        className="mt-4"
-        aside={
-          <span className="u-tnum font-mono text-[11px] text-ink-faint">
-            {unassigned.length}
-          </span>
-        }
-      >
-        {unassigned.length === 0 ? (
-          <EmptyState message="Everyone in the cohort has a team." />
-        ) : (
-          <ul className="divide-y divide-rule-soft">
-            {unassigned.map((student) => (
-              <li key={student.login} className="flex items-baseline gap-3 py-2">
-                <span className="min-w-0 flex-1 truncate font-mono text-[13px] text-ink">
-                  {student.login}
-                  {student.name && <span className="ml-2 text-ink-faint">{student.name}</span>}
-                </span>
-                {student.joinedAt != null && (
-                  <span className="font-mono text-[11px] text-ink-faint">
-                    joined {formatTimeAgo(student.joinedAt)}
+      {overview.data.scope === "owner" ? (
+        <Panel
+          label="UNASSIGNED STUDENTS"
+          className="mt-4"
+          aside={
+            <span className="u-tnum font-mono text-[11px] text-ink-faint">
+              {unassigned.length}
+            </span>
+          }
+        >
+          {unassigned.length === 0 ? (
+            <EmptyState message="Everyone in the cohort has a team." />
+          ) : (
+            <ul className="divide-y divide-rule-soft">
+              {unassigned.map((student) => (
+                <li key={student.login} className="flex items-baseline gap-3 py-2">
+                  <span className="min-w-0 flex-1 truncate font-mono text-[13px] text-ink">
+                    {student.login}
+                    {student.name && <span className="ml-2 text-ink-faint">{student.name}</span>}
                   </span>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </Panel>
+                  {student.joinedAt != null && (
+                    <span className="font-mono text-[11px] text-ink-faint">
+                      joined {formatTimeAgo(student.joinedAt)}
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </Panel>
+      ) : null}
     </div>
   );
 }
@@ -184,12 +191,15 @@ function CohortPanel({
 
 /* ── Team row with expandable members ──────────────────────────────────── */
 
-function TeamRow({ team }: { team: AdminTeamSummary }) {
+function TeamRow({ team, canAssignTas }: { team: AdminTeamSummary; canAssignTas: boolean }) {
   const [open, setOpen] = useState(false);
   const [newLogin, setNewLogin] = useState("");
+  const [newTaLogin, setNewTaLogin] = useState("");
   const reduce = useReducedMotion();
   const addMember = useAdminAddMember();
   const removeMember = useAdminRemoveMember();
+  const assignTa = useAdminAssignTa();
+  const removeTa = useAdminRemoveTa();
 
   const add = (e: React.FormEvent) => {
     e.preventDefault();
@@ -197,6 +207,15 @@ function TeamRow({ team }: { team: AdminTeamSummary }) {
     addMember.mutate(
       { teamId: team.id, login: newLogin.trim() },
       { onSuccess: () => setNewLogin("") },
+    );
+  };
+
+  const addTa = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTaLogin.trim() || assignTa.isPending) return;
+    assignTa.mutate(
+      { teamId: team.id, login: newTaLogin.trim() },
+      { onSuccess: () => setNewTaLogin("") },
     );
   };
 
@@ -248,6 +267,59 @@ function TeamRow({ team }: { team: AdminTeamSummary }) {
             className="overflow-hidden"
           >
             <div className="pb-3 pl-1">
+              <div className="mb-3 border-b border-rule-soft pb-3">
+                <p className="u-kicker mb-1.5">Assigned teaching staff</p>
+                {team.tas.length > 0 ? (
+                  <ul>
+                    {team.tas.map((ta) => (
+                      <li key={ta.login} className="flex items-center gap-3 py-1.5">
+                        <HugeiconsIcon icon={TeacherIcon} size={14} strokeWidth={1.8} className="text-verify-deep" aria-hidden="true" />
+                        <span className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-ink">
+                          {ta.login}
+                          {ta.name ? <span className="ml-2 text-ink-faint">{ta.name}</span> : null}
+                        </span>
+                        {canAssignTas ? (
+                          <button
+                            type="button"
+                            title={`Remove ${ta.login} as TA for ${team.name}`}
+                            onClick={() => removeTa.mutate({ teamId: team.id, login: ta.login })}
+                            disabled={removeTa.isPending}
+                            className="u-pressable flex min-h-8 min-w-8 items-center justify-center text-ink-faint hover:text-detect-deep disabled:opacity-40"
+                          >
+                            <HugeiconsIcon icon={UserRemove01Icon} size={14} strokeWidth={1.8} aria-hidden="true" />
+                            <span className="sr-only">Remove {ta.login} as TA</span>
+                          </button>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="py-1 font-mono text-[11.5px] text-ink-faint">No TA assigned.</p>
+                )}
+                {canAssignTas ? (
+                  <form onSubmit={addTa} className="mt-2 flex items-center gap-2">
+                    <label htmlFor={`add-ta-${team.id}`} className="sr-only">
+                      Assign TA by GitHub login
+                    </label>
+                    <input
+                      id={`add-ta-${team.id}`}
+                      value={newTaLogin}
+                      onChange={(e) => setNewTaLogin(e.target.value)}
+                      placeholder="TA github login"
+                      spellCheck={false}
+                      className="h-9 min-w-0 flex-1 border border-rule bg-paper-sunken px-2.5 font-mono text-[12.5px] text-ink placeholder:text-ink-faint"
+                    />
+                    <button
+                      type="submit"
+                      disabled={!newTaLogin.trim() || assignTa.isPending}
+                      className="u-pressable flex min-h-9 items-center gap-1.5 border border-rule px-3 font-mono text-[11px] tracking-[0.07em] text-ink-secondary uppercase hover:border-ink-secondary hover:text-ink disabled:opacity-40"
+                    >
+                      <HugeiconsIcon icon={TeacherIcon} size={13} strokeWidth={1.8} aria-hidden="true" />
+                      Assign TA
+                    </button>
+                  </form>
+                ) : null}
+              </div>
               <ul className="divide-y divide-rule-soft">
                 {team.members.map((m) => (
                   <li key={m.login} className="flex items-center gap-3 py-1.5">
@@ -297,9 +369,9 @@ function TeamRow({ team }: { team: AdminTeamSummary }) {
                   Add
                 </button>
               </form>
-              {(addMember.error || removeMember.error) && (
+              {(addMember.error || removeMember.error || assignTa.error || removeTa.error) && (
                 <p role="alert" className="mt-2 text-[12.5px] text-detect-deep">
-                  {[addMember.error, removeMember.error]
+                  {[addMember.error, removeMember.error, assignTa.error, removeTa.error]
                     .filter((e): e is ApiRequestError => e instanceof ApiRequestError)
                     .map((e) => e.message)
                     .join(" ") || "Member update failed."}

@@ -6,14 +6,24 @@ import os
 import platform
 import sys
 import webbrowser
+import time
+import uuid
 from pathlib import Path
 from typing import Optional, Sequence
 
 from . import __version__
-from .client import PortalError, poll_device_link, start_device_link, sync_report
+from .client import (
+    PortalError,
+    poll_device_link,
+    send_local_run_event,
+    start_device_link,
+    start_local_run,
+    sync_report,
+)
 from .models import LocalReport
-from .plugins import PluginError, plugin_names
-from .runner import ContractError, execute_installed
+from .plugins import PluginError, load_benchmark, load_submission, plugin_names
+from .project import repository_state
+from .runner import ContractError, execute
 from .storage import latest_report, save_report, save_token, token_for
 
 DEFAULT_PORTAL = os.environ.get("COGPORTAL_URL", "https://cogportal-dev.sillion.app")
@@ -31,6 +41,13 @@ def _parser() -> argparse.ArgumentParser:
         command = subparsers.add_parser(name, help=help_text)
         command.add_argument("--benchmark", required=True)
         command.add_argument("--json", action="store_true")
+        if name == "run":
+            command.add_argument(
+                "--live",
+                action="store_true",
+                help="share one live progress bubble with your linked team",
+            )
+            command.add_argument("--portal", default=DEFAULT_PORTAL)
     report = subparsers.add_parser("report", help="show a saved local report")
     report.add_argument("path", nargs="?")
     link = subparsers.add_parser("link", help="optionally link this device to CogPortal")
@@ -83,14 +100,93 @@ def _doctor(benchmark: str, as_json: bool) -> int:
     return 0 if checks["benchmarkInstalled"] and checks["submissionInstalled"] else 1
 
 
+class _LiveRun:
+    def __init__(self, portal: str, token: str, session_id: str) -> None:
+        self.portal = portal
+        self.token = token
+        self.session_id = session_id
+        self.sequence = 0
+        self.phase = "preparing"
+
+    def _send(self, payload: dict) -> None:
+        payload.update(
+            {
+                "eventId": "localevent_" + uuid.uuid4().hex,
+                "sequence": self.sequence,
+                "occurredAt": int(time.time() * 1000),
+            }
+        )
+        self.sequence += 1
+        try:
+            send_local_run_event(self.portal, self.token, self.session_id, payload)
+        except PortalError as error:
+            print("cogbench: live update missed: {}".format(error), file=sys.stderr)
+
+    def progress(self, phase: str) -> None:
+        self.phase = phase
+        self._send({"type": "progress", "phase": phase})
+
+    def completed(self, report: LocalReport) -> None:
+        self._send({"type": "completed", "report": report.to_wire()})
+
+    def failed(self, error: Exception) -> None:
+        detail = str(error).strip() or error.__class__.__name__
+        self._send({"type": "failed", "phase": self.phase, "detail": detail[:240]})
+
+
+def _start_live_run(args: argparse.Namespace, benchmark: object) -> _LiveRun:
+    portal = args.portal.rstrip("/")
+    token = token_for(portal)
+    if not token:
+        raise PortalError("This portal is not linked. Run `cogbench link` first.")
+    repository = repository_state(Path.cwd())
+    if not repository.full_name or not repository.sha:
+        raise PortalError("Live sharing requires a committed GitHub repository.")
+    result = start_local_run(
+        portal,
+        token,
+        {
+            "clientRunId": "localrun_" + uuid.uuid4().hex,
+            "benchmarkId": str(getattr(benchmark, "benchmark_id")),
+            "benchmarkVersion": int(getattr(benchmark, "benchmark_version")),
+            "repositoryId": repository.repository_id,
+            "repositoryFullName": repository.full_name,
+            "sha": repository.sha,
+            "dirty": repository.dirty,
+        },
+    )
+    delivery = result.get("discord")
+    if delivery == "published":
+        print("live: one progress bubble opened in your team channel", file=sys.stderr)
+    elif delivery == "channel_unbound":
+        print("live: synced to CogPortal; a team maintainer can choose the Discord channel with /cog", file=sys.stderr)
+    else:
+        print("live: synced to CogPortal; Discord delivery is temporarily unavailable", file=sys.stderr)
+    return _LiveRun(portal, token, str(result["sessionId"]))
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     args = _parser().parse_args(argv)
+    live: Optional[_LiveRun] = None
     try:
         if args.command == "doctor":
             return _doctor(args.benchmark, args.json)
         if args.command in ("test", "run"):
-            report = execute_installed(args.benchmark, Path.cwd(), smoke=args.command == "test")
+            benchmark = load_benchmark(args.benchmark)
+            adapter = load_submission(args.benchmark)
+            if args.command == "run" and args.live:
+                live = _start_live_run(args, benchmark)
+                live.progress("preparing")
+            report = execute(
+                benchmark,
+                adapter,
+                Path.cwd(),
+                smoke=args.command == "test",
+                progress=live.progress if live else None,
+            )
             path = save_report(report, Path.cwd())
+            if live:
+                live.completed(report)
             _print_report(report, args.json)
             if not args.json:
                 print("saved: {}".format(path))
@@ -123,6 +219,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             print("Synced {} as LOCAL · SELF-REPORTED.".format(report.report_id))
             return 0
     except (ContractError, PluginError, PortalError, OSError, ValueError) as error:
+        if live:
+            live.failed(error)
         print("cogbench: {}".format(error), file=sys.stderr)
         return 2
     return 2

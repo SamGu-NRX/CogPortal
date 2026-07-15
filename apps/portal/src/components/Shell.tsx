@@ -47,15 +47,15 @@ export function Shell() {
         <div className="mx-auto flex h-14 w-full max-w-5xl items-center justify-between gap-6 px-5">
           <Wordmark />
           <nav aria-label="Primary" className="flex items-center gap-5 sm:gap-7">
-            <TopNavLink to="/leaderboard">Leaderboard</TopNavLink>
             {session?.team && <TopNavLink to="/dashboard">Dashboard</TopNavLink>}
+            <TopNavLink to="/leaderboard">Leaderboard</TopNavLink>
           </nav>
           <div className="flex items-center gap-4">
             {session?.user ? (
               <UserMenu
                 user={session.user}
                 hasTeam={Boolean(session.team)}
-                isStaff={session.user.platformRole === "staff"}
+                isStaff={session.user.platformRole === "staff" || session.user.isTa}
                 nextPath={nextStagePath(session)}
               />
             ) : (

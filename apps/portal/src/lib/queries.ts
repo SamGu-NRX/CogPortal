@@ -246,6 +246,24 @@ export function useAdminRemoveMember() {
   });
 }
 
+export function useAdminAssignTa() {
+  const invalidate = useAdminInvalidate();
+  return useMutation({
+    mutationFn: ({ teamId, login }: { teamId: string; login: string }) =>
+      api.adminAssignTa(teamId, login),
+    onSuccess: invalidate,
+  });
+}
+
+export function useAdminRemoveTa() {
+  const invalidate = useAdminInvalidate();
+  return useMutation({
+    mutationFn: ({ teamId, login }: { teamId: string; login: string }) =>
+      api.adminRemoveTa(teamId, login),
+    onSuccess: invalidate,
+  });
+}
+
 export function useStartPractice(benchmarkId: string) {
   const qc = useQueryClient();
   return useMutation({

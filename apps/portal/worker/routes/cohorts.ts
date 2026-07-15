@@ -30,6 +30,6 @@ export function registerCohortRoutes(app: Hono<AppEnv>): void {
       .update(users)
       .set({ cohortId: cohort.id, cohortJoinedAt: Date.now() })
       .where(eq(users.id, auth.user.id));
-    return respond(c, SessionSchema, authToSession(c.env, await getAuth(c)));
+    return respond(c, SessionSchema, await authToSession(c.env, await getAuth(c)));
   });
 }

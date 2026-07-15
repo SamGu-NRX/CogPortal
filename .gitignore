@@ -33,6 +33,7 @@ __pycache__/
 
 # Logs and local tooling
 *.log
+.playwright-cli/
 .DS_Store
 .idea/
 migrations/meta/

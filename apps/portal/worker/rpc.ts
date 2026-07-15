@@ -4,6 +4,7 @@ import type { Env } from "./env";
 import { listBenchmarks } from "./services/catalog";
 import {
   assertCourseGuild,
+  bindDiscordTeamChannel,
   getDiscordLocalReports,
   getDiscordTeamStatus,
 } from "./services/discord";
@@ -34,6 +35,11 @@ export class PortalRpc extends WorkerEntrypoint<Env> implements PortalRpcContrac
   async createDiscordLink(guildId: string, discordUserId: string, discordUsername: string) {
     assertCourseGuild(this.env, guildId);
     return createDiscordLink(this.env, discordUserId, discordUsername);
+  }
+
+  async bindTeamChannel(guildId: string, discordUserId: string, channelId: string) {
+    assertCourseGuild(this.env, guildId);
+    return bindDiscordTeamChannel(this.env, discordUserId, channelId);
   }
 
   async unlinkDiscord(guildId: string, discordUserId: string) {

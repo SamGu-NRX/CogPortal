@@ -10,7 +10,7 @@
     "build": "pnpm -r --if-present build",
     "check": "pnpm -r --if-present check",
     "test": "pnpm -r --if-present test && pnpm test:python",
-    "test:python": "python3 -m unittest discover -s python/cogbench/tests -p 'test_*.py' && python3 -m unittest discover -s benchmarks/vision-recognition/tests -p 'test_*.py' && python3 -m unittest discover -s apps/runner-modal/tests -p 'test_*.py' && python3 template-catalog/validate.py",
+    "test:python": "python3 -m unittest discover -s python/cogbench/tests -p 'test_*.py' && python3 -m unittest discover -s benchmarks/vision-recognition/tests -p 'test_*.py' && python3 -m unittest discover -s examples/week2-vision-submission/tests -p 'test_*.py' && python3 -m unittest discover -s apps/runner-modal/tests -p 'test_*.py' && python3 template-catalog/validate.py",
     "db:migrate:local": "pnpm --filter @cogworks/portal db:migrate:local",
     "deploy:portal": "pnpm --filter @cogworks/portal deploy",
     "deploy:discord": "pnpm --filter @cogworks/discord-bot deploy"

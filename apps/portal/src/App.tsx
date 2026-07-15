@@ -62,7 +62,9 @@ function RequireStaff({ children }: { children: ReactNode }) {
   const { data: session, isPending } = useSession();
   if (isPending || !session) return <LoadingMark />;
   if (!session.user) return <Navigate to="/signin" replace />;
-  if (session.user.platformRole !== "staff") return <Navigate to="/" replace />;
+  if (session.user.platformRole !== "staff" && !session.user.isTa) {
+    return <Navigate to="/" replace />;
+  }
   return <>{children}</>;
 }
 
@@ -95,7 +97,7 @@ export function App() {
             <Route
               path="connections"
               element={
-                <RequireStage stage="user">
+                <RequireStage stage="team">
                   <ConnectionsPage />
                 </RequireStage>
               }

@@ -5,11 +5,11 @@ import type { AuthConfig, Session, Team } from "@cogworks/contracts/schema";
 import type { AppEnv, Env } from "../env";
 import { githubConfigured } from "../env";
 import { getDb } from "../db/client";
-import { cohorts, sessions, teamMembers, teams, users } from "../db/schema";
+import { cohorts, sessions, teamMembers, teamTas, teams, users } from "../db/schema";
 import type { TeamRow } from "../db/schema";
 import { ApiHttpError } from "../http/errors";
 import { randomHex } from "../util/id";
-import { platformRole } from "./roles";
+import { isPlatformOwner, platformRole } from "./roles";
 
 export const SESSION_COOKIE = "cogportal_session";
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -56,15 +56,22 @@ export function authConfig(env: Env): AuthConfig {
   };
 }
 
-export function authToSession(env: Env, auth: AuthState | null): Session {
+export async function authToSession(env: Env, auth: AuthState | null): Promise<Session> {
   const auth_ = authConfig(env);
   if (!auth) return { user: null, cohort: null, team: null, auth: auth_ };
+  const [taAssignment] = await getDb(env)
+    .select({ teamId: teamTas.teamId })
+    .from(teamTas)
+    .where(eq(teamTas.userId, auth.user.id))
+    .limit(1);
   return {
     user: {
       login: auth.user.githubLogin,
       name: auth.user.name,
       avatarUrl: auth.user.avatarUrl,
       platformRole: platformRole(env, auth.user.githubLogin),
+      isOwner: isPlatformOwner(env, auth.user.githubLogin),
+      isTa: Boolean(taAssignment),
     },
     cohort: auth.cohort ? { slug: auth.cohort.slug, name: auth.cohort.name } : null,
     team: teamPayload(auth.team),

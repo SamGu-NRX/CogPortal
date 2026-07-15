@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
-from typing import Any, List
+from typing import Any, Callable, List, Optional
 
 from . import __version__
 from .models import LocalReport, Metric
@@ -33,7 +33,15 @@ def _predict(adapter: Any, inputs: List[Any]) -> List[Any]:
     return predictions
 
 
-def execute(benchmark: Any, adapter: Any, cwd: Path, smoke: bool = False) -> LocalReport:
+def execute(
+    benchmark: Any,
+    adapter: Any,
+    cwd: Path,
+    smoke: bool = False,
+    progress: Optional[Callable[[str], None]] = None,
+) -> LocalReport:
+    if progress:
+        progress("contract_check")
     cases = list(benchmark.public_cases())
     if not cases:
         raise ContractError("The benchmark plugin has no public practice cases.")
@@ -41,7 +49,11 @@ def execute(benchmark: Any, adapter: Any, cwd: Path, smoke: bool = False) -> Loc
     inputs = [case["input"] for case in selected]
     expected = [case["expected"] for case in selected]
     started_at = int(time.time() * 1000)
+    if progress:
+        progress("evaluating")
     predictions = _predict(adapter, inputs)
+    if progress:
+        progress("scoring")
     metrics, diagnostics = benchmark.score(predictions, expected)
     if not all(isinstance(metric, Metric) for metric in metrics):
         raise ContractError("Benchmark scorer returned an invalid metric.")
@@ -61,10 +73,18 @@ def execute(benchmark: Any, adapter: Any, cwd: Path, smoke: bool = False) -> Loc
     )
 
 
-def execute_installed(benchmark_id: str, cwd: Path, smoke: bool = False) -> LocalReport:
+def execute_installed(
+    benchmark_id: str,
+    cwd: Path,
+    smoke: bool = False,
+    progress: Optional[Callable[[str], None]] = None,
+) -> LocalReport:
+    if progress:
+        progress("preparing")
     return execute(
         load_benchmark(benchmark_id),
         load_submission(benchmark_id),
         cwd,
         smoke=smoke,
+        progress=progress,
     )

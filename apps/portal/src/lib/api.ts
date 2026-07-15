@@ -156,6 +156,17 @@ export const api = {
       AdminTeamSummarySchema,
       { method: "DELETE" },
     ),
+  adminAssignTa: (teamId: string, login: string) =>
+    request(`/api/admin/teams/${encodeURIComponent(teamId)}/tas`, AdminTeamSummarySchema, {
+      method: "POST",
+      body: { login },
+    }),
+  adminRemoveTa: (teamId: string, login: string) =>
+    request(
+      `/api/admin/teams/${encodeURIComponent(teamId)}/tas/${encodeURIComponent(login)}`,
+      AdminTeamSummarySchema,
+      { method: "DELETE" },
+    ),
 
   benchmarks: () => request("/api/benchmarks", z.array(BenchmarkSchema)),
   localReports: (benchmarkId: string) =>

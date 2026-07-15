@@ -1,4 +1,4 @@
-import { ArrowRight01Icon } from "@hugeicons/core-free-icons";
+import { ArrowRight01Icon, TeacherIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useState } from "react";
 import { Link } from "react-router";
@@ -155,8 +155,46 @@ export function TeamPage() {
         </p>
       )}
 
+      {/* ── Assigned teaching staff ── */}
+      <Panel label={t.tas.length === 1 ? "ASSIGNED TA" : "ASSIGNED TAS"} className="mt-8">
+        {t.tas.length > 0 ? (
+          <ul className="divide-y divide-rule-soft">
+            {t.tas.map((ta) => (
+              <li key={ta.login} className="flex items-center gap-3 py-2.5">
+                {ta.avatarUrl ? (
+                  <img src={ta.avatarUrl} alt="" className="size-7 rounded-[2px]" />
+                ) : (
+                  <span
+                    aria-hidden="true"
+                    className="flex size-7 items-center justify-center border border-rule bg-paper-sunken font-mono text-[10px] text-ink-secondary uppercase"
+                  >
+                    {ta.login[0]}
+                  </span>
+                )}
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[13px] font-medium text-ink">
+                    {ta.name ?? ta.login}
+                  </span>
+                  {ta.name ? (
+                    <span className="block truncate font-mono text-[11px] text-ink-faint">
+                      @{ta.login}
+                    </span>
+                  ) : null}
+                </span>
+                <span className="flex items-center gap-1.5 font-mono text-[10px] tracking-[0.08em] text-verify-deep uppercase">
+                  <HugeiconsIcon icon={TeacherIcon} size={14} strokeWidth={1.8} aria-hidden="true" />
+                  TA
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="py-2 text-[13px] text-ink-faint">No TA has been assigned yet.</p>
+        )}
+      </Panel>
+
       {/* ── Members ── */}
-      <Panel label="MEMBERS" className="mt-8">
+      <Panel label="MEMBERS" className="mt-4">
         <ul className="divide-y divide-rule-soft">
           {t.members.map((m) => (
             <li key={m.login} className="flex items-center gap-3 py-2.5">
@@ -249,6 +287,7 @@ function ChangeRepository({ currentFullName }: { currentFullName: string }) {
             onPick={setSelected}
             disableClaimed
             currentFullName={currentFullName}
+            initialVisibleCount={6}
           />
           <GrantAccess hasRepos={repos.data.length > 0} />
         </>

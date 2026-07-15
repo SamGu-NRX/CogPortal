@@ -33,7 +33,7 @@ export function SignInPage() {
   };
 
   return (
-    <div className="flex flex-1 items-center justify-center py-10">
+    <div className="flex flex-1 items-center justify-center pt-10 pb-[calc(6rem+clamp(1rem,4dvh,2rem))]">
       <div className="anim-rise w-full max-w-sm">
         <h1 className="text-3xl">Sign in</h1>
         <p className="mt-2 text-[14px] text-ink-secondary">

@@ -12,7 +12,7 @@ import {
   RevokeDeviceRequestSchema,
 } from "@cogworks/contracts/schema";
 import type { AppEnv } from "../env";
-import { requireUser } from "../auth/session";
+import { requireTeam, requireUser } from "../auth/session";
 import { getDb } from "../db/client";
 import {
   accountLinkTokens,
@@ -49,11 +49,15 @@ export function registerConnectionRoutes(app: Hono<AppEnv>): void {
   });
 
   app.post("/v1/connections/discord/preview", async (c) => {
-    await requireUser(c);
+    await requireTeam(c);
     const body = await parseBody(c, ConfirmDiscordLinkRequestSchema);
     const link = await findActiveDiscordLink(c.env, body.token);
     if (!link?.discordUsername) {
-      throw new ApiHttpError(410, "link_expired", "This Discord link has expired. Run /cog link again.");
+      throw new ApiHttpError(
+        410,
+        "link_expired",
+        "This Discord link has expired. Open /cog in the course server to get a new one.",
+      );
     }
     return respond(c, DiscordLinkPreviewSchema, {
       username: link.discordUsername,
@@ -62,11 +66,15 @@ export function registerConnectionRoutes(app: Hono<AppEnv>): void {
   });
 
   app.post("/v1/connections/discord/confirm", async (c) => {
-    const auth = await requireUser(c);
+    const auth = await requireTeam(c);
     const body = await parseBody(c, ConfirmDiscordLinkRequestSchema);
     const link = await findActiveDiscordLink(c.env, body.token);
     if (!link?.discordUserId || !link.discordUsername) {
-      throw new ApiHttpError(410, "link_expired", "This Discord link has expired. Run /cog link again.");
+      throw new ApiHttpError(
+        410,
+        "link_expired",
+        "This Discord link has expired. Open /cog in the course server to get a new one.",
+      );
     }
 
     const db = getDb(c.env);
@@ -141,7 +149,7 @@ export function registerConnectionRoutes(app: Hono<AppEnv>): void {
   });
 
   app.post("/v1/cli/device/approve", async (c) => {
-    const auth = await requireUser(c);
+    const auth = await requireTeam(c);
     const body = await parseBody(c, ApproveDeviceRequestSchema);
     const now = Date.now();
     const result = await getDb(c.env)

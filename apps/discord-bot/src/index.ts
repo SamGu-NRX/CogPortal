@@ -1,6 +1,8 @@
 import type { PortalRpcContract } from "@cogworks/contracts/discord";
 import { executeCommand } from "./commands.ts";
 import {
+  INTERACTION_APPLICATION_COMMAND,
+  INTERACTION_MESSAGE_COMPONENT,
   RESPONSE_PONG,
   message,
   type DiscordInteraction,
@@ -10,6 +12,7 @@ import { verifyDiscordRequest } from "./verify.ts";
 interface Env {
   DISCORD_PUBLIC_KEY: string;
   COURSE_GUILD_ID: string;
+  PORTAL_ORIGIN?: string;
   PORTAL: PortalRpcContract;
 }
 
@@ -32,15 +35,20 @@ export default {
       return Response.json(message("Discord sent an invalid interaction.", true), { status: 400 });
     }
     if (interaction.type === 1) return Response.json({ type: RESPONSE_PONG });
-    if (interaction.type !== 2 || interaction.data?.name !== "cog") {
+    const isCogCommand =
+      interaction.type === INTERACTION_APPLICATION_COMMAND && interaction.data?.name === "cog";
+    const isCogComponent =
+      interaction.type === INTERACTION_MESSAGE_COMPONENT &&
+      interaction.data?.custom_id?.startsWith("cog:");
+    if (!isCogCommand && !isCogComponent) {
       return Response.json(message("Unsupported interaction.", true));
     }
     try {
       const response = await Promise.race([
-        executeCommand(interaction, env.PORTAL, env.COURSE_GUILD_ID),
+        executeCommand(interaction, env.PORTAL, env.COURSE_GUILD_ID, env.PORTAL_ORIGIN),
         new Promise<ReturnType<typeof message>>((resolve) =>
           setTimeout(
-            () => resolve(message("CogPortal took too long to respond. Try again in a moment.", true)),
+            () => resolve(message("CogPortal is taking a breather. Nothing changed—try again in a moment.", true)),
             2_500,
           ),
         ),
@@ -54,7 +62,9 @@ export default {
           message: error instanceof Error ? error.message : "unknown",
         }),
       );
-      return Response.json(message("CogPortal could not complete that request. Try again shortly.", true));
+      return Response.json(
+        message("I couldn't reach CogPortal just now. Nothing changed—try again in a moment.", true),
+      );
     }
   },
 };

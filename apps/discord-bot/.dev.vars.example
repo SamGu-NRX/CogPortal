@@ -1,3 +1,5 @@
 # Discord's application public key. This is not the bot token.
 DISCORD_PUBLIC_KEY=<discord-application-public-key>
 COURSE_GUILD_ID=<course-guild-id>
+# Optional in local development; enables direct CogPortal buttons.
+PORTAL_ORIGIN=http://localhost:5173

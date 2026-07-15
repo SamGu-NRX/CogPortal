@@ -68,7 +68,12 @@ export function ConnectPage() {
           </div>
         ) : (
           <>
-            <RepoPicker repos={repos.data} selected={selected} onPick={pick} />
+            <RepoPicker
+              repos={repos.data}
+              selected={selected}
+              onPick={pick}
+              initialVisibleCount={6}
+            />
             <GrantAccess hasRepos />
           </>
         )}

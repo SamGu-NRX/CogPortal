@@ -173,8 +173,7 @@
 @media (prefers-reduced-motion: reduce) {
   .anim-rise,
   .anim-rise-slow {
-    animation-duration: 1ms;
-    animation-delay: 0ms;
+    animation: none;
   }
   .anim-live {
     animation: none;
