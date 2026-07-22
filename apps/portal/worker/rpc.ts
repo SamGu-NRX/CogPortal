@@ -110,6 +110,6 @@ export class PortalRpc extends WorkerEntrypoint<Env> implements PortalRpcContrac
     await this.actorSurface(guildId, discordUserId, surfaceId);
     const snapshot = await buildRunSurfaceSnapshot(this.env, surfaceId);
     const safeBenchmark = snapshot.benchmark.id.replace(/[^a-zA-Z0-9._-]/g, "");
-    return { command: `cogbench run --benchmark ${safeBenchmark} --live` };
+    return { command: `cogworks run --benchmark ${safeBenchmark} --live` };
   }
 }

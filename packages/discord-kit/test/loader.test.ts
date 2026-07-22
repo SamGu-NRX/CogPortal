@@ -42,6 +42,8 @@ function snapshot(overrides: Partial<RunSurfaceSnapshot> = {}): RunSurfaceSnapsh
     elapsedMs: 8_000,
     progress: { current: 18, total: 40, unit: "cases" },
     primaryMetric: null,
+    metrics: [],
+    teamBest: null,
     localRunId: "run_1",
     practiceRunId: null,
     officialRunId: null,
@@ -65,7 +67,7 @@ test("loader marks past steps done, the current step active, and the rest dimmed
   assert.equal(steps[2]!.chip, "`18/40`");
   const lines = steps.map((step) => loaderLine(step, fmt));
   assert.match(lines[2]!, /\*\*Evaluating\*\*/);
-  assert.match(lines[3]!, /^-# ○ /);
+  assert.equal(lines[3], "-# Scoring");
 });
 
 test("missing boundary events omit time chips rather than inventing them", () => {
@@ -97,9 +99,13 @@ test("failure trace shows the last good step plus the safe failure category", ()
   assert.match(lines[1]!, /× Evaluation timed out {2}`1:00`/);
 });
 
-test("rail carries stage provenance quietly and cancelled stays unclaimed", () => {
+test("rail carries stage provenance and cancelled stays unclaimed", () => {
   assert.equal(
     stageRail(snapshot({ stage: "hosted" }), fmt),
+    "✓ local  ● hosted  ○ official  ○ published",
+  );
+  assert.equal(
+    stageRail(snapshot({ stage: "hosted" }), fmt, "subtext"),
     "-# ✓ local  ● hosted  ○ official  ○ published",
   );
   assert.match(stageRail(snapshot({ status: "cancelled", phase: "cancelled" }), fmt), /○ local/);

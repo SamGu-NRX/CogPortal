@@ -8,8 +8,9 @@ import {
 } from "@cogworks/contracts/schema";
 import type { TeamDetail, TeamMember } from "@cogworks/contracts/schema";
 import type { AppEnv } from "../env";
-import { githubConfigured } from "../env";
-import { requireTeam } from "../auth/session";
+import { devAuthAvailable, githubConfigured } from "../env";
+import { getGithubToken } from "../auth/better-auth";
+import { authFor, requireTeam } from "../auth/session";
 import { getDb } from "../db/client";
 import type { Database } from "../db/client";
 import { runs, teamMembers, teamTas, teams, users } from "../db/schema";
@@ -38,8 +39,9 @@ export async function getTeamDetail(
     db
       .select({
         login: users.githubLogin,
+        email: users.email,
         name: users.name,
-        avatarUrl: users.avatarUrl,
+        avatarUrl: users.image,
         role: teamMembers.role,
       })
       .from(teamMembers)
@@ -49,8 +51,9 @@ export async function getTeamDetail(
     db
       .select({
         login: users.githubLogin,
+        email: users.email,
         name: users.name,
-        avatarUrl: users.avatarUrl,
+        avatarUrl: users.image,
       })
       .from(teamTas)
       .innerJoin(users, eq(teamTas.userId, users.id))
@@ -81,12 +84,16 @@ export async function getTeamDetail(
       defaultBranch: team.defaultBranch,
     },
     members: members.map((member) => ({
-      login: member.login,
+      login: member.login ?? member.email.split("@")[0],
       name: member.name,
       avatarUrl: member.avatarUrl,
       role: memberRole(member.role),
     })),
-    tas,
+    tas: tas.map((ta) => ({
+      login: ta.login ?? ta.email.split("@")[0],
+      name: ta.name,
+      avatarUrl: ta.avatarUrl,
+    })),
     isAdmin: callerMembership?.role === "admin",
   };
 }
@@ -179,10 +186,14 @@ export function registerTeamRoutes(app: Hono<AppEnv>): void {
     }
 
     let repository: ConnectRepository;
-    if (body.fullName === FIXTURE_REPO.fullName && c.env.DEV_AUTH === "enabled") {
+    if (body.fullName === FIXTURE_REPO.fullName && devAuthAvailable(c.env)) {
       repository = fixtureRepository();
     } else {
-      if (!githubConfigured(c.env) || !auth.oauthToken) {
+      const githubToken = githubConfigured(c.env)
+        ? await getGithubToken(authFor(c), auth.user.id, c.req.raw.headers)
+        : null;
+      const githubLogin = auth.user.githubLogin;
+      if (!githubToken || !githubLogin) {
         throw new ApiHttpError(
           403,
           "forbidden",
@@ -190,7 +201,7 @@ export function registerTeamRoutes(app: Hono<AppEnv>): void {
         );
       }
       const client = new RealGitHubClient();
-      const githubRepository = await client.getRepo(body.fullName, auth.oauthToken);
+      const githubRepository = await client.getRepo(body.fullName, githubToken);
       if (githubRepository.private) {
         throw new ApiHttpError(
           403,
@@ -199,7 +210,7 @@ export function registerTeamRoutes(app: Hono<AppEnv>): void {
         );
       }
       const permission = teamRole(
-        await client.getPermission(body.fullName, auth.user.githubLogin, auth.oauthToken),
+        await client.getPermission(body.fullName, githubLogin, githubToken),
       );
       if (!permission) {
         throw new ApiHttpError(

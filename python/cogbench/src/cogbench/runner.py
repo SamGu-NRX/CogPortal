@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-import json
+import hashlib
 import inspect
+import json
+import os
 import time
 from pathlib import Path
 from typing import Any, Callable, List, Optional
@@ -14,6 +16,17 @@ from .project import repository_state
 
 class ContractError(RuntimeError):
     pass
+
+
+_V2_LABELS = {
+    "known_identification": "Known identification",
+    "unknown_rejection_recall": "Unknown rejection recall",
+    "post_enrollment_accuracy": "Post-enrollment accuracy",
+    "unknown_lifecycle": "Unknown lifecycle",
+    "recognition_score": "Recognition score",
+    "clustering_pairwise_f1": "Pairwise F1",
+    "adjusted_rand_index": "Adjusted Rand index",
+}
 
 
 def _accepts_progress_counts(callback: Callable[..., None]) -> bool:
@@ -56,6 +69,8 @@ def execute(
     smoke: bool = False,
     progress: Optional[Callable[..., None]] = None,
 ) -> LocalReport:
+    if str(getattr(benchmark, "contract_version", "")) == "cogworks.submissions.v2":
+        return _execute_v2(benchmark, adapter, cwd, smoke, progress)
     if progress:
         _progress(progress, "contract_check")
     cases = list(benchmark.public_cases())
@@ -91,6 +106,129 @@ def execute(
     )
 
 
+def _model_lock() -> Any:
+    try:
+        from importlib import resources
+
+        try:
+            text = (
+                resources.files("facial_recognition_benchmark")
+                .joinpath("model-lock.json")
+                .read_text(encoding="utf-8")
+            )
+        except AttributeError:
+            with resources.open_text(
+                "facial_recognition_benchmark", "model-lock.json", encoding="utf-8"
+            ) as stream:
+                text = stream.read()
+        return json.loads(text)
+    except (ImportError, OSError, ValueError) as error:
+        raise ContractError("The Week 2 model lock is missing or invalid. Reinstall the benchmark package.") from error
+
+
+def model_cache_status() -> Any:
+    lock = _model_lock()
+    checkpoint = lock["checkpoint"]
+    root = Path(os.environ.get("TORCH_HOME", str(Path.home() / ".cache" / "torch")))
+    path = root / "checkpoints" / checkpoint["name"]
+    if not path.is_file():
+        return {"ready": False, "path": str(path), "message": "checkpoint is not downloaded"}
+    if path.stat().st_size != int(checkpoint["size"]):
+        return {"ready": False, "path": str(path), "message": "checkpoint size does not match the lock"}
+    hasher = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            hasher.update(chunk)
+    digest = hasher.hexdigest()
+    if digest != checkpoint["sha256"]:
+        return {"ready": False, "path": str(path), "message": "checkpoint checksum does not match the lock"}
+    return {"ready": True, "path": str(path), "message": "ready"}
+
+
+def _facenet_model() -> Any:
+    try:
+        from facenet_models import FacenetModel
+    except ImportError as error:
+        raise ContractError(
+            "FaceNet is not installed. Install the Week 2 model dependencies from the course setup guide."
+        ) from error
+    return FacenetModel(device="cpu")
+
+
+def _metric(key: str, value: float, primary_key: str) -> Metric:
+    return Metric(
+        key=key,
+        label=_V2_LABELS.get(key, key.replace("_", " ").title()),
+        value=float(value),
+        unit=None,
+        higher_is_better=True,
+        primary=key == primary_key,
+        precision=3,
+    )
+
+
+def _execute_v2(
+    benchmark: Any,
+    factory: Any,
+    cwd: Path,
+    smoke: bool,
+    progress: Optional[Callable[..., None]],
+    model_factory: Callable[[], Any] = _facenet_model,
+) -> LocalReport:
+    tier = "test" if smoke else "evaluation"
+    if progress:
+        _progress(progress, "contract_check")
+    try:
+        cases = list(benchmark.load_cases(tier))
+    except Exception as error:
+        raise ContractError("Week 2 data could not be prepared: {}".format(error)) from error
+    if not cases:
+        raise ContractError("The benchmark plugin has no {} cases.".format(tier))
+    started_at = int(time.time() * 1000)
+    if progress:
+        _progress(progress, "evaluating", 0, len(cases))
+    try:
+        outputs = list(benchmark.run(factory, model_factory(), cases))
+    except ContractError:
+        raise
+    except Exception as error:
+        raise ContractError("Student adapter execution failed: {}".format(error)) from error
+    if len(outputs) != len(cases):
+        raise ContractError(
+            "Submission returned {} scenario outputs for {} cases.".format(
+                len(outputs), len(cases)
+            )
+        )
+    if progress and _accepts_progress_counts(progress):
+        _progress(progress, "evaluating", len(cases), len(cases))
+    if progress:
+        _progress(progress, "scoring")
+    scores = benchmark.score(outputs, cases)
+    if not isinstance(scores, dict) or not all(
+        isinstance(key, str) and isinstance(value, (int, float))
+        for key, value in scores.items()
+    ):
+        raise ContractError("Benchmark scorer returned invalid v2 metrics.")
+    primary_key = str(benchmark.primary_metric)
+    metrics = [_metric(key, value, primary_key) for key, value in scores.items()]
+    if not any(metric.primary for metric in metrics):
+        raise ContractError("Benchmark scorer omitted its primary metric.")
+    finished_at = int(time.time() * 1000)
+    return LocalReport.create(
+        benchmark_id=str(benchmark.benchmark_id),
+        benchmark_version=int(benchmark.benchmark_version),
+        contract_version=str(benchmark.contract_version),
+        sdk_version=__version__,
+        plugin_version=str(benchmark.plugin_version),
+        repository=repository_state(cwd),
+        started_at=started_at,
+        finished_at=finished_at,
+        metrics=metrics,
+        diagnostics=[],
+        predictions=outputs,
+    )
+
+
 def execute_installed(
     benchmark_id: str,
     cwd: Path,
@@ -99,9 +237,10 @@ def execute_installed(
 ) -> LocalReport:
     if progress:
         _progress(progress, "preparing")
+    benchmark = load_benchmark(benchmark_id)
     return execute(
-        load_benchmark(benchmark_id),
-        load_submission(benchmark_id),
+        benchmark,
+        load_submission(benchmark_id, str(benchmark.contract_version)),
         cwd,
         smoke=smoke,
         progress=progress,

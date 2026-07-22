@@ -1,3 +1,14 @@
+import {
+  EPHEMERAL,
+  IS_COMPONENTS_V2,
+  surface,
+  text,
+  type DiscordContainer,
+  type DiscordTextDisplay,
+} from "@cogworks/discord-kit/components";
+import { ACCENT_DETECT } from "@cogworks/discord-kit/accents";
+
+/** Discord interaction protocol types; layout primitives live in discord-kit. */
 export interface DiscordUser {
   id: string;
   username: string;
@@ -13,50 +24,22 @@ export interface DiscordOption {
 
 export interface DiscordInteraction {
   id: string;
+  application_id?: string;
+  token?: string;
   type: number;
   guild_id?: string;
   channel_id?: string;
   member?: { user: DiscordUser };
   user?: DiscordUser;
   data?: {
+    /** Discord uses command type 4 for an Activity Entry Point. */
+    type?: number;
     name?: string;
     options?: DiscordOption[];
     custom_id?: string;
     component_type?: number;
+    values?: string[];
   };
-}
-
-export interface DiscordTextDisplay {
-  type: 10;
-  content: string;
-}
-
-export interface DiscordButton {
-  type: 2;
-  style: 1 | 2 | 3 | 4 | 5;
-  label: string;
-  custom_id?: string;
-  url?: string;
-  disabled?: boolean;
-}
-
-export interface DiscordActionRow {
-  type: 1;
-  components: DiscordButton[];
-}
-
-export interface DiscordSeparator {
-  type: 14;
-  divider?: boolean;
-  spacing?: 1 | 2;
-}
-
-export type DiscordContainerChild = DiscordTextDisplay | DiscordActionRow | DiscordSeparator;
-
-export interface DiscordContainer {
-  type: 17;
-  accent_color?: number;
-  components: DiscordContainerChild[];
 }
 
 export interface InteractionResponse {
@@ -73,45 +56,12 @@ export const INTERACTION_APPLICATION_COMMAND = 2;
 export const INTERACTION_MESSAGE_COMPONENT = 3;
 export const RESPONSE_PONG = 1;
 export const RESPONSE_CHANNEL_MESSAGE = 4;
+export const RESPONSE_DEFERRED_CHANNEL_MESSAGE = 5;
+export const RESPONSE_DEFERRED_UPDATE_MESSAGE = 6;
 export const RESPONSE_UPDATE_MESSAGE = 7;
-export const EPHEMERAL = 1 << 6;
-export const IS_COMPONENTS_V2 = 1 << 15;
+export const RESPONSE_LAUNCH_ACTIVITY = 12;
 
-export const ACCENT_INK = 0x1c2637;
-export const ACCENT_DETECT = 0xc63d2f;
-export const ACCENT_VERIFY = 0x2e6b4f;
-
-export function text(content: string): DiscordTextDisplay {
-  return { type: 10, content: content.slice(0, 4_000) };
-}
-
-export function separator(divider = true): DiscordSeparator {
-  return { type: 14, divider, spacing: 1 };
-}
-
-export function button(
-  customId: string,
-  label: string,
-  style: 1 | 2 | 3 | 4 = 2,
-  disabled = false,
-): DiscordButton {
-  return { type: 2, style, label, custom_id: customId, disabled: disabled || undefined };
-}
-
-export function linkButton(url: string, label: string): DiscordButton {
-  return { type: 2, style: 5, label, url };
-}
-
-export function actionRow(...buttons: DiscordButton[]): DiscordActionRow {
-  return { type: 1, components: buttons.slice(0, 5) };
-}
-
-export function surface(
-  children: DiscordContainerChild[],
-  accentColor = ACCENT_INK,
-): DiscordContainer {
-  return { type: 17, accent_color: accentColor, components: children };
-}
+export { EPHEMERAL, IS_COMPONENTS_V2 };
 
 /** Components V2 keeps Cog's layout native to Discord and consistent across clients. */
 export function componentMessage(
@@ -133,6 +83,10 @@ export function message(content: string, ephemeral = true): InteractionResponse 
   return componentMessage([surface([text(content)], ACCENT_DETECT)], { ephemeral });
 }
 
+export function launchActivity(): InteractionResponse {
+  return { type: RESPONSE_LAUNCH_ACTIVITY };
+}
+
 export function interactionUser(interaction: DiscordInteraction): DiscordUser | null {
   return interaction.member?.user ?? interaction.user ?? null;
 }
@@ -151,6 +105,9 @@ export function responseText(response: InteractionResponse): string {
   return (
     response.data?.components
       ?.flatMap((container) => container.components)
+      .flatMap((component) =>
+        component.type === 9 ? component.components : [component],
+      )
       .filter((component): component is DiscordTextDisplay => component.type === 10)
       .map((component) => component.content)
       .join("\n") ??

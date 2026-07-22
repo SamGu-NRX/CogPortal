@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import type { AppEnv } from "./env";
+import { validateServerEnv } from "./env";
 import { errorResponse, handleError } from "./http/errors";
 import { registerBenchmarkRoutes } from "./routes/benchmarks";
 import { registerCohortRoutes } from "./routes/cohorts";
@@ -21,6 +22,7 @@ import type { RunJobV1 } from "@cogworks/contracts/protocol";
 import { registerAdminRoutes } from "./routes/admin";
 import { registerActivityRoutes } from "./routes/activity";
 import { registerSetupRoutes } from "./routes/setup";
+import { createAuth, requestCf } from "./auth/better-auth";
 
 const api = new Hono<AppEnv>();
 registerSessionRoutes(api);
@@ -43,6 +45,14 @@ registerSetupRoutes(api);
 api.notFound((c) => errorResponse(c, 404, "not_found", "API route not found."));
 
 const app = new Hono<AppEnv>();
+// Validate API configuration without blocking static assets on a bad binding.
+app.use("/api/*", async (c, next) => {
+  validateServerEnv(c.env);
+  await next();
+});
+app.all("/api/auth/*", (c) =>
+  createAuth(c.env, requestCf(c.req.raw), new URL(c.req.url).origin).handler(c.req.raw),
+);
 app.route("/api", api);
 app.onError(handleError);
 app.notFound((c) => {

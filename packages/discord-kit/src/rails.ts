@@ -40,7 +40,7 @@ const EMOJI: Record<StageState, "cog_done" | "cog_active" | "cog_fail" | "cog_pe
 export function stageRail(
   snapshot: RunSurfaceSnapshot,
   fmt: EmojiFormatter,
-  variant: RailVariant = "subtext",
+  variant: RailVariant = "inline",
 ): string {
   const states = stageStates(snapshot);
   const parts = STAGES.map((stage, index) => {

@@ -3,6 +3,15 @@
 No production or course service should be changed by following only part of
 this runbook. Keep `EXECUTION_PROVIDER=fixture` until every Modal gate passes.
 
+This repository must be a real Git checkout. GitHub-generated source archives
+do not contain `benchmarks/week2`:
+
+```bash
+git clone --recurse-submodules <cogportal-repository-url>
+git submodule update --init --recursive
+python scripts/validate_week2_submodule.py
+```
+
 ## 1. Verify the repository
 
 ```sh
@@ -49,6 +58,20 @@ python -m pip install -e apps/runner-modal
 modal setup
 modal run apps/runner-modal/src/cogworks_runner/m0_probe.py
 ```
+
+Before enabling Week 2, materialize each official track under the private
+`cogworks-hidden-datasets` volume as
+`/<track>/<dataset-version>/payload.zip`. The clustering directory also contains
+`expected.json`; that file is read only by the controller and is never copied to
+the sandbox. Build bundles from the upstream manifest tooling, verify that
+official identities and rows are disjoint from both public manifests, mount the
+volume read-only operationally, and run one network-blocked canary. A missing or
+invalid bundle must surface as `E-DATA` and must not consume an attempt.
+
+The `cogworks-week2-cpu-v1` image bakes the pinned VGGFace2 checkpoint and
+verifies SHA-256
+`281cebca8662831adb987a874bdcb36e73f5b1c6dc5ee5878f305e985625d99b`
+before activation. A cache mismatch is `E-MODEL`, never a student failure.
 
 M0 is not complete until operators also verify:
 
@@ -116,7 +139,7 @@ pnpm deploy:discord
    copy in `apps/discord-bot/README.md`.
 6. Verify PING, wrong-guild rejection, `/cog` linking and in-place refresh, private team/local
    views, explicit channel mapping, leaderboard sharing, and self-reported labels. Run one
-   `cogbench run --live` and confirm one message is created, edited for all four phases, and ends
+   `cogworks run --live` and confirm one message is created, edited for all four phases, and ends
    with hosted verification rather than promotion.
 
 ## 6. Rollback and incident response

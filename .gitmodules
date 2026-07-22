@@ -1,0 +1,3 @@
+[submodule "benchmarks/week2"]
+	path = benchmarks/week2
+	url = https://github.com/iReynaldo/ComputerVisionBenchmark.git

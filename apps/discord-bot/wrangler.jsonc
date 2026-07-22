@@ -12,6 +12,7 @@
     }
   ],
   "vars": {
-    "COURSE_GUILD_ID": "configure-with-your-course-guild-id"
+    "COURSE_GUILD_ID": "1515858059027550321",
+    "PORTAL_ORIGIN": "https://cogportal-dev.sillion.app"
   }
 }

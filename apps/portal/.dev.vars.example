@@ -2,12 +2,16 @@
 # GitHub App permissions: Contents (read-only) and Metadata (read-only).
 # Keep webhooks, Device Flow, and "Request user authorization during
 # installation" disabled for the current explicit /api/github/login flow.
-# Register both callback URLs in the GitHub App:
-#   http://localhost:5173/api/github/callback
-#   https://cogportal-dev.sillion.app/api/github/callback
+# Register this callback URL in the GitHub App:
+#   http://localhost:5173/api/auth/callback/github
 ENVIRONMENT="development"
 DEV_AUTH="enabled"
+# Owner-only setup replay/reset controls; safe with real GitHub OAuth because
+# the server also requires PLATFORM_OWNER_LOGINS membership.
+ONBOARDING_DEV_TOOLS="enabled"
 EXECUTION_PROVIDER="fixture"
+BETTER_AUTH_SECRET=""
+BETTER_AUTH_URL="http://localhost:5173"
 GITHUB_CLIENT_ID=""
 GITHUB_CLIENT_SECRET=""
 GITHUB_APP_SLUG=""

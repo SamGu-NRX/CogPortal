@@ -1,33 +1,55 @@
-# CogBench
+# CogWorks Benchmark CLI
 
-CogBench runs public CogWorks practice benchmarks locally. `doctor`, `test`,
-`run`, and `report` work without a CogPortal account and without network access
-after the project and its benchmark plugin are installed.
+`cogworks-benchmark` is the lightweight, offline-first command-line package
+for CogWorks practice benchmarks. The distribution and terminal command have
+different names on purpose:
 
-From the monorepo root, install the SDK, benchmark contract, and development
-submission example into the active CogWorks conda environment:
-
-```sh
-python -m pip install -e python/cogbench -e benchmarks/vision-recognition -e examples/week2-vision-submission
-cogbench doctor --benchmark vision-recognition
-cogbench test --benchmark vision-recognition
-cogbench run --benchmark vision-recognition
-cogbench report
+```text
+install: cogworks-benchmark
+run:     cogworks
+module:  python -m cogbench
 ```
 
-The example submission exists only to exercise the platform locally. A real
-student repository provides its own `cogworks.submissions.v1` entry point.
-
-`cogbench link` and `cogbench sync` are optional. After the device, Discord
-account, team, repository, and team channel are linked, a student can opt into
-one live team bubble for a run:
+The TestPyPI pilot install is:
 
 ```sh
-cogbench run --benchmark vision-recognition --live
+python -m pip install --index-url https://test.pypi.org/simple/ --no-deps cogworks-benchmark==0.1.0
+cogworks --help
 ```
 
-The CLI sends four small lifecycle events and the final structured report to
-CogPortal. CogPortal edits the same Discord message at every stage. It never
-uploads source code, predictions, files, datasets, environment variables, or
-arbitrary logs. A local score remains self-reported and cannot be promoted;
-the next action is hosted verification in CogPortal.
+From this monorepo, developers can instead use an editable install:
+
+```sh
+python -m pip install -e python/cogbench
+cogworks --version
+```
+
+## Student workflow
+
+The portal supplies the correct origin in the first command:
+
+```sh
+cogworks link --portal https://portal.example
+cogworks check --benchmark vision-recognition --update-setup
+```
+
+`link` is visibly online and stores a revocable device credential. The
+`--update-setup` flag makes that one otherwise-local command send coarse
+pass/fail milestones to CogPortal. If the local check succeeds but the portal
+cannot be reached, the CLI prints both outcomes and exits 2; it never queues a
+background upload.
+
+Without the flag, `check`, `test`, `run`, and `report` do not contact
+CogPortal. Real-data `test` and `run` may fetch public benchmark/model assets
+on first use and then work from the warm cache.
+
+```sh
+cogworks check --benchmark vision-recognition
+cogworks test --benchmark vision-recognition
+cogworks run --benchmark vision-recognition
+cogworks report
+```
+
+Explicit network actions remain separate: `link`, `sync`, `status`,
+`run --live`, and a local command carrying `--update-setup`. None upload
+source code, arbitrary files, environment variables, predictions, or logs.

@@ -1,31 +1,28 @@
 import { ArrowRight01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import type { ReactNode } from "react";
-import { Link, useLocation } from "react-router";
-import type { SetupState, SetupStep, TeamDetail } from "@cogworks/contracts/schema";
+import { useState, type ReactNode } from "react";
+import { Link, useLocation, useSearchParams } from "react-router";
+import type { SetupStep, TeamDetail } from "@cogworks/contracts/schema";
+import { Button } from "@/components/Button";
 import { Code } from "@/components/Code";
-import { CopyBlock } from "@/components/CopyBlock";
+import { ConfirmButton } from "@/components/ConfirmButton";
 import { LoadingMark, QueryError } from "@/components/Feedback";
 import { Panel } from "@/components/Panel";
 import {
   DEFAULT_BENCHMARK,
   useConnections,
-  useLocalReports,
+  useResetSetupState,
   useSession,
   useSetupState,
   useTeam,
 } from "@/lib/queries";
-import { setupSteps, useSetupChecks } from "@/lib/setup-progress";
-import type { SetupEntry } from "@/lib/setup-progress";
+import {
+  clearSetupProgress,
+  setupSteps,
+  useSetupChecks,
+  type SetupEntry,
+} from "@/lib/setup-progress";
 
-/**
- * The setup guide: one page from "you have a team" to "you synced a result",
- * in the order a student actually works (onboarding doc §1). The portal only
- * claims what it can see. A connected fork, a linked device, a synced report
- * earn VERIFIED on their own; the machine-local steps offer a one-line
- * terminal command that phones the portal and ticks the box, or a plain
- * checkbox if you'd rather not.
- */
 export function SetupPage() {
   const team = useTeam();
   const { data: session } = useSession();
@@ -46,6 +43,7 @@ export function SetupPage() {
       team={team.data}
       login={session.user.login}
       entry={entryState ?? (team.data.isAdmin ? "created" : "joined")}
+      devTools={session.auth.onboardingDevToolsEnabled && session.user.isOwner}
     />
   );
 }
@@ -54,273 +52,365 @@ function SetupGuide({
   team,
   login,
   entry,
+  devTools,
 }: {
   team: TeamDetail;
   login: string;
   entry: SetupEntry;
+  devTools: boolean;
 }) {
   const connections = useConnections();
-  const reports = useLocalReports(DEFAULT_BENCHMARK);
   const setupState = useSetupState();
+  const resetSetup = useResetSetupState();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [checks, toggleCheck] = useSetupChecks(team.id, login);
+  const [replayChecks, setReplayChecks] = useState<ReadonlySet<string>>(() => new Set());
+  const requestedReplay = searchParams.get("replay");
+  const replay =
+    devTools && (requestedReplay === "creator" || requestedReplay === "member")
+      ? requestedReplay
+      : null;
+  const visibleEntry: SetupEntry = replay === "creator" ? "created" : replay === "member" ? "joined" : entry;
+  const visibleChecks = replay ? replayChecks : checks;
+  const toggleVisibleCheck = (key: string) => {
+    if (!replay) {
+      toggleCheck(key);
+      return;
+    }
+    setReplayChecks((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+  const terminal = replay ? [] : (setupState.data?.verified ?? []);
+  const terminalSet = new Set<SetupStep>(terminal);
+  const teammates = replay ? false : team.members.length >= 2;
+  const deviceLinked = replay ? false : (connections.data?.cliDevices.length ?? 0) > 0;
+  const created = visibleEntry === "created";
+  const teamFormationDone = created
+    ? teammates || visibleChecks.has("teammates")
+    : true;
 
-  const teammates = team.members.length >= 2;
-  const deviceLinked = (connections.data?.cliDevices.length ?? 0) > 0;
-  const reportSynced = (reports.data?.length ?? 0) > 0;
-  const terminal = setupState.data?.verified ?? [];
-  const terminalSet = new Set<string>(terminal);
-
-  const { done, total } = setupSteps(entry, checks, {
+  const { done, total } = setupSteps(visibleEntry, visibleChecks, {
     teammates,
-    reportSynced,
     terminal,
   });
   const complete = done === total;
-  const created = entry === "created";
+  const portalOrigin = window.location.origin;
+  const machineState = (step: SetupStep) =>
+    terminalSet.has(step) ? ("verified" as const) : ("pending" as const);
 
-  /** Machine-local steps: terminal-verified beats a manual tick. */
-  const machine = (step: SetupStep) => ({
-    state: terminalSet.has(step)
-      ? ("verified" as const)
-      : checks.has(step)
-        ? ("checked" as const)
-        : ("pending" as const),
-    chip: terminalSet.has(step) ? ("verified" as const) : undefined,
-    selfCheck: terminalSet.has(step)
-      ? undefined
-      : { checked: checks.has(step), onToggle: () => toggleCheck(step) },
-  });
+  // Device linking supports the wiring check but is not a counted milestone.
+  const progress = [
+    { label: "Team", done: true },
+    { label: "People", done: teamFormationDone },
+    { label: "Clone", done: terminalSet.has("clone") },
+    { label: "Tool", done: terminalSet.has("environment") },
+    { label: "Project", done: terminalSet.has("project") },
+    { label: "Link", done: deviceLinked, unnumbered: true },
+    { label: "Check", done: terminalSet.has("wiring") },
+  ];
 
   let step = 0;
   const number = () => String(++step).padStart(2, "0");
 
   return (
-    <div className="anim-rise mx-auto w-full max-w-lg py-14">
-      <p className="u-kicker">
-        Getting set up · {done} of {total}
-      </p>
-      <h1 className="mt-1 text-3xl">
-        {created ? "Your team has a home." : `You're on ${team.name}.`}
-      </h1>
-      <p className="mt-2 text-[14px] text-ink-secondary">
-        {created
-          ? `A few steps and ${team.name} is ready to run. The portal marks what it can verify; the rest is yours to check off.`
-          : "A few steps and you're ready to run. The portal marks what it can verify; the rest is yours to check off."}
-      </p>
-
-      <ol className="relative mt-9">
-        {/* the protocol rail */}
-        <div
-          aria-hidden="true"
-          className="absolute top-4 bottom-4 left-[13px] w-px bg-rule-soft"
-        />
-
-        <Step
-          index={number()}
-          state="verified"
-          title={created ? "Your fork is connected" : `You joined ${team.name}`}
-          chip="verified"
-        >
-          <p>
-            <a
-              href={team.repo.url}
-              target="_blank"
-              rel="noreferrer"
-              className="font-mono text-[12px] text-ink underline decoration-rule underline-offset-4 hover:decoration-ink"
-            >
-              {team.repo.fullName}
-            </a>{" "}
-            {created
-              ? "is the team's shared record; every attempt runs from it."
-              : "is the team's shared record; your work lands there."}
-          </p>
-        </Step>
-
-        {created ? (
-          <Step
-            index={number()}
-            state={teammates ? "verified" : checks.has("teammates") ? "checked" : "pending"}
-            title="Bring your teammates"
-            chip={teammates ? "verified" : undefined}
-            selfCheck={
-              teammates
-                ? undefined
-                : {
-                    checked: checks.has("teammates"),
-                    onToggle: () => toggleCheck("teammates"),
-                    label: "I'm working solo for now",
-                  }
-            }
-          >
-            <p>
-              Add them from{" "}
-              <Link to="/team" className="text-ink underline decoration-rule underline-offset-4 hover:decoration-ink">
-                Team settings
-              </Link>
-              , or they can pick <em>Join a team</em> when they first sign in.
-              {!teammates && " This step verifies itself when a teammate arrives."}
-            </p>
-          </Step>
-        ) : (
-          <Step
-            index={number()}
-            title="Get the code"
-            {...machine("clone")}
-          >
-            <p>Clone the team's fork. You all work in the same repository.</p>
-            <Code lang="bash" code={`git clone ${team.repo.url}.git\ncd ${team.repo.name}`} />
-            <TerminalCheckoff step="clone" state={setupState.data} />
-          </Step>
-        )}
-
-        <Step index={number()} title="Set up your environment" {...machine("environment")}>
-          <p>
-            From your fork's root, in the <code className="font-mono text-[12px]">week2</code>{" "}
-            environment you built for the Vision prerequisites:
-          </p>
-          <Code
-            lang="bash"
-            code={
-              "conda activate week2\npython -m pip install cogworks-benchmark cogworks-vision-benchmark\npython -m pip install -e ."
-            }
-          />
-          <p className="text-[12px] text-ink-faint">
-            The two cogworks packages are new; they carry the benchmark and sit
-            on top of the course installs you already have. We say{" "}
-            <code className="font-mono">python -m pip</code> (where CogWeb says{" "}
-            <code className="font-mono">pip</code>) so the installer and your
-            Python stay in the same environment.
-          </p>
-          <TerminalCheckoff step="environment" state={setupState.data} />
-        </Step>
-
-        <Step index={number()} title="Prove the wiring" {...machine("wiring")}>
-          <p>
-            <code className="font-mono text-[12px]">doctor</code> checks discovery;{" "}
-            <code className="font-mono text-[12px]">test</code> runs one public case. Neither
-            says anything about your score, only that CogBench can find and call
-            your adapter.
-          </p>
-          <Code
-            lang="bash"
-            code={
-              "cogbench doctor --benchmark vision-recognition\ncogbench test --benchmark vision-recognition"
-            }
-          />
-          <TerminalCheckoff step="wiring" state={setupState.data} />
-        </Step>
-
-        {/* optional — outside the numbered protocol */}
-        <Step
-          index="—"
-          state={deviceLinked ? "verified" : "pending"}
-          title="Link this device"
-          chip={deviceLinked ? "verified" : "optional"}
-        >
-          <p>
-            Lets you sync self-reported results to{" "}
-            <Link to="/connections" className="text-ink underline decoration-rule underline-offset-4 hover:decoration-ink">
-              Connections
-            </Link>
-            . It can only upload reports you choose (never your source), and you
-            can revoke it any time.
-          </p>
-          <Code lang="bash" code="cogbench link" />
-        </Step>
-
-        <Step
-          index={number()}
-          state={reportSynced ? "verified" : checks.has("run") ? "checked" : "pending"}
-          title="Your first local run"
-          chip={reportSynced ? "verified" : undefined}
-          selfCheck={
-            reportSynced
-              ? undefined
-              : {
-                  checked: checks.has("run"),
-                  onToggle: () => toggleCheck("run"),
-                }
+    <div className="anim-rise mx-auto w-full max-w-4xl py-12 sm:py-14">
+      {devTools && (
+        <DevRehearsal
+          replay={replay}
+          busy={resetSetup.isPending}
+          onMode={(mode) => {
+            if (mode) setSearchParams({ replay: mode }, { replace: true });
+            else setSearchParams({}, { replace: true });
+          }}
+          onReset={() =>
+            resetSetup.mutate(undefined, {
+              onSuccess: () => {
+                clearSetupProgress(team.id, login);
+                window.location.assign("/setup?replay=creator");
+              },
+            })
           }
-          last
-        >
-          <p>
-            Local runs are always{" "}
-            <span className="font-mono text-[11px]">LOCAL · SELF-REPORTED</span>. Practice
-            freely; sync deliberately.
-            {!reportSynced && " This step verifies itself when a report syncs."}
-          </p>
-          <Code
-            lang="bash"
-            code={"cogbench run --benchmark vision-recognition\ncogbench sync"}
-          />
-        </Step>
-      </ol>
-
-      {complete ? (
-        <Panel label="CALIBRATION COMPLETE" tone="good" className="mt-8">
-          <p className="text-[14px] text-ink">
-            Everything the portal can verify checks out. If your local runs look
-            healthy too, you're ready for a practice attempt.
-          </p>
-          <Link
-            to="/dashboard"
-            className="u-pressable mt-4 inline-flex h-11 items-center gap-2 bg-ink px-6 text-[13.5px] font-medium tracking-wide text-paper-raised transition-colors duration-150 hover:bg-ink/90"
-          >
-            Open dashboard
-            <HugeiconsIcon icon={ArrowRight01Icon} size={15} strokeWidth={1.8} aria-hidden="true" />
-          </Link>
-        </Panel>
-      ) : (
-        <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-rule-soft pt-5">
-          <p className="text-[12.5px] text-ink-faint">
-            No rush. The guide keeps your place.
-          </p>
-          <Link
-            to="/dashboard"
-            className="u-pressable inline-flex min-h-9 items-center gap-1.5 font-mono text-[11.5px] tracking-[0.07em] text-ink-secondary uppercase hover:text-ink"
-          >
-            Open dashboard
-            <HugeiconsIcon icon={ArrowRight01Icon} size={14} strokeWidth={1.8} aria-hidden="true" />
-          </Link>
-        </div>
+        />
       )}
+
+      <div className="grid items-start gap-10 lg:grid-cols-[170px_minmax(0,1fr)]">
+        <ProgressRail progress={progress} />
+
+        <div className="min-w-0 max-w-xl">
+          <p className="u-kicker" aria-live="polite">
+            Getting set up · {done} of {total}
+            {replay ? ` · replaying ${replay}` : ""}
+          </p>
+          <h1 className="mt-1 text-3xl">
+            {created ? "Your team has a home." : `You're on ${team.name}.`}
+          </h1>
+          <p className="mt-2 text-[14px] text-ink-secondary">
+            Follow one path from GitHub to a checked local project. CogPortal
+            marks browser facts; the CogWorks CLI checks only the machine facts
+            it can actually inspect.
+          </p>
+
+          <ol className="relative mt-9">
+            <li
+              aria-hidden="true"
+              className="absolute top-4 bottom-4 left-[13px] w-px bg-rule-soft"
+            />
+
+            <Step index={number()} state="verified" title="The team project" chip="portal verified">
+              <p>
+                <a
+                  href={team.repo.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-mono text-[12px] text-ink underline decoration-rule underline-offset-4 hover:decoration-ink"
+                >
+                  {team.repo.fullName}
+                </a>{" "}
+                is the shared source of truth. Hosted attempts always run from
+                this repository, never from an uncommitted laptop folder.
+              </p>
+            </Step>
+
+            <Step
+              index={number()}
+              state={teamFormationDone ? "verified" : "pending"}
+              title={created ? "Bring your teammates" : "Know your team"}
+              chip={teamFormationDone ? (created && !teammates ? "self checked" : "portal verified") : undefined}
+              selfCheck={
+                created && !teammates
+                  ? {
+                      checked: visibleChecks.has("teammates"),
+                      onToggle: () => toggleVisibleCheck("teammates"),
+                      label: "I'm working solo for now",
+                    }
+                  : undefined
+              }
+            >
+              {created ? (
+                <p>
+                  Add collaborators in GitHub first, then add them from{" "}
+                  <Link to="/team" className="text-ink underline decoration-rule underline-offset-4 hover:decoration-ink">
+                    Team settings
+                  </Link>
+                  . For group work, keep at least two organization owners so one
+                  locked account cannot strand the team.
+                </p>
+              ) : (
+                <p>
+                  Your teammates share this repository and its attempts. Ask the
+                  team creator for GitHub write access before you clone.
+                </p>
+              )}
+            </Step>
+
+            <Step index={number()} state={machineState("clone")} title="Clone the starter" chip={terminalSet.has("clone") ? "CLI checked" : undefined}>
+              <p>Clone the exact repository CogPortal verified, then stay inside its worktree.</p>
+              <Code lang="bash" code={`git clone ${team.repo.url}.git\ncd ${team.repo.name}`} />
+              <p className="text-[12px] text-ink-faint">
+                The link/check commands below compare this GitHub remote with
+                your team. A similarly named folder is not enough.
+              </p>
+            </Step>
+
+            <Step index={number()} state={machineState("environment")} title="Install the CogWorks tool" chip={terminalSet.has("environment") ? "CLI checked" : undefined}>
+              <p>
+                Activate the course environment your instructor provided, then
+                install the lightweight CLI from the TestPyPI pilot channel.
+              </p>
+              <Code
+                lang="bash"
+                code="python -m pip install --index-url https://test.pypi.org/simple/ --no-deps cogworks-benchmark==0.1.0"
+              />
+              <p className="text-[12px] text-ink-faint">
+                The package is named <code className="font-mono">cogworks-benchmark</code>;
+                the command it installs is <code className="font-mono">cogworks</code>.
+                Those names intentionally differ.
+              </p>
+            </Step>
+
+            <Step index={number()} state={machineState("project")} title="Install this project" chip={terminalSet.has("project") ? "CLI checked" : undefined}>
+              <p>
+                The starter pins the Week 2 benchmark pilot separately, then
+                registers your recognition and clustering adapter entry points.
+              </p>
+              <Code
+                lang="bash"
+                code={'python -m pip install -r requirements-cogbench-pilot.txt\npython -m pip install -e .'}
+              />
+              <p className="text-[12px] text-ink-faint">
+                Editable installation means code changes take effect without
+                reinstalling. CogWorks does not create or repair your conda environment.
+              </p>
+            </Step>
+
+            <Step
+              state={deviceLinked ? "verified" : "pending"}
+              title="Link this machine"
+              chip={deviceLinked ? "linked" : undefined}
+            >
+              <p>
+                This visibly online command opens CogPortal for approval, then
+                returns to the terminal. The connection is revocable from{" "}
+                <Link to="/connections" className="text-ink underline decoration-rule underline-offset-4 hover:decoration-ink">
+                  Connections
+                </Link>
+                .
+              </p>
+              <Code lang="bash" code={`cogworks link --portal ${portalOrigin}`} />
+              <p className="text-[12px] text-ink-faint">
+                Linking never turns on background reporting. Ordinary check,
+                test, run, and report commands still leave CogPortal alone.
+              </p>
+            </Step>
+
+            <Step
+              index={number()}
+              state={machineState("wiring")}
+              title="Check the wiring"
+              chip={terminalSet.has("wiring") ? "CLI checked" : undefined}
+              last
+            >
+              <p>
+                <code className="font-mono text-[12px]">check</code> verifies
+                Python, the Git remote, installed benchmark package, editable
+                project, and adapter discovery. It does not grade your work or
+                download the large public model/data cache.
+              </p>
+              <Code
+                lang="bash"
+                code={`cogworks check --benchmark ${DEFAULT_BENCHMARK} --update-setup`}
+              />
+              <p className="text-[12px] text-ink-faint">
+                The flag makes this one run update the guide. If local checks
+                pass but CogPortal is offline, the terminal prints both outcomes,
+                exits 2, and gives the same command to retry.
+              </p>
+            </Step>
+          </ol>
+
+          {complete ? (
+            <Panel label="SETUP COMPLETE" tone="good" className="mt-8">
+              <p className="text-[14px] text-ink">
+                Your machine can find the starter and both adapter interfaces.
+                You're ready to begin implementing. A working model isn't
+                expected yet.
+              </p>
+              <Link
+                to="/dashboard"
+                className="u-pressable mt-4 inline-flex h-11 items-center gap-2 bg-ink px-6 text-[13.5px] font-medium tracking-wide text-paper-raised transition-colors duration-150 hover:bg-ink/90"
+              >
+                Open dashboard
+                <HugeiconsIcon icon={ArrowRight01Icon} size={15} strokeWidth={1.8} aria-hidden="true" />
+              </Link>
+            </Panel>
+          ) : (
+            <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-rule-soft pt-5">
+              <p className="text-[12.5px] text-ink-faint">No rush. The guide keeps your place.</p>
+              <Link
+                to="/dashboard"
+                className="u-pressable inline-flex min-h-9 items-center gap-1.5 font-mono text-[11.5px] tracking-[0.07em] text-ink-secondary uppercase hover:text-ink"
+              >
+                Open dashboard
+                <HugeiconsIcon icon={ArrowRight01Icon} size={14} strokeWidth={1.8} aria-hidden="true" />
+              </Link>
+            </div>
+          )}
+
+          <Panel label="THE LOOP YOU'LL USE NEXT" className="mt-6">
+            <p className="text-[13.5px] leading-relaxed text-ink-secondary">
+              Once you have implemented an adapter, <code className="font-mono text-[12px]">test</code>{" "}
+              runs the smaller public tier and <code className="font-mono text-[12px]">run</code>{" "}
+              runs the larger practice tier. First-time runs may explicitly download the public cache.
+            </p>
+            <div className="mt-3">
+              <Code
+                lang="bash"
+                code={`cogworks test --benchmark ${DEFAULT_BENCHMARK} --update-setup\ncogworks run --benchmark ${DEFAULT_BENCHMARK} --update-setup\ncogworks report`}
+              />
+            </div>
+            <p className="mt-3 font-mono text-[11px] text-ink-faint">
+              Later, omit --update-setup. Practice remains LOCAL · SELF-REPORTED.
+              {terminalSet.has("test") ? " FIRST TEST CHECKED." : ""}
+              {terminalSet.has("run") ? " FIRST RUN CHECKED." : ""}
+            </p>
+          </Panel>
+        </div>
+      </div>
     </div>
   );
 }
 
-/* ── Terminal check-off ───────────────────────────────────────────────── */
-
-/**
- * One line, pasted in the same terminal, and the box ticks itself: the
- * command prints the portal's confirmation and the page notices within a
- * few seconds. Explicit by design; it only marks this step, nothing else
- * is sent.
- */
-function TerminalCheckoff({
-  step,
-  state,
+function ProgressRail({
+  progress,
 }: {
-  step: SetupStep;
-  state: SetupState | undefined;
+  progress: Array<{ label: string; done: boolean; unnumbered?: boolean }>;
 }) {
-  const token = state?.tokens[step];
-  if (!token || state?.verified.includes(step)) return null;
-  const url = `${window.location.origin}/api/v1/setup/verify?t=${token}`;
+  let ordinal = 0;
   return (
-    <div>
-      <p className="text-[12px] text-ink-faint">
-        Done here? Run this in the same terminal and the box ticks itself. (It
-        only marks this step; nothing else is sent.)
-      </p>
-      <CopyBlock
-        className="mt-1.5"
-        text={`python -c "import urllib.request as u; print(u.urlopen('${url}').read().decode())"`}
-      />
-    </div>
+    <aside className="sticky top-8 hidden border-l border-rule-soft pl-4 lg:block" aria-label="Setup progress">
+      <p className="u-kicker mb-3">Field notes</p>
+      <ol className="space-y-2.5">
+        {progress.map((item) => (
+          <li
+            key={item.label}
+            role={item.unnumbered ? "presentation" : undefined}
+            className="flex items-center gap-2 font-mono text-[10.5px] tracking-[0.05em] uppercase"
+          >
+            <span
+              aria-hidden={item.unnumbered || undefined}
+              className={`inline-block w-[2ch] ${item.done ? "text-verify-deep" : "text-ink-faint"}`}
+            >
+              {item.unnumbered ? "·" : String(++ordinal).padStart(2, "0")}
+            </span>
+            <span className={item.done ? "text-ink" : "text-ink-faint"}>{item.label}</span>
+          </li>
+        ))}
+      </ol>
+    </aside>
   );
 }
 
-/* ── Step rail ────────────────────────────────────────────────────────── */
+function DevRehearsal({
+  replay,
+  busy,
+  onMode,
+  onReset,
+}: {
+  replay: "creator" | "member" | null;
+  busy: boolean;
+  onMode: (mode: "creator" | "member" | null) => void;
+  onReset: () => void;
+}) {
+  return (
+    <div className="mb-8 flex flex-wrap items-center gap-2 border border-detect/25 bg-detect-wash px-3 py-2.5">
+      <span className="mr-2 font-mono text-[10px] tracking-[0.09em] text-detect-deep uppercase">Dev rehearsal</span>
+      {([null, "creator", "member"] as const).map((mode) => (
+        <Button
+          key={mode ?? "live"}
+          type="button"
+          variant={replay === mode ? "primary" : "quiet"}
+          className="!min-h-8 px-3 !text-[11px]"
+          onClick={() => onMode(mode)}
+        >
+          {mode ?? "Live state"}
+        </Button>
+      ))}
+      <span className="ml-auto">
+        <ConfirmButton
+          label="Reset guide"
+          confirmLabel="Confirm reset"
+          onConfirm={onReset}
+          busy={busy}
+          className="!min-h-8 px-3 !text-[11px]"
+        />
+      </span>
+    </div>
+  );
+}
 
 function Step({
   index,
@@ -331,53 +421,42 @@ function Step({
   children,
   last = false,
 }: {
-  index: string;
-  state: "verified" | "checked" | "pending";
+  index?: string;
+  state: "verified" | "pending";
   title: string;
-  chip?: "verified" | "optional";
-  selfCheck?: { checked: boolean; onToggle: () => void; label?: string };
+  chip?: string;
+  selfCheck?: { checked: boolean; onToggle: () => void; label: string };
   children: ReactNode;
   last?: boolean;
 }) {
-  const doneVisual =
-    state === "verified"
-      ? "border-verify/50 bg-verify-wash text-verify-deep"
-      : state === "checked"
-        ? "border-ink bg-ink text-paper-raised"
-        : "border-rule bg-paper-raised text-ink-faint";
-
+  const done = state === "verified";
   return (
-    <li className={`relative flex gap-4 ${last ? "" : "pb-8"}`}>
+    <li
+      role={index === undefined ? "presentation" : undefined}
+      className={`relative flex gap-4 ${last ? "" : "pb-8"}`}
+    >
       <span
         aria-hidden="true"
-        className={`relative z-10 flex size-7 shrink-0 items-center justify-center border font-mono text-[11px] transition-colors duration-150 ${doneVisual}`}
+        className={`relative z-10 flex size-7 shrink-0 items-center justify-center border font-mono text-[11px] transition-colors duration-150 ${
+          done
+            ? "border-verify/50 bg-verify-wash text-verify-deep"
+            : "border-rule bg-paper-raised text-ink-faint"
+        }`}
       >
-        {state === "pending" ? (
-          index
-        ) : (
-          <HugeiconsIcon icon={Tick02Icon} size={14} strokeWidth={2.2} />
-        )}
+        {done ? <HugeiconsIcon icon={Tick02Icon} size={14} strokeWidth={2.2} /> : (index ?? "·")}
       </span>
-
       <div className="min-w-0 flex-1 pt-0.5">
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
           <h2 className="font-serif text-[16.5px] font-semibold text-ink">{title}</h2>
-          {chip === "verified" && (
-            <span className="anim-rise font-mono text-[10px] tracking-[0.08em] text-verify-deep uppercase">
-              verified
-            </span>
-          )}
-          {chip === "optional" && (
-            <span className="font-mono text-[10px] tracking-[0.08em] text-ink-faint uppercase">
-              optional
+          {chip && (
+            <span className="font-mono text-[10px] tracking-[0.08em] text-verify-deep uppercase">
+              {chip}
             </span>
           )}
         </div>
-
         <div className="mt-1.5 space-y-2.5 text-[13.5px] leading-relaxed text-ink-secondary">
           {children}
         </div>
-
         {selfCheck && (
           <label className="mt-3 flex w-fit cursor-pointer items-center gap-2.5 py-1 select-none">
             <input
@@ -387,7 +466,7 @@ function Step({
               className="size-4 accent-[#1c2637]"
             />
             <span className="font-mono text-[11px] tracking-[0.07em] text-ink-secondary uppercase">
-              {selfCheck.label ?? "Done on my machine"}
+              {selfCheck.label}
             </span>
           </label>
         )}

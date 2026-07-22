@@ -1,0 +1,159 @@
+{
+  "1526706029356646460": {
+    "cog_active": {
+      "id": "1527767490036236290",
+      "animated": false,
+      "sourceHash": "117a794a9950575e"
+    },
+    "cog_bar_l_0": {
+      "id": "1527165461593194567",
+      "animated": false,
+      "sourceHash": "f5b81c968d1edf50"
+    },
+    "cog_bar_l_1": {
+      "id": "1527165464776671352",
+      "animated": false,
+      "sourceHash": "25892f02c61f96ef"
+    },
+    "cog_bar_m_0": {
+      "id": "1527165467788185611",
+      "animated": false,
+      "sourceHash": "14e32e9646d59e4d"
+    },
+    "cog_bar_m_1": {
+      "id": "1527165471017926797",
+      "animated": false,
+      "sourceHash": "42e02183d503a6da"
+    },
+    "cog_bar_r_0": {
+      "id": "1527165475426009171",
+      "animated": false,
+      "sourceHash": "a27e42174403a76a"
+    },
+    "cog_bar_r_1": {
+      "id": "1527165478806487120",
+      "animated": false,
+      "sourceHash": "b86161b1856726d1"
+    },
+    "cog_board": {
+      "id": "1527767491630334084",
+      "animated": false,
+      "sourceHash": "af8b0934a4d2f7a2"
+    },
+    "cog_done": {
+      "id": "1527767493446340630",
+      "animated": false,
+      "sourceHash": "26c743abe30a4ff2"
+    },
+    "cog_fail": {
+      "id": "1527767495400751104",
+      "animated": false,
+      "sourceHash": "facf8c6885476137"
+    },
+    "cog_flask": {
+      "id": "1527767496751321260",
+      "animated": false,
+      "sourceHash": "c1858c0eee11092f"
+    },
+    "cog_link": {
+      "id": "1527767498022326343",
+      "animated": false,
+      "sourceHash": "a4ffc97e2d2bf144"
+    },
+    "cog_notes": {
+      "id": "1527767499242733668",
+      "animated": false,
+      "sourceHash": "47831c05d5d28d38"
+    },
+    "cog_pend": {
+      "id": "1527767500484378654",
+      "animated": false,
+      "sourceHash": "3e3c87a1289179bc"
+    },
+    "cog_portal": {
+      "id": "1527767501704790280",
+      "animated": false,
+      "sourceHash": "b2989032bbb61537"
+    },
+    "cog_rank_1": {
+      "id": "1527767503550546095",
+      "animated": false,
+      "sourceHash": "be3c8f47f82da3cb"
+    },
+    "cog_rank_10": {
+      "id": "1527767505181999216",
+      "animated": false,
+      "sourceHash": "6c1fbbb3e1da91b7"
+    },
+    "cog_rank_2": {
+      "id": "1527767506478170112",
+      "animated": false,
+      "sourceHash": "c210c800b8f5ce44"
+    },
+    "cog_rank_3": {
+      "id": "1527767507744591892",
+      "animated": false,
+      "sourceHash": "062240c901e74f20"
+    },
+    "cog_rank_4": {
+      "id": "1527767509233828001",
+      "animated": false,
+      "sourceHash": "167fe93d6fce67f4"
+    },
+    "cog_rank_5": {
+      "id": "1527767510512828497",
+      "animated": false,
+      "sourceHash": "67ec86d8929e705b"
+    },
+    "cog_rank_6": {
+      "id": "1527767512413110356",
+      "animated": false,
+      "sourceHash": "caf7b02276d6754a"
+    },
+    "cog_rank_7": {
+      "id": "1527767514098962472",
+      "animated": false,
+      "sourceHash": "cbb75294fb81f426"
+    },
+    "cog_rank_8": {
+      "id": "1527767516103835656",
+      "animated": false,
+      "sourceHash": "c4089e45f0f9c7db"
+    },
+    "cog_rank_9": {
+      "id": "1527767518369021963",
+      "animated": false,
+      "sourceHash": "d6ea4ca622f16932"
+    },
+    "cog_repo": {
+      "id": "1527767519790895104",
+      "animated": false,
+      "sourceHash": "6d97cdfcc080a530"
+    },
+    "cog_slot_free": {
+      "id": "1527767521036599347",
+      "animated": false,
+      "sourceHash": "c0b537526990702b"
+    },
+    "cog_slot_used": {
+      "id": "1527767522600816641",
+      "animated": false,
+      "sourceHash": "eeb80931f55b7a57"
+    },
+    "cog_spin": {
+      "id": "1527767523796189336",
+      "animated": true,
+      "sourceHash": "50ee4ac545a41f92"
+    },
+    "cog_star": {
+      "id": "1527767525407068271",
+      "animated": false,
+      "sourceHash": "95c47e43d7d41ca7"
+    },
+    "cog_vision": {
+      "id": "1527767527143379106",
+      "animated": false,
+      "sourceHash": "92dc5604ef56455a"
+    }
+  }
+}

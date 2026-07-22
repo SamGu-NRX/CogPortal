@@ -3,6 +3,7 @@ import { deleteCookie, getSignedCookie, setSignedCookie } from "hono/cookie";
 import { desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { RunSurfaceSnapshotSchema } from "@cogworks/contracts/schema";
+import { accountLogin } from "../auth/session";
 import type { AppEnv } from "../env";
 import { getDb } from "../db/client";
 import { discordAccounts, runSurfaces, teamMembers, teams, users } from "../db/schema";
@@ -91,6 +92,7 @@ async function activityIdentity(env: AppEnv["Bindings"], discordUserId: string) 
     .select({
       userId: users.id,
       githubLogin: users.githubLogin,
+      email: users.email,
       team: teams,
     })
     .from(discordAccounts)
@@ -169,7 +171,7 @@ export function registerActivityRoutes(app: Hono<AppEnv>): void {
     }
     return respond(c, ActivitySessionSchema, {
       linked: true,
-      githubLogin: identity.githubLogin,
+      githubLogin: accountLogin(identity),
       team: {
         id: identity.team.id,
         name: identity.team.name,

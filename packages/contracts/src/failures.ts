@@ -47,14 +47,36 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
     retryable: false,
     defaultConsumesAttempt: false,
   },
+  data_download: {
+    code: "E-DATA",
+    title: "Benchmark data is not ready",
+    explanation:
+      "The fixed benchmark image bundle could not be downloaded or failed integrity validation.",
+    action:
+      "For a local run, reconnect and retry so CogBench can rebuild the selected-image cache. For an official run, staff must repair the private evaluation volume.",
+    reproCommand: "cogworks check --benchmark vision-recognition",
+    retryable: true,
+    defaultConsumesAttempt: false,
+  },
+  model_cache: {
+    code: "E-MODEL",
+    title: "FaceNet cache is not ready",
+    explanation:
+      "The shared FaceNet checkpoint is missing or does not match the reviewed checksum.",
+    action:
+      "Run the local doctor and retry once online. Official-image failures are repaired by staff and do not consume an attempt.",
+    reproCommand: "cogworks check --benchmark vision-recognition",
+    retryable: true,
+    defaultConsumesAttempt: false,
+  },
   adapter_missing: {
     code: "E-ADAPTER",
     title: "Benchmark adapter not found",
     explanation:
-      "Your package installed, but no entry point for this track was registered under the cogworks.submissions.v1 group.",
+      "Your package installed, but no entry point for this track was registered under the active submission contract group.",
     action:
-      'Add the entry point to pyproject.toml and push:\n[project.entry-points."cogworks.submissions.v1"]\nvision-recognition = "your_package.portal:Submission"',
-    reproCommand: "python -m cogworks_benchmark check vision-recognition",
+      'Add the v2 entry point to pyproject.toml and push:\n[project.entry-points."cogworks.submissions.v2"]\nvision-recognition = "benchmark_adapter:create_recognition_adapter"',
+    reproCommand: "cogworks check --benchmark vision-recognition",
     retryable: false,
     defaultConsumesAttempt: false,
   },
@@ -62,10 +84,10 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
     code: "E-CONTRACT",
     title: "Adapter does not satisfy the contract",
     explanation:
-      "Your adapter imported, but it is missing methods or signatures required by the vision-recognition/v1 contract.",
+      "Your adapter imported, but it is missing behavior required by the active track contract.",
     action:
       "Run the local contract check to see exactly which method failed, fix it, and push a new commit.",
-    reproCommand: "python -m cogworks_benchmark check vision-recognition",
+    reproCommand: "cogworks test --benchmark vision-recognition",
     retryable: false,
     defaultConsumesAttempt: false,
   },

@@ -16,6 +16,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          submodules: recursive
       - uses: pnpm/action-setup@f68f5791346aaeb8b9d7ea636c1bcf61c15511ed # v6.0.2
       - uses: actions/setup-node@v4
         with:
@@ -25,6 +27,7 @@ jobs:
       - run: pnpm check
       - run: pnpm --filter @cogworks/contracts test
       - run: pnpm --filter @cogworks/discord-bot test
+      - run: pnpm --filter @cogworks/portal test
       - run: pnpm db:migrate:local
       - run: pnpm build
 
@@ -44,20 +47,45 @@ jobs:
             python-version: "3.8"
     steps:
       - uses: actions/checkout@v6
+        with:
+          submodules: recursive
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-      - run: python -m pip install --upgrade pip
-      - run: python -m pip install -e python/cogbench -e benchmarks/vision-recognition -e examples/week2-vision-submission
+      - run: python -m pip install --upgrade pip build
+      - run: python -m pip install -e python/cogbench
       - run: python -m unittest discover -s python/cogbench/tests -p 'test_*.py'
-      - run: python -m unittest discover -s benchmarks/vision-recognition/tests -p 'test_*.py'
-      - run: python -m unittest discover -s examples/week2-vision-submission/tests -p 'test_*.py'
       - if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
         run: python -m unittest discover -s apps/runner-modal/tests -p 'test_*.py'
       - run: python template-catalog/validate.py
-      - run: cogbench --version
-      - run: cogbench doctor --benchmark vision-recognition
-      - run: cogbench test --benchmark vision-recognition
-      - run: cogbench run --benchmark vision-recognition
-      - run: cogbench report
+      - run: python -m build python/cogbench --outdir wheelhouse
+      - run: python -m pip install --no-index --find-links wheelhouse --force-reinstall cogworks-benchmark
+      - run: python -m pip check
+      - run: cogworks --version
+      - run: cogworks --help
+
+  week2:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.8"
+          cache: pip
+      - run: python -m pip install --upgrade pip
+      - run: >-
+          python -m pip install -e python/cogbench
+          -e "benchmarks/week2[test,data]"
+          -e "benchmarks/week2/face_recognition_app[test]"
+          numpy==1.24.4 Pillow==10.2.0 torch==2.2.2 torchvision==0.17.2
+          facenet-pytorch==2.6.0 opencv-python-headless==4.10.0.84
+          "facenet_models @ git+https://github.com/CogWorksBWSI/facenet_models.git@96b9599b03f26910b66f61ce725a8660e0ba654c"
+      - run: python scripts/validate_week2_submodule.py
+      - run: pytest benchmarks/week2/tests
+      - run: python -m unittest discover -s python/cogbench/tests -p 'test_*.py'
+      - run: python -m unittest discover -s apps/runner-modal/tests -p 'test_*.py'
+      - run: cogworks check --benchmark vision-recognition --json
+      - run: cogworks check --benchmark vision-clustering --json

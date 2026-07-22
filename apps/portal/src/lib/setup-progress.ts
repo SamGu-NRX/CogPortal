@@ -14,6 +14,15 @@ function dismissKey(teamId: string, login: string): string {
   return `cog-setup-dismissed:${teamId}:${login}`;
 }
 
+export function clearSetupProgress(teamId: string, login: string): void {
+  try {
+    localStorage.removeItem(checksKey(teamId, login));
+    localStorage.removeItem(dismissKey(teamId, login));
+  } catch {
+    /* private mode — there may be nothing durable to clear */
+  }
+}
+
 function readChecks(teamId: string, login: string): ReadonlySet<string> {
   try {
     const raw = localStorage.getItem(checksKey(teamId, login));
@@ -81,21 +90,22 @@ export function setupSteps(
   checks: ReadonlySet<string>,
   verified: {
     teammates: boolean;
-    reportSynced: boolean;
     /** Steps confirmed via the terminal one-liner (server-verified). */
     terminal?: readonly string[];
   },
 ): { done: number; total: number } {
   const terminal = new Set(verified.terminal ?? []);
-  const machine = (step: string) => terminal.has(step) || checks.has(step);
+  // Ignore legacy browser checkboxes; only CLI evidence counts machine steps.
+  const verifiedByCli = (step: string) => terminal.has(step);
   const states = [
     true, // fork connected / team joined — always true once a team exists
     entry === "created"
       ? verified.teammates || checks.has("teammates")
-      : machine("clone"),
-    machine("environment"),
-    machine("wiring"),
-    verified.reportSynced || checks.has("run"),
+      : true,
+    verifiedByCli("clone"),
+    verifiedByCli("environment"),
+    verifiedByCli("project"),
+    verifiedByCli("wiring"),
   ];
   return { done: states.filter(Boolean).length, total: states.length };
 }
@@ -104,7 +114,7 @@ export function setupProgress(
   teamId: string,
   login: string,
   entry: SetupEntry,
-  verified: { teammates: boolean; reportSynced: boolean; terminal?: readonly string[] },
+  verified: { teammates: boolean; terminal?: readonly string[] },
 ): { done: number; total: number } {
   return setupSteps(entry, readChecks(teamId, login), verified);
 }

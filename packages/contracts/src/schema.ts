@@ -45,6 +45,8 @@ export function isTerminal(status: RunStatus): boolean {
 export const FAILURE_CATEGORIES = [
   "repository_fetch",
   "dependency_install",
+  "data_download",
+  "model_cache",
   "adapter_missing",
   "contract_invalid",
   "student_runtime",
@@ -151,6 +153,25 @@ export const BenchmarkSchema = z.object({
 });
 export type Benchmark = z.infer<typeof BenchmarkSchema>;
 
+export const BenchmarkFamilyComponentSchema = z.object({
+  key: z.string(),
+  label: z.string(),
+  benchmarkId: z.string(),
+  benchmarkVersion: z.number().int(),
+  metricKey: z.string(),
+  weight: z.number().positive(),
+});
+
+export const BenchmarkFamilySchema = z.object({
+  id: z.string(),
+  version: z.number().int(),
+  title: z.string(),
+  module: ModuleSchema,
+  active: z.boolean(),
+  components: z.array(BenchmarkFamilyComponentSchema).min(1),
+});
+export type BenchmarkFamily = z.infer<typeof BenchmarkFamilySchema>;
+
 /* ── Team / session / quota ───────────────────────────────────────────── */
 
 export const QuotaSchema = z.object({
@@ -180,6 +201,8 @@ export const AuthConfigSchema = z.object({
   githubConfigured: z.boolean(),
   /** Local sign-in is available (never in production). */
   devAuthEnabled: z.boolean(),
+  /** Owner-only setup replay/reset controls are enabled for this deployment. */
+  onboardingDevToolsEnabled: z.boolean(),
   /** GitHub App slug, for the …/installations/new install link. */
   appSlug: z.string().nullable(),
   /** Course template repository (owner/name); submissions must fork it. */
@@ -212,11 +235,16 @@ export type Session = z.infer<typeof SessionSchema>;
 /* ── Account connections and local reports ───────────────────────────── */
 
 export const ConnectionSummarySchema = z.object({
-  github: z.object({
-    id: z.number().int().nullable(),
-    login: z.string(),
-    avatarUrl: z.string().nullable(),
-  }),
+  // Null when the account has no GitHub identity. GitHub sign-in always
+  // creates one; dev-auth users don't, and a required `login` here made the
+  // whole connections endpoint 500 for them.
+  github: z
+    .object({
+      id: z.number().int().nullable(),
+      login: z.string(),
+      avatarUrl: z.string().nullable(),
+    })
+    .nullable(),
   discord: z
     .object({
       userId: z.string(),
@@ -246,7 +274,9 @@ export const DiscordLinkPreviewSchema = z.object({
 
 export const DeviceAuthorizationStartResponseSchema = z.object({
   deviceCode: z.string().min(32),
-  userCode: z.string().regex(/^[A-Z0-9]{4}-[A-Z0-9]{4}$/),
+  // Three groups since the 48-bit entropy hardening (6 bytes → 12 hex chars);
+  // the old two-group pattern rejected every code the worker now issues.
+  userCode: z.string().regex(/^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/),
   verificationUri: z.string().url(),
   expiresAt: z.number().int(),
   pollIntervalSeconds: z.number().int().min(2).max(30),
@@ -431,6 +461,10 @@ export const RunSurfaceSnapshotSchema = z.object({
   elapsedMs: z.number().int().nonnegative(),
   progress: RunProgressSchema.nullable(),
   primaryMetric: MetricSchema.nullable(),
+  /** Every metric of the current run, primary first; empty until scored. */
+  metrics: z.array(MetricSchema).default([]),
+  /** Best observed (hosted/official) primary metric on this benchmark from the team's other surfaces. */
+  teamBest: MetricSchema.nullable().default(null),
   localRunId: z.string().nullable(),
   practiceRunId: z.string().nullable(),
   officialRunId: z.string().nullable(),
@@ -597,6 +631,12 @@ export const LeaderboardSchema = z.object({
 });
 export type Leaderboard = z.infer<typeof LeaderboardSchema>;
 
+export const FamilyLeaderboardSchema = z.object({
+  family: BenchmarkFamilySchema,
+  entries: z.array(LeaderboardEntrySchema),
+});
+export type FamilyLeaderboard = z.infer<typeof FamilyLeaderboardSchema>;
+
 /** GET /api/github/repositories */
 export const GithubRepoSchema = RepoRefSchema.extend({
   repositoryId: z.number().int().positive().nullable(),
@@ -710,21 +750,49 @@ export const JoinTeamRequestSchema = z.object({
 
 /* ── Setup guide verification (terminal callback) ─────────────────────── */
 
-/** Machine-local setup steps a student can check off from their own
- *  terminal: the guide embeds a signed one-liner; running it pings the
- *  portal and the step marks itself. Deliberately explicit — its own
- *  labeled command, never hidden inside an install line. */
-export const SETUP_STEPS = ["clone", "environment", "wiring"] as const;
+/** Machine-local steps a student can explicitly report after a real CLI
+ *  command checks them. Test/run are later learning milestones and do not
+ *  gate day-zero setup. */
+export const SETUP_STEPS = [
+  "clone",
+  "environment",
+  "project",
+  "wiring",
+  "test",
+  "run",
+] as const;
 export const SetupStepSchema = z.enum(SETUP_STEPS);
 export type SetupStep = z.infer<typeof SetupStepSchema>;
 
-/** GET /api/v1/setup/state — the caller's verification state for their
- *  current team, plus per-step signed tokens (~7 day validity) for the
- *  copyable check-off commands. */
-export const SetupStateSchema = z.object({
-  verified: z.array(SetupStepSchema),
-  tokens: z.record(SetupStepSchema, z.string()),
-});
+/** POST /api/v1/cli/setup/checks. A linked CLI sends only coarse pass
+ *  evidence: no paths, source, logs, predictions, metrics, or reports. */
+export const SetupEvidenceRequestSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    repositoryFullName: z.string().regex(/^[^/\s]+\/[^/\s]+$/),
+    checks: z.array(SetupStepSchema).min(1).max(SETUP_STEPS.length),
+    cliVersion: z.string().min(1).max(40),
+    pythonVersion: z.string().min(1).max(40),
+    benchmarkIds: z.array(z.string().min(1).max(100)).max(12),
+    submissionIds: z.array(z.string().min(1).max(100)).max(12),
+  })
+  .strict();
+export type SetupEvidenceRequest = z.infer<typeof SetupEvidenceRequestSchema>;
+
+export const SetupEvidenceResponseSchema = z
+  .object({
+    accepted: z.array(SetupStepSchema),
+  })
+  .strict();
+export type SetupEvidenceResponse = z.infer<typeof SetupEvidenceResponseSchema>;
+
+/** GET /api/v1/setup/state — CLI-checked state for the signed-in student's
+ *  current team. */
+export const SetupStateSchema = z
+  .object({
+    verified: z.array(SetupStepSchema),
+  })
+  .strict();
 export type SetupState = z.infer<typeof SetupStateSchema>;
 
 /* ── Team member management (team admin only) ─────────────────────────── */

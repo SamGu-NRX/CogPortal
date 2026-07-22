@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Offline-first CogWorks benchmark SDK and CLI"
 readme = "README.md"
 requires-python = ">=3.8"
-license = { text = "MIT" }
+license = { file = "LICENSE" }
 authors = [{ name = "CogWorks" }]
 classifiers = [
   "Programming Language :: Python :: 3",
@@ -16,7 +16,11 @@ classifiers = [
 ]
 
 [project.scripts]
-cogbench = "cogbench.cli:main"
+cogworks = "cogbench.cli:main"
+
+[project.urls]
+Repository = "https://github.com/CogWorksBWSI/CogPortal"
+Issues = "https://github.com/CogWorksBWSI/CogPortal/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]

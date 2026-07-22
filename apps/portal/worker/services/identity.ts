@@ -82,11 +82,13 @@ export async function getConnectionSummary(env: Env, userId: string): Promise<Co
   const account = user[0];
   if (!account) throw new Error("Connection owner no longer exists.");
   return {
-    github: {
-      id: account.githubId,
-      login: account.githubLogin,
-      avatarUrl: account.avatarUrl,
-    },
+    github: account.githubLogin
+      ? {
+          id: account.githubId,
+          login: account.githubLogin,
+          avatarUrl: account.image,
+        }
+      : null,
     discord: discord[0]
       ? {
           userId: discord[0].discordUserId,

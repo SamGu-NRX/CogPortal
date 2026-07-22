@@ -22,14 +22,45 @@ runner_secret = modal.Secret.from_name("cogworks-runner-signing", create_if_miss
 hidden_datasets = modal.Volume.from_name("cogworks-hidden-datasets", create_if_missing=True)
 job_store = modal.Dict.from_name("cogworks-runner-jobs", create_if_missing=True)
 
+CHECKPOINT_URL = (
+    "https://github.com/timesler/facenet-pytorch/releases/download/"
+    "v2.2.9/20180402-114759-vggface2.pt"
+)
+CHECKPOINT_SHA256 = "281cebca8662831adb987a874bdcb36e73f5b1c6dc5ee5878f305e985625d99b"
+
+
+def _cache_facenet_checkpoint() -> None:
+    path = Path("/opt/torch/checkpoints/20180402-114759-vggface2.pt")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with urllib.request.urlopen(CHECKPOINT_URL, timeout=120) as response:
+        payload = response.read()
+    if len(payload) != 111_898_327 or hashlib.sha256(payload).hexdigest() != CHECKPOINT_SHA256:
+        raise RuntimeError("FaceNet checkpoint does not match the reviewed lock.")
+    path.write_bytes(payload)
+
 benchmark_image = (
     modal.Image.debian_slim(python_version="3.8")
+    .apt_install("git")
+    .pip_install(
+        "numpy==1.24.4",
+        "Pillow==10.2.0",
+        "torch==2.2.2",
+        "torchvision==0.17.2",
+        "facenet-pytorch==2.6.0",
+        "opencv-python-headless==4.10.0.84",
+        "platformdirs>=4,<5",
+        "datasets>=2.20,<4",
+        "facenet_models @ git+https://github.com/CogWorksBWSI/facenet_models.git@96b9599b03f26910b66f61ce725a8660e0ba654c",
+    )
     .add_local_dir(str(REPO_ROOT / "python" / "cogbench" / "src"), "/opt/cogbench")
     .add_local_dir(
-        str(REPO_ROOT / "benchmarks" / "vision-recognition" / "src"),
-        "/opt/vision-benchmark",
+        str(REPO_ROOT / "apps" / "runner-modal" / "src"),
+        "/opt/runner",
     )
-    .env({"PYTHONPATH": "/opt/cogbench:/opt/vision-benchmark"})
+    .add_local_dir(str(REPO_ROOT / "benchmarks" / "week2"), "/opt/week2", copy=True)
+    .run_commands("python -m pip install --no-deps /opt/week2")
+    .env({"PYTHONPATH": "/opt/cogbench:/opt/runner", "TORCH_HOME": "/opt/torch"})
+    .run_function(_cache_facenet_checkpoint)
 )
 
 controller_image = benchmark_image.pip_install("fastapi>=0.115,<1")
@@ -42,7 +73,7 @@ import sys
 import tarfile
 import urllib.request
 
-archive_url, benchmark_id = sys.argv[1], sys.argv[2]
+archive_url, benchmark_id, contract_group = sys.argv[1], sys.argv[2], sys.argv[3]
 archive = pathlib.Path("/tmp/source.tar.gz")
 max_archive_bytes = 100 * 1024 * 1024
 request = urllib.request.Request(archive_url, headers={"User-Agent": "cogworks-runner"})
@@ -83,11 +114,11 @@ subprocess.run(
 )
 points = importlib.metadata.entry_points()
 if hasattr(points, "select"):
-    matches = points.select(group="cogworks.submissions.v1", name=benchmark_id)
+    matches = points.select(group=contract_group, name=benchmark_id)
 else:
     matches = [
         point
-        for point in points.get("cogworks.submissions.v1", ())
+        for point in points.get(contract_group, ())
         if point.name == benchmark_id
     ]
 if len(list(matches)) != 1:
@@ -101,7 +132,7 @@ import io
 import json
 import pathlib
 import sys
-from cogbench.plugins import load_submission
+from cogbench.plugins import load_benchmark, load_submission
 
 class BoundedBuffer(io.TextIOBase):
     def __init__(self, limit):
@@ -121,17 +152,35 @@ class BoundedBuffer(io.TextIOBase):
 
 benchmark_id = sys.argv[1]
 limit = int(sys.argv[2])
-inputs = json.loads(pathlib.Path("/tmp/cog-inputs.json").read_text(encoding="utf-8"))
-adapter = load_submission(benchmark_id)
-predictor = getattr(adapter, "predict", adapter if callable(adapter) else None)
-if not callable(predictor):
-    raise RuntimeError("Submission adapter must be callable or expose predict(inputs).")
 buffer = BoundedBuffer(limit)
-with contextlib.redirect_stdout(buffer), contextlib.redirect_stderr(buffer):
-    predictions = predictor(inputs)
-predictions = list(predictions)
-if len(predictions) != len(inputs):
-    raise RuntimeError("Submission returned the wrong number of predictions.")
+try:
+    if pathlib.Path("/tmp/cog-v2-payload.zip").exists():
+        from cogworks_runner.week2_payload import decode_cases
+        from facenet_models import FacenetModel
+        payload_id, cases = decode_cases(pathlib.Path("/tmp/cog-v2-payload.zip").read_bytes())
+        if payload_id != benchmark_id:
+            raise RuntimeError("Staged benchmark payload does not match the job.")
+        benchmark = load_benchmark(benchmark_id)
+        factory = load_submission(benchmark_id, "cogworks.submissions.v2")
+        with contextlib.redirect_stdout(buffer), contextlib.redirect_stderr(buffer):
+            predictions = benchmark.run(factory, FacenetModel(device="cpu"), cases)
+        predictions = list(predictions)
+        if len(predictions) != len(cases):
+            raise RuntimeError("Submission returned the wrong number of scenario outputs.")
+    else:
+        inputs = json.loads(pathlib.Path("/tmp/cog-inputs.json").read_text(encoding="utf-8"))
+        adapter = load_submission(benchmark_id)
+        predictor = getattr(adapter, "predict", adapter if callable(adapter) else None)
+        if not callable(predictor):
+            raise RuntimeError("Submission adapter must be callable or expose predict(inputs).")
+        with contextlib.redirect_stdout(buffer), contextlib.redirect_stderr(buffer):
+            predictions = predictor(inputs)
+        predictions = list(predictions)
+        if len(predictions) != len(inputs):
+            raise RuntimeError("Submission returned the wrong number of predictions.")
+except Exception as error:
+    sys.stderr.write("COG_ERROR: {}\n".format(str(error)[:500]))
+    raise SystemExit(2)
 encoded = json.dumps(predictions).encode("utf-8")
 if len(encoded) > 8 * 1024 * 1024:
     raise RuntimeError("Submission predictions exceed the 8 MiB result limit.")
@@ -264,7 +313,7 @@ def _load_benchmark(job: Dict[str, Any]) -> Any:
     for attribute, value in expected.items():
         if getattr(benchmark, attribute, None) != value:
             raise RunnerFailure(
-                "provider",
+                "data_download",
                 "contract_check",
                 "Trusted benchmark plugin version does not match the run job.",
                 True,
@@ -300,6 +349,37 @@ def _cases(job: Dict[str, Any], benchmark: Any) -> Tuple[List[Any], List[Any]]:
     return [case["input"] for case in cases], [case["expected"] for case in cases]
 
 
+def _v2_cases(job: Dict[str, Any], benchmark: Any) -> List[Any]:
+    if job["mode"] == "practice":
+        try:
+            return list(benchmark.load_cases("evaluation"))
+        except Exception as error:
+            raise RunnerFailure(
+                "provider",
+                "evaluating",
+                "Public Week 2 data could not be prepared.",
+                True,
+            ) from error
+    from cogworks_runner.week2_payload import attach_clustering_labels, decode_cases
+
+    root = Path("/hidden") / job["benchmark"]["id"] / job["benchmark"]["datasetVersion"]
+    try:
+        payload_id, cases = decode_cases((root / "payload.zip").read_bytes())
+        if payload_id != job["benchmark"]["id"]:
+            raise ValueError("Official payload track mismatch.")
+        if payload_id == "vision-clustering":
+            labels = json.loads((root / "expected.json").read_text(encoding="utf-8"))
+            cases = attach_clustering_labels(cases, labels)
+        return cases
+    except (OSError, ValueError, KeyError) as error:
+        raise RunnerFailure(
+            "data_download",
+            "evaluating",
+            "Official Week 2 data is missing or failed integrity validation.",
+            True,
+        ) from error
+
+
 def _prepare(job: Dict[str, Any], reporter: LiveReporter) -> str:
     sandbox = None
     try:
@@ -325,6 +405,7 @@ def _prepare(job: Dict[str, Any], reporter: LiveReporter) -> str:
                 "/tmp/cog-prepare.py",
                 job["source"]["archiveUrl"],
                 job["benchmark"]["id"],
+                job["benchmark"]["contractVersion"],
             )
             process.wait()
         if process.returncode != 0:
@@ -400,6 +481,96 @@ def _evaluate(job: Dict[str, Any], snapshot_id: str, inputs: List[Any]) -> Tuple
             sandbox.terminate()
 
 
+def _evaluate_v2(
+    job: Dict[str, Any], snapshot_id: str, cases: List[Any]
+) -> Tuple[List[Any], str]:
+    from cogworks_runner.week2_payload import encode_cases
+
+    sandbox = None
+    try:
+        sandbox = modal.Sandbox.create(
+            image=modal.Image.from_id(snapshot_id),
+            app=app,
+            cpu=(0.5, job["runtime"]["cpu"]),
+            memory=(512, job["runtime"]["memoryMb"]),
+            timeout=job["runtime"]["timeoutSeconds"],
+            block_network=True,
+        )
+        sandbox.filesystem.write_bytes(
+            encode_cases(job["benchmark"]["id"], cases),
+            "/tmp/cog-v2-payload.zip",
+        )
+        sandbox.filesystem.write_text(EVALUATE_SCRIPT, "/tmp/cog-evaluate.py")
+        process = sandbox.exec(
+            "python",
+            "/tmp/cog-evaluate.py",
+            job["benchmark"]["id"],
+            str(job["runtime"]["maxOutputBytes"]),
+        )
+        process.wait()
+        if process.returncode != 0:
+            detail = _last_error_line(process.stderr.read())
+            if any(token in detail.lower() for token in ("checkpoint", "facenet model", "torch_home")):
+                raise RunnerFailure("model_cache", "evaluating", "FaceNet cache validation failed.", True)
+            category = "contract_invalid" if "benchmark_adapter.py" in detail else "student_runtime"
+            raise RunnerFailure(category, "evaluating", detail, False)
+        predictions = json.loads(sandbox.filesystem.read_text("/tmp/cog-predictions.json"))
+        log = sandbox.filesystem.read_text("/tmp/cog-student.log")
+        return list(predictions), log[: job["runtime"]["maxOutputBytes"]]
+    except RunnerFailure:
+        raise
+    except Exception as error:
+        normalized = str(error).lower()
+        if "timeout" in normalized or "timed out" in normalized:
+            raise RunnerFailure("timeout", "evaluating", "Evaluation timed out.", False) from error
+        if "memory" in normalized or "oom" in normalized:
+            raise RunnerFailure("memory_limit", "evaluating", "Evaluation exceeded memory.", False) from error
+        raise RunnerFailure(
+            "provider", "evaluating", "Evaluation provider failed.", True
+        ) from error
+    finally:
+        if sandbox is not None:
+            sandbox.terminate()
+
+
+def _last_error_line(value: str) -> str:
+    lines = [line.strip() for line in value.splitlines() if line.strip()]
+    if not lines:
+        return "Evaluation failed."
+    line = lines[-1]
+    if line.startswith("COG_ERROR:"):
+        return line[len("COG_ERROR:") :].strip()[:240]
+    return "Student process exited before producing a valid result."
+
+
+def _v2_metrics(benchmark: Any, outputs: List[Any], cases: List[Any]) -> Tuple[List[Any], List[str]]:
+    from cogbench.models import Metric
+
+    labels = {
+        "known_identification": "Known identification",
+        "unknown_rejection_recall": "Unknown rejection recall",
+        "post_enrollment_accuracy": "Post-enrollment accuracy",
+        "unknown_lifecycle": "Unknown lifecycle",
+        "recognition_score": "Recognition score",
+        "clustering_pairwise_f1": "Pairwise F1",
+        "adjusted_rand_index": "Adjusted Rand index",
+    }
+    scores = benchmark.score(outputs, cases)
+    metrics = [
+        Metric(
+            key=key,
+            label=labels.get(key, key.replace("_", " ").title()),
+            value=float(value),
+            unit=None,
+            higher_is_better=True,
+            primary=key == benchmark.primary_metric,
+            precision=3,
+        )
+        for key, value in scores.items()
+    ]
+    return metrics, []
+
+
 @app.function(
     image=controller_image,
     secrets=[runner_secret],
@@ -419,15 +590,28 @@ def execute_job(job_value: Dict[str, Any]) -> None:
         if job["preparedArtifactId"]:
             reporter.status("contract_check")
         benchmark = _load_benchmark(job)
-        inputs, expected = _cases(job, benchmark)
+        if benchmark.contract_version == "cogworks.submissions.v2":
+            cases = _v2_cases(job, benchmark)
+            inputs, expected = [], []
+            case_count = len(cases)
+        else:
+            inputs, expected = _cases(job, benchmark)
+            cases = []
+            case_count = len(inputs)
         phase = "evaluating"
-        reporter.status("evaluating", 0, len(inputs))
-        with StatusHeartbeat(reporter, "evaluating", 0, len(inputs)):
-            predictions, student_log = _evaluate(job, snapshot_id, inputs)
-        reporter.status("evaluating", len(inputs), len(inputs))
+        reporter.status("evaluating", 0, case_count)
+        with StatusHeartbeat(reporter, "evaluating", 0, case_count):
+            if benchmark.contract_version == "cogworks.submissions.v2":
+                predictions, student_log = _evaluate_v2(job, snapshot_id, cases)
+            else:
+                predictions, student_log = _evaluate(job, snapshot_id, inputs)
+        reporter.status("evaluating", case_count, case_count)
         phase = "scoring"
         reporter.status("scoring")
-        metrics, diagnostics = benchmark.score(predictions, expected)
+        if benchmark.contract_version == "cogworks.submissions.v2":
+            metrics, diagnostics = _v2_metrics(benchmark, predictions, cases)
+        else:
+            metrics, diagnostics = benchmark.score(predictions, expected)
         output_digest = hashlib.sha256(
             json.dumps(predictions, sort_keys=True, separators=(",", ":")).encode("utf-8")
         ).hexdigest()

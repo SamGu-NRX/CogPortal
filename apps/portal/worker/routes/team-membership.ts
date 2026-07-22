@@ -10,8 +10,9 @@ import {
 } from "@cogworks/contracts/schema";
 import type { CohortTeam, TeamMember } from "@cogworks/contracts/schema";
 import type { AppEnv } from "../env";
-import { githubConfigured } from "../env";
-import { requireUser } from "../auth/session";
+import { devAuthAvailable, githubConfigured } from "../env";
+import { getGithubToken } from "../auth/better-auth";
+import { authFor, requireUser } from "../auth/session";
 import type { AuthState } from "../auth/session";
 import { getDb } from "../db/client";
 import type { Database } from "../db/client";
@@ -84,8 +85,9 @@ export function registerTeamMembershipRoutes(app: Hono<AppEnv>): void {
           .select({
             teamId: teamMembers.teamId,
             login: users.githubLogin,
+            email: users.email,
             name: users.name,
-            avatarUrl: users.avatarUrl,
+            avatarUrl: users.image,
             role: teamMembers.role,
           })
           .from(teamMembers)
@@ -97,7 +99,7 @@ export function registerTeamMembershipRoutes(app: Hono<AppEnv>): void {
       const members = memberships
         .filter((membership) => membership.teamId === team.id)
         .map((membership) => ({
-          login: membership.login,
+          login: membership.login ?? membership.email.split("@")[0],
           name: membership.name,
           avatarUrl: membership.avatarUrl,
           role: memberRole(membership.role),
@@ -144,17 +146,21 @@ export function registerTeamMembershipRoutes(app: Hono<AppEnv>): void {
     const adminLogin = admin?.login ?? null;
 
     let permission: TeamRole;
-    if (team.repoFullName === FIXTURE_REPO.fullName && c.env.DEV_AUTH === "enabled") {
+    if (team.repoFullName === FIXTURE_REPO.fullName && devAuthAvailable(c.env)) {
       permission = "write";
     } else {
-      if (!githubConfigured(c.env) || !auth.oauthToken) {
+      const githubToken = githubConfigured(c.env)
+        ? await getGithubToken(authFor(c), auth.user.id, c.req.raw.headers)
+        : null;
+      const githubLogin = auth.user.githubLogin;
+      if (!githubToken || !githubLogin) {
         throw repoAccessRequired(adminLogin);
       }
       const mappedPermission = teamRole(
         await new RealGitHubClient().getPermission(
           team.repoFullName,
-          auth.user.githubLogin,
-          auth.oauthToken,
+          githubLogin,
+          githubToken,
         ),
       );
       if (!mappedPermission) throw repoAccessRequired(adminLogin);
@@ -185,14 +191,23 @@ export function registerTeamMembershipRoutes(app: Hono<AppEnv>): void {
     const invitable = await getDb(c.env)
       .select({
         login: users.githubLogin,
+        email: users.email,
         name: users.name,
-        avatarUrl: users.avatarUrl,
+        avatarUrl: users.image,
       })
       .from(users)
       .leftJoin(teamMembers, eq(teamMembers.userId, users.id))
       .where(and(eq(users.cohortId, auth.team.cohortId), isNull(teamMembers.teamId)))
       .orderBy(asc(users.githubLogin));
-    return respond(c, InvitableUserListSchema, invitable);
+    return respond(
+      c,
+      InvitableUserListSchema,
+      invitable.map((user) => ({
+        login: user.login ?? user.email.split("@")[0],
+        name: user.name,
+        avatarUrl: user.avatarUrl,
+      })),
+    );
   });
 
   app.post("/team/members", async (c) => {
@@ -211,14 +226,18 @@ export function registerTeamMembershipRoutes(app: Hono<AppEnv>): void {
         "No CogPortal account with that GitHub login yet — they need to sign in once first.",
       );
     }
+    const githubLogin = user.githubLogin;
+    if (!githubLogin) {
+      throw new ApiHttpError(404, "not_found", "No CogPortal account has that GitHub login.");
+    }
     if (user.cohortId !== auth.team.cohortId) {
-      throw new ApiHttpError(403, "not_in_cohort", `@${user.githubLogin} is not in your cohort.`);
+      throw new ApiHttpError(403, "not_in_cohort", `@${githubLogin} is not in your cohort.`);
     }
 
     const membership = await findMembership(db, user.id);
     if (membership) {
       throw alreadyOnTeamError(
-        user.githubLogin,
+        githubLogin,
         membership.teamId === auth.team.id
           ? undefined
           : membership.teamName ?? "another team",
@@ -235,7 +254,7 @@ export function registerTeamMembershipRoutes(app: Hono<AppEnv>): void {
       if (isUniqueConstraintError(error)) {
         const racingMembership = await findMembership(db, user.id);
         throw alreadyOnTeamError(
-          user.githubLogin,
+          githubLogin,
           racingMembership && racingMembership.teamId !== auth.team.id
             ? racingMembership.teamName ?? "another team"
             : undefined,

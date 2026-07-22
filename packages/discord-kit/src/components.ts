@@ -1,8 +1,4 @@
-/**
- * Typed Components V2 layout primitives shared by CogBot (ephemeral /cog surfaces)
- * and Cog*Portal (the public live run message). One kit, one vocabulary: if a
- * component shape changes here, every Discord surface changes together.
- */
+/** Shared typed Components V2 primitives for CogBot and CogPortal. */
 
 export interface DiscordTextDisplay {
   type: 10;
@@ -18,9 +14,26 @@ export interface DiscordButton {
   disabled?: boolean;
 }
 
+export interface DiscordSelectOption {
+  label: string;
+  value: string;
+  description?: string;
+  emoji?: { id: string; name: string; animated?: boolean };
+  default?: boolean;
+}
+
+export interface DiscordStringSelect {
+  type: 3;
+  custom_id: string;
+  options: DiscordSelectOption[];
+  placeholder?: string;
+  min_values?: number;
+  max_values?: number;
+}
+
 export interface DiscordActionRow {
   type: 1;
-  components: DiscordButton[];
+  components: DiscordButton[] | [DiscordStringSelect];
 }
 
 export interface DiscordSeparator {
@@ -82,6 +95,18 @@ export function linkButton(url: string, label: string): DiscordButton {
 
 export function actionRow(...buttons: DiscordButton[]): DiscordActionRow {
   return { type: 1, components: buttons.slice(0, 5) };
+}
+
+/** A string-select menu, wrapped in its own action row (Discord requires it). */
+export function selectRow(
+  customId: string,
+  options: DiscordSelectOption[],
+  placeholder?: string,
+): DiscordActionRow {
+  return {
+    type: 1,
+    components: [{ type: 3, custom_id: customId, options: options.slice(0, 25), placeholder }],
+  };
 }
 
 export function thumbnail(url: string, description?: string): DiscordThumbnail {

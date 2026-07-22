@@ -17,8 +17,9 @@ import "./styles/app.css";
 
 import { RunConsole } from "@/components/RunConsole";
 import { useRunSurfaceStream } from "@/lib/run-surface-stream";
+import { clientEnv } from "./env.client";
 
-const CLIENT_ID = import.meta.env.VITE_DISCORD_CLIENT_ID || "1526706029356646460";
+const CLIENT_ID = clientEnv.VITE_DISCORD_CLIENT_ID;
 document.title = "Cog · Live bench";
 const embedded =
   window.location.hostname.endsWith(".discordsays.com") ||
@@ -265,7 +266,7 @@ function ActivityApp() {
           <section className="mx-auto mt-[12vh] max-w-lg border border-rule bg-paper-raised p-7 text-center">
             <div className="u-kicker">Bench ready</div>
             <h1 className="mt-3 text-4xl">No shared runs yet.</h1>
-            <p className="mt-4 text-[14px] text-ink-secondary">Start with <code>cogbench run --live</code>. Cog will keep one message and this console current for the team.</p>
+            <p className="mt-4 text-[14px] text-ink-secondary">Start with <code>cogworks run --live</code>. Cog will keep one message and this console current for the team.</p>
           </section>
         )}
       </main>

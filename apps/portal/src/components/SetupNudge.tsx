@@ -3,8 +3,6 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { useState } from "react";
 import { Link } from "react-router";
 import {
-  DEFAULT_BENCHMARK,
-  useLocalReports,
   useSession,
   useSetupState,
   useTeam,
@@ -22,7 +20,6 @@ import {
 export function SetupNudge() {
   const team = useTeam();
   const { data: session } = useSession();
-  const reports = useLocalReports(DEFAULT_BENCHMARK);
   const setupState = useSetupState();
   const [hidden, setHidden] = useState(false);
 
@@ -36,7 +33,6 @@ export function SetupNudge() {
     team.data.isAdmin ? "created" : "joined",
     {
       teammates: team.data.members.length >= 2,
-      reportSynced: (reports.data?.length ?? 0) > 0,
       terminal: setupState.data?.verified,
     },
   );

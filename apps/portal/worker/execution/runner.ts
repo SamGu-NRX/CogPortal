@@ -11,7 +11,7 @@ import { runs } from "../db/schema";
 import { ApiHttpError } from "../http/errors";
 import { newId } from "../util/id";
 
-const DEFAULT_IMAGE_DIGEST = "cogworks-python-3.11:unpublished";
+const DEFAULT_IMAGE_DIGEST = "cogworks-week2-cpu-v1:unpublished";
 
 function origin(env: Env): string {
   if (!env.PUBLIC_ORIGIN?.startsWith("https://")) {

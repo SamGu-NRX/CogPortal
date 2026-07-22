@@ -1,122 +1,147 @@
 # Cog\*Portal — working brief
 
-You are polishing a student-facing benchmark portal for MIT BWSI CogWorks.
-The UX skeleton is sound; the ongoing work is design freshness and small-detail
-quality across every surface. Look at everything yourself before changing
-anything: run the app, click through the flows, take screenshots. Send a
-subagent for architecture archaeology; keep design judgment here.
+You are working on a student-facing benchmark portal for MIT BWSI CogWorks. The UX skeleton is
+sound; the ongoing work is design freshness and small-detail quality on every
+surface. Look at everything yourself before changing it: run the app, click
+through the flows, take screenshots. Send a subagent for architecture
+archaeology and keep design judgment here.
 
 ## The bar (this is the owner talking)
 
-- Every surface gets real design attention, including "easy" functionality.
-  There is no screen too minor to deserve taste. First pass should already be
-  thoughtful; polish is not a later phase.
-- Before UI work, read and apply the `frontend-design`,
-  `web-animation-design`, and `holistic-ux` skills. Treat them as design
-  constraints, not optional polish.
-- Small details are the product: a link whose text knows the app is already
-  installed, a disclosure you can close again, a confirm that states its
-  consequence. When you see a one-way door, an alarming default, or a dead
-  end, fix it even if nobody asked.
+- Every screen gets real design attention, including the easy ones. The
+  first pass should already be thoughtful; polish is not a separate later
+  phase.
+- Read and apply the `frontend-design`, `web-animation-design`, and
+  `holistic-ux` skills before UI work. Treat them as constraints.
+- Fix small problems when you see them, even if nobody asked: a one-way
+  door, an alarming default, a dead end, a link that should know the app is
+  already installed, a disclosure that won't close again, a confirm that
+  doesn't state its consequence.
 - Prefer one decision per screen over a crowded page. When a page starts
   accumulating sections, reach for a wizard step, a fold, or a palette before
-  reaching for more vertical space.
+  more vertical space.
 - Make the primary action one click. If the user must go somewhere (GitHub
   fork, install page), take them there with a real button, prefilled.
-- Custom-build interactive components in the house style rather than
-  importing a themed library widget. New reusable components deserve the
-  deepest design pass of all; they get copied everywhere.
-- Never trust that something works. Drive the real flow in the browser
-  (`t3-code` preview tools when available, otherwise another browser preview)
-  or with `curl` before calling it done. Typechecking is the floor, not the
-  finish.
+- Build interactive components in the house style rather than importing a
+  themed library widget. New reusable components deserve the deepest design
+  pass because they get copied everywhere.
+- Never assume something works. Drive the real flow in the browser
+  (`t3-code` preview tools when available, otherwise another preview) or
+  with `curl` before calling it done. Typechecking alone is not evidence.
 
-## The theme, held loosely
+## The theme
 
-The identity is a scientific field notebook crossed with an evaluation
-instrument: warm paper (`--color-paper #f7f3ea`), deep ink, detector red for
-attention and consequence, verification green for observed trust, thin rules,
-near-sharp corners, Source Serif 4 headings, IBM Plex Sans body, IBM Plex
-Mono for anything that is data. The one recurring geometric motif is the
-detection-box corner bracket ("the instrument is looking here"). Tokens and
-conventions live in `apps/portal/src/styles/app.css`; treat them as the
-palette you compose with, not a cage. New ideas are welcome when they feel
-like they belong in the same notebook.
+A scientific field notebook crossed with an evaluation instrument: warm
+paper (`--color-paper #f7f3ea`), deep ink, detector red for attention and
+consequence, verification green for observed trust, thin rules, near-sharp
+corners, Source Serif 4 headings, IBM Plex Sans body, IBM Plex Mono for
+anything that is data. The recurring geometric motif is the detection-box
+corner bracket. Tokens and conventions live in
+`apps/portal/src/styles/app.css`; compose with them, and new ideas are fine
+when they fit the same notebook.
 
-Two deeper commitments than any color:
+Two rules that outrank any color:
 
 - **Trust language.** The portal only claims what it can verify. "Verified"
-  means observed; everything on the student's machine is theirs to confirm.
+  means observed; anything on the student's machine is theirs to confirm.
   Never fake certainty in UI state or copy.
-- **Voice.** All student-facing text follows `docs/design/voice.md`, which
-  was distilled from the actual course materials (CogWeb + the 2025
-  notebooks). Read it before writing a single string. The full standard is
-  below; the doc has representative source excerpts if you want to hear the
-  real thing.
+- **Voice.** All student-facing text follows `docs/design/voice.md`,
+  distilled from the actual course materials (CogWeb + the 2025 notebooks).
+  Read it before writing a single string. The standard is summarized below;
+  the doc has source excerpts.
 
-## How the writing actually sounds
+## How the writing sounds
 
-The copy is the interface. Everyone who uses this portal reads it, so the
-words carry as much design weight as the layout. The target is the voice of
-the CogWorks course itself: an instructor standing next to you at a lab
-bench. Human, grounded, a little bit of character, never dramatic for show.
+Everyone who uses the portal reads the copy, so the words carry as much
+design weight as the layout. The target is the course's own voice: an
+instructor next to you at a lab bench. Human, grounded, some character,
+never dramatic.
 
-Write like the course authors do. What that means concretely:
+- Contractions are normal ("you'll", "it's", "doesn't"). Plain words over
+  impressive ones. If a sentence sounds like marketing, rewrite it. Read
+  drafts aloud against the excerpts in voice.md.
+- "We" for shared explanation ("the repository is the team; we run every
+  attempt from it"), "you/your" for the student's things ("your fork",
+  "your first run"). "I" almost never.
+- Give the why before the what, even for one-line instructions. The course
+  never opens with a bare command or definition; a panel's first sentence
+  should justify the panel.
+- Opinions are fine when tied to a reason ("it is desirable for us to focus
+  on NumPy rather than split our attention"). Never asserted for flourish.
+- Be warm about the work, never about the user. The course delights in the
+  material ("Isn't it beautiful?", a "Voila!" at a clean result); it never
+  tells the student they're amazing. The portal can be fond of a run, a metric,
+  or a clean fork; it does not compliment the person.
+- Reassure with evidence or a checkpoint, as in "Past students did this with
+  great success" or "If this is what you see, success!"
+- When something is slow, optional, or destructive, say so in
+  ordinary words. Don't hide difficulty and don't dramatize
+  it.
+- Prefer one medium sentence, then stop. If a second sentence adds no
+  information, delete it. Errors: what happened, then one next action, like
+  a TA who has seen this exact thing before.
 
-- **A person, not a product.** Contractions are normal ("you'll", "it's",
-  "doesn't"). Plain words over impressive ones. If a sentence sounds like
-  marketing, it's wrong. Read every draft aloud; if the course excerpt in
-  voice.md sounds like a human and your draft sounds like a landing page,
-  rewrite the draft.
-- **We and you.** "We" for shared explanation ("the repository is the team;
-  we run every attempt from it"), "you/your" for the student's own things
-  ("your fork", "your first run"). "I" almost never.
-- **Say why before what.** Even a one-line instruction earns a half-clause of
-  motivation. The course never opens with a bare command or a bare
-  definition. A panel's first sentence should justify the panel.
-- **Opinionated, but grounded in a reason.** The authors have taste and show
-  it ("it is desirable for us to focus on NumPy rather than split our
-  attention"), but the opinion is always tied to a why, never asserted for
-  flourish. Have a point of view; earn it.
-- **Warm about the work, never flattering the user.** The course gets
-  genuinely delighted by the material ("Isn't it beautiful?", an adorable
-  dataset, a "Voila!" at a clean result). It never tells the student they're
-  amazing. The portal can be fond of a run, a metric, a clean fork; it does
-  not compliment the person.
-- **Reassure with evidence or a checkpoint, not cheerleading.** "Past
-  students did this with great success" and "If this is what you see,
-  success!" are the models. "You've got this!" is not.
-- **Honest about hard things, plainly.** When something is messy, slow,
-  optional, or destructive, say so in ordinary words ("this is a real mess",
-  "this is totally optional", "history stays with the team"). Don't hide
-  difficulty and don't dramatize it.
-- **Short. Then stop.** This is an instrument panel, not an essay. Prefer one
-  medium sentence. If a second sentence carries no new information, delete it
-  rather than polish it. Errors especially: what happened, then one next
-  action, in the voice of a TA who has seen this exact thing before.
+Never do these (they read as AI, not as the course):
 
-Never do these (they are the tells that break the voice):
-
-- Em dashes as a beat. Use commas, parentheses, semicolons, or two sentences.
-  (This is the most common AI-slop signature; it is banned in UI strings.
-  Keep the decorative `·` middot in mono metadata; that's fine.)
-- Tricolons ("fast, simple, powerful"), and "not X, but Y" reversals.
-- Dramatic one-word or fragment sentences for effect.
+- Em dashes as a beat. Use commas, parentheses, semicolons, or two
+  sentences. Banned in UI strings; the decorative `·` middot in mono
+  metadata is fine.
+- Tricolons ("fast, simple, powerful") and "not X, but Y" reversals.
+- Dramatic one-word or fragment sentences.
 - Marketing verbs ("unlock", "seamless", "supercharge", "effortless") and
   superlatives about ourselves.
 - Cheerleading, emoji, urgency, FOMO.
-- Exclamation points beyond the rare genuine checkpoint (roughly one on
-  screen at a time, in the course's own "success!" register).
+- Exclamation points beyond a rare genuine checkpoint (about one per
+  screen, in the course's "success!" register).
 
-And the trust-language rule above rides on top of all of this: never write
-copy that claims more certainty than the portal can observe.
+The trust-language rule rides on top: never claim more certainty than the
+portal can observe.
+
+## Engineering writing (docs, comments, commits, reports)
+
+The rules above are for student-facing copy. Everything else (docs,
+comments, commit messages, reports to the owner) is plain working prose.
+Two failures keep recurring: documents written to show that work happened,
+and invented terms used in place of explanations.
+
+- Before creating a file, know who reads it and what question it answers.
+  If there is no reader, don't create it. Don't restate the task, list what
+  you did or didn't do, or repeat decisions already made in chat.
+- Define an invented term in ordinary words the first time, or drop the
+  term and say what the code does. "The compat layer translates path-based
+  methods into contracts" tells the reader nothing.
+- Explain like a good methods section: why it exists, what it does, how it
+  works at a high level. Go lower only when the obvious approach was wrong,
+  and then say what ruled it out.
+- Delete sentences that add no information. Raise concerns as a short list
+  with files and lines; concerns are wanted, essays are not.
+- A changed default, constant, or behavior states its reason at the change
+  site, backed by evidence that exists. Never write "calibrated" or
+  "optimized" when no such run exists; if there is no evidence, say so and
+  flag it.
+
+## Instrument design defaults
+
+These apply to the benchmark repos as much as the portal:
+
+- Explicit beats guessed. Requiring a ten-line adapter from the student is
+  fine; silently mis-mapping their method is not. An option is not worse
+  just because it asks for explicitness.
+- Components with one correct answer (cosine distance, descriptors) get
+  strict isolated tests. Loose behavioral contracts are only for the parts
+  where designs can legitimately differ.
+- If the tool exists to reveal a quantity (a threshold, a rate), it
+  measures and reports it. Don't make students hand-set the number the tool
+  is supposed to find.
+- CI runs what students run: Python 3.8, the pinned requirements.txt stack,
+  conda env names from CogWeb.
 
 ## Motion instincts
 
 Restrained and fast: ease-out entrances, ease-in-out for on-screen morphs,
 under 300ms, origin-aware scale for popovers, no springs, blur only as a
 2px perceptual bridge, everything gone under reduced motion (use
-`useReducedMotion`, `MotionConfig reducedMotion="user"` is already set).
+`useReducedMotion`; `MotionConfig reducedMotion="user"` is already set).
 Never wrap the router `Outlet` in `AnimatePresence`. One well-placed reveal
 beats scattered micro-animations. Constants live in
 `apps/portal/src/lib/motion.ts`.
@@ -127,11 +152,11 @@ Check `apps/portal/src/components/` first; most primitives exist and carry
 the conventions: `Panel` (labeled instrument box), `Button`/`ConfirmButton`
 (arm-then-confirm, consequence in the label), `Code` (Shiki, ink-on-paper
 theme; use for any multi-line command), `CopyBlock` (single command),
-`Veil` (collapsible progressive disclosure; real content peeking under
-tracing paper), `CornerBrackets`, `MemberPalette` (anchored search palette;
-copy its popover/keyboard patterns), `UserMenu` (canonical dropdown motion
-and focus behavior), `QuotaCells`, `EmptyState`, `Feedback`. Duplicating one
-of these by accident is the most common self-inflicted wound here.
+`Veil` (collapsible progressive disclosure), `CornerBrackets`,
+`MemberPalette` (anchored search palette; copy its popover/keyboard
+patterns), `UserMenu` (canonical dropdown motion and focus behavior),
+`QuotaCells`, `EmptyState`, `Feedback`. Accidentally duplicating one of
+these is the most common mistake here.
 
 ## Hard-won correctness notes
 
@@ -176,11 +201,13 @@ of these by accident is the most common self-inflicted wound here.
 
 - **TODO(design):** Complete the visual pass for the connect wizard, member
   palette, and admin assignment rows.
-- **TODO(release):** `SetupPage` environment commands assume the published PyPI packages
-  (`cogworks-benchmark`, `cogworks-vision-benchmark`); if those aren't live
-  when students arrive, swap that one constant to the monorepo-relative
-  install.
-- **TODO(accessibility):** Make the setup guide's optional device step
-  semantically unnumbered; screen readers currently count it.
+- **TODO(release):** `SetupPage` shows the TestPyPI install command for
+  `cogworks-benchmark`; it fails for students until the package is actually
+  published there (workflow `publish-testpypi.yml`, never dispatched). After
+  a real PyPI release, swap that one command to the plain install.
+- **TODO(media):** The GitHub org/fork walkthrough player is wired
+  (`WalkthroughVideo`, gated by `GITHUB_TEAM_VIDEO` in `ConnectPage.tsx`);
+  record the clip per `docs/runbooks/onboarding-media.md`, drop the four
+  exports into `apps/portal/public/media/onboarding/`, and flip the constant.
 - **TODO(design):** Give Landing, Leaderboard, Run Detail, and Connections a
   fresh design pass. Dashboard has been decluttered, but not reconsidered.

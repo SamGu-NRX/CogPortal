@@ -26,6 +26,14 @@ export function registerCohortRoutes(app: Hono<AppEnv>): void {
     if (!cohort) {
       throw new ApiHttpError(403, "cohort_code_invalid", "The cohort join code is invalid.");
     }
+    // Team membership cannot cross cohort boundaries.
+    if (auth.team && auth.team.cohortId !== cohort.id) {
+      throw new ApiHttpError(
+        409,
+        "already_on_team",
+        "You're on a team in your current cohort. Leave it before joining a different cohort.",
+      );
+    }
     await db
       .update(users)
       .set({ cohortId: cohort.id, cohortJoinedAt: Date.now() })

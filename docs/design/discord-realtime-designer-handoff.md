@@ -439,7 +439,7 @@ button must not replace the entire live console with an error screen.
 There is intentionally no global notification-preferences system in the first
 version.
 
-- `cogbench run --live` is the student's explicit per-run decision to share a
+- `cogworks run --live` is the student's explicit per-run decision to share a
   local surface.
 - The team-channel binding decides where shared runs appear.
 - The bot edits quietly and does not mention teammates.
@@ -500,8 +500,8 @@ moderation and security systems, not small UX features.
 ### Implemented foundation
 
 - GitHub-first CogPortal identity and Discord account attachment;
-- browser-assisted CogBench device authorization and `cogbench status`;
-- `cogbench run --live` structured event reporting;
+- browser-assisted CogBench device authorization and `cogworks status`;
+- `cogworks run --live` structured event reporting;
 - one edited Discord message per lifecycle;
 - D1 run surfaces and event history;
 - Durable Object WebSocket hub;

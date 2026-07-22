@@ -11,6 +11,7 @@ import {
 } from "@cogworks/contracts/schema";
 import type { AdminTeamSummary, TeamMember } from "@cogworks/contracts/schema";
 import { isPlatformOwner, requireStaff } from "../auth/roles";
+import { githubAuthorizationLogin } from "../auth/session";
 import type { AuthState } from "../auth/session";
 import type { Database } from "../db/client";
 import { getDb } from "../db/client";
@@ -50,6 +51,7 @@ async function getAdminTeamSummary(
     db
       .select({
         login: users.githubLogin,
+        email: users.email,
         name: users.name,
         role: teamMembers.role,
       })
@@ -59,8 +61,9 @@ async function getAdminTeamSummary(
     db
       .select({
         login: users.githubLogin,
+        email: users.email,
         name: users.name,
-        avatarUrl: users.avatarUrl,
+        avatarUrl: users.image,
       })
       .from(teamTas)
       .innerJoin(users, eq(teamTas.userId, users.id))
@@ -96,7 +99,7 @@ async function getAdminTeamSummary(
   };
   const serializedMembers = members
     .map((member) => ({
-      login: member.login,
+      login: member.login ?? member.email.split("@")[0],
       name: member.name,
       role: memberRole(member.role),
     }))
@@ -109,7 +112,11 @@ async function getAdminTeamSummary(
     name: team.name,
     repoFullName: team.repoFullName,
     members: serializedMembers,
-    tas,
+    tas: tas.map((ta) => ({
+      login: ta.login ?? ta.email.split("@")[0],
+      name: ta.name,
+      avatarUrl: ta.avatarUrl,
+    })),
     practiceUsed: practice?.value ?? 0,
     officialUsed: official?.value ?? 0,
     publishedScore: published?.value ?? null,
@@ -124,7 +131,7 @@ type AdminScope = {
 
 async function getAdminScope(c: Parameters<typeof requireStaff>[0]): Promise<AdminScope> {
   const auth = await requireStaff(c);
-  const isOwner = isPlatformOwner(c.env, auth.user.githubLogin);
+  const isOwner = isPlatformOwner(c.env, githubAuthorizationLogin(auth.user));
   if (isOwner) return { auth, isOwner, teamIds: [] };
   const assignments = await getDb(c.env)
     .select({ teamId: teamTas.teamId })
@@ -186,6 +193,7 @@ export function registerAdminRoutes(app: Hono<AppEnv>): void {
       ? await db
         .select({
           login: users.githubLogin,
+          email: users.email,
           name: users.name,
           joinedAt: users.cohortJoinedAt,
         })
@@ -197,6 +205,11 @@ export function registerAdminRoutes(app: Hono<AppEnv>): void {
     const summaries = await Promise.all(
       teamRows.map((team) => getAdminTeamSummary(db, team.id)),
     );
+    const serializedUnassigned = unassigned.map((user) => ({
+      login: user.login ?? user.email.split("@")[0],
+      name: user.name,
+      joinedAt: user.joinedAt,
+    }));
     return respond(c, AdminOverviewSchema, {
       scope: scope.isOwner ? "owner" : "ta",
       cohort: {
@@ -206,7 +219,7 @@ export function registerAdminRoutes(app: Hono<AppEnv>): void {
         active: cohort.active,
       },
       teams: summaries,
-      unassigned,
+      unassigned: serializedUnassigned,
     });
   });
 

@@ -14,3 +14,8 @@ python3 template-catalog/validate.py
 The catalog is deliberately empty until the course-owned repositories exist;
 the portal fails closed when `GITHUB_TEMPLATE_REPO_ID` is configured and the
 connected repository is not in that fork network.
+
+An interface-only local candidate is prepared at
+`../week2-vision-capstone`. Do not add a placeholder catalog record: publish and
+review the course-owned GitHub repository first so its numeric ID and revision
+are real and immutable.

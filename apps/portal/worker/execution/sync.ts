@@ -92,7 +92,7 @@ export async function syncRun(db: Database, row: RunRow, now = Date.now()): Prom
   }
 
   if (nextStatus === "succeeded") {
-    for (const metric of fixtureMetrics(row.id, row.branch)) {
+    for (const metric of fixtureMetrics(row.id, row.branch, row.benchmarkId)) {
       await db
         .insert(runMetrics)
         .values({
@@ -130,7 +130,7 @@ export async function syncRun(db: Database, row: RunRow, now = Date.now()): Prom
       failureConsumedAttempt: consumedAttempt,
       log:
         row.mode === "practice" && (nextStatus === "succeeded" || nextStatus === "failed")
-          ? fixtureLog(row.id, row.branch, row.sha)
+          ? fixtureLog(row.id, row.branch, row.sha, row.benchmarkId)
           : null,
     })
     .where(eq(runs.id, row.id));

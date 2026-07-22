@@ -22,7 +22,7 @@
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
     // Host-aware Activity routing and API authorization must reach the Worker.
-    "run_worker_first": ["/*"]
+    "run_worker_first": ["/*", "!/media/*"]
   },
 
   "d1_databases": [
@@ -50,12 +50,20 @@
     }
   ],
 
+  // ── Top level = the CURRENT deployment (worker "cogportal", cogportal-dev).
+  // Per the owner this is the STAGING environment. `wrangler deploy` (no --env)
+  // targets it. `env.production` below is a separate worker for the real course.
   "vars": {
     "ENVIRONMENT": "production",
     "DEV_AUTH": "disabled",
+    "ONBOARDING_DEV_TOOLS": "disabled",
     "GITHUB_CLIENT_ID": "Iv23liATo0NWltd5sZgi",
     "GITHUB_APP_SLUG": "cog-portal-beta",
     "PUBLIC_ORIGIN": "https://cogportal-dev.sillion.app",
+    // better-auth base URL for THIS origin. The GitHub OAuth callback becomes
+    // https://cogportal-dev.sillion.app/api/auth/callback/github — it must be
+    // registered on the cog-portal-beta GitHub App.
+    "BETTER_AUTH_URL": "https://cogportal-dev.sillion.app",
     "ACTIVITY_ORIGIN": "https://cogactivity-dev.sillion.app",
     "DISCORD_CLIENT_ID": "1526706029356646460",
     "COURSE_GUILD_ID": "1515858059027550321",
@@ -69,6 +77,71 @@
 
   "triggers": {
     "crons": ["*/5 * * * *"]
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // PRODUCTION environment (worker "cogportal-production", cogportal.sillion.app).
+  // Deploy with: `wrangler deploy --env production`. Wrangler keys (vars, routes,
+  // bindings, secrets) are NON-inheritable, so everything is re-declared here.
+  //
+  // BEFORE the first prod deploy (owner-owned; see the launch checklist):
+  //   1. Import the D1 backup into cogportal-db-prod, then apply migrations
+  //      0014–0017 (or start prod fresh — your call).
+  //   2. Register the prod GitHub OAuth callback
+  //      https://cogportal.sillion.app/api/auth/callback/github. Either add it to
+  //      the existing cog-portal-beta App (and keep GITHUB_CLIENT_ID below) OR
+  //      create a separate prod GitHub App and replace GITHUB_CLIENT_ID + the
+  //      GITHUB_CLIENT_SECRET secret.
+  //   3. Set ALL prod secrets on the cogportal-production worker (they do not
+  //      copy from the staging worker): BETTER_AUTH_SECRET, GITHUB_CLIENT_SECRET,
+  //      DISCORD_BOT_TOKEN, DISCORD_CLIENT_SECRET, ACTIVITY_SESSION_SECRET,
+  //      PLATFORM_OWNER_LOGINS, RUNNER_SIGNING_SECRET —
+  //      via `wrangler secret put <NAME> --env production`.
+  //   4. Confirm the prod Discord app / activity domain values below.
+  // ─────────────────────────────────────────────────────────────────────────
+  "env": {
+    "production": {
+      "routes": [
+        { "pattern": "cogportal.sillion.app", "custom_domain": true },
+        { "pattern": "cogactivity.sillion.app", "custom_domain": true }
+      ],
+      "assets": {
+        "binding": "ASSETS",
+        "not_found_handling": "single-page-application",
+        "run_worker_first": ["/*", "!/media/*"]
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "cogportal-db-prod",
+          "database_id": "83ad728b-e6c5-46cf-bbec-2bdecfe9952e",
+          "migrations_dir": "migrations"
+        }
+      ],
+      "durable_objects": {
+        "bindings": [{ "name": "RUN_SURFACES", "class_name": "RunSurfaceHub" }]
+      },
+      "triggers": { "crons": ["*/5 * * * *"] },
+      "vars": {
+        "ENVIRONMENT": "production",
+        "DEV_AUTH": "disabled",
+        "ONBOARDING_DEV_TOOLS": "disabled",
+        // TODO(owner): same GitHub App (add the prod callback) or a new prod App.
+        "GITHUB_CLIENT_ID": "Iv23liATo0NWltd5sZgi",
+        "GITHUB_APP_SLUG": "cog-portal-beta",
+        "PUBLIC_ORIGIN": "https://cogportal.sillion.app",
+        "BETTER_AUTH_URL": "https://cogportal.sillion.app",
+        "ACTIVITY_ORIGIN": "https://cogactivity.sillion.app",
+        // TODO(owner): confirm the prod Discord application + guild ids.
+        "DISCORD_CLIENT_ID": "1526706029356646460",
+        "COURSE_GUILD_ID": "1515858059027550321",
+        "RUNNER_SIGNING_KEY_ID": "runner-v1",
+        "RUNNER_PYTHON_VERSION": "3.11",
+        "RUNNER_IMAGE_DIGEST": "cogworks-python-3.11:unpublished",
+        "RUN_STALE_AFTER_SECONDS": "3600",
+        "EXECUTION_PROVIDER": "fixture"
+      }
+    }
   }
 
   // ── Gated on Modal M0 and external resource creation ───────────────────────

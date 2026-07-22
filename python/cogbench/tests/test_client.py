@@ -17,6 +17,7 @@ from cogbench.client import (
     request_json,
     send_local_run_event_batch,
     start_device_link,
+    update_setup_checks,
 )
 
 
@@ -106,6 +107,31 @@ class PortalClientTests(unittest.TestCase):
             token="device-token",
             retry=False,
             timeout=5,
+        )
+
+    def test_setup_update_is_bearer_authenticated_and_never_retried(self):
+        payload = {
+            "schemaVersion": 1,
+            "repositoryFullName": "course/team",
+            "checks": ["environment", "project", "wiring"],
+        }
+        with patch(
+            "cogbench.client.request_json",
+            return_value={"accepted": payload["checks"]},
+        ) as request:
+            result = update_setup_checks(
+                "https://portal.example",
+                "cog_device",
+                payload,
+            )
+        self.assertEqual(result["accepted"], payload["checks"])
+        request.assert_called_once_with(
+            "https://portal.example",
+            "/api/v1/cli/setup/checks",
+            payload,
+            token="cog_device",
+            retry=False,
+            timeout=10,
         )
 
 

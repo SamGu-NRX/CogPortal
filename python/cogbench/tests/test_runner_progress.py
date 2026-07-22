@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from cogbench.cli import _LiveRun, _live_progress_payload
 from cogbench.models import Metric
-from cogbench.runner import execute
+from cogbench.runner import ContractError, _execute_v2, execute
 
 
 class _Benchmark:
@@ -27,6 +27,30 @@ class _Benchmark:
 class _Submission:
     def predict(self, inputs):
         return ["ada" for _ in inputs]
+
+
+class _V2Benchmark:
+    benchmark_id = "vision-recognition"
+    benchmark_version = 2
+    contract_version = "cogworks.submissions.v2"
+    plugin_version = "0.1.0"
+    primary_metric = "recognition_score"
+
+    def load_cases(self, tier):
+        self.tier = tier
+        return ["case"]
+
+    def run(self, factory, model, cases):
+        self.factory = factory
+        self.model = model
+        return [{"known": ["person"]}]
+
+    def score(self, outputs, cases):
+        return {
+            "known_identification": 1.0,
+            "unknown_lifecycle": 0.5,
+            "recognition_score": 0.75,
+        }
 
 
 class RunnerProgressTests(unittest.TestCase):
@@ -75,6 +99,42 @@ class RunnerProgressTests(unittest.TestCase):
         self.assertEqual(events[-1]["type"], "failed")
         self.assertEqual(events[-1]["code"], "run.failed.runtime")
         self.assertNotIn("detail", events[-1])
+
+    def test_v2_runner_uses_raw_factory_and_benchmark_driver(self):
+        benchmark = _V2Benchmark()
+        factory = object()
+        model = object()
+        with tempfile.TemporaryDirectory() as directory:
+            report = _execute_v2(
+                benchmark,
+                factory,
+                Path(directory),
+                smoke=True,
+                progress=None,
+                model_factory=lambda: model,
+            )
+        self.assertEqual(benchmark.tier, "test")
+        self.assertIs(benchmark.factory, factory)
+        self.assertIs(benchmark.model, model)
+        self.assertEqual(report.benchmark_version, 2)
+        self.assertEqual(
+            [metric.key for metric in report.metrics if metric.primary],
+            ["recognition_score"],
+        )
+
+    def test_v2_runner_rejects_missing_scenario_outputs(self):
+        benchmark = _V2Benchmark()
+        benchmark.run = lambda _factory, _model, _cases: []
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(ContractError, "1 cases"):
+                _execute_v2(
+                    benchmark,
+                    object(),
+                    Path(directory),
+                    smoke=True,
+                    progress=None,
+                    model_factory=object,
+                )
 
 
 if __name__ == "__main__":

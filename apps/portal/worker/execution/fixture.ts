@@ -20,45 +20,65 @@ function round4(value: number): number {
   return Math.round(value * 10_000) / 10_000;
 }
 
-export function fixtureMetrics(runId: string, branch: string): Metric[] {
+export function fixtureMetrics(
+  runId: string,
+  branch: string,
+  benchmarkId = "vision-recognition",
+): Metric[] {
   const hash = fnv1a32(runId);
   const improvement = branch === "improved-thresholds" ? 0.004 : 0;
+  if (benchmarkId === "vision-clustering") {
+    const pairwise = round4(0.72 + (hash % 1400) / 10_000 + improvement);
+    return [
+      {
+        key: "clustering_pairwise_f1",
+        label: "Pairwise F1",
+        value: pairwise,
+        unit: null,
+        higherIsBetter: true,
+        primary: true,
+        precision: 3,
+      },
+      {
+        key: "adjusted_rand_index",
+        label: "Adjusted Rand index",
+        value: round4(Math.max(0, pairwise - 0.04)),
+        unit: null,
+        higherIsBetter: true,
+        primary: false,
+        precision: 3,
+      },
+    ];
+  }
+  const known = round4(0.82 + (hash % 1000) / 10_000 + improvement);
+  const lifecycle = round4(0.76 + ((hash >>> 6) % 1200) / 10_000 + improvement);
   return [
     {
-      key: "recognition_f1",
-      label: "Recognition F1",
-      value: round4(0.86 + (hash % 800) / 10_000 + improvement),
+      key: "recognition_score",
+      label: "Recognition score",
+      value: round4((known + lifecycle) / 2),
       unit: null,
       higherIsBetter: true,
       primary: true,
       precision: 3,
     },
     {
-      key: "detection_recall",
-      label: "Detection recall",
-      value: round4(0.9 + ((hash >>> 3) % 700) / 10_000),
+      key: "known_identification",
+      label: "Known identification",
+      value: known,
       unit: null,
       higherIsBetter: true,
       primary: false,
       precision: 3,
     },
     {
-      key: "unknown_rejection",
-      label: "Unknown rejection",
-      value: round4(0.78 + ((hash >>> 6) % 1500) / 10_000),
+      key: "unknown_lifecycle",
+      label: "Unknown lifecycle",
+      value: lifecycle,
       unit: null,
       higherIsBetter: true,
       primary: false,
       precision: 3,
-    },
-    {
-      key: "mean_latency_ms",
-      label: "Mean latency",
-      value: 240 + ((hash >>> 9) % 160),
-      unit: "ms",
-      higherIsBetter: false,
-      primary: false,
-      precision: 0,
     },
   ];
 }
@@ -83,7 +103,12 @@ function failureExcerpt(branch: string): string[] {
   }
 }
 
-export function fixtureLog(runId: string, branch: string, sha: string): string {
+export function fixtureLog(
+  runId: string,
+  branch: string,
+  sha: string,
+  benchmarkId = "vision-recognition",
+): string {
   const scenario = fixtureScenario(branch);
   const lines = [
     `[run ${runId}] preparing isolated Python 3.8.20 workspace`,
@@ -102,8 +127,8 @@ export function fixtureLog(runId: string, branch: string, sha: string): string {
     "Requirement already satisfied: networkx==3.1",
     "Requirement already satisfied: matplotlib==3.7.5",
     "Built wheel for face-finder: face_finder-0.1.0-py3-none-any.whl",
-    'entry-point discovery: cogworks.submissions.v1["vision-recognition"]',
-    "contract check: 6/6 methods OK",
+    `entry-point discovery: cogworks.submissions.v2["${benchmarkId}"]`,
+    "contract check: adapter factory loaded",
     "workspace backup complete; restoring into network-disabled evaluation VM",
   ];
   for (let caseNumber = 1; caseNumber <= 32; caseNumber += 1) {
@@ -111,9 +136,9 @@ export function fixtureLog(runId: string, branch: string, sha: string): string {
   }
 
   if (scenario.outcome.kind === "succeeded") {
-    const primary = fixtureMetrics(runId, branch)[0]!;
+    const primary = fixtureMetrics(runId, branch, benchmarkId)[0]!;
     lines.push("prediction schema: 32/32 cases valid");
-    lines.push(`scorer summary: recognition_f1=${primary.value.toFixed(4)}`);
+    lines.push(`scorer summary: ${primary.key}=${primary.value.toFixed(4)}`);
     lines.push("run completed successfully");
   } else {
     lines.push(...failureExcerpt(branch));
@@ -141,12 +166,12 @@ export class FixtureExecutionAdapter implements ExecutionAdapter {
     return {
       outcome: fixtureScenario(input.branch).outcome,
       predictionsRef: `fixture-predictions:${input.runId}`,
-      log: fixtureLog(input.runId, input.branch, input.sha),
+      log: fixtureLog(input.runId, input.branch, input.sha, input.entryPointName),
     };
   }
 
   async score(_execution: ExecutionResult, input: ResolveAndPrepareInput): Promise<ScoreResult> {
-    return { metrics: fixtureMetrics(input.runId, input.branch) };
+    return { metrics: fixtureMetrics(input.runId, input.branch, input.entryPointName) };
   }
 
   async persist(

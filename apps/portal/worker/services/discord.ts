@@ -4,6 +4,7 @@ import type {
   DiscordTeamStatus,
 } from "@cogworks/contracts/discord";
 import { isTerminal } from "@cogworks/contracts/schema";
+import { accountLogin } from "../auth/session";
 import type { Env } from "../env";
 import { getDb } from "../db/client";
 import { discordAccounts, teamMembers, teams, users } from "../db/schema";
@@ -125,6 +126,8 @@ export async function assertDiscordChannelWritable(env: Env, channelId: string):
   }
 }
 
+// The bot validates Discord membership before calling this service binding;
+// each action separately resolves the linked account and team membership.
 export function assertCourseGuild(env: Env, guildId: string): void {
   if (!env.COURSE_GUILD_ID || guildId !== env.COURSE_GUILD_ID) {
     throw new Error("This CogBot installation is not enabled for that server.");
@@ -133,7 +136,7 @@ export function assertCourseGuild(env: Env, guildId: string): void {
 
 async function discordIdentity(env: Env, discordUserId: string) {
   const [identity] = await getDb(env)
-    .select({ userId: users.id, githubLogin: users.githubLogin })
+    .select({ userId: users.id, githubLogin: users.githubLogin, email: users.email })
     .from(discordAccounts)
     .innerJoin(users, eq(discordAccounts.userId, users.id))
     .where(eq(discordAccounts.discordUserId, discordUserId))
@@ -157,7 +160,7 @@ export async function getDiscordTeamStatus(
   if (!membership) {
     return {
       linked: true,
-      githubLogin: identity.githubLogin,
+      githubLogin: accountLogin(identity),
       team: null,
       discordChannelId: null,
       canManageDiscordChannel: false,
@@ -185,7 +188,7 @@ export async function getDiscordTeamStatus(
   const official = ordered.find((run) => run.mode === "official" && run.status === "succeeded") ?? null;
   return {
     linked: true,
-    githubLogin: identity.githubLogin,
+    githubLogin: accountLogin(identity),
     team: serializeTeam(membership.team),
     discordChannelId: membership.team.discordChannelId,
     canManageDiscordChannel: member?.role === "admin" || member?.role === "maintain",

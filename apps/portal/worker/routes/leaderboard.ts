@@ -1,10 +1,17 @@
 import type { Context, Hono } from "hono";
 import { z } from "zod";
-import { LeaderboardSchema, SelectResultRequestSchema } from "@cogworks/contracts/schema";
+import {
+  FamilyLeaderboardSchema,
+  LeaderboardSchema,
+  SelectResultRequestSchema,
+} from "@cogworks/contracts/schema";
 import type { AppEnv } from "../env";
 import { getAuth, requireTeam } from "../auth/session";
 import { parseBody, respond } from "../http/respond";
-import { getLeaderboardReadModel } from "../services/leaderboard";
+import {
+  getFamilyLeaderboardReadModel,
+  getLeaderboardReadModel,
+} from "../services/leaderboard";
 import { actorFromAuth, publishOfficialRun } from "../services/run-actions";
 
 const OkSchema = z.object({ ok: z.literal(true) });
@@ -27,4 +34,16 @@ export function registerLeaderboardRoutes(app: Hono<AppEnv>): void {
   };
   app.get("/leaderboard", leaderboardHandler);
   app.get("/v1/leaderboard", leaderboardHandler);
+  app.get("/leaderboard-family", async (c) => {
+    const auth = await getAuth(c);
+    return respond(
+      c,
+      FamilyLeaderboardSchema,
+      await getFamilyLeaderboardReadModel(
+        c.env,
+        c.req.query("family") ?? "vision-overall",
+        auth?.team?.id,
+      ),
+    );
+  });
 }

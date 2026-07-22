@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -43,15 +44,36 @@ def load_config() -> Dict[str, Any]:
 def save_token(portal: str, token: str, expires_at: int) -> None:
     path = config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    config = load_config()
-    config.setdefault("portals", {})[portal] = {"token": token, "expiresAt": expires_at}
-    path.write_text(json.dumps(config, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     try:
-        path.chmod(0o600)
+        path.parent.chmod(0o700)
     except OSError:
         pass
+    config = load_config()
+    config.setdefault("portals", {})[portal] = {"token": token, "expiresAt": expires_at}
+    config["activePortal"] = portal
+    temporary = path.with_name(path.name + ".tmp")
+    temporary.write_text(
+        json.dumps(config, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    try:
+        temporary.chmod(0o600)
+    except OSError:
+        pass
+    os.replace(str(temporary), str(path))
 
 
 def token_for(portal: str) -> Optional[str]:
     entry = load_config().get("portals", {}).get(portal)
-    return entry.get("token") if isinstance(entry, dict) else None
+    if not isinstance(entry, dict):
+        return None
+    expires_at = entry.get("expiresAt")
+    if not isinstance(expires_at, int) or expires_at <= int(time.time() * 1000):
+        return None
+    token = entry.get("token")
+    return token if isinstance(token, str) else None
+
+
+def active_portal() -> Optional[str]:
+    value = load_config().get("activePortal")
+    return value if isinstance(value, str) and value else None

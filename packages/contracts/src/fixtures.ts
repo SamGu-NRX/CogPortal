@@ -31,13 +31,13 @@ export const FIXTURE_SCENARIOS: FixtureScenario[] = [
   },
   {
     branch: "missing-adapter",
-    hint: "no cogworks.submissions.v1 entry point",
+    hint: "no cogworks.submissions.v2 entry point",
     outcome: {
       kind: "failed",
       category: "adapter_missing",
       phase: "contract_check",
       detail:
-        'Entry-point group "cogworks.submissions.v1" has no "vision-recognition" registration.',
+        'Entry-point group "cogworks.submissions.v2" has no "vision-recognition" registration.',
     },
   },
   {
@@ -104,5 +104,5 @@ export const FIXTURE_REPO = {
   url: "https://github.com/cogworks-demo/face-finder",
   defaultBranch: "main",
   description:
-    "Deterministic demo repository — each branch scripts a different run outcome.",
+    "Deterministic demo repository; each branch scripts a different run outcome.",
 } as const;

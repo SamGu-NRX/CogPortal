@@ -1,5 +1,4 @@
 import type { Hono } from "hono";
-import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { FIXTURE_REPO } from "@cogworks/contracts/fixtures";
@@ -11,10 +10,17 @@ import {
 } from "@cogworks/contracts/schema";
 import type { GithubRepo } from "@cogworks/contracts/schema";
 import type { AppEnv } from "../env";
-import { githubConfigured } from "../env";
-import { authToSession, createSession, getAuth, requireUser } from "../auth/session";
+import { devAuthAvailable, githubConfigured } from "../env";
+import { getGithubToken } from "../auth/better-auth";
+import {
+  authFor,
+  authToSession,
+  forwardAuthCookies,
+  getAuth,
+  requireUser,
+} from "../auth/session";
 import { getDb } from "../db/client";
-import { teams, users } from "../db/schema";
+import { teams } from "../db/schema";
 import { FixtureGitHubClient, RealGitHubClient } from "../github/client";
 import type { GitHubRepositoryListing } from "../github/client";
 import { teamRole } from "../github/permissions";
@@ -22,17 +28,9 @@ import type { TeamRole } from "../github/permissions";
 import { connectTeam, fixtureRepository } from "../github/team";
 import type { ConnectRepository } from "../github/team";
 import { validateTemplateRepository } from "../github/template";
-import {
-  OAUTH_STATE_COOKIE,
-  exchangeOAuthCode,
-  getGitHubOAuthUser,
-  githubAuthorizeUrl,
-  githubCallbackUrl,
-} from "../github/oauth";
 import { parseCogportalToml } from "../github/toml";
 import { ApiHttpError } from "../http/errors";
 import { parseBody, respond } from "../http/respond";
-import { newId, randomHex } from "../util/id";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -64,93 +62,34 @@ function constantTimeEqual(left: Uint8Array, right: Uint8Array): boolean {
 }
 
 export function registerGithubRoutes(app: Hono<AppEnv>): void {
-  app.get("/github/login", (c) => {
+  app.get("/github/login", async (c) => {
     if (!githubConfigured(c.env)) {
       throw new ApiHttpError(404, "not_found", "GitHub sign-in is not configured.");
     }
-    const state = randomHex(16);
-    setCookie(c, OAUTH_STATE_COOKIE, state, {
-      httpOnly: true,
-      sameSite: "Lax",
-      path: "/",
-      maxAge: 600,
-      secure: new URL(c.req.url).protocol === "https:",
+    const result = await authFor(c).api.signInSocial({
+      body: { provider: "github", callbackURL: "/" },
+      headers: c.req.raw.headers,
+      returnHeaders: true,
     });
-    return c.redirect(
-      githubAuthorizeUrl(c.env, githubCallbackUrl(c.req.url), state),
-      302,
-    );
-  });
-
-  app.get("/github/callback", async (c) => {
-    const clearState = (): void => {
-      deleteCookie(c, OAUTH_STATE_COOKIE, { path: "/" });
-    };
-    if (c.req.query("error") === "access_denied") {
-      clearState();
-      return c.redirect("/signin?error=oauth_denied", 302);
+    forwardAuthCookies(c, result.headers);
+    if (!result.response.url) {
+      throw new ApiHttpError(502, "provider_unconfigured", "GitHub sign-in did not return a redirect URL.");
     }
-    const state = c.req.query("state");
-    const expectedState = getCookie(c, OAUTH_STATE_COOKIE);
-    if (!state || !expectedState || state !== expectedState) {
-      clearState();
-      return c.redirect("/signin?error=oauth_failed", 302);
-    }
-
-    try {
-      const code = c.req.query("code");
-      if (!code || !githubConfigured(c.env)) throw new Error("OAuth callback is incomplete.");
-      const oauthToken = await exchangeOAuthCode(c.env, code, githubCallbackUrl(c.req.url));
-      const githubUser = await getGitHubOAuthUser(oauthToken);
-      const db = getDb(c.env);
-      let [user] = await db.select().from(users).where(eq(users.githubId, githubUser.id)).limit(1);
-      if (!user) {
-        [user] = await db
-          .select()
-          .from(users)
-          .where(eq(users.githubLogin, githubUser.login))
-          .limit(1);
-      }
-      const userId = user?.id ?? newId("user_");
-      if (user) {
-        await db
-          .update(users)
-          .set({
-            githubId: githubUser.id,
-            githubLogin: githubUser.login,
-            name: githubUser.name,
-            avatarUrl: githubUser.avatarUrl,
-          })
-          .where(eq(users.id, userId));
-      } else {
-        await db.insert(users).values({
-          id: userId,
-          githubId: githubUser.id,
-          githubLogin: githubUser.login,
-          name: githubUser.name,
-          avatarUrl: githubUser.avatarUrl,
-          cohortId: null,
-          createdAt: Date.now(),
-        });
-      }
-      await createSession(c, userId, oauthToken);
-      clearState();
-      return c.redirect("/", 302);
-    } catch {
-      clearState();
-      return c.redirect("/signin?error=oauth_failed", 302);
-    }
+    return c.redirect(result.response.url, 302);
   });
 
   app.get("/github/repositories", async (c) => {
     const auth = await requireUser(c);
     const repositories: GitHubRepositoryListing[] = [];
-    if (c.env.DEV_AUTH === "enabled") {
+    if (devAuthAvailable(c.env)) {
       repositories.push(...(await new FixtureGitHubClient().listRepositories()));
     }
-    if (auth.oauthToken && githubConfigured(c.env)) {
+    const githubToken = githubConfigured(c.env)
+      ? await getGithubToken(authFor(c), auth.user.id, c.req.raw.headers)
+      : null;
+    if (githubToken) {
       try {
-        repositories.push(...(await new RealGitHubClient().listRepositories(auth.oauthToken)));
+        repositories.push(...(await new RealGitHubClient().listRepositories(githubToken)));
       } catch {
         console.warn(JSON.stringify({ evt: "github_api_failure", operation: "list_repositories" }));
       }
@@ -186,11 +125,15 @@ export function registerGithubRoutes(app: Hono<AppEnv>): void {
     let repository: ConnectRepository;
     let permission: TeamRole;
 
-    if (body.fullName === FIXTURE_REPO.fullName && c.env.DEV_AUTH === "enabled") {
+    if (body.fullName === FIXTURE_REPO.fullName && devAuthAvailable(c.env)) {
       repository = fixtureRepository();
       permission = "write";
     } else {
-      if (!githubConfigured(c.env) || !auth.oauthToken) {
+      const githubToken = githubConfigured(c.env)
+        ? await getGithubToken(authFor(c), auth.user.id, c.req.raw.headers)
+        : null;
+      const githubLogin = auth.user.githubLogin;
+      if (!githubToken || !githubLogin) {
         throw new ApiHttpError(
           403,
           "forbidden",
@@ -198,7 +141,7 @@ export function registerGithubRoutes(app: Hono<AppEnv>): void {
         );
       }
       const client = new RealGitHubClient();
-      const githubRepository = await client.getRepo(body.fullName, auth.oauthToken);
+      const githubRepository = await client.getRepo(body.fullName, githubToken);
       if (githubRepository.private) {
         throw new ApiHttpError(
           403,
@@ -207,7 +150,7 @@ export function registerGithubRoutes(app: Hono<AppEnv>): void {
         );
       }
       const mappedPermission = teamRole(
-        await client.getPermission(body.fullName, auth.user.githubLogin, auth.oauthToken),
+        await client.getPermission(body.fullName, githubLogin, githubToken),
       );
       if (!mappedPermission) {
         throw new ApiHttpError(
@@ -218,7 +161,7 @@ export function registerGithubRoutes(app: Hono<AppEnv>): void {
       }
       validateTemplateRepository(c.env, githubRepository);
       const metadata = parseCogportalToml(
-        (await client.getCogportalToml(body.fullName, auth.oauthToken)) ?? "",
+        (await client.getCogportalToml(body.fullName, githubToken)) ?? "",
       );
       repository = {
         id: githubRepository.id,
@@ -246,14 +189,17 @@ export function registerGithubRoutes(app: Hono<AppEnv>): void {
 
   app.get("/github/installations", async (c) => {
     const auth = await requireUser(c);
-    if (!githubConfigured(c.env) || !auth.oauthToken) {
+    const githubToken = githubConfigured(c.env)
+      ? await getGithubToken(authFor(c), auth.user.id, c.req.raw.headers)
+      : null;
+    if (!githubToken) {
       throw new ApiHttpError(
         403,
         "forbidden",
         "Sign in with GitHub to view installations.",
       );
     }
-    const installations = await new RealGitHubClient().listInstallations(auth.oauthToken);
+    const installations = await new RealGitHubClient().listInstallations(githubToken);
     return respond(c, z.array(GithubInstallationSchema), installations);
   });
 

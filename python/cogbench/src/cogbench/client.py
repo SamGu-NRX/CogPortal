@@ -9,7 +9,9 @@ from typing import Any, Dict, List, Optional
 from . import __version__
 
 
-USER_AGENT = "CogBench/{} (+https://cogportal-dev.sillion.app)".format(__version__)
+USER_AGENT = "CogWorks-Benchmark/{} (+https://github.com/CogWorksBWSI/CogPortal)".format(
+    __version__
+)
 MAX_ATTEMPTS = 3
 RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 
@@ -127,3 +129,25 @@ def send_local_run_event_batch(
 
 def device_status(portal: str, token: str) -> Dict[str, Any]:
     return request_json(portal, "/api/v1/cli/device/status", token=token, retry=True)
+
+
+def update_setup_checks(
+    portal: str,
+    token: str,
+    payload: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Submit explicit, coarse setup evidence after a local command passes.
+
+    This call is deliberately non-retrying: the student asked for one visible
+    portal update, and a failure should return control with an actionable retry
+    instead of becoming background telemetry.
+    """
+
+    return request_json(
+        portal,
+        "/api/v1/cli/setup/checks",
+        payload,
+        token=token,
+        retry=False,
+        timeout=10,
+    )

@@ -7,7 +7,11 @@ import { EmptyState } from "@/components/EmptyState";
 import { LoadingMark, QueryError } from "@/components/Feedback";
 import { formatDateTime, formatMetricValue } from "@/lib/format";
 import { EASE_OUT } from "@/lib/motion";
-import { useBenchmarks, useLeaderboard } from "@/lib/queries";
+import {
+  useBenchmarks,
+  useFamilyLeaderboard,
+  useLeaderboard,
+} from "@/lib/queries";
 
 const TRACKS: Array<{ module: Module; label: string }> = [
   { module: "vision", label: "Vision" },
@@ -21,23 +25,41 @@ const ROW_GRID = "grid grid-cols-[3rem_minmax(0,1fr)_auto_2rem] items-baseline g
 export function LeaderboardPage() {
   const benchmarks = useBenchmarks();
   const [module, setModule] = useState<Module>("vision");
+  const [visionView, setVisionView] = useState<
+    "overall" | "recognition" | "clustering"
+  >("overall");
   const reduce = useReducedMotion();
 
   const forModule = (m: Module): Benchmark | undefined => {
     const list = benchmarks.data?.filter((b) => b.module === m) ?? [];
     return list.find((b) => b.active) ?? list[0];
   };
-  const benchmark = forModule(module);
+  const visionBenchmarks = benchmarks.data?.filter((b) => b.module === "vision") ?? [];
+  const recognition = visionBenchmarks.find((b) => b.id === "vision-recognition" && b.active);
+  const clustering = visionBenchmarks.find((b) => b.id === "vision-clustering" && b.active);
+  const benchmark =
+    module === "vision"
+      ? visionView === "recognition"
+        ? recognition
+        : visionView === "clustering"
+          ? clustering
+          : recognition
+      : forModule(module);
 
   return (
     <div className="anim-rise mx-auto w-full max-w-3xl py-12">
-      <h1 className="text-3xl">{benchmark?.title ?? "Leaderboard"}</h1>
+      <h1 className="text-3xl">
+        {module === "vision" ? "Vision" : (benchmark?.title ?? "Leaderboard")}
+      </h1>
 
       {/* ── Track switcher ── */}
       <div role="tablist" aria-label="Benchmark track" className="mt-6 flex gap-6 border-b border-rule">
         {TRACKS.map((track) => {
           const active = module === track.module;
-          const available = forModule(track.module)?.active ?? false;
+          const available =
+            track.module === "vision"
+              ? Boolean(recognition && clustering)
+              : (forModule(track.module)?.active ?? false);
           return (
             <button
               key={track.module}
@@ -71,11 +93,57 @@ export function LeaderboardPage() {
         })}
       </div>
 
+      {module === "vision" && (
+        <div
+          role="tablist"
+          aria-label="Vision leaderboard"
+          className="mt-4 flex gap-5"
+        >
+          {(
+            [
+              ["overall", "Overall"],
+              ["recognition", "Recognition"],
+              ["clustering", "Clustering"],
+            ] as const
+          ).map(([value, label]) => {
+            const active = visionView === value;
+            return (
+              <button
+                key={value}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => setVisionView(value)}
+                className={`u-pressable relative inline-flex min-h-11 items-center px-1 font-mono text-[11px] font-medium tracking-[0.08em] uppercase transition-colors duration-150 ${
+                  active ? "text-ink" : "text-ink-secondary hover:text-ink"
+                }`}
+              >
+                {label}
+                {active && (
+                  <motion.span
+                    layoutId="vision-view-underline"
+                    aria-hidden="true"
+                    className="absolute inset-x-1 bottom-1 h-px bg-detect"
+                    transition={
+                      reduce
+                        ? { duration: 0 }
+                        : { type: "tween", duration: 0.2, ease: EASE_OUT }
+                    }
+                  />
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       <div className="mt-6">
         {benchmarks.isPending ? (
           <LoadingMark />
         ) : benchmarks.isError ? (
           <QueryError error={benchmarks.error} retry={() => void benchmarks.refetch()} />
+        ) : module === "vision" && visionView === "overall" ? (
+          <OverallStandings />
         ) : !benchmark || !benchmark.active ? (
           <div className="border border-rule bg-paper-raised">
             <EmptyState
@@ -99,6 +167,35 @@ function Standings({ benchmarkId }: { benchmarkId: string }) {
   }
 
   const { benchmark, entries } = board.data;
+  return (
+    <StandingsTable
+      entries={entries}
+      footer={`${benchmark.id} / v${benchmark.version}. Each team publishes one selected official result.`}
+    />
+  );
+}
+
+function OverallStandings() {
+  const board = useFamilyLeaderboard("vision-overall");
+  if (board.isPending) return <LoadingMark />;
+  if (board.isError) {
+    return <QueryError error={board.error} retry={() => void board.refetch()} />;
+  }
+  return (
+    <StandingsTable
+      entries={board.data.entries}
+      footer="vision-overall / v1. All three components must come from selected official runs at the same repository and commit."
+    />
+  );
+}
+
+function StandingsTable({
+  entries,
+  footer,
+}: {
+  entries: LeaderboardEntry[];
+  footer: string;
+}) {
   const primaryLabel = entries[0]?.primaryMetric.label ?? "Score";
 
   if (entries.length === 0) {
@@ -126,8 +223,7 @@ function Standings({ benchmarkId }: { benchmarkId: string }) {
       </ol>
 
       <p className="mt-6 px-4 font-mono text-[11px] text-ink-faint">
-        {benchmark.id} / v{benchmark.version}. Each team publishes one selected
-        official result.
+        {footer}
       </p>
     </>
   );

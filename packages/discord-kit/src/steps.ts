@@ -114,10 +114,14 @@ export function loaderSteps(
   });
 }
 
-/** One rendered loader line per step, per the loader rules. */
+/**
+ * One rendered loader line per step. Done and active steps carry their glyph;
+ * a pending step is plain dimmed subtext with no marker, so the eye lands on
+ * what is happening now and there is no font-glyph circle to look rough.
+ */
 export function loaderLine(step: LoaderStep, fmt: EmojiFormatter): string {
   const suffix = step.chip ? `  ${step.chip}` : "";
-  if (step.state === "pending") return `-# ○ ${step.label}`;
+  if (step.state === "pending") return `-# ${step.label}`;
   if (step.state === "active") return `${fmt("cog_spin")} **${step.label}**${suffix}`;
   if (step.state === "failed") return `${fmt("cog_fail")} ${step.label}${suffix}`;
   return `${fmt("cog_done")} ${step.label}${suffix}`;

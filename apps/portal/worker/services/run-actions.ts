@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, isNotNull } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { FIXTURE_REPO } from "@cogworks/contracts/fixtures";
 import {
   OFFICIAL_LIMIT,
@@ -7,6 +7,7 @@ import {
   isTerminal,
 } from "@cogworks/contracts/schema";
 import type { AuthState } from "../auth/session";
+import { createAuth, getGithubToken } from "../auth/better-auth";
 import type { Env } from "../env";
 import { getDb } from "../db/client";
 import {
@@ -18,7 +19,6 @@ import {
   runPhases,
   runs,
   runSurfaces,
-  sessions,
   teamMembers,
   teams,
   users,
@@ -36,10 +36,9 @@ import { publishRunSurface } from "./run-surfaces";
 
 export interface RunActor {
   userId: string;
-  githubLogin: string;
+  githubLogin: string | null;
   team: TeamRow;
   role: "admin" | "maintain" | "write";
-  oauthToken: string | null;
 }
 
 export function actorFromAuth(auth: AuthState & { team: TeamRow }): RunActor {
@@ -48,7 +47,6 @@ export function actorFromAuth(auth: AuthState & { team: TeamRow }): RunActor {
     githubLogin: auth.user.githubLogin,
     team: auth.team,
     role: "write",
-    oauthToken: auth.oauthToken,
   };
 }
 
@@ -70,30 +68,21 @@ export async function discordRunActor(env: Env, discordUserId: string): Promise<
   if (!membership || !["admin", "maintain", "write"].includes(membership.role)) {
     throw new ApiHttpError(403, "forbidden", "Current write access to the team repository is required.");
   }
-  const [session] = await db
-    .select({ oauthToken: sessions.oauthToken })
-    .from(sessions)
-    .where(
-      and(
-        eq(sessions.userId, identity.userId),
-        gt(sessions.expiresAt, Date.now()),
-        isNotNull(sessions.oauthToken),
-      ),
-    )
-    .orderBy(desc(sessions.createdAt))
-    .limit(1);
   return {
     userId: identity.userId,
     githubLogin: identity.githubLogin,
     team: membership.team,
     role: membership.role as RunActor["role"],
-    oauthToken: session?.oauthToken ?? null,
   };
 }
 
-export async function requireCurrentRepositoryPermission(actor: RunActor): Promise<void> {
-  if (actor.team.repoFullName === FIXTURE_REPO.fullName) return;
-  if (!actor.oauthToken) {
+export async function requireCurrentRepositoryPermission(
+  env: Env,
+  actor: RunActor,
+): Promise<string | null> {
+  if (actor.team.repoFullName === FIXTURE_REPO.fullName) return null;
+  const githubToken = await getGithubToken(createAuth(env), actor.userId);
+  if (!githubToken || !actor.githubLogin) {
     throw new ApiHttpError(403, "forbidden", "Sign in to GitHub on Cog*Portal before changing a run.");
   }
   let permission: string;
@@ -101,7 +90,7 @@ export async function requireCurrentRepositoryPermission(actor: RunActor): Promi
     permission = await new RealGitHubClient().getPermission(
       actor.team.repoFullName,
       actor.githubLogin,
-      actor.oauthToken,
+      githubToken,
     );
   } catch {
     throw new ApiHttpError(403, "forbidden", "GitHub access expired. Sign in to Cog*Portal again.");
@@ -109,6 +98,7 @@ export async function requireCurrentRepositoryPermission(actor: RunActor): Promi
   if (!["admin", "maintain", "write", "push"].includes(permission)) {
     throw new ApiHttpError(403, "forbidden", "Current write permission to the connected repository is required.");
   }
+  return githubToken;
 }
 
 async function activeBenchmark(env: Env, benchmarkId: string, version?: number): Promise<BenchmarkRow> {
@@ -132,6 +122,10 @@ async function activeBenchmark(env: Env, benchmarkId: string, version?: number):
 
 function hasActive(rowsForTeam: RunRow[]): boolean {
   return rowsForTeam.some((run) => !isTerminal(run.status));
+}
+
+function isUniqueConstraintError(error: unknown): boolean {
+  return error instanceof Error && /unique constraint failed/i.test(error.message);
 }
 
 async function insertPhaseSkeleton(env: Env, runId: string): Promise<void> {
@@ -174,7 +168,7 @@ export async function startPracticeRun(
   actor: RunActor,
   options: StartPracticeOptions,
 ): Promise<{ runId: string; surfaceId: string }> {
-  await requireCurrentRepositoryPermission(actor);
+  const githubToken = await requireCurrentRepositoryPermission(env, actor);
   const db = getDb(env);
   const benchmark = await activeBenchmark(env, options.benchmarkId);
   if (options.surfaceId) {
@@ -202,13 +196,13 @@ export async function startPracticeRun(
     }
     if (fixtureRepository) {
       sha = options.exactSha;
-    } else if (actor.oauthToken) {
+    } else if (githubToken) {
       try {
         sha = await new RealGitHubClient().resolveRef(
           actor.team.repoOwner,
           actor.team.repoName,
           options.exactSha,
-          actor.oauthToken,
+          githubToken,
         );
       } catch {
         throw new ApiHttpError(
@@ -225,8 +219,8 @@ export async function startPracticeRun(
     }
   } else if (fixtureRepository) {
     sha = await new FixtureGitHubClient().resolveRef(actor.team.repoOwner, actor.team.repoName, branch);
-  } else if (actor.oauthToken) {
-    sha = await new RealGitHubClient().resolveRef(actor.team.repoOwner, actor.team.repoName, branch, actor.oauthToken);
+  } else if (githubToken) {
+    sha = await new RealGitHubClient().resolveRef(actor.team.repoOwner, actor.team.repoName, branch, githubToken);
   } else {
     throw new ApiHttpError(403, "forbidden", "Sign in to GitHub on Cog*Portal first.");
   }
@@ -262,6 +256,7 @@ export async function startPracticeRun(
       status: "queued",
       branch: options.branch || (options.exactSha ? "detached" : actor.team.defaultBranch),
       sha,
+      repositoryId: actor.team.repoId,
       parentRunId: null,
       attemptNumber: null,
       failureCategory: null,
@@ -289,6 +284,10 @@ export async function startPracticeRun(
       .where(and(eq(runs.surfaceId, surfaceId), eq(runs.mode, "practice")))
       .limit(1);
     if (existing) return { runId: existing.id, surfaceId };
+    // The partial unique index resolves concurrent starts as a normal conflict.
+    if (isUniqueConstraintError(error)) {
+      throw new ApiHttpError(409, "active_run_exists", "A run is already active for this benchmark.");
+    }
     throw error;
   }
   await insertPhaseSkeleton(env, runId);
@@ -302,7 +301,7 @@ export async function promotePracticeRun(
   actor: RunActor,
   practiceRunId: string,
 ): Promise<{ runId: string; surfaceId: string }> {
-  await requireCurrentRepositoryPermission(actor);
+  await requireCurrentRepositoryPermission(env, actor);
   const db = getDb(env);
   const [parentRow] = await db
     .select()
@@ -392,7 +391,7 @@ export async function promotePracticeRun(
 }
 
 export async function publishOfficialRun(env: Env, actor: RunActor, runId: string) {
-  await requireCurrentRepositoryPermission(actor);
+  await requireCurrentRepositoryPermission(env, actor);
   const db = getDb(env);
   const [row] = await db
     .select()

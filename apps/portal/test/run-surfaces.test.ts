@@ -70,6 +70,8 @@ function snapshot(status: RunSurfaceSnapshot["status"] = "running"): RunSurfaceS
       primary: true,
       precision: 3,
     } : null,
+    metrics: [],
+    teamBest: null,
     localRunId: "localrun_123",
     practiceRunId: null,
     officialRunId: null,
@@ -124,7 +126,7 @@ test("running surface is a multi-step loader with Watch live as the only control
   assert.match(running, /### Vision Recognition/);
   assert.match(running, /\*\*Evaluating\*\*/);
   assert.match(running, /`18\/40`/);
-  assert.match(running, /-# ○ Scoring/);
+  assert.match(running, /-# Scoring/);
   assert.match(running, /simulated/);
   assert.doesNotMatch(running, /SIMULATED/);
   assert.doesNotMatch(running, / · /);
@@ -146,7 +148,7 @@ test("terminal success recomposes into a decision surface", () => {
   const controls = buttonsOf(value);
   assert.deepEqual(
     controls.map((item) => [item.label, item.style]),
-    [["Verify hosted", 1], ["Run again", 2], ["Cog*Portal ↗", 5]],
+    [["Verify hosted", 1], ["Run again", 2], ["Cog*Portal", 5]],
   );
 });
 
@@ -185,7 +187,7 @@ test("dirty local success explains the path to hosted verification", () => {
   const dirty = rendered(value);
   assert.match(dirty, /workspace has uncommitted changes/);
   assert.match(dirty, /needs a commit and push/);
-  assert.deepEqual(buttonsOf(value).map((item) => item.label), ["Cog*Portal ↗"]);
+  assert.deepEqual(buttonsOf(value).map((item) => item.label), ["Cog*Portal"]);
 });
 
 test("published closes the lifecycle quietly with the star mark", () => {
@@ -193,9 +195,40 @@ test("published closes the lifecycle quietly with the star mark", () => {
   value.stage = "published";
   value.published = true;
   const published = rendered(value);
-  assert.match(published, /✱ Published/);
+  assert.match(published, /✳ Published/);
   assert.match(published, /✓ published/);
   assert.doesNotMatch(published, /Bench clear/);
+});
+
+test("success shows the subscore breakdown and how it sits against the team best", () => {
+  const value = snapshot("succeeded");
+  value.stage = "hosted";
+  value.practiceRunId = "run_hosted_123";
+  value.metrics = [
+    { key: "accuracy", label: "Accuracy", value: 0.913, unit: null, higherIsBetter: true, primary: true, precision: 3 },
+    { key: "precision", label: "Precision", value: 0.91, unit: null, higherIsBetter: true, primary: false, precision: 2 },
+    { key: "recall", label: "Recall", value: 0.88, unit: null, higherIsBetter: true, primary: false, precision: 2 },
+  ];
+  value.teamBest = { key: "accuracy", label: "Accuracy", value: 0.892, unit: null, higherIsBetter: true, primary: true, precision: 3 };
+  const message = rendered(value);
+  assert.match(message, /`0\.91`.*▰▰▰▰▱.*precision/);
+  assert.match(message, /`0\.88`.*▰▰▰▰▱.*recall/);
+  assert.match(message, /a new team best, past 0\.892/);
+
+  value.teamBest = { ...value.teamBest, value: 0.95 };
+  assert.match(rendered(value), /team best stays 0\.950/);
+});
+
+test("running shows the team best for context and local success never claims a delta", () => {
+  const running = snapshot();
+  running.teamBest = { key: "accuracy", label: "Accuracy", value: 0.892, unit: null, higherIsBetter: true, primary: true, precision: 3 };
+  assert.match(rendered(running), /team best so far 0\.892/);
+
+  const local = snapshot("succeeded");
+  local.teamBest = running.teamBest;
+  const message = rendered(local);
+  assert.match(message, /team best so far 0\.892/);
+  assert.doesNotMatch(message, /new team best/);
 });
 
 test("hosted running resets the loader instead of inheriting local progress", () => {

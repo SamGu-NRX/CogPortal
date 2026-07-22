@@ -13,6 +13,7 @@ import {
   InvitableUserListSchema,
   DashboardSchema,
   DiscordLinkPreviewSchema,
+  FamilyLeaderboardSchema,
   GithubInstallationSchema,
   GithubRepoSchema,
   LeaderboardSchema,
@@ -139,6 +140,10 @@ export const api = {
     }),
 
   setupState: () => request("/api/v1/setup/state", SetupStateSchema),
+  resetSetupState: () =>
+    request("/api/v1/setup/state", z.object({ ok: z.literal(true) }), {
+      method: "DELETE",
+    }),
 
   cohortTeams: () => request("/api/cohorts/teams", CohortTeamListSchema),
   joinTeam: (teamId: string) =>
@@ -239,6 +244,11 @@ export const api = {
         ? `/api/leaderboard?benchmark=${encodeURIComponent(benchmarkId)}`
         : "/api/leaderboard",
       LeaderboardSchema,
+    ),
+  familyLeaderboard: (familyId: string) =>
+    request(
+      `/api/leaderboard-family?family=${encodeURIComponent(familyId)}`,
+      FamilyLeaderboardSchema,
     ),
   selectResult: (runId: string) =>
     request("/api/leaderboard-selection", z.unknown(), {

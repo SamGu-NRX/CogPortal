@@ -15,7 +15,7 @@ import {
   type DiscordButton,
   type DiscordContainerChild,
 } from "@cogworks/discord-kit/components";
-import { emojiFormatter } from "@cogworks/discord-kit/emoji";
+import { emojiFormatter, progressBar, type EmojiFormatter } from "@cogworks/discord-kit/emoji";
 import { META_SEP, chip, elapsed, fitTextBudget, metaLine, metricValue } from "@cogworks/discord-kit/format";
 import { terminalButtons, watchLiveAvailable } from "@cogworks/discord-kit/policy";
 import { stageRail } from "@cogworks/discord-kit/rails";
@@ -100,7 +100,6 @@ function surfacePortalUrl(env: Env, surfaceId: string): string | null {
   return new URL(`/run-surfaces/${encodeURIComponent(surfaceId)}`, env.PUBLIC_ORIGIN).toString();
 }
 
-/** Plain nouns for "Stopped during …" headlines. */
 const PHASE_NOUNS: Record<string, string> = {
   queued: "preparation",
   preparing: "preparation",
@@ -132,12 +131,32 @@ function surfaceMeta(snapshot: RunSurfaceSnapshot, lead: string): string {
   ])}`;
 }
 
-/**
- * The public run surface. While running it is a multi-step loader under the
- * benchmark's name, with "Watch live" as the only control. At terminal it
- * recomposes into a decision surface: the news as headline, provenance in a
- * quiet footer rail, and at most three buttons with the primary action first.
- */
+function bestComparison(snapshot: RunSurfaceSnapshot): string | null {
+  const best = snapshot.teamBest;
+  const current = snapshot.primaryMetric;
+  // Self-reported local metrics never qualify as observed comparisons.
+  const observed = snapshot.stage !== "local";
+  if (!best) return null;
+  if (snapshot.status !== "succeeded" || !observed || !current) {
+    return `-# team best so far ${metricValue(best)}`;
+  }
+  const improved = best.higherIsBetter ? current.value > best.value : current.value < best.value;
+  return improved
+    ? `-# a new team best, past ${metricValue(best)}`
+    : `-# team best stays ${metricValue(best)}`;
+}
+
+function subscoreLines(snapshot: RunSurfaceSnapshot, fmt: EmojiFormatter): string[] {
+  const extras = snapshot.metrics.filter((metric) => !metric.primary).slice(0, 4);
+  return extras.map((metric) => {
+    const value = chip(metricValue(metric));
+    // A gauge would be misleading for values without a known 0..1 range.
+    const isRate = metric.unit === null && metric.value >= 0 && metric.value <= 1;
+    const gauge = isRate ? `${META_SEP}${progressBar(Math.round(metric.value * 100), 100, fmt, 5)}` : "";
+    return `${value}${gauge}${META_SEP}${metric.label.toLowerCase()}`;
+  });
+}
+
 export function runSurfaceMessage(env: Env, snapshot: RunSurfaceSnapshot) {
   const fmt = emojiFormatter(env.DISCORD_CLIENT_ID);
   const events = runSurfaceCurrentEvents(snapshot);
@@ -146,7 +165,12 @@ export function runSurfaceMessage(env: Env, snapshot: RunSurfaceSnapshot) {
   let accent = ACCENT_INK;
 
   if (snapshot.status === "running") {
-    const head = `### ${snapshot.benchmark.title}\n${surfaceMeta(snapshot, STAGE_WORDS[snapshot.stage])}`;
+    const bestLine = snapshot.teamBest ? `-# team best so far ${metricValue(snapshot.teamBest)}` : null;
+    const head = [
+      `### ${snapshot.benchmark.title}`,
+      surfaceMeta(snapshot, STAGE_WORDS[snapshot.stage]),
+      bestLine,
+    ].filter((line): line is string => line !== null).join("\n");
     const headDisplay = text(head);
     children.push(
       watchLiveAvailable(snapshot)
@@ -174,6 +198,10 @@ export function runSurfaceMessage(env: Env, snapshot: RunSurfaceSnapshot) {
       lines.push(`### Cancelled${stopped ? ` during ${phaseNoun(stopped)}` : ""}`);
     }
     lines.push(surfaceMeta(snapshot, snapshot.benchmark.title));
+    if (snapshot.status === "succeeded") {
+      const comparison = bestComparison(snapshot);
+      if (comparison) lines.push(comparison);
+    }
     if (snapshot.status === "failed" && snapshot.stage === "local") {
       lines.push("-# the useful detail is in your terminal");
     }
@@ -183,13 +211,16 @@ export function runSurfaceMessage(env: Env, snapshot: RunSurfaceSnapshot) {
     if (snapshot.status === "failed") {
       lines.push("", ...failureTrace(snapshot, events, (code) => EVENT_COPY[code], fmt));
     }
-    children.push(text(lines.join("\n")), separator(), text(rail));
+    children.push(text(lines.join("\n")));
+    const breakdown = snapshot.status === "succeeded" ? subscoreLines(snapshot, fmt) : [];
+    if (breakdown.length) children.push(separator(false), text(breakdown.join("\n")));
+    children.push(separator(), text(rail));
 
     const buttons: DiscordButton[] = terminalButtons(snapshot).map((spec) =>
       button(`cog:surface:${snapshot.id}:${spec.action}`.slice(0, 100), spec.label, spec.style),
     );
     const target = surfacePortalUrl(env, snapshot.id);
-    if (target) buttons.push(linkButton(target, "Cog*Portal ↗"));
+    if (target) buttons.push(linkButton(target, "Cog*Portal"));
     if (buttons.length) children.push(separator(false), actionRow(...buttons));
   }
 

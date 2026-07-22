@@ -13,6 +13,7 @@ import webbrowser
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Sequence
+from urllib.parse import urlparse
 
 from . import __version__
 from .client import (
@@ -24,46 +25,125 @@ from .client import (
     start_device_link,
     start_local_run,
     sync_report,
+    update_setup_checks,
 )
 from .models import LocalReport
 from .plugins import PluginError, load_benchmark, load_submission, plugin_names
 from .project import repository_state
-from .runner import ContractError, execute
-from .storage import latest_report, save_report, save_token, token_for
+from .runner import ContractError, execute, model_cache_status
+from .storage import active_portal, latest_report, save_report, save_token, token_for
 
-DEFAULT_PORTAL = os.environ.get("COGPORTAL_URL", "https://cogportal-dev.sillion.app")
+PROGRAM = "cogworks"
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="cogbench", description="Run CogWorks practice benchmarks locally.")
+    parser = argparse.ArgumentParser(
+        prog=PROGRAM,
+        description="Check and run CogWorks practice benchmarks locally.",
+    )
     parser.add_argument("--version", action="version", version=__version__)
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    # The metavar hides the deprecated `doctor` alias from the choices list;
+    # `help=argparse.SUPPRESS` rendered a literal "==SUPPRESS==" row instead
+    # of hiding it (argparse only honors SUPPRESS for arguments, not
+    # subcommands).
+    subparsers = parser.add_subparsers(
+        dest="command",
+        metavar="{check,test,run,report,link,sync,status}",
+    )
     for name, help_text in (
-        ("doctor", "check the local benchmark environment"),
+        ("check", "check the local project and benchmark environment"),
+        ("doctor", None),  # deprecated alias for check; hidden from help
         ("test", "run one fast contract case"),
         ("run", "run the public local practice benchmark"),
     ):
-        command = subparsers.add_parser(name, help=help_text)
+        command = subparsers.add_parser(name, **({} if help_text is None else {"help": help_text}))
         command.add_argument("--benchmark", required=True)
         command.add_argument("--json", action="store_true")
+        command.add_argument(
+            "--update-setup",
+            action="store_true",
+            help="after local success, update your linked CogPortal setup guide",
+        )
         if name == "run":
             command.add_argument(
                 "--live",
                 action="store_true",
                 help="share one live progress bubble with your linked team",
             )
-            command.add_argument("--portal", default=DEFAULT_PORTAL)
+            command.add_argument("--portal")
     report = subparsers.add_parser("report", help="show a saved local report")
     report.add_argument("path", nargs="?")
-    link = subparsers.add_parser("link", help="optionally link this device to CogPortal")
-    link.add_argument("--portal", default=DEFAULT_PORTAL)
+    link = subparsers.add_parser("link", help="link this device to CogPortal")
+    link.add_argument("--portal")
     link.add_argument("--no-browser", action="store_true")
     sync = subparsers.add_parser("sync", help="explicitly sync one local report")
     sync.add_argument("path", nargs="?")
-    sync.add_argument("--portal", default=DEFAULT_PORTAL)
+    sync.add_argument("--portal")
     status = subparsers.add_parser("status", help="show this device's CogPortal connection")
-    status.add_argument("--portal", default=DEFAULT_PORTAL)
+    status.add_argument("--portal")
     return parser
+
+
+def _portal(value: Optional[str]) -> str:
+    portal = value or os.environ.get("COGPORTAL_URL") or active_portal()
+    if not portal:
+        raise PortalError(
+            "No CogPortal is selected. Copy `cogworks link --portal ...` from the setup page."
+        )
+    portal = portal.rstrip("/")
+    parsed = urlparse(portal)
+    local = parsed.hostname in {"localhost", "127.0.0.1", "::1"}
+    valid_origin = (
+        parsed.hostname
+        and parsed.username is None
+        and parsed.password is None
+        and parsed.path in ("", "/")
+        and not parsed.params
+        and not parsed.query
+        and not parsed.fragment
+    )
+    if not valid_origin or (parsed.scheme != "https" and not (local and parsed.scheme == "http")):
+        raise PortalError("CogPortal must use HTTPS (HTTP is allowed only for local development).")
+    return portal
+
+
+def _setup_payload(checks: Sequence[str]) -> dict:
+    repository = repository_state(Path.cwd())
+    if not repository.full_name:
+        raise PortalError(
+            "This directory is not a GitHub worktree with an `origin` remote. "
+            "Change into your team project and retry."
+        )
+    return {
+        "schemaVersion": 1,
+        "repositoryFullName": repository.full_name,
+        "checks": list(dict.fromkeys(checks)),
+        "cliVersion": __version__,
+        "pythonVersion": platform.python_version(),
+        "benchmarkIds": sorted(
+            set(plugin_names("cogworks.benchmarks.v1"))
+            | set(plugin_names("cogworks.benchmarks.v2"))
+        ),
+        "submissionIds": sorted(
+            set(plugin_names("cogworks.submissions.v1"))
+            | set(plugin_names("cogworks.submissions.v2"))
+        ),
+    }
+
+
+def _update_setup(portal_value: Optional[str], checks: Sequence[str]) -> None:
+    portal = _portal(portal_value)
+    token = token_for(portal)
+    if not token:
+        raise PortalError(
+            "This CogPortal connection is missing, expired, or revoked. "
+            "Run `cogworks link --portal {}` and retry.".format(portal)
+        )
+    result = update_setup_checks(portal, token, _setup_payload(checks))
+    accepted = result.get("accepted")
+    if not isinstance(accepted, list):
+        raise PortalError("CogPortal returned an invalid setup response.")
+    print("setup: updated {}".format(", ".join(str(step) for step in accepted)))
 
 
 def _print_report(report: LocalReport, as_json: bool = False) -> None:
@@ -85,26 +165,68 @@ def _resolve_report(path_value: Optional[str]) -> Path:
         return Path(path_value).expanduser().resolve()
     latest = latest_report(Path.cwd())
     if latest is None:
-        raise ContractError("No local reports found. Run `cogbench run` first.")
+        raise ContractError("No local reports found. Run `cogworks run` first.")
     return latest
 
 
-def _doctor(benchmark: str, as_json: bool) -> int:
-    benchmark_plugins = plugin_names("cogworks.benchmarks.v1")
-    submission_plugins = plugin_names("cogworks.submissions.v1")
+def _check(benchmark: str, as_json: bool) -> int:
+    benchmark_group = (
+        "cogworks.benchmarks.v2"
+        if benchmark in plugin_names("cogworks.benchmarks.v2")
+        else "cogworks.benchmarks.v1"
+    )
+    contract_group = (
+        "cogworks.submissions.v2"
+        if benchmark_group == "cogworks.benchmarks.v2"
+        else "cogworks.submissions.v1"
+    )
+    benchmark_plugins = plugin_names(benchmark_group)
+    submission_plugins = plugin_names(contract_group)
+    repository = repository_state(Path.cwd())
     checks = {
         "python": platform.python_version(),
         "canonicalHostedPython": "3.11",
+        "contractVersion": contract_group,
         "benchmarkInstalled": benchmark in benchmark_plugins,
         "submissionInstalled": benchmark in submission_plugins,
-        "gitRepository": (Path.cwd() / ".git").exists(),
+        "gitRepository": bool(repository.sha),
+        "repositoryFullName": repository.full_name,
     }
+    checks["benchmarkLoadable"] = False
+    checks["submissionLoadable"] = False
+    if checks["benchmarkInstalled"] and benchmark_group.endswith(".v2"):
+        plugin = load_benchmark(benchmark)
+        checks["benchmarkLoadable"] = True
+        checks["modelCache"] = model_cache_status()
+        for tier in ("test", "evaluation"):
+            status = plugin.cache_status(tier)
+            checks["data{}Cache".format(tier.title())] = {
+                "ready": status.ready,
+                "path": str(status.path),
+                "message": status.message,
+            }
+    elif checks["benchmarkInstalled"]:
+        load_benchmark(benchmark)
+        checks["benchmarkLoadable"] = True
+    if checks["submissionInstalled"]:
+        load_submission(benchmark, contract_group)
+        checks["submissionLoadable"] = True
     if as_json:
         print(json.dumps(checks, indent=2, sort_keys=True))
     else:
         for key, value in checks.items():
             print("{:<24} {}".format(key, value))
-    return 0 if checks["benchmarkInstalled"] and checks["submissionInstalled"] else 1
+        if benchmark_group.endswith(".v2"):
+            print("\nCaches are populated when you explicitly run `cogworks test` or `cogworks run`.")
+    required = (
+        "gitRepository",
+        "repositoryFullName",
+        "benchmarkInstalled",
+        "submissionInstalled",
+        "benchmarkLoadable",
+        "submissionLoadable",
+    )
+    return 0 if all(checks[key] for key in required) else 2
 
 
 def _live_progress_payload(
@@ -136,8 +258,8 @@ class _LiveRun:
         self._warned = False
         self._lock = threading.Lock()
         self._history = []
-        self._sender = threading.Thread(target=self._send_loop, name="cogbench-live-sender", daemon=True)
-        self._heartbeat = threading.Thread(target=self._heartbeat_loop, name="cogbench-live-heartbeat", daemon=True)
+        self._sender = threading.Thread(target=self._send_loop, name="cogworks-live-sender", daemon=True)
+        self._heartbeat = threading.Thread(target=self._heartbeat_loop, name="cogworks-live-heartbeat", daemon=True)
         self._sender.start()
         self._heartbeat.start()
 
@@ -174,7 +296,7 @@ class _LiveRun:
         except queue.Full:
             if terminal and not self._warned:
                 self._warned = True
-                print("cogbench: final live update could not be queued", file=sys.stderr)
+                print("cogworks: final live update could not be queued", file=sys.stderr)
         return done
 
     def _send_loop(self) -> None:
@@ -189,7 +311,7 @@ class _LiveRun:
             except PortalError as error:
                 if not self._closed.is_set() and not self._warned:
                     self._warned = True
-                    print("cogbench: live updates paused: {}".format(error), file=sys.stderr)
+                    print("cogworks: live updates paused: {}".format(error), file=sys.stderr)
             finally:
                 if done:
                     done.set()
@@ -227,7 +349,7 @@ class _LiveRun:
         except (PortalError, OSError, ValueError) as error:
             if not self._warned:
                 self._warned = True
-                print("cogbench: final live update was delayed: {}".format(error), file=sys.stderr)
+                print("cogworks: final live update was delayed: {}".format(error), file=sys.stderr)
             if done:
                 done.wait(max(0.0, deadline - time.monotonic()))
         try:
@@ -251,10 +373,10 @@ class _LiveRun:
 
 
 def _start_live_run(args: argparse.Namespace, benchmark: object) -> _LiveRun:
-    portal = args.portal.rstrip("/")
+    portal = _portal(args.portal)
     token = token_for(portal)
     if not token:
-        raise PortalError("This portal is not linked. Run `cogbench link` first.")
+        raise PortalError("This portal is not linked. Run `cogworks link` first.")
     repository = repository_state(Path.cwd())
     if not repository.full_name or not repository.sha:
         raise PortalError("Live sharing requires a committed GitHub repository.")
@@ -286,14 +408,26 @@ def _start_live_run(args: argparse.Namespace, benchmark: object) -> _LiveRun:
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
-    args = _parser().parse_args(argv)
+    parser = _parser()
+    args = parser.parse_args(argv)
+    if args.command is None:
+        parser.print_help()
+        return 0
     live: Optional[_LiveRun] = None
     try:
-        if args.command == "doctor":
-            return _doctor(args.benchmark, args.json)
+        if args.command in ("check", "doctor"):
+            if args.command == "doctor":
+                print(
+                    "cogworks: `doctor` is deprecated; use `cogworks check`.",
+                    file=sys.stderr,
+                )
+            result = _check(args.benchmark, args.json)
+            if result == 0 and args.update_setup:
+                _update_setup(None, ("clone", "environment", "project", "wiring"))
+            return result
         if args.command in ("test", "run"):
             benchmark = load_benchmark(args.benchmark)
-            adapter = load_submission(args.benchmark)
+            adapter = load_submission(args.benchmark, str(benchmark.contract_version))
             if args.command == "run" and args.live:
                 live = _start_live_run(args, benchmark)
                 live.progress("preparing")
@@ -310,39 +444,59 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             _print_report(report, args.json)
             if not args.json:
                 print("saved: {}".format(path))
+            if args.update_setup:
+                _update_setup(args.portal if args.command == "run" else None, (args.command,))
             return 0
         if args.command == "report":
             _print_report(LocalReport.from_json(_resolve_report(args.path).read_text(encoding="utf-8")))
             return 0
         if args.command == "link":
-            start = start_device_link(args.portal)
+            portal = _portal(args.portal)
+            print("Connecting to {}".format(portal))
+            print(
+                "CogPortal receives setup check names, package versions, and your GitHub repository; "
+                "never source, paths, logs, predictions, scores, or environment variables."
+            )
+            start = start_device_link(portal)
             print("Open {} and confirm code {}.".format(start["verificationUri"], start["userCode"]))
             if not args.no_browser:
                 webbrowser.open(start["verificationUri"])
             result = poll_device_link(
-                args.portal,
+                portal,
                 start["deviceCode"],
                 int(start["pollIntervalSeconds"]),
                 int(start["expiresAt"]),
             )
-            save_token(args.portal.rstrip("/"), result["token"], int(result["expiresAt"]))
+            save_token(portal, result["token"], int(result["expiresAt"]))
             print("Linked {}. Local commands still work offline.".format(platform.node() or "this device"))
+            repository = repository_state(Path.cwd())
+            if repository.full_name:
+                try:
+                    _update_setup(portal, ("clone",))
+                except PortalError as error:
+                    print("setup: clone was not updated: {}".format(error), file=sys.stderr)
+            else:
+                print(
+                    "setup: device linked; change into your team project before running "
+                    "`cogworks check --benchmark vision-recognition --update-setup`.",
+                    file=sys.stderr,
+                )
             return 0
         if args.command == "sync":
-            portal = args.portal.rstrip("/")
+            portal = _portal(args.portal)
             token = token_for(portal)
             if not token:
-                raise PortalError("This portal is not linked. Run `cogbench link` first.")
+                raise PortalError("This portal is not linked. Run `cogworks link` first.")
             path = _resolve_report(args.path)
             report = LocalReport.from_json(path.read_text(encoding="utf-8"))
             sync_report(portal, token, json.loads(report.to_json()))
             print("Synced {} as LOCAL · SELF-REPORTED.".format(report.report_id))
             return 0
         if args.command == "status":
-            portal = args.portal.rstrip("/")
+            portal = _portal(args.portal)
             token = token_for(portal)
             if not token:
-                raise PortalError("This portal is not linked. Run `cogbench link` first.")
+                raise PortalError("This portal is not linked. Run `cogworks link` first.")
             value = device_status(portal, token)
             print("GitHub   @{}".format(value["githubLogin"]))
             print("Team     {}".format(value["teamName"]))
@@ -359,9 +513,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             print("Expires  {}".format(expires))
             print("Portal   {}".format(portal))
             return 0
+    except KeyboardInterrupt:
+        if live:
+            live.failed(KeyboardInterrupt())
+        print("\ncogworks: interrupted", file=sys.stderr)
+        return 130
     except (ContractError, PluginError, PortalError, OSError, ValueError) as error:
         if live:
             live.failed(error)
-        print("cogbench: {}".format(error), file=sys.stderr)
+        print("cogworks: {}".format(error), file=sys.stderr)
         return 2
     return 2

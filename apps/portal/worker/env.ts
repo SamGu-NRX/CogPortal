@@ -1,52 +1,88 @@
 import type { D1Database, DurableObjectNamespace, Fetcher, Queue } from "@cloudflare/workers-types";
 import type { RunJobV1 } from "@cogworks/contracts/protocol";
+import { createEnv, perRequestEnv } from "@cogworks/env";
+import { z } from "zod";
 
-export interface Env {
+export interface Bindings {
   DB: D1Database;
   ASSETS: Fetcher;
   RUN_SURFACES: DurableObjectNamespace;
-  ENVIRONMENT: string;
-  DEV_AUTH: "enabled" | "disabled";
-  EXECUTION_PROVIDER: "fixture" | "modal";
-  PUBLIC_ORIGIN?: string;
-  COURSE_GUILD_ID?: string;
-  /** Secret used only for posting/editing team run bubbles via Discord REST. */
-  DISCORD_BOT_TOKEN?: string;
-  DISCORD_CLIENT_ID?: string;
-  DISCORD_CLIENT_SECRET?: string;
-  ACTIVITY_SESSION_SECRET?: string;
-  ACTIVITY_ORIGIN?: string;
   RUN_QUEUE?: Queue<RunJobV1>;
-  MODAL_RUNNER_URL?: string;
-  RUNNER_SIGNING_SECRET?: string;
-  RUNNER_SIGNING_KEY_ID?: string;
-  RUNNER_IMAGE_DIGEST?: string;
-  RUNNER_PYTHON_VERSION?: string;
-  RUN_STALE_AFTER_SECONDS?: string;
-
-  // ── GitHub App (plan §6) — set via .dev.vars locally / secrets in prod.
-  // When CLIENT_ID + CLIENT_SECRET are present, real OAuth sign-in and the
-  // real GitHub client activate alongside the fixture repository.
-  GITHUB_CLIENT_ID?: string;
-  GITHUB_CLIENT_SECRET?: string;
-  GITHUB_APP_SLUG?: string;
-  GITHUB_WEBHOOK_SECRET?: string;
-  /** Course template repo (owner/name). When set, connected repositories
-   *  must be forks of it (fixture repo exempt). */
-  GITHUB_TEMPLATE_REPO?: string;
-  /** Immutable numeric ID of the canonical template repository. */
-  GITHUB_TEMPLATE_REPO_ID?: string;
-
-  /** Comma-separated GitHub logins with staff (TA/instructor) access.
-   *  Platform role is derived from this list at request time — no DB state. */
-  PLATFORM_STAFF_LOGINS?: string;
-  /** Comma-separated GitHub logins shown as CogPortal owners. Owners also
-   *  receive staff access, so the two allowlists need not be duplicated. */
-  PLATFORM_OWNER_LOGINS?: string;
 }
 
-export function githubConfigured(env: Env): boolean {
+const serverSchema = {
+  ENVIRONMENT: z.enum(["development", "production"]),
+  DEV_AUTH: z.enum(["enabled", "disabled"]),
+  /** Owner-only setup controls, independent of the login provider. */
+  ONBOARDING_DEV_TOOLS: z.enum(["enabled", "disabled"]).optional(),
+  EXECUTION_PROVIDER: z.enum(["fixture", "modal"]),
+  PUBLIC_ORIGIN: z.string().optional(),
+  COURSE_GUILD_ID: z.string().optional(),
+  /** Secret used only for posting/editing team run bubbles via Discord REST. */
+  DISCORD_BOT_TOKEN: z.string().optional(),
+  DISCORD_CLIENT_ID: z.string().optional(),
+  DISCORD_CLIENT_SECRET: z.string().optional(),
+  ACTIVITY_SESSION_SECRET: z.string().optional(),
+  ACTIVITY_ORIGIN: z.string().optional(),
+  MODAL_RUNNER_URL: z.string().optional(),
+  RUNNER_SIGNING_SECRET: z.string().optional(),
+  RUNNER_SIGNING_KEY_ID: z.string().optional(),
+  RUNNER_IMAGE_DIGEST: z.string().optional(),
+  RUNNER_PYTHON_VERSION: z.string().optional(),
+  RUN_STALE_AFTER_SECONDS: z.string().optional(),
+
+  GITHUB_CLIENT_ID: z.string().optional(),
+  GITHUB_CLIENT_SECRET: z.string().optional(),
+  GITHUB_APP_SLUG: z.string().optional(),
+  GITHUB_WEBHOOK_SECRET: z.string().optional(),
+  /** Course template repo (owner/name). When set, connected repositories must
+   *  be forks of it (fixture repo exempt). */
+  GITHUB_TEMPLATE_REPO: z.string().optional(),
+  /** Immutable numeric ID of the canonical template repository. */
+  GITHUB_TEMPLATE_REPO_ID: z.string().optional(),
+
+  /** Comma-separated GitHub logins with staff (TA/instructor) access. Platform
+   *  role is derived from this list at request time — no DB state. */
+  PLATFORM_STAFF_LOGINS: z.string().optional(),
+  /** Comma-separated GitHub logins shown as CogPortal owners. Owners also
+   *  receive staff access, so the two allowlists need not be duplicated. */
+  PLATFORM_OWNER_LOGINS: z.string().optional(),
+
+  BETTER_AUTH_SECRET: z.string().min(32).optional(),
+  /** Origin used to construct the fixed GitHub OAuth callback. */
+  BETTER_AUTH_URL: z.url().optional(),
+} satisfies Record<string, z.ZodType>;
+
+export const validateServerEnv = perRequestEnv((runtimeEnv) =>
+  createEnv({
+    server: serverSchema,
+    runtimeEnv,
+    emptyStringAsUndefined: true,
+    isServer: true,
+  }),
+);
+
+export type ServerEnv = ReturnType<typeof validateServerEnv>;
+
+export type Env = Bindings & ServerEnv;
+
+export function githubConfigured(env: Env): env is Env & {
+  GITHUB_CLIENT_ID: string;
+  GITHUB_CLIENT_SECRET: string;
+} {
   return Boolean(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET);
+}
+
+export function onboardingDevToolsAvailable(env: Env): boolean {
+  return env.ONBOARDING_DEV_TOOLS === "enabled";
+}
+
+export function devAuthAvailable(env: Env): boolean {
+  return (
+    env.ENVIRONMENT === "development" &&
+    env.DEV_AUTH === "enabled" &&
+    !githubConfigured(env)
+  );
 }
 
 export type AppEnv = { Bindings: Env };

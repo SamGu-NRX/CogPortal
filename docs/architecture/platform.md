@@ -68,7 +68,7 @@ confirmation before inserting the link. The original ephemeral Discord surface
 includes an **I've connected** action so the student can complete the handoff
 without learning another command.
 
-`cogbench link` uses a device authorization flow. The terminal receives a
+`cogworks link` uses a device authorization flow. The terminal receives a
 high-entropy device code, the browser displays a short user code, and the
 signed-in user approves a named device. Only a hash of the resulting scoped
 token is stored in D1. Tokens expire after 60 days and can be revoked on the
@@ -77,7 +77,7 @@ Connections page.
 Discord and CLI linking require the GitHub-authenticated user to have already
 joined a cohort and a team with a connected repository. A team creator or
 maintainer explicitly maps one Discord channel from the private `/cog`
-surface. `cogbench run --live` then posts four sequenced, idempotent lifecycle
+surface. `cogworks run --live` then posts four sequenced, idempotent lifecycle
 events to CogPortal. CogPortal stores the message ID and edits that single
 Components V2 bubble; the CLI never receives a Discord token and never talks
 to Discord directly. A failed Discord delivery cannot fail the local run.

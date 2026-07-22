@@ -7,9 +7,9 @@
 - One state-aware Discord `/cog` surface for team status, benchmarks,
   leaderboard, local reports, and account linking, restricted to one configured course guild.
 - Explicit Discord confirmation and revocation in CogPortal.
-- CogBench `doctor`, `test`, `run`, `report`, optional device linking, and
+- CogWorks `check`, `test`, `run`, `report`, explicit device linking, and
   explicit minimal report sync.
-- Explicit `cogbench run --live` projection into one mapped team-channel
+- Explicit `cogworks run --live` projection into one mapped team-channel
   message, edited across a small local phase model and clearly labeled
   self-reported.
 - Versioned TypeScript and JSON runner contracts with golden fixtures.

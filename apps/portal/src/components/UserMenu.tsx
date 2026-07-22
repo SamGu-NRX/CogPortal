@@ -168,7 +168,8 @@ export function UserMenu({
             {hasTeam ? (
               <>
                 <MenuLink to="/dashboard" icon={DashboardSquare01Icon} label="Dashboard" />
-                <MenuLink to="/team" icon={Settings01Icon} label="Team settings" />
+                <MenuLink to="/setup" icon={Settings01Icon} label="Setup guide" />
+                <MenuLink to="/team" icon={UserGroupIcon} label="Team settings" />
               </>
             ) : (
               <MenuLink to={nextPath} icon={DashboardSquare01Icon} label="Continue setup" />

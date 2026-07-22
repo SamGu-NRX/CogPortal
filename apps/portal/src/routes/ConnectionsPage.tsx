@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 import { Button } from "@/components/Button";
 import { LoadingMark, QueryError } from "@/components/Feedback";
 import { Panel } from "@/components/Panel";
@@ -26,10 +26,11 @@ function errorMessage(error: unknown, fallback: string): string {
 
 export function ConnectionsPage() {
   const connections = useConnections();
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [discordToken, setDiscordToken] = useState<string | null>(() => fragmentToken());
   const [linkedDiscord, setLinkedDiscord] = useState<string | null>(null);
-  const [deviceName, setDeviceName] = useState("CogBench CLI");
+  const [deviceName, setDeviceName] = useState("CogWorks CLI");
   const [deviceApproved, setDeviceApproved] = useState(false);
   const preview = useDiscordLinkPreview(discordToken);
   const confirmDiscord = useConfirmDiscordLink();
@@ -37,6 +38,7 @@ export function ConnectionsPage() {
   const approveDevice = useApproveDevice();
   const revokeDevice = useRevokeDevice();
   const userCode = useMemo(() => searchParams.get("user_code")?.toUpperCase() ?? null, [searchParams]);
+  const returnToSetup = searchParams.get("return_to") === "setup";
 
   useEffect(() => {
     const onHashChange = () => setDiscordToken(fragmentToken());
@@ -63,8 +65,8 @@ export function ConnectionsPage() {
     <div className="anim-rise mx-auto w-full max-w-2xl py-12 sm:py-14">
       <h1 className="text-3xl">Connections</h1>
       <p className="mt-2 max-w-xl text-[14px] text-ink-secondary">
-        GitHub is your account identity. Discord and CogBench connect to it without receiving your
-        GitHub token or permission to submit official results.
+        GitHub is your account identity. Discord and the CogWorks CLI connect to it without receiving
+        your GitHub token or permission to submit official results.
       </p>
 
       {discordToken && (
@@ -135,7 +137,7 @@ export function ConnectionsPage() {
       )}
 
       {userCode && !deviceApproved && (
-        <Panel label="COGBENCH DEVICE" className="mt-8 border-verify/35 bg-verify-wash">
+        <Panel label="COGWORKS DEVICE" className="mt-8 border-verify/35 bg-verify-wash">
           <h2 className="text-xl">Approve device {userCode}</h2>
           <p className="mt-2 text-[13px] text-ink-secondary">
             This grants one device permission to upload explicitly selected local reports. It does not
@@ -151,6 +153,9 @@ export function ConnectionsPage() {
                   onSuccess: () => {
                     clearConnectionReturn();
                     setDeviceApproved(true);
+                    if (returnToSetup) {
+                      window.setTimeout(() => navigate("/setup", { replace: true }), 900);
+                    }
                   },
                 },
               );
@@ -180,19 +185,26 @@ export function ConnectionsPage() {
 
       {deviceApproved && (
         <div role="status" className="mt-8 border-l-2 border-verify bg-verify-wash px-4 py-3 text-[14px] text-verify-deep">
-          Device approved. Return to the terminal to finish linking.
+          Device approved. The terminal will finish linking
+          {returnToSetup ? "; returning to Setup…" : "."}
         </div>
       )}
 
       <div className="mt-8 space-y-4">
         <Panel label="GITHUB">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <p className="font-mono text-[13px] text-ink">{connections.data.github.login}</p>
-              <p className="mt-1 text-[12px] text-ink-faint">Primary identity and sign-in</p>
+          {connections.data.github ? (
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="font-mono text-[13px] text-ink">{connections.data.github.login}</p>
+                <p className="mt-1 text-[12px] text-ink-faint">Primary identity and sign-in</p>
+              </div>
+              <span className="font-mono text-[10.5px] text-verify-deep">VERIFIED</span>
             </div>
-            <span className="font-mono text-[10.5px] text-verify-deep">VERIFIED</span>
-          </div>
+          ) : (
+            <p className="text-[13px] text-ink-secondary">
+              No GitHub identity; development sign-ins don't carry one.
+            </p>
+          )}
         </Panel>
 
         <Panel label="DISCORD">
@@ -223,7 +235,7 @@ export function ConnectionsPage() {
         <Panel label="COGBENCH DEVICES">
           {connections.data.cliDevices.length === 0 ? (
             <p className="text-[13px] text-ink-secondary">
-              No linked devices. Run <code>cogbench link</code> in your project when you want to sync a
+              No linked devices. Run <code>cogworks link</code> in your project when you want to sync a
               local report.
             </p>
           ) : (

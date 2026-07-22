@@ -14,6 +14,7 @@ import { LoadingMark, QueryError } from "@/components/Feedback";
 import { GrantAccess } from "@/components/GrantAccess";
 import { RepoPicker } from "@/components/RepoPicker";
 import { Veil } from "@/components/Veil";
+import { WalkthroughVideo } from "@/components/WalkthroughVideo";
 import { ApiRequestError } from "@/lib/api";
 import { EASE_OUT } from "@/lib/motion";
 import {
@@ -25,6 +26,9 @@ import {
 } from "@/lib/queries";
 
 const JOIN_TEAMS_VISIBLE = 5;
+
+// TODO: Set the versioned asset base after the onboarding-media exports land.
+const GITHUB_TEAM_VIDEO: string | null = null;
 
 type WizardStep = "choice" | "join" | "start";
 
@@ -378,6 +382,7 @@ function StartPath({ connect }: { connect: ReturnType<typeof useConnectRepo> }) 
 
   return (
     <form onSubmit={submit}>
+      <OrganizationPrimer />
       {repos.isPending ? (
         <LoadingMark label="Listing repositories" />
       ) : repos.isError ? (
@@ -438,6 +443,45 @@ function StartPath({ connect }: { connect: ReturnType<typeof useConnectRepo> }) 
             : "Create team"}
       </Button>
     </form>
+  );
+}
+
+function OrganizationPrimer() {
+  return (
+    <aside className="mb-6 border border-rule bg-paper-sunken px-4 py-4" aria-labelledby="org-primer-title">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <div>
+          <p className="u-kicker">Recommended team home</p>
+          <h2 id="org-primer-title" className="mt-1 font-serif text-[17px] font-semibold text-ink">
+            Use a free GitHub organization
+          </h2>
+        </div>
+        <a
+          href="https://github.com/organizations/plan"
+          target="_blank"
+          rel="noreferrer"
+          className="u-pressable inline-flex min-h-9 items-center gap-1.5 font-mono text-[11px] tracking-[0.07em] text-ink-secondary uppercase underline decoration-rule underline-offset-4 hover:text-ink hover:decoration-ink"
+        >
+          Create organization
+          <HugeiconsIcon icon={ArrowUpRight01Icon} size={13} strokeWidth={1.8} aria-hidden="true" />
+        </a>
+      </div>
+      <ol className="mt-3 grid gap-2 text-[12.5px] leading-relaxed text-ink-secondary sm:grid-cols-3">
+        <li><span className="font-mono text-[10px] text-ink-faint">01</span><br />Create the organization and keep the free plan.</li>
+        <li><span className="font-mono text-[10px] text-ink-faint">02</span><br />Invite teammates; keep two owners for recovery.</li>
+        <li><span className="font-mono text-[10px] text-ink-faint">03</span><br />Fork the starter into that organization.</li>
+      </ol>
+      {GITHUB_TEAM_VIDEO && (
+        <WalkthroughVideo
+          base={GITHUB_TEAM_VIDEO}
+          title="Create the team organization and fork the starter on GitHub"
+          caption="The same three steps, recorded."
+        />
+      )}
+      <p className="mt-3 text-[11.5px] text-ink-faint">
+        Working alone? A personal fork is supported. The organization is a recommendation, not a gate.
+      </p>
+    </aside>
   );
 }
 

@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, ne, or } from "drizzle-orm";
 import {
   MetricSchema,
   OFFICIAL_LIMIT,
@@ -11,8 +11,9 @@ import {
   type RunSurfaceAction,
   type RunSurfaceSnapshot,
 } from "@cogworks/contracts/schema";
-import type { Env } from "../env";
+import { accountLogin } from "../auth/session";
 import { getDb } from "../db/client";
+import type { Env } from "../env";
 import {
   benchmarks,
   leaderboardSelections,
@@ -167,28 +168,60 @@ async function syncFixtureStreamEvents(
   await db.update(runSurfaces).set({ updatedAt: Date.now() }).where(eq(runSurfaces.id, surfaceId));
 }
 
-async function primaryForRun(env: Env, runId: string): Promise<Metric | null> {
-  const [row] = await getDb(env)
-    .select()
-    .from(runMetrics)
-    .where(and(eq(runMetrics.runId, runId), eq(runMetrics.isPrimary, true)))
-    .limit(1);
-  return row ? serializeMetric(row) : null;
+async function metricsForRun(env: Env, runId: string): Promise<Metric[]> {
+  const rows = await getDb(env).select().from(runMetrics).where(eq(runMetrics.runId, runId));
+  return rows.map(serializeMetric).sort((a, b) => Number(b.primary) - Number(a.primary));
 }
 
-async function primaryForLocal(env: Env, reportId: string | null): Promise<Metric | null> {
-  if (!reportId) return null;
+async function metricsForLocal(env: Env, reportId: string | null): Promise<Metric[]> {
+  if (!reportId) return [];
   const [row] = await getDb(env)
     .select({ metricsJson: localReports.metricsJson })
     .from(localReports)
     .where(eq(localReports.reportId, reportId))
     .limit(1);
-  if (!row) return null;
+  if (!row) return [];
   try {
-    return MetricSchema.array().parse(JSON.parse(row.metricsJson)).find((item) => item.primary) ?? null;
+    return MetricSchema.array()
+      .parse(JSON.parse(row.metricsJson))
+      .sort((a, b) => Number(b.primary) - Number(a.primary));
   } catch {
-    return null;
+    return [];
   }
+}
+
+/** Best hosted or official primary metric, excluding this surface. */
+async function teamBestMetric(
+  env: Env,
+  teamId: string,
+  benchmarkId: string,
+  benchmarkVersion: number,
+  excludeSurfaceId: string,
+): Promise<Metric | null> {
+  const rows = await getDb(env)
+    .select({ metric: runMetrics })
+    .from(runMetrics)
+    .innerJoin(runs, eq(runMetrics.runId, runs.id))
+    .where(
+      and(
+        eq(runs.teamId, teamId),
+        eq(runs.benchmarkId, benchmarkId),
+        eq(runs.benchmarkVersion, benchmarkVersion),
+        eq(runs.status, "succeeded"),
+        eq(runMetrics.isPrimary, true),
+        // SQL `NULL != value` is unknown, so include legacy successful runs
+        // that predate run surfaces as well as runs on a different surface.
+        or(isNull(runs.surfaceId), ne(runs.surfaceId, excludeSurfaceId)),
+      ),
+    );
+  let best: Metric | null = null;
+  for (const row of rows) {
+    const metric = serializeMetric(row.metric);
+    if (!best || (metric.higherIsBetter ? metric.value > best.value : metric.value < best.value)) {
+      best = metric;
+    }
+  }
+  return best;
 }
 
 export async function getRunSurfaceRow(env: Env, surfaceId: string): Promise<RunSurfaceRow> {
@@ -268,11 +301,19 @@ export async function buildRunSurfaceSnapshot(
   const databasePhase = stage === "local" ? local?.phase ?? current.status : current.status;
   const phase = status === "running" ? currentEvents.at(-1)?.phase ?? databasePhase : databasePhase;
   const latestProgress = [...currentEvents].reverse().find((event) => event.progress)?.progress ?? null;
-  const primaryMetric = official
-    ? await primaryForRun(env, official.id)
+  const metrics = official
+    ? await metricsForRun(env, official.id)
     : practice
-      ? await primaryForRun(env, practice.id)
-      : await primaryForLocal(env, local?.reportId ?? null);
+      ? await metricsForRun(env, practice.id)
+      : await metricsForLocal(env, local?.reportId ?? null);
+  const primaryMetric = metrics.find((item) => item.primary) ?? null;
+  const teamBest = await teamBestMetric(
+    env,
+    surface.teamId,
+    surface.benchmarkId,
+    surface.benchmarkVersion,
+    surface.id,
+  );
 
   const actions: RunSurfaceAction[] = ["open_console", "open_portal"];
   if (stage === "local" && status !== "running") {
@@ -301,7 +342,7 @@ export async function buildRunSurfaceSnapshot(
     id: surface.id,
     team: { id: team.id, name: team.name },
     benchmark: { id: benchmark.id, version: benchmark.version, title: benchmark.title },
-    actor: { login: actor.githubLogin, name: actor.name },
+    actor: { login: accountLogin(actor), name: actor.name },
     sha: local?.sha ?? practice?.sha ?? official?.sha,
     shortSha: (local?.sha ?? practice?.sha ?? official?.sha ?? "").slice(0, 7),
     branch: local?.branch ?? practice?.branch ?? official?.branch ?? null,
@@ -315,6 +356,8 @@ export async function buildRunSurfaceSnapshot(
     elapsedMs,
     progress: latestProgress,
     primaryMetric,
+    metrics,
+    teamBest,
     localRunId: local?.id ?? null,
     practiceRunId: practice?.id ?? null,
     officialRunId: official?.id ?? null,

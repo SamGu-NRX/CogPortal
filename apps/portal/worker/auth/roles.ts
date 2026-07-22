@@ -5,7 +5,7 @@ import type { AppEnv, Env } from "../env";
 import { ApiHttpError } from "../http/errors";
 import { getDb } from "../db/client";
 import { teamTas } from "../db/schema";
-import { requireUser } from "./session";
+import { githubAuthorizationLogin, requireUser } from "./session";
 import type { AuthState } from "./session";
 
 function configuredLogins(value: string | undefined): Set<string> {
@@ -34,7 +34,10 @@ export async function requireStaff(c: Context<AppEnv>): Promise<AuthState> {
     .from(teamTas)
     .where(eq(teamTas.userId, auth.user.id))
     .limit(1);
-  if (platformRole(c.env, auth.user.githubLogin) !== "staff" && !assignment) {
+  if (
+    platformRole(c.env, githubAuthorizationLogin(auth.user)) !== "staff" &&
+    !assignment
+  ) {
     throw new ApiHttpError(403, "forbidden", "Staff access required.");
   }
   return auth;

@@ -13,12 +13,14 @@ separate, attempt-limited trust tier.
 - Modal execution is implemented behind a disabled provider gate. It must not
   be enabled until the live M0 isolation probe passes and course-owned hidden
   datasets are provisioned.
-- The included vision plugin contains small public contract fixtures, not the
-  final course dataset or scorer.
+- The Week 2 vision benchmark is pinned as a submodule at a draft-PR commit.
+  Public data and scoring are implemented; official data still requires private
+  materialization and calibration before activation.
 - The template catalog is intentionally empty until canonical course-owned
   repositories and immutable GitHub repository IDs exist.
-- Nothing in this change deploys services, publishes Python packages, creates
-  cloud resources, or registers Discord commands.
+- A clean-install workflow and manual TestPyPI trusted-publishing workflow are
+  prepared, but nothing in this change deploys services, publishes Python
+  packages, creates cloud resources, or registers Discord commands.
 
 See [platform architecture](docs/architecture/platform.md), [MVP scope](docs/mvp.md),
 and the [deployment runbook](docs/runbooks/platform.md) before enabling external
@@ -33,17 +35,20 @@ apps/runner-modal/           Trusted Modal controller and isolated sandboxes
 packages/contracts/          TypeScript browser, API, RPC, and runner contracts
 protocols/v1/                Language-neutral JSON Schemas and golden fixtures
 python/cogbench/             Offline-first Python SDK and CLI
-benchmarks/vision-recognition/ Public benchmark plugin/contract fixtures
+benchmarks/week2/             Pinned Week 2 benchmark submodule
+benchmarks/vision-recognition/ Deprecated v1 fixture (retained temporarily)
 template-catalog/            Immutable metadata for separately owned templates
 docs/                        Architecture decisions, scope, and operations
 ```
 
-Student template repositories stay independent GitHub repositories. They are
-not Git submodules and are not copied into this monorepo.
+Student template repositories stay independent GitHub repositories. Publish the
+clean-history, interface-only `week2-vision-capstone` candidate to a course-owned
+repository only after review, then add its immutable GitHub ID and revision to
+the template catalog.
 
 ## Local development
 
-Requirements: Node 24+, pnpm 10.30.3, and Python 3.8+ (Python 3.11 for the Modal
+Requirements: Node 24+, pnpm 10.34.5, and Python 3.8+ (Python 3.11 for the Modal
 runner).
 
 ```sh
@@ -64,18 +69,22 @@ CogWorks prerequisite environment. Your environment may be named
 
 ```sh
 conda activate cogworks_week1
-python -m pip install -e python/cogbench -e benchmarks/vision-recognition -e examples/week2-vision-submission
-cogbench doctor --benchmark vision-recognition
-cogbench test --benchmark vision-recognition
-cogbench run --benchmark vision-recognition
-cogbench report
+git submodule update --init --recursive
+python -m pip install -e python/cogbench -e "benchmarks/week2[data]" -e "benchmarks/week2/face_recognition_app[test]"
+cogworks check --benchmark vision-recognition
+cogworks test --benchmark vision-recognition
+cogworks run --benchmark vision-recognition
+cogworks test --benchmark vision-clustering
+cogworks run --benchmark vision-clustering
+cogworks report
 ```
 
-CogBench local commands do not require a CogPortal account or network after
-the project and plugins are installed. The bundled submission is a synthetic
-development example, not a student capstone implementation; real student
-templates remain separately owned repositories. `cogbench link` and
-`cogbench sync` are optional, explicit actions.
+CogWorks local commands do not require a CogPortal account. The first real-data
+run fetches only the fixed public-manifest images and the FaceNet checkpoint;
+later runs reuse verified caches. The standalone starter contains no capstone
+solution. `cogworks link`, `--update-setup`, `--live`, and `cogworks sync` are
+the explicit network boundaries; merely storing a linked-device credential does
+not make ordinary commands contact CogPortal.
 
 Using `python -m pip` and a single-line install command keeps the instructions
 the same in macOS/Linux shells, Windows Command Prompt, and PowerShell. Platform

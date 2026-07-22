@@ -1,4 +1,6 @@
+import { sql } from "drizzle-orm";
 import {
+  index,
   integer,
   primaryKey,
   real,
@@ -19,23 +21,108 @@ export const users = sqliteTable(
   "users",
   {
     id: text("id").primaryKey(),
-    githubLogin: text("github_login").notNull().unique(),
+    name: text("name").notNull(),
+    email: text("email").notNull().unique(),
+    emailVerified: integer("email_verified", { mode: "boolean" })
+      .default(false)
+      .notNull(),
+    image: text("image"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+      .notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+      .$onUpdate(() => /* @__PURE__ */ new Date())
+      .notNull(),
+    githubLogin: text("github_login"),
     githubId: integer("github_id"),
-    name: text("name"),
     avatarUrl: text("avatar_url"),
     cohortId: text("cohort_id").references(() => cohorts.id),
     cohortJoinedAt: integer("cohort_joined_at"),
-    createdAt: integer("created_at").notNull(),
   },
-  (table) => [uniqueIndex("idx_users_github_id").on(table.githubId)],
+  (table) => [uniqueIndex("idx_users_github_login").on(table.githubLogin)],
 );
 
-export const sessions = sqliteTable("sessions", {
+export const sessions = sqliteTable(
+  "sessions",
+  {
+    id: text("id").primaryKey(),
+    expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
+    token: text("token").notNull().unique(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+      .notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+      .$onUpdate(() => /* @__PURE__ */ new Date())
+      .notNull(),
+    ipAddress: text("ip_address"),
+    userAgent: text("user_agent"),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+  },
+  (table) => [index("sessions_userId_idx").on(table.userId)],
+);
+
+export const accounts = sqliteTable(
+  "accounts",
+  {
+    id: text("id").primaryKey(),
+    accountId: text("account_id").notNull(),
+    providerId: text("provider_id").notNull(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    accessToken: text("access_token"),
+    refreshToken: text("refresh_token"),
+    idToken: text("id_token"),
+    accessTokenExpiresAt: integer("access_token_expires_at", {
+      mode: "timestamp_ms",
+    }),
+    refreshTokenExpiresAt: integer("refresh_token_expires_at", {
+      mode: "timestamp_ms",
+    }),
+    scope: text("scope"),
+    password: text("password"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+      .notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+      .$onUpdate(() => /* @__PURE__ */ new Date())
+      .notNull(),
+  },
+  (table) => [
+    index("accounts_userId_idx").on(table.userId),
+    uniqueIndex("accounts_provider_account_unique").on(
+      table.providerId,
+      table.accountId,
+    ),
+  ],
+);
+
+export const verifications = sqliteTable(
+  "verifications",
+  {
+    id: text("id").primaryKey(),
+    identifier: text("identifier").notNull(),
+    value: text("value").notNull(),
+    expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+      .notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+      .$onUpdate(() => /* @__PURE__ */ new Date())
+      .notNull(),
+  },
+  (table) => [index("verifications_identifier_idx").on(table.identifier)],
+);
+
+export const rateLimits = sqliteTable("rate_limits", {
   id: text("id").primaryKey(),
-  userId: text("user_id").notNull().references(() => users.id),
-  oauthToken: text("oauth_token"),
-  createdAt: integer("created_at").notNull(),
-  expiresAt: integer("expires_at").notNull(),
+  key: text("key").notNull().unique(),
+  count: integer("count").notNull(),
+  lastRequest: integer("last_request").notNull(),
 });
 
 export const teams = sqliteTable(
@@ -115,6 +202,36 @@ export const benchmarks = sqliteTable(
   (table) => [primaryKey({ columns: [table.id, table.version] })],
 );
 
+export const benchmarkFamilies = sqliteTable(
+  "benchmark_families",
+  {
+    id: text("id").notNull(),
+    version: integer("version").notNull(),
+    title: text("title").notNull(),
+    module: text("module", { enum: ["vision", "audio", "language"] }).notNull(),
+    active: integer("active", { mode: "boolean" }).notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.id, table.version] })],
+);
+
+export const benchmarkFamilyComponents = sqliteTable(
+  "benchmark_family_components",
+  {
+    familyId: text("family_id").notNull(),
+    familyVersion: integer("family_version").notNull(),
+    key: text("key").notNull(),
+    label: text("label").notNull(),
+    benchmarkId: text("benchmark_id").notNull(),
+    benchmarkVersion: integer("benchmark_version").notNull(),
+    metricKey: text("metric_key").notNull(),
+    weight: real("weight").notNull(),
+    sortOrder: integer("sort_order").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.familyId, table.familyVersion, table.key] }),
+  ],
+);
+
 export const runs = sqliteTable("runs", {
   id: text("id").primaryKey(),
   teamId: text("team_id").notNull().references(() => teams.id),
@@ -137,12 +254,15 @@ export const runs = sqliteTable("runs", {
   }).notNull(),
   branch: text("branch").notNull(),
   sha: text("sha").notNull(),
+  repositoryId: integer("repository_id"),
   parentRunId: text("parent_run_id"),
   attemptNumber: integer("attempt_number"),
   failureCategory: text("failure_category", {
     enum: [
       "repository_fetch",
       "dependency_install",
+      "data_download",
+      "model_cache",
       "adapter_missing",
       "contract_invalid",
       "student_runtime",
@@ -173,7 +293,14 @@ export const runs = sqliteTable("runs", {
   dispatchAttempts: integer("dispatch_attempts").notNull().default(0),
   lastEventSequence: integer("last_event_sequence").notNull().default(-1),
   surfaceId: text("surface_id"),
-});
+}, (table) => [
+  // Enforce the quota check across concurrent run starts (migration 0015).
+  uniqueIndex("runs_one_active_per_team_benchmark")
+    .on(table.teamId, table.benchmarkId)
+    .where(
+      sql`${table.status} IN ('queued','preparing','installing','contract_check','evaluating','scoring')`,
+    ),
+]);
 
 export const templateSources = sqliteTable("template_sources", {
   id: text("id").primaryKey(),
@@ -411,11 +538,16 @@ export const schema = {
   cohorts,
   users,
   sessions,
+  accounts,
+  verifications,
+  rateLimits,
   teams,
   teamMembers,
   teamTas,
   setupVerifications,
   benchmarks,
+  benchmarkFamilies,
+  benchmarkFamilyComponents,
   runs,
   runPhases,
   runMetrics,
@@ -438,3 +570,7 @@ export type RunRow = typeof runs.$inferSelect;
 export type BenchmarkRow = typeof benchmarks.$inferSelect;
 export type TeamRow = typeof teams.$inferSelect;
 export type RunSurfaceRow = typeof runSurfaces.$inferSelect;
+export type UserRow = typeof users.$inferSelect;
+export type SessionRow = typeof sessions.$inferSelect;
+export type AccountRow = typeof accounts.$inferSelect;
+export type VerificationRow = typeof verifications.$inferSelect;

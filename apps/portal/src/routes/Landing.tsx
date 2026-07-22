@@ -81,14 +81,14 @@ export function Landing() {
             </p>
             <Code
               lang="toml"
-              code={`[project.entry-points."cogworks.submissions.v1"]\nvision-recognition = "your_package.portal:Submission"`}
+              code={`[project.entry-points."cogworks.submissions.v2"]\nvision-recognition = "benchmark_adapter:create_recognition_adapter"\nvision-clustering = "benchmark_adapter:create_clustering_adapter"`}
             />
           </Step>
 
           <Step n={3} title="Practice locally">
             <Code
               lang="bash"
-              code={`cogbench doctor --benchmark vision-recognition\ncogbench run --benchmark vision-recognition`}
+              code={`cogworks check --benchmark vision-recognition\ncogworks run --benchmark vision-recognition`}
             />
             <p className="mt-2 text-[13px] text-ink-secondary">
               Practice runs use the same checks and scorer as hosted runs, with no run limit.

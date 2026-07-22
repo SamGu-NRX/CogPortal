@@ -1,23 +1,34 @@
 import type { PortalRpcContract } from "@cogworks/contracts/discord";
-import type { Metric, RunStatus, RunSummary } from "@cogworks/contracts/schema";
+import type { RunSurfaceAction, RunSurfaceSnapshot } from "@cogworks/contracts/schema";
+import { ACCENT_DETECT, ACCENT_INK, ACCENT_VERIFY } from "@cogworks/discord-kit/accents";
 import {
-  ACCENT_DETECT,
-  ACCENT_INK,
-  ACCENT_VERIFY,
-  INTERACTION_MESSAGE_COMPONENT,
   actionRow,
   button,
-  componentMessage,
-  interactionUser,
-  legacySubcommand,
   linkButton,
-  message,
+  selectRow,
   separator,
-  stringOption,
   surface,
   text,
   type DiscordButton,
   type DiscordContainerChild,
+  type DiscordSelectOption,
+} from "@cogworks/discord-kit/components";
+import {
+  emojiFormatter,
+  emojiObject,
+  quotaCells,
+  rankMark,
+  type EmojiFormatter,
+  type EmojiName,
+} from "@cogworks/discord-kit/emoji";
+import { META_SEP, chip, metaLine, metricValue } from "@cogworks/discord-kit/format";
+import {
+  INTERACTION_MESSAGE_COMPONENT,
+  componentMessage,
+  interactionUser,
+  legacySubcommand,
+  message,
+  stringOption,
   type DiscordInteraction,
   type DiscordUser,
   type InteractionResponse,
@@ -26,35 +37,9 @@ import {
 type View = "home" | "leaderboard" | "benchmarks" | "local" | "connect";
 type RequestedView = View | "share:leaderboard" | "bind-channel" | "bind-channel:confirm";
 
+type SurfaceMutation = "verify_hosted" | "promote_official" | "publish_result" | "rerun_hosted";
+
 const VIEW_IDS = new Set<View>(["home", "leaderboard", "benchmarks", "local", "connect"]);
-
-function metricValue(metric: Metric): string {
-  const value = metric.value.toFixed(metric.precision);
-  return metric.unit ? `${value} ${metric.unit}` : value;
-}
-
-function friendlyStatus(status: RunStatus): string {
-  const labels: Record<RunStatus, string> = {
-    queued: "waiting for a runner",
-    preparing: "preparing the workspace",
-    installing: "installing the project",
-    contract_check: "checking the benchmark contract",
-    evaluating: "evaluating cases",
-    scoring: "scoring the run",
-    succeeded: "complete",
-    failed: "needs attention",
-    cancelled: "cancelled",
-  };
-  return labels[status];
-}
-
-function runLine(label: string, run: RunSummary | null): string {
-  if (!run) return `○ **${label}** · nothing yet`;
-  const active = !["succeeded", "failed", "cancelled"].includes(run.status);
-  const mark = run.status === "succeeded" ? "✓" : active ? "◉" : "○";
-  const score = run.primaryMetric ? ` · **${metricValue(run.primaryMetric)}**` : "";
-  return `${mark} **${label}** · ${friendlyStatus(run.status)} · \`${run.shortSha}\`${score}`;
-}
 
 function safePortalUrl(origin: string | undefined, path: string): string | null {
   if (!origin) return null;
@@ -66,16 +51,33 @@ function safePortalUrl(origin: string | undefined, path: string): string | null 
   }
 }
 
-function navigation(active: View, portalOrigin?: string): ReturnType<typeof actionRow> {
-  const buttons: DiscordButton[] = [
-    button("cog:home", "Home", active === "home" ? 1 : 2, active === "home"),
-    button("cog:leaderboard", "Leaderboard", active === "leaderboard" ? 1 : 2, active === "leaderboard"),
-    button("cog:benchmarks", "Benchmarks", active === "benchmarks" ? 1 : 2, active === "benchmarks"),
-    button("cog:local", "Local", active === "local" ? 1 : 2, active === "local"),
-  ];
+const NAV_ITEMS: { view: View; label: string; description: string; glyph: EmojiName }[] = [
+  { view: "home", label: "Team bench", description: "Your team, latest run, and next action", glyph: "cog_flask" },
+  { view: "leaderboard", label: "Leaderboard", description: "Official published results", glyph: "cog_board" },
+  { view: "benchmarks", label: "Benchmarks", description: "What's on the bench right now", glyph: "cog_vision" },
+  { view: "local", label: "Local notes", description: "Self-reported team practice", glyph: "cog_notes" },
+];
+
+function navigation(
+  active: View,
+  interaction: DiscordInteraction,
+  portalOrigin?: string,
+  options: { portalLink?: boolean } = {},
+): DiscordContainerChild[] {
+  const appId = interaction.application_id;
+  const selectOptions: DiscordSelectOption[] = NAV_ITEMS.map((item) => ({
+    label: item.label,
+    value: item.view,
+    description: item.description,
+    emoji: emojiObject(item.glyph, appId),
+    default: item.view === active,
+  }));
+  const children: DiscordContainerChild[] = [selectRow("cog:nav", selectOptions, "Go to…")];
   const portalUrl = safePortalUrl(portalOrigin, "/dashboard");
-  if (portalUrl) buttons.push(linkButton(portalUrl, "CogPortal ↗"));
-  return actionRow(...buttons);
+  if ((options.portalLink ?? true) && portalUrl) {
+    children.push(actionRow(linkButton(portalUrl, "Cog*Portal")));
+  }
+  return children;
 }
 
 function updateFor(interaction: DiscordInteraction): boolean {
@@ -103,14 +105,14 @@ async function homeView(
   if (!status.team) {
     const portalUrl = safePortalUrl(portalOrigin, "/connect");
     const actions = portalUrl
-      ? actionRow(linkButton(portalUrl, "Choose your repository ↗"), button("cog:home", "Refresh", 2))
+      ? actionRow(linkButton(portalUrl, "Choose your repository"), button("cog:home", "Refresh", 2))
       : actionRow(button("cog:home", "Refresh", 1));
     return componentMessage(
       [
         surface(
           [
             text(
-              `## One small step left\nYou're linked as **${status.githubLogin}**. Choose your team's repository in CogPortal, then come back and refresh.`,
+              `### One small step left\nYou're linked as **${status.githubLogin}**. Choose your team's repository in Cog*Portal, then come back and refresh.`,
             ),
             separator(),
             actions,
@@ -122,6 +124,8 @@ async function homeView(
     );
   }
 
+  const latestSurface = await portal.getRunSurface(guildId, user.id);
+
   const channelLine = status.discordChannelId
     ? `Live runs → <#${status.discordChannelId}>`
     : status.canManageDiscordChannel
@@ -131,6 +135,60 @@ async function homeView(
     !status.discordChannelId && status.canManageDiscordChannel && interaction.channel_id
       ? [separator(), actionRow(button("cog:bind-channel", "Use this as our team channel", 1))]
       : [];
+  const priority: RunSurfaceAction[] = [
+    "publish_result",
+    "promote_official",
+    "verify_hosted",
+    "open_console",
+    "run_again",
+    "rerun_hosted",
+  ];
+  const nextAction = latestSurface
+    ? priority.find((action) => latestSurface.actions.includes(action))
+    : undefined;
+  const nextButton = nextAction && latestSurface
+    ? button(
+        `cog:surface:${latestSurface.id}:${nextAction}`,
+        {
+          publish_result: "Publish result",
+          promote_official: "Promote to official",
+          verify_hosted: "Verify hosted",
+          open_console: "Open live console",
+          run_again: "Run again",
+          rerun_hosted: "Rerun hosted",
+          open_portal: "Open Cog*Portal",
+        }[nextAction],
+        nextAction === "publish_result" || nextAction === "promote_official" ? 1 : 2,
+      )
+    : null;
+  const portalUrl = safePortalUrl(
+    portalOrigin,
+    latestSurface ? `/run-surfaces/${latestSurface.id}` : "/dashboard",
+  );
+  const primaryActions = [
+    nextButton,
+    portalUrl ? linkButton(portalUrl, "Open Cog*Portal") : null,
+  ].filter((item): item is DiscordButton => item !== null);
+
+  const fmt = emojiFormatter(interaction.application_id);
+  const latestLine = latestSurface
+    ? metaLine([
+        `${fmt(surfaceMark(latestSurface.status))} **${latestSurface.benchmark.title}**`,
+        latestSurface.stage,
+        latestSurface.primaryMetric ? `**${metricValue(latestSurface.primaryMetric)}**` : null,
+      ])
+    : `${fmt("cog_flask")} The bench is ready. No shared runs yet.`;
+  // Custom emoji stay on full-size lines; they render oversized inside `-#`.
+  const attempts =
+    latestSurface?.nextOfficialAttempt != null
+      ? metaLine([
+          quotaCells(latestSurface.nextOfficialAttempt - 1, 3, fmt),
+          `official attempts   ${latestSurface.nextOfficialAttempt - 1} of 3 used`,
+        ])
+      : null;
+  const repoLine = status.team.repo
+    ? `${fmt("cog_repo")} ${chip(status.team.repo.fullName)}`
+    : "-# repository not connected yet";
 
   return componentMessage(
     [
@@ -138,28 +196,33 @@ async function homeView(
         [
           text(
             [
-              `## ${status.team.name} · lab bench`,
-              `Good to see you, ${displayName(user)}.`,
-              status.team.repo ? `\`${status.team.repo.fullName}\`` : "_Repository not connected yet_",
+              `### ${fmt("cog_flask")} ${status.team.name}`,
+              repoLine,
               "",
-              runLine("In progress", status.activeRun),
-              runLine("Hosted practice", status.latestHosted),
-              runLine("Official best", status.latestOfficial),
+              latestLine,
+              attempts,
               "",
               channelLine,
               "",
-              "-# Private to you · quiet by default · refreshed when you ask",
-            ].join("\n"),
+              "-# private to you, quiet by default",
+            ].filter((line): line is string => line !== null).join("\n"),
           ),
           ...channelAction,
-          separator(),
-          navigation("home", portalOrigin),
+          ...(primaryActions.length ? [separator(), actionRow(...primaryActions)] : []),
+          separator(false),
+          ...navigation("home", interaction, portalOrigin, { portalLink: false }),
         ],
         ACCENT_VERIFY,
       ),
     ],
     { update: updateFor(interaction) },
   );
+}
+
+function surfaceMark(status: RunSurfaceSnapshot["status"]): EmojiName {
+  if (status === "succeeded") return "cog_done";
+  if (status === "failed" || status === "cancelled") return "cog_fail";
+  return "cog_active";
 }
 
 async function connectView(
@@ -178,19 +241,16 @@ async function connectView(
         [
           text(
             [
-              `## Hi ${displayName(user)} — I'm Cog`,
-              "I keep your team's benchmarks, runs, and leaderboard close by.",
+              `### ${emojiFormatter(interaction.application_id)("cog_link")} Hi ${displayName(user)}, I'm Cog`,
+              "Your team's runs and results live in Cog*Portal. Linking lets me bring them into Discord, so you can follow a run or check the board without leaving chat.",
               "",
-              "Link Discord to your existing CogPortal account once, confirm exactly what Discord can see, and you're in. The private link works once and expires in **10 minutes**.",
+              "You'll confirm what Discord can see before anything connects. The link works once and expires in **10 minutes**.",
               "",
-              "-# Cog cannot read your source code or start official evaluations.",
+              "-# Cog never runs code on your laptop, and official actions always ask first.",
             ].join("\n"),
           ),
           separator(),
-          actionRow(
-            linkButton(start.url, "Link to CogPortal ↗"),
-            button("cog:home", "I've connected", 1),
-          ),
+          actionRow(linkButton(start.url, "Link to Cog*Portal")),
         ],
         ACCENT_DETECT,
       ),
@@ -204,26 +264,50 @@ async function benchmarksView(
   portal: PortalRpcContract,
   guildId: string,
   portalOrigin?: string,
+  selectedId?: string,
 ): Promise<InteractionResponse> {
   const benchmarks = await portal.getBenchmarks(guildId);
-  const lines = benchmarks.map(
-    (benchmark) => `${benchmark.active ? "●" : "○"} **${benchmark.title}**\n-# ${benchmark.summary}`,
-  );
-  return componentMessage(
-    [
-      surface(
-        [
-          text(
-            `## Benchmarks on the bench\n${lines.length ? lines.join("\n\n") : "Nothing is published yet. The bench is getting set up."}`,
-          ),
-          separator(),
-          navigation("benchmarks", portalOrigin),
-        ],
-        ACCENT_INK,
+  const fmt = emojiFormatter(interaction.application_id);
+  const appId = interaction.application_id;
+  const selected = benchmarks.find((benchmark) => benchmark.id === selectedId && benchmark.active);
+  const lines = benchmarks.map((benchmark) => {
+    const row = [
+      `${fmt("cog_vision")} **${benchmark.title}**${benchmark.active ? "" : "   paused"}`,
+      `-# ${benchmark.summary}`,
+    ];
+    if (selected?.id === benchmark.id) {
+      const safeId = benchmark.id.replace(/[^a-zA-Z0-9._-]/g, "");
+      row.push(
+        `\`\`\`\ncogworks run --benchmark ${safeId} --live\n\`\`\``,
+        "-# the run happens on your machine, and --live shares its progress with the team",
+      );
+    }
+    return row.join("\n");
+  });
+  const active = benchmarks.filter((benchmark) => benchmark.active);
+  const children: DiscordContainerChild[] = [
+    text(
+      `### ${fmt("cog_vision")} Benchmarks\n-# each one runs from your machine; choose it below to get the exact command\n\n${lines.length ? lines.join("\n\n") : "Nothing is published yet. The bench is getting set up."}`,
+    ),
+  ];
+  if (active.length) {
+    children.push(
+      separator(false),
+      selectRow(
+        "cog:bench",
+        active.map((benchmark) => ({
+          label: benchmark.title,
+          value: benchmark.id,
+          description: "Show the terminal command",
+          emoji: emojiObject("cog_vision", appId),
+          default: benchmark.id === selected?.id,
+        })),
+        "Get the run command…",
       ),
-    ],
-    { update: updateFor(interaction) },
-  );
+    );
+  }
+  children.push(separator(), ...navigation("benchmarks", interaction, portalOrigin));
+  return componentMessage([surface(children, ACCENT_INK)], { update: updateFor(interaction) });
 }
 
 async function leaderboardView(
@@ -234,27 +318,26 @@ async function leaderboardView(
   shared = false,
 ): Promise<InteractionResponse> {
   const leaderboard = await portal.getLeaderboard(guildId);
-  const medals = ["🥇", "🥈", "🥉"];
-  const lines = leaderboard.entries.slice(0, 10).map((entry, index) => {
-    const rank = medals[index] ?? `**${entry.rank}.**`;
-    return `${rank} **${entry.teamName}** · ${metricValue(entry.primaryMetric)} · \`${entry.shortSha}\``;
+  const fmt = emojiFormatter(interaction.application_id);
+  const lines = leaderboard.entries.slice(0, 10).map((entry) => {
+    const name = entry.isYou ? `**${entry.teamName}**` : entry.teamName;
+    return metaLine([`${rankMark(entry.rank, fmt)} ${name}`, `**${metricValue(entry.primaryMetric)}**`]);
   });
   const body = lines.length
     ? lines.join("\n")
     : "The board is wide open. Your team could set the first mark.";
   const children: DiscordContainerChild[] = [
-    text(`## ${leaderboard.benchmark.title} · leaderboard\n${body}`),
+    text(`### ${fmt("cog_board")} ${leaderboard.benchmark.title} leaderboard\n${body}`),
   ];
   if (!shared) {
     children.push(
       separator(),
-      actionRow(
-        button("cog:share:leaderboard", "Share in channel", 1),
-        ...navigation("leaderboard", portalOrigin).components.filter((item) => item.custom_id !== "cog:leaderboard"),
-      ),
+      actionRow(button("cog:share:leaderboard", "Share in channel", 1)),
+      separator(false),
+      ...navigation("leaderboard", interaction, portalOrigin),
     );
   } else {
-    children.push(text("-# Official published results · shared from CogWorks"));
+    children.push(text("-# official published results, shared from CogWorks"));
   }
   return componentMessage([surface(children, ACCENT_VERIFY)], {
     ephemeral: !shared,
@@ -271,25 +354,30 @@ async function localView(
 ): Promise<InteractionResponse> {
   const result = await portal.getLocalReports(guildId, user.id);
   if (!result.linked) return connectView(interaction, portal, guildId, user);
+  const fmt = emojiFormatter(interaction.application_id);
   const lines = result.reports.slice(0, 8).map((report) => {
     const primary = report.metrics.find((metric) => metric.primary);
     const state = report.dirty
       ? "dirty worktree"
       : report.sha
-        ? `\`${report.sha.slice(0, 7)}\``
+        ? chip(report.sha.slice(0, 7))
         : "no commit";
-    return `• **${report.author.login}** · ${state}${primary ? ` · **${metricValue(primary)}**` : ""}`;
+    return metaLine([
+      `${fmt(report.dirty ? "cog_active" : "cog_done")} **${report.author.login}**`,
+      state,
+      primary ? `**${metricValue(primary)}**` : null,
+    ]);
   });
   const body = lines.length
     ? lines.join("\n")
-    : "No one on your team has synced a local report yet. That's okay—local practice stays local until someone chooses to share it.";
+    : "No local reports yet. Local practice stays private until someone chooses to share it.";
   return componentMessage(
     [
       surface(
         [
-          text(`## Local field notes\n${body}\n\n-# Self-reported · useful for teammates · never leaderboard-eligible`),
+          text(`### ${fmt("cog_notes")} Local field notes\n${body}\n\n-# self-reported, never leaderboard-eligible`),
           separator(),
-          navigation("local", portalOrigin),
+          ...navigation("local", interaction, portalOrigin),
         ],
         ACCENT_INK,
       ),
@@ -303,6 +391,11 @@ function requestedView(interaction: DiscordInteraction): RequestedView {
   if (customId === "cog:share:leaderboard") return "share:leaderboard";
   if (customId === "cog:bind-channel") return "bind-channel";
   if (customId === "cog:bind-channel:confirm") return "bind-channel:confirm";
+  if (customId === "cog:nav") {
+    const chosen = interaction.data?.values?.[0];
+    if (chosen && VIEW_IDS.has(chosen as View)) return chosen as View;
+    return "home";
+  }
   if (customId?.startsWith("cog:")) {
     const view = customId.slice(4);
     if (VIEW_IDS.has(view as View)) return view as View;
@@ -317,16 +410,15 @@ function requestedView(interaction: DiscordInteraction): RequestedView {
   return option && VIEW_IDS.has(option as View) ? (option as View) : "home";
 }
 
-function bindChannelView(interaction: DiscordInteraction, confirm = false): InteractionResponse {
+function bindChannelView(interaction: DiscordInteraction): InteractionResponse {
   if (!interaction.channel_id) return message("Open /cog inside the channel your team will use.");
-  if (confirm) return message("Confirming the team channel…");
   return componentMessage(
     [
       surface(
         [
           text(
             [
-              "## Make this the team bench?",
+              "### Make this the team bench?",
               "Cog will post one live bubble per explicitly shared local run here, then edit that same message as the run moves.",
               "",
               "Everyone who can read this channel can see the author, commit, progress, and self-reported score. Source code and raw outputs stay on the student's device.",
@@ -345,6 +437,145 @@ function bindChannelView(interaction: DiscordInteraction, confirm = false): Inte
   );
 }
 
+function surfaceAction(interaction: DiscordInteraction): {
+  surfaceId: string;
+  action: string;
+  confirmed: boolean;
+} | null {
+  const parts = interaction.data?.custom_id?.split(":") ?? [];
+  if (parts.length < 4 || parts[0] !== "cog" || parts[1] !== "surface") return null;
+  return {
+    surfaceId: parts[2] ?? "",
+    action: parts[3] ?? "",
+    confirmed: parts[4] === "confirm",
+  };
+}
+
+function receipt(snapshot: RunSurfaceSnapshot, fmt: EmojiFormatter, extra: string[] = []): string {
+  const lines = [
+    metaLine([
+      `${fmt("cog_vision")} **${snapshot.benchmark.title}**`,
+      `${fmt("cog_repo")} ${chip(snapshot.shortSha)}`,
+      snapshot.stage,
+      snapshot.primaryMetric ? `**${metricValue(snapshot.primaryMetric)}**` : null,
+    ]),
+    ...extra,
+  ];
+  return lines.map((line) => `> ${line}`).join("\n");
+}
+
+async function surfaceActionView(
+  interaction: DiscordInteraction,
+  portal: PortalRpcContract,
+  guildId: string,
+  user: DiscordUser,
+  portalOrigin?: string,
+): Promise<InteractionResponse | null> {
+  const request = surfaceAction(interaction);
+  if (!request) return null;
+  const snapshot = await portal.getRunSurface(guildId, user.id, request.surfaceId);
+  if (!snapshot) return message("That run surface is no longer available.");
+  const fmt = emojiFormatter(interaction.application_id);
+  if (request.action === "run_again") {
+    const result = await portal.getRerunCommand(guildId, user.id, request.surfaceId);
+    return componentMessage(
+      [
+        surface(
+          [
+            text(
+              `### Run it again\n${receipt(snapshot, fmt)}\n\nA fresh run gets its own message, so this one stays as history.\n\`\`\`\n${result.command}\n\`\`\``,
+            ),
+            separator(),
+            actionRow(button("cog:home", "Back to Cog", 2)),
+          ],
+          ACCENT_INK,
+        ),
+      ],
+      { update: request.confirmed },
+    );
+  }
+
+  const mutations = new Set<SurfaceMutation>([
+    "verify_hosted",
+    "promote_official",
+    "publish_result",
+    "rerun_hosted",
+  ]);
+  if (!mutations.has(request.action as SurfaceMutation)) return message("That run action is not available.");
+  const action = request.action as SurfaceMutation;
+  if (!request.confirmed) {
+    const attempt = snapshot.nextOfficialAttempt;
+    const copy: Record<
+      SurfaceMutation,
+      { title: string; detail: string; label: string; style: 1 | 4; extra?: string[] }
+    > = {
+      verify_hosted: {
+        title: "Verify this exact commit?",
+        detail: "The hosted bench runs this exact commit, so the score is observed, not self-reported. It's practice and spends nothing.",
+        label: `Verify ${snapshot.shortSha} hosted`,
+        style: 1,
+      },
+      promote_official: {
+        title: "Use an official attempt?",
+        detail: "This reuses the artifact that already passed hosted, so nothing reruns. Confirming spends one official attempt.",
+        label: attempt ? `Use attempt ${attempt} of 3` : "Use an official attempt",
+        style: 4,
+        extra: attempt
+          ? [`${quotaCells(attempt - 1, 3, fmt)}${META_SEP}attempt ${attempt} of 3`]
+          : undefined,
+      },
+      publish_result: {
+        title: "Publish this result?",
+        detail: "This becomes the team's public leaderboard entry. You can replace it later with another official result.",
+        label: "Publish to leaderboard",
+        style: 4,
+      },
+      rerun_hosted: {
+        title: "Start a new hosted run?",
+        detail: "This starts a fresh hosted run on the same commit. The current run stays as history.",
+        label: "Start hosted run",
+        style: 1,
+      },
+    };
+    const prompt = copy[action];
+    return componentMessage([
+      surface(
+        [
+          text(`### ${prompt.title}\n${receipt(snapshot, fmt, prompt.extra)}\n\n${prompt.detail}`),
+          separator(),
+          actionRow(
+            button(`cog:surface:${snapshot.id}:${action}:confirm`, prompt.label, prompt.style),
+            button("cog:home", "Not now", 2),
+          ),
+        ],
+        ACCENT_DETECT,
+      ),
+    ]);
+  }
+
+  const updated =
+    action === "verify_hosted"
+      ? await portal.verifyHosted(guildId, user.id, snapshot.id)
+      : action === "promote_official"
+        ? await portal.promoteOfficial(guildId, user.id, snapshot.id)
+        : action === "publish_result"
+          ? await portal.publishResult(guildId, user.id, snapshot.id)
+          : await portal.rerunHosted(guildId, user.id, snapshot.id);
+  const portalUrl = safePortalUrl(portalOrigin, `/run-surfaces/${updated.id}`);
+  return componentMessage(
+    [
+      surface(
+        [
+          text(`### Bench updated\n${receipt(updated, fmt)}\n-# the team message and live console follow this run from here`),
+          ...(portalUrl ? [separator(), actionRow(linkButton(portalUrl, "Open Cog*Portal"))] : []),
+        ],
+        ACCENT_VERIFY,
+      ),
+    ],
+    { update: true },
+  );
+}
+
 export async function executeCommand(
   interaction: DiscordInteraction,
   portal: PortalRpcContract,
@@ -357,6 +588,19 @@ export async function executeCommand(
   }
   const user = interactionUser(interaction);
   if (!user) return message("I couldn't tell who opened Cog. Close this and try once more.");
+
+  const surfaceResponse = await surfaceActionView(
+    interaction,
+    portal,
+    guildId,
+    user,
+    portalOrigin,
+  );
+  if (surfaceResponse) return surfaceResponse;
+
+  if (interaction.data?.custom_id === "cog:bench") {
+    return benchmarksView(interaction, portal, guildId, portalOrigin, interaction.data?.values?.[0]);
+  }
 
   switch (requestedView(interaction)) {
     case "home":

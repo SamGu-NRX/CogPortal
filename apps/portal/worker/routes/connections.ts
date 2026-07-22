@@ -14,7 +14,7 @@ import {
 } from "@cogworks/contracts/schema";
 import type { AppEnv } from "../env";
 import { requireDevice } from "../auth/device";
-import { requireTeam, requireUser } from "../auth/session";
+import { accountLogin, requireTeam, requireUser } from "../auth/session";
 import { getDb } from "../db/client";
 import {
   accountLinkTokens,
@@ -31,6 +31,7 @@ import {
 } from "../services/identity";
 import { ApiHttpError } from "../http/errors";
 import { parseBody, respond } from "../http/respond";
+import { isUniqueConstraintError } from "./team";
 import { newId, randomHex } from "../util/id";
 import { sha256Hex } from "../util/crypto";
 
@@ -43,8 +44,9 @@ function portalOrigin(url: string, configured?: string): string {
 }
 
 function userCode(): string {
-  const raw = randomHex(4).toUpperCase();
-  return `${raw.slice(0, 4)}-${raw.slice(4)}`;
+  // 48 bits keeps the ten-minute approval code impractical to enumerate.
+  const raw = randomHex(6).toUpperCase();
+  return `${raw.slice(0, 4)}-${raw.slice(4, 8)}-${raw.slice(8)}`;
 }
 
 export function registerConnectionRoutes(app: Hono<AppEnv>): void {
@@ -105,20 +107,32 @@ export function registerConnectionRoutes(app: Hono<AppEnv>): void {
     }
 
     const now = Date.now();
-    if (!discordAccount && !userAccount) {
-      await db.insert(discordAccounts).values({
-        discordUserId: link.discordUserId,
-        userId: auth.user.id,
-        username: link.discordUsername,
-        linkedAt: now,
-      });
-    }
+    // Claim the one-time token before creating the link to serialize confirms.
     const consumed = await db
       .update(accountLinkTokens)
       .set({ consumedAt: now })
       .where(and(eq(accountLinkTokens.id, link.id), isNull(accountLinkTokens.consumedAt)));
     if ((consumed.meta.changes ?? 0) !== 1) {
       throw new ApiHttpError(410, "link_expired", "This Discord link was already used.");
+    }
+    if (!discordAccount && !userAccount) {
+      try {
+        await db.insert(discordAccounts).values({
+          discordUserId: link.discordUserId,
+          userId: auth.user.id,
+          username: link.discordUsername,
+          linkedAt: now,
+        });
+      } catch (error) {
+        if (isUniqueConstraintError(error)) {
+          throw new ApiHttpError(
+            409,
+            "link_conflict",
+            "One of these accounts is already linked. Revoke the old connection before trying again.",
+          );
+        }
+        throw error;
+      }
     }
     return respond(c, ConnectionSummarySchema, await getConnectionSummary(c.env, auth.user.id));
   });
@@ -147,7 +161,7 @@ export function registerConnectionRoutes(app: Hono<AppEnv>): void {
     return respond(c, DeviceAuthorizationStartResponseSchema, {
       deviceCode: rawDeviceCode,
       userCode: code,
-      verificationUri: `${portalOrigin(c.req.url, c.env.PUBLIC_ORIGIN)}/connections?user_code=${encodeURIComponent(code)}`,
+      verificationUri: `${portalOrigin(c.req.url, c.env.PUBLIC_ORIGIN)}/connections?user_code=${encodeURIComponent(code)}&return_to=setup`,
       expiresAt,
       pollIntervalSeconds: DEVICE_POLL_INTERVAL_SECONDS,
     });
@@ -250,7 +264,7 @@ export function registerConnectionRoutes(app: Hono<AppEnv>): void {
     if (c.req.header("Authorization")?.startsWith("Bearer cog_")) {
       const device = await requireDevice(c);
       const [membership] = await getDb(c.env)
-        .select({ team: teams, githubLogin: users.githubLogin })
+        .select({ team: teams, githubLogin: users.githubLogin, email: users.email })
         .from(teamMembers)
         .innerJoin(teams, eq(teamMembers.teamId, teams.id))
         .innerJoin(users, eq(teamMembers.userId, users.id))
@@ -260,7 +274,7 @@ export function registerConnectionRoutes(app: Hono<AppEnv>): void {
         throw new ApiHttpError(403, "no_team", "Finish joining a team and connecting its repository first.");
       }
       return respond(c, DeviceStatusSchema, {
-        githubLogin: membership.githubLogin,
+        githubLogin: accountLogin(membership),
         teamName: membership.team.name,
         repositoryFullName: membership.team.repoFullName,
         discordChannelId: membership.team.discordChannelId,

@@ -35,7 +35,7 @@ def plugin_names(group: str) -> List[str]:
     return sorted({point.name for point in _unique_entry_points(group)})
 
 
-def load_plugin(group: str, name: str) -> Any:
+def load_plugin(group: str, name: str, instantiate_classes: bool = True) -> Any:
     matches = [point for point in _unique_entry_points(group) if point.name == name]
     if not matches:
         available = ", ".join(plugin_names(group)) or "none"
@@ -47,14 +47,20 @@ def load_plugin(group: str, name: str) -> Any:
     if len(matches) > 1:
         raise PluginError('More than one "{}" plugin is installed in "{}".'.format(name, group))
     loaded = matches[0].load()
-    if isinstance(loaded, type):
+    if instantiate_classes and isinstance(loaded, type):
         return loaded()
     return loaded
 
 
 def load_benchmark(name: str) -> Any:
+    if name in plugin_names("cogworks.benchmarks.v2"):
+        return load_plugin("cogworks.benchmarks.v2", name)
     return load_plugin("cogworks.benchmarks.v1", name)
 
 
-def load_submission(name: str) -> Any:
-    return load_plugin("cogworks.submissions.v1", name)
+def load_submission(name: str, contract_version: str = "cogworks.submissions.v1") -> Any:
+    return load_plugin(
+        contract_version,
+        name,
+        instantiate_classes=contract_version != "cogworks.submissions.v2",
+    )

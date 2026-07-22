@@ -1,7 +1,3 @@
-/**
- * TanStack Query bindings. Active runs poll at 2 s (plan §4) and stop the
- * moment they reach a terminal state — no idle polling anywhere else.
- */
 import {
   useMutation,
   useQuery,
@@ -9,6 +5,7 @@ import {
 } from "@tanstack/react-query";
 import {
   ACTIVE_RUN_POLL_MS,
+  SETUP_STEPS,
   isTerminal,
   type AdminOverview,
 } from "@cogworks/contracts/schema";
@@ -94,6 +91,14 @@ export function useLeaderboard(benchmarkId?: string) {
   });
 }
 
+export function useFamilyLeaderboard(familyId: string) {
+  return useQuery({
+    queryKey: ["leaderboard-family", familyId],
+    queryFn: () => api.familyLeaderboard(familyId),
+    staleTime: 30_000,
+  });
+}
+
 export function useRepositories(enabled = true) {
   return useQuery({
     queryKey: ["repositories"],
@@ -108,6 +113,8 @@ export function useConnections() {
     queryKey: ["connections"],
     queryFn: api.connections,
     staleTime: 30_000,
+    refetchInterval: (query) =>
+      query.state.data && query.state.data.cliDevices.length > 0 ? false : 4_000,
   });
 }
 
@@ -141,7 +148,10 @@ export function useUnlinkDiscord() {
 }
 
 export function useApproveDevice() {
-  return useMutation({ mutationFn: ({ userCode, deviceName }: { userCode: string; deviceName: string }) => api.approveDevice(userCode, deviceName) });
+  return useMutation({
+    mutationFn: ({ userCode, deviceName }: { userCode: string; deviceName: string }) =>
+      api.approveDevice(userCode, deviceName),
+  });
 }
 
 export function useRevokeDevice() {
@@ -225,9 +235,7 @@ export function useChangeTeamRepo() {
   });
 }
 
-/** Setup-guide verification state. Polls gently (4s, focused tab only)
- *  while terminal check-offs are still possible, so a step ticks itself
- *  moments after the student runs the one-liner. */
+/** TanStack Query pauses this polling when the page is unmounted or backgrounded. */
 export function useSetupState(enabled = true) {
   return useQuery({
     queryKey: ["setup-state"],
@@ -235,10 +243,19 @@ export function useSetupState(enabled = true) {
     enabled,
     staleTime: 3_000,
     refetchInterval: (query) => {
-      const data = query.state.data;
-      if (!data) return false;
-      return data.verified.length >= 3 ? false : 4_000;
+      const verified = query.state.data?.verified;
+      return verified && SETUP_STEPS.every((step) => verified.includes(step))
+        ? false
+        : 2_500;
     },
+  });
+}
+
+export function useResetSetupState() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: api.resetSetupState,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["setup-state"] }),
   });
 }
 

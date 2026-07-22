@@ -1,22 +1,23 @@
 import type { Context } from "hono";
-import { deleteCookie, getCookie, setCookie } from "hono/cookie";
-import { and, eq, gt } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import type { AuthConfig, Session, Team } from "@cogworks/contracts/schema";
 import type { AppEnv, Env } from "../env";
-import { githubConfigured } from "../env";
+import {
+  devAuthAvailable,
+  githubConfigured,
+  onboardingDevToolsAvailable,
+} from "../env";
 import { getDb } from "../db/client";
-import { cohorts, sessions, teamMembers, teamTas, teams, users } from "../db/schema";
+import { cohorts, teamMembers, teamTas, teams, users } from "../db/schema";
 import type { TeamRow } from "../db/schema";
 import { ApiHttpError } from "../http/errors";
-import { randomHex } from "../util/id";
+import { createAuth, requestCf } from "./better-auth";
 import { isPlatformOwner, platformRole } from "./roles";
-
-export const SESSION_COOKIE = "cogportal_session";
-const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 export interface AuthUser {
   id: string;
-  githubLogin: string;
+  email: string;
+  githubLogin: string | null;
   name: string | null;
   avatarUrl: string | null;
   cohortId: string | null;
@@ -26,7 +27,25 @@ export interface AuthState {
   user: AuthUser;
   cohort: { id: string; slug: string; name: string } | null;
   team: TeamRow | null;
-  oauthToken: string | null;
+}
+
+export function accountLogin(user: { githubLogin: string | null; email: string }): string {
+  return user.githubLogin ?? user.email.split("@")[0];
+}
+
+/** Authorization must never fall back to an email-derived display name. */
+export function githubAuthorizationLogin(user: { githubLogin: string | null }): string {
+  return user.githubLogin ?? "";
+}
+
+export function authFor(c: Context<AppEnv>) {
+  return createAuth(c.env, requestCf(c.req.raw), new URL(c.req.url).origin);
+}
+
+export function forwardAuthCookies(c: Context<AppEnv>, headers: Headers): void {
+  for (const cookie of headers.getSetCookie()) {
+    c.header("Set-Cookie", cookie, { append: true });
+  }
 }
 
 function teamPayload(team: TeamRow | null): Team | null {
@@ -49,7 +68,8 @@ function teamPayload(team: TeamRow | null): Team | null {
 export function authConfig(env: Env): AuthConfig {
   return {
     githubConfigured: githubConfigured(env),
-    devAuthEnabled: env.DEV_AUTH === "enabled",
+    devAuthEnabled: devAuthAvailable(env),
+    onboardingDevToolsEnabled: onboardingDevToolsAvailable(env),
     appSlug: env.GITHUB_APP_SLUG ?? null,
     templateRepo: env.GITHUB_TEMPLATE_REPO ?? null,
     executionProvider: env.EXECUTION_PROVIDER,
@@ -59,6 +79,8 @@ export function authConfig(env: Env): AuthConfig {
 export async function authToSession(env: Env, auth: AuthState | null): Promise<Session> {
   const auth_ = authConfig(env);
   if (!auth) return { user: null, cohort: null, team: null, auth: auth_ };
+  const login = accountLogin(auth.user);
+  const authorizationLogin = githubAuthorizationLogin(auth.user);
   const [taAssignment] = await getDb(env)
     .select({ teamId: teamTas.teamId })
     .from(teamTas)
@@ -66,11 +88,11 @@ export async function authToSession(env: Env, auth: AuthState | null): Promise<S
     .limit(1);
   return {
     user: {
-      login: auth.user.githubLogin,
+      login,
       name: auth.user.name,
       avatarUrl: auth.user.avatarUrl,
-      platformRole: platformRole(env, auth.user.githubLogin),
-      isOwner: isPlatformOwner(env, auth.user.githubLogin),
+      platformRole: platformRole(env, authorizationLogin),
+      isOwner: isPlatformOwner(env, authorizationLogin),
       isTa: Boolean(taAssignment),
     },
     cohort: auth.cohort ? { slug: auth.cohort.slug, name: auth.cohort.name } : null,
@@ -80,82 +102,39 @@ export async function authToSession(env: Env, auth: AuthState | null): Promise<S
 }
 
 export async function getAuth(c: Context<AppEnv>): Promise<AuthState | null> {
-  const token = getCookie(c, SESSION_COOKIE);
-  if (!token) return null;
+  const session = await authFor(c).api.getSession({ headers: c.req.raw.headers });
+  if (!session) return null;
 
-  const db = getDb(c.env);
-  const [row] = await db
-    .select({
-      user: users,
-      oauthToken: sessions.oauthToken,
-      cohortId: cohorts.id,
-      cohortSlug: cohorts.slug,
-      cohortName: cohorts.name,
-    })
-    .from(sessions)
-    .innerJoin(users, eq(sessions.userId, users.id))
-    .leftJoin(cohorts, eq(users.cohortId, cohorts.id))
-    .where(and(eq(sessions.id, token), gt(sessions.expiresAt, Date.now())))
-    .limit(1);
-
-  if (!row) return null;
-
-  const [membership] = await db
-    .select({ team: teams })
-    .from(teamMembers)
-    .innerJoin(teams, eq(teamMembers.teamId, teams.id))
-    .where(eq(teamMembers.userId, row.user.id))
-    .orderBy(teams.id)
-    .limit(1);
-
-  return {
-    user: row.user,
-    cohort:
-      row.cohortId && row.cohortSlug && row.cohortName
-        ? { id: row.cohortId, slug: row.cohortSlug, name: row.cohortName }
-        : null,
-    team: membership?.team ?? null,
-    oauthToken: row.oauthToken,
+  const user: AuthUser = {
+    id: session.user.id,
+    email: session.user.email,
+    githubLogin: session.user.githubLogin ?? null,
+    name: session.user.name ?? null,
+    avatarUrl: session.user.image ?? null,
+    cohortId: session.user.cohortId ?? null,
   };
-}
 
-/** Load auth state directly by user id — for responses in the same request
- *  that CREATED the session (the cookie isn't on the request yet). */
-export async function getAuthForUser(
-  c: Context<AppEnv>,
-  userId: string,
-): Promise<AuthState | null> {
   const db = getDb(c.env);
-  const [row] = await db
-    .select({
-      user: users,
-      cohortId: cohorts.id,
-      cohortSlug: cohorts.slug,
-      cohortName: cohorts.name,
-    })
-    .from(users)
-    .leftJoin(cohorts, eq(users.cohortId, cohorts.id))
-    .where(eq(users.id, userId))
-    .limit(1);
-
-  if (!row) return null;
-
-  const [membership] = await db
-    .select({ team: teams })
-    .from(teamMembers)
-    .innerJoin(teams, eq(teamMembers.teamId, teams.id))
-    .where(eq(teamMembers.userId, userId))
-    .orderBy(teams.id)
-    .limit(1);
+  const [[cohort], [membership]] = await Promise.all([
+    db
+      .select({ id: cohorts.id, slug: cohorts.slug, name: cohorts.name })
+      .from(users)
+      .innerJoin(cohorts, eq(users.cohortId, cohorts.id))
+      .where(eq(users.id, user.id))
+      .limit(1),
+    db
+      .select({ team: teams })
+      .from(teamMembers)
+      .innerJoin(teams, eq(teamMembers.teamId, teams.id))
+      .where(eq(teamMembers.userId, user.id))
+      .orderBy(teams.id)
+      .limit(1),
+  ]);
 
   return {
-    user: row.user,
-    cohort:
-      row.cohortId && row.cohortSlug && row.cohortName
-        ? { id: row.cohortId, slug: row.cohortSlug, name: row.cohortName }
-        : null,
+    user,
+    cohort: cohort ?? null,
     team: membership?.team ?? null,
-    oauthToken: null,
   };
 }
 
@@ -169,34 +148,4 @@ export async function requireTeam(c: Context<AppEnv>): Promise<AuthState & { tea
   const auth = await requireUser(c);
   if (!auth.team) throw new ApiHttpError(403, "no_team", "Connect a repository to continue.");
   return { ...auth, team: auth.team };
-}
-
-export async function createSession(
-  c: Context<AppEnv>,
-  userId: string,
-  oauthToken?: string,
-): Promise<void> {
-  const now = Date.now();
-  const id = randomHex(32);
-  await getDb(c.env).insert(sessions).values({
-    id,
-    userId,
-    oauthToken,
-    createdAt: now,
-    expiresAt: now + SESSION_TTL_MS,
-  });
-  setCookie(c, SESSION_COOKIE, id, {
-    httpOnly: true,
-    sameSite: "Lax",
-    path: "/",
-    maxAge: SESSION_TTL_MS / 1000,
-    expires: new Date(now + SESSION_TTL_MS),
-    secure: new URL(c.req.url).protocol === "https:",
-  });
-}
-
-export async function destroySession(c: Context<AppEnv>): Promise<void> {
-  const token = getCookie(c, SESSION_COOKIE);
-  if (token) await getDb(c.env).delete(sessions).where(eq(sessions.id, token));
-  deleteCookie(c, SESSION_COOKIE, { path: "/" });
 }

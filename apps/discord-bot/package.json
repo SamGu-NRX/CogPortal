@@ -13,7 +13,9 @@
   },
   "dependencies": {
     "@cogworks/contracts": "workspace:*",
-    "@cogworks/discord-kit": "workspace:*"
+    "@cogworks/discord-kit": "workspace:*",
+    "@cogworks/env": "workspace:*",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260713.1",
