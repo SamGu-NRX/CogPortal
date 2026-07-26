@@ -1,3 +1,6 @@
 [submodule "benchmarks/week2"]
 	path = benchmarks/week2
 	url = https://github.com/iReynaldo/ComputerVisionBenchmark.git
+[submodule "benchmarks/week3"]
+	path = benchmarks/week3
+	url = https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git

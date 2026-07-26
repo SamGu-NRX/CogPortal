@@ -169,6 +169,31 @@ def _resolve_report(path_value: Optional[str]) -> Path:
     return latest
 
 
+#: The interpreter each track's student code actually runs on when hosted.
+#: Not one number any more: the shared Modal image is 3.11 because the
+#: 2025.06 image builder dropped 3.8, but week3 execs student code through a
+#: pinned CPython 3.8.20 venv baked into that image
+#: (apps/runner-modal/src/cogworks_runner/modal_app.py). Reporting the wrong
+#: one sends a student chasing a version difference that isn't there.
+_HOSTED_PYTHON = {"language-search": "3.8.20"}
+_DEFAULT_HOSTED_PYTHON = "3.11"
+
+
+def _hosted_python(benchmark: str) -> str:
+    return _HOSTED_PYTHON.get(benchmark, _DEFAULT_HOSTED_PYTHON)
+
+
+def _installed_benchmark_hint() -> str:
+    """A benchmark name to show in an example command. `link` takes no
+    --benchmark, so naming one track would be a guess; naming what is actually
+    installed is not. With zero or several installed, stay a placeholder."""
+
+    installed = plugin_names("cogworks.benchmarks.v2") or plugin_names(
+        "cogworks.benchmarks.v1"
+    )
+    return installed[0] if len(installed) == 1 else "<benchmark>"
+
+
 def _check(benchmark: str, as_json: bool) -> int:
     benchmark_group = (
         "cogworks.benchmarks.v2"
@@ -185,7 +210,7 @@ def _check(benchmark: str, as_json: bool) -> int:
     repository = repository_state(Path.cwd())
     checks = {
         "python": platform.python_version(),
-        "canonicalHostedPython": "3.11",
+        "canonicalHostedPython": _hosted_python(benchmark),
         "contractVersion": contract_group,
         "benchmarkInstalled": benchmark in benchmark_plugins,
         "submissionInstalled": benchmark in submission_plugins,
@@ -197,7 +222,10 @@ def _check(benchmark: str, as_json: bool) -> int:
     if checks["benchmarkInstalled"] and benchmark_group.endswith(".v2"):
         plugin = load_benchmark(benchmark)
         checks["benchmarkLoadable"] = True
-        checks["modelCache"] = model_cache_status()
+        # Plugins may report their own model/artifact cache; Week 2 predates
+        # the attribute, so its FaceNet checkpoint probe stands.
+        cache_probe = getattr(plugin, "model_cache_status", None)
+        checks["modelCache"] = cache_probe() if callable(cache_probe) else model_cache_status()
         for tier in ("test", "evaluation"):
             status = plugin.cache_status(tier)
             checks["data{}Cache".format(tier.title())] = {
@@ -478,7 +506,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             else:
                 print(
                     "setup: device linked; change into your team project before running "
-                    "`cogworks check --benchmark vision-recognition --update-setup`.",
+                    "`cogworks check --benchmark {} --update-setup`.".format(
+                        _installed_benchmark_hint()
+                    ),
                     file=sys.stderr,
                 )
             return 0

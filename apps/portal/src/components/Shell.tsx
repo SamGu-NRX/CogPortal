@@ -44,13 +44,16 @@ export function Shell() {
       </a>
 
       <header className="border-b border-rule bg-paper-raised/85">
-        <div className="mx-auto flex h-14 w-full max-w-5xl items-center justify-between gap-6 px-5">
+        <div className="mx-auto flex min-h-14 w-full max-w-5xl flex-wrap items-center justify-between gap-x-2 px-5 max-[359px]:px-3 sm:gap-x-6">
           <Wordmark />
-          <nav aria-label="Primary" className="flex items-center gap-5 sm:gap-7">
+          <nav
+            aria-label="Primary"
+            className="flex items-center gap-2 max-[359px]:order-3 max-[359px]:w-full max-[359px]:justify-center max-[359px]:border-t max-[359px]:border-rule-soft sm:gap-7"
+          >
             {session?.team && <TopNavLink to="/dashboard">Dashboard</TopNavLink>}
             <TopNavLink to="/leaderboard">Leaderboard</TopNavLink>
           </nav>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4 max-[359px]:order-2">
             {session?.user ? (
               <UserMenu
                 user={session.user}

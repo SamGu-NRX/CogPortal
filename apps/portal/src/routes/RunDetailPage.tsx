@@ -19,6 +19,7 @@ import {
 } from "@/lib/format";
 import {
   DEFAULT_BENCHMARK,
+  useBenchmarks,
   useDashboard,
   usePromote,
   useRun,
@@ -38,11 +39,17 @@ export function RunDetailPage() {
   const { runId = "" } = useParams();
   const runQuery = useRun(runId);
   const { data: sessionData } = useSession();
-  // Cached alongside the dashboard — supplies quota and selection context.
-  const dashboard = useDashboard(DEFAULT_BENCHMARK);
+  // Quota, retry, and failure copy all belong to *this run's* benchmark, not
+  // to whichever track the dashboard happens to default to. The fallback only
+  // covers the first render, before the run record arrives.
+  const runBenchmarkId = runQuery.data?.benchmarkId ?? DEFAULT_BENCHMARK;
+  const benchmarks = useBenchmarks();
+  const runModule = benchmarks.data?.find((b) => b.id === runBenchmarkId)?.module;
+  // Cached alongside the dashboard: supplies quota and selection context.
+  const dashboard = useDashboard(runBenchmarkId, Boolean(runQuery.data));
   const promote = usePromote();
   const select = useSelectResult();
-  const retry = useStartPractice(DEFAULT_BENCHMARK);
+  const retry = useStartPractice(runBenchmarkId);
 
   if (runQuery.isPending) return <LoadingMark label="Reading run record" />;
   if (runQuery.isError) {
@@ -136,7 +143,12 @@ export function RunDetailPage() {
       {/* ── Failure ── */}
       {run.failure && failureCopy && (
         <div className="mt-4 space-y-4">
-          <FailureCard failure={run.failure} mode={run.mode} />
+          <FailureCard
+            failure={run.failure}
+            mode={run.mode}
+            benchmarkId={run.benchmarkId}
+            module={runModule}
+          />
           {run.mode === "practice" && failureCopy.retryable && (
             <Button
               variant="ghost"
@@ -172,6 +184,22 @@ export function RunDetailPage() {
             <PrimaryMetric metric={primary} />
             <SupportingMetrics metrics={supporting} />
           </div>
+          {run.diagnostics.length > 0 && (
+            <div className="mt-5 border-t border-rule-soft pt-4">
+              <div className="u-kicker">What the scorer noticed</div>
+              <ul className="mt-2 space-y-1.5">
+                {run.diagnostics.map((note, index) => (
+                  <li
+                    key={`${index}:${note}`}
+                    className="flex gap-2.5 text-[13.5px] leading-relaxed text-ink-secondary"
+                  >
+                    <span aria-hidden="true" className="mt-[0.55em] size-1 shrink-0 bg-ink-faint" />
+                    <span className="max-w-prose">{note}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           <p className="mt-4 border-t border-rule-soft pt-3 font-mono text-[11px] text-ink-faint">
             {run.mode === "practice"
               ? "Public practice split."

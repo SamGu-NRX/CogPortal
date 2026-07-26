@@ -155,13 +155,20 @@ def _facenet_model() -> Any:
     return FacenetModel(device="cpu")
 
 
-def _metric(key: str, value: float, primary_key: str) -> Metric:
+def _metric(
+    key: str,
+    value: float,
+    primary_key: str,
+    labels: Optional[dict] = None,
+    lower_is_better: Any = (),
+) -> Metric:
+    label_map = _V2_LABELS if labels is None else labels
     return Metric(
         key=key,
-        label=_V2_LABELS.get(key, key.replace("_", " ").title()),
+        label=label_map.get(key, key.replace("_", " ").title()),
         value=float(value),
         unit=None,
-        higher_is_better=True,
+        higher_is_better=key not in lower_is_better,
         primary=key == primary_key,
         precision=3,
     )
@@ -176,12 +183,19 @@ def _execute_v2(
     model_factory: Callable[[], Any] = _facenet_model,
 ) -> LocalReport:
     tier = "test" if smoke else "evaluation"
+    # Plugins may carry their own model factory and metric presentation;
+    # Week 2 predates these attributes, so its FaceNet default stands.
+    plugin_model_factory = getattr(benchmark, "model_factory", None)
+    if callable(plugin_model_factory):
+        model_factory = plugin_model_factory
+    labels = getattr(benchmark, "metric_labels", None)
+    lower_is_better = getattr(benchmark, "lower_is_better", ())
     if progress:
         _progress(progress, "contract_check")
     try:
         cases = list(benchmark.load_cases(tier))
     except Exception as error:
-        raise ContractError("Week 2 data could not be prepared: {}".format(error)) from error
+        raise ContractError("Benchmark data could not be prepared: {}".format(error)) from error
     if not cases:
         raise ContractError("The benchmark plugin has no {} cases.".format(tier))
     started_at = int(time.time() * 1000)
@@ -210,7 +224,10 @@ def _execute_v2(
     ):
         raise ContractError("Benchmark scorer returned invalid v2 metrics.")
     primary_key = str(benchmark.primary_metric)
-    metrics = [_metric(key, value, primary_key) for key, value in scores.items()]
+    metrics = [
+        _metric(key, value, primary_key, labels, lower_is_better)
+        for key, value in scores.items()
+    ]
     if not any(metric.primary for metric in metrics):
         raise ContractError("Benchmark scorer omitted its primary metric.")
     finished_at = int(time.time() * 1000)
@@ -224,7 +241,7 @@ def _execute_v2(
         started_at=started_at,
         finished_at=finished_at,
         metrics=metrics,
-        diagnostics=[],
+        diagnostics=list(getattr(benchmark, "last_diagnostics", [])),
         predictions=outputs,
     )
 

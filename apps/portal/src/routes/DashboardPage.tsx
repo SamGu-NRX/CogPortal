@@ -13,6 +13,7 @@ import { SetupNudge } from "@/components/SetupNudge";
 import { ShaChip } from "@/components/ShaChip";
 import { SimulatedChip } from "@/components/SimulatedChip";
 import { StatusChip } from "@/components/StatusChip";
+import { TrackSwitcher } from "@/components/TrackSwitcher";
 import { ApiRequestError } from "@/lib/api";
 import {
   firstName,
@@ -22,7 +23,6 @@ import {
   runNumberLabel,
 } from "@/lib/format";
 import {
-  DEFAULT_BENCHMARK,
   useDashboard,
   useLocalReports,
   usePromote,
@@ -31,6 +31,7 @@ import {
   useStartPractice,
 } from "@/lib/queries";
 import { STATUS_LABELS } from "@/lib/run-meta";
+import { useTrack } from "@/lib/track";
 
 /**
  * The team dashboard answers, at a glance (plan §8): what's connected, what
@@ -39,12 +40,13 @@ import { STATUS_LABELS } from "@/lib/run-meta";
  * currently public.
  */
 export function DashboardPage() {
-  const dashboard = useDashboard(DEFAULT_BENCHMARK);
+  const track = useTrack();
+  const dashboard = useDashboard(track.benchmarkId, !track.isPending);
   const repositories = useRepositories();
-  const localReports = useLocalReports(DEFAULT_BENCHMARK);
+  const localReports = useLocalReports(track.benchmarkId);
   const { data: session } = useSession();
 
-  if (dashboard.isPending) return <LoadingMark label="Loading" />;
+  if (track.isPending || dashboard.isPending) return <LoadingMark label="Loading" />;
   if (dashboard.isError) {
     return (
       <QueryError error={dashboard.error} retry={() => void dashboard.refetch()}>
@@ -79,10 +81,12 @@ export function DashboardPage() {
             </Link>
           </h1>
         </div>
-        <p className="flex items-baseline gap-2 font-mono text-[11.5px] tracking-[0.05em] text-ink-secondary">
-          {d.benchmark.title} · v{d.benchmark.version}
-          {session?.auth.executionProvider === "fixture" && <SimulatedChip />}
-        </p>
+        <TrackSwitcher
+          tracks={track.tracks}
+          benchmark={track.benchmark ?? d.benchmark}
+          onSelect={track.select}
+          trailing={session?.auth.executionProvider === "fixture" ? <SimulatedChip /> : undefined}
+        />
       </header>
 
       <SetupNudge />
@@ -269,7 +273,10 @@ function CurrentRunPanel({
   practiceLeft: number;
   officialLeft: number;
 }) {
-  const startPractice = useStartPractice(DEFAULT_BENCHMARK);
+  // The dashboard payload is already scoped to the selected track, so its own
+  // benchmark id is the one to run; anything else would start a run the
+  // student isn't looking at.
+  const startPractice = useStartPractice(d.benchmark.id);
   const promote = usePromote();
   const [branch, setBranch] = useState(d.team.repo?.defaultBranch ?? "main");
 

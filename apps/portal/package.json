@@ -13,7 +13,8 @@
     "test": "tsx --test test/*.test.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate:local": "wrangler d1 migrations apply cogportal-db --local",
-    "deploy": "pnpm build && wrangler deploy"
+    "deploy": "pnpm build && wrangler deploy",
+    "deploy:production": "CLOUDFLARE_ENV=production pnpm build && CLOUDFLARE_ENV=production wrangler deploy --env production"
   },
   "dependencies": {
     "@better-auth/drizzle-adapter": "^1.6.23",

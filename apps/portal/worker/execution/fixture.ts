@@ -16,6 +16,17 @@ export function fixtureScenario(branch: string) {
   );
 }
 
+/** The scripted outcome with its detail told in the requested track's terms.
+ *  Tracks without their own wording keep the default. */
+export function fixtureOutcome(branch: string, benchmarkId: string) {
+  const { outcome } = fixtureScenario(branch);
+  if (outcome.kind === "succeeded") return outcome;
+  return {
+    ...outcome,
+    detail: outcome.detailByBenchmark?.[benchmarkId] ?? outcome.detail,
+  };
+}
+
 function round4(value: number): number {
   return Math.round(value * 10_000) / 10_000;
 }
@@ -48,6 +59,33 @@ export function fixtureMetrics(
         primary: false,
         precision: 3,
       },
+    ];
+  }
+  if (benchmarkId === "language-search") {
+    // Shapes match the real scorer: a strong text pipeline, a harder trained
+    // encoder, search trailing retrieval slightly (their own glue).
+    const text = round4(0.74 + (hash % 900) / 10_000 + improvement);
+    const retrieval = round4(0.23 + ((hash >>> 4) % 1100) / 10_000 + improvement);
+    const search = round4(Math.max(0, retrieval - 0.006));
+    const metric = (key: string, label: string, value: number, primary = false): Metric => ({
+      key,
+      label,
+      value,
+      unit: null,
+      higherIsBetter: key !== "retrieval_median_rank",
+      primary,
+      precision: 3,
+    });
+    return [
+      metric("overall", "Overall", round4((text + retrieval + search) / 3), true),
+      metric("text_mrr", "Text MRR", text),
+      metric("retrieval_mrr", "Retrieval MRR", retrieval),
+      metric("search_mrr", "Search MRR", search),
+      metric("retrieval_recall_at_1", "Recall@1", round4(retrieval * 0.52)),
+      metric("retrieval_recall_at_5", "Recall@5", round4(Math.min(1, retrieval * 1.44))),
+      metric("retrieval_recall_at_10", "Recall@10", round4(Math.min(1, retrieval * 2.2))),
+      metric("retrieval_median_rank", "Median rank", round4(8 + ((hash >>> 9) % 40) / 10)),
+      metric("chance_mrr", "Chance MRR", 0.0102),
     ];
   }
   const known = round4(0.82 + (hash % 1000) / 10_000 + improvement);
@@ -110,39 +148,64 @@ export function fixtureLog(
   benchmarkId = "vision-recognition",
 ): string {
   const scenario = fixtureScenario(branch);
+  const language = benchmarkId === "language-search";
+  const installLines = language
+    ? [
+        "Requirement already satisfied: numpy==1.24.4",
+        "Requirement already satisfied: gensim==4.3.3",
+        "Requirement already satisfied: platformdirs==4.3.6",
+        "Requirement already satisfied: mygrad==2.2.0",
+        "Built wheel for face-finder: face_finder-0.1.0-py3-none-any.whl",
+      ]
+    : [
+        "Requirement already satisfied: numpy==1.24.4",
+        "Requirement already satisfied: scipy==1.10.1",
+        "Requirement already satisfied: torch==2.2.2",
+        "Requirement already satisfied: torchvision==0.17.2",
+        "Requirement already satisfied: facenet-pytorch==2.6.0",
+        "Requirement already satisfied: Pillow==10.2.0",
+        "Requirement already satisfied: opencv-python-headless==4.10.0.84",
+        "Requirement already satisfied: scikit-image==0.21.0",
+        "Requirement already satisfied: networkx==3.1",
+        "Requirement already satisfied: matplotlib==3.7.5",
+        "Built wheel for face-finder: face_finder-0.1.0-py3-none-any.whl",
+      ];
   const lines = [
-    `[run ${runId}] preparing isolated Python 3.8.20 workspace`,
+    // Hosted control runtime is 3.11; week3 evaluates student code through
+    // the image's pinned CPython 3.8.20 venv (see modal_app.week3_image).
+    `[run ${runId}] preparing isolated Python ${language ? "3.8.20" : "3.11"} workspace`,
     `git clone https://github.com/cogworks-demo/face-finder.git /workspace/repo`,
     `Resolved ref refs/heads/${branch} -> ${sha}`,
     `git checkout --detach ${sha}`,
     "python -m pip 25.0.1 install --constraint /opt/cogportal/constraints.txt .",
-    "Requirement already satisfied: numpy==1.24.4",
-    "Requirement already satisfied: scipy==1.10.1",
-    "Requirement already satisfied: torch==2.2.2",
-    "Requirement already satisfied: torchvision==0.17.2",
-    "Requirement already satisfied: facenet-pytorch==2.6.0",
-    "Requirement already satisfied: Pillow==10.2.0",
-    "Requirement already satisfied: opencv-python-headless==4.10.0.84",
-    "Requirement already satisfied: scikit-image==0.21.0",
-    "Requirement already satisfied: networkx==3.1",
-    "Requirement already satisfied: matplotlib==3.7.5",
-    "Built wheel for face-finder: face_finder-0.1.0-py3-none-any.whl",
+    ...installLines,
     `entry-point discovery: cogworks.submissions.v2["${benchmarkId}"]`,
     "contract check: adapter factory loaded",
     "workspace backup complete; restoring into network-disabled evaluation VM",
   ];
-  for (let caseNumber = 1; caseNumber <= 32; caseNumber += 1) {
-    lines.push(`eval case ${caseNumber.toString().padStart(3, "0")}/032 complete`);
+  if (language) {
+    lines.push("loading GloVe KeyedVectors (glove.6B.200d.kv, memory-mapped)");
+    for (const component of ["text", "retrieval", "search"]) {
+      lines.push(`eval component ${component} complete`);
+    }
+    lines.push(
+      'showcase 01/10 "two dogs running on a sandy beach" -> http://images.cocodataset.org/train2014/COCO_train2014_000000084887.jpg',
+    );
+  } else {
+    for (let caseNumber = 1; caseNumber <= 32; caseNumber += 1) {
+      lines.push(`eval case ${caseNumber.toString().padStart(3, "0")}/032 complete`);
+    }
   }
 
   if (scenario.outcome.kind === "succeeded") {
     const primary = fixtureMetrics(runId, branch, benchmarkId)[0]!;
-    lines.push("prediction schema: 32/32 cases valid");
+    lines.push(language ? "prediction schema: 3/3 components valid" : "prediction schema: 32/32 cases valid");
     lines.push(`scorer summary: ${primary.key}=${primary.value.toFixed(4)}`);
     lines.push("run completed successfully");
   } else {
     lines.push(...failureExcerpt(branch));
-    lines.push(scenario.outcome.detail);
+    const outcome = fixtureOutcome(branch, benchmarkId);
+    if (outcome.kind === "failed") lines.push(outcome.detail);
   }
 
   const encoded = new TextEncoder().encode(lines.join("\n"));
@@ -164,7 +227,7 @@ export class FixtureExecutionAdapter implements ExecutionAdapter {
 
   async execute(_preparedBackup: string, input: ResolveAndPrepareInput): Promise<ExecutionResult> {
     return {
-      outcome: fixtureScenario(input.branch).outcome,
+      outcome: fixtureOutcome(input.branch, input.entryPointName),
       predictionsRef: `fixture-predictions:${input.runId}`,
       log: fixtureLog(input.runId, input.branch, input.sha, input.entryPointName),
     };

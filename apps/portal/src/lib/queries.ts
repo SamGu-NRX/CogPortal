@@ -11,6 +11,9 @@ import {
 } from "@cogworks/contracts/schema";
 import { api } from "./api";
 
+/** Only used before the benchmark list resolves, as a first-render probe.
+ *  Which track a team is actually looking at is `useTrack()` in lib/track.ts;
+ *  do not reach for this constant to scope a run, a quota, or setup copy. */
 export const DEFAULT_BENCHMARK = "vision-recognition";
 
 export function useSession() {

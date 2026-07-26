@@ -10,7 +10,7 @@
  * hidden evaluation has begun); `defaultConsumesAttempt` here only documents
  * the policy for copy.
  */
-import type { FailureCategory } from "./schema";
+import type { FailureCategory, Module } from "./schema";
 
 export interface FailureCopy {
   /** Stable, student-visible code (mono chip). */
@@ -23,6 +23,10 @@ export interface FailureCopy {
   retryable: boolean;
   defaultConsumesAttempt: boolean;
 }
+
+/** The parts of a failure that can differ per module. Codes, retryability,
+ *  and attempt policy are platform facts and never vary. */
+type FailureOverride = Partial<Pick<FailureCopy, "title" | "explanation" | "action">>;
 
 export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
   repository_fetch: {
@@ -40,9 +44,9 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
     code: "E-INSTALL",
     title: "Dependency installation failed",
     explanation:
-      "pip could not resolve or build your declared dependencies inside the benchmark environment (Python 3.8.20, course constraints applied).",
+      "pip could not resolve or build your declared dependencies inside the benchmark environment, with the course constraints applied.",
     action:
-      "Reproduce locally with the command below, then pin versions that support Python 3.8 and push a new commit.",
+      "Reproduce locally with the command below, then pin versions that install cleanly under the course constraints and push a new commit.",
     reproCommand: "python -m pip install --constraint constraints.txt .",
     retryable: false,
     defaultConsumesAttempt: false,
@@ -51,21 +55,21 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
     code: "E-DATA",
     title: "Benchmark data is not ready",
     explanation:
-      "The fixed benchmark image bundle could not be downloaded or failed integrity validation.",
+      "The fixed benchmark data bundle either could not be downloaded or did not match its reviewed checksum.",
     action:
-      "For a local run, reconnect and retry so CogBench can rebuild the selected-image cache. For an official run, staff must repair the private evaluation volume.",
-    reproCommand: "cogworks check --benchmark vision-recognition",
+      "For a local run, reconnect and run the check below so CogBench can rebuild its cache. For an official run, staff repair the private evaluation volume.",
+    reproCommand: "cogworks check --benchmark {benchmark}",
     retryable: true,
     defaultConsumesAttempt: false,
   },
   model_cache: {
     code: "E-MODEL",
-    title: "FaceNet cache is not ready",
+    title: "Model cache is not ready",
     explanation:
-      "The shared FaceNet checkpoint is missing or does not match the reviewed checksum.",
+      "A shared model file this benchmark depends on is missing, or it doesn't match the reviewed checksum.",
     action:
-      "Run the local doctor and retry once online. Official-image failures are repaired by staff and do not consume an attempt.",
-    reproCommand: "cogworks check --benchmark vision-recognition",
+      "Run the check below once you're back online so CogBench can refetch it. Official-image failures are repaired by staff.",
+    reproCommand: "cogworks check --benchmark {benchmark}",
     retryable: true,
     defaultConsumesAttempt: false,
   },
@@ -75,8 +79,8 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
     explanation:
       "Your package installed, but no entry point for this track was registered under the active submission contract group.",
     action:
-      'Add the v2 entry point to pyproject.toml and push:\n[project.entry-points."cogworks.submissions.v2"]\nvision-recognition = "benchmark_adapter:create_recognition_adapter"',
-    reproCommand: "cogworks check --benchmark vision-recognition",
+      'Add the v2 entry point to pyproject.toml and push:\n[project.entry-points."cogworks.submissions.v2"]\n{benchmark} = "benchmark_adapter:<your factory>"',
+    reproCommand: "cogworks check --benchmark {benchmark}",
     retryable: false,
     defaultConsumesAttempt: false,
   },
@@ -87,7 +91,7 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
       "Your adapter imported, but it is missing behavior required by the active track contract.",
     action:
       "Run the local contract check to see exactly which method failed, fix it, and push a new commit.",
-    reproCommand: "cogworks test --benchmark vision-recognition",
+    reproCommand: "cogworks test --benchmark {benchmark}",
     retryable: false,
     defaultConsumesAttempt: false,
   },
@@ -98,7 +102,7 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
       "Evaluation started, but your submission raised an unhandled exception while processing benchmark inputs.",
     action:
       "Reproduce with the local practice runner; the traceback excerpt is in the log below. Fix, verify locally, then run practice again before promoting.",
-    reproCommand: "python -m cogworks_benchmark run vision-recognition",
+    reproCommand: "cogworks run --benchmark {benchmark}",
     retryable: false,
     defaultConsumesAttempt: true,
   },
@@ -108,8 +112,8 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
     explanation:
       "Your submission ran past the 15-minute wall-time ceiling and was stopped.",
     action:
-      "Profile recognize() on a single image locally. Batch descriptor computation and avoid re-loading model weights per image.",
-    reproCommand: "python -m cogworks_benchmark run vision-recognition --timing",
+      "Profile a single case locally, then batch the work your adapter repeats and stop re-loading model weights on every call.",
+    reproCommand: "cogworks run --benchmark {benchmark}",
     retryable: false,
     defaultConsumesAttempt: true,
   },
@@ -117,9 +121,9 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
     code: "E-MEMORY",
     title: "Memory limit exceeded",
     explanation:
-      "Your submission exceeded the 8 GiB memory ceiling of the evaluation machine.",
+      "Your submission exceeded the memory ceiling of the evaluation machine.",
     action:
-      "Process images one at a time instead of holding the full set in memory, and release large intermediate arrays.",
+      "Work through the inputs in batches instead of holding them all at once, and release large intermediate arrays.",
     reproCommand: null,
     retryable: false,
     defaultConsumesAttempt: true,
@@ -128,10 +132,10 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
     code: "E-OUTPUT",
     title: "Predictions did not match the schema",
     explanation:
-      "Your adapter returned predictions that failed schema validation (extra fields, wrong types, or out-of-range boxes are rejected).",
+      "Your adapter returned output that failed schema validation. Extra fields, wrong types, and values outside the allowed range are all rejected.",
     action:
       "Validate your output locally with the schema check, correct the prediction shape, and run practice again before promoting.",
-    reproCommand: "python -m cogworks_benchmark check vision-recognition --output",
+    reproCommand: "cogworks test --benchmark {benchmark}",
     retryable: false,
     defaultConsumesAttempt: true,
   },
@@ -158,3 +162,92 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
     defaultConsumesAttempt: false,
   },
 };
+
+/**
+ * Sharper copy for the failures whose *concept* differs by module, not just
+ * their wording: a vision student debugging a slow `recognize()` and a
+ * language student debugging a slow `search()` need different next steps.
+ *
+ * The base entry above must stay true for every module on its own, because a
+ * run whose module we haven't resolved yet renders the base. Only override
+ * where the module genuinely has better advice; anything omitted falls
+ * through.
+ *
+ * The two hosted interpreters really do differ. Vision evaluates on the 3.11
+ * image (Modal's builder dropped 3.8); language evaluates through the pinned
+ * CPython 3.8.20 venv baked into `week3_image`. See
+ * `apps/runner-modal/src/cogworks_runner/modal_app.py`.
+ */
+export const MODULE_FAILURE_COPY: Partial<
+  Record<Module, Partial<Record<FailureCategory, FailureOverride>>>
+> = {
+  vision: {
+    dependency_install: {
+      explanation:
+        "pip could not resolve or build your declared dependencies inside the benchmark environment (Python 3.11, course constraints applied).",
+    },
+    model_cache: {
+      title: "FaceNet cache is not ready",
+      explanation:
+        "The shared FaceNet checkpoint is missing, or it doesn't match the reviewed checksum.",
+    },
+    timeout: {
+      action:
+        "Profile recognize() on a single image locally. Batch descriptor computation and avoid re-loading model weights per image.",
+    },
+    memory_limit: {
+      action:
+        "Process images one at a time instead of holding the full set in memory, and release large intermediate arrays.",
+    },
+    output_invalid: {
+      explanation:
+        "Your adapter returned predictions that failed schema validation. Extra fields, wrong types, and out-of-range boxes are all rejected.",
+    },
+  },
+  language: {
+    dependency_install: {
+      explanation:
+        "pip could not resolve or build your declared dependencies inside the benchmark environment (Python 3.8.20, course constraints applied).",
+    },
+    model_cache: {
+      title: "Course artifact cache is not ready",
+      explanation:
+        "One of the pinned course artifacts (the GloVe vectors, the COCO captions, or the image descriptors) is missing, or it doesn't match the reviewed checksum.",
+    },
+    timeout: {
+      action:
+        "Profile one query locally. Embed the image pool once in prepare_database() rather than per search, and keep GloVe loaded instead of re-reading it on every call.",
+    },
+    memory_limit: {
+      action:
+        "Hold one copy of the descriptor and embedding matrices, keep them float32 rather than float64, and release large intermediates.",
+    },
+    output_invalid: {
+      explanation:
+        "Your adapter returned rankings that failed schema validation. Wrong types, ids outside the pinned image pool, and more than k results are all rejected.",
+    },
+  },
+};
+
+/**
+ * The copy actually rendered for a failure: base entry, then the module
+ * override if we know the module, then `{benchmark}` filled in so the
+ * reproduce command is the one this student should run.
+ */
+export function resolveFailureCopy(
+  category: FailureCategory,
+  context: { benchmarkId: string; module?: Module },
+): FailureCopy {
+  const base = FAILURE_CATALOG[category];
+  const override = context.module
+    ? MODULE_FAILURE_COPY[context.module]?.[category]
+    : undefined;
+  const merged = override ? { ...base, ...override } : base;
+  const fill = (text: string) => text.replaceAll("{benchmark}", context.benchmarkId);
+  return {
+    ...merged,
+    explanation: fill(merged.explanation),
+    action: fill(merged.action),
+    reproCommand: merged.reproCommand === null ? null : fill(merged.reproCommand),
+  };
+}

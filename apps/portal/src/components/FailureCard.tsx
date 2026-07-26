@@ -1,5 +1,5 @@
-import type { RunFailure, RunMode } from "@cogworks/contracts/schema";
-import { FAILURE_CATALOG } from "@cogworks/contracts/failures";
+import type { Module, RunFailure, RunMode } from "@cogworks/contracts/schema";
+import { resolveFailureCopy } from "@cogworks/contracts/failures";
 import { PHASE_LABELS } from "@/lib/run-meta";
 import { CopyBlock } from "./CopyBlock";
 import { Panel } from "./Panel";
@@ -13,11 +13,17 @@ import { Panel } from "./Panel";
 export function FailureCard({
   failure,
   mode,
+  benchmarkId,
+  module,
 }: {
   failure: RunFailure;
   mode: RunMode;
+  benchmarkId: string;
+  /** Undefined until the benchmark list resolves; the base copy is true for
+   *  every module, so rendering without it is correct, just less specific. */
+  module?: Module;
 }) {
-  const copy = FAILURE_CATALOG[failure.category];
+  const copy = resolveFailureCopy(failure.category, { benchmarkId, module });
 
   return (
     <Panel

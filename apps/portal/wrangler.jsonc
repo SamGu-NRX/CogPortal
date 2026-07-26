@@ -81,8 +81,10 @@
 
   // ─────────────────────────────────────────────────────────────────────────
   // PRODUCTION environment (worker "cogportal-production", cogportal.sillion.app).
-  // Deploy with: `wrangler deploy --env production`. Wrangler keys (vars, routes,
-  // bindings, secrets) are NON-inheritable, so everything is re-declared here.
+  // Deploy with: `pnpm run deploy:production`. The Cloudflare Vite plugin must
+  // select the named environment while building as well as while deploying.
+  // Wrangler keys (vars, routes, bindings, secrets) are NON-inheritable, so
+  // everything is re-declared here.
   //
   // BEFORE the first prod deploy (owner-owned; see the launch checklist):
   //   1. Import the D1 backup into cogportal-db-prod, then apply migrations

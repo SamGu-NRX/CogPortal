@@ -128,6 +128,9 @@ export const RunDetailSchema = RunSummarySchema.extend({
   repo: RepoRefSchema,
   phases: z.array(PhaseTimingSchema),
   metrics: z.array(MetricSchema),
+  /** The scorer's own notes on this run: which component scored zero and why.
+   *  Safe for official runs; they describe the submission, never the data. */
+  diagnostics: z.array(z.string().max(240)).max(32),
   /** Capped install/eval log. Practice runs only; null for official (§5). */
   log: z.string().nullable(),
   /** Official runs: currently published on the leaderboard. */

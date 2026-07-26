@@ -12,6 +12,7 @@ import {
   useFamilyLeaderboard,
   useLeaderboard,
 } from "@/lib/queries";
+import { MODULE_ACCENT } from "@/lib/track";
 
 const TRACKS: Array<{ module: Module; label: string }> = [
   { module: "vision", label: "Vision" },
@@ -80,7 +81,9 @@ export function LeaderboardPage() {
                 <motion.span
                   layoutId="track-underline"
                   aria-hidden="true"
-                  className="absolute inset-x-1 -bottom-px h-0.5 bg-detect"
+                  // The accent names the module. Underlining the Language tab
+                  // in detector red would say "vision" while reading Language.
+                  className={`absolute inset-x-1 -bottom-px h-0.5 ${MODULE_ACCENT[track.module].tick}`}
                   transition={
                     reduce
                       ? { duration: 0 }

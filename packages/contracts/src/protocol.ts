@@ -99,6 +99,11 @@ export const RunEventV1Schema = z.discriminatedUnion("type", [
       category: z.enum([
         "repository_fetch",
         "dependency_install",
+        // The Modal runner emits these two (data volume and model cache
+        // failures); the enum previously omitted them, so those callbacks
+        // were rejected with a 400 before reaching the run.
+        "data_download",
+        "model_cache",
         "adapter_missing",
         "contract_invalid",
         "student_runtime",

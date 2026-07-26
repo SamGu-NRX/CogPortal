@@ -8,14 +8,15 @@ import { Code } from "@/components/Code";
 import { ConfirmButton } from "@/components/ConfirmButton";
 import { LoadingMark, QueryError } from "@/components/Feedback";
 import { Panel } from "@/components/Panel";
+import { TrackSwitcher } from "@/components/TrackSwitcher";
 import {
-  DEFAULT_BENCHMARK,
   useConnections,
   useResetSetupState,
   useSession,
   useSetupState,
   useTeam,
 } from "@/lib/queries";
+import { useTrack } from "@/lib/track";
 import {
   clearSetupProgress,
   setupSteps,
@@ -62,6 +63,16 @@ function SetupGuide({
   const connections = useConnections();
   const setupState = useSetupState();
   const resetSetup = useResetSetupState();
+  // The commands below have to name a real benchmark, and the entry points a
+  // student must register are whatever this track's module actually has open.
+  const track = useTrack();
+  const benchmarkId = track.benchmarkId;
+  const selectedModule = track.benchmark?.module;
+  const moduleEntryPoints = selectedModule
+    ? track.tracks
+        .filter((benchmark) => benchmark.module === selectedModule)
+        .map((benchmark) => benchmark.entryPointName)
+    : [];
   const [searchParams, setSearchParams] = useSearchParams();
   const [checks, toggleCheck] = useSetupChecks(team.id, login);
   const [replayChecks, setReplayChecks] = useState<ReadonlySet<string>>(() => new Set());
@@ -141,13 +152,25 @@ function SetupGuide({
         <ProgressRail progress={progress} />
 
         <div className="min-w-0 max-w-xl">
-          <p className="u-kicker" aria-live="polite">
-            Getting set up · {done} of {total}
-            {replay ? ` · replaying ${replay}` : ""}
-          </p>
-          <h1 className="mt-1 text-3xl">
-            {created ? "Your team has a home." : `You're on ${team.name}.`}
-          </h1>
+          <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2">
+            <div className="min-w-0">
+              <p className="u-kicker" aria-live="polite">
+                Getting set up · {done} of {total}
+                {replay ? ` · replaying ${replay}` : ""}
+              </p>
+              <h1 className="mt-1 text-3xl">
+                {created ? "Your team has a home." : `You're on ${team.name}.`}
+              </h1>
+            </div>
+            {/* Every command on this page names a benchmark, so the page has
+                to show which one and let a student change it. Without this the
+                default track silently decides what they're told to type. */}
+            <TrackSwitcher
+              tracks={track.tracks}
+              benchmark={track.benchmark}
+              onSelect={track.select}
+            />
+          </div>
           <p className="mt-2 text-[14px] text-ink-secondary">
             Follow one path from GitHub to a checked local project. CogPortal
             marks browser facts; the CogWorks CLI checks only the machine facts
@@ -234,8 +257,20 @@ function SetupGuide({
 
             <Step index={number()} state={machineState("project")} title="Install this project" chip={terminalSet.has("project") ? "CLI checked" : undefined}>
               <p>
-                The starter pins the Week 2 benchmark pilot separately, then
-                registers your recognition and clustering adapter entry points.
+                The starter pins the benchmark pilot separately, then registers
+                the adapter entry points this track needs
+                {moduleEntryPoints.length > 0 ? (
+                  <>
+                    :{" "}
+                    {moduleEntryPoints.map((name, i) => (
+                      <span key={name}>
+                        {i > 0 && ", "}
+                        <code className="font-mono text-[12px]">{name}</code>
+                      </span>
+                    ))}
+                  </>
+                ) : null}
+                .
               </p>
               <Code
                 lang="bash"
@@ -282,7 +317,7 @@ function SetupGuide({
               </p>
               <Code
                 lang="bash"
-                code={`cogworks check --benchmark ${DEFAULT_BENCHMARK} --update-setup`}
+                code={`cogworks check --benchmark ${benchmarkId} --update-setup`}
               />
               <p className="text-[12px] text-ink-faint">
                 The flag makes this one run update the guide. If local checks
@@ -295,9 +330,9 @@ function SetupGuide({
           {complete ? (
             <Panel label="SETUP COMPLETE" tone="good" className="mt-8">
               <p className="text-[14px] text-ink">
-                Your machine can find the starter and both adapter interfaces.
-                You're ready to begin implementing. A working model isn't
-                expected yet.
+                Your machine can find the starter and this track's adapter
+                interfaces. You're ready to begin implementing. A working model
+                isn't expected yet.
               </p>
               <Link
                 to="/dashboard"
@@ -329,7 +364,7 @@ function SetupGuide({
             <div className="mt-3">
               <Code
                 lang="bash"
-                code={`cogworks test --benchmark ${DEFAULT_BENCHMARK} --update-setup\ncogworks run --benchmark ${DEFAULT_BENCHMARK} --update-setup\ncogworks report`}
+                code={`cogworks test --benchmark ${benchmarkId} --update-setup\ncogworks run --benchmark ${benchmarkId} --update-setup\ncogworks report`}
               />
             </div>
             <p className="mt-3 font-mono text-[11px] text-ink-faint">

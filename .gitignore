@@ -9,6 +9,7 @@ __pycache__/
 *.egg-info/
 .cogbench/
 .pytest_cache/
+.ruff_cache/
 
 # Cloudflare local state
 .wrangler/
@@ -36,6 +37,10 @@ __pycache__/
 .playwright-cli/
 .DS_Store
 .idea/
+.vscode/
 migrations/meta/
 .specstory
 plans
+
+# Python build artifacts (a stale apps/runner-modal/build/lib shadowed src)
+build/

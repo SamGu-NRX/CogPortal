@@ -61,7 +61,10 @@ export function SignInPage() {
           )}
           {oauthError && (
             <p role="alert" className="mt-3 text-center text-[13px] text-detect-deep">
-              {oauthError === "oauth_denied"
+              {/* GitHub and Better Auth both spell a cancellation with
+                  "denied" (access_denied, oauth_denied); anything else is a
+                  real failure and we don't claim to know which. */}
+              {oauthError.includes("denied")
                 ? "GitHub sign-in was cancelled. Sign in again when you're ready."
                 : "GitHub sign-in failed. Try again."}
             </p>

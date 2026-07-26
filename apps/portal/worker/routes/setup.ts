@@ -11,7 +11,7 @@ import {
 } from "@cogworks/contracts/schema";
 import { requireDevice } from "../auth/device";
 import { isPlatformOwner } from "../auth/roles";
-import { githubAuthorizationLogin, requireTeam } from "../auth/session";
+import { authorizationLogin, requireTeam } from "../auth/session";
 import { getDb } from "../db/client";
 import { setupVerifications, teamMembers, teams } from "../db/schema";
 import { onboardingDevToolsAvailable, type AppEnv } from "../env";
@@ -109,7 +109,7 @@ export function registerSetupRoutes(app: Hono<AppEnv>): void {
     const state = await setupState(c);
     if (
       !onboardingDevToolsAvailable(c.env) ||
-      !isPlatformOwner(c.env, githubAuthorizationLogin(state.auth.user))
+      !isPlatformOwner(c.env, authorizationLogin(c.env, state.auth.user))
     ) {
       throw new ApiHttpError(404, "not_found", "API route not found.");
     }

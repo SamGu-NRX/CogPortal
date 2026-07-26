@@ -281,6 +281,9 @@ export const runs = sqliteTable("runs", {
     .notNull()
     .default(false),
   log: text("log"),
+  /** Scorer diagnostics from the succeeded event: the benchmark's own
+   *  explanation of what a submission got wrong. JSON array of strings. */
+  diagnosticsJson: text("diagnostics_json"),
   createdAt: integer("created_at").notNull(),
   finishedAt: integer("finished_at"),
   provider: text("provider", { enum: ["fixture", "modal"] }).notNull().default("fixture"),

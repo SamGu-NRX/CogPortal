@@ -111,6 +111,13 @@ async function applyEvent(env: AppEnv["Bindings"], event: RunEventV1): Promise<v
     ) {
       throw new ApiHttpError(400, "invalid_request", "Runner result does not match the run benchmark.");
     }
+    // The scorer's own account of what went wrong. Without this a student
+    // whose adapter returns the wrong shape sees a number near chance and no
+    // reason for it, which is the failure mode the course ethos rules out.
+    await db
+      .update(runs)
+      .set({ diagnosticsJson: JSON.stringify(event.result.diagnostics ?? []) })
+      .where(eq(runs.id, run.id));
     for (const metric of event.result.metrics) {
       await db
         .insert(runMetrics)

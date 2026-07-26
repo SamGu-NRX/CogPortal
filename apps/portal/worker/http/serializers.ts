@@ -135,7 +135,23 @@ export async function serializeRunDetail(
         endedAt: phase.endedAt,
       })),
     metrics: metrics.map(serializeMetric),
+    // Unlike the log, diagnostics are safe on official runs: they describe the
+    // submission's own output shape, never the hidden data.
+    diagnostics: parseDiagnostics(row.diagnosticsJson),
     log: row.mode === "practice" ? row.log : null,
     selected: selection[0]?.runId === row.id,
   };
+}
+
+/** Stored as JSON by the runner-event handler. A malformed or absent value is
+ *  not worth failing a run detail over; show none rather than break the page. */
+function parseDiagnostics(value: string | null): string[] {
+  if (!value) return [];
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((item): item is string => typeof item === "string").slice(0, 32);
+  } catch {
+    return [];
+  }
 }

@@ -158,6 +158,53 @@ patterns), `UserMenu` (canonical dropdown motion and focus behavior),
 `QuotaCells`, `EmptyState`, `Feedback`. Accidentally duplicating one of
 these is the most common mistake here.
 
+## What we test for: platform reliability, not student cheating
+
+The threat that matters here is not a student trying to beat the benchmark. It
+is a student writing ordinary broken code on a Tuesday and taking something
+down with it. Cheating costs one team's honesty; a crash costs every team the
+afternoon, and it costs the instructors their credibility as the people running
+the instrument. Write tests in that direction first.
+
+The questions a change to the execution path has to answer:
+
+- Does a broken adapter still produce a scored result or a categorized
+  failure? It must never propagate out and kill the runner, the controller, or
+  the scorer. Student code raising, returning the wrong shape, returning
+  `None`, returning ragged lists, mutating our arrays in place, printing
+  thousands of lines, or hanging are all ordinary, not exotic.
+- Does the student learn what went wrong? A number near chance with no reason
+  is the mystery box this course exists to avoid. The benchmark already writes
+  good, specific notes ("embed_text returned an array with 1 dimensions;
+  expected a 2-D (rows, D) matrix"); the job of the platform is to carry them
+  all the way to the run page, not to compute and drop them.
+- Do the stages and logs still reflect reality? A run that fails must not sit
+  in `evaluating` forever, and the phase rail and log must describe what
+  actually happened.
+- Does one team's bad run affect anyone else? Shared caches, mutated case
+  objects, and a wedged controller are the ways that happens.
+- Does the leaderboard survive a partial or malformed result? It is public and
+  unauthenticated; it must render for a signed-out visitor even when a run,
+  a benchmark row, or a metric is missing.
+
+Two failure modes we have actually hit, both worth a regression test rather
+than a rule:
+
+- Output the platform generates after student code runs (the showcase lines,
+  final summaries) shared one byte budget with student output, and student
+  output came first, so a chatty submission silently evicted ours. Anything
+  appended late needs its own reserved room.
+- Diagnostics were computed by the benchmark, sent by the runner, and dropped
+  by the Worker, while `RunList` promised students "full diagnostics". Check
+  that a value survives the whole path before promising it in copy.
+
+When an instructor edits the benchmark submodule, the platform must fail loudly
+rather than silently mis-score: the catalog row (`benchmarks` table), the
+plugin's own metadata, and `scripts/validate_week*_submodule.py` all restate the
+same versions on purpose, so a drifted edit breaks CI instead of a student's
+result. Changing a metric or a contract is a new benchmark version, never an
+in-place edit of a version teams have already published against.
+
 ## Hard-won correctness notes
 
 - Route guards redirect on stale session data. After a mutation that changes

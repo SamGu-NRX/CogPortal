@@ -24,8 +24,8 @@
   --color-detect: #c63d2f; /* vision — detector red */
   --color-detect-deep: #a12e22;
   --color-detect-wash: rgb(198 61 47 / 0.07);
-  --color-ochre: #9a6d10; /* audio — reserved */
-  --color-cobalt: #2b54c0; /* language — reserved */
+  --color-ochre: #9a6d10; /* audio */
+  --color-cobalt: #2b54c0; /* language */
 
   /* ── Verdicts ── */
   --color-verify: #2e6b4f;
@@ -48,10 +48,6 @@
     --activity-safe-right: var(--discord-safe-area-inset-right, env(safe-area-inset-right, 0px));
     --activity-safe-bottom: var(--discord-safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
     --activity-safe-left: var(--discord-safe-area-inset-left, env(safe-area-inset-left, 0px));
-  }
-
-  html {
-    min-width: 320px;
   }
 
   body {

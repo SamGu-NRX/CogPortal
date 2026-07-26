@@ -11,7 +11,7 @@ import {
 } from "@cogworks/contracts/schema";
 import type { AdminTeamSummary, TeamMember } from "@cogworks/contracts/schema";
 import { isPlatformOwner, requireStaff } from "../auth/roles";
-import { githubAuthorizationLogin } from "../auth/session";
+import { authorizationLogin } from "../auth/session";
 import type { AuthState } from "../auth/session";
 import type { Database } from "../db/client";
 import { getDb } from "../db/client";
@@ -131,7 +131,7 @@ type AdminScope = {
 
 async function getAdminScope(c: Parameters<typeof requireStaff>[0]): Promise<AdminScope> {
   const auth = await requireStaff(c);
-  const isOwner = isPlatformOwner(c.env, githubAuthorizationLogin(auth.user));
+  const isOwner = isPlatformOwner(c.env, authorizationLogin(c.env, auth.user));
   if (isOwner) return { auth, isOwner, teamIds: [] };
   const assignments = await getDb(c.env)
     .select({ teamId: teamTas.teamId })

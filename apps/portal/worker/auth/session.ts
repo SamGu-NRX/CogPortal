@@ -38,6 +38,25 @@ export function githubAuthorizationLogin(user: { githubLogin: string | null }): 
   return user.githubLogin ?? "";
 }
 
+/**
+ * The login role checks should use.
+ *
+ * Deployed, this is the GitHub login and nothing else, for the reason above.
+ * Locally it also accepts a dev account's own name, because a dev account
+ * cannot hold `github_login` (uniquely indexed, and a real row may already
+ * claim the same name), which otherwise made every local account a student and
+ * put the admin screens out of reach of testing. The fallback is gated on
+ * `devAuthAvailable`, which requires ENVIRONMENT=development, DEV_AUTH=enabled,
+ * and GitHub unconfigured, so there is no real identity to impersonate.
+ */
+export function authorizationLogin(
+  env: Env,
+  user: { githubLogin: string | null; name?: string | null },
+): string {
+  if (user.githubLogin) return user.githubLogin;
+  return devAuthAvailable(env) ? (user.name ?? "").trim() : "";
+}
+
 export function authFor(c: Context<AppEnv>) {
   return createAuth(c.env, requestCf(c.req.raw), new URL(c.req.url).origin);
 }
@@ -80,7 +99,7 @@ export async function authToSession(env: Env, auth: AuthState | null): Promise<S
   const auth_ = authConfig(env);
   if (!auth) return { user: null, cohort: null, team: null, auth: auth_ };
   const login = accountLogin(auth.user);
-  const authorizationLogin = githubAuthorizationLogin(auth.user);
+  const roleLogin = authorizationLogin(env, auth.user);
   const [taAssignment] = await getDb(env)
     .select({ teamId: teamTas.teamId })
     .from(teamTas)
@@ -91,8 +110,8 @@ export async function authToSession(env: Env, auth: AuthState | null): Promise<S
       login,
       name: auth.user.name,
       avatarUrl: auth.user.avatarUrl,
-      platformRole: platformRole(env, authorizationLogin),
-      isOwner: isPlatformOwner(env, authorizationLogin),
+      platformRole: platformRole(env, roleLogin),
+      isOwner: isPlatformOwner(env, roleLogin),
       isTa: Boolean(taAssignment),
     },
     cohort: auth.cohort ? { slug: auth.cohort.slug, name: auth.cohort.name } : null,

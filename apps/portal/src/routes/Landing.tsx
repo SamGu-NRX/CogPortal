@@ -3,6 +3,7 @@ import { Code } from "@/components/Code";
 import { GitHubIcon } from "@/components/GitHubIcon";
 import { nextStagePath } from "@/App";
 import { useSession } from "@/lib/queries";
+import { useTrack } from "@/lib/track";
 import { pendingConnectionReturn } from "@/lib/pending-return";
 
 /**
@@ -12,6 +13,20 @@ import { pendingConnectionReturn } from "@/lib/pending-return";
  */
 export function Landing() {
   const { data: session } = useSession();
+  // This is the first page a student reads, so the example has to belong to a
+  // track that is actually open. The factory name stays a placeholder because
+  // it is the student's to choose, not something the catalog knows.
+  const track = useTrack();
+  const selectedModule = track.benchmark?.module;
+  const moduleTracks = selectedModule
+    ? track.tracks.filter((benchmark) => benchmark.module === selectedModule)
+    : [];
+  const entryPointExample = [
+    '[project.entry-points."cogworks.submissions.v2"]',
+    ...(moduleTracks.length > 0 ? moduleTracks : [{ entryPointName: track.benchmarkId }]).map(
+      (b) => `${b.entryPointName} = "benchmark_adapter:<your factory>"`,
+    ),
+  ].join("\n");
   const authed = Boolean(session?.user);
   const template = session?.auth.templateRepo ?? null;
   const pendingReturn = session?.user ? pendingConnectionReturn() : null;
@@ -79,16 +94,13 @@ export function Landing() {
               The template declares your entry point in{" "}
               <code className="text-[12px] text-ink">pyproject.toml</code>:
             </p>
-            <Code
-              lang="toml"
-              code={`[project.entry-points."cogworks.submissions.v2"]\nvision-recognition = "benchmark_adapter:create_recognition_adapter"\nvision-clustering = "benchmark_adapter:create_clustering_adapter"`}
-            />
+            <Code lang="toml" code={entryPointExample} />
           </Step>
 
           <Step n={3} title="Practice locally">
             <Code
               lang="bash"
-              code={`cogworks check --benchmark vision-recognition\ncogworks run --benchmark vision-recognition`}
+              code={`cogworks check --benchmark ${track.benchmarkId}\ncogworks run --benchmark ${track.benchmarkId}`}
             />
             <p className="mt-2 text-[13px] text-ink-secondary">
               Practice runs use the same checks and scorer as hosted runs, with no run limit.

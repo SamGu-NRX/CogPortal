@@ -67,7 +67,15 @@ export function registerGithubRoutes(app: Hono<AppEnv>): void {
       throw new ApiHttpError(404, "not_found", "GitHub sign-in is not configured.");
     }
     const result = await authFor(c).api.signInSocial({
-      body: { provider: "github", callbackURL: "/" },
+      body: {
+        provider: "github",
+        callbackURL: "/",
+        // Better Auth falls errorCallbackURL back to callbackURL, so without
+        // this a failed or cancelled sign-in landed on the marketing page with
+        // an ?error= nobody reads, and the student saw no explanation at all.
+        // It appends ?error=<code>, which SignInPage renders.
+        errorCallbackURL: "/signin",
+      },
       headers: c.req.raw.headers,
       returnHeaders: true,
     });

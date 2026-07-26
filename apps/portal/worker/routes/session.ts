@@ -48,7 +48,10 @@ export function registerSessionRoutes(app: Hono<AppEnv>): void {
         });
 
     const userId = result.response.user.id;
-    // Clear githubLogin for development rows created before Better Auth.
+    // A dev account never claims github_login: that column is uniquely indexed
+    // and a real row may already hold the same name (staffy@dev.local vs
+    // staffy@users.noreply.github.com). Role resolution reads the account name
+    // for dev accounts instead; see authorizationLogin in auth/session.ts.
     await db.update(users).set({ githubLogin: null }).where(eq(users.id, userId));
 
     if (body.demo) {

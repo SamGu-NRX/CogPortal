@@ -67,10 +67,22 @@ export function buildRunJob(
       scorerVersion: benchmark.scorerVersion,
     },
     runtime: {
-      pythonVersion: env.RUNNER_PYTHON_VERSION ?? "3.11",
+      // What the student's code actually runs on, which is not one number
+      // any more: the shared image is 3.11 (Modal's builder dropped 3.8), but
+      // week3 execs every prepare/evaluate step through the pinned CPython
+      // 3.8.20 venv baked into that image. See modal_app._student_python.
+      // This value is recorded on the run, so a wrong default is a wrong
+      // record, not a cosmetic default.
+      pythonVersion:
+        benchmark.id === "language-search"
+          ? "3.8"
+          : (env.RUNNER_PYTHON_VERSION ?? "3.11"),
       imageDigest: env.RUNNER_IMAGE_DIGEST ?? DEFAULT_IMAGE_DIGEST,
       cpu: 1,
-      memoryMb: 2_048,
+      // Week 3 evaluation loads the 200-d GloVe table inside the sandbox
+      // (~350 MB warm via the .kv cache, ~1.5 GB peak on a cold text parse),
+      // so its ceiling is double the vision default.
+      memoryMb: benchmark.id === "language-search" ? 4_096 : 2_048,
       timeoutSeconds: 900,
       maxOutputBytes: 8 * 1_024,
     },

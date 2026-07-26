@@ -15,8 +15,22 @@ sys.path.insert(0, str(ROOT / "apps" / "runner-modal" / "src"))
 sys.path.insert(0, str(ROOT / "benchmarks" / "week2" / "src"))
 
 
+def _has(module: str) -> bool:
+    """Whether `module` can actually be imported. Naming the submodule the
+    tests import matters: a leftover `week2/src/facial_recognition_benchmark`
+    directory with no `__init__.py` makes the parent resolve as a namespace
+    package while every real module under it is missing."""
+
+    try:
+        return find_spec(module) is not None
+    except (ImportError, ValueError):
+        return False
+
+
 @unittest.skipIf(
-    np is None or find_spec("PIL") is None,
+    np is None
+    or find_spec("PIL") is None
+    or not _has("facial_recognition_benchmark.drivers"),
     "Week 2 dependency lane only",
 )
 class Week2PayloadTests(unittest.TestCase):

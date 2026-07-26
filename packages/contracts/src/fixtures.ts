@@ -15,7 +15,17 @@ export interface FixtureScenario {
   hint: string;
   outcome:
     | { kind: "succeeded" }
-    | { kind: "failed"; category: FailureCategory; phase: RunPhase; detail: string };
+    | {
+        kind: "failed";
+        category: FailureCategory;
+        phase: RunPhase;
+        detail: string;
+        /** The same scripted failure told in another track's vocabulary. A
+         *  language run showing a traceback from `recognize()` would teach a
+         *  student to distrust the whole surface, so the tracks that need
+         *  their own wording carry it here, keyed by benchmark id. */
+        detailByBenchmark?: Record<string, string>;
+      };
 }
 
 export const FIXTURE_SCENARIOS: FixtureScenario[] = [
@@ -36,8 +46,7 @@ export const FIXTURE_SCENARIOS: FixtureScenario[] = [
       kind: "failed",
       category: "adapter_missing",
       phase: "contract_check",
-      detail:
-        'Entry-point group "cogworks.submissions.v2" has no "vision-recognition" registration.',
+      detail: 'Entry-point group "cogworks.submissions.v2" has no registration for this benchmark.',
     },
   },
   {
@@ -48,7 +57,7 @@ export const FIXTURE_SCENARIOS: FixtureScenario[] = [
       category: "dependency_install",
       phase: "installing",
       detail:
-        "ERROR: Could not find a version that satisfies the requirement numpy>=2.0 (Python 3.8).",
+        "ERROR: Could not find a version that satisfies the requirement numpy>=2.0 (from face-finder).",
     },
   },
   {
@@ -70,6 +79,9 @@ export const FIXTURE_SCENARIOS: FixtureScenario[] = [
       phase: "scoring",
       detail:
         'Prediction 14: expected object with keys ["box","identity"], got 4-tuple.',
+      detailByBenchmark: {
+        "language-search": "Query 14: expected a list of image ids, got a list of (id, score) tuples.",
+      },
     },
   },
   {
@@ -80,7 +92,11 @@ export const FIXTURE_SCENARIOS: FixtureScenario[] = [
       category: "student_runtime",
       phase: "evaluating",
       detail:
-        "TypeError: 'NoneType' object is not subscriptable — recognize() at faces.py:87 on case 041.",
+        "TypeError: 'NoneType' object is not subscriptable (recognize() at faces.py:87, case 041).",
+      detailByBenchmark: {
+        "language-search":
+          "KeyError: 'zamboni' (embed_text() at search.py:52, caption 041 has an out-of-vocabulary word).",
+      },
     },
   },
 ];

@@ -98,6 +98,41 @@ Upload reviewed hidden JSON through an approved operator path to
 `/hidden/<benchmark-id>/<dataset-version>.json`. Never put hidden data in this
 repository, a Worker variable, build output, or a student-accessible bucket.
 
+### Week 3 (language-search)
+
+The `week3_image` bakes the three checksum-pinned course artifacts and the
+pre-parsed GloVe `.kv` cache at image build (`image_bake.cache_week3_artifacts`),
+so evaluation sandboxes need no dataset network access. Deploying the app
+builds it; nothing else to provision for practice runs.
+
+Student code runs under a pinned CPython 3.8.20 venv at `/opt/cogworks-py38`
+(Modal's own runtime must be 3.10+, the course contract is 3.8). Both prepare
+and evaluate exec through that interpreter, the evaluate script hard-asserts
+the version, and the first sanitized-log line records it. Limitation: the
+3.11 control interpreter still exists in-container, so this guarantees the
+normal evaluation path, not what deliberately adversarial code could invoke.
+
+Official data, from a machine with the artifacts cached:
+
+```sh
+# private seed; the manifest never enters any repository
+python benchmarks/week3/tools/build_public_manifests.py --official /secure/week3-official.json --seed <PRIVATE_SEED>
+python apps/runner-modal/tools/materialize_week3_official.py \
+  /secure/week3-official.json <volume-mount> --dataset-version language-search-official-v1
+```
+
+The bundle is `payload.zip` (gold-free sandbox inputs) plus `gold.json`
+(controller-only truth) under
+`/hidden/language-search/language-search-official-v1/`. Verify a deploy
+end-to-end without Modal first:
+
+```sh
+python apps/runner-modal/tools/run_week3_local_parity.py evaluation
+```
+
+which executes the real sandbox evaluate script by subprocess, scores with
+the real controller path, and writes signed runner events to a local sink.
+
 ## 4. Enable the execution queue
 
 1. Create `cogportal-runs` and `cogportal-runs-dlq` in the same Cloudflare
