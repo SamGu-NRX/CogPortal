@@ -109,12 +109,13 @@ export function buildRunJob(
       // Wall clock is measured on Modal itself, because the laptop numbers
       // were badly optimistic. End-to-end for one hosted run, evaluate phase:
       //
-      //   KrazeeCoder/week1-capstone-team4    75 s   (laptop predicted 16 s)
-      //   carti4ce/week1_capstone            875 s   (laptop predicted 381 s)
+      //   KrazeeCoder/week1-capstone-team4    75 s, 72 s  (laptop said 16 s)
+      //   carti4ce/week1_capstone            875 s, 898 s  (laptop said 381 s)
       //
-      // So carti4ce clears 900 s by 2.8%, not by the 2.4x an earlier note here
-      // claimed from laptop timings. That margin is a coin flip: the same
-      // submission timed out at 999 s on the run before this one. It is slow
+      // Two hosted runs each, weeks apart. So carti4ce clears 900 s by 2.8%
+      // and then by 0.2%, not by the 2.4x an earlier note here claimed from
+      // laptop timings. That margin is a coin flip, and the same submission
+      // timed out at 999 s on a third run. It is slow
       // for a structural reason -- its database.add reloads and rewrites the
       // whole pickle per song and query_details reloads it per query, so cost
       // grows with the catalog rather than with the clip.
