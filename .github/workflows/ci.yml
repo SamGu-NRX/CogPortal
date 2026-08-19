@@ -114,3 +114,27 @@ jobs:
       # sandbox payload.
       - run: python -m unittest discover -s apps/runner-modal/tests -p 'test_*.py'
       - run: cogworks check --benchmark language-search --json
+
+  week1:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.8"
+          cache: pip
+      - run: python -m pip install --upgrade pip
+      - run: >-
+          python -m pip install -e python/cogbench
+          -e "benchmarks/week1[test]"
+          -e examples/week1-audio-submission
+      - run: python scripts/validate_week1_submodule.py
+      - run: python -m ruff check benchmarks/week1/audio_identification_benchmark benchmarks/week1/tools
+      - run: pytest benchmarks/week1/tests
+      # Corpus rendering must be bit-identical here and in the sandbox, or
+      # every hosted run fails its integrity check. This lane is the only
+      # place a non-macOS libm sees the renderer before Modal does.
+      - run: python -m unittest discover -s apps/runner-modal/tests -p 'test_*.py'
+      - run: cogworks check --benchmark audio-identification --json

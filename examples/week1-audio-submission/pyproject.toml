@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cogworks-week1-audio-submission"
+version = "0.1.0"
+description = "Reference submissions used to validate the Week 1 audio benchmark harness"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+# scipy is pinned below 1.13 because `scipy.ndimage.filters` was removed
+# there, and one student repository in the 2026 cohort imports it. Keeping
+# the reference on the same ceiling means CI exercises what they run.
+dependencies = [
+    "numpy>=1.24,<2",
+    "scipy>=1.10,<1.13",
+    "matplotlib>=3.5,<4",
+]
+
+[project.entry-points."cogworks.submissions.v2"]
+audio-identification = "submission:create_submission"
+
+[tool.setuptools]
+py-modules = ["submission"]
+packages = ["reference_shazam"]
