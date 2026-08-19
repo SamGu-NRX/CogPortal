@@ -45,7 +45,36 @@ SANDBOX_IMAGES = (
 )
 
 
+def stale_build_trees() -> list:
+    """Benchmark directories holding a `build/` from a previous local build.
+
+    The images install each benchmark with `pip install /opt/weekN`, which
+    builds from source, and setuptools reuses whatever is already in `build/`
+    rather than recopying. A month-old tree there silently shadows the real
+    module inside the sandbox: locally every test passes, hosted runs fail on
+    a keyword the current source added. Measured once, on Week 3, and it cost
+    a deploy cycle to find.
+
+    They are gitignored, so a fresh clone never has them and this only ever
+    fires on a developer machine that once ran `python -m build`.
+    """
+
+    return [
+        path
+        for week in ("week1", "week2", "week3")
+        for path in [Path(__file__).resolve().parents[3] / "benchmarks" / week / "build"]
+        if path.is_dir()
+    ]
+
+
 def main() -> int:
+    stale = stale_build_trees()
+    if stale:
+        print("Refusing to deploy: stale build trees would shadow the real source.")
+        for path in stale:
+            print("  rm -rf {}".format(path))
+        return 1
+
     # `Image.build` needs an initialized app purely as a load context. Use a
     # separate one so building images never touches the deployed app's state.
     build_context = modal.App.lookup("cogworks-runner-images", create_if_missing=True)
