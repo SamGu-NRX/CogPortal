@@ -6,6 +6,7 @@ import { ConfirmButton } from "@/components/ConfirmButton";
 import { FailureCard } from "@/components/FailureCard";
 import { LoadingMark, QueryError } from "@/components/Feedback";
 import { LogView } from "@/components/LogView";
+import { Finding } from "@/components/Finding";
 import { PrimaryMetric, SupportingMetrics } from "@/components/MetricBlock";
 import { Panel } from "@/components/Panel";
 import { PhaseRail } from "@/components/PhaseRail";
@@ -179,33 +180,39 @@ export function RunDetailPage() {
 
       {/* ── Results ── */}
       {run.status === "succeeded" && primary && (
-        <Panel label="RESULTS" className="mt-4">
-          <div className="grid items-start gap-6 sm:grid-cols-2">
-            <PrimaryMetric metric={primary} />
-            <SupportingMetrics metrics={supporting} />
-          </div>
+        <>
+          {/* The finding leads. A team reading 0.53 with nothing else has to
+              guess which half of their pipeline produced it, and the scorer
+              already knows: its first diagnostic names the stage and the
+              cause. The number is below, where a reading sits under the trace
+              that explains it. */}
           {run.diagnostics.length > 0 && (
-            <div className="mt-5 border-t border-rule-soft pt-4">
-              <div className="u-kicker">What the scorer noticed</div>
-              <ul className="mt-2 space-y-1.5">
-                {run.diagnostics.map((note, index) => (
-                  <li
-                    key={`${index}:${note}`}
-                    className="flex gap-2.5 text-[13.5px] leading-relaxed text-ink-secondary"
-                  >
-                    <span aria-hidden="true" className="mt-[0.55em] size-1 shrink-0 bg-ink-faint" />
-                    <span className="max-w-prose">{note}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
+            <Panel className="mt-4">
+              <Finding
+                sentence={run.diagnostics[0]}
+                supporting={run.diagnostics.slice(1)}
+              />
+            </Panel>
           )}
-          <p className="mt-4 border-t border-rule-soft pt-3 font-mono text-[11px] text-ink-faint">
-            {run.mode === "practice"
-              ? "Public practice split."
-              : "Hidden official split."}
-          </p>
-        </Panel>
+          <Panel label="RESULTS" className="mt-4">
+            <div className="grid items-start gap-6 sm:grid-cols-2">
+              <PrimaryMetric metric={primary} />
+              <SupportingMetrics metrics={supporting} />
+            </div>
+            {/* Kept for a run whose scorer had nothing to say, which is rare
+                and would otherwise lose its notes entirely. */}
+            {run.diagnostics.length === 0 && (
+              <p className="mt-4 max-w-prose text-[13.5px] leading-relaxed text-ink-secondary">
+                The scorer had no notes on this run.
+              </p>
+            )}
+            <p className="mt-4 border-t border-rule-soft pt-3 font-mono text-[11px] text-ink-faint">
+              {run.mode === "practice"
+                ? "Public practice split."
+                : "Hidden official split."}
+            </p>
+          </Panel>
+        </>
       )}
 
       {/* ── Next action ── */}

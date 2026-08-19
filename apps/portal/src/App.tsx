@@ -10,6 +10,7 @@ import { AdminPage } from "@/routes/AdminPage";
 import { ConnectPage } from "@/routes/ConnectPage";
 import { ConnectionsPage } from "@/routes/ConnectionsPage";
 import { DashboardPage } from "@/routes/DashboardPage";
+import { GalleryPage } from "@/routes/GalleryPage";
 import { JoinPage } from "@/routes/JoinPage";
 import { Landing } from "@/routes/Landing";
 import { LeaderboardPage } from "@/routes/LeaderboardPage";
@@ -152,6 +153,11 @@ export function App() {
                 </RequireStaff>
               }
             />
+            {/* Surfaces whose interesting states need a specific run to
+                reach. Stripped from a production bundle by the condition. */}
+            {import.meta.env.DEV && (
+              <Route path="__gallery" element={<GalleryPage />} />
+            )}
             <Route path="*" element={<NotFound />} />
           </Route>
         </Routes>
