@@ -10,13 +10,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 BENCHMARK = ROOT / "benchmarks" / "week3"
-REVIEWED_COMMIT = "5df927765a15ce56657b6e4e0f66274ac367eb70"
+REVIEWED_COMMIT = "9f8cb9c73291e5fe5d1a44502aadbb3578d6c658"
 
 PLUGIN_EXPECTATIONS = {
     'benchmark_id = "language-search"': "benchmark id",
     "benchmark_version = 1": "benchmark version",
     'contract_version = "cogworks.submissions.v2"': "contract version",
-    'scorer_version = "retrieval-v1"': "scorer version",
+    'scorer_version = "retrieval-v2"': "scorer version",
     'primary_metric = "overall"': "primary metric",
 }
 
@@ -24,7 +24,7 @@ MIGRATION_EXPECTATIONS = (
     "language-search",
     "cogworks.submissions.v2",
     "language-search-official-v1",
-    "retrieval-v1",
+    "retrieval-v2",
     "week3-cpu-v1",
 )
 
@@ -87,12 +87,17 @@ def main() -> None:
             "pyproject does not register the language-search v2 entry point."
         )
 
-    migration = (
-        ROOT / "apps" / "portal" / "migrations" / "0018_week3_language.sql"
-    ).read_text(encoding="utf-8")
+    # Every migration, not only the one that introduced the row. A version
+    # bump is a new migration by design, so pinning the original file here
+    # would fail the moment the thing this check exists to guard actually
+    # happened.
+    migrations = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in sorted((ROOT / "apps" / "portal" / "migrations").glob("*.sql"))
+    )
     for value in MIGRATION_EXPECTATIONS:
-        if value not in migration:
-            raise SystemExit("Portal catalog migration is missing {!r}.".format(value))
+        if value not in migrations:
+            raise SystemExit("No portal migration mentions {!r}.".format(value))
 
 
 if __name__ == "__main__":
