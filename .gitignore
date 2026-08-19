@@ -44,3 +44,15 @@ plans
 
 # Python build artifacts (a stale apps/runner-modal/build/lib shadowed src)
 build/
+
+# Student repositories cloned for local benchmark testing. 3+ GB of their
+# audio and committed .npy files; re-clone with
+# `python tools/clone_student_repos.py` rather than committing any of it.
+.cache/
+
+# Deploy-only virtualenv (modal + fastapi), created by the runbook.
+.venv-deploy/
+
+# Browser-driving screenshots from design passes. Regenerate rather than
+# review a binary diff.
+output/

@@ -1,0 +1,637 @@
+{
+  "source": "https://rsokl.github.io/CogWeb/",
+  "pages": [
+    {
+      "doc": "Audio/Exercises/AnalogToDigital",
+      "file": "pages/Audio/Exercises/AnalogToDigital.md",
+      "title": "Exercises: Analog to Digital Encoding",
+      "bytes": 24714
+    },
+    {
+      "doc": "Audio/Exercises/ApplicationsOfDFTs",
+      "file": "pages/Audio/Exercises/ApplicationsOfDFTs.md",
+      "title": "Exercises: Applications of DFTs",
+      "bytes": 18119
+    },
+    {
+      "doc": "Audio/Exercises/AudioSignalBasics",
+      "file": "pages/Audio/Exercises/AudioSignalBasics.md",
+      "title": "Exercises: Basics of Sound Waves",
+      "bytes": 8521
+    },
+    {
+      "doc": "Audio/Exercises/BasicsOfDFT",
+      "file": "pages/Audio/Exercises/BasicsOfDFT.md",
+      "title": "Exercises: Basics of DFTs",
+      "bytes": 15492
+    },
+    {
+      "doc": "Audio/Exercises/DFTOfVariousSignals",
+      "file": "pages/Audio/Exercises/DFTOfVariousSignals.md",
+      "title": "Exercises: DFTs of Various Signals",
+      "bytes": 9038
+    },
+    {
+      "doc": "Audio/Exercises/PeakFinding",
+      "file": "pages/Audio/Exercises/PeakFinding.md",
+      "title": "Exercises: Finding Local Peaks in a 2-D Array",
+      "bytes": 21284
+    },
+    {
+      "doc": "Audio/Exercises/Untitled",
+      "file": "pages/Audio/Exercises/Untitled.ipynb",
+      "title": "&lt;no title&gt;",
+      "bytes": 1558
+    },
+    {
+      "doc": "Audio/Exercises/WorkingWithMic",
+      "file": "pages/Audio/Exercises/WorkingWithMic.md",
+      "title": "Exercises: Working with the Microphone",
+      "bytes": 13235
+    },
+    {
+      "doc": "Audio/Exercises/spectrogram",
+      "file": "pages/Audio/Exercises/spectrogram.md",
+      "title": "Exercise: Creating Our Own Spectrogram",
+      "bytes": 20799
+    },
+    {
+      "doc": "Audio/audio_features",
+      "file": "pages/Audio/audio_features.md",
+      "title": "Matching Audio Recordings",
+      "bytes": 22437
+    },
+    {
+      "doc": "Audio/capstone_summary",
+      "file": "pages/Audio/capstone_summary.md",
+      "title": "Capstone Project: Song Recognition",
+      "bytes": 8525
+    },
+    {
+      "doc": "Audio/digitizing_signals",
+      "file": "pages/Audio/digitizing_signals.md",
+      "title": "Digitizing an Analog Signal",
+      "bytes": 28896
+    },
+    {
+      "doc": "Audio/discrete_fourier_transforms",
+      "file": "pages/Audio/discrete_fourier_transforms.md",
+      "title": "The Discrete Fourier Transform (DFT)",
+      "bytes": 44937
+    },
+    {
+      "doc": "Audio/fourier_analysis",
+      "file": "pages/Audio/fourier_analysis.md",
+      "title": "Decomposing Audio Signals: Fourier Analysis",
+      "bytes": 34776
+    },
+    {
+      "doc": "Audio/intro_spectrograms",
+      "file": "pages/Audio/intro_spectrograms.md",
+      "title": "Introduction to Spectrogram Analysis",
+      "bytes": 8537
+    },
+    {
+      "doc": "Audio/physics-of-sound",
+      "file": "pages/Audio/physics-of-sound.md",
+      "title": "The Basics of Sound",
+      "bytes": 31334
+    },
+    {
+      "doc": "Audio/prereqs",
+      "file": "pages/Audio/prereqs.md",
+      "title": "Prerequisites",
+      "bytes": 2542
+    },
+    {
+      "doc": "Audio/recording_sound",
+      "file": "pages/Audio/recording_sound.md",
+      "title": "Microphones: Recording Sound as an Analog Signal",
+      "bytes": 13475
+    },
+    {
+      "doc": "Cheat_Sheets/Autodiff_and_MyGrad",
+      "file": "pages/Cheat_Sheets/Autodiff_and_MyGrad.md",
+      "title": "Automatic Differentiation and MyGrad",
+      "bytes": 6407
+    },
+    {
+      "doc": "Language/Exercises/AutoencoderWordEmbeddings",
+      "file": "pages/Language/Exercises/AutoencoderWordEmbeddings.md",
+      "title": "Train Your Own Word Embeddings With Autoencoders",
+      "bytes": 26978
+    },
+    {
+      "doc": "Language/Exercises/BagOfWords",
+      "file": "pages/Language/Exercises/BagOfWords.md",
+      "title": "Encoding Text Documents to Numerical Representations",
+      "bytes": 32081
+    },
+    {
+      "doc": "Language/Exercises/FunWithWordEmbeddings",
+      "file": "pages/Language/Exercises/FunWithWordEmbeddings.md",
+      "title": "Fun With Word Embeddings",
+      "bytes": 9885
+    },
+    {
+      "doc": "Language/Exercises/LanguageModels",
+      "file": "pages/Language/Exercises/LanguageModels.md",
+      "title": "Language Models",
+      "bytes": 23074
+    },
+    {
+      "doc": "Language/Exercises/LinearAutoencoder",
+      "file": "pages/Language/Exercises/LinearAutoencoder.md",
+      "title": "Introduction to Autoencoders",
+      "bytes": 10509
+    },
+    {
+      "doc": "Language/Exercises/ManuallyTrainingSimpleRNN",
+      "file": "pages/Language/Exercises/ManuallyTrainingSimpleRNN.md",
+      "title": "Manually Training a Simple RNN for the Even Odd Problem",
+      "bytes": 15640
+    },
+    {
+      "doc": "Language/Exercises/MyGradSimpleCellRNN",
+      "file": "pages/Language/Exercises/MyGradSimpleCellRNN.md",
+      "title": "Simple RNN Cell in MyGrad",
+      "bytes": 24406
+    },
+    {
+      "doc": "Language/Exercises/NotebookOfFailure",
+      "file": "pages/Language/Exercises/NotebookOfFailure.md",
+      "title": "Notebook of Failure",
+      "bytes": 8817
+    },
+    {
+      "doc": "Language/Exercises/NotebookOfFailureRedux",
+      "file": "pages/Language/Exercises/NotebookOfFailureRedux.md",
+      "title": "Notebook of Failure Redux",
+      "bytes": 16042
+    },
+    {
+      "doc": "Language/Exercises/Seq2SeqModels",
+      "file": "pages/Language/Exercises/Seq2SeqModels.md",
+      "title": "Seq2Seq Models",
+      "bytes": 41217
+    },
+    {
+      "doc": "Language/Exercises/Transformers",
+      "file": "pages/Language/Exercises/Transformers.md",
+      "title": "Transformers",
+      "bytes": 61192
+    },
+    {
+      "doc": "Language/NLP",
+      "file": "pages/Language/NLP.md",
+      "title": "Natural Language Processing",
+      "bytes": 13049
+    },
+    {
+      "doc": "Language/RNN",
+      "file": "pages/Language/RNN.md",
+      "title": "RNNs",
+      "bytes": 10171
+    },
+    {
+      "doc": "Language/SemanticImageSearch",
+      "file": "pages/Language/SemanticImageSearch.md",
+      "title": "Language Module Capstone: Semantic Image Search",
+      "bytes": 29987
+    },
+    {
+      "doc": "Language/WordEmbeddings",
+      "file": "pages/Language/WordEmbeddings.md",
+      "title": "Word Embeddings and Autoencoders",
+      "bytes": 10460
+    },
+    {
+      "doc": "Language/prereqs",
+      "file": "pages/Language/prereqs.md",
+      "title": "Prerequisites",
+      "bytes": 2430
+    },
+    {
+      "doc": "Math_Materials/Chain_Rule",
+      "file": "pages/Math_Materials/Chain_Rule.md",
+      "title": "Chain Rule",
+      "bytes": 17438
+    },
+    {
+      "doc": "Math_Materials/ComplexNumbers",
+      "file": "pages/Math_Materials/ComplexNumbers.md",
+      "title": "Complex Numbers",
+      "bytes": 32391
+    },
+    {
+      "doc": "Math_Materials/Functions",
+      "file": "pages/Math_Materials/Functions.md",
+      "title": "Functions",
+      "bytes": 13476
+    },
+    {
+      "doc": "Math_Materials/Intro_Calc",
+      "file": "pages/Math_Materials/Intro_Calc.md",
+      "title": "Introduction to Single-Variable Calculus",
+      "bytes": 28424
+    },
+    {
+      "doc": "Math_Materials/LinearAlgebra",
+      "file": "pages/Math_Materials/LinearAlgebra.md",
+      "title": "Fundamentals of Linear Algebra",
+      "bytes": 38134
+    },
+    {
+      "doc": "Math_Materials/Multivariable_Calculus",
+      "file": "pages/Math_Materials/Multivariable_Calculus.md",
+      "title": "Multivariable Calculus: Partial Derivatives &amp; Gradients",
+      "bytes": 25556
+    },
+    {
+      "doc": "Math_Materials/Series",
+      "file": "pages/Math_Materials/Series.md",
+      "title": "Sequences and Summations",
+      "bytes": 9696
+    },
+    {
+      "doc": "Video/Automatic_Differentiation",
+      "file": "pages/Video/Automatic_Differentiation.md",
+      "title": "Automatic Differentiation",
+      "bytes": 61712
+    },
+    {
+      "doc": "Video/Exercises/Activation_Functions",
+      "file": "pages/Video/Exercises/Activation_Functions.md",
+      "title": "Activation Functions",
+      "bytes": 11378
+    },
+    {
+      "doc": "Video/Exercises/Autodiff_and_Grad_Descent",
+      "file": "pages/Video/Exercises/Autodiff_and_Grad_Descent.md",
+      "title": "Automatic Differentiation at a Glance",
+      "bytes": 37509
+    },
+    {
+      "doc": "Video/Exercises/Cifar10MyGrad",
+      "file": "pages/Video/Exercises/Cifar10MyGrad.md",
+      "title": "Training a Two-Layer Neural Network on Cifar-10",
+      "bytes": 18691
+    },
+    {
+      "doc": "Video/Exercises/Data_Exploration",
+      "file": "pages/Video/Exercises/Data_Exploration.md",
+      "title": "Exercises: Exploring A Dataset",
+      "bytes": 13381
+    },
+    {
+      "doc": "Video/Exercises/Linear_Regression_Exercise",
+      "file": "pages/Video/Exercises/Linear_Regression_Exercise.md",
+      "title": "Exercises: Fitting a Linear Model with Gradient Descent",
+      "bytes": 48715
+    },
+    {
+      "doc": "Video/Exercises/MyGradMnist",
+      "file": "pages/Video/Exercises/MyGradMnist.md",
+      "title": "Classifying MNIST with Le-Net (MyGrad and MyNN)",
+      "bytes": 15640
+    },
+    {
+      "doc": "Video/Exercises/TendrilClassification",
+      "file": "pages/Video/Exercises/TendrilClassification.md",
+      "title": "Our Model",
+      "bytes": 25108
+    },
+    {
+      "doc": "Video/Exercises/TendrilClassificationMyNN",
+      "file": "pages/Video/Exercises/TendrilClassificationMyNN.md",
+      "title": "MyNN Implementation for Tendril Classification",
+      "bytes": 15353
+    },
+    {
+      "doc": "Video/Exercises/UniversalFunctionApprox",
+      "file": "pages/Video/Exercises/UniversalFunctionApprox.md",
+      "title": "Training a Universal Function Approximator",
+      "bytes": 32244
+    },
+    {
+      "doc": "Video/Exercises/WritingCNNOperations",
+      "file": "pages/Video/Exercises/WritingCNNOperations.md",
+      "title": "Neural Network Operations: Convolution and Pooling",
+      "bytes": 14938
+    },
+    {
+      "doc": "Video/Exercises/old/ClimbingMountains",
+      "file": "pages/Video/Exercises/old/ClimbingMountains.md",
+      "title": "Climbing Down Mountains with MyGrad",
+      "bytes": 10471
+    },
+    {
+      "doc": "Video/Exercises/old/MyGradIntroduction",
+      "file": "pages/Video/Exercises/old/MyGradIntroduction.md",
+      "title": "Introduction to MyGrad",
+      "bytes": 11450
+    },
+    {
+      "doc": "Video/FacialRecognition",
+      "file": "pages/Video/FacialRecognition.md",
+      "title": "Vision Module Capstone",
+      "bytes": 13655
+    },
+    {
+      "doc": "Video/Gradient_Descent",
+      "file": "pages/Video/Gradient_Descent.md",
+      "title": "Gradient-Based Learning",
+      "bytes": 49494
+    },
+    {
+      "doc": "Video/Linear_Regression",
+      "file": "pages/Video/Linear_Regression.md",
+      "title": "Baby Steps Towards Machine Learning: Linear Regression",
+      "bytes": 32236
+    },
+    {
+      "doc": "Video/Supervised_Learning_and_Modeling",
+      "file": "pages/Video/Supervised_Learning_and_Modeling.md",
+      "title": "Supervised Learning Using Gradient Descent",
+      "bytes": 16245
+    },
+    {
+      "doc": "Video/What_Does_Learning_Mean",
+      "file": "pages/Video/What_Does_Learning_Mean.md",
+      "title": "Moving Towards Deep Learning",
+      "bytes": 8415
+    },
+    {
+      "doc": "Video/Whispers",
+      "file": "pages/Video/Whispers.md",
+      "title": "Whispers Algorithm",
+      "bytes": 20199
+    },
+    {
+      "doc": "Video/intro_ml",
+      "file": "pages/Video/intro_ml.md",
+      "title": "A Brief Introduction to Machine Learning",
+      "bytes": 6751
+    },
+    {
+      "doc": "Video/ml_modeling_discussion",
+      "file": "pages/Video/ml_modeling_discussion.md",
+      "title": "Towards Neural Networks: The Modeling Problem",
+      "bytes": 10942
+    },
+    {
+      "doc": "Video/prereqs",
+      "file": "pages/Video/prereqs.md",
+      "title": "Prerequisites",
+      "bytes": 3694
+    },
+    {
+      "doc": "Video/t_out/Activation_Functions_STUDENT",
+      "file": "pages/Video/t_out/Activation_Functions_STUDENT.ipynb",
+      "title": "Activation Functions",
+      "bytes": 15204
+    },
+    {
+      "doc": "Video/t_out/Autodiff_and_Grad_Descent_STUDENT",
+      "file": "pages/Video/t_out/Autodiff_and_Grad_Descent_STUDENT.ipynb",
+      "title": "Automatic Differentiation at a Glance",
+      "bytes": 51318
+    },
+    {
+      "doc": "Video/t_out/Cifar10MyGrad_STUDENT",
+      "file": "pages/Video/t_out/Cifar10MyGrad_STUDENT.ipynb",
+      "title": "Training a Two-Layer Neural Network on Cifar-10",
+      "bytes": 23295
+    },
+    {
+      "doc": "Video/t_out/ClimbingMountains_STUDENT",
+      "file": "pages/Video/t_out/ClimbingMountains_STUDENT.ipynb",
+      "title": "Climbing Down Mountains with MyGrad",
+      "bytes": 14517
+    },
+    {
+      "doc": "Video/t_out/Data_Exploration_STUDENT",
+      "file": "pages/Video/t_out/Data_Exploration_STUDENT.ipynb",
+      "title": "Exercises: Exploring A Dataset",
+      "bytes": 16720
+    },
+    {
+      "doc": "Video/t_out/Linear_Regression_Exercise_STUDENT",
+      "file": "pages/Video/t_out/Linear_Regression_Exercise_STUDENT.ipynb",
+      "title": "Exercises: Fitting a Linear Model with Gradient Descent",
+      "bytes": 60054
+    },
+    {
+      "doc": "Video/t_out/MyGradIntroduction_STUDENT",
+      "file": "pages/Video/t_out/MyGradIntroduction_STUDENT.ipynb",
+      "title": "Introduction to MyGrad",
+      "bytes": 15103
+    },
+    {
+      "doc": "Video/t_out/MyGradMnist_STUDENT",
+      "file": "pages/Video/t_out/MyGradMnist_STUDENT.ipynb",
+      "title": "Classifying MNIST with Le-Net (MyGrad and MyNN)",
+      "bytes": 21751
+    },
+    {
+      "doc": "Video/t_out/TendrilClassificationMyNN_STUDENT",
+      "file": "pages/Video/t_out/TendrilClassificationMyNN_STUDENT.ipynb",
+      "title": "MyNN Implementation for Tendril Classification",
+      "bytes": 21903
+    },
+    {
+      "doc": "Video/t_out/TendrilClassification_STUDENT",
+      "file": "pages/Video/t_out/TendrilClassification_STUDENT.ipynb",
+      "title": "Our Model",
+      "bytes": 31524
+    },
+    {
+      "doc": "Video/t_out/UniversalFunctionApprox_STUDENT",
+      "file": "pages/Video/t_out/UniversalFunctionApprox_STUDENT.ipynb",
+      "title": "Training a Universal Function Approximator",
+      "bytes": 36449
+    },
+    {
+      "doc": "Video/t_out/WritingCNNOperations_STUDENT",
+      "file": "pages/Video/t_out/WritingCNNOperations_STUDENT.ipynb",
+      "title": "Neural Network Operations: Convolution and Pooling",
+      "bytes": 20804
+    },
+    {
+      "doc": "audio",
+      "file": "pages/audio.md",
+      "title": "Audio Module",
+      "bytes": 4882
+    },
+    {
+      "doc": "cheat_sheet",
+      "file": "pages/cheat_sheet.rst",
+      "title": "Cheat Sheets",
+      "bytes": 169
+    },
+    {
+      "doc": "index",
+      "file": "pages/index.rst",
+      "title": "CogWorks",
+      "bytes": 2567
+    },
+    {
+      "doc": "intro",
+      "file": "pages/intro.rst",
+      "title": "CogWorks",
+      "bytes": 2295
+    },
+    {
+      "doc": "language",
+      "file": "pages/language.rst",
+      "title": "Language Module",
+      "bytes": 236
+    },
+    {
+      "doc": "pre_reqs",
+      "file": "pages/pre_reqs.rst",
+      "title": "Course Pre-Requisites",
+      "bytes": 1391
+    },
+    {
+      "doc": "supplemental_math",
+      "file": "pages/supplemental_math.rst",
+      "title": "Supplemental Math Materials",
+      "bytes": 521
+    },
+    {
+      "doc": "vision",
+      "file": "pages/vision.md",
+      "title": "Vision Module",
+      "bytes": 5349
+    }
+  ],
+  "images": [
+    "1d_peaks.png",
+    "AI.png",
+    "BP_ET_minor_log_spectrum.png",
+    "BP_ET_minor_spectrogram.png",
+    "BP_ET_minor_waveform_and_spectrum.png",
+    "DFT_sampling.png",
+    "ML.png",
+    "RNN_BPTT.png",
+    "RNN_graph.png",
+    "Spherical_pressure_waves.gif",
+    "adj_mat_weighted.png",
+    "adj_matrix.png",
+    "analog_to_digital_overview.png",
+    "annotated_spherical_wave.png",
+    "audio_fig_intro.png",
+    "bag_of_words.png",
+    "block_of_clay.png",
+    "capstone_diagram.png",
+    "cat_pixels.png",
+    "clap_diagram.png",
+    "clap_waveform.png",
+    "complex_numbers_eulers_formula.png",
+    "complex_numbers_imaginary_vector.png",
+    "cubic_fourier_spectrum.png",
+    "cubic_fourier_top3.png",
+    "cubic_fourier_top500.png",
+    "efield_overview.png",
+    "face_rec_example.png",
+    "facenet_diagram.png",
+    "fingerprint_fanout.png",
+    "fs_2_Nb_3.png",
+    "function_sine_blocky.png",
+    "function_sine_graph.png",
+    "function_sine_smooth.png",
+    "grad_desc_fine_tuned_analysis.png",
+    "grad_desc_order_of_mag_analysis.png",
+    "gradient_descent_overview.png",
+    "graph.png",
+    "induction_diagram.png",
+    "intro_calc_inst_slope.png",
+    "intro_calc_xeqsinx.png",
+    "intro_calc_xlnx.png",
+    "least_squares_model.png",
+    "least_squares_residual.png",
+    "linear_algebra_34vec.png",
+    "linear_algebra_antvec.png",
+    "linear_algebra_dotprods.png",
+    "linear_algebra_enhancedvectriangle.png",
+    "linear_algebra_obtusedotprod.png",
+    "linear_algebra_parvec.png",
+    "linear_algebra_perpvec.png",
+    "linear_algebra_scalarmult.png",
+    "linear_algebra_triangle.png",
+    "linear_algebra_vectoradd.png",
+    "linear_algebra_vectorsub.png",
+    "linear_algebra_vectriangle.png",
+    "local_peaks_example.png",
+    "manual_computer_program.png",
+    "meerkat_edges.png",
+    "mic_diagram.png",
+    "ml_computer_program.png",
+    "ml_task_overview.png",
+    "model_output_cat.png",
+    "molecules_in_box.png",
+    "multivar_directional_deriv.png",
+    "multivar_func.png",
+    "multivar_gradient_plot.png",
+    "multivar_intersection.png",
+    "multivar_singlevar_plot.png",
+    "multivar_sloping-valley.png",
+    "mygrad_graph.png",
+    "nand_or.png",
+    "nlp-cap-data.png",
+    "nlp-cap-intro-search.png",
+    "nlp-cap-model.png",
+    "nlp-cap-searching.png",
+    "nlp-cap-text.png",
+    "nlp-cap-training.png",
+    "nlp-day2-cbow.png",
+    "nlp-day2-fig1.png",
+    "nlp-day2-fig2.png",
+    "nlp-day2-fig4.png",
+    "nlp-day2-glove.png",
+    "nlp-day2-onehot.png",
+    "nlp-day2-predictnextword.png",
+    "nlp-day2-skipgram.png",
+    "observation_to_prediction.png",
+    "outliers.png",
+    "parabola_descent.png",
+    "paraboloid_descent.png",
+    "plateaus.png",
+    "plot_func_and_deriv.png",
+    "pressure_to_voltage.png",
+    "quadratic_bowl.png",
+    "quantized_sine.png",
+    "sequence_tagging.png",
+    "songfp_diagram.png",
+    "spectrogram_peaks_only.png",
+    "superposition_plot.png",
+    "supervised_learning.png",
+    "temporal_samples.png",
+    "text_analysis.png",
+    "trumpet_spectrum.png",
+    "trumpet_waveform.png",
+    "vision_capstone_cos_dist.png",
+    "vision_capstone_database.png",
+    "vision_capstone_matching.png",
+    "vision_capstone_overview.png",
+    "vision_module_overview.png",
+    "waveform_to_spectrum_illustration.png",
+    "whispers_initial.png",
+    "whispers_result.png",
+    "whispers_step1.png",
+    "whispers_step2.png",
+    "whispers_step3.png",
+    "whispers_weighted_result.png",
+    "whispers_weighted_step1.png",
+    "whispers_weighted_step2.png",
+    "whispers_weighted_step3.png",
+    "wingspan_vs_height.png",
+    "xor.png",
+    "xor_bounded.png",
+    "xor_explained.png",
+    "xor_with_nand_or.png",
+    "zipfs_law.png"
+  ],
+  "failed": []
+}
