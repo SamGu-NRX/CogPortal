@@ -147,6 +147,22 @@ export const teams = sqliteTable(
   ],
 );
 
+/**
+ * What we have already told a team, so the five-minute cron says a thing once.
+ * The kind is part of the key: a team should still hear a different
+ * observation later, but never the same sentence twice.
+ */
+export const teamNudges = sqliteTable(
+  "team_nudges",
+  {
+    teamId: text("team_id").notNull().references(() => teams.id),
+    kind: text("kind").notNull(),
+    sentAt: integer("sent_at").notNull(),
+    detail: text("detail"),
+  },
+  (table) => [primaryKey({ columns: [table.teamId, table.kind] })],
+);
+
 export const teamMembers = sqliteTable(
   "team_members",
   {

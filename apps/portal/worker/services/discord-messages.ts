@@ -11,6 +11,7 @@ import {
   linkButton,
   section,
   separator,
+  surface,
   text,
   type DiscordButton,
   type DiscordContainerChild,
@@ -272,4 +273,30 @@ export async function syncRunSurfaceMessage(env: Env, snapshot: RunSurfaceSnapsh
   if (!/^\d{10,24}$/.test(created.id)) throw new Error("Discord returned an invalid message ID.");
   await db.update(runSurfaces).set({ discordMessageId: created.id }).where(eq(runSurfaces.id, surface.id));
   return "created";
+}
+
+/**
+ * Post a plain message into a team's channel.
+ *
+ * Separate from `syncRunSurfaceMessage`, which edits one message in place for
+ * the lifetime of a run. This posts once and never comes back to it, which is
+ * what an observation about the team rather than about a run should do.
+ *
+ * The caller owns not sending the same thing twice; there is no nonce here
+ * because these are not retried.
+ */
+export async function postTeamMessage(
+  env: Env,
+  channelId: string,
+  body: string,
+): Promise<void> {
+  await discordRequest<DiscordMessage>(
+    env,
+    "POST",
+    `/channels/${encodeURIComponent(channelId)}/messages`,
+    {
+      flags: IS_COMPONENTS_V2,
+      components: [surface([text(body)], ACCENT_INK)],
+    },
+  );
 }

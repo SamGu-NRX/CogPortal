@@ -2,6 +2,7 @@ import { and, eq, inArray, lt } from "drizzle-orm";
 import type { RunPhase } from "@cogworks/contracts/schema";
 import type { Env } from "../env";
 import { getDb } from "../db/client";
+import { deliverTeamNudges } from "../services/team-nudges";
 import {
   accountLinkTokens,
   deviceAuthorizations,
@@ -103,4 +104,14 @@ export async function maintainPlatform(env: Env, now = Date.now()): Promise<void
     db.delete(accountLinkTokens).where(lt(accountLinkTokens.expiresAt, now)),
     db.delete(deviceAuthorizations).where(lt(deviceAuthorizations.expiresAt, now)),
   ]);
+
+  // Anything the portal noticed about a team that is worth saying in their
+  // channel. Last, and swallowing its own failure, because Discord being
+  // unreachable must not stop the stale-run repair above from running on the
+  // next tick.
+  try {
+    await deliverTeamNudges(env, now);
+  } catch {
+    // The next tick tries again; nothing here is time-critical.
+  }
 }
