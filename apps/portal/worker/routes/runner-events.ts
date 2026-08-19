@@ -116,7 +116,10 @@ async function applyEvent(env: AppEnv["Bindings"], event: RunEventV1): Promise<v
     // reason for it, which is the failure mode the course ethos rules out.
     await db
       .update(runs)
-      .set({ diagnosticsJson: JSON.stringify(event.result.diagnostics ?? []) })
+      .set({
+        diagnosticsJson: JSON.stringify(event.result.diagnostics ?? []),
+        sweepJson: event.result.sweep ? JSON.stringify(event.result.sweep) : null,
+      })
       .where(eq(runs.id, run.id));
     for (const metric of event.result.metrics) {
       await db

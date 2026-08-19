@@ -1,6 +1,7 @@
 import { and, asc, eq } from "drizzle-orm";
 import {
   RUN_PHASES,
+  RunDetailSchema,
   type Benchmark,
   type Metric,
   type RunDetail,
@@ -139,6 +140,7 @@ export async function serializeRunDetail(
     // Unlike the log, diagnostics are safe on official runs: they describe the
     // submission's own output shape, never the hidden data.
     diagnostics: parseDiagnostics(row.diagnosticsJson),
+    sweep: parseSweep(row.sweepJson),
     log: row.mode === "practice" ? row.log : null,
     selected: selection[0]?.runId === row.id,
   };
@@ -154,5 +156,19 @@ function parseDiagnostics(value: string | null): string[] {
     return parsed.filter((item): item is string => typeof item === "string").slice(0, 32);
   } catch {
     return [];
+  }
+}
+
+/** Same tolerance as `parseDiagnostics`: a malformed sweep costs the curve,
+ *  never the page. Validated against the schema rather than trusted, because
+ *  this is stored JSON and a shape change would otherwise reach the browser
+ *  as a render crash. */
+function parseSweep(value: string | null): RunDetail["sweep"] {
+  if (!value) return null;
+  try {
+    const parsed = RunDetailSchema.shape.sweep.safeParse(JSON.parse(value));
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
   }
 }

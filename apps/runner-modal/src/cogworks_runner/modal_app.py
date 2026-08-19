@@ -1343,6 +1343,42 @@ def _v2_metrics(benchmark: Any, outputs: List[Any], cases: List[Any]) -> Tuple[L
     return metrics, list(getattr(benchmark, "last_diagnostics", []))
 
 
+def _sweep_wire(benchmark):
+    """The plugin's difficulty sweep, in the shape the protocol expects.
+
+    A plugin publishes `last_sweep` after `score()` when its benchmark has a
+    difficulty knob worth turning; the rest leave the attribute absent and get
+    `None` here. `sweep_axis_label` names the knob in the course's own words,
+    since the run page draws an axis it cannot otherwise name.
+
+    Fewer than two points is not a curve, and one point drawn as a curve would
+    claim a trend from a single measurement.
+    """
+
+    points = getattr(benchmark, "last_sweep", None) or []
+    if len(points) < 2:
+        return None
+    # Each benchmark names its own knob, so read the keys the plugin declares
+    # rather than Week 1's. A plugin that grew a sweep without declaring them
+    # gets no curve instead of a wrong one.
+    x_key = getattr(benchmark, "sweep_x_key", None)
+    y_key = getattr(benchmark, "sweep_y_key", None)
+    if not x_key or not y_key:
+        return None
+    try:
+        wire = [
+            {"x": float(point[x_key]), "y": float(point[y_key])}
+            for point in points[:24]
+        ]
+    except (KeyError, TypeError, ValueError):
+        return None
+    return {
+        "axis": getattr(benchmark, "sweep_axis_label", "difficulty"),
+        "metric": benchmark.primary_metric,
+        "points": wire,
+    }
+
+
 @app.function(
     image=controller_image,
     secrets=[runner_secret],
@@ -1420,6 +1456,9 @@ def execute_job(job_value: Dict[str, Any]) -> None:
             "diagnostics": [str(item)[:240] for item in diagnostics[:32]],
             "outputDigest": output_digest,
         }
+        sweep = _sweep_wire(benchmark)
+        if sweep:
+            result["sweep"] = sweep
         reporter.event(
             "completed",
             result=result,

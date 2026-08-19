@@ -1,7 +1,8 @@
 import { Finding } from "@/components/Finding";
 import { Panel } from "@/components/Panel";
 import { PrimaryMetric, SupportingMetrics } from "@/components/MetricBlock";
-import type { Metric } from "@cogworks/contracts/schema";
+import { SweepTrace } from "@/components/SweepTrace";
+import type { Metric, RunDetail as RunDetailType } from "@cogworks/contracts/schema";
 
 /**
  * Every state of the surfaces that are hard to reach, on one page.
@@ -106,6 +107,62 @@ const CASES: { title: string; note: string; sentence: string; supporting: string
   },
 ];
 
+const SWEEPS: { title: string; note: string; sweep: NonNullable<RunDetailType["sweep"]> }[] = [
+  {
+    title: "A knee",
+    note: "Holds, then breaks. The shape the course's own method is looking for.",
+    sweep: {
+      axis: "songs in the library",
+      metric: "identification_score",
+      points: [
+        { x: 5, y: 0.9 },
+        { x: 10, y: 0.88 },
+        { x: 20, y: 0.85 },
+        { x: 40, y: 0.42 },
+        { x: 80, y: 0.21 },
+      ],
+    },
+  },
+  {
+    title: "The measured reference",
+    note: "Real numbers from the Week 1 reference on the 30-song tier. A gentle slope, no knee.",
+    sweep: {
+      axis: "songs in the library",
+      metric: "identification_score",
+      points: [
+        { x: 5, y: 0.6 },
+        { x: 10, y: 0.5625 },
+        { x: 20, y: 0.5312 },
+        { x: 30, y: 0.5208 },
+      ],
+    },
+  },
+  {
+    title: "Flat at zero",
+    note: "Nothing worked. The trace must not imply a trend; the axis stays pinned to 0..1.",
+    sweep: {
+      axis: "songs in the library",
+      metric: "identification_score",
+      points: [
+        { x: 5, y: 0 },
+        { x: 30, y: 0 },
+      ],
+    },
+  },
+  {
+    title: "Two points",
+    note: "The minimum. Fewer than two returns null and draws nothing.",
+    sweep: {
+      axis: "captions per image",
+      metric: "overall",
+      points: [
+        { x: 1, y: 0.71 },
+        { x: 5, y: 0.44 },
+      ],
+    },
+  },
+];
+
 export function GalleryPage() {
   return (
     <div className="mx-auto w-full max-w-4xl py-10">
@@ -121,6 +178,17 @@ export function GalleryPage() {
           <p className="mb-2 text-[13px] text-ink-faint">{example.note}</p>
           <Panel>
             <Finding sentence={example.sentence} supporting={example.supporting} />
+          </Panel>
+        </section>
+      ))}
+
+      <h2 className="mt-12 font-serif text-xl font-semibold text-ink">Sweep trace</h2>
+      {SWEEPS.map((example) => (
+        <section key={example.title} className="mt-6">
+          <div className="u-kicker">{example.title}</div>
+          <p className="mb-2 text-[13px] text-ink-faint">{example.note}</p>
+          <Panel>
+            <SweepTrace sweep={example.sweep} />
           </Panel>
         </section>
       ))}

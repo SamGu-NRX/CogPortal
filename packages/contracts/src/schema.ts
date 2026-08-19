@@ -137,6 +137,30 @@ export const RunDetailSchema = RunSummarySchema.extend({
   /** The scorer's own notes on this run: which component scored zero and why.
    *  Safe for official runs; they describe the submission, never the data. */
   diagnostics: z.array(z.string().max(240)).max(32),
+  /**
+   * How the score moved as the benchmark's difficulty knob turned. Null when
+   * the benchmark has no such knob, or when the run predates the sweep.
+   *
+   * Shape mirrors the runner protocol's `SweepSchema` rather than importing
+   * it, because this file describes what the browser receives and that one
+   * describes what the sandbox sends; they are allowed to drift.
+   */
+  sweep: z
+    .object({
+      axis: z.string().max(60),
+      metric: z.string().max(60),
+      points: z
+        .array(
+          z.object({
+            x: z.number(),
+            y: z.number(),
+            label: z.string().max(40).optional(),
+          }),
+        )
+        .max(24),
+    })
+    .nullable()
+    .default(null),
   /** Capped install/eval log. Practice runs only; null for official (§5). */
   log: z.string().nullable(),
   /** Official runs: currently published on the leaderboard. */

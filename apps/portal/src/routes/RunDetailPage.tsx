@@ -8,6 +8,7 @@ import { LoadingMark, QueryError } from "@/components/Feedback";
 import { LogView } from "@/components/LogView";
 import { Finding } from "@/components/Finding";
 import { PrimaryMetric, SupportingMetrics } from "@/components/MetricBlock";
+import { SweepTrace } from "@/components/SweepTrace";
 import { Panel } from "@/components/Panel";
 import { PhaseRail } from "@/components/PhaseRail";
 import { ShaChip } from "@/components/ShaChip";
@@ -186,12 +187,19 @@ export function RunDetailPage() {
               already knows: its first diagnostic names the stage and the
               cause. The number is below, where a reading sits under the trace
               that explains it. */}
-          {run.diagnostics.length > 0 && (
+          {(run.diagnostics.length > 0 || run.sweep) && (
             <Panel className="mt-4">
-              <Finding
-                sentence={run.diagnostics[0]}
-                supporting={run.diagnostics.slice(1)}
-              />
+              {run.diagnostics.length > 0 && (
+                <Finding
+                  sentence={run.diagnostics[0]}
+                  supporting={run.diagnostics.slice(1)}
+                />
+              )}
+              {run.sweep && (
+                <div className={run.diagnostics.length > 0 ? "mt-5 border-t border-rule-soft pt-4" : ""}>
+                  <SweepTrace sweep={run.sweep} />
+                </div>
+              )}
             </Panel>
           )}
           <Panel label="RESULTS" className="mt-4">

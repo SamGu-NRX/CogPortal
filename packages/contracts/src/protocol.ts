@@ -20,12 +20,37 @@ export const ProtocolMetricSchema = z.object({
   help: z.string().max(600).optional(),
 });
 
+/**
+ * One point on a benchmark's difficulty sweep.
+ *
+ * The course teaches a sweep rather than a single measurement: grow the
+ * library, watch where performance degrades. `axis` names what was varied in
+ * the course's own words ("songs in the library"), because the knob differs
+ * per benchmark and the run page should not have to know which is which.
+ */
+export const SweepPointSchema = z.object({
+  x: z.number(),
+  y: z.number().min(0).max(1),
+  label: z.string().max(40).optional(),
+});
+
+export const SweepSchema = z.object({
+  axis: z.string().min(1).max(60),
+  metric: z.string().min(1).max(60),
+  points: z.array(SweepPointSchema).min(2).max(24),
+});
+
 export const BenchmarkResultV1Schema = z.object({
   protocolVersion: RunnerProtocolVersionSchema,
   benchmarkId: z.string().min(1).max(120),
   benchmarkVersion: z.number().int().positive(),
   metrics: z.array(ProtocolMetricSchema).min(1).max(32),
   diagnostics: z.array(z.string().max(240)).max(32),
+  /**
+   * Optional: a benchmark whose difficulty has no natural knob omits it, and
+   * the run page shows the metric grid alone rather than an empty axis.
+   */
+  sweep: SweepSchema.optional(),
   outputDigest: z.string().regex(/^[a-f0-9]{64}$/),
 });
 export type BenchmarkResultV1 = z.infer<typeof BenchmarkResultV1Schema>;
