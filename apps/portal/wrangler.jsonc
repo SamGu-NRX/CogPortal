@@ -99,7 +99,13 @@
   //      DISCORD_BOT_TOKEN, DISCORD_CLIENT_SECRET, ACTIVITY_SESSION_SECRET,
   //      PLATFORM_OWNER_LOGINS, RUNNER_SIGNING_SECRET —
   //      via `wrangler secret put <NAME> --env production`.
-  //   4. Confirm the prod Discord app / activity domain values below.
+  //   4. Set the BWSI CogWorks 2026 staff roster (GitHub logins, matched
+  //      case-insensitively). Owners count as staff automatically; a TA for
+  //      one team is a team_tas row, not an entry here:
+  //        PLATFORM_OWNER_LOGINS="SamGu-NRX,iReynaldo"
+  //        PLATFORM_STAFF_LOGINS="alihanisarr,carti4ce,r-sxnchez,jayashabarishankar,SamGu-NRX"
+  //      Refresh this at the start of each cohort.
+  //   5. Confirm the prod Discord app / activity domain values below.
   // ─────────────────────────────────────────────────────────────────────────
   "env": {
     "production": {

@@ -499,6 +499,13 @@ export const runMetrics = sqliteTable(
     higherIsBetter: integer("higher_is_better", { mode: "boolean" }).notNull(),
     isPrimary: integer("is_primary", { mode: "boolean" }).notNull(),
     precision: integer("precision").notNull(),
+    /**
+     * What this metric measures, in the course's vocabulary. Stored per run
+     * rather than per benchmark on purpose: the explanation belongs to the
+     * scorer version that produced the number, so an old run keeps the words
+     * that were true when it ran.
+     */
+    help: text("help"),
   },
   (table) => [primaryKey({ columns: [table.runId, table.key] })],
 );

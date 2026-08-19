@@ -130,6 +130,7 @@ async function applyEvent(env: AppEnv["Bindings"], event: RunEventV1): Promise<v
           higherIsBetter: metric.higherIsBetter,
           isPrimary: metric.primary,
           precision: metric.precision,
+          help: metric.help ?? null,
         })
         .onConflictDoUpdate({
           target: [runMetrics.runId, runMetrics.key],
@@ -140,6 +141,7 @@ async function applyEvent(env: AppEnv["Bindings"], event: RunEventV1): Promise<v
             higherIsBetter: metric.higherIsBetter,
             isPrimary: metric.primary,
             precision: metric.precision,
+            help: metric.help ?? null,
           },
         });
     }

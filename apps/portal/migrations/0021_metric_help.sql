@@ -1,0 +1,14 @@
+-- What each metric measures, in the course's own vocabulary.
+--
+-- A run page that shows "Ranking failure rate 0.21" and nothing else is a
+-- black box: the number is only actionable if a student can tell that it
+-- means their fingerprints matched and their vote tally picked the wrong
+-- winner, and that the capstone's tally step is where to look.
+--
+-- Stored per run rather than per benchmark because the words belong to the
+-- scorer version that produced the number. Re-wording a metric later must not
+-- retroactively relabel what an old run measured.
+--
+-- Nullable: benchmarks that predate this send nothing, and their runs render
+-- exactly as before.
+ALTER TABLE run_metrics ADD COLUMN help TEXT;

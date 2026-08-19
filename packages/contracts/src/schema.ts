@@ -73,6 +73,12 @@ export const MetricSchema = z.object({
   primary: z.boolean(),
   /** display precision, number of decimal places */
   precision: z.number().int().min(0).max(6),
+  /**
+   * One or two sentences on what this measures, in the course's vocabulary,
+   * and which part of the capstone it corresponds to. Optional: benchmarks
+   * that predate it send nothing, and the UI shows no help affordance then.
+   */
+  help: z.string().nullish(),
 });
 export type Metric = z.infer<typeof MetricSchema>;
 

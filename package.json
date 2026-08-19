@@ -10,7 +10,7 @@
     "build": "pnpm -r --if-present build",
     "check": "pnpm -r --if-present check",
     "test": "pnpm -r --if-present test && pnpm test:python",
-    "test:python": "python3 -m unittest discover -s python/cogbench/tests -p 'test_*.py' && python3 -m unittest discover -s apps/runner-modal/tests -p 'test_*.py' && python3 template-catalog/validate.py && python3 scripts/validate_week2_submodule.py",
+    "test:python": "python3 -m unittest discover -s python/cogbench/tests -p 'test_*.py' && python3 -m unittest discover -s apps/runner-modal/tests -p 'test_*.py' && python3 template-catalog/validate.py && python3 scripts/validate_week2_submodule.py && python3 scripts/validate_week3_submodule.py && python3 scripts/validate_week1_submodule.py",
     "db:migrate:local": "pnpm --filter @cogworks/portal db:migrate:local",
     "deploy:portal": "pnpm --filter @cogworks/portal run deploy",
     "deploy:discord": "pnpm --filter @cogworks/discord-bot run deploy"

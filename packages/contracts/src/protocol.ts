@@ -11,6 +11,13 @@ export const ProtocolMetricSchema = z.object({
   higherIsBetter: z.boolean(),
   primary: z.boolean(),
   precision: z.number().int().min(0).max(6),
+  /**
+   * What this measures, in the course's own vocabulary, and which part of the
+   * capstone it corresponds to. Optional because plugins written before it
+   * exists do not send one; a metric with no explanation renders without the
+   * help affordance rather than with an empty one.
+   */
+  help: z.string().max(600).optional(),
 });
 
 export const BenchmarkResultV1Schema = z.object({

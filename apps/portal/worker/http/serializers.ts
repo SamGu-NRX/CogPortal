@@ -58,6 +58,7 @@ export function serializeMetric(row: typeof runMetrics.$inferSelect): Metric {
     higherIsBetter: row.higherIsBetter,
     primary: row.isPrimary,
     precision: row.precision,
+    help: row.help,
   };
 }
 

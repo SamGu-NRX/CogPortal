@@ -20,8 +20,15 @@ GITHUB_WEBHOOK_SECRET=""
 # Optional owner/repo allowlist for the course template.
 GITHUB_TEMPLATE_REPO=""
 GITHUB_TEMPLATE_REPO_ID=""
-PLATFORM_STAFF_LOGINS=""
-PLATFORM_OWNER_LOGINS=""
+# Course staff, BWSI CogWorks 2026 cohort. GitHub logins, matched
+# case-insensitively (auth/roles.ts). Owners are also staff by definition
+# (platformRole returns "staff" for either list), so an owner does not need
+# repeating in the staff list; SamGu-NRX appears in both because he is an
+# instructor and a TA. Being a TA for a specific team is a separate thing:
+# that lives in the team_tas table, not here.
+# Update this list at the start of each cohort.
+PLATFORM_STAFF_LOGINS="alihanisarr,carti4ce,r-sxnchez,jayashabarishankar,SamGu-NRX"
+PLATFORM_OWNER_LOGINS="SamGu-NRX,iReynaldo"
 
 # Discord service-binding policy and Modal runner callback signing.
 COURSE_GUILD_ID=""
