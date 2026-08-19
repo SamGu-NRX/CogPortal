@@ -542,13 +542,39 @@ def load_modules(
     return loaded, skipped, calls
 
 
+def _is_student_module(module: object, root: Path) -> bool:
+    """Whether this module was loaded out of the repository being searched."""
+
+    origin = getattr(module, "__file__", None)
+    if not origin:
+        return False
+    try:
+        Path(origin).resolve().relative_to(root)
+    except (ValueError, OSError):
+        return False
+    return True
+
+
 @contextlib.contextmanager
 def _entered(root: Path):
-    """Run with ``root`` as the working directory and first on the path."""
+    """Run with ``root`` as the working directory and first on the path.
+
+    Afterwards the student's own modules are evicted so a second repository in
+    the same process does not import a stale ``database``, and every other
+    module stays exactly where it was.
+
+    That second half is load-bearing rather than tidy. Evicting a third-party
+    module does not unload it: its C extension is still in the process, and the
+    next import re-runs the registration that extension already did. numba
+    answers with ``cannot augment Function(pos) with Function(pos)`` and soxr
+    aborts the interpreter outright with a nanobind duplicate-key error, which
+    is not something a caller can catch. Both were hit here, by student code
+    that does nothing stranger than importing librosa.
+    """
 
     previous_cwd = Path.cwd()
     previous_path = list(sys.path)
-    previous_modules = set(sys.modules)
+    before = set(sys.modules)
     os.chdir(root)
     sys.path.insert(0, str(root))
     try:
@@ -556,8 +582,10 @@ def _entered(root: Path):
     finally:
         os.chdir(previous_cwd)
         sys.path[:] = previous_path
-        for name in set(sys.modules) - previous_modules:
-            sys.modules.pop(name, None)
+        for name in set(sys.modules) - before:
+            module = sys.modules.get(name)
+            if module is not None and _is_student_module(module, root):
+                sys.modules.pop(name, None)
 
 
 def discover(
