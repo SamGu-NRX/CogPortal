@@ -20,10 +20,25 @@ import numpy as np
 BENCHMARK_ID = "language-search"
 
 
+def _verbatim_by_kind(cases: Sequence[Any]) -> Dict[str, Any]:
+    """One case per kind, taking the verbatim search case.
+
+    Several search cases share one kind, one per query rewrite. A plain
+    by-kind dict keeps whichever came last, which would silently make a
+    rewritten rung the scored component.
+    """
+
+    return {
+        getattr(case, "kind", "?"): case
+        for case in cases
+        if getattr(case, "rung", "verbatim") == "verbatim"
+    }
+
+
 def encode_payload(benchmark_id: str, cases: Sequence[Any], showcase: bool) -> bytes:
     if benchmark_id != BENCHMARK_ID:
         raise ValueError("Unsupported Week 3 benchmark.")
-    by_kind = {getattr(case, "kind", "?"): case for case in cases}
+    by_kind = _verbatim_by_kind(cases)
     text = by_kind["text"]
     retrieval = by_kind["retrieval"]
     search = by_kind["search"]
@@ -89,13 +104,36 @@ def decode_payload(payload: bytes) -> Tuple[str, bool, List[Any]]:
             tie_break_seed=seed,
         ),
     ]
+
+    # The rung queries are regenerated here rather than shipped. Each rewrite
+    # is a pure function of the caption and its position, so the sandbox
+    # derives byte-identical queries from what it already has, and the payload
+    # does not grow by one full query list per rung.
+    from language_search_benchmark import perturb
+
+    queries = [str(value) for value in metadata["queries"]]
+    for rung in perturb.RUNGS:
+        if rung == "verbatim":
+            continue
+        cases.append(
+            SearchCase(
+                kind="search",
+                queries=perturb.rewrite_all(queries, rung),
+                image_ids=[int(value) for value in metadata["pool_image_ids"]],
+                descriptors=np.asarray(descriptors, dtype=np.float32),
+                gold_image_ids=None,
+                k=int(metadata["search_k"]),
+                tie_break_seed=seed,
+                rung=rung,
+            )
+        )
     return benchmark_id, bool(metadata["showcase"]), cases
 
 
 def extract_gold(cases: Sequence[Any]) -> Dict[str, List[int]]:
     """The controller-side gold record written to the official volume."""
 
-    by_kind = {getattr(case, "kind", "?"): case for case in cases}
+    by_kind = _verbatim_by_kind(cases)
     text = by_kind["text"]
     retrieval = by_kind["retrieval"]
     search = by_kind["search"]
@@ -113,10 +151,13 @@ def extract_gold(cases: Sequence[Any]) -> Dict[str, List[int]]:
 
 
 def attach_gold(cases: Sequence[Any], gold: Dict[str, Sequence[int]]) -> List[Any]:
-    by_kind = {getattr(case, "kind", "?"): case for case in cases}
+    by_kind = _verbatim_by_kind(cases)
     text = by_kind["text"]
     retrieval = by_kind["retrieval"]
     search = by_kind["search"]
+    # Every rung shares the verbatim case's gold: the rewrites change the
+    # query text and nothing about which image is correct.
+    rungs = [c for c in cases if getattr(c, "rung", "verbatim") != "verbatim"]
     group_rows = [int(value) for value in gold["text_group_rows"]]
     gold_rows = [int(value) for value in gold["retrieval_gold_rows"]]
     gold_ids = [int(value) for value in gold["search_gold_image_ids"]]
@@ -128,4 +169,4 @@ def attach_gold(cases: Sequence[Any], gold: Dict[str, Sequence[int]]) -> List[An
         replace(text, group_rows=group_rows),
         replace(retrieval, gold_rows=gold_rows),
         replace(search, gold_image_ids=gold_ids),
-    ]
+    ] + [replace(case, gold_image_ids=gold_ids) for case in rungs]

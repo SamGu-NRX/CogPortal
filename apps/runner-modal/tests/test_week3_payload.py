@@ -124,3 +124,94 @@ class Week3PayloadTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RungCasesSurviveTheBoundary(unittest.TestCase):
+    """The query rewrites are regenerated in the sandbox rather than shipped.
+
+    Each rewrite is a pure function of the caption and its position, so the
+    sandbox can derive them from the queries it already has. Shipping them
+    would grow the payload by one full query list per rung for no gain, and
+    would let the two sides disagree.
+    """
+
+    def _cases(self):
+        from language_search_benchmark.datasets import SearchCase, TextCase, RetrievalCase
+
+        descriptors = np.zeros((3, 512), dtype=np.float32)
+        queries = ["A man riding a horse", "Two cats on a bed", "A red bus downtown"]
+        base = [
+            TextCase(kind="text", captions=list(queries), group_rows=[0, 1, 2], tie_break_seed=7),
+            RetrievalCase(
+                kind="retrieval", queries=list(queries), descriptors=descriptors,
+                gold_rows=[0, 1, 2], tie_break_seed=7,
+            ),
+            SearchCase(
+                kind="search", queries=list(queries), image_ids=[10, 11, 12],
+                descriptors=descriptors, gold_image_ids=[10, 11, 12], k=3, tie_break_seed=7,
+            ),
+        ]
+        from language_search_benchmark import perturb
+
+        base += [
+            SearchCase(
+                kind="search", queries=perturb.rewrite_all(queries, rung),
+                image_ids=[10, 11, 12], descriptors=descriptors,
+                gold_image_ids=[10, 11, 12], k=3, tie_break_seed=7, rung=rung,
+            )
+            for rung in perturb.RUNGS
+            if rung != "verbatim"
+        ]
+        return base
+
+    def test_the_sandbox_derives_the_same_queries_the_controller_built(self):
+        from cogworks_runner.week3_payload import decode_payload, encode_payload
+
+        cases = self._cases()
+        _id, _showcase, rebuilt = decode_payload(
+            encode_payload("language-search", cases, showcase=False)
+        )
+        controller = {c.rung: c.queries for c in cases if c.kind == "search"}
+        sandbox = {c.rung: c.queries for c in rebuilt if c.kind == "search"}
+        self.assertEqual(controller, sandbox)
+
+    def test_the_scored_component_is_the_verbatim_case_not_the_last_one(self):
+        """A plain by-kind dict keeps whichever search case came last, which
+        would silently make the typo rung the scored component."""
+
+        from cogworks_runner.week3_payload import decode_payload, encode_payload
+
+        cases = self._cases()
+        _id, _showcase, rebuilt = decode_payload(
+            encode_payload("language-search", cases, showcase=False)
+        )
+        verbatim = next(c for c in rebuilt if c.kind == "search" and c.rung == "verbatim")
+        self.assertEqual(verbatim.queries, ["A man riding a horse", "Two cats on a bed", "A red bus downtown"])
+
+    def test_no_rung_query_reaches_the_sandbox_carrying_gold(self):
+        from cogworks_runner.week3_payload import decode_payload, encode_payload
+
+        cases = self._cases()
+        _id, _showcase, rebuilt = decode_payload(
+            encode_payload("language-search", cases, showcase=False)
+        )
+        for case in rebuilt:
+            if case.kind == "search":
+                self.assertIsNone(case.gold_image_ids, "gold must not cross the boundary")
+
+    def test_attach_gold_gives_every_rung_the_same_answers(self):
+        """The rewrites change the query text, never which image is correct."""
+
+        from cogworks_runner.week3_payload import (
+            attach_gold, decode_payload, encode_payload, extract_gold,
+        )
+
+        cases = self._cases()
+        _id, _showcase, rebuilt = decode_payload(
+            encode_payload("language-search", cases, showcase=False)
+        )
+        restored = attach_gold(rebuilt, extract_gold(cases))
+        searches = [c for c in restored if c.kind == "search"]
+        self.assertEqual(len(searches), 4)
+        for case in searches:
+            self.assertEqual(case.gold_image_ids, [10, 11, 12])
