@@ -80,9 +80,10 @@ map carry the weight.
 The measurement itself follows the course's own method. Students are
 taught to "start easy and then start growing the library and see how your
 performance degrades." Week 1 now reports exactly that: score as the song
-library grows, a curve with a visible knee. The sweep costs nothing extra.
-We verified that restricting the full ranking to a subset matches an
-actual re-enrollment of the smaller library exactly.
+library grows, and the run page draws that curve above the number. The
+sweep costs nothing extra: we verified that restricting the full ranking to
+a subset matches an actual re-enrollment of the smaller library exactly, to
+four decimal places, on 80 of 80 queries.
 
 ## What happens when the best TA graduates
 
@@ -122,8 +123,6 @@ instructor. The lunch break comes back.
 
 The honest list, before any decision:
 
-- The run page does not draw the degradation curve yet. The measurement
-  exists and is verified; the chart is next.
 - The four process signals are computed and tested but not on a page yet.
   The triage console is the design for that page.
 - Only CogWorks has benchmark plugins. A second course's plugin is real
