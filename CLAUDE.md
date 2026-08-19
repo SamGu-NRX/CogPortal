@@ -264,7 +264,11 @@ in-place edit of a version teams have already published against.
   joinable without GitHub access in dev. Clean up test users/memberships you
   create.
 - New migrations: `apps/portal/migrations/NNNN_*.sql` + mirror in
-  `worker/db/schema.ts` + `pnpm db:migrate:local`.
+  `worker/db/schema.ts` + `pnpm db:migrate:local`. The local D1 file lives
+  under `apps/portal/.wrangler/`, not the repository root. A stale
+  `.wrangler/` at the root also holds `.sqlite` files with the same table
+  names and an older schema, so a query against it reports a migration as
+  missing that in fact applied.
 - Delegation: bounded backend and mechanical sweeps go to Codex/Sol with an
   explicit file whitelist, acceptance criteria, and a report shape; treat its
   output as untrusted until you re-run the checks and read the diff. If you
