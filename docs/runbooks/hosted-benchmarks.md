@@ -101,8 +101,10 @@ published, so a tarball fetch cannot reach it.
     # built from the published image and runs the same EVALUATE_SCRIPT.
     .venv-deploy/bin/python apps/runner-modal/tools/smoke_week3_sandbox.py
 
-The second should print `overall 0.4329` against `chance_mrr 0.0102`, and
-`student python 3.8.20` in the submission log. Those numbers match what
+The second should print `overall 0.4329` against `chance_mrr 0.0102`, the
+three query rungs (`search_mrr_keywords` 0.2735, `search_mrr_truncated`
+0.1671, `search_mrr_typo` 0.2256), and `student python 3.8.20` in the
+submission log. Those numbers match what
 `examples/week3-language-submission/README.md` documents for the evaluation
 tier, which is the point: the harness measures a known-good system correctly.
 
@@ -131,6 +133,13 @@ re-read or rewritten per song or per query costs time proportional to the
 catalog. `carti4ce/week1_capstone` is the measured example at 999 s against
 900 s. This consumes an official attempt, correctly: it is the team's
 algorithm, not our infrastructure.
+
+**A keyword the current source has, rejected inside the sandbox.**
+`__init__() got an unexpected keyword argument ...`, while every local test
+passes. A `build/` directory in the benchmark is shadowing the real module:
+the image installs with `pip install /opt/weekN`, which builds from source,
+and setuptools reuses whatever is already there. `deploy.py` now refuses to
+run and names the directory; delete it and redeploy.
 
 **`modal.exception.ExecutionError: ... was modified during build process`.**
 A file changed while the image copied it, almost always `.pytest_cache`
