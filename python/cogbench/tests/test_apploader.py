@@ -165,8 +165,8 @@ class SubmissionFileTests(unittest.TestCase):
             resolve_submission_file(self.root, "language-search")
 
 
-class EntryPointStillWinsTests(unittest.TestCase):
-    """The examples/ repositories register entry points and must keep working."""
+class ResolutionPrecedenceTests(unittest.TestCase):
+    """A submission.py in the working directory beats anything installed."""
 
     class _EntryPoint:
         def __init__(self, name, value, loaded):
@@ -192,18 +192,44 @@ class EntryPointStillWinsTests(unittest.TestCase):
         for name in set(sys.modules) - self._modules:
             sys.modules.pop(name, None)
 
-    def test_installed_entry_point_is_used_even_when_a_file_exists(self):
+    def test_the_file_wins_over_an_installed_entry_point(self):
+        """Scoring the wrong code and reporting success is the worst failure
+        this tool can have, because it is indistinguishable from a pass.
+
+        An entry point can arrive from anywhere in the environment: a
+        reference submission someone pip-installed once, a sibling week left
+        over from an earlier `pip install -e`. A file in the directory the
+        student is standing in is an unambiguous statement of which code they
+        meant. Measured before this changed: `cogworks check` inside a fresh
+        template directory reported `submissionSource entry_point` for Weeks 1
+        and 2 and scored the monorepo's reference implementations, while
+        reporting success."""
+
         point = self._EntryPoint("language-search", "benchmark_adapter:f", lambda r: "entry point")
         with patch("cogbench.plugins._entry_points", return_value=[point]):
             factory, source, detail = resolve_submission(
                 "language-search", "cogworks.submissions.v2", self.root
             )
 
-        self.assertEqual(factory(None), "entry point")
-        self.assertEqual(source, "entry_point")
-        self.assertEqual(detail, "cogworks.submissions.v2")
+        self.assertEqual(factory(None), "file")
+        self.assertEqual(source, "file")
+        self.assertEqual(detail, "submission.py:create_submission")
 
-    def test_file_is_the_fallback_when_nothing_is_installed(self):
+    def test_a_broken_file_does_not_fall_through_to_an_entry_point(self):
+        """Same failure wearing a different hat: falling through here would
+        hide the student's own syntax error behind somebody else's working
+        code, and they would see a passing run."""
+
+        (self.root / "submission.py").write_text("BAD = 1 / 0\n", encoding="utf-8")
+        point = self._EntryPoint("language-search", "benchmark_adapter:f", lambda r: "entry point")
+        with patch("cogbench.plugins._entry_points", return_value=[point]):
+            with self.assertRaises(PluginError) as caught:
+                resolve_submission("language-search", "cogworks.submissions.v2", self.root)
+
+        self.assertIn("submission.py", str(caught.exception))
+        self.assertNotIn("entry point", str(caught.exception))
+
+    def test_the_file_still_resolves_when_nothing_is_installed(self):
         with patch("cogbench.plugins._entry_points", return_value=[]):
             factory, source, detail = resolve_submission(
                 "language-search", "cogworks.submissions.v2", self.root

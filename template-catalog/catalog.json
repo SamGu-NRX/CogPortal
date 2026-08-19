@@ -1,4 +1,37 @@
 {
   "version": 1,
-  "templates": []
+  "templates": [
+    {
+      "id": "cogworks-capstone-2026",
+      "benchmarkId": "audio-identification",
+      "sourceRepositoryId": 1339633157,
+      "fullName": "SamGu-NRX/cogworks-capstone-template",
+      "revision": "9c259d0f1fe27348485823137c85bc815dd1e37e",
+      "minimumSdkVersion": "0.1.0"
+    },
+    {
+      "id": "cogworks-capstone-2026",
+      "benchmarkId": "vision-recognition",
+      "sourceRepositoryId": 1339633157,
+      "fullName": "SamGu-NRX/cogworks-capstone-template",
+      "revision": "9c259d0f1fe27348485823137c85bc815dd1e37e",
+      "minimumSdkVersion": "0.1.0"
+    },
+    {
+      "id": "cogworks-capstone-2026",
+      "benchmarkId": "vision-clustering",
+      "sourceRepositoryId": 1339633157,
+      "fullName": "SamGu-NRX/cogworks-capstone-template",
+      "revision": "9c259d0f1fe27348485823137c85bc815dd1e37e",
+      "minimumSdkVersion": "0.1.0"
+    },
+    {
+      "id": "cogworks-capstone-2026",
+      "benchmarkId": "language-search",
+      "sourceRepositoryId": 1339633157,
+      "fullName": "SamGu-NRX/cogworks-capstone-template",
+      "revision": "9c259d0f1fe27348485823137c85bc815dd1e37e",
+      "minimumSdkVersion": "0.1.0"
+    }
+  ]
 }

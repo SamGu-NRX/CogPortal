@@ -90,34 +90,51 @@ def resolve_submission(
     """
 
     instantiate = contract_version != "cogworks.submissions.v2"
+    root = Path.cwd() if repo_root is None else Path(repo_root)
+
+    # The file wins over an installed entry point when both exist. A student
+    # who wrote a submission.py in this directory meant that file, and an
+    # entry point can arrive from anywhere in the environment: a reference
+    # submission someone pip-installed once, a sibling week left over from a
+    # previous `pip install -e`. Checking entry points first meant `cogworks
+    # run` in a directory containing the student's own work could score
+    # somebody else's code and report success, which is the worst failure
+    # this tool has because it looks exactly like a pass.
+    #
+    # A file that exists but is broken is also final. Falling through to an
+    # entry point there would hide their syntax error behind someone else's
+    # working code, which is the same failure wearing a different hat.
+    try:
+        found = resolve_submission_file(root, name)
+    except SubmissionFileMissing as error:
+        missing = error
+    except SubmissionFileError as error:
+        # The file is the submission; its own failure is the whole answer.
+        # Prefixing it with an entry-point miss would bury the line number
+        # the student needs behind a mechanism they never used.
+        raise PluginError(str(error)) from error
+    else:
+        factory = found.factory
+        if instantiate and isinstance(factory, type):
+            factory = factory()
+        return factory, "file", found.describe()
+
     if name in plugin_names(contract_version):
         return (
             load_plugin(contract_version, name, instantiate_classes=instantiate),
             "entry_point",
             contract_version,
         )
-    root = Path.cwd() if repo_root is None else Path(repo_root)
-    try:
-        found = resolve_submission_file(root, name)
-    except SubmissionFileMissing as error:
-        # Neither path found anything, and the two have different fixes (install
-        # a package, or write the file), so name both rather than guess which
-        # one this student meant.
-        raise PluginError(
-            "{} Nothing is registered as \"{}\" in \"{}\" either (installed: {}), so if you "
-            "meant to install your project as a package, reinstall it.".format(
-                error,
-                name,
-                contract_version,
-                ", ".join(plugin_names(contract_version)) or "none",
-            )
-        ) from error
-    except SubmissionFileError as error:
-        # The file exists and is the submission; its own failure is the whole
-        # answer. Prefixing it with the entry-point miss would bury the line
-        # number the student needs behind a mechanism they never used.
-        raise PluginError(str(error)) from error
-    factory = found.factory
-    if instantiate and isinstance(factory, type):
-        factory = factory()
-    return factory, "file", found.describe()
+
+    # Neither path found anything, and the two have different fixes (install a
+    # package, or write the file), so name both rather than guess which one
+    # this student meant.
+    raise PluginError(
+        "{} Nothing is registered as \"{}\" in \"{}\" either (installed: {}), so if you "
+        "meant to install your project as a package, reinstall it.".format(
+            missing,
+            name,
+            contract_version,
+            ", ".join(plugin_names(contract_version)) or "none",
+        )
+    ) from missing

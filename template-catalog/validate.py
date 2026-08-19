@@ -9,8 +9,14 @@ def main() -> int:
     catalog = json.loads((root / "catalog.json").read_text(encoding="utf-8"))
     if catalog.get("version") != 1 or not isinstance(catalog.get("templates"), list):
         raise ValueError("catalog.json must contain version 1 and a templates array.")
-    ids = set()
-    repository_ids = set()
+    # One template repository serves every benchmark: a team keeps all three
+    # weeks in one repo, which is what Group 1 did unprompted last year and
+    # what the course's own "you will be working on the same code base"
+    # advice implies. So (id, benchmarkId) is the unique key, and a repeated
+    # sourceRepositoryId across benchmarks is the expected shape rather than
+    # a mistake.
+    keys = set()
+    revisions = {}
     for template in catalog["templates"]:
         required = {
             "id",
@@ -22,15 +28,35 @@ def main() -> int:
         }
         if set(template) != required:
             raise ValueError("Template entries must use exactly: {}".format(sorted(required)))
-        if template["id"] in ids or template["sourceRepositoryId"] in repository_ids:
-            raise ValueError("Template IDs and sourceRepositoryIds must be unique.")
+        key = (template["id"], template["benchmarkId"])
+        if key in keys:
+            raise ValueError(
+                "Duplicate template entry for {} / {}.".format(*key)
+            )
         if not re.fullmatch(r"[a-f0-9]{40}", template["revision"]):
             raise ValueError("Template revisions must be immutable 40-character SHAs.")
         if not re.fullmatch(r"[^/\s]+/[^/\s]+", template["fullName"]):
             raise ValueError("Template fullName must use owner/name form.")
-        ids.add(template["id"])
-        repository_ids.add(template["sourceRepositoryId"])
-    print("Validated {} canonical template entr{}.".format(len(ids), "y" if len(ids) == 1 else "ies"))
+        keys.add(key)
+        # Every benchmark served by one repository must pin the same commit,
+        # or a student forking for Week 2 gets a different starting point than
+        # the one who forked for Week 1 from the same template.
+        pinned = revisions.setdefault(template["sourceRepositoryId"], template["revision"])
+        if pinned != template["revision"]:
+            raise ValueError(
+                "Repository {} is pinned to two different revisions.".format(
+                    template["sourceRepositoryId"]
+                )
+            )
+        repositories = len(revisions)
+    print(
+        "Validated {} template entr{} across {} repositor{}.".format(
+            len(keys),
+            "y" if len(keys) == 1 else "ies",
+            len(revisions),
+            "y" if len(revisions) == 1 else "ies",
+        )
+    )
     return 0
 
 
