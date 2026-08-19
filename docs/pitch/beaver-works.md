@@ -79,11 +79,11 @@ map carry the weight.
 
 The measurement itself follows the course's own method. Students are
 taught to "start easy and then start growing the library and see how your
-performance degrades." Week 1 now reports exactly that: score as the song
+performance degrades." Week 1 now reports exactly that, score as the song
 library grows, and the run page draws that curve above the number. The
-sweep costs nothing extra: we verified that restricting the full ranking to
-a subset matches an actual re-enrollment of the smaller library exactly, to
-four decimal places, on 80 of 80 queries.
+sweep costs nothing extra: restricting the full ranking to a subset matched
+an actual re-enrollment of the smaller library on 80 of 80 queries, at the
+same score to four decimal places.
 
 ## What happens when the best TA graduates
 
@@ -128,8 +128,9 @@ The honest list, before any decision:
 - Only CogWorks has benchmark plugins. A second course's plugin is real
   work for that course's staff, on the order of an assignment they already
   write.
-- Hosted execution sits behind a configuration flag until it runs on
-  program-owned Modal credentials rather than a developer account.
+- Hosted execution sits behind a configuration flag, pending credentials
+  on the account that will own it. The two hosted scores above came from
+  the same path during development.
 - Demo day mode is not a shipped button. The pieces it needs, the sandbox
   and the hidden-dataset machinery, are the pieces that already run.
 
@@ -139,6 +140,6 @@ Name one course as the second tenant. RACECAR is the obvious fit: its
 capstone already decomposes into perception, planning, and control. We
 need one hour with its lead instructor to write down the stage vocabulary
 and what a run means, plus read access to one past summer's capstone
-repositories. Before the winter curriculum meeting we will bring back
-those repositories rendered in the process view, in RACECAR's own words,
-and a one-page demo day plan for their instructor to keep or kill.
+repositories. Within a month of getting both we will bring back those
+repositories rendered in the process view, in RACECAR's own words, and a
+one-page demo day plan for their instructor to keep or kill.
