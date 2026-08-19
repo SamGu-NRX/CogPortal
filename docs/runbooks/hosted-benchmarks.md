@@ -19,7 +19,8 @@ PEP 668 managed and refuses `pip install`, and the deploy script imports both
     uv pip install --python .venv-deploy/bin/python --no-deps \
         -e python/cogbench \
         -e benchmarks/week1 -e benchmarks/week2 -e benchmarks/week3 \
-        -e benchmarks/week2/face_recognition_app
+        -e benchmarks/week2/face_recognition_app \
+        -e examples/week1-audio-submission
 
     # What those plugins and the reference submissions actually import.
     uv pip install --python .venv-deploy/bin/python \
@@ -36,9 +37,9 @@ reference test fails on `skimage`; without `face_recognition_app` installed,
 
 Verify the whole set with:
 
-    (cd benchmarks/week1 && ../../.venv-deploy/bin/python -m pytest -q)   # 155
-    (cd benchmarks/week2 && ../../.venv-deploy/bin/python -m pytest tests/ -q)  # 26
-    (cd benchmarks/week3 && ../../.venv-deploy/bin/python -m pytest -q)   # 21
+    (cd benchmarks/week1 && ../../.venv-deploy/bin/python -m pytest -q)   # 171
+    (cd benchmarks/week2 && ../../.venv-deploy/bin/python -m pytest tests/ -q)  # 31
+    (cd benchmarks/week3 && ../../.venv-deploy/bin/python -m pytest -q)   # 23
 
 Authenticate once with `modal setup`. `modal profile list` should show a
 workspace. The deploy also needs the `cogworks-runner-signing` secret to
@@ -56,9 +57,11 @@ sources from a repository that only exists on a developer machine. Publishing
 the images here, where the repository is present, turns them into server-side
 objects the container references by name.
 
-Republishing is cheap when nothing changed — `Image.build` returns the cached
+Republishing is cheap when nothing changed: `Image.build` returns the cached
 image. Changing anything under `benchmarks/`, `python/cogbench/`, or
-`apps/runner-modal/src/` requires a redeploy before the sandbox sees it.
+`apps/runner-modal/src/` requires a redeploy before the sandbox sees it. The
+three benchmarks are git submodules, so `git submodule update --init` before
+deploying, or the images carry whatever commit your tree happens to hold.
 
 ## Score a repository
 
@@ -70,9 +73,18 @@ It calls the same `_prepare` and `_evaluate_week1` the job runner calls, so a
 pass here means the deployed path works rather than that a parallel copy of it
 does. Add `--sha` to pin a commit; the default is the default branch head.
 
-A pass prints the metrics, the diagnostics, and — when the repository was
-scored through an instructor-written adapter — the provenance line naming
-every piece of wiring we supplied.
+A pass prints the metrics, the diagnostics, and the provenance line naming
+every piece of wiring we supplied, when the repository was scored through an
+instructor-written adapter.
+
+Week 1 also prints the sweep sentence, which is the first diagnostic:
+
+    note: Identification falls gradually from 68% at 5 songs to 54% at 30,
+    without a single point where it breaks.
+
+Measured on `KrazeeCoder/week1-capstone-team4`, 72 s, `identification_score`
+0.5375. The sweep costs no extra calls into student code, so a run with it
+takes the same time as one without.
 
 ## Week 3
 
@@ -117,7 +129,7 @@ are baked into the images.
 the evaluation corpus, and the message says the usual reason: a database
 re-read or rewritten per song or per query costs time proportional to the
 catalog. `carti4ce/week1_capstone` is the measured example at 999 s against
-900 s. This consumes an official attempt, correctly — it is the team's
+900 s. This consumes an official attempt, correctly: it is the team's
 algorithm, not our infrastructure.
 
 **`modal.exception.ExecutionError: ... was modified during build process`.**
