@@ -29,6 +29,28 @@ archaeology and keep design judgment here.
   (`t3-code` preview tools when available, otherwise another preview) or
   with `curl` before calling it done. Typechecking alone is not evidence.
 
+## What the platform is
+
+Settled in `docs/design/the-instrument-not-the-judge.md`, which every surface
+decision answers to. The short version: this is an instrument that reports
+findings, not a judge that issues grades. The course's own evidence says so.
+The instructor corrected a student who proposed a best-programming-group
+contest, and privately counted Week 1 a success while calling the numbers
+weak. `docs/vision/ideation-guideline.md` has the owner's direction verbatim
+and `docs/vision/what-the-course-actually-taught.md` has the quotes with
+timestamps.
+
+Two rules that fall out of it and hold everywhere:
+
+- **A run page leads with what the run shows, not what it scored.** The
+  benchmark writes the sentence; the number sits below it. `Finding` and
+  `SweepTrace` are that, and a new surface should compose them rather than
+  open with a metric.
+- **No per-person numbers, in any form, ever**, including private ones. A
+  seventeen-year-old reads any per-person number as a grade regardless of the
+  caveats. `python/cogbench/tests/test_process.py` fails the build on a field
+  shaped like one.
+
 ## The theme
 
 A scientific field notebook crossed with an evaluation instrument: warm
@@ -223,6 +245,14 @@ in-place edit of a version teams have already published against.
 
 ## Workflow
 
+- **All three benchmarks are git submodules** pointing at their own GitHub
+  repositories, so a change under `benchmarks/week{1,2,3}/` is committed
+  there first, then the parent's pointer is bumped in a second commit. The
+  Modal images bake the submodule contents, so `git submodule update --init`
+  before deploying or the images carry whatever your tree happens to hold.
+- Development-only `/__gallery` route holds the states that need a specific
+  run to reach. Add a fixture there when a component has a state you cannot
+  otherwise look at; it has already caught two layout bugs that typechecked.
 - `pnpm check` at root typechecks all packages; portal-only via
   `pnpm --filter @cogworks/portal check`.
 - `pnpm dev` serves on 5173 (applies local D1 migrations first). If every
@@ -256,5 +286,18 @@ in-place edit of a version teams have already published against.
   (`WalkthroughVideo`, gated by `GITHUB_TEAM_VIDEO` in `ConnectPage.tsx`);
   record the clip per `docs/runbooks/onboarding-media.md`, drop the four
   exports into `apps/portal/public/media/onboarding/`, and flip the constant.
-- **TODO(design):** Give Landing, Leaderboard, Run Detail, and Connections a
-  fresh design pass. Dashboard has been decluttered, but not reconsidered.
+- **TODO(design):** Give Landing, Leaderboard, and Connections a fresh
+  design pass. Dashboard has been decluttered, but not reconsidered. Run
+  Detail now leads with `Finding` and the sweep trace; the rest of it has
+  not been reconsidered around them.
+- **TODO(product):** The four process signals compute and test but reach no
+  page. `docs/design/the-instrument-not-the-judge.md` names the TA triage
+  console as the design for that page.
+- **TODO(release):** Fork enforcement is off. Setting
+  `GITHUB_TEMPLATE_REPO_ID` to `1339633157` turns it on, and doing so before
+  every team has forked locks out the 2026 repositories, none of which
+  descend from the template.
+- **TODO(ops):** The template repository carries `ci/integration.yml` rather
+  than `.github/workflows/`, because the publishing token lacks the
+  `workflow` scope. A token with that scope could move it and delete the
+  copy step from `ci/README.md`.
