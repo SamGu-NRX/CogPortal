@@ -13,6 +13,7 @@ from __future__ import annotations
 import ast
 import subprocess
 import sys
+import time
 import tempfile
 import textwrap
 import unittest
@@ -33,6 +34,26 @@ def _evaluate_script() -> str:
 
 
 SCRIPT = _evaluate_script()
+
+
+def _timed_out_function():
+    """Load `_timed_out` from source, without importing modal.
+
+    `modal_app` imports `modal` and `fastapi` at module scope, and the CI
+    interpreter has neither. The existing tests in this file read the sandbox
+    script out of the AST for the same reason; this reads one function.
+    """
+
+    module = ast.parse(MODAL_APP.read_text(encoding="utf-8"))
+    for node in module.body:
+        if isinstance(node, ast.FunctionDef) and node.name == "_timed_out":
+            namespace = {"time": time}
+            exec(compile(ast.Module([node], []), "<modal_app>", "exec"), namespace)
+            return namespace["_timed_out"]
+    raise AssertionError("_timed_out not found")
+
+
+TIMED_OUT = _timed_out_function()
 
 
 def _run(tmp: Path, stub: str, payload: bytes | None, inputs: str | None) -> str:
@@ -120,8 +141,142 @@ class FailureAttributionTests(unittest.TestCase):
             source,
             "failure category must not be chosen from student-controlled text",
         )
-        self.assertEqual(source.count('"COG_PLATFORM_ERROR:" in stderr_text'), 2)
+        # Every payload-shaped evaluate path must read the sandbox's owner
+        # tag. Counted against the number of such paths rather than a literal,
+        # so adding a track fails this test by omitting the check, not by
+        # existing. `_evaluate` (the v1 JSON path) is excluded: it has no
+        # payload and no platform-owned step to attribute.
+        module = ast.parse(source)
+        payload_paths = [
+            node.name
+            for node in module.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name.startswith("_evaluate_")
+            and node.name != "_evaluate_installed"
+        ]
+        self.assertGreaterEqual(len(payload_paths), 3, payload_paths)
+        self.assertEqual(
+            source.count('"COG_PLATFORM_ERROR:" in stderr_text'),
+            len(payload_paths),
+            "each of {} must read the owner tag".format(payload_paths),
+        )
 
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TimeoutAttribution(unittest.TestCase):
+    """A sandbox-killed process must not be reported as a crash.
+
+    Modal enforces its timeout with a kill, so the process returns nonzero with
+    no traceback -- from the controller's side, identical to a crash. Read as a
+    crash it becomes `student_runtime` with the message "Evaluation failed.",
+    which tells a team nothing and hides the one fact they can act on: the run
+    exceeded its wall-clock budget.
+
+    Measured: carti4ce/week1_capstone reached 999 s against a 900 s budget,
+    because its database rewrites a pickle per song and reloads it per query.
+    """
+
+    def _job(self, seconds=900):
+        return {"runtime": {"timeoutSeconds": seconds}}
+
+    def test_elapsed_at_the_budget_is_a_timeout(self):
+        job = self._job(900)
+        started = time.time() - 999
+        self.assertTrue(TIMED_OUT(job, started, 1, ""))
+
+    def test_sigkill_is_a_timeout_even_slightly_early(self):
+        job = self._job(900)
+        started = time.time() - 500
+        self.assertTrue(TIMED_OUT(job, started, -9, ""))
+        self.assertTrue(TIMED_OUT(job, started, 137, ""))
+
+    def test_a_fast_crash_is_not_a_timeout(self):
+        """The case this must never swallow: a real student exception."""
+
+        job = self._job(900)
+        started = time.time() - 12
+        self.assertFalse(
+            TIMED_OUT(job, started, 1, "ValueError: bad shape\n")
+        )
+
+    def test_a_submission_cannot_claim_a_timeout_by_printing_one(self):
+        """`killed` in stderr is checked last and only near the end.
+
+        A team that raises RuntimeError("killed") early must still be charged
+        for a crash, or the word becomes a way to relabel a bug.
+        """
+
+        job = self._job(900)
+        started = time.time() - 5
+        self.assertFalse(
+            TIMED_OUT(job, started, 1, "RuntimeError: killed\n" + "x" * 400)
+        )
+
+
+def _last_error_line_function():
+    """Load `_last_error_line` from source; see `_timed_out_function`."""
+
+    module = ast.parse(MODAL_APP.read_text(encoding="utf-8"))
+    for node in module.body:
+        if isinstance(node, ast.FunctionDef) and node.name == "_last_error_line":
+            namespace = {}
+            exec(compile(ast.Module([node], []), "<modal_app>", "exec"), namespace)
+            return namespace["_last_error_line"]
+    raise AssertionError("_last_error_line not found")
+
+
+LAST_ERROR_LINE = _last_error_line_function()
+
+
+class ErrorLineExtraction(unittest.TestCase):
+    """The detail a student reads has to be the message, not the traceback.
+
+    The prepare sandbox raises rather than marking its failures, so its stderr
+    is a plain Python traceback. Slicing the last N characters off that yields
+    `line 144, in <module>` -- our sandbox script's own last frame -- which was
+    what a real Week 3 run reported for a repository that simply had no
+    adapter. The one sentence naming the fix was three lines above it.
+    """
+
+    def test_a_traceback_yields_its_message_not_its_last_frame(self):
+        stderr = (
+            'Traceback (most recent call last):\n'
+            '  File "/tmp/cog-prepare.py", line 144, in <module>\n'
+            "    raise RuntimeError(message)\n"
+            "RuntimeError: No adapter found in week3_capstone-abc. Add submission.py "
+            "at the repository root defining create_submission().\n"
+        )
+        detail = LAST_ERROR_LINE(stderr)
+        self.assertIn("No adapter found", detail)
+        self.assertNotIn("line 144", detail)
+        self.assertNotIn("<module>", detail)
+
+    def test_the_exception_class_is_dropped(self):
+        """`RuntimeError:` is our vocabulary; the message was written to read."""
+
+        self.assertFalse(
+            LAST_ERROR_LINE("RuntimeError: the archive is larger than 100 MiB.\n")
+            .startswith("RuntimeError")
+        )
+
+    def test_the_evaluate_marker_still_wins(self):
+        stderr = "noise\nCOG_ERROR: returned 3 predictions for 5 cases\n"
+        self.assertEqual(LAST_ERROR_LINE(stderr), "returned 3 predictions for 5 cases")
+
+    def test_empty_stderr_says_so_plainly(self):
+        self.assertIn("failed", LAST_ERROR_LINE("").lower())
+
+    def test_a_message_with_a_colon_is_not_truncated_at_it(self):
+        """`pip install: failed` must not lose its left half to class-stripping.
+
+        The class prefix is only dropped when the text before the colon is a
+        bare identifier, which `pip install` is not.
+        """
+
+        self.assertEqual(
+            LAST_ERROR_LINE("pip install: could not resolve numpy==1.24.4\n"),
+            "pip install: could not resolve numpy==1.24.4",
+        )

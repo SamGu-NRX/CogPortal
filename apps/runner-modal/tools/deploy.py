@@ -21,19 +21,27 @@ from pathlib import Path
 
 import modal
 
+# modal 1.x reaches `modal.runner` through a lazy __getattr__ that resolves only
+# a curated list of names, and `runner` is not on it: `modal.runner.deploy_app`
+# raises AttributeError unless the submodule was imported by name first.
+import modal.runner
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from cogworks_runner.modal_app import (  # noqa: E402
     BENCHMARK_SANDBOX_IMAGE,
+    WEEK1_SANDBOX_IMAGE,
     WEEK3_SANDBOX_IMAGE,
     app,
     benchmark_image,
+    week1_image,
     week3_image,
 )
 
 SANDBOX_IMAGES = (
     (benchmark_image, BENCHMARK_SANDBOX_IMAGE),
     (week3_image, WEEK3_SANDBOX_IMAGE),
+    (week1_image, WEEK1_SANDBOX_IMAGE),
 )
 
 
@@ -49,8 +57,8 @@ def main() -> int:
             print("published {} -> {}".format(name, built.object_id))
         modal.runner.deploy_app(app)
     print(
-        "deployed; sandbox images published as {} and {}".format(
-            BENCHMARK_SANDBOX_IMAGE, WEEK3_SANDBOX_IMAGE
+        "deployed; sandbox images published as {}".format(
+            ", ".join(name for _image, name in SANDBOX_IMAGES)
         )
     )
     return 0

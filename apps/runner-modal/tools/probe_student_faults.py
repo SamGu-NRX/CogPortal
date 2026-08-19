@@ -104,9 +104,22 @@ class SearchOutOfPool(Base):
         return [999999999] * k
 
 
-class NoPrepareMethod(Base):
+class NoPrepareMethod:
+    """Deliberately does NOT inherit Base: it must not expose prepare_database.
+
+    Subclassing Base kept inheriting the documented name, so this variant used
+    to behave exactly like the baseline and never exercised the case it is
+    named after.
+    """
+
     def __init__(self, resources):
         self.pool = []
+
+    def embed_text(self, captions):
+        return _ok_vecs(len(captions))
+
+    def embed_images(self, descriptors):
+        return _ok_vecs(np.asarray(descriptors).shape[0])
 
     def build_index(self, image_ids, descriptors):  # plausible other name
         self.pool = list(image_ids)

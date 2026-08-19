@@ -16,9 +16,15 @@ class Metric:
     higher_is_better: bool
     primary: bool
     precision: int
+    #: One or two sentences saying what this measures, in the course's own
+    #: vocabulary, and which part of the capstone it corresponds to. A number
+    #: a student cannot trace back to something they were taught is a black
+    #: box, and a black box teaches nothing. Optional so older plugins that
+    #: predate it keep working; a plugin supplies it through `metric_help`.
+    help: Optional[str] = None
 
     def to_wire(self) -> Dict[str, Any]:
-        return {
+        wire = {
             "key": self.key,
             "label": self.label,
             "value": self.value,
@@ -27,9 +33,16 @@ class Metric:
             "primary": self.primary,
             "precision": self.precision,
         }
+        # Omitted rather than sent as null, so a reader can distinguish "this
+        # benchmark has no explanation for this metric" from "the explanation
+        # is the empty string".
+        if self.help:
+            wire["help"] = self.help
+        return wire
 
     @classmethod
     def from_wire(cls, value: Dict[str, Any]) -> "Metric":
+        help_text = value.get("help")
         return cls(
             key=str(value["key"]),
             label=str(value["label"]),
@@ -38,6 +51,7 @@ class Metric:
             higher_is_better=bool(value["higherIsBetter"]),
             primary=bool(value["primary"]),
             precision=int(value["precision"]),
+            help=None if help_text is None else str(help_text),
         )
 
 

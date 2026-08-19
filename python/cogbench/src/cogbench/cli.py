@@ -28,7 +28,13 @@ from .client import (
     update_setup_checks,
 )
 from .models import LocalReport
-from .plugins import PluginError, load_benchmark, load_submission, plugin_names
+from .plugins import (
+    PluginError,
+    load_benchmark,
+    load_submission,
+    plugin_names,
+    resolve_submission,
+)
 from .project import repository_state
 from .runner import ContractError, execute, model_cache_status
 from .storage import active_portal, latest_report, save_report, save_token, token_for
@@ -107,8 +113,8 @@ def _portal(value: Optional[str]) -> str:
     return portal
 
 
-def _setup_payload(checks: Sequence[str]) -> dict:
-    repository = repository_state(Path.cwd())
+def _setup_payload(checks: Sequence[str], project_root: Path) -> dict:
+    repository = repository_state(project_root)
     if not repository.full_name:
         raise PortalError(
             "This directory is not a GitHub worktree with an `origin` remote. "
@@ -131,7 +137,9 @@ def _setup_payload(checks: Sequence[str]) -> dict:
     }
 
 
-def _update_setup(portal_value: Optional[str], checks: Sequence[str]) -> None:
+def _update_setup(
+    portal_value: Optional[str], checks: Sequence[str], project_root: Path
+) -> None:
     portal = _portal(portal_value)
     token = token_for(portal)
     if not token:
@@ -139,7 +147,7 @@ def _update_setup(portal_value: Optional[str], checks: Sequence[str]) -> None:
             "This CogPortal connection is missing, expired, or revoked. "
             "Run `cogworks link --portal {}` and retry.".format(portal)
         )
-    result = update_setup_checks(portal, token, _setup_payload(checks))
+    result = update_setup_checks(portal, token, _setup_payload(checks, project_root))
     accepted = result.get("accepted")
     if not isinstance(accepted, list):
         raise PortalError("CogPortal returned an invalid setup response.")
@@ -160,10 +168,10 @@ def _print_report(report: LocalReport, as_json: bool = False) -> None:
         print("note: {}".format(diagnostic))
 
 
-def _resolve_report(path_value: Optional[str]) -> Path:
+def _resolve_report(path_value: Optional[str], project_root: Path) -> Path:
     if path_value:
         return Path(path_value).expanduser().resolve()
-    latest = latest_report(Path.cwd())
+    latest = latest_report(project_root)
     if latest is None:
         raise ContractError("No local reports found. Run `cogworks run` first.")
     return latest
@@ -171,11 +179,11 @@ def _resolve_report(path_value: Optional[str]) -> Path:
 
 #: The interpreter each track's student code actually runs on when hosted.
 #: Not one number any more: the shared Modal image is 3.11 because the
-#: 2025.06 image builder dropped 3.8, but week3 execs student code through a
-#: pinned CPython 3.8.20 venv baked into that image
+#: 2025.06 image builder dropped 3.8, but week1 and week3 exec student code
+#: through a pinned CPython 3.8.20 venv baked into that image
 #: (apps/runner-modal/src/cogworks_runner/modal_app.py). Reporting the wrong
 #: one sends a student chasing a version difference that isn't there.
-_HOSTED_PYTHON = {"language-search": "3.8.20"}
+_HOSTED_PYTHON = {"language-search": "3.8.20", "audio-identification": "3.8.20"}
 _DEFAULT_HOSTED_PYTHON = "3.11"
 
 
@@ -194,7 +202,7 @@ def _installed_benchmark_hint() -> str:
     return installed[0] if len(installed) == 1 else "<benchmark>"
 
 
-def _check(benchmark: str, as_json: bool) -> int:
+def _check(benchmark: str, as_json: bool, project_root: Path) -> int:
     benchmark_group = (
         "cogworks.benchmarks.v2"
         if benchmark in plugin_names("cogworks.benchmarks.v2")
@@ -207,7 +215,7 @@ def _check(benchmark: str, as_json: bool) -> int:
     )
     benchmark_plugins = plugin_names(benchmark_group)
     submission_plugins = plugin_names(contract_group)
-    repository = repository_state(Path.cwd())
+    repository = repository_state(project_root)
     checks = {
         "python": platform.python_version(),
         "canonicalHostedPython": _hosted_python(benchmark),
@@ -219,6 +227,11 @@ def _check(benchmark: str, as_json: bool) -> int:
     }
     checks["benchmarkLoadable"] = False
     checks["submissionLoadable"] = False
+    #: Which discovery path found the submission: an installed entry point, or
+    #: a file at the repository root. Reported because the two fail for
+    #: different reasons and a student who cannot see which one ran is guessing.
+    checks["submissionSource"] = None
+    checks["submissionDetail"] = None
     if checks["benchmarkInstalled"] and benchmark_group.endswith(".v2"):
         plugin = load_benchmark(benchmark)
         checks["benchmarkLoadable"] = True
@@ -236,9 +249,14 @@ def _check(benchmark: str, as_json: bool) -> int:
     elif checks["benchmarkInstalled"]:
         load_benchmark(benchmark)
         checks["benchmarkLoadable"] = True
-    if checks["submissionInstalled"]:
-        load_submission(benchmark, contract_group)
+    try:
+        _, source, detail = resolve_submission(benchmark, contract_group, project_root)
+    except PluginError as error:
+        checks["submissionError"] = str(error)
+    else:
         checks["submissionLoadable"] = True
+        checks["submissionSource"] = source
+        checks["submissionDetail"] = detail
     if as_json:
         print(json.dumps(checks, indent=2, sort_keys=True))
     else:
@@ -246,11 +264,13 @@ def _check(benchmark: str, as_json: bool) -> int:
             print("{:<24} {}".format(key, value))
         if benchmark_group.endswith(".v2"):
             print("\nCaches are populated when you explicitly run `cogworks test` or `cogworks run`.")
+    # `submissionInstalled` is deliberately not required: it only reports the
+    # entry-point registration, and a repository that resolves by file has none.
+    # `submissionLoadable` is the signal that we actually found the submission.
     required = (
         "gitRepository",
         "repositoryFullName",
         "benchmarkInstalled",
-        "submissionInstalled",
         "benchmarkLoadable",
         "submissionLoadable",
     )
@@ -400,12 +420,14 @@ class _LiveRun:
         self._finish({"type": "failed", "phase": self.phase, "code": code})
 
 
-def _start_live_run(args: argparse.Namespace, benchmark: object) -> _LiveRun:
+def _start_live_run(
+    args: argparse.Namespace, benchmark: object, project_root: Path
+) -> _LiveRun:
     portal = _portal(args.portal)
     token = token_for(portal)
     if not token:
         raise PortalError("This portal is not linked. Run `cogworks link` first.")
-    repository = repository_state(Path.cwd())
+    repository = repository_state(project_root)
     if not repository.full_name or not repository.sha:
         raise PortalError("Live sharing requires a committed GitHub repository.")
     result = start_local_run(
@@ -441,6 +463,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if args.command is None:
         parser.print_help()
         return 0
+    # The student's repository, resolved once, before any benchmark runs.
+    # A benchmark plugin may change the process working directory: Week 1
+    # chdirs into a private scratch directory because one audited repository
+    # keeps a module-global relative `db.pkl`. Calling Path.cwd() after that
+    # wrote the report into the scratch directory (which is deleted) and read
+    # git state from a directory that is not a worktree, so `cogworks report`
+    # after a successful run said "No local reports found".
+    project_root = Path.cwd()
     live: Optional[_LiveRun] = None
     try:
         if args.command in ("check", "doctor"):
@@ -449,34 +479,44 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     "cogworks: `doctor` is deprecated; use `cogworks check`.",
                     file=sys.stderr,
                 )
-            result = _check(args.benchmark, args.json)
+            result = _check(args.benchmark, args.json, project_root)
             if result == 0 and args.update_setup:
-                _update_setup(None, ("clone", "environment", "project", "wiring"))
+                _update_setup(None, ("clone", "environment", "project", "wiring"), project_root)
             return result
         if args.command in ("test", "run"):
             benchmark = load_benchmark(args.benchmark)
-            adapter = load_submission(args.benchmark, str(benchmark.contract_version))
+            adapter = load_submission(
+                args.benchmark, str(benchmark.contract_version), project_root
+            )
             if args.command == "run" and args.live:
-                live = _start_live_run(args, benchmark)
+                live = _start_live_run(args, benchmark, project_root)
                 live.progress("preparing")
             report = execute(
                 benchmark,
                 adapter,
-                Path.cwd(),
+                project_root,
                 smoke=args.command == "test",
                 progress=live.progress if live else None,
             )
-            path = save_report(report, Path.cwd())
+            path = save_report(report, project_root)
             if live:
                 live.completed(report)
             _print_report(report, args.json)
             if not args.json:
                 print("saved: {}".format(path))
             if args.update_setup:
-                _update_setup(args.portal if args.command == "run" else None, (args.command,))
+                _update_setup(
+                    args.portal if args.command == "run" else None,
+                    (args.command,),
+                    project_root,
+                )
             return 0
         if args.command == "report":
-            _print_report(LocalReport.from_json(_resolve_report(args.path).read_text(encoding="utf-8")))
+            _print_report(
+                LocalReport.from_json(
+                    _resolve_report(args.path, project_root).read_text(encoding="utf-8")
+                )
+            )
             return 0
         if args.command == "link":
             portal = _portal(args.portal)
@@ -497,10 +537,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             )
             save_token(portal, result["token"], int(result["expiresAt"]))
             print("Linked {}. Local commands still work offline.".format(platform.node() or "this device"))
-            repository = repository_state(Path.cwd())
+            repository = repository_state(project_root)
             if repository.full_name:
                 try:
-                    _update_setup(portal, ("clone",))
+                    _update_setup(portal, ("clone",), project_root)
                 except PortalError as error:
                     print("setup: clone was not updated: {}".format(error), file=sys.stderr)
             else:
@@ -517,7 +557,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             token = token_for(portal)
             if not token:
                 raise PortalError("This portal is not linked. Run `cogworks link` first.")
-            path = _resolve_report(args.path)
+            path = _resolve_report(args.path, project_root)
             report = LocalReport.from_json(path.read_text(encoding="utf-8"))
             sync_report(portal, token, json.loads(report.to_json()))
             print("Synced {} as LOCAL · SELF-REPORTED.".format(report.report_id))

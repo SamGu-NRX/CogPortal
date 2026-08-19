@@ -43,6 +43,38 @@ def _repo_root() -> Path:
 
 
 REPO_ROOT = _repo_root()
+
+
+def add_source_dir(image: "modal.Image", local: Path, remote: str) -> "modal.Image":
+    """`add_local_dir` for a source tree, without the developer's build junk.
+
+    Two distinct problems, one fix. Modal hashes every file it copies and
+    fails the build if one changes underneath it, and `.pytest_cache` is
+    rewritten by any test run, so building an image while tests run aborts
+    with "was modified during build process". Separately, a stale
+    `*.egg-info` or `__pycache__` copied into the image can shadow the
+    package actually installed there, which fails much later and much more
+    confusingly than a build error.
+    """
+
+    return image.add_local_dir(str(local), remote, copy=True, ignore=BUILD_JUNK)
+
+
+#: Glob patterns excluded from every source copy. `~=` is Modal's "match this
+#: as a .dockerignore pattern" prefix; `**/` makes each one match at any depth.
+BUILD_JUNK = [
+    "~=**/__pycache__",
+    "~=**/*.pyc",
+    "~=**/.pytest_cache",
+    "~=**/.ruff_cache",
+    "~=**/.mypy_cache",
+    "~=**/*.egg-info",
+    "~=**/.git",
+    "~=**/.venv",
+    "~=**/build",
+    "~=**/dist",
+]
+
 app = modal.App("cogworks-runner")
 # modal>=1.5 removed create_if_missing from Secret.from_name; the secret is
 # still required to exist (deploy fails at reference resolution otherwise).
@@ -66,14 +98,30 @@ benchmark_image = (
         "platformdirs>=4,<5",
         "datasets>=2.20,<4",
         "facenet_models @ git+https://github.com/CogWorksBWSI/facenet_models.git@96b9599b03f26910b66f61ce725a8660e0ba654c",
+        # The Week 2 conda environment the course tells students to build
+        # (docs/capstones/environment.md:146) carries scikit-learn,
+        # scikit-image, and matplotlib, and mygrad/mynn/noggin are the pip
+        # installs on the same page (line 168). This image had none of them,
+        # so a submission importing any one of them failed at import with a
+        # ModuleNotFoundError that named a package the course told the student
+        # to have. mygrad is pinned to 2.2.0 because 2.3.0 requires Python
+        # 3.9 and the student contract is 3.8; imageio and networkx are
+        # scikit-image's own runtime dependencies, listed here so a pin
+        # change in scikit-image cannot silently drop them.
+        "scikit-learn==1.3.2",
+        "scikit-image==0.21.0",
+        "matplotlib==3.7.5",
+        "imageio==2.35.1",
+        "networkx==3.1",
+        "mygrad==2.2.0",
+        "mynn==0.9.4",
+        "noggin==0.10.1",
+        "cogworks-data==0.2.0",
     )
-    .add_local_dir(str(REPO_ROOT / "python" / "cogbench" / "src"), "/opt/cogbench", copy=True)
-    .add_local_dir(
-        str(REPO_ROOT / "apps" / "runner-modal" / "src"),
-        "/opt/runner",
-        copy=True,
-    )
-    .add_local_dir(str(REPO_ROOT / "benchmarks" / "week2"), "/opt/week2", copy=True)
+    .pipe(lambda i: add_source_dir(i, REPO_ROOT / "python" / "cogbench" / "src", "/opt/cogbench"))
+    .pipe(lambda i: add_source_dir(i, REPO_ROOT / "benchmarks" / "adapters", "/opt/adapters"))
+    .pipe(lambda i: add_source_dir(i, REPO_ROOT / "apps" / "runner-modal" / "src", "/opt/runner"))
+    .pipe(lambda i: add_source_dir(i, REPO_ROOT / "benchmarks" / "week2", "/opt/week2"))
     .run_commands("python -m pip install --no-deps /opt/week2")
     .env({"PYTHONPATH": "/opt/cogbench:/opt/runner", "TORCH_HOME": "/opt/torch"})
     .run_function(cache_facenet_checkpoint)
@@ -86,6 +134,11 @@ benchmark_image = (
 #: the Modal control runtime only.
 WEEK3_STUDENT_PYTHON = "/opt/cogworks-py38/bin/python"
 
+#: Same arrangement for Week 1. The path is identical by construction (one
+#: venv layout, two images), but naming it separately keeps a future change
+#: to one track's interpreter from silently moving the other's.
+WEEK1_STUDENT_PYTHON = "/opt/cogworks-py38/bin/python"
+
 week3_image = (
     modal.Image.debian_slim(python_version="3.11")
     .apt_install("git")
@@ -95,17 +148,25 @@ week3_image = (
         "platformdirs>=4,<5",
         "uv>=0.5",
     )
-    .add_local_dir(str(REPO_ROOT / "python" / "cogbench" / "src"), "/opt/cogbench", copy=True)
-    .add_local_dir(
-        str(REPO_ROOT / "apps" / "runner-modal" / "src"),
-        "/opt/runner",
-        copy=True,
-    )
-    .add_local_dir(str(REPO_ROOT / "benchmarks" / "week3"), "/opt/week3", copy=True)
+    .pipe(lambda i: add_source_dir(i, REPO_ROOT / "python" / "cogbench" / "src", "/opt/cogbench"))
+    .pipe(lambda i: add_source_dir(i, REPO_ROOT / "benchmarks" / "adapters", "/opt/adapters"))
+    .pipe(lambda i: add_source_dir(i, REPO_ROOT / "apps" / "runner-modal" / "src", "/opt/runner"))
+    .pipe(lambda i: add_source_dir(i, REPO_ROOT / "benchmarks" / "week3", "/opt/week3"))
     .run_commands(
         "python -m pip install --no-deps /opt/week3",
         "uv venv --python 3.8.20 /opt/cogworks-py38",
-        "uv pip install --python /opt/cogworks-py38/bin/python pip 'numpy==1.24.4' 'gensim>=4.3,<4.4' 'platformdirs>=4,<5'",
+        # Student code runs in this venv, so the course's Week 3 stack has to
+        # be here and not only in the 3.11 control interpreter. mygrad, mynn,
+        # noggin, and cogworks-data are the pip installs the course prescribes
+        # (docs/capstones/environment.md:244); matplotlib, scikit-learn, and
+        # numba come from the conda line above it (line 218). Without them a
+        # submission that trains with mygrad, the shape the course teaches,
+        # failed at import. mygrad is pinned to 2.2.0 because 2.3.0 requires
+        # Python 3.9.
+        "uv pip install --python /opt/cogworks-py38/bin/python pip 'numpy==1.24.4'"
+        " 'gensim>=4.3,<4.4' 'platformdirs>=4,<5' 'mygrad==2.2.0' 'mynn==0.9.4'"
+        " 'noggin==0.10.1' 'cogworks-data==0.2.0' 'matplotlib==3.7.5'"
+        " 'scikit-learn==1.3.2' 'numba==0.58.1' 'llvmlite==0.41.1'",
         "/opt/cogworks-py38/bin/python -m pip install --no-deps /opt/week3",
         "/opt/cogworks-py38/bin/python -c \"import sys; assert sys.version_info[:3] == (3, 8, 20), sys.version\"",
     )
@@ -118,12 +179,64 @@ week3_image = (
     .run_function(cache_week3_artifacts)
 )
 
-# The controller scores every benchmark, so it carries both plugin packages;
-# week3 scoring is pure numpy (gensim stays lazy and unused there).
+week1_image = (
+    modal.Image.debian_slim(python_version="3.11")
+    .apt_install("git")
+    # libsndfile is soundfile's C library; the wheel does not vendor it on
+    # Linux, so an import of soundfile (and therefore of librosa) fails
+    # without it. Deliberately no portaudio/pyaudio: nothing in the contract
+    # touches a microphone, and leaving it out makes a submission's mic path
+    # fail loudly at import rather than block on a device that does not exist.
+    .apt_install("libsndfile1", "ffmpeg")
+    .pip_install(
+        "numpy==1.24.4",
+        "platformdirs>=4,<5",
+        "uv>=0.5",
+    )
+    .pipe(lambda i: add_source_dir(i, REPO_ROOT / "python" / "cogbench" / "src", "/opt/cogbench"))
+    .pipe(lambda i: add_source_dir(i, REPO_ROOT / "benchmarks" / "adapters", "/opt/adapters"))
+    .pipe(lambda i: add_source_dir(i, REPO_ROOT / "apps" / "runner-modal" / "src", "/opt/runner"))
+    .pipe(lambda i: add_source_dir(i, REPO_ROOT / "benchmarks" / "week1", "/opt/week1"))
+    .run_commands(
+        "python -m pip install --no-deps /opt/week1",
+        "uv venv --python 3.8.20 /opt/cogworks-py38",
+        # The Week 1 conda environment the course prescribes
+        # (docs/capstones/environment.md:86,90) is numpy, scipy, matplotlib,
+        # numba, librosa, and ffmpeg. Every version here was checked to
+        # resolve together on 3.8 for manylinux with
+        # `uv pip compile --python-version 3.8 --python-platform
+        # x86_64-manylinux_2_28`; librosa is left unpinned in that check and
+        # resolved to 0.11.0, which is pinned here so a later release cannot
+        # move under a run. soundfile is librosa's I/O backend and the
+        # course's own audio loader.
+        #
+        # pyaudio is deliberately absent. It is in the course's conda line
+        # because students record their own clips; the benchmark hands over
+        # arrays and never opens a device.
+        "uv pip install --python /opt/cogworks-py38/bin/python pip 'numpy==1.24.4'"
+        " 'scipy==1.10.1' 'matplotlib==3.7.5' 'numba==0.58.1' 'llvmlite==0.41.1'"
+        " 'soundfile==0.12.1' 'librosa==0.11.0' 'platformdirs>=4,<5'",
+        "/opt/cogworks-py38/bin/python -m pip install --no-deps /opt/week1",
+        "/opt/cogworks-py38/bin/python -c \"import sys; assert sys.version_info[:3] == (3, 8, 20), sys.version\"",
+        # Import-checked at build time rather than trusted: a wheel that
+        # installs and then fails to import (libsndfile, llvmlite/numba ABI)
+        # would otherwise surface as every student's run failing.
+        "/opt/cogworks-py38/bin/python -c \"import numpy, scipy, matplotlib, numba, soundfile, librosa\"",
+    )
+    .env({"PYTHONPATH": "/opt/cogbench:/opt/runner", "MPLBACKEND": "Agg"})
+)
+
+# The controller scores every benchmark, so it carries every plugin package;
+# week1 and week3 scoring are pure numpy (gensim and librosa stay lazy and
+# unused there).
 controller_image = (
     benchmark_image.pip_install("fastapi>=0.115,<1")
-    .add_local_dir(str(REPO_ROOT / "benchmarks" / "week3"), "/opt/week3", copy=True)
-    .run_commands("python -m pip install --no-deps /opt/week3")
+    .pipe(lambda i: add_source_dir(i, REPO_ROOT / "benchmarks" / "week3", "/opt/week3"))
+    .pipe(lambda i: add_source_dir(i, REPO_ROOT / "benchmarks" / "week1", "/opt/week1"))
+    .run_commands(
+        "python -m pip install --no-deps /opt/week3",
+        "python -m pip install --no-deps /opt/week1",
+    )
 )
 
 #: Names the two sandbox images are published under at deploy time.
@@ -137,6 +250,7 @@ controller_image = (
 #: object the container can reference by name instead of rebuild.
 BENCHMARK_SANDBOX_IMAGE = "cogworks-runner-benchmark"
 WEEK3_SANDBOX_IMAGE = "cogworks-runner-week3"
+WEEK1_SANDBOX_IMAGE = "cogworks-runner-week1"
 
 PREPARE_SCRIPT = r"""
 import importlib.metadata
@@ -147,6 +261,7 @@ import tarfile
 import urllib.request
 
 archive_url, benchmark_id, contract_group = sys.argv[1], sys.argv[2], sys.argv[3]
+repository_slug = sys.argv[4] if len(sys.argv) > 4 else ""
 archive = pathlib.Path("/tmp/source.tar.gz")
 max_archive_bytes = 100 * 1024 * 1024
 request = urllib.request.Request(archive_url, headers={"User-Agent": "cogworks-runner"})
@@ -180,23 +295,114 @@ projects = [path for path in root.iterdir() if path.is_dir()]
 if len(projects) != 1:
     raise RuntimeError("Source archive must contain one project root.")
 project = projects[0]
-subprocess.run(
-    [sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "--no-input", "-e", str(project)],
-    check=True,
-    timeout=420,
+
+# Two ways a repository can declare itself, checked in this order.
+#
+# 1. A packaging file plus a `cogworks.submissions.v2` entry point. This is the
+#    template's shape and the shape `examples/` uses.
+# 2. A `submission.py` (or `benchmark_adapter.py`) at the repository root,
+#    imported by path. This is what actually serves student repositories: none
+#    of the thirteen audited this year carries a pyproject.toml or setup.py, so
+#    requiring rung 1 rejected every one of them at prepare time.
+#
+# Rung 2 is also the safer rung, which is why it is not merely a fallback for
+# the unpackaged. `pip install -e` executes the repository's own setup.py, and
+# it does so HERE, in the prepare sandbox, which still has network access for
+# PyPI. Importing one file happens in the evaluate sandbox instead, behind
+# block_network=True. Every repository that can take rung 2 therefore runs less
+# student code with a network than one that takes rung 1.
+has_packaging = any(
+    (project / name).is_file() for name in ("pyproject.toml", "setup.py", "setup.cfg")
 )
-points = importlib.metadata.entry_points()
-if hasattr(points, "select"):
-    matches = points.select(group=contract_group, name=benchmark_id)
-else:
-    matches = [
-        point
-        for point in points.get(contract_group, ())
-        if point.name == benchmark_id
-    ]
-if len(list(matches)) != 1:
-    raise RuntimeError("Submission adapter entry point is missing or ambiguous.")
+adapter_file = next(
+    (
+        project / name
+        for name in ("submission.py", "benchmark_adapter.py")
+        if (project / name).is_file()
+    ),
+    None,
+)
+
+# Only when the repository has none of its own. A team that writes an adapter
+# is scored by it, always: an instructor adapter that could shadow a student's
+# would silently score our wiring instead of their work.
+staged_adapter = None
+if adapter_file is None and repository_slug:
+    candidate = pathlib.Path("/opt/adapters") / repository_slug / "submission.py"
+    if candidate.is_file():
+        adapter_file = project / "submission.py"
+        adapter_file.write_bytes(candidate.read_bytes())
+        staged_adapter = repository_slug
+
+installed = False
+if has_packaging:
+    try:
+        subprocess.run(
+            [
+                sys.executable, "-m", "pip", "install", "--disable-pip-version-check",
+                "--no-input", "-e", str(project),
+            ],
+            check=True,
+            timeout=420,
+        )
+        installed = True
+    except Exception:
+        # A build failure is fatal only when nothing else can resolve the
+        # submission. A repository carrying both a broken pyproject.toml and a
+        # working submission.py is scoreable, and failing it here would spend
+        # one of three official attempts on our packaging preference.
+        if adapter_file is None:
+            raise
+
+# A repository's own requirements.txt, installed under a budget. The image
+# already carries the course stack; this is for the extra package a team
+# happened to use. A failure is a warning, not a refusal: the import that
+# actually needs it will fail later in the student's own frame, which names the
+# module, rather than here in ours, which names pip.
+requirements = project / "requirements.txt"
+if requirements.is_file():
+    try:
+        subprocess.run(
+            [
+                sys.executable, "-m", "pip", "install", "--disable-pip-version-check",
+                "--no-input", "-r", str(requirements),
+            ],
+            check=True,
+            timeout=300,
+        )
+    except Exception as error:
+        sys.stderr.write("COG_NOTE: requirements.txt did not install: {}\n".format(str(error)[:200]))
+
+resolved_by = None
+if installed:
+    points = importlib.metadata.entry_points()
+    if hasattr(points, "select"):
+        matches = list(points.select(group=contract_group, name=benchmark_id))
+    else:
+        matches = [
+            point
+            for point in points.get(contract_group, ())
+            if point.name == benchmark_id
+        ]
+    if len(matches) == 1:
+        resolved_by = "entry_point"
+    elif len(matches) > 1:
+        raise RuntimeError("Submission adapter entry point is ambiguous.")
+if resolved_by is None and adapter_file is not None:
+    resolved_by = (
+        "instructor_adapter:" + staged_adapter
+        if staged_adapter
+        else "file:" + adapter_file.name
+    )
+if resolved_by is None:
+    raise RuntimeError(
+        "No adapter found in {}. Add submission.py at the repository root defining "
+        "create_submission(), or register a {} entry point.".format(project.name, contract_group)
+    )
+
+# Read by the evaluate sandbox, which imports the adapter from this directory.
 pathlib.Path("/tmp/project-root.txt").write_text(str(project), encoding="utf-8")
+pathlib.Path("/tmp/adapter-source.txt").write_text(resolved_by, encoding="utf-8")
 """
 
 EVALUATE_SCRIPT = r"""
@@ -259,6 +465,26 @@ class BoundedBuffer(io.TextIOBase):
 benchmark_id = sys.argv[1]
 limit = int(sys.argv[2])
 buffer = BoundedBuffer(limit)
+
+# Where the repository was unpacked, recorded by the prepare step. Student code
+# is imported from here, and the process changes directory here too: a
+# student's open("db.pkl") is relative to the repository root on their laptop
+# and would otherwise resolve against /tmp. The path is ours, written before
+# any student code ran, so a submission cannot influence it.
+_root_file = pathlib.Path("/tmp/project-root.txt")
+repo_root = pathlib.Path(_root_file.read_text().strip()) if _root_file.is_file() else None
+if repo_root is not None and repo_root.is_dir():
+    import os
+    os.chdir(str(repo_root))
+    sys.path.insert(0, str(repo_root))
+
+
+def load_student(benchmark_id, contract_version="cogworks.submissions.v1"):
+    # cogbench.plugins.load_submission, anchored at the repository root.
+    # Passing repo_root explicitly rather than relying on the working directory
+    # keeps this correct even if a submission changes directory during its own
+    # import, which several audited repositories do while loading a pickle.
+    return load_submission(benchmark_id, contract_version, repo_root=repo_root)
 # Who owns the step currently running. The controller decides whether a
 # failure consumes one of the three official attempts, and it must decide that
 # from WHERE the exception came from, never from what the message says: the
@@ -266,7 +492,33 @@ buffer = BoundedBuffer(limit)
 # label their own crash as a platform fault and retry for free.
 owner = "platform"
 try:
-    if pathlib.Path("/tmp/cog-week3-payload.zip").exists():
+    if pathlib.Path("/tmp/cog-week1-payload.zip").exists():
+        import os
+        from cogworks_runner.week1_payload import decode_payload
+        payload_id, showcase, cases = decode_payload(
+            pathlib.Path("/tmp/cog-week1-payload.zip").read_bytes()
+        )
+        if payload_id != benchmark_id:
+            raise RuntimeError("Staged benchmark payload does not match the job.")
+        os.environ["COGWORKS_SHOWCASE"] = "1" if showcase else "0"
+        buffer.write("student python {}\n".format(sys.version.split()[0]))
+        if sys.version_info[:2] != (3, 8):
+            raise RuntimeError(
+                "Week 1 evaluation must run under Python 3.8; got {}".format(sys.version.split()[0])
+            )
+        benchmark = load_benchmark(benchmark_id)
+        # The corpus is rendered and sha256-verified by decode_payload above,
+        # before any student import, so a corpus mismatch is unambiguously
+        # ours and is tagged as such by `owner` still being "platform".
+        resources = benchmark.model_factory()
+        owner = "student"
+        with contextlib.redirect_stdout(buffer), contextlib.redirect_stderr(buffer):
+            factory = load_student(benchmark_id, "cogworks.submissions.v2")
+            predictions = benchmark.run(factory, resources, cases)
+        predictions = list(predictions)
+        if len(predictions) != len(cases):
+            raise RuntimeError("Submission returned the wrong number of case outputs.")
+    elif pathlib.Path("/tmp/cog-week3-payload.zip").exists():
         import os
         from cogworks_runner.week3_payload import decode_payload
         payload_id, showcase, cases = decode_payload(
@@ -286,7 +538,7 @@ try:
         resources = benchmark.model_factory()
         owner = "student"
         with contextlib.redirect_stdout(buffer), contextlib.redirect_stderr(buffer):
-            factory = load_submission(benchmark_id, "cogworks.submissions.v2")
+            factory = load_student(benchmark_id, "cogworks.submissions.v2")
             predictions = benchmark.run(factory, resources, cases)
         predictions = list(predictions)
         if len(predictions) != len(cases):
@@ -301,7 +553,7 @@ try:
         model = FacenetModel(device="cpu")
         owner = "student"
         with contextlib.redirect_stdout(buffer), contextlib.redirect_stderr(buffer):
-            factory = load_submission(benchmark_id, "cogworks.submissions.v2")
+            factory = load_student(benchmark_id, "cogworks.submissions.v2")
             predictions = benchmark.run(factory, model, cases)
         predictions = list(predictions)
         if len(predictions) != len(cases):
@@ -309,7 +561,7 @@ try:
     else:
         inputs = json.loads(pathlib.Path("/tmp/cog-inputs.json").read_text(encoding="utf-8"))
         owner = "student"
-        adapter = load_submission(benchmark_id)
+        adapter = load_student(benchmark_id)
         predictor = getattr(adapter, "predict", adapter if callable(adapter) else None)
         if not callable(predictor):
             raise RuntimeError("Submission adapter must be callable or expose predict(inputs).")
@@ -552,6 +804,60 @@ def _week3_cases(job: Dict[str, Any], benchmark: Any) -> List[Any]:
         ) from error
 
 
+def _week1_manifest(job: Dict[str, Any]) -> Dict[str, Any]:
+    """The manifest whose seeds the sandbox renders the corpus from.
+
+    Practice runs read the manifest shipped inside the plugin. Official runs
+    read one from the hidden volume, because a manifest that ships with the
+    package is one a student can read.
+    """
+
+    from audio_identification_benchmark.datasets import load_manifest
+
+    if job["mode"] == "practice":
+        try:
+            return load_manifest("evaluation")
+        except Exception as error:
+            raise RunnerFailure(
+                "data_download",
+                "evaluating",
+                "Public Week 1 data could not be prepared.",
+                True,
+            ) from error
+    root = Path("/hidden") / job["benchmark"]["id"] / job["benchmark"]["datasetVersion"]
+    try:
+        return json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise RunnerFailure(
+            "data_download",
+            "evaluating",
+            "Official Week 1 data is missing or failed integrity validation.",
+            True,
+        ) from error
+
+
+def _week1_cases(job: Dict[str, Any], manifest: Dict[str, Any]) -> List[Any]:
+    """Gold-bearing cases for scoring; the sandbox payload strips gold.
+
+    The controller renders the corpus a second time rather than reusing the
+    sandbox's copy, so the numbers it scores against never travelled through
+    the sandbox. Rendering is deterministic and sha256-verified, so the two
+    copies are the same audio by construction.
+    """
+
+    from audio_identification_benchmark.datasets import materialize_cases
+
+    try:
+        return list(materialize_cases(manifest))
+    except Exception as error:
+        raise RunnerFailure(
+            "data_download",
+            "evaluating",
+            "Week 1 corpus did not match its pinned digests.",
+            True,
+        ) from error
+
+
 def _sandbox_image(job: Dict[str, Any]) -> Any:
     """Reference the published sandbox image by name.
 
@@ -559,19 +865,44 @@ def _sandbox_image(job: Dict[str, Any]) -> Any:
     `benchmark_image` directly; resolving those definitions needs the local
     repository. `tools/deploy.py` publishes both names at deploy time.
     """
-    name = (
-        WEEK3_SANDBOX_IMAGE
-        if job["benchmark"]["id"] == "language-search"
-        else BENCHMARK_SANDBOX_IMAGE
-    )
+    name = {
+        "language-search": WEEK3_SANDBOX_IMAGE,
+        "audio-identification": WEEK1_SANDBOX_IMAGE,
+    }.get(job["benchmark"]["id"], BENCHMARK_SANDBOX_IMAGE)
     return modal.Image.from_name(name)
 
 
 def _student_python(job: Dict[str, Any]) -> str:
-    """Week 3 student code runs under the pinned 3.8.20 venv; the course
-    contract is Python 3.8 and Modal's own runtime cannot be."""
+    """Week 1 and Week 3 student code runs under the pinned 3.8.20 venv; the
+    course contract is Python 3.8 and Modal's own runtime cannot be."""
 
-    return WEEK3_STUDENT_PYTHON if job["benchmark"]["id"] == "language-search" else "python"
+    return {
+        "language-search": WEEK3_STUDENT_PYTHON,
+        "audio-identification": WEEK1_STUDENT_PYTHON,
+    }.get(job["benchmark"]["id"], "python")
+
+
+#: Instructor-written adapters for repositories that predate the benchmark,
+#: keyed by `owner/name`. Baked into the images from `benchmarks/adapters/`.
+STAGED_ADAPTER_DIR = "/opt/adapters"
+
+
+def _repository_slug(job: Dict[str, Any]) -> str:
+    """`owner/name` as the directory name `benchmarks/adapters/` uses.
+
+    Teams that finished a capstone before the benchmark existed could not have
+    written a `submission.py`. Scoring them otherwise means either editing
+    their repository or refusing to score them, so the images carry our
+    adapters and the prepare step copies one in when the repository has none
+    of its own. The run result says so: each adapter carries a `PROVENANCE`
+    dict the driver surfaces, so a leaderboard row reads "scored through an
+    instructor-supplied adapter" rather than passing our wiring off as theirs.
+
+    A repository's own `submission.py` always wins; see PREPARE_SCRIPT. This
+    is a bridge for existing work, not a substitute for the template.
+    """
+
+    return str(job["source"]["fullName"]).replace("/", "__")
 
 
 def _prepare(job: Dict[str, Any], reporter: LiveReporter) -> str:
@@ -600,14 +931,24 @@ def _prepare(job: Dict[str, Any], reporter: LiveReporter) -> str:
                 job["source"]["archiveUrl"],
                 job["benchmark"]["id"],
                 job["benchmark"]["contractVersion"],
+                _repository_slug(job),
             )
             process.wait()
         if process.returncode != 0:
-            detail = process.stderr.read()[-240:]
-            normalized = detail.lower()
+            stderr_text = process.stderr.read()
+            # The exception message, not the tail of the traceback. Slicing the
+            # last 240 characters produced details like "line 144, in <module>"
+            # -- the traceback's own last frame, which names our sandbox script
+            # and tells a student nothing. The message is on the final
+            # non-indented line, which is where Python puts it.
+            detail = _last_error_line(stderr_text)
+            normalized = (detail + " " + stderr_text[-400:]).lower()
             if "source archive" in normalized:
                 raise RunnerFailure("repository_fetch", "preparing", detail, False)
-            if "entry point" in normalized:
+            # "no adapter found" is the message PREPARE_SCRIPT raises when a
+            # repository has neither a submission.py nor an entry point;
+            # "entry point" catches the older ambiguous-registration message.
+            if "no adapter found" in normalized or "entry point" in normalized:
                 raise RunnerFailure("adapter_missing", "contract_check", detail, False)
             raise RunnerFailure("dependency_install", "installing", detail or "Install failed.", False)
         reporter.status("contract_check")
@@ -761,6 +1102,7 @@ def _evaluate_week3(
             "/tmp/cog-week3-payload.zip",
         )
         sandbox.filesystem.write_text(EVALUATE_SCRIPT, "/tmp/cog-evaluate.py")
+        started = time.time()
         process = sandbox.exec(
             WEEK3_STUDENT_PYTHON,
             "/tmp/cog-evaluate.py",
@@ -781,6 +1123,17 @@ def _evaluate_week3(
             # official attempt (`raise RuntimeError("benchmark_adapter.py")`).
             # The contract check already ran during prepare; a failure here is
             # the submission's.
+            if _timed_out(job, started, process.returncode, stderr_text):
+                raise RunnerFailure(
+                    "timeout",
+                    "evaluating",
+                    "Evaluation ran past its {} second budget and was stopped. "
+                    "Every song has to be enrolled and every query answered inside "
+                    "that window; a database that is re-read or rewritten once per "
+                    "song or per query grows with the catalog and will not "
+                    "fit.".format(job["runtime"]["timeoutSeconds"]),
+                    False,
+                )
             raise RunnerFailure("student_runtime", "evaluating", detail, False)
         predictions = json.loads(sandbox.filesystem.read_text("/tmp/cog-predictions.json"))
         log = sandbox.filesystem.read_text("/tmp/cog-student.log")
@@ -801,14 +1154,157 @@ def _evaluate_week3(
             sandbox.terminate()
 
 
+def _evaluate_week1(
+    job: Dict[str, Any], snapshot_id: str, manifest: Dict[str, Any]
+) -> Tuple[List[Any], str]:
+    """Like _evaluate_week3, but the payload is the manifest, not the audio.
+
+    The sandbox renders its own corpus from the seeds and verifies each
+    signal's sha256 before student code runs, so the ~240 MB of float32 the
+    evaluation tier scores over never crosses this boundary.
+    """
+
+    from cogworks_runner.week1_payload import encode_payload
+
+    sandbox = None
+    try:
+        sandbox = modal.Sandbox.create(
+            image=modal.Image.from_id(snapshot_id),
+            app=app,
+            cpu=(0.5, job["runtime"]["cpu"]),
+            memory=(512, job["runtime"]["memoryMb"]),
+            timeout=job["runtime"]["timeoutSeconds"],
+            block_network=True,
+        )
+        sandbox.filesystem.write_bytes(
+            encode_payload(
+                job["benchmark"]["id"], manifest, showcase=job["mode"] == "practice"
+            ),
+            "/tmp/cog-week1-payload.zip",
+        )
+        sandbox.filesystem.write_text(EVALUATE_SCRIPT, "/tmp/cog-evaluate.py")
+        started = time.time()
+        process = sandbox.exec(
+            WEEK1_STUDENT_PYTHON,
+            "/tmp/cog-evaluate.py",
+            job["benchmark"]["id"],
+            str(job["runtime"]["maxOutputBytes"]),
+        )
+        process.wait()
+        if process.returncode != 0:
+            stderr_text = process.stderr.read()
+            detail = _last_error_line(stderr_text)
+            # See _evaluate_v2: ownership comes from the sandbox marker, not
+            # from words a submission can put in its own exception.
+            if "COG_PLATFORM_ERROR:" in stderr_text:
+                # Carry the sandbox's own message. "Week 1 corpus validation
+                # failed" alone named the phase and nothing else, which is
+                # exactly the wrong half: this branch is ours by construction,
+                # so the detail is safe to surface and is the only thing that
+                # says which of sha mismatch, import error, or wrong
+                # interpreter actually happened.
+                marker = stderr_text.rsplit("COG_PLATFORM_ERROR:", 1)[-1].strip()
+                raise RunnerFailure(
+                    "data_download",
+                    "evaluating",
+                    "Week 1 corpus validation failed: {}".format(marker[:400] or "no detail"),
+                    True,
+                )
+            if _timed_out(job, started, process.returncode, stderr_text):
+                raise RunnerFailure(
+                    "timeout",
+                    "evaluating",
+                    "Evaluation ran past its {} second budget and was stopped. "
+                    "Every song has to be enrolled and every query answered inside "
+                    "that window; a database that is re-read or rewritten once per "
+                    "song or per query grows with the catalog and will not "
+                    "fit.".format(job["runtime"]["timeoutSeconds"]),
+                    False,
+                )
+            raise RunnerFailure("student_runtime", "evaluating", detail, False)
+        predictions = json.loads(sandbox.filesystem.read_text("/tmp/cog-predictions.json"))
+        log = sandbox.filesystem.read_text("/tmp/cog-student.log")
+        return list(predictions), log[: job["runtime"]["maxOutputBytes"]]
+    except RunnerFailure:
+        raise
+    except Exception as error:
+        normalized = str(error).lower()
+        if "timeout" in normalized or "timed out" in normalized:
+            raise RunnerFailure("timeout", "evaluating", "Evaluation timed out.", False) from error
+        if "memory" in normalized or "oom" in normalized:
+            raise RunnerFailure("memory_limit", "evaluating", "Evaluation exceeded memory.", False) from error
+        raise RunnerFailure(
+            "provider", "evaluating", "Evaluation provider failed.", True
+        ) from error
+    finally:
+        if sandbox is not None:
+            sandbox.terminate()
+
+
+def _timed_out(job: Dict[str, Any], started: float, returncode: int, stderr_text: str) -> bool:
+    """Whether the sandbox killed the process for exceeding its wall clock.
+
+    Modal enforces the sandbox timeout by killing the process, and a killed
+    process reports a nonzero returncode with no traceback -- identical, from
+    here, to a crash. Reported as a crash it becomes `student_runtime`, which
+    consumes an official attempt and tells the team "Evaluation failed." with
+    nothing to act on; a timeout is its own category, and the right message
+    names the budget they exceeded.
+
+    Measured: `carti4ce/week1_capstone` reached 999 s against a 900 s budget on
+    the evaluation corpus, because its `database.add` rewrites the whole pickle
+    per song and `query_details` reloads it per query, so its cost grows with
+    the catalog rather than with the clip.
+
+    Two signals, either sufficient. Elapsed time at or past the budget is the
+    reliable one. SIGKILL surfacing as -9 or 137 is the corroborating one, kept
+    because a process killed slightly early should still read as a timeout.
+    """
+
+    budget = float(job["runtime"]["timeoutSeconds"])
+    if time.time() - started >= budget * 0.95:
+        return True
+    if returncode in (-9, 137, -15, 143):
+        return True
+    # Last resort only: this reads student-influenced text, so it is checked
+    # after the two signals a submission cannot forge.
+    return "killed" in stderr_text.lower()[-200:]
+
+
 def _last_error_line(value: str) -> str:
-    lines = [line.strip() for line in value.splitlines() if line.strip()]
+    """The one sentence worth showing, out of a sandbox's stderr.
+
+    Two shapes arrive here. The evaluate script marks its own failures with
+    `COG_ERROR:`, having already decided what a student should read. The
+    prepare script does not: it raises, and Python prints a traceback.
+
+    For a traceback, the message is the final line that is not indented and
+    not a `File "..."` frame -- `RuntimeError: No adapter found in ...`. Taking
+    the last N characters instead yields `line 144, in <module>`, which names
+    our sandbox script and tells a student nothing; that is what this function
+    exists to avoid.
+    """
+
+    lines = [line for line in value.splitlines() if line.strip()]
     if not lines:
-        return "Evaluation failed."
-    line = lines[-1]
-    if line.startswith("COG_ERROR:"):
-        return line[len("COG_ERROR:") :].strip()[:240]
-    return "Student process exited before producing a valid result."
+        return "The run failed before producing a result."
+
+    stripped = lines[-1].strip()
+    if stripped.startswith("COG_ERROR:"):
+        return stripped[len("COG_ERROR:"):].strip()[:240]
+
+    # Walk back to the last unindented line: Python puts `Type: message`
+    # there, and every traceback frame above it is indented.
+    for line in reversed(lines):
+        if line[:1].strip() and not line.lstrip().startswith("File \""):
+            text = line.strip()
+            # Drop the exception class, which is our vocabulary, and keep the
+            # message, which was written for the reader.
+            if ": " in text and text.split(": ", 1)[0].isidentifier():
+                text = text.split(": ", 1)[1]
+            if text and not text.startswith("Traceback"):
+                return text[:240]
+    return "The student process exited before producing a valid result."
 
 
 def _v2_metrics(benchmark: Any, outputs: List[Any], cases: List[Any]) -> Tuple[List[Any], List[str]]:
@@ -826,6 +1322,10 @@ def _v2_metrics(benchmark: Any, outputs: List[Any], cases: List[Any]) -> Tuple[L
     # Newer plugins carry their own presentation; Week 2 predates this.
     labels.update(getattr(benchmark, "metric_labels", {}))
     lower_is_better = getattr(benchmark, "lower_is_better", ())
+    # What each number means, in the course's vocabulary. Absent on plugins
+    # that predate it, which is why this reads as a plain dict lookup rather
+    # than a required attribute.
+    help_text = getattr(benchmark, "metric_help", {})
     scores = benchmark.score(outputs, cases)
     metrics = [
         Metric(
@@ -836,6 +1336,7 @@ def _v2_metrics(benchmark: Any, outputs: List[Any], cases: List[Any]) -> Tuple[L
             higher_is_better=key not in lower_is_better,
             primary=key == benchmark.primary_metric,
             precision=3,
+            help=help_text.get(key),
         )
         for key, value in scores.items()
     ]
@@ -862,7 +1363,14 @@ def execute_job(job_value: Dict[str, Any]) -> None:
             reporter.status("contract_check")
         benchmark = _load_benchmark(job)
         week3 = job["benchmark"]["id"] == "language-search"
-        if week3:
+        week1 = job["benchmark"]["id"] == "audio-identification"
+        week1_manifest: Dict[str, Any] = {}
+        if week1:
+            week1_manifest = _week1_manifest(job)
+            cases = _week1_cases(job, week1_manifest)
+            inputs, expected = [], []
+            case_count = len(cases)
+        elif week3:
             cases = _week3_cases(job, benchmark)
             inputs, expected = [], []
             case_count = len(cases)
@@ -877,7 +1385,11 @@ def execute_job(job_value: Dict[str, Any]) -> None:
         phase = "evaluating"
         reporter.status("evaluating", 0, case_count)
         with StatusHeartbeat(reporter, "evaluating", 0, case_count):
-            if week3:
+            if week1:
+                predictions, student_log = _evaluate_week1(
+                    job, snapshot_id, week1_manifest
+                )
+            elif week3:
                 predictions, student_log = _evaluate_week3(job, snapshot_id, cases)
             elif benchmark.contract_version == "cogworks.submissions.v2":
                 predictions, student_log = _evaluate_v2(job, snapshot_id, cases)
