@@ -1,28 +1,40 @@
 import type { Context, Hono } from "hono";
-import { and, asc, eq, inArray, ne } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, ne } from "drizzle-orm";
 import { FIXTURE_REPO } from "@cogworks/contracts/fixtures";
 import {
   ChangeTeamRepoRequestSchema,
   TeamDetailSchema,
+  TeamProcessSignalsSchema,
   UpdateTeamRequestSchema,
 } from "@cogworks/contracts/schema";
-import type { TeamDetail, TeamMember } from "@cogworks/contracts/schema";
+import type { TeamDetail, TeamMember, TeamProcessSignals } from "@cogworks/contracts/schema";
 import type { AppEnv } from "../env";
 import { devAuthAvailable, githubConfigured } from "../env";
 import { getGithubToken } from "../auth/better-auth";
 import { authFor, requireTeam } from "../auth/session";
 import { getDb } from "../db/client";
 import type { Database } from "../db/client";
-import { runs, teamMembers, teamTas, teams, users } from "../db/schema";
+import {
+  benchmarks,
+  runs,
+  teamMembers,
+  teamProcessSignals,
+  teamTas,
+  teams,
+  users,
+} from "../db/schema";
 import type { AuthState } from "../auth/session";
 import type { TeamRow } from "../db/schema";
 import { RealGitHubClient } from "../github/client";
+import { fetchCommitHistory } from "../github/commits";
 import { teamRole } from "../github/permissions";
 import { fixtureRepository } from "../github/team";
 import type { ConnectRepository } from "../github/team";
 import { validateTemplateRepository } from "../github/template";
 import { ApiHttpError } from "../http/errors";
 import { parseBody, respond } from "../http/respond";
+import { buildProcessSignals, findingSentences } from "../services/process-signals";
+import type { RunRecord, WeekLabel } from "../services/process-signals";
 
 function memberRole(role: string): TeamMember["role"] {
   if (role === "admin" || role === "maintain" || role === "write") return role;
@@ -126,11 +138,115 @@ export function isUniqueConstraintError(error: unknown): boolean {
   return error instanceof Error && /unique constraint failed/i.test(error.message);
 }
 
+const MODULE_WEEK_LABELS: Record<string, WeekLabel> = {
+  audio: "week1",
+  vision: "week2",
+  language: "week3",
+};
+
+/** How long a cached `team_process_signals` row is served before recomputing. */
+const PROCESS_SIGNALS_CACHE_MS = 30 * 60 * 1000;
+
+/**
+ * A team's week is inferred from the benchmark module of its single most
+ * recent run (any status -- an in-progress or failed run still tells you
+ * which week the team is working in). `null` when the team has no runs yet;
+ * `buildProcessSignals` treats that as "no stage map is knowable" rather
+ * than guessing one, matching the "never interpolate" rule from
+ * `docs/design/the-instrument-not-the-judge.md`.
+ */
+async function resolveWeekLabel(db: Database, teamId: string): Promise<WeekLabel | null> {
+  const [latest] = await db
+    .select({ module: benchmarks.module })
+    .from(runs)
+    .innerJoin(
+      benchmarks,
+      and(eq(benchmarks.id, runs.benchmarkId), eq(benchmarks.version, runs.benchmarkVersion)),
+    )
+    .where(eq(runs.teamId, teamId))
+    .orderBy(desc(runs.createdAt))
+    .limit(1);
+  return latest ? (MODULE_WEEK_LABELS[latest.module] ?? null) : null;
+}
+
+/**
+ * Runs that count toward `firstLight`: only ones that made it all the way
+ * through scoring. Mirrors `team-nudges.ts`'s established "scored run"
+ * convention (`status = 'succeeded'` and keyed off `finishedAt`, not
+ * `createdAt`) rather than re-deriving it -- see the divergence note on
+ * `RunRecord` in `../services/process-signals.ts`.
+ */
+async function scoredRunRecords(db: Database, teamId: string): Promise<RunRecord[]> {
+  const scored = await db
+    .select({ id: runs.id, finishedAt: runs.finishedAt })
+    .from(runs)
+    .where(and(eq(runs.teamId, teamId), eq(runs.status, "succeeded")));
+  return scored
+    .filter((run): run is { id: string; finishedAt: number } => run.finishedAt !== null)
+    .map((run) => ({ runId: run.id, createdAt: run.finishedAt, scored: true }));
+}
+
 export function registerTeamRoutes(app: Hono<AppEnv>): void {
   app.get("/team", async (c) => {
     const auth = await requireTeam(c);
     const detail = await getTeamDetail(getDb(c.env), auth.team.id, auth.user.id);
     return respond(c, TeamDetailSchema, detail);
+  });
+
+  // Team members only, same guard as `GET /team` above (not the admin-only
+  // guard `POST /team/repository` uses -- reading process signals isn't a
+  // team-settings change).
+  app.get("/v1/team/process", async (c) => {
+    const auth = await requireTeam(c);
+    const db = getDb(c.env);
+    const teamId = auth.team.id;
+    const now = Date.now();
+
+    const [cached] = await db
+      .select()
+      .from(teamProcessSignals)
+      .where(eq(teamProcessSignals.teamId, teamId))
+      .limit(1);
+    if (cached && now - cached.computedAt < PROCESS_SIGNALS_CACHE_MS) {
+      const signals = JSON.parse(cached.signalsJson) as Omit<TeamProcessSignals, "computedAt">;
+      return respond(c, TeamProcessSignalsSchema, { ...signals, computedAt: cached.computedAt });
+    }
+
+    const weekLabel = await resolveWeekLabel(db, teamId);
+    const runRecords = await scoredRunRecords(db, teamId);
+
+    let commitsResult: Awaited<ReturnType<typeof fetchCommitHistory>>;
+    if (auth.team.repoFullName === FIXTURE_REPO.fullName && devAuthAvailable(c.env)) {
+      // The dev fixture repo isn't a real GitHub repository, so there is no
+      // commit history to fetch -- and nothing to honestly call "fetch
+      // failed" either, since we never tried and failed. Confirmed-empty is
+      // the accurate state here, not a fabricated one.
+      commitsResult = { ok: true, commits: [] };
+    } else {
+      const githubToken = githubConfigured(c.env)
+        ? await getGithubToken(authFor(c), auth.user.id, c.req.raw.headers)
+        : null;
+      commitsResult = githubToken
+        ? await fetchCommitHistory(auth.team.repoFullName, auth.team.defaultBranch, githubToken)
+        : { ok: false, reason: "fetch_failed" };
+    }
+
+    const signals = buildProcessSignals({ commitsResult, runs: runRecords, weekLabel });
+    const payload: Omit<TeamProcessSignals, "computedAt"> = {
+      ...signals,
+      findingSentences: findingSentences(signals),
+    };
+    const signalsJson = JSON.stringify(payload);
+
+    await db
+      .insert(teamProcessSignals)
+      .values({ teamId, computedAt: now, signalsJson, historyQuality: signals.historyQuality })
+      .onConflictDoUpdate({
+        target: teamProcessSignals.teamId,
+        set: { computedAt: now, signalsJson, historyQuality: signals.historyQuality },
+      });
+
+    return respond(c, TeamProcessSignalsSchema, { ...payload, computedAt: now });
   });
 
   app.patch("/team", async (c) => {

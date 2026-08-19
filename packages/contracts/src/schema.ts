@@ -745,6 +745,71 @@ export const ChangeTeamRepoRequestSchema = z.object({
   fullName: z.string().trim().regex(/^[^/\s]+\/[^/\s]+$/, "owner/name"),
 });
 
+/* ── Process signals ───────────────────────────────────────────────────
+ * See docs/design/the-instrument-not-the-judge.md, "The process layer."
+ * Four signals derived from a team's GitHub history and runs. Two rules
+ * hold on every shape below, checked by a test that walks the JSON
+ * recursively: no per-person totals in any form, and a signal this cannot
+ * compute reports why rather than guessing (see HistoryQualitySchema and
+ * the `available`/`unavailableReason` pair on StageActivitySchema). */
+
+/** How trustworthy a team's commit history is for the three commit-derived
+ *  signals below. `bulk_upload` and `empty` are real, observed states (a
+ *  team pushed one commit, or has none yet); `fetch_failed` means the
+ *  Worker could not read GitHub just now, kept distinct from `empty` so
+ *  "no history" and "could not check" are never conflated. */
+export const HISTORY_QUALITIES = ["usable", "bulk_upload", "empty", "fetch_failed"] as const;
+export const HistoryQualitySchema = z.enum(HISTORY_QUALITIES);
+export type HistoryQuality = z.infer<typeof HistoryQualitySchema>;
+
+/** What was observed for one capstone stage. `commitCount` and
+ *  `distinctAuthorCount` are null, not 0, when `available` is false. */
+export const StageActivitySchema = z.object({
+  commitCount: z.number().int().nullable(),
+  distinctAuthorCount: z.number().int().nullable(),
+  firstTouchAt: z.number().nullable(),
+  lastTouchAt: z.number().nullable(),
+  available: z.boolean(),
+  unavailableReason: z.string().nullable(),
+});
+export type StageActivity = z.infer<typeof StageActivitySchema>;
+
+/** The integration instrument: the first run that scored end to end, and
+ *  the count since. Built from runs, the portal's own observation, so this
+ *  never depends on history quality. */
+export const FirstLightSchema = z.object({
+  firstScoredAt: z.number().nullable(),
+  scoredRunCount: z.number().int(),
+});
+export type FirstLight = z.infer<typeof FirstLightSchema>;
+
+/** A commit that touched a contract file (`submission.py`,
+ *  `benchmark_adapter.py`) after the team's first scored run. */
+export const ChurnEventSchema = z.object({
+  sha: z.string(),
+  authorLogin: z.string(),
+  authoredAt: z.number(),
+  files: z.array(z.string()),
+});
+export type ChurnEvent = z.infer<typeof ChurnEventSchema>;
+
+/** GET /api/v1/team/process — team members only. Cached; recomputed when
+ *  older than 30 minutes (see worker/routes/team.ts). `weekLabel` is null
+ *  for a team with no runs yet, which is also when `stageFootprint` and
+ *  `ownershipBreadth` are empty objects: no run means no way to know which
+ *  capstone stage map applies, so there is no stage list to report against. */
+export const TeamProcessSignalsSchema = z.object({
+  historyQuality: HistoryQualitySchema,
+  weekLabel: z.enum(["week1", "week2", "week3"]).nullable(),
+  stageFootprint: z.record(z.string(), StageActivitySchema),
+  firstLight: FirstLightSchema,
+  boundaryChurn: z.array(ChurnEventSchema),
+  ownershipBreadth: z.record(z.string(), z.array(z.string())),
+  findingSentences: z.array(z.string()),
+  computedAt: z.number(),
+});
+export type TeamProcessSignals = z.infer<typeof TeamProcessSignalsSchema>;
+
 /* ── Joining an existing team ─────────────────────────────────────────── */
 
 /** One team in the caller's cohort, as shown on the join-a-team browser.

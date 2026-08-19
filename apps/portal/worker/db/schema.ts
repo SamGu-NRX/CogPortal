@@ -163,6 +163,22 @@ export const teamNudges = sqliteTable(
   (table) => [primaryKey({ columns: [table.teamId, table.kind] })],
 );
 
+/**
+ * The last computed process signals for a team (stage footprint, first
+ * light, boundary churn, ownership breadth) -- see
+ * `worker/services/process-signals.ts` for what those are and
+ * `worker/routes/team.ts` for the 30-minute recompute cadence. One row per
+ * team, always replaced as a whole: `historyQuality` is pulled out of
+ * `signalsJson` into its own column only so a future query can filter by it
+ * without parsing JSON in SQL.
+ */
+export const teamProcessSignals = sqliteTable("team_process_signals", {
+  teamId: text("team_id").primaryKey().references(() => teams.id),
+  computedAt: integer("computed_at").notNull(),
+  signalsJson: text("signals_json").notNull(),
+  historyQuality: text("history_quality").notNull(),
+});
+
 export const teamMembers = sqliteTable(
   "team_members",
   {
@@ -593,8 +609,10 @@ export const schema = {
   runStreamEvents,
   runEvents,
   outboxEvents,
+  teamProcessSignals,
 };
 
+export type TeamProcessSignalsRow = typeof teamProcessSignals.$inferSelect;
 export type RunRow = typeof runs.$inferSelect;
 export type BenchmarkRow = typeof benchmarks.$inferSelect;
 export type TeamRow = typeof teams.$inferSelect;
