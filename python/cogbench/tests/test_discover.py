@@ -242,6 +242,48 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(record["modules"][0]["name"], "a")
 
 
+class ImportDeadlineTests(unittest.TestCase):
+    """Importing runs whatever a file does at module scope, and files do real
+    work there. One 2026 repository tunes a threshold across 25 iterations
+    while being imported."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def test_a_module_that_never_finishes_importing_is_skipped_and_named(self):
+        (self.tmp / "slow.py").write_text("while True:\n    pass\n")
+        (self.tmp / "fine.py").write_text("def peaks(x):\n    return x\n")
+
+        found = discover(self.tmp, import_timeout=1)
+
+        self.assertEqual([entry.name for entry in found.modules], ["fine"])
+        slow = [entry for entry in found.skipped if entry.name == "slow"]
+        self.assertEqual(slow[0].reason, "too_slow")
+        self.assertIn("imported rather than when called", slow[0].detail)
+
+    def test_the_deadline_cannot_be_swallowed_by_their_own_except(self):
+        """Student code catches Exception liberally. A timeout a module can
+        catch and ignore is not a timeout."""
+
+        (self.tmp / "stubborn.py").write_text(
+            "while True:\n    try:\n        pass\n    except Exception:\n        pass\n"
+        )
+
+        found = discover(self.tmp, import_timeout=1)
+
+        self.assertEqual(found.modules, [])
+        self.assertEqual(found.skipped[0].reason, "too_slow")
+
+    def test_a_slow_module_does_not_stop_the_ones_after_it(self):
+        (self.tmp / "a_slow.py").write_text("while True:\n    pass\n")
+        (self.tmp / "z_good.py").write_text("def peaks(x):\n    return x\n")
+
+        found = discover(self.tmp, import_timeout=1)
+
+        self.assertIn("z_good", [entry.name for entry in found.modules])
+
+
 class StubTests(unittest.TestCase):
     """The stub list stands in for packages the sandbox does not carry."""
 

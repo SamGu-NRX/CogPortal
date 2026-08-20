@@ -69,9 +69,15 @@ class IsolationTests(unittest.TestCase):
         self.assertIn("segfaulted", outcome.detail)
 
     def test_an_endless_loop_is_stopped(self):
+        """Either limit may land first. A spin burns wall clock and CPU at the
+        same rate, and both are set to the same number of seconds, so which
+        signal arrives is a race the test must not pick a winner in. What
+        matters is that the loop stops and the reason names time."""
+
         outcome = run_isolated(_spin, timeout_seconds=3)
+
         self.assertEqual(outcome.status, TIMED_OUT)
-        self.assertIn("longer than the time allowed", outcome.detail)
+        self.assertIn("time", outcome.detail)
 
     def test_files_are_written_to_scratch_not_the_repository(self):
         """One audited repository keeps a module-global relative db.pkl and

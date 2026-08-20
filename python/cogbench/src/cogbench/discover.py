@@ -495,8 +495,63 @@ def _missing_module(error: BaseException) -> Optional[str]:
     return getattr(error, "name", None) if isinstance(error, ImportError) else None
 
 
+#: How long one module may spend at import scope before it is abandoned.
+#: Importing runs whatever a file does at module level, and files do real work
+#: there: one 2026 repository tunes a threshold across 25 iterations while
+#: being imported, which took 77 seconds of a 77-second run. Another could
+#: loop forever and there would be nothing to report at all, because the
+#: report is written after discovery finishes.
+#:
+#: Thirty seconds is well past anything a definition file needs and well short
+#: of a student giving up. A module that exceeds it is skipped and named, so
+#: the search continues without it and the report says which file it was.
+IMPORT_TIMEOUT_SECONDS = 30
+
+
+class _ImportTimeout(BaseException):
+    """Raised inside the importing thread when a module runs too long.
+
+    Deliberately a BaseException: student code catches Exception liberally,
+    and a timeout a module can swallow is not a timeout.
+    """
+
+
+@contextlib.contextmanager
+def _deadline(seconds: int, name: str):
+    """Interrupt an import that will not finish.
+
+    Uses a timer that raises in the main thread, which is where the import
+    runs. It cannot stop a call that never returns to the interpreter, such as
+    one blocked in a C extension, so it is a limit on ordinary Python work
+    rather than a guarantee. `cogbench.isolate` is the guarantee, and the
+    hosted runner puts the whole resolution inside it.
+    """
+
+    import ctypes
+    import threading
+
+    done = threading.Event()
+
+    def _interrupt() -> None:
+        if done.is_set():
+            return
+        ctypes.pythonapi.PyThreadState_SetAsyncExc(
+            ctypes.c_ulong(threading.main_thread().ident or 0),
+            ctypes.py_object(_ImportTimeout),
+        )
+
+    timer = threading.Timer(seconds, _interrupt)
+    timer.daemon = True
+    timer.start()
+    try:
+        yield
+    finally:
+        done.set()
+        timer.cancel()
+
+
 def _import_one(
-    name: str, path: Path, source: Optional[str]
+    name: str, path: Path, source: Optional[str], timeout: int = IMPORT_TIMEOUT_SECONDS
 ) -> Tuple[Optional[ModuleType], Optional[SkippedModule]]:
     try:
         if source is None:
@@ -507,15 +562,24 @@ def _import_one(
                 )
             module = importlib.util.module_from_spec(spec)
             sys.modules[name] = module
-            with _quiet_import():
+            with _quiet_import(), _deadline(timeout, name):
                 spec.loader.exec_module(module)
         else:
             module = ModuleType(name)
             module.__file__ = str(path)
             sys.modules[name] = module
-            with _quiet_import():
+            with _quiet_import(), _deadline(timeout, name):
                 exec(compile(source, str(path), "exec"), module.__dict__)
         return module, None
+    except _ImportTimeout:
+        sys.modules.pop(name, None)
+        return None, SkippedModule(
+            name,
+            path,
+            "too_slow",
+            "still running after {} seconds; it does work when imported rather "
+            "than when called".format(timeout),
+        )
     except SyntaxError as error:
         sys.modules.pop(name, None)
         return None, SkippedModule(
@@ -541,7 +605,10 @@ def _import_one(
 
 
 def load_modules(
-    root: Path, *, extra: Sequence[Path] = ()
+    root: Path,
+    *,
+    extra: Sequence[Path] = (),
+    import_timeout: int = IMPORT_TIMEOUT_SECONDS,
 ) -> Tuple[List[LoadedModule], List[SkippedModule], List[str]]:
     """Import every module in ``root``, then in each of ``extra``.
 
@@ -574,7 +641,7 @@ def load_modules(
         for path in _python_files(directory):
             if path.stem in taken:
                 continue
-            module, failure = _import_one(path.stem, path, None)
+            module, failure = _import_one(path.stem, path, None, import_timeout)
             if module is not None:
                 loaded.append(LoadedModule(path.stem, path, module, "file"))
                 taken.add(path.stem)
@@ -594,7 +661,7 @@ def load_modules(
                     )
                 )
                 continue
-            module, failure = _import_one(path.stem, path, source)
+            module, failure = _import_one(path.stem, path, source, import_timeout)
             if module is not None:
                 loaded.append(LoadedModule(path.stem, path, module, "notebook"))
                 taken.add(path.stem)
@@ -666,6 +733,7 @@ def discover(
     declared_root: Optional[str] = None,
     hints: Sequence[str] = (),
     scratch: Optional[Path] = None,
+    import_timeout: int = IMPORT_TIMEOUT_SECONDS,
 ) -> Discovery:
     """Choose a root, import what imports, and report all of it.
 
@@ -703,11 +771,15 @@ def discover(
     # right about wanting a working directory; it does not get to be this one.
     if scratch is not None:
         with _entered(root.path, working=Path(scratch)):
-            modules, skipped, calls = load_modules(root.path, extra=extra)
+            modules, skipped, calls = load_modules(
+                root.path, extra=extra, import_timeout=import_timeout
+            )
     else:
         with tempfile.TemporaryDirectory(prefix="cogworks-import-") as temporary:
             with _entered(root.path, working=Path(temporary)):
-                modules, skipped, calls = load_modules(root.path, extra=extra)
+                modules, skipped, calls = load_modules(
+                root.path, extra=extra, import_timeout=import_timeout
+            )
     return Discovery(root=root, modules=modules, skipped=skipped, stub_calls=calls)
 
 
