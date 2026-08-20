@@ -129,6 +129,18 @@ class Stage:
     produces: Optional[Callable[[Any], bool]] = None
     #: How many positional arguments this stage passes.
     arity: int = 1
+    #: Whether one function may do this step and the next one together.
+    #:
+    #: The course names five steps and one 2026 team wrote four functions:
+    #: their `identifying_peaks(samples, rate)` computes a spectrogram and
+    #: finds peaks in it, returning both. That is not a missing step, it is
+    #: the same work in one function, and a search that insisted on a
+    #: separate spectrogram would refuse a complete pipeline.
+    #:
+    #: Set on the step that may be absorbed, and only where fusing is a shape
+    #: real teams write. The chain is still accepted only by the end-to-end
+    #: test, so allowing the shorter path costs nothing but attempts.
+    fusible: bool = False
 
 
 @dataclass(frozen=True)
@@ -137,6 +149,23 @@ class Role:
 
     name: str
     stages: Tuple[Stage, ...]
+
+
+@dataclass(frozen=True)
+class _Partial:
+    """One chain under construction, and what happened along it.
+
+    ``stages`` is carried rather than derived, because a fused step makes the
+    chain shorter than the stage list and there is no way to work out
+    afterwards which function absorbed which step. Recording it as it happens
+    is the only version that is right.
+    """
+
+    chain: Tuple["Candidate", ...]
+    value: Any
+    received: Tuple[str, ...]
+    returned: Tuple[str, ...]
+    stages: Tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -389,9 +418,29 @@ def probe_sources(
         ok, value = _call(candidate, fixture)
         if not ok or value is None:
             continue
-        if stage.produces is None or _safe(stage.produces, value):
+        # The same reading `extend` applies downstream. One team's first
+        # function returns `(peaks, freqs, times, spectrogram)`, so requiring
+        # the whole return value to look like a spectrogram refused a
+        # function that had plainly done the work.
+        if stage.produces is None or _safe_produces(stage, value):
             accepted.append((candidate, value))
     return accepted
+
+
+def _safe_produces(stage: Stage, value: Any) -> bool:
+    """Whether the upstream value already looks like this stage's output.
+
+    The test for a fused pair. Their combined function returned something; if
+    that something passes this stage's own validator, the step is done and the
+    chain moves on without adding a candidate for it.
+    """
+
+    if stage.produces is None:
+        return True
+    for offered, _note in _handoffs(value):
+        if _safe(stage.produces, offered):
+            return True
+    return False
 
 
 def _safe(predicate: Callable[[Any], bool], value: Any) -> bool:
@@ -418,7 +467,18 @@ def _handoffs(upstream: Any) -> List[Tuple[Any, str]]:
 
     offers: List[Tuple[Any, str]] = [(upstream, "")]
     if isinstance(upstream, tuple) and upstream:
-        offers.append((upstream[0], " (first element)"))
+        # Every element, not only the first. `specgram` returns
+        # `(spectrogram, freqs, times)` and one team's combined peak finder
+        # returns `(peaks, freqs, times, spectrogram)`, where the part the
+        # next stage wants is last. Each element is offered exactly as it was
+        # returned, and the stage's own validator decides.
+        seen = set()
+        for element in upstream:
+            marker = id(element)
+            if marker in seen:
+                continue
+            seen.add(marker)
+            offers.append((element, " (part of what it returned)"))
     return offers
 
 
@@ -514,8 +574,8 @@ def _resolve_chain(
     # chain that runs and answers wrongly is a bug in their pipeline, and the
     # only useful thing the platform can offer is the smallest reproduction it
     # has -- which of their functions ran, on what, and what came back.
-    frontier: List[Tuple[Tuple[Candidate, ...], Any, Tuple[str, ...], Tuple[str, ...]]] = [
-        ((candidate,), value, (fixture_summary,), (describe(value),))
+    frontier: List[_Partial] = [
+        _Partial((candidate,), value, (fixture_summary,), (describe(value),), (first.name,))
         for candidate, value in probe_sources(first, candidates, fixture)
     ]
     if not frontier:
@@ -528,24 +588,50 @@ def _resolve_chain(
             ),
         )
 
-    furthest: Tuple[str, ...] = (frontier[0][0][0].label,)
-    last_returned = frontier[0][3][-1]
+    furthest: Tuple[str, ...] = (frontier[0].chain[0].label,)
+    last_returned = frontier[0].returned[-1]
     stalled_at = role.stages[1].name if len(role.stages) > 1 else first.name
 
     for stage in role.stages[1:]:
-        nxt: List[Tuple[Tuple[Candidate, ...], Any, Tuple[str, ...], Tuple[str, ...]]] = []
-        for chain, value, received, returned in frontier[:beam]:
-            for candidate, produced, passed in extend(stage, candidates, value):
+        nxt: List[_Partial] = []
+        for partial in frontier[:beam]:
+            for candidate, produced, passed in extend(stage, candidates, partial.value):
                 nxt.append(
-                    (
-                        chain + (candidate,),
+                    _Partial(
+                        partial.chain + (candidate,),
                         produced,
                         # What this step actually received, which is the whole
-                        # upstream value or the element unpacked from it.
-                        received + (describe(passed),),
-                        returned + (describe(produced),),
+                        # upstream value or one element unpacked from it.
+                        partial.received + (describe(passed),),
+                        partial.returned + (describe(produced),),
+                        partial.stages + (stage.name,),
                     )
                 )
+        # A step the previous function already did. Carrying the frontier
+        # forward unchanged lets the next stage read what that function
+        # returned, which is how a fused pair is found: their combined
+        # function has already produced this stage's output. The stage name
+        # joins the step that absorbed it, so the report names both.
+        if stage.fusible:
+            fused = [
+                _Partial(
+                    partial.chain,
+                    partial.value,
+                    partial.received,
+                    partial.returned,
+                    partial.stages[:-1]
+                    + ("{} + {}".format(partial.stages[-1], stage.name),),
+                )
+                for partial in frontier[:beam]
+                if _safe_produces(stage, partial.value)
+            ]
+            # Ahead of the candidates, not behind them. When the previous
+            # function has already produced what this stage produces, calling
+            # something else on it is the less likely reading: the validators
+            # are loose by design, so a fingerprinter will happily accept the
+            # peaks it was going to be given anyway and bind twice. Both
+            # orders reach the acceptance test; this one gets there first.
+            nxt = fused + nxt
         if not nxt:
             return None, Refusal(
                 role.name,
@@ -557,20 +643,19 @@ def _resolve_chain(
                 last_returned=last_returned,
             )
         frontier = nxt
-        furthest = tuple(step.label for step in frontier[0][0])
-        last_returned = frontier[0][3][-1]
+        furthest = tuple(step.label for step in frontier[0].chain)
+        last_returned = frontier[0].returned[-1]
         stalled_at = stage.name
 
-    stage_names = tuple(stage.name for stage in role.stages)
-    for chain, _value, received, returned in frontier[:beam]:
-        if verify is None or verify(chain):
+    for partial in frontier[:beam]:
+        if verify is None or verify(partial.chain):
             return (
                 Binding(
                     role.name,
-                    chain,
-                    _stage_names=stage_names,
-                    _received=received,
-                    _returned=returned,
+                    partial.chain,
+                    _stage_names=partial.stages,
+                    _received=partial.received,
+                    _returned=partial.returned,
                 ),
                 None,
             )

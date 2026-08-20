@@ -163,11 +163,18 @@ def render_check(
     if steps or attempt is not None:
         lines.append("")
         lines.append("Wired up:")
-        for stage, function in steps:
-            lines.append("  {:<14} {}".format(stage, function))
+        labels = [stage for stage, _ in steps]
         if attempt is not None:
-            lines.append("  {:<14} {}".format("store", attempt.enroll))
-            lines.append("  {:<14} {}".format("query", attempt.query))
+            labels += ["store", "query"]
+        # Sized to the widest label rather than fixed, because a function that
+        # does two steps is named for both ("spectrogram + peaks") and a fixed
+        # column put the rest of that row out of line with every other one.
+        width = max([len(label) for label in labels] + [14])
+        for stage, function in steps:
+            lines.append("  {:<{}} {}".format(stage, width, function))
+        if attempt is not None:
+            lines.append("  {:<{}} {}".format("store", width, attempt.enroll))
+            lines.append("  {:<{}} {}".format("query", width, attempt.query))
 
     lines.append("")
     if verdict is not None:
