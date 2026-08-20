@@ -56,6 +56,11 @@ jobs:
       - run: python -m pip install --upgrade pip build
       - run: python -m pip install -e python/cogbench
       - run: python -m unittest discover -s python/cogbench/tests -p 'test_*.py'
+      # numpy, because five of these tests build a week 2 or week 3 payload
+      # and those carry arrays. Without it they error, and errors read like a
+      # passing suite the moment nobody is watching the count.
+      - if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
+        run: python -m pip install "numpy<2"
       - if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
         run: python -m unittest discover -s apps/runner-modal/tests -p 'test_*.py'
       - run: python template-catalog/validate.py
