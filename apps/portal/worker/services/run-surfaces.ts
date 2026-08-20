@@ -363,10 +363,24 @@ export async function buildRunSurfaceSnapshot(
     officialRunId: official?.id ?? null,
     published,
     nextOfficialAttempt: nextAttempt,
+    // The run that failed, if one did. A refusal explains itself; every other
+    // failure has a traceback and belongs in the log rather than in a chat
+    // message.
+    refusalHeadline: refusalHeadlineOf(official ?? practice),
     events,
     actions,
     simulated: env.EXECUTION_PROVIDER === "fixture",
   });
+}
+
+function refusalHeadlineOf(run: { refusalJson?: string | null } | null | undefined): string | null {
+  if (!run?.refusalJson) return null;
+  try {
+    const parsed = JSON.parse(run.refusalJson) as { headline?: unknown };
+    return typeof parsed.headline === "string" && parsed.headline ? parsed.headline : null;
+  } catch {
+    return null;
+  }
 }
 
 export async function appendRunStreamEvent(

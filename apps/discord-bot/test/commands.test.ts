@@ -84,6 +84,7 @@ function surfaceSnapshot(): RunSurfaceSnapshot {
     practiceRunId: null,
     officialRunId: null,
     published: false,
+    refusalHeadline: null,
     nextOfficialAttempt: 2,
     events: [],
     actions: ["open_console", "open_portal", "verify_hosted", "run_again"],

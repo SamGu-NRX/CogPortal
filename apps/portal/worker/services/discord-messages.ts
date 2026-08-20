@@ -211,6 +211,13 @@ export function runSurfaceMessage(env: Env, snapshot: RunSurfaceSnapshot) {
     }
     if (snapshot.status === "failed") {
       lines.push("", ...failureTrace(snapshot, events, (code) => EVENT_COPY[code], fmt));
+      // "Contract check stopped" is true and says nothing a team can act on.
+      // When the platform could not find code to score, it already wrote one
+      // sentence explaining why, in their own function names. Discord is
+      // where several teams read a result first, so it belongs here too.
+      if (snapshot.refusalHeadline) {
+        lines.push("-# " + snapshot.refusalHeadline.slice(0, 300));
+      }
     }
     children.push(text(lines.join("\n")));
     const breakdown = snapshot.status === "succeeded" ? subscoreLines(snapshot, fmt) : [];

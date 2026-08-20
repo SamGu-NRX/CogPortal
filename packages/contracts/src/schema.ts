@@ -549,6 +549,15 @@ export const RunSurfaceSnapshotSchema = z.object({
   officialRunId: z.string().nullable(),
   published: z.boolean(),
   nextOfficialAttempt: z.number().int().positive().nullable(),
+  /**
+   * One sentence saying why nothing could be scored, when that is what
+   * failed. Null otherwise.
+   *
+   * Discord shows "Contract check stopped", which is true and says nothing a
+   * team can act on. The reason is already written; carrying it here is what
+   * makes the message worth reading.
+   */
+  refusalHeadline: z.string().max(600).nullable().default(null),
   events: z.array(RunStreamEventSchema).max(250),
   actions: z.array(RunSurfaceActionSchema),
   simulated: z.boolean(),
