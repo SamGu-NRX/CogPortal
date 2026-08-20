@@ -51,11 +51,13 @@ __all__ = [
     "SkippedModule",
     "RootChoice",
     "Discovery",
+    "Survey",
     "candidate_roots",
     "choose_root",
     "notebook_source",
     "load_modules",
     "discover",
+    "survey",
 ]
 
 #: Absent from the sandbox images and never on a scored path. Measured across
@@ -614,3 +616,65 @@ def discover(
     with _entered(root.path):
         modules, skipped, calls = load_modules(root.path, extra=extra)
     return Discovery(root=root, modules=modules, skipped=skipped, stub_calls=calls)
+
+
+@dataclass(frozen=True)
+class Survey:
+    """What a repository holds, gathered in a process that may not survive it.
+
+    ``discover`` imports student code in the calling process, which is right
+    for a benchmark that is about to run that code anyway. ``survey`` is for
+    everyone who only wants to look: ``cogworks check``, the portal, a report.
+    It returns names and reasons rather than modules, so an import that takes
+    the interpreter down with it costs a report instead of a run.
+    """
+
+    #: ``"ok"`` when the child finished, otherwise the isolate status:
+    #: ``"crashed"``, ``"timed_out"``, ``"out_of_memory"``, ``"raised"``.
+    status: str
+    record: Dict[str, object]
+    detail: str = ""
+
+    @property
+    def ok(self) -> bool:
+        return self.status == "ok"
+
+    @property
+    def module_names(self) -> List[str]:
+        modules = self.record.get("modules", [])
+        return [str(entry["name"]) for entry in modules]  # type: ignore[index]
+
+
+def survey(
+    repository: Path,
+    *,
+    declared_root: Optional[str] = None,
+    hints: Sequence[str] = (),
+    timeout_seconds: int = 300,
+) -> Survey:
+    """Look at a repository without risking the caller.
+
+    A student's module can abort the interpreter outright: one repository's
+    audio helper loads a second copy of a native backend and dies with a
+    nanobind error that no ``except`` clause can see. That must cost this
+    repository's report and nothing else, the way one failing CI step leaves
+    the rest of the run standing.
+    """
+
+    from .isolate import COMPLETED, run_isolated
+
+    repository = Path(repository).resolve()
+
+    def _work() -> Dict[str, object]:
+        return discover(
+            repository, declared_root=declared_root, hints=hints
+        ).to_dict()
+
+    outcome = run_isolated(_work, timeout_seconds=timeout_seconds)
+    if outcome.status == COMPLETED and isinstance(outcome.value, dict):
+        return Survey("ok", outcome.value)
+    return Survey(
+        outcome.status,
+        {"root": str(repository), "modules": [], "skipped": []},
+        outcome.detail,
+    )
