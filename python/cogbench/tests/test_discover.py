@@ -242,5 +242,39 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(record["modules"][0]["name"], "a")
 
 
+class StubTests(unittest.TestCase):
+    """The stub list stands in for packages the sandbox does not carry."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def test_a_submodule_of_a_stubbed_package_imports_too(self):
+        """`from microphone.config import settings` is a real line in the 2026
+        corpus. Stubbing only the top name left it failing, and one team lost
+        the module holding their spectrogram to it."""
+
+        (self.tmp / "theirs.py").write_text(
+            "from microphone import record_audio\n"
+            "from microphone.config import settings\n"
+            "def peaks(x):\n    return x\n"
+        )
+
+        found = discover(self.tmp)
+
+        self.assertIn("theirs", [entry.name for entry in found.modules])
+
+    def test_an_unrelated_missing_package_still_fails_and_is_named(self):
+        """The stub list is fixed. Answering for anything missing would turn
+        a real dependency error into a silent wrong answer."""
+
+        (self.tmp / "theirs.py").write_text("import definitely_not_a_package\n")
+
+        found = discover(self.tmp)
+
+        self.assertEqual([entry.name for entry in found.modules], [])
+        self.assertEqual(found.skipped[0].missing, "definitely_not_a_package")
+
+
 if __name__ == "__main__":
     unittest.main()

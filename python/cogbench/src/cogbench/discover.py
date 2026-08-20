@@ -110,11 +110,16 @@ class _Stub(ModuleType):
     recorded. A module that only mentions one of these at import scope loads;
     one that depends on a return value fails later, in its own frame, and the
     record says which stub it reached for.
+
+    Submodules stand in too. ``from microphone.config import settings`` is the
+    real line in one 2026 repository, and stubbing only the top name left that
+    import failing with the package supposedly stubbed, which cost that team
+    their spectrogram module and their score.
     """
 
     def __init__(self, name: str, calls: List[str]) -> None:
         super().__init__(name)
-        self.__calls = calls
+        self._Stub__calls = calls
         # importlib refuses a module whose __spec__ is None with
         # "ValueError: networkx.__spec__ is None", which student code hits when
         # it imports a submodule of a stubbed package.
@@ -125,9 +130,14 @@ class _Stub(ModuleType):
         if attribute.startswith("__"):
             raise AttributeError(attribute)
         name = "{}.{}".format(self.__name__, attribute)
+        # A submodule of a stub is a stub. Registering it means the import
+        # machinery finds it without a finder, and it keeps recording under
+        # its full dotted name so the report can still say what was reached.
+        if name not in sys.modules:
+            sys.modules[name] = _Stub(name, self.__calls)
 
         def _recorded(*_args, **_kwargs):
-            self.__calls.append(name)
+            self._Stub__calls.append(name)
             return None
 
         _recorded.__name__ = attribute
@@ -427,6 +437,48 @@ def _quiet_import():
         sys.stdin, sys.stdout, sys.stderr = saved
 
 
+class _StubFinder:
+    """Answers for any submodule of a stubbed package.
+
+    ``from microphone.config import settings`` is a real line in the 2026
+    corpus. Stubbing only the top-level name left that import failing, which
+    cost one team the module holding their spectrogram. The submodule cannot
+    be registered up front because there is no way to know which ones a
+    repository will ask for, so this answers on demand, at the point the
+    import machinery looks.
+
+    Scoped to the stub list and nothing else: an unrelated missing package
+    still fails, and is still named in the report.
+    """
+
+    def __init__(self, calls: List[str]) -> None:
+        self._calls = calls
+
+    def find_module(self, name: str, path=None):  # Python 3.8 compatibility
+        return self if self._owns(name) else None
+
+    def load_module(self, name: str):
+        module = sys.modules.get(name)
+        if module is None:
+            module = sys.modules[name] = _Stub(name, self._calls)
+        return module
+
+    def find_spec(self, name: str, path=None, target=None):
+        if not self._owns(name):
+            return None
+        return importlib.machinery.ModuleSpec(name, self)
+
+    def create_module(self, spec):
+        return _Stub(spec.name, self._calls)
+
+    def exec_module(self, module):
+        return None
+
+    @staticmethod
+    def _owns(name: str) -> bool:
+        return any(name.startswith(stub + ".") for stub in STUBBED_MODULES)
+
+
 def _install_stubs(calls: List[str]) -> List[str]:
     installed = []
     for name in STUBBED_MODULES:
@@ -434,6 +486,8 @@ def _install_stubs(calls: List[str]) -> List[str]:
             continue
         sys.modules[name] = _Stub(name, calls)
         installed.append(name)
+    if not any(isinstance(finder, _StubFinder) for finder in sys.meta_path):
+        sys.meta_path.insert(0, _StubFinder(calls))
     return installed
 
 
