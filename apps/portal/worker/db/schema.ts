@@ -319,6 +319,9 @@ export const runs = sqliteTable("runs", {
   /** Which of the team's own functions ran, when the platform found them
    *  itself. Null when the repository declared its own submission. */
   wiringJson: text("wiring_json"),
+  /** Why nothing could be found to score. Null for every other failure:
+   *  their code raising is theirs to read, and the log is where it belongs. */
+  refusalJson: text("refusal_json"),
   /** The scorer's difficulty sweep, as JSON. Null when the benchmark has no
    *  difficulty knob, or when the run predates migration 0023. */
   sweepJson: text("sweep_json"),

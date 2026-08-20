@@ -5,51 +5,211 @@
   "oneOf": [
     {
       "type": "object",
-      "required": ["protocolVersion", "eventId", "runId", "sequence", "occurredAt", "type", "status"],
+      "required": [
+        "protocolVersion",
+        "eventId",
+        "runId",
+        "sequence",
+        "occurredAt",
+        "type",
+        "status"
+      ],
       "properties": {
-        "protocolVersion": { "const": "1" },
-        "eventId": { "type": "string" },
-        "runId": { "type": "string" },
-        "sequence": { "type": "integer", "minimum": 0 },
-        "occurredAt": { "type": "integer", "minimum": 1 },
-        "type": { "const": "status" },
-        "status": { "enum": ["preparing", "installing", "contract_check", "evaluating", "scoring"] }
+        "protocolVersion": {
+          "const": "1"
+        },
+        "eventId": {
+          "type": "string"
+        },
+        "runId": {
+          "type": "string"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "occurredAt": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "type": {
+          "const": "status"
+        },
+        "status": {
+          "enum": [
+            "preparing",
+            "installing",
+            "contract_check",
+            "evaluating",
+            "scoring"
+          ]
+        }
       }
     },
     {
       "type": "object",
-      "required": ["protocolVersion", "eventId", "runId", "sequence", "occurredAt", "type", "result", "preparedArtifactId", "environmentDigest", "sanitizedLog"],
+      "required": [
+        "protocolVersion",
+        "eventId",
+        "runId",
+        "sequence",
+        "occurredAt",
+        "type",
+        "result",
+        "preparedArtifactId",
+        "environmentDigest",
+        "sanitizedLog"
+      ],
       "properties": {
-        "protocolVersion": { "const": "1" },
-        "eventId": { "type": "string" },
-        "runId": { "type": "string" },
-        "sequence": { "type": "integer", "minimum": 0 },
-        "occurredAt": { "type": "integer", "minimum": 1 },
-        "type": { "const": "completed" },
-        "result": { "$ref": "benchmark-result.schema.json" },
-        "preparedArtifactId": { "type": "string" },
-        "environmentDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
-        "sanitizedLog": { "type": ["string", "null"], "maxLength": 8192 }
+        "protocolVersion": {
+          "const": "1"
+        },
+        "eventId": {
+          "type": "string"
+        },
+        "runId": {
+          "type": "string"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "occurredAt": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "type": {
+          "const": "completed"
+        },
+        "result": {
+          "$ref": "benchmark-result.schema.json"
+        },
+        "preparedArtifactId": {
+          "type": "string"
+        },
+        "environmentDigest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "sanitizedLog": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 8192
+        }
       }
     },
     {
       "type": "object",
-      "required": ["protocolVersion", "eventId", "runId", "sequence", "occurredAt", "type", "failure"],
+      "required": [
+        "protocolVersion",
+        "eventId",
+        "runId",
+        "sequence",
+        "occurredAt",
+        "type",
+        "failure"
+      ],
       "properties": {
-        "protocolVersion": { "const": "1" },
-        "eventId": { "type": "string" },
-        "runId": { "type": "string" },
-        "sequence": { "type": "integer", "minimum": 0 },
-        "occurredAt": { "type": "integer", "minimum": 1 },
-        "type": { "const": "failed" },
+        "protocolVersion": {
+          "const": "1"
+        },
+        "eventId": {
+          "type": "string"
+        },
+        "runId": {
+          "type": "string"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "occurredAt": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "type": {
+          "const": "failed"
+        },
         "failure": {
           "type": "object",
-          "required": ["category", "phase", "detail", "infrastructure"],
+          "required": [
+            "category",
+            "phase",
+            "detail",
+            "infrastructure"
+          ],
           "properties": {
-            "category": { "type": "string" },
-            "phase": { "type": "string" },
-            "detail": { "type": ["string", "null"], "maxLength": 240 },
-            "infrastructure": { "type": "boolean" }
+            "category": {
+              "type": "string"
+            },
+            "phase": {
+              "type": "string"
+            },
+            "detail": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "maxLength": 240
+            },
+            "infrastructure": {
+              "type": "boolean"
+            },
+            "refusal": {
+              "description": "Why the platform could not find code to score. Present only for that kind of failure; `detail` is one capped line, which is right for a log and too short for the thing a student acts on.",
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "status",
+                "headline"
+              ],
+              "properties": {
+                "status": {
+                  "type": "string",
+                  "maxLength": 40
+                },
+                "headline": {
+                  "type": "string",
+                  "maxLength": 600
+                },
+                "nextStep": {
+                  "type": "string",
+                  "maxLength": 600
+                },
+                "trace": {
+                  "type": "array",
+                  "maxItems": 16,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "stage",
+                      "function"
+                    ],
+                    "properties": {
+                      "stage": {
+                        "type": "string",
+                        "maxLength": 60
+                      },
+                      "function": {
+                        "type": "string",
+                        "maxLength": 200
+                      },
+                      "received": {
+                        "type": "string",
+                        "maxLength": 200
+                      },
+                      "returned": {
+                        "type": "string",
+                        "maxLength": 200
+                      }
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }

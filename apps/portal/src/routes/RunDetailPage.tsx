@@ -6,6 +6,7 @@ import { ConfirmButton } from "@/components/ConfirmButton";
 import { FailureCard } from "@/components/FailureCard";
 import { LoadingMark, QueryError } from "@/components/Feedback";
 import { LogView } from "@/components/LogView";
+import { RefusalCard } from "@/components/RefusalCard";
 import { Finding } from "@/components/Finding";
 import { PrimaryMetric, SupportingMetrics } from "@/components/MetricBlock";
 import { SweepTrace } from "@/components/SweepTrace";
@@ -152,6 +153,11 @@ export function RunDetailPage() {
             benchmarkId={run.benchmarkId}
             module={runModule}
           />
+          {/* Under the failure card, because the card says which phase
+              stopped and this says why. Only for a run that failed for want
+              of code to score; every other failure has a traceback, and the
+              log is where that belongs. */}
+          {run.refusal && <RefusalCard refusal={run.refusal} />}
           {run.mode === "practice" && failureCopy.retryable && (
             <Button
               variant="ghost"

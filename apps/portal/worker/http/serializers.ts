@@ -144,6 +144,9 @@ export async function serializeRunDetail(
     // Named for their own functions, so it is safe on an official run for the
     // same reason diagnostics are: it describes their code, never the data.
     wiring: parseWiring(row.wiringJson),
+    // Names their own modules and functions, so it is safe on an official run
+    // for the same reason diagnostics are.
+    refusal: parseRefusal(row.refusalJson),
     log: row.mode === "practice" ? row.log : null,
     selected: selection[0]?.runId === row.id,
   };
@@ -159,6 +162,18 @@ function parseDiagnostics(value: string | null): string[] {
     return parsed.filter((item): item is string => typeof item === "string").slice(0, 32);
   } catch {
     return [];
+  }
+}
+
+/** Same tolerance again: a malformed refusal costs the explanation, never the
+ *  page. The capped `failure.detail` still renders either way. */
+function parseRefusal(value: string | null): RunDetail["refusal"] {
+  if (!value) return null;
+  try {
+    const parsed = RunDetailSchema.shape.refusal.safeParse(JSON.parse(value));
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
   }
 }
 

@@ -198,6 +198,9 @@ async function applyEvent(env: AppEnv["Bindings"], event: RunEventV1): Promise<v
         failureCategory: event.failure.category,
         failurePhase: event.failure.phase,
         failureDetail: event.failure.detail,
+        // The full verdict, when the failure was "nothing here to score".
+        // The capped detail above is for a log; this is what a student reads.
+        refusalJson: event.failure.refusal ? JSON.stringify(event.failure.refusal) : null,
         failureConsumedAttempt: consumedAttempt,
         lastEventSequence: event.sequence,
       })

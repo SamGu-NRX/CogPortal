@@ -180,6 +180,33 @@ export const RunDetailSchema = RunSummarySchema.extend({
     )
     .max(16)
     .default([]),
+  /**
+   * Why the platform could not find code to score, when that is what failed.
+   * Null for every other failure and for every run that succeeded.
+   *
+   * Separate from `failure.detail`, which is one capped line meant for a log.
+   * This is the part a student acts on: the step that stalled, what their
+   * last function returned, and the one next thing to do.
+   */
+  refusal: z
+    .object({
+      status: z.string().max(40),
+      headline: z.string().max(600),
+      nextStep: z.string().max(600).default(""),
+      trace: z
+        .array(
+          z.object({
+            stage: z.string().max(60),
+            function: z.string().max(200),
+            received: z.string().max(200).optional(),
+            returned: z.string().max(200).optional(),
+          }),
+        )
+        .max(16)
+        .default([]),
+    })
+    .nullable()
+    .default(null),
   /** Capped install/eval log. Practice runs only; null for official (§5). */
   log: z.string().nullable(),
   /** Official runs: currently published on the leaderboard. */

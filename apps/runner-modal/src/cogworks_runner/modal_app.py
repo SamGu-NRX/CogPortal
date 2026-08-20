@@ -708,11 +708,57 @@ pathlib.Path("/tmp/cog-student.log").write_text(buffer.value(), encoding="utf-8"
 
 
 class RunnerFailure(RuntimeError):
-    def __init__(self, category: str, phase: str, detail: str, infrastructure: bool):
+    def __init__(
+        self,
+        category: str,
+        phase: str,
+        detail: str,
+        infrastructure: bool,
+        refusal: Optional[Dict[str, Any]] = None,
+    ):
         super().__init__(detail)
         self.category = category
         self.phase = phase
         self.infrastructure = infrastructure
+        #: Why nothing could be found to score, when that is what failed.
+        #: `detail` is one capped line, which is right for a log and too short
+        #: for the thing a student acts on: a refusal names the step that
+        #: stalled, the shape their last function returned, the modules that
+        #: could not be read, and the one next thing to do.
+        self.refusal = refusal
+
+
+def _refusal_from(sandbox) -> Optional[Dict[str, Any]]:
+    """The verdict the prepare step wrote, if it wrote one.
+
+    Absent whenever the failure was something other than "nothing here to
+    score", which is most failures. A missing file is the normal case and not
+    an error.
+    """
+
+    try:
+        record = json.loads(sandbox.filesystem.read_text("/tmp/discovery.json"))
+    except Exception:
+        return None
+    verdict = record.get("verdict") if isinstance(record, dict) else None
+    if not isinstance(verdict, dict):
+        return None
+    refusal = {
+        "status": str(verdict.get("status", ""))[:40],
+        "headline": str(verdict.get("headline", ""))[:600],
+        "nextStep": str(verdict.get("nextStep", ""))[:600],
+        "trace": [
+            {
+                "stage": str(step.get("stage", ""))[:60],
+                "function": str(step.get("function", ""))[:200],
+                "received": str(step.get("received", ""))[:200],
+                "returned": str(step.get("returned", ""))[:200],
+            }
+            for step in (verdict.get("trace") or [])[:16]
+            if isinstance(step, dict)
+        ],
+    }
+    return refusal if refusal["status"] and refusal["headline"] else None
 
 
 def _event(job: Dict[str, Any], sequence: int, event_type: str, **fields: Any) -> Dict[str, Any]:
@@ -1067,6 +1113,7 @@ def _prepare(job: Dict[str, Any], reporter: LiveReporter) -> str:
             # and tells a student nothing. The message is on the final
             # non-indented line, which is where Python puts it.
             detail = _last_error_line(stderr_text)
+            refusal = _refusal_from(sandbox)
             normalized = (detail + " " + stderr_text[-400:]).lower()
             if "source archive" in normalized:
                 raise RunnerFailure("repository_fetch", "preparing", detail, False)
@@ -1074,7 +1121,9 @@ def _prepare(job: Dict[str, Any], reporter: LiveReporter) -> str:
             # repository has neither a submission.py nor an entry point;
             # "entry point" catches the older ambiguous-registration message.
             if "no adapter found" in normalized or "entry point" in normalized:
-                raise RunnerFailure("adapter_missing", "contract_check", detail, False)
+                raise RunnerFailure(
+                    "adapter_missing", "contract_check", detail, False, refusal
+                )
             raise RunnerFailure("dependency_install", "installing", detail or "Install failed.", False)
         reporter.status("contract_check")
         return sandbox.snapshot_filesystem().object_id
@@ -1625,10 +1674,12 @@ def execute_job(job_value: Dict[str, Any]) -> None:
     except Exception as error:
         job_store[job["jobId"]] = "failed"
         detail = str(error)[:240]
+        refusal = None
         if isinstance(error, RunnerFailure):
             category = error.category
             failure_phase = error.phase
             infrastructure = error.infrastructure
+            refusal = error.refusal
         elif phase == "scoring":
             category = "scorer"
             failure_phase = "scoring"
@@ -1645,6 +1696,7 @@ def execute_job(job_value: Dict[str, Any]) -> None:
                     "phase": failure_phase,
                     "detail": detail,
                     "infrastructure": infrastructure,
+                    **({"refusal": refusal} if refusal else {}),
                 },
             )
         except Exception:

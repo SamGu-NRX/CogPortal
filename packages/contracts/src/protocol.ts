@@ -56,6 +56,27 @@ export const WiredStepSchema = z.object({
 });
 export type WiredStep = z.infer<typeof WiredStepSchema>;
 
+/**
+ * A refusal a student can act on.
+ *
+ * Written by `cogbench.verdict`, which has one rule: it says what it saw and
+ * never guesses at a cause. It cannot know which of their lines is wrong, and
+ * a confident wrong guess costs more than saying nothing.
+ */
+export const RefusalSchema = z.object({
+  /** Which of the five outcomes this is: not_wired, not_read, nothing_here,
+   *  wired_but_wrong, or scored. */
+  status: z.string().min(1).max(40),
+  /** One sentence naming what stopped, in the student's own function names. */
+  headline: z.string().max(600),
+  /** The one thing worth doing about it, when the platform honestly knows.
+   *  Empty when it does not, which is most of the time. */
+  nextStep: z.string().max(600).default(""),
+  /** How far the search got: each step it bound, and the shapes it saw. */
+  trace: z.array(WiredStepSchema).max(16).default([]),
+});
+export type Refusal = z.infer<typeof RefusalSchema>;
+
 export const BenchmarkResultV1Schema = z.object({
   protocolVersion: RunnerProtocolVersionSchema,
   benchmarkId: z.string().min(1).max(120),
@@ -176,6 +197,18 @@ export const RunEventV1Schema = z.discriminatedUnion("type", [
       ]),
       detail: z.string().max(240).nullable(),
       infrastructure: z.boolean(),
+      /**
+       * Why the platform could not find code to score, when that is what
+       * failed. `detail` is one capped line, which is right for a log and
+       * wrong for the thing a student acts on: a refusal names the step that
+       * stalled, the shape the last of their functions returned, the modules
+       * that could not be read, and the one next thing to do. Truncating that
+       * to 240 characters loses the part that helps.
+       *
+       * Absent for every other kind of failure. Their code raising is theirs
+       * to read, and the log is where it belongs.
+       */
+      refusal: RefusalSchema.optional(),
     }),
   }),
 ]);
