@@ -154,7 +154,27 @@ class Binding:
             for stage, step in zip(self._stage_names, self.steps)
         ]
 
+    def observations(self):
+        """Every step that ran, with what it received and returned.
+
+        This is the reproduction a student debugs from when the chain runs and
+        answers wrongly. It is the platform's whole contribution to that case:
+        it can say what ran and what came back, and it cannot say which line is
+        wrong, so it says the first and stops.
+        """
+
+        from .verdict import Observation
+
+        return tuple(
+            Observation(stage, step.label, received, returned)
+            for stage, step, received, returned in zip(
+                self._stage_names, self.steps, self._received, self._returned
+            )
+        )
+
     _stage_names: Tuple[str, ...] = field(default=(), compare=False)
+    _received: Tuple[str, ...] = field(default=(), compare=False)
+    _returned: Tuple[str, ...] = field(default=(), compare=False)
 
 
 @dataclass(frozen=True)
@@ -319,7 +339,7 @@ def extend(
     candidates: Sequence[Candidate],
     upstream: Any,
     extra: Sequence[Any] = (),
-) -> List[Tuple[Candidate, Any]]:
+) -> List[Tuple[Candidate, Any, Any]]:
     """Feed one stage's real output to the next stage, unchanged.
 
     ``upstream`` is passed as it was returned, or as its first element when it
@@ -335,7 +355,7 @@ def extend(
             if not ok or value is None:
                 continue
             if stage.produces is None or _safe(stage.produces, value):
-                accepted.append((candidate, value))
+                accepted.append((candidate, value, offered))
                 break
     return accepted
 
@@ -365,8 +385,18 @@ def resolve_chain(
         return None, Refusal(role.name, (), role.stages[0].name, "no functions to try")
 
     first = role.stages[0]
-    frontier = [
-        ((candidate,), value) for candidate, value in probe_sources(first, candidates, fixture)
+    from .verdict import describe
+
+    fixture_summary = ", ".join(describe(item) for item in fixture)
+
+    # Each entry carries the chain, the value it last produced, and what every
+    # step received and returned along the way. The trace is not decoration: a
+    # chain that runs and answers wrongly is a bug in their pipeline, and the
+    # only useful thing the platform can offer is the smallest reproduction it
+    # has -- which of their functions ran, on what, and what came back.
+    frontier: List[Tuple[Tuple[Candidate, ...], Any, Tuple[str, ...], Tuple[str, ...]]] = [
+        ((candidate,), value, (fixture_summary,), (describe(value),))
+        for candidate, value in probe_sources(first, candidates, fixture)
     ]
     if not frontier:
         return None, Refusal(
@@ -378,29 +408,51 @@ def resolve_chain(
             ),
         )
 
-    furthest: Tuple[str, ...] = tuple(step.label for step, _ in [(frontier[0][0][0], None)])
+    furthest: Tuple[str, ...] = (frontier[0][0][0].label,)
+    last_returned = frontier[0][3][-1]
     stalled_at = role.stages[1].name if len(role.stages) > 1 else first.name
 
     for stage in role.stages[1:]:
-        nxt: List[Tuple[Tuple[Candidate, ...], Any]] = []
-        for chain, value in frontier[:beam]:
-            for candidate, produced in extend(stage, candidates, value):
-                nxt.append((chain + (candidate,), produced))
+        nxt: List[Tuple[Tuple[Candidate, ...], Any, Tuple[str, ...], Tuple[str, ...]]] = []
+        for chain, value, received, returned in frontier[:beam]:
+            for candidate, produced, passed in extend(stage, candidates, value):
+                nxt.append(
+                    (
+                        chain + (candidate,),
+                        produced,
+                        # What this step actually received, which is the whole
+                        # upstream value or the element unpacked from it.
+                        received + (describe(passed),),
+                        returned + (describe(produced),),
+                    )
+                )
         if not nxt:
             return None, Refusal(
                 role.name,
                 furthest,
                 stage.name,
-                "nothing accepted what {} returned".format(furthest[-1] if furthest else "the last step"),
+                "nothing accepted what {} returned ({})".format(
+                    furthest[-1] if furthest else "the last step", last_returned
+                ),
             )
         frontier = nxt
         furthest = tuple(step.label for step in frontier[0][0])
+        last_returned = frontier[0][3][-1]
         stalled_at = stage.name
 
     stage_names = tuple(stage.name for stage in role.stages)
-    for chain, _ in frontier[:beam]:
+    for chain, _value, received, returned in frontier[:beam]:
         if verify is None or verify(chain):
-            return Binding(role.name, chain, _stage_names=stage_names), None
+            return (
+                Binding(
+                    role.name,
+                    chain,
+                    _stage_names=stage_names,
+                    _received=received,
+                    _returned=returned,
+                ),
+                None,
+            )
 
     return None, Refusal(
         role.name,

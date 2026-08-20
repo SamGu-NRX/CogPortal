@@ -258,7 +258,8 @@ class StageProbeTests(unittest.TestCase):
         module = _module("anything", beta=_peaks)
         spec = _spectrogram(*FIXTURE)
         hits = extend(ROLE.stages[1], callables_in([module]), spec)
-        self.assertEqual([candidate.label for candidate, _ in hits], ["anything.beta"])
+        self.assertEqual([candidate.label for candidate, _, _ in hits], ["anything.beta"])
+        self.assertIs(hits[0][2], spec)
 
 
 if __name__ == "__main__":
