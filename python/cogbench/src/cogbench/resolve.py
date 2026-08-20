@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
+from . import memo
 from .discover import Discovery, discover
 from .progress import Progress
 from .pipeline import (
@@ -71,6 +72,10 @@ class Submission:
     #: Bound callables the driver uses, once resolution succeeded.
     enroll: Optional[Callable[..., Any]] = None
     query: Optional[Callable[..., Any]] = None
+    #: Whether this came from a stored binding rather than a fresh search.
+    #: Reported, because a student who is told their code is wired up deserves
+    #: to know whether that was decided just now or remembered.
+    recalled: bool = False
 
     @property
     def ready(self) -> bool:
@@ -83,6 +88,7 @@ class Submission:
             "verdict": self.verdict.to_dict(),
             "attemptsTried": self.attempts_tried,
             "chain": [step.label for step in self.chain],
+            "recalled": self.recalled,
         }
         if self.attempt is not None:
             record["enroll"] = self.attempt.enroll
@@ -104,6 +110,8 @@ def resolve(
     declared_root: Optional[str] = None,
     max_attempts: int = MAX_ATTEMPTS,
     progress: Optional[Progress] = None,
+    remember: bool = False,
+    benchmark: str = "",
 ) -> Submission:
     """Resolve one repository against one week's task.
 
@@ -111,6 +119,12 @@ def resolve(
     for Week 1, audio in and fingerprints out. ``accepts`` is the week's own
     end-to-end test, and ``arrangements`` enumerates the ways a store might
     want one item offered to it. Everything else is the same for every week.
+
+    ``remember`` writes the binding into the repository and reuses it while
+    their code is unchanged. It is off by default, because a graded run should
+    search: the point of an official score is that it was computed, not
+    recalled. ``cogworks check`` turns it on, since that is the command a
+    student runs every few minutes.
     """
 
     watcher = progress or Progress()
@@ -140,6 +154,17 @@ def resolve(
                 discovery=found,
             )
         return Submission(nothing_here(repository.name), discovery=found)
+
+    key = (
+        memo.fingerprint(memo.source_paths(found), benchmark=benchmark)
+        if remember
+        else ""
+    )
+    if key:
+        recalled = _replay(memo.read(repository, key), found, chain_role, arrangements)
+        if recalled is not None:
+            watcher.done()
+            return recalled
 
     watcher.phase("Looking for the functions that fingerprint a song")
     chain, refusal = resolve_chain(chain_role, found.namespace, fixture)
@@ -197,6 +222,18 @@ def resolve(
             if ok:
                 watcher.attempts(tried, tried)
                 watcher.done()
+                if key:
+                    memo.write(
+                        repository,
+                        key,
+                        {
+                            "chain": [step.label for step in chain.steps],
+                            "enroll": store.label,
+                            "query": ask.label,
+                            "arrangement": index,
+                            "attemptsTried": tried,
+                        },
+                    )
                 return Submission(
                     _scored_placeholder(chain),
                     discovery=found,
@@ -223,6 +260,59 @@ def resolve(
         discovery=found,
         chain=chain.steps,
         attempts_tried=tried,
+    )
+
+
+def _replay(
+    stored: Optional[Dict[str, Any]],
+    found: Discovery,
+    chain_role: Role,
+    arrangements: Callable[..., Sequence[Callable[[], Any]]],
+) -> Optional[Submission]:
+    """Rebind a remembered result, or return None and let the search run.
+
+    A stored entry is names, not functions, so this looks each one up in the
+    namespace that was just imported. Any name that no longer resolves means
+    their code moved, and the honest response is to search again rather than
+    to report a binding that no longer exists.
+    """
+
+    if not stored:
+        return None
+
+    by_label = {c.label: c for c in callables_in(found.namespace)}
+    for label, instance in instances_in(found.namespace):
+        by_label.update({c.label: c for c in methods_of(label, instance)})
+
+    try:
+        steps = tuple(by_label[label] for label in stored["chain"])
+        store = by_label[stored["enroll"]]
+        ask = by_label[stored["query"]]
+        index = int(stored["arrangement"])
+    except (KeyError, TypeError, ValueError):
+        return None
+
+    def _enroll(song_id: str, item: Any) -> Any:
+        return arrangements(store.call, song_id, item)[index]()
+
+    from .pipeline import Binding
+
+    chain = Binding(
+        chain_role.name,
+        steps,
+        _stage_names=tuple(stage.name for stage in chain_role.stages),
+        _received=tuple("" for _ in steps),
+        _returned=tuple("" for _ in steps),
+    )
+    return Submission(
+        _scored_placeholder(chain),
+        discovery=found,
+        chain=steps,
+        attempt=Attempt(store.label, ask.label, index),
+        attempts_tried=int(stored.get("attemptsTried", 0)),
+        enroll=_enroll,
+        query=ask.call,
+        recalled=True,
     )
 
 
