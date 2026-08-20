@@ -402,10 +402,64 @@ if resolved_by is None and adapter_file is not None:
         if staged_adapter
         else "file:" + adapter_file.name
     )
+# 3. Discovery. Nothing in the repository declares itself, so the benchmark
+#    describes what it needs and `cogbench.resolve` searches for functions that
+#    do it by running them. This is the rung every 2026 repository actually
+#    reaches, and it runs last so that a team who declares anything is scored
+#    by their declaration rather than by our inference.
+#
+#    Failure here is never fatal to the sandbox. The report is written either
+#    way and the evaluate step reads it, so a repository that cannot be
+#    resolved produces a verdict a student can act on instead of a traceback.
+discovery = None
 if resolved_by is None:
+    import json
+
+    try:
+        sys.path.insert(0, "/opt/cogbench")
+        from cogbench.plugins import load_benchmark
+        from cogbench.resolve import resolve
+
+        plugin = load_benchmark(benchmark_id)
+        describes = getattr(plugin, "discovery", None)
+        if callable(describes):
+            spec = describes()
+            found = resolve(
+                project,
+                chain_role=spec.chain_role,
+                fixture=spec.fixture,
+                accepts=spec.accepts,
+                arrangements=spec.arrangements,
+                hints=spec.hints,
+            )
+            discovery = found.to_dict()
+            if found.ready:
+                resolved_by = "discovery"
+    except Exception as error:
+        discovery = {
+            "verdict": {
+                "status": "not_read",
+                "headline": "The search for your code could not run: {}".format(
+                    str(error)[:200]
+                ),
+                "nextStep": "",
+            }
+        }
+
+    if discovery is not None:
+        pathlib.Path("/tmp/discovery.json").write_text(
+            json.dumps(discovery), encoding="utf-8"
+        )
+
+if resolved_by is None:
+    # The verdict says more than this line can, and it has already been
+    # written for the caller to read. This is the summary that reaches a log.
+    detail = ""
+    if discovery:
+        detail = " " + str(discovery.get("verdict", {}).get("headline", ""))[:300]
     raise RuntimeError(
-        "No adapter found in {}. Add submission.py at the repository root defining "
-        "create_submission(), or register a {} entry point.".format(project.name, contract_group)
+        "No adapter found in {}, and no set of functions in it performed the "
+        "benchmark's task.{}".format(project.name, detail)
     )
 
 # Read by the evaluate sandbox, which imports the adapter from this directory.
@@ -487,12 +541,53 @@ if repo_root is not None and repo_root.is_dir():
     sys.path.insert(0, str(repo_root))
 
 
+# How the prepare step resolved this repository. "discovery" means nothing in
+# it declared a submission and the benchmark found the functions itself, which
+# is a different code path here: there is no adapter file to import.
+_source_file = pathlib.Path("/tmp/adapter-source.txt")
+adapter_source = _source_file.read_text().strip() if _source_file.is_file() else ""
+
+
 def load_student(benchmark_id, contract_version="cogworks.submissions.v1"):
     # cogbench.plugins.load_submission, anchored at the repository root.
     # Passing repo_root explicitly rather than relying on the working directory
     # keeps this correct even if a submission changes directory during its own
     # import, which several audited repositories do while loading a pickle.
+    if adapter_source == "discovery":
+        return _discovered_factory(benchmark_id)
     return load_submission(benchmark_id, contract_version, repo_root=repo_root)
+
+
+def _discovered_factory(benchmark_id):
+    # Search this repository again, and hand back what the driver runs.
+    #
+    # Prepare already proved a binding exists, but this sandbox is a different
+    # process with no network, so it searches again rather than trying to
+    # carry live functions across a process boundary. The repository is the
+    # same bytes and the search is deterministic, so it reaches the same
+    # binding.
+    #
+    # A benchmark supplies its own submission_from_discovery, because turning
+    # a binding into the object its driver expects is that benchmark protocol,
+    # not something the resolver knows.
+    from cogbench.resolve import resolve
+
+    benchmark = load_benchmark(benchmark_id)
+    spec = benchmark.discovery()
+    found = resolve(
+        repo_root,
+        chain_role=spec.chain_role,
+        fixture=spec.fixture,
+        accepts=spec.accepts,
+        arrangements=spec.arrangements,
+        hints=spec.hints,
+    )
+    if not found.ready:
+        raise RuntimeError(
+            "The functions found when preparing this repository could not be "
+            "found again: {}".format(found.verdict.headline)
+        )
+    return lambda *args, **kwargs: benchmark.submission_from_discovery(found)
 # Who owns the step currently running. The controller decides whether a
 # failure consumes one of the three official attempts, and it must decide that
 # from WHERE the exception came from, never from what the message says: the
