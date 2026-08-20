@@ -198,6 +198,9 @@ class Refusal:
     furthest: Tuple[str, ...]
     stage: str
     detail: str
+    #: What the last step that ran returned, described. Carried as its own
+    #: field so a caller can put it in a sentence without parsing one.
+    last_returned: str = ""
 
 
 Resolution = Tuple[Optional[Binding], Optional[Refusal]]
@@ -548,9 +551,10 @@ def _resolve_chain(
                 role.name,
                 furthest,
                 stage.name,
-                "nothing accepted what {} returned ({})".format(
-                    furthest[-1] if furthest else "the last step", last_returned
+                "nothing accepted what {} returned".format(
+                    furthest[-1] if furthest else "the last step"
                 ),
+                last_returned=last_returned,
             )
         frontier = nxt
         furthest = tuple(step.label for step in frontier[0][0])
