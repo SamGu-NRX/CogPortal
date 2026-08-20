@@ -36,7 +36,7 @@ from .pipeline import (
     methods_of,
     resolve_chain,
 )
-from .verdict import Verdict, not_read, not_wired, nothing_here
+from .verdict import SCORED, Verdict, not_read, not_wired, nothing_here
 
 __all__ = ["Submission", "Attempt", "resolve"]
 
@@ -92,7 +92,17 @@ class Submission:
 
     @property
     def ready(self) -> bool:
-        return self.enroll is not None and self.query is not None
+        """Whether there is something to score.
+
+        A week whose task ends in a database needs a bound store and query. A
+        week that is a straight pipeline, like Week 2's clustering, is ready
+        as soon as its chain is: photos in, one label per photo out, nothing
+        kept between calls.
+        """
+
+        if self.attempt is not None or self.enroll is not None:
+            return self.enroll is not None and self.query is not None
+        return bool(self.chain) and self.verdict.status == SCORED
 
     def fresh(self) -> "Submission":
         """The same binding, against a database with nothing in it yet.
@@ -109,7 +119,7 @@ class Submission:
         own scratch directory, which is where their file already lands.
         """
 
-        if not self.ready or self._store is None or self._ask is None:
+        if self._store is None or self._ask is None:
             return self
         if self._store.rebuild is None and self._ask.rebuild is None:
             return self
@@ -156,7 +166,9 @@ def resolve(
     chain_role: Role,
     fixture: Sequence[Any],
     accepts: Callable[..., Tuple[bool, str]],
-    arrangements: Callable[[Callable[..., Any], str, Any], Sequence[Callable[[], Any]]],
+    arrangements: Optional[
+        Callable[[Callable[..., Any], str, Any], Sequence[Callable[[], Any]]]
+    ] = None,
     hints: Sequence[str] = (),
     declared_root: Optional[str] = None,
     max_attempts: int = MAX_ATTEMPTS,
@@ -166,10 +178,15 @@ def resolve(
 ) -> Submission:
     """Resolve one repository against one week's task.
 
-    ``chain_role`` and ``fixture`` describe the shared half of the pipeline --
-    for Week 1, audio in and fingerprints out. ``accepts`` is the week's own
-    end-to-end test, and ``arrangements`` enumerates the ways a store might
-    want one item offered to it. Everything else is the same for every week.
+    ``chain_role`` and ``fixture`` describe the pipeline the week asks for.
+    ``accepts`` is the week's own end-to-end test, and it is the only thing
+    that can accept a binding.
+
+    ``arrangements`` is for a week whose task ends in a database: it enumerates
+    the ways a store might want one item offered to it, and the search then
+    tries pairs of their functions until one stores a thing and names it back.
+    A week without one is complete when its chain is, which is Week 2: photos
+    in, one label per photo out, nothing kept between calls.
 
     ``remember`` writes the binding into the repository and reuses it while
     their code is unchanged. It is off by default, because a graded run should
@@ -217,8 +234,13 @@ def resolve(
             watcher.done()
             return recalled
 
-    watcher.phase("Looking for the functions that fingerprint a song")
-    chain, refusal = resolve_chain(chain_role, found.namespace, fixture)
+    watcher.phase("Looking for the functions that do the work")
+    # A week with no database is complete when its chain is, so the week's
+    # acceptance test is the verifier and there is nothing to pair afterwards.
+    verify = None
+    if arrangements is None:
+        verify = lambda steps: bool(accepts(steps, *fixture)[0])  # noqa: E731
+    chain, refusal = resolve_chain(chain_role, found.namespace, fixture, verify=verify)
     if chain is None:
         watcher.done()
         assert refusal is not None
@@ -244,6 +266,23 @@ def resolve(
 
     for step, stage in zip(chain.steps, chain_role.stages):
         watcher.found(stage.name, step.label)
+
+    if arrangements is None:
+        watcher.done()
+        if key:
+            memo.write(
+                repository,
+                key,
+                {"chain": [step.label for step in chain.steps], "arrangement": -1},
+            )
+        return Submission(
+            _scored_placeholder(chain),
+            discovery=found,
+            chain=chain.steps,
+            attempts_tried=0,
+            enroll=None,
+            query=None,
+        )
 
     candidates = _store_candidates(found, chain)
     # More than one of their functions can pass. One 2026 team wrote `query`,
@@ -358,6 +397,31 @@ def _replay(
 
     if not stored:
         return None
+
+    # A week with no database: the chain is the whole binding.
+    if int(stored.get("arrangement", 0)) < 0:
+        by_label = {c.label: c for c in callables_in(found.namespace)}
+        for label, instance in instances_in(found.namespace):
+            by_label.update({c.label: c for c in methods_of(label, instance)})
+        try:
+            steps = tuple(by_label[label] for label in stored["chain"])
+        except (KeyError, TypeError):
+            return None
+        from .pipeline import Binding
+
+        chain = Binding(
+            chain_role.name,
+            steps,
+            _stage_names=tuple(stage.name for stage in chain_role.stages),
+            _received=tuple("" for _ in steps),
+            _returned=tuple("" for _ in steps),
+        )
+        return Submission(
+            _scored_placeholder(chain),
+            discovery=found,
+            chain=steps,
+            recalled=True,
+        )
 
     by_label = {c.label: c for c in callables_in(found.namespace)}
     for label, instance in instances_in(found.namespace):

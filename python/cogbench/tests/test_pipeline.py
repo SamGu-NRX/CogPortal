@@ -8,8 +8,9 @@ from types import ModuleType
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "python" / "cogbench" / "src"))
 
-from cogbench.pipeline import (  # noqa: E402
+from cogbench.pipeline import (
     Candidate,
+    Fixtures,
     Role,
     Stage,
     callables_in,
@@ -287,6 +288,101 @@ class StageProbeTests(unittest.TestCase):
         self.assertEqual([candidate.label for candidate, _, _ in hits], ["anything.beta"])
         self.assertIs(hits[0][2], spec)
 
+
+
+class ShapesTheCorpusActuallyWrote(unittest.TestCase):
+    """Four ways a team can divide the same work, each found in the 2026
+    repositories, and each refused before the search could express it."""
+
+    def test_one_function_may_be_called_once_per_item(self):
+        """Week 2's capstone hands students one photo at a time, so every
+        audited team wrote a per-photo descriptor function while the benchmark
+        works on a folder."""
+
+        module = _written(
+            "theirs",
+            "def describe(one):\n    return [float(one), 0.0]\n",
+        )
+        stage = Stage("d", produces=lambda v: isinstance(v, list), per_item=True)
+
+        found = probe_sources(stage, callables_in([module]), ([1, 2, 3],))
+
+        self.assertEqual([c.label for c, _ in found], ["theirs.describe"])
+
+    def test_a_partial_item_failure_is_not_a_binding(self):
+        """A descriptor function that works on eleven photos of twelve has
+        not done the job."""
+
+        module = _written(
+            "theirs",
+            "def describe(one):\n"
+            "    if one == 2:\n        raise ValueError('no face')\n"
+            "    return [float(one)]\n",
+        )
+        stage = Stage("d", produces=lambda v: isinstance(v, list), per_item=True)
+
+        self.assertEqual(probe_sources(stage, callables_in([module]), ([1, 2, 3],)), [])
+
+    def test_a_benchmark_may_offer_its_input_in_more_than_one_form(self):
+        """The course tells students to write a function taking image paths,
+        so an arrays-only fixture refused every team that followed it."""
+
+        module = _written("theirs", "def load(paths):\n    return [len(str(p)) for p in paths]\n")
+        stage = Stage("d", produces=lambda v: isinstance(v, list))
+        fixture = Fixtures((([[1, 2]],), (["a.png", "b.png"],)))
+
+        found = probe_sources(stage, callables_in([module]), fixture)
+
+        self.assertEqual([c.label for c, _ in found], ["theirs.load"])
+
+    def test_a_returned_pair_may_be_the_next_function_s_arguments(self):
+        """The course's own design returns "a list of nodes and an adjacency
+        graph ... together", and the next function takes both."""
+
+        module = _written(
+            "theirs",
+            "def build(x):\n    return ([1, 2], {'a': 1})\n"
+            "def run(nodes, adj):\n    return [len(nodes), len(adj)]\n",
+        )
+        candidates = callables_in([module])
+        graph = Stage("g", produces=lambda v: isinstance(v, tuple))
+        labels = Stage("l", produces=lambda v: isinstance(v, list) and len(v) == 2)
+
+        built = probe_sources(graph, candidates, (0,))
+        self.assertTrue(built)
+        extended = extend(labels, candidates, built[0][1])
+
+        self.assertEqual([c.label for c, _, _ in extended], ["theirs.run"])
+
+    def test_a_required_tuning_argument_is_offered_the_benchmark_s_values(self):
+        """The course tells students to pick a cutoff by eye, so their graph
+        builders take one with no default."""
+
+        module = _written("theirs", "def build(items, threshold):\n    return [threshold] * len(items)\n")
+        stage = Stage("g", produces=lambda v: isinstance(v, list), tunings=(0.5,))
+
+        found = probe_sources(stage, callables_in([module]), ([1, 2],))
+
+        self.assertEqual([c.label for c, _ in found], ["theirs.build"])
+        self.assertEqual(found[0][1], [0.5, 0.5])
+
+    def test_a_function_with_a_default_is_not_given_a_tuning(self):
+        """A team who chose their own value keeps it."""
+
+        module = _written("theirs", "def build(items, threshold=0.9):\n    return [threshold]\n")
+        stage = Stage("g", produces=lambda v: isinstance(v, list), tunings=(0.5,))
+
+        found = probe_sources(stage, callables_in([module]), ([1, 2],))
+
+        self.assertEqual(found[0][1], [0.9])
+
+
+def _written(name, source):
+    """A module from literal source, the way a student's file arrives."""
+
+    module = ModuleType(name)
+    exec(compile(source, name, "exec"), module.__dict__)
+    return module
 
 if __name__ == "__main__":
     unittest.main()

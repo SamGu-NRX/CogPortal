@@ -59,6 +59,7 @@ __all__ = [
     "callables_in",
     "instances_in",
     "methods_of",
+    "Fixtures",
     "probe_sources",
     "extend",
     "resolve_chain",
@@ -129,6 +130,29 @@ class Stage:
     produces: Optional[Callable[[Any], bool]] = None
     #: How many positional arguments this stage passes.
     arity: int = 1
+    #: Values to try for a required tuning argument the function has no
+    #: default for.
+    #:
+    #: Week 2's course text tells students to pick a cosine-distance cutoff by
+    #: eye, so their graph builders take it as a required argument. The
+    #: benchmark knows what range is meaningful for its own metric and the
+    #: search does not, so the benchmark says: these are the numbers worth
+    #: trying. A team that defaulted theirs is unaffected, because the plain
+    #: call is tried first.
+    #:
+    #: This is not tuning their algorithm. Whichever value binds is the one
+    #: their chain then runs with, and the benchmark scores that.
+    tunings: Tuple[Any, ...] = ()
+
+    #: Whether a function that handles one item may be called once per item.
+    #:
+    #: Week 2's capstone document hands students one photo at a time
+    #: ("image = io.imread(str(path_to_image))"), and their descriptor
+    #: functions take one path and return one vector. The benchmark works on a
+    #: folder. Calling a per-photo function once per photo is not a
+    #: transformation of their answer; it is the loop the course wrote around
+    #: it, and refusing over its absence would refuse the whole corpus.
+    per_item: bool = False
     #: Whether one function may do this step and the next one together.
     #:
     #: The course names five steps and one 2026 team wrote four functions:
@@ -149,6 +173,19 @@ class Role:
 
     name: str
     stages: Tuple[Stage, ...]
+
+
+class _Spread(tuple):
+    """A tuple to pass as several arguments rather than as one value."""
+
+
+class Fixtures(tuple):
+    """Several forms of one benchmark input, tried in order.
+
+    A plain tuple stays a single argument list, so nothing that passes one
+    changes behavior. This subclass says "these are alternatives", which is
+    the only way to tell the two apart without a flag.
+    """
 
 
 @dataclass(frozen=True)
@@ -454,8 +491,27 @@ def probe_sources(
     """
 
     accepted: List[Tuple[Candidate, Any]] = []
+    # A benchmark may offer its input in more than one form. Week 2's photos
+    # are arrays, and the capstone document tells students to write a function
+    # taking image paths, so all three audited teams did. The same photos
+    # either way; which form their function takes is theirs to decide, and
+    # refusing the one the course taught would be our contract failing them.
+    forms = fixture if isinstance(fixture, Fixtures) else (fixture,)
     for candidate in _order_for(stage, candidates):
-        ok, value = _call(candidate, fixture)
+        for form in forms:
+            ok, value = _call(candidate, form)
+            if ok and value is not None:
+                break
+            if stage.per_item:
+                ok, value = _mapped(candidate, form)
+                if ok and value is not None:
+                    break
+            for tuning in stage.tunings:
+                ok, value = _call(candidate, tuple(form) + (tuning,))
+                if ok and value is not None:
+                    break
+            if ok and value is not None:
+                break
         if not ok or value is None:
             continue
         # The same reading `extend` applies downstream. One team's first
@@ -465,6 +521,35 @@ def probe_sources(
         if stage.produces is None or _safe_produces(stage, value):
             accepted.append((candidate, value))
     return accepted
+
+
+def _mapped(candidate: Candidate, fixture: Sequence[Any]) -> Tuple[bool, Any]:
+    """Call a one-item function once per item of the first argument.
+
+    Only the first argument is spread; anything after it is passed to every
+    call unchanged, which is how a rate or a threshold behaves. A single
+    failure fails the whole attempt, because a descriptor function that works
+    on eleven photos of twelve has not done the job.
+    """
+
+    if not fixture:
+        return False, None
+    items = fixture[0]
+    rest = tuple(fixture[1:])
+    try:
+        length = len(items)
+    except TypeError:
+        return False, None
+    if length == 0 or isinstance(items, (str, bytes)):
+        return False, None
+
+    produced = []
+    for item in items:
+        ok, value = _call(candidate, (item,) + rest)
+        if not ok or value is None:
+            return False, None
+        produced.append(value)
+    return True, produced
 
 
 def _safe_produces(stage: Stage, value: Any) -> bool:
@@ -507,6 +592,15 @@ def _handoffs(upstream: Any) -> List[Tuple[Any, str]]:
 
     offers: List[Tuple[Any, str]] = [(upstream, "")]
     if isinstance(upstream, tuple) and upstream:
+        # Spread, when the previous step returned exactly the arguments the
+        # next one takes. One 2026 team's `adj_list` returns `(nodes, adj)`
+        # and their `whispers(nodes, adj, iterations)` takes both, which is
+        # the course's own design: "a list of nodes and an adjacency graph
+        # ... together, represent your graph"
+        # (docs/capstones/week2-vision-capstone.md:386). Nothing is
+        # transformed; the tuple is handed over as the arguments it already
+        # is.
+        offers.append((_Spread(upstream), " (both parts)"))
         # Every element, not only the first. `specgram` returns
         # `(spectrogram, freqs, times)` and one team's combined peak finder
         # returns `(peaks, freqs, times, spectrogram)`, where the part the
@@ -537,13 +631,30 @@ def extend(
     accepted: List[Tuple[Candidate, Any]] = []
     for candidate in _order_for(stage, candidates):
         for offered, _note in _handoffs(upstream):
-            if stage.accepts is not None and not _safe(stage.accepts, offered):
+            if (
+                stage.accepts is not None
+                and not isinstance(offered, _Spread)
+                and not _safe(stage.accepts, offered)
+            ):
                 continue
-            ok, value = _call(candidate, (offered,) + tuple(extra))
+            base = (
+                tuple(offered) + tuple(extra)
+                if isinstance(offered, _Spread)
+                else (offered,) + tuple(extra)
+            )
+            ok, value = _call(candidate, base)
+            if (not ok or value is None) and stage.per_item and not isinstance(offered, _Spread):
+                ok, value = _mapped(candidate, base)
+            for tuning in stage.tunings:
+                if ok and value is not None:
+                    break
+                ok, value = _call(candidate, base + (tuning,))
             if not ok or value is None:
                 continue
             if stage.produces is None or _safe(stage.produces, value):
-                accepted.append((candidate, value, offered))
+                accepted.append(
+                    (candidate, value, tuple(offered) if isinstance(offered, _Spread) else offered)
+                )
                 break
     return accepted
 
@@ -607,7 +718,8 @@ def _resolve_chain(
     first = role.stages[0]
     from .verdict import describe
 
-    fixture_summary = ", ".join(describe(item) for item in fixture)
+    first_form = fixture[0] if isinstance(fixture, Fixtures) else fixture
+    fixture_summary = ", ".join(describe(item) for item in first_form)
 
     # Each entry carries the chain, the value it last produced, and what every
     # step received and returned along the way. The trace is not decoration: a
@@ -618,6 +730,28 @@ def _resolve_chain(
         _Partial((candidate,), value, (fixture_summary,), (describe(value),), (first.name,))
         for candidate, value in probe_sources(first, candidates, fixture)
     ]
+
+    # A first stage marked fusible may not exist as its own function. One 2026
+    # team's `adj_list(image_paths, threshold)` reads every photo and builds
+    # the graph together, so there is no separate descriptor step to find and
+    # the second stage is what takes the benchmark's own input. Probing the
+    # next stage against the fixture too is how that shape is reached; the
+    # acceptance test still decides.
+    if first.fusible and len(role.stages) > 1:
+        second = role.stages[1]
+        seen = {step.chain[0].label for step in frontier}
+        for candidate, value in probe_sources(second, candidates, fixture):
+            if candidate.label in seen:
+                continue
+            frontier.append(
+                _Partial(
+                    (candidate,),
+                    value,
+                    (fixture_summary,),
+                    (describe(value),),
+                    ("{} + {}".format(first.name, second.name),),
+                )
+            )
     if not frontier:
         return None, Refusal(
             role.name,
@@ -634,6 +768,8 @@ def _resolve_chain(
 
     for stage in role.stages[1:]:
         nxt: List[_Partial] = []
+        # A chain that already absorbed this stage while probing skips it.
+        done = [p for p in frontier[:beam] if p.stages[-1].endswith("+ " + stage.name)]
         for partial in frontier[:beam]:
             for candidate, produced, passed in extend(stage, candidates, partial.value):
                 nxt.append(
@@ -672,6 +808,7 @@ def _resolve_chain(
             # peaks it was going to be given anyway and bind twice. Both
             # orders reach the acceptance test; this one gets there first.
             nxt = fused + nxt
+        nxt = done + nxt
         if not nxt:
             return None, Refusal(
                 role.name,
