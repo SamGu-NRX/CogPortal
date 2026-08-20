@@ -250,6 +250,44 @@ def _discover(benchmark: str, project_root: Path, as_json: bool):
     return submission, found.to_dict() if found is not None else None
 
 
+def _submission_for(name: str, benchmark, project_root: Path, *, as_json: bool):
+    """What to score: their declared submission, or what discovery found.
+
+    `check` and `run` have to agree. A student told their code is wired up and
+    ready to score, who then runs the command that report ends with and is met
+    with "no submission found", has been lied to by one of the two.
+
+    A declaration always wins. Discovery is what happens when there is none,
+    which for every repository in the 2026 corpus is always.
+    """
+
+    # A file in THIS repository, never an installed entry point. An entry
+    # point belongs to whatever package was pip-installed, and scoring that
+    # while standing in a student's repository produces a number for somebody
+    # else's code that looks exactly like a number for theirs. Measured: an
+    # empty repository scored 52% against the reference submission.
+    try:
+        factory, source, _detail = resolve_submission(
+            name, str(benchmark.contract_version), project_root
+        )
+        if source == "file":
+            return factory
+    except PluginError:
+        pass
+
+    submission, _survey = _discover(name, project_root, as_json)
+    build = getattr(benchmark, "submission_from_discovery", None)
+    if submission is None or not submission.ready or not callable(build):
+        # The report already said why in full. Repeating it here would print
+        # the same paragraphs twice, so this points at the command that
+        # explains it.
+        raise PluginError(
+            "Nothing in this repository could be scored yet. Run "
+            "`cogworks check --benchmark {}` to see what was found.".format(name)
+        )
+    return lambda *args, **kwargs: build(submission)
+
+
 def _check(benchmark: str, as_json: bool, project_root: Path) -> int:
     benchmark_group = (
         "cogworks.benchmarks.v2"
@@ -554,8 +592,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             return result
         if args.command in ("test", "run"):
             benchmark = load_benchmark(args.benchmark)
-            adapter = load_submission(
-                args.benchmark, str(benchmark.contract_version), project_root
+            adapter = _submission_for(
+                args.benchmark, benchmark, project_root, as_json=args.json
             )
             if args.command == "run" and args.live:
                 live = _start_live_run(args, benchmark, project_root)
