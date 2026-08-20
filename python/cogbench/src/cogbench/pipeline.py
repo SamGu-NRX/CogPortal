@@ -130,6 +130,21 @@ class Stage:
     produces: Optional[Callable[[Any], bool]] = None
     #: How many positional arguments this stage passes.
     arity: int = 1
+    #: Whether this stage's answer may be left on the value it was given
+    #: rather than returned.
+    #:
+    #: Week 2's course text is explicit about this: `propagate_label` "should
+    #: update that node's label", and `whispers` calls it repeatedly while
+    #: recording how the component count changes. So their `whispers` returns
+    #: diagnostics and the labels are on the graph it was handed. Reading the
+    #: answer means calling one more of their functions on that same graph.
+    #:
+    #: When set, a stage that ran and returned something this stage does not
+    #: recognize also offers the value it was given, so the next stage can
+    #: read it. Nothing is inspected or reconstructed; their own function is
+    #: what turns the graph back into an answer.
+    in_place: bool = False
+
     #: Values to try for a required tuning argument the function has no
     #: default for.
     #:
@@ -601,6 +616,12 @@ def _handoffs(upstream: Any) -> List[Tuple[Any, str]]:
         # transformed; the tuple is handed over as the arguments it already
         # is.
         offers.append((_Spread(upstream), " (both parts)"))
+        if len(upstream) == 2:
+            # The same two parts the other way round. One 2026 team's
+            # `adj_list` returns `(nodes, adj)` and their own
+            # `connected_comps(adj, nodes)` takes them reversed, which is
+            # their choice of parameter order and not a different answer.
+            offers.append((_Spread((upstream[1], upstream[0])), " (both parts, reversed)"))
         # Every element, not only the first. `specgram` returns
         # `(spectrogram, freqs, times)` and one team's combined peak finder
         # returns `(peaks, freqs, times, spectrogram)`, where the part the
@@ -621,6 +642,8 @@ def extend(
     candidates: Sequence[Candidate],
     upstream: Any,
     extra: Sequence[Any] = (),
+    *,
+    accept_any: bool = False,
 ) -> List[Tuple[Candidate, Any, Any]]:
     """Feed one stage's real output to the next stage, unchanged.
 
@@ -651,7 +674,7 @@ def extend(
                 ok, value = _call(candidate, base + (tuning,))
             if not ok or value is None:
                 continue
-            if stage.produces is None or _safe(stage.produces, value):
+            if accept_any or stage.produces is None or _safe(stage.produces, value):
                 accepted.append(
                     (candidate, value, tuple(offered) if isinstance(offered, _Spread) else offered)
                 )
@@ -783,31 +806,50 @@ def _resolve_chain(
                         partial.stages + (stage.name,),
                     )
                 )
+            if stage.in_place:
+                # Their function ran on the graph and left the answer there.
+                # The graph goes forward so one more of their own functions
+                # can read it; nothing here inspects or rebuilds it.
+                for candidate, _produced, passed in extend(
+                    stage, candidates, partial.value, accept_any=True
+                ):
+                    nxt.append(
+                        _Partial(
+                            partial.chain + (candidate,),
+                            passed,
+                            partial.received + (describe(passed),),
+                            partial.returned + ("the value it was given, updated in place",),
+                            partial.stages + (stage.name,),
+                        )
+                    )
         # A step the previous function already did. Carrying the frontier
         # forward unchanged lets the next stage read what that function
         # returned, which is how a fused pair is found: their combined
         # function has already produced this stage's output. The stage name
         # joins the step that absorbed it, so the report names both.
+        # A chain whose last step already produced this stage's answer is
+        # complete. One 2026 team ends at `connected_comps`, which is both
+        # their graph reader and their answer; requiring another function
+        # after it would refuse a finished pipeline.
         if stage.fusible:
-            fused = [
-                _Partial(
-                    partial.chain,
-                    partial.value,
-                    partial.received,
-                    partial.returned,
-                    partial.stages[:-1]
-                    + ("{} + {}".format(partial.stages[-1], stage.name),),
-                )
-                for partial in frontier[:beam]
-                if _safe_produces(stage, partial.value)
-            ]
-            # Ahead of the candidates, not behind them. When the previous
-            # function has already produced what this stage produces, calling
-            # something else on it is the less likely reading: the validators
-            # are loose by design, so a fingerprinter will happily accept the
-            # peaks it was going to be given anyway and bind twice. Both
-            # orders reach the acceptance test; this one gets there first.
-            nxt = fused + nxt
+            for partial in frontier[:beam]:
+                if _safe_produces(stage, partial.value):
+                    nxt.append(
+                        _Partial(
+                            partial.chain,
+                            partial.value,
+                            partial.received,
+                            partial.returned,
+                            partial.stages[:-1]
+                            + ("{} + {}".format(partial.stages[-1], stage.name),),
+                        )
+                    )
+        # A chain that reached this stage's own answer goes first. Otherwise
+        # the beam keeps whichever branch was found earliest, and one 2026
+        # team's `whispers` -- which returns how the component count moved and
+        # leaves the labels on the graph -- crowded out their
+        # `connected_comps`, which returns the answer.
+        nxt.sort(key=lambda p: 0 if _safe_produces(stage, p.value) else 1)
         nxt = done + nxt
         if not nxt:
             return None, Refusal(
