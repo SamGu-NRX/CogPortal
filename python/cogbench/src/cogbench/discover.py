@@ -730,13 +730,23 @@ def _is_student_module(module: object, root: Path) -> bool:
 
 
 @contextlib.contextmanager
-def _entered(root: Path, *, working: Optional[Path] = None):
+def _entered(
+    root: Path, *, working: Optional[Path] = None, also: Sequence[Path] = ()
+):
     """Run with ``root`` first on the path and ``working`` as the directory.
 
     The two are separate on purpose. ``root`` is where their modules are found,
     so it must lead ``sys.path`` for their sibling imports to resolve. The
     working directory is where their relative writes land, and that is a
     scratch directory rather than their checkout.
+
+    ``also`` is every other directory discovery reads code from. A team with
+    ``buildSongDatabase.py`` and ``pipeline.py`` side by side in ``Day 4/``
+    wrote ``from pipeline import local_peak_locations``, which is correct where
+    they run it and failed here, because only the root was on the path. The
+    report then told them to add "pipeline" to a requirements.txt, which is
+    advice to pip-install their own file. Reading from a directory and being
+    able to import from it are the same permission.
 
     Afterwards the student's own modules are evicted so a second repository in
     the same process does not import a stale ``database``, and every other
@@ -755,7 +765,9 @@ def _entered(root: Path, *, working: Optional[Path] = None):
     previous_path = list(sys.path)
     before = set(sys.modules)
     os.chdir(working if working is not None else root)
-    sys.path.insert(0, str(root))
+    # Root first: it owns precedence when two directories hold the same name.
+    for directory in reversed([root, *also]):
+        sys.path.insert(0, str(directory))
     try:
         yield
     finally:
@@ -763,7 +775,9 @@ def _entered(root: Path, *, working: Optional[Path] = None):
         sys.path[:] = previous_path
         for name in set(sys.modules) - before:
             module = sys.modules.get(name)
-            if module is not None and _is_student_module(module, root):
+            if module is not None and any(
+                _is_student_module(module, directory) for directory in (root, *also)
+            ):
                 sys.modules.pop(name, None)
 
 
@@ -810,13 +824,13 @@ def discover(
     # one session left db.pkl and songs.pkl in this checkout. Their code is
     # right about wanting a working directory; it does not get to be this one.
     if scratch is not None:
-        with _entered(root.path, working=Path(scratch)):
+        with _entered(root.path, working=Path(scratch), also=extra):
             modules, skipped, calls = load_modules(
                 root.path, extra=extra, import_timeout=import_timeout
             )
     else:
         with tempfile.TemporaryDirectory(prefix="cogworks-import-") as temporary:
-            with _entered(root.path, working=Path(temporary)):
+            with _entered(root.path, working=Path(temporary), also=extra):
                 modules, skipped, calls = load_modules(
                 root.path, extra=extra, import_timeout=import_timeout
             )

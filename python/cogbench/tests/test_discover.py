@@ -284,6 +284,46 @@ class ImportDeadlineTests(unittest.TestCase):
         self.assertIn("z_good", [entry.name for entry in found.modules])
 
 
+class SiblingImportTests(unittest.TestCase):
+    """Reading code from a directory and importing from it are the same
+    permission. One 2026 team keeps `buildSongDatabase.py` and `pipeline.py`
+    side by side in a subdirectory, and the report told them to pip-install
+    their own file."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def test_a_module_imports_its_neighbour_in_the_same_subdirectory(self):
+        (self.tmp / "readme.py").write_text("VERSION = 1\n")
+        day = self.tmp / "Day 4"
+        day.mkdir()
+        (day / "helpers.py").write_text("def peak(x):\n    return x\n")
+        (day / "builder.py").write_text(
+            "from helpers import peak\ndef build(x):\n    return peak(x)\n"
+        )
+
+        found = discover(self.tmp)
+
+        self.assertIn("builder", [entry.name for entry in found.modules])
+
+    def test_the_chosen_root_still_wins_a_name_collision(self):
+        """Two files called database.py must not shadow each other by
+        accident; the root owns precedence."""
+
+        (self.tmp / "database.py").write_text("WHERE = 'root'\n")
+        other = self.tmp / "extras"
+        other.mkdir()
+        (other / "database.py").write_text("WHERE = 'extras'\n")
+        (self.tmp / "uses.py").write_text("from database import WHERE\n")
+
+        found = discover(self.tmp)
+        uses = [entry for entry in found.modules if entry.name == "uses"]
+
+        self.assertTrue(uses)
+        self.assertEqual(uses[0].module.WHERE, "root")
+
+
 class StubTests(unittest.TestCase):
     """The stub list stands in for packages the sandbox does not carry."""
 
