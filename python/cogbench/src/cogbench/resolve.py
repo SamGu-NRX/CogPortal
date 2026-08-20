@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from .discover import Discovery, discover
+from .progress import Progress
 from .pipeline import (
     Candidate,
     Role,
@@ -102,6 +103,7 @@ def resolve(
     hints: Sequence[str] = (),
     declared_root: Optional[str] = None,
     max_attempts: int = MAX_ATTEMPTS,
+    progress: Optional[Progress] = None,
 ) -> Submission:
     """Resolve one repository against one week's task.
 
@@ -111,10 +113,22 @@ def resolve(
     want one item offered to it. Everything else is the same for every week.
     """
 
+    watcher = progress or Progress()
     repository = Path(repository).resolve()
+
+    watcher.phase("Reading your repository")
     found = discover(repository, hints=hints, declared_root=declared_root)
+    if found.modules:
+        watcher.note(
+            "read {} file{} in {}".format(
+                len(found.modules),
+                "" if len(found.modules) == 1 else "s",
+                found.root.path.name or found.root.path,
+            )
+        )
 
     if not found.modules:
+        watcher.done()
         if found.skipped:
             worst = found.skipped[0]
             return Submission(
@@ -127,8 +141,10 @@ def resolve(
             )
         return Submission(nothing_here(repository.name), discovery=found)
 
+    watcher.phase("Looking for the functions that fingerprint a song")
     chain, refusal = resolve_chain(chain_role, found.namespace, fixture)
     if chain is None:
+        watcher.done()
         assert refusal is not None
         # The refusal carries how far the search got. Reporting only the stage
         # that stalled would say "the spectrogram step found nothing" for a
@@ -150,21 +166,37 @@ def resolve(
             discovery=found,
         )
 
+    for step, stage in zip(chain.steps, chain_role.stages):
+        watcher.found(stage.name, step.label)
+
     candidates = _store_candidates(found, chain)
+    arrangement_count = len(arrangements(lambda *_: None, "", None))
+    # The whole search is enumerable before it starts, so the bar can be
+    # honest: every ordered pair of distinct candidates, times the ways one
+    # item can be handed to a store. Nothing here is extrapolated.
+    total = min(
+        len(candidates) * max(len(candidates) - 1, 0) * arrangement_count, max_attempts
+    )
+    watcher.phase(
+        "Trying your functions to find which pair stores a song and names it back"
+    )
     tried = 0
     for store, ask in itertools.product(candidates, candidates):
         if store is ask:
             continue
-        for index in range(len(arrangements(lambda *_: None, "", None))):
+        for index in range(arrangement_count):
             if tried >= max_attempts:
                 break
             tried += 1
+            watcher.attempts(tried, total)
 
             def _enroll(song_id: str, item: Any, _s=store, _i=index) -> Any:
                 return arrangements(_s.call, song_id, item)[_i]()
 
             ok, _detail = accepts(chain.steps, _enroll, lambda item, _a=ask: _a.call(item))
             if ok:
+                watcher.attempts(tried, tried)
+                watcher.done()
                 return Submission(
                     _scored_placeholder(chain),
                     discovery=found,
@@ -177,6 +209,7 @@ def resolve(
         if tried >= max_attempts:
             break
 
+    watcher.done()
     return Submission(
         not_wired(
             "identification",

@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "python" / "cogbench" / "src"))
 
 from cogbench.pipeline import Role, Stage  # noqa: E402
+from cogbench.progress import Progress  # noqa: E402
 from cogbench.resolve import resolve  # noqa: E402
 from cogbench.verdict import NOT_READ, NOT_WIRED, NOTHING_HERE, SCORED  # noqa: E402
 
@@ -176,6 +177,81 @@ class ResolveTests(unittest.TestCase):
 
         self.assertFalse(submission.ready)
         self.assertLessEqual(submission.attempts_tried, 8)
+
+
+class _Recorder(Progress):
+    """Keeps every call, so what a student is shown can be asserted on."""
+
+    def __init__(self):
+        self.phases = []
+        self.bound = []
+        self.counts = []
+
+    def phase(self, headline):
+        self.phases.append(headline)
+
+    def found(self, stage, label):
+        self.bound.append((stage, label))
+
+    def attempts(self, done, total):
+        self.counts.append((done, total))
+
+
+class ProgressTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        (self.tmp / "theirs.py").write_text(REPO)
+        self.watcher = _Recorder()
+
+    def _resolve(self, **kwargs):
+        return resolve(
+            self.tmp,
+            chain_role=ROLE,
+            fixture=FIXTURE,
+            accepts=_accepts,
+            arrangements=_arrangements,
+            progress=self.watcher,
+            **kwargs,
+        )
+
+    def test_the_total_shown_is_the_search_the_student_is_actually_waiting_on(self):
+        """A bar whose total is a guess is worse than no bar: it reads as a
+        measurement and is wrong every time the search ends early."""
+
+        self._resolve(max_attempts=8)
+
+        self.assertTrue(self.watcher.counts)
+        for done, total in self.watcher.counts:
+            self.assertLessEqual(done, total)
+            self.assertLessEqual(total, 8)
+
+    def test_the_count_advances_by_one_per_pairing_tried(self):
+        submission = self._resolve()
+        ticks = [done for done, _ in self.watcher.counts]
+
+        self.assertEqual(ticks[: submission.attempts_tried], list(range(1, submission.attempts_tried + 1)))
+
+    def test_a_bound_stage_is_announced_while_the_slow_part_is_still_running(self):
+        """Finding their fingerprinting is the first real evidence the search
+        is working, and it arrives long before a score does."""
+
+        self._resolve()
+
+        self.assertIn(("features", "theirs.make_features"), self.watcher.bound)
+
+    def test_progress_is_optional_and_resolution_is_unchanged_without_it(self):
+        with_watcher = self._resolve()
+        without = resolve(
+            self.tmp,
+            chain_role=ROLE,
+            fixture=FIXTURE,
+            accepts=_accepts,
+            arrangements=_arrangements,
+        )
+
+        self.assertEqual(with_watcher.attempt, without.attempt)
+        self.assertEqual(with_watcher.attempts_tried, without.attempts_tried)
 
 
 if __name__ == "__main__":
