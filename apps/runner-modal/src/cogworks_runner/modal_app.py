@@ -213,15 +213,23 @@ week1_image = (
         # pyaudio is deliberately absent. It is in the course's conda line
         # because students record their own clips; the benchmark hands over
         # arrays and never opens a device.
+        # ipython is in the course's own week 1 conda line
+        # (docs/capstones/environment.md:86), because the capstone is written
+        # in Jupyter. Leaving it out of the image meant `from IPython.display
+        # import Audio` -- a display call, nothing to do with scoring -- made
+        # a module unimportable, and one 2026 team lost their whole pipeline
+        # to that single line. The environment students are told to build is
+        # the environment their code should run in.
         "uv pip install --python /opt/cogworks-py38/bin/python pip 'numpy==1.24.4'"
         " 'scipy==1.10.1' 'matplotlib==3.7.5' 'numba==0.58.1' 'llvmlite==0.41.1'"
-        " 'soundfile==0.12.1' 'librosa==0.11.0' 'platformdirs>=4,<5'",
+        " 'soundfile==0.12.1' 'librosa==0.11.0' 'platformdirs>=4,<5'"
+        " 'ipython==8.12.3'",
         "/opt/cogworks-py38/bin/python -m pip install --no-deps /opt/week1",
         "/opt/cogworks-py38/bin/python -c \"import sys; assert sys.version_info[:3] == (3, 8, 20), sys.version\"",
         # Import-checked at build time rather than trusted: a wheel that
         # installs and then fails to import (libsndfile, llvmlite/numba ABI)
         # would otherwise surface as every student's run failing.
-        "/opt/cogworks-py38/bin/python -c \"import numpy, scipy, matplotlib, numba, soundfile, librosa\"",
+        "/opt/cogworks-py38/bin/python -c \"import numpy, scipy, matplotlib, numba, soundfile, librosa, IPython\"",
     )
     .env({"PYTHONPATH": "/opt/cogbench:/opt/runner", "MPLBACKEND": "Agg"})
 )
