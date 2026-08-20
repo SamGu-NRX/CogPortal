@@ -28,6 +28,7 @@ from .client import (
     update_setup_checks,
 )
 from .models import LocalReport
+from .resolve import resolve
 from .plugins import (
     PluginError,
     load_benchmark,
@@ -35,7 +36,9 @@ from .plugins import (
     plugin_names,
     resolve_submission,
 )
+from .progress import TerminalProgress
 from .project import repository_state
+from .report import render_check
 from .runner import ContractError, execute, model_cache_status
 from .storage import active_portal, latest_report, save_report, save_token, token_for
 
@@ -202,6 +205,51 @@ def _installed_benchmark_hint() -> str:
     return installed[0] if len(installed) == 1 else "<benchmark>"
 
 
+def _discover(benchmark: str, project_root: Path, as_json: bool):
+    """Search the repository for the code this benchmark needs.
+
+    Returns ``(submission, survey)``, either of which may be None. A benchmark
+    that does not describe its own task cannot be searched for, and saying so
+    is better than an empty report that looks like a failure to find anything.
+
+    Nothing here may fail the command. Discovery imports and runs a team's own
+    code, and the whole point of the report is to be readable when that code
+    misbehaves.
+    """
+
+    plugin = load_benchmark(benchmark)
+    describes = getattr(plugin, "discovery", None)
+    if not callable(describes):
+        return None, None
+
+    try:
+        spec = describes()
+    except Exception:  # noqa: BLE001 - a broken benchmark is ours, not theirs
+        return None, None
+
+    watcher = None if as_json else TerminalProgress()
+    try:
+        submission = resolve(
+            project_root,
+            chain_role=spec.chain_role,
+            fixture=spec.fixture,
+            accepts=spec.accepts,
+            arrangements=spec.arrangements,
+            hints=spec.hints,
+            progress=watcher,
+            remember=True,
+            benchmark=benchmark,
+        )
+    except Exception as error:  # noqa: BLE001
+        if watcher is not None:
+            watcher.done()
+        print("Could not read your repository: {}".format(error), file=sys.stderr)
+        return None, None
+
+    found = submission.discovery
+    return submission, found.to_dict() if found is not None else None
+
+
 def _check(benchmark: str, as_json: bool, project_root: Path) -> int:
     benchmark_group = (
         "cogworks.benchmarks.v2"
@@ -257,13 +305,34 @@ def _check(benchmark: str, as_json: bool, project_root: Path) -> int:
         checks["submissionLoadable"] = True
         checks["submissionSource"] = source
         checks["submissionDetail"] = detail
+    # Discovery runs unless the repository standing here declares its own
+    # submission. An entry point does not count: it belongs to whatever
+    # package was pip-installed, which on a machine that has done more than
+    # one week is quite possibly a different repository than this one, and
+    # reporting that as "your code is wired up" would be false.
+    submission = None
+    survey = None
+    declared = checks["submissionSource"] == "file"
+    if checks["benchmarkLoadable"] and not declared:
+        submission, survey = _discover(benchmark, project_root, as_json)
+        if submission is not None:
+            checks["discovery"] = submission.to_dict()
+            checks["submissionLoadable"] = bool(submission.ready)
+            checks["submissionSource"] = "discovery" if submission.ready else None
+
     if as_json:
-        print(json.dumps(checks, indent=2, sort_keys=True))
+        print(json.dumps(checks, indent=2, sort_keys=True, default=str))
     else:
-        for key, value in checks.items():
-            print("{:<24} {}".format(key, value))
-        if benchmark_group.endswith(".v2"):
-            print("\nCaches are populated when you explicitly run `cogworks test` or `cogworks run`.")
+        for line in render_check(
+            benchmark=benchmark,
+            python_version=checks["python"],
+            hosted_python=checks["canonicalHostedPython"],
+            benchmark_ready=bool(checks["benchmarkLoadable"]),
+            repository=checks["repositoryFullName"],
+            submission=submission,
+            survey=survey,
+        ):
+            print(line)
     # `submissionInstalled` is deliberately not required: it only reports the
     # entry-point registration, and a repository that resolves by file has none.
     # `submissionLoadable` is the signal that we actually found the submission.

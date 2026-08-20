@@ -138,8 +138,15 @@ def render_check(
 
     if submission is None:
         lines.append("")
-        lines.append("Nothing was wired up, because the benchmark is not installed here.")
-        lines.append("Install it, then run this again.")
+        if not benchmark_ready:
+            lines.append("Nothing was searched for, because {} is not installed here.".format(benchmark))
+            lines.append("Install it, then run this again.")
+        else:
+            # The other way to get here: an installed submission package
+            # already answers for this benchmark, so there was nothing to
+            # search for. Saying "not installed" would be a lie, and a
+            # confusing one, since the benchmark plainly ran.
+            lines.append("Your submission is registered as an installed package, so it was used as is.")
         return lines
 
     chain = getattr(submission, "chain", ())
