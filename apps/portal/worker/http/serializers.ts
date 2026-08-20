@@ -141,6 +141,9 @@ export async function serializeRunDetail(
     // submission's own output shape, never the hidden data.
     diagnostics: parseDiagnostics(row.diagnosticsJson),
     sweep: parseSweep(row.sweepJson),
+    // Named for their own functions, so it is safe on an official run for the
+    // same reason diagnostics are: it describes their code, never the data.
+    wiring: parseWiring(row.wiringJson),
     log: row.mode === "practice" ? row.log : null,
     selected: selection[0]?.runId === row.id,
   };
@@ -154,6 +157,18 @@ function parseDiagnostics(value: string | null): string[] {
     const parsed: unknown = JSON.parse(value);
     if (!Array.isArray(parsed)) return [];
     return parsed.filter((item): item is string => typeof item === "string").slice(0, 32);
+  } catch {
+    return [];
+  }
+}
+
+/** Same tolerance again: a malformed wiring record costs that panel, never
+ *  the page. */
+function parseWiring(value: string | null): RunDetail["wiring"] {
+  if (!value) return [];
+  try {
+    const parsed = RunDetailSchema.shape.wiring.safeParse(JSON.parse(value));
+    return parsed.success ? parsed.data : [];
   } catch {
     return [];
   }

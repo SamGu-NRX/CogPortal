@@ -587,6 +587,28 @@ def _discovered_factory(benchmark_id):
             "The functions found when preparing this repository could not be "
             "found again: {}".format(found.verdict.headline)
         )
+    # Which of their functions ran, for the run page. Written here because
+    # this is where the binding exists; the controller reads it back with the
+    # predictions.
+    try:
+        steps = [
+            {
+                "stage": step.stage,
+                "function": step.function,
+                "received": step.received,
+                "returned": step.returned,
+            }
+            for step in found.verdict.trace
+        ]
+        if found.attempt is not None:
+            steps.append({"stage": "store", "function": found.attempt.enroll})
+            steps.append({"stage": "query", "function": found.attempt.query})
+        pathlib.Path("/tmp/cog-wiring.json").write_text(
+            json.dumps(steps), encoding="utf-8"
+        )
+    except Exception:
+        pass  # the score is the point; the explanation is worth less than it
+
     return lambda *args, **kwargs: benchmark.submission_from_discovery(found)
 # Who owns the step currently running. The controller decides whether a
 # failure consumes one of the three official attempts, and it must decide that
@@ -1070,6 +1092,30 @@ def _prepare(job: Dict[str, Any], reporter: LiveReporter) -> str:
             sandbox.terminate()
 
 
+#: Filled by the controller when an evaluate sandbox reported which of the
+#: team's functions it ran. A module-level box rather than a return value,
+#: because four evaluators would otherwise each grow a third element for
+#: something only one of them can produce.
+_WIRING: List[Dict[str, Any]] = []
+
+
+def _collect_wiring(sandbox) -> None:
+    """Read the wiring the evaluate step wrote, if it wrote one.
+
+    Absent for a repository that declared its own submission, which is the
+    normal case for the reference examples and the intended case for the
+    template. Absent is not an error and is not reported as one.
+    """
+
+    _WIRING.clear()
+    try:
+        steps = json.loads(sandbox.filesystem.read_text("/tmp/cog-wiring.json"))
+    except Exception:
+        return
+    if isinstance(steps, list):
+        _WIRING.extend(steps[:16])
+
+
 def _evaluate(job: Dict[str, Any], snapshot_id: str, inputs: List[Any]) -> Tuple[List[Any], str]:
     sandbox = None
     try:
@@ -1098,6 +1144,7 @@ def _evaluate(job: Dict[str, Any], snapshot_id: str, inputs: List[Any]) -> Tuple
         predictions = json.loads(
             sandbox.filesystem.read_text("/tmp/cog-predictions.json")
         )
+        _collect_wiring(sandbox)
         log = sandbox.filesystem.read_text("/tmp/cog-student.log")
         return list(predictions), log[: job["runtime"]["maxOutputBytes"]]
     except RunnerFailure:
@@ -1161,6 +1208,7 @@ def _evaluate_v2(
             # the submission's.
             raise RunnerFailure("student_runtime", "evaluating", detail, False)
         predictions = json.loads(sandbox.filesystem.read_text("/tmp/cog-predictions.json"))
+        _collect_wiring(sandbox)
         log = sandbox.filesystem.read_text("/tmp/cog-student.log")
         return list(predictions), log[: job["runtime"]["maxOutputBytes"]]
     except RunnerFailure:
@@ -1239,6 +1287,7 @@ def _evaluate_week3(
                 )
             raise RunnerFailure("student_runtime", "evaluating", detail, False)
         predictions = json.loads(sandbox.filesystem.read_text("/tmp/cog-predictions.json"))
+        _collect_wiring(sandbox)
         log = sandbox.filesystem.read_text("/tmp/cog-student.log")
         return list(predictions), log[: job["runtime"]["maxOutputBytes"]]
     except RunnerFailure:
@@ -1326,6 +1375,7 @@ def _evaluate_week1(
                 )
             raise RunnerFailure("student_runtime", "evaluating", detail, False)
         predictions = json.loads(sandbox.filesystem.read_text("/tmp/cog-predictions.json"))
+        _collect_wiring(sandbox)
         log = sandbox.filesystem.read_text("/tmp/cog-student.log")
         return list(predictions), log[: job["runtime"]["maxOutputBytes"]]
     except RunnerFailure:
@@ -1562,6 +1612,8 @@ def execute_job(job_value: Dict[str, Any]) -> None:
         sweep = _sweep_wire(benchmark)
         if sweep:
             result["sweep"] = sweep
+        if _WIRING:
+            result["wiring"] = _WIRING
         reporter.event(
             "completed",
             result=result,

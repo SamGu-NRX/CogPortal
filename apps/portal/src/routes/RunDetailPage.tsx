@@ -9,6 +9,7 @@ import { LogView } from "@/components/LogView";
 import { Finding } from "@/components/Finding";
 import { PrimaryMetric, SupportingMetrics } from "@/components/MetricBlock";
 import { SweepTrace } from "@/components/SweepTrace";
+import { WiringTrace } from "@/components/WiringTrace";
 import { Panel } from "@/components/Panel";
 import { PhaseRail } from "@/components/PhaseRail";
 import { ShaChip } from "@/components/ShaChip";
@@ -200,6 +201,18 @@ export function RunDetailPage() {
                   <SweepTrace sweep={run.sweep} />
                 </div>
               )}
+            </Panel>
+          )}
+          {/* Below the finding, above the number. Nothing in a 2026
+              repository says which function is the peak finder, so the
+              platform found theirs by running them; this says which ones it
+              settled on. It sits here because a team checks it when a score
+              surprises them, which is after they have read the finding and
+              before they argue with the number. Absent for a repository that
+              declared its own submission: nothing was inferred. */}
+          {run.wiring.length > 0 && (
+            <Panel className="mt-4">
+              <WiringTrace steps={run.wiring} />
             </Panel>
           )}
           <Panel label="RESULTS" className="mt-4">

@@ -40,6 +40,22 @@ export const SweepSchema = z.object({
   points: z.array(SweepPointSchema).min(2).max(24),
 });
 
+/**
+ * Which of the team's own functions ran, in the order they ran.
+ *
+ * Present when the platform found their code itself rather than being told
+ * where it was, which for every 2026 repository is always. A score that rests
+ * on an inference should show the inference: a team can read this and see
+ * whether the code we ran is the code they think we ran.
+ */
+export const WiredStepSchema = z.object({
+  stage: z.string().min(1).max(60),
+  function: z.string().min(1).max(200),
+  received: z.string().max(200).optional(),
+  returned: z.string().max(200).optional(),
+});
+export type WiredStep = z.infer<typeof WiredStepSchema>;
+
 export const BenchmarkResultV1Schema = z.object({
   protocolVersion: RunnerProtocolVersionSchema,
   benchmarkId: z.string().min(1).max(120),
@@ -51,6 +67,11 @@ export const BenchmarkResultV1Schema = z.object({
    * the run page shows the metric grid alone rather than an empty axis.
    */
   sweep: SweepSchema.optional(),
+  /**
+   * Optional, and absent for a repository that declared its own submission:
+   * there is no inference to show when a team told us where their code is.
+   */
+  wiring: z.array(WiredStepSchema).max(16).optional(),
   outputDigest: z.string().regex(/^[a-f0-9]{64}$/),
 });
 export type BenchmarkResultV1 = z.infer<typeof BenchmarkResultV1Schema>;

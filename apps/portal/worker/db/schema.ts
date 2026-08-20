@@ -316,6 +316,9 @@ export const runs = sqliteTable("runs", {
   /** Scorer diagnostics from the succeeded event: the benchmark's own
    *  explanation of what a submission got wrong. JSON array of strings. */
   diagnosticsJson: text("diagnostics_json"),
+  /** Which of the team's own functions ran, when the platform found them
+   *  itself. Null when the repository declared its own submission. */
+  wiringJson: text("wiring_json"),
   /** The scorer's difficulty sweep, as JSON. Null when the benchmark has no
    *  difficulty knob, or when the run predates migration 0023. */
   sweepJson: text("sweep_json"),

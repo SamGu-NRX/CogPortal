@@ -43,6 +43,58 @@ class TheScriptsAreValidPython(unittest.TestCase):
         ast.parse(EVALUATE_SCRIPT)
 
 
+class WiringReachesTheRunPage(unittest.TestCase):
+    """A score that rests on an inference should show the inference.
+
+    Nothing in a 2026 repository says which function is the peak finder, so
+    the platform decides by running them. A team who cannot see which
+    functions we chose cannot tell a wrong choice from a low score."""
+
+    def test_the_evaluate_step_writes_which_functions_it_ran(self):
+        self.assertIn("/tmp/cog-wiring.json", EVALUATE_SCRIPT)
+
+    def test_writing_it_never_costs_the_run(self):
+        """The score is the point; the explanation is worth less than it."""
+
+        index = EVALUATE_SCRIPT.find("/tmp/cog-wiring.json")
+        surrounding = EVALUATE_SCRIPT[max(0, index - 900) : index + 200]
+
+        self.assertIn("try:", surrounding)
+        self.assertIn("except Exception:", surrounding)
+
+    def test_a_repository_that_declared_its_own_submission_reports_none(self):
+        """There is no inference to show when a team told us where their code
+        is, and an empty panel would imply we guessed."""
+
+        from cogworks_runner import modal_app
+
+        modal_app._WIRING.clear()
+
+        class _NoFile:
+            class filesystem:
+                @staticmethod
+                def read_text(_path):
+                    raise FileNotFoundError
+
+        modal_app._collect_wiring(_NoFile())
+
+        self.assertEqual(modal_app._WIRING, [])
+
+    def test_a_wiring_record_is_capped(self):
+        from cogworks_runner import modal_app
+        import json as _json
+
+        class _Many:
+            class filesystem:
+                @staticmethod
+                def read_text(_path):
+                    return _json.dumps([{"stage": str(i), "function": "f"} for i in range(40)])
+
+        modal_app._collect_wiring(_Many())
+
+        self.assertEqual(len(modal_app._WIRING), 16)
+
+
 class RungOrderTests(unittest.TestCase):
     def _position(self, needle: str) -> int:
         index = PREPARE_SCRIPT.find(needle)

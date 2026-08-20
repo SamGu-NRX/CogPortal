@@ -161,6 +161,25 @@ export const RunDetailSchema = RunSummarySchema.extend({
     })
     .nullable()
     .default(null),
+  /**
+   * Which of the team's own functions ran, in the order they ran. Empty when
+   * the repository declared its own submission, because then nothing was
+   * inferred and there is no inference to show.
+   *
+   * Safe for official runs on the same grounds as diagnostics: it names their
+   * code and the shapes it passed, never the hidden data.
+   */
+  wiring: z
+    .array(
+      z.object({
+        stage: z.string().max(60),
+        function: z.string().max(200),
+        received: z.string().max(200).optional(),
+        returned: z.string().max(200).optional(),
+      }),
+    )
+    .max(16)
+    .default([]),
   /** Capped install/eval log. Practice runs only; null for official (§5). */
   log: z.string().nullable(),
   /** Official runs: currently published on the leaderboard. */

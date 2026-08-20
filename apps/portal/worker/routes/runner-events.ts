@@ -118,6 +118,9 @@ async function applyEvent(env: AppEnv["Bindings"], event: RunEventV1): Promise<v
       .update(runs)
       .set({
         diagnosticsJson: JSON.stringify(event.result.diagnostics ?? []),
+        // Which of their functions ran. Absent when they declared a
+        // submission, because then nothing was inferred.
+        wiringJson: event.result.wiring ? JSON.stringify(event.result.wiring) : null,
         sweepJson: event.result.sweep ? JSON.stringify(event.result.sweep) : null,
       })
       .where(eq(runs.id, run.id));
