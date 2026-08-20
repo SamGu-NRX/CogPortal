@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import ast
 import contextlib
+import importlib.machinery
 import importlib.util
 import io
 import json
@@ -114,6 +115,11 @@ class _Stub(ModuleType):
     def __init__(self, name: str, calls: List[str]) -> None:
         super().__init__(name)
         self.__calls = calls
+        # importlib refuses a module whose __spec__ is None with
+        # "ValueError: networkx.__spec__ is None", which student code hits when
+        # it imports a submodule of a stubbed package.
+        self.__spec__ = importlib.machinery.ModuleSpec(name, None)
+        self.__path__: List[str] = []
 
     def __getattr__(self, attribute: str):  # noqa: D105 - see class docstring
         if attribute.startswith("__"):
@@ -620,10 +626,22 @@ def discover(
     if not root.path.is_dir():
         return Discovery(root=root)
 
-    # Everything else in the repository that holds code, so a capstone split
-    # between a root and a package directory is found whole. The chosen root
-    # still goes first: it owns import precedence.
-    extra = [path for path in root.considered if path != root.path]
+    # Everything else that holds code, so a capstone split between a root and a
+    # package directory is found whole. The chosen root goes first; it owns
+    # import precedence.
+    #
+    # Except when the root is a week directory. A repository holding Week1,
+    # Week2, and Week3 has three capstones in it, and reading all of them while
+    # scoring one offers the search functions from the wrong assignment. Only
+    # what lives under the chosen week is read then.
+    if "matches this week" in root.reason:
+        extra = [
+            path
+            for path in root.considered
+            if path != root.path and root.path in path.parents
+        ]
+    else:
+        extra = [path for path in root.considered if path != root.path]
 
     # Importing writes. One audited repository keeps a module-global relative
     # db.pkl and rewrites it on every add, and importing two repositories in

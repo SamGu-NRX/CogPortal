@@ -145,10 +145,7 @@ def resolve(
                 refusal.stage,
                 reached,
                 last_returned=refusal.last_returned,
-                next_step=(
-                    "Run `cogworks check` to see every function we found and what "
-                    "each one returned."
-                ),
+                next_step=_next_step_for_stall(found),
             ),
             discovery=found,
         )
@@ -186,9 +183,8 @@ def resolve(
             "database",
             chain.observations(),
             next_step=(
-                "The benchmark found your fingerprinting but could not find a pair of "
-                "functions that stores a song and then names it back. Run "
-                "`cogworks check` to see what it tried."
+                "The benchmark found your fingerprinting but no pair of functions "
+                "that stores a song and then names it back."
             ),
         ),
         discovery=found,
@@ -253,3 +249,41 @@ def _step_note(stage: str, label: str):
     from .verdict import Observation
 
     return Observation(stage, label, "", "")
+
+
+def _next_step_for_stall(found: Discovery) -> str:
+    """The one thing worth doing when the chain stalled part way.
+
+    Only when the platform honestly knows it. A module the search could not
+    read is a real lead and worth naming, because the function it wanted may
+    well be in there. When every module read cleanly, the missing piece is a
+    function that does not exist yet or returns something nothing takes, and
+    which of those it is belongs to the student.
+    """
+
+    missing = sorted(
+        {entry.missing for entry in found.skipped if entry.missing},
+    )
+    if missing:
+        modules = [entry.name for entry in found.skipped if entry.missing]
+        return (
+            "{} did not import, because {} not installed here. If the function "
+            "the benchmark is looking for lives in one of them, add {} to a "
+            "requirements.txt at the root of your repository."
+        ).format(
+            _listed(modules),
+            "{} is".format(missing[0]) if len(missing) == 1 else "{} are".format(_listed(missing)),
+            _listed(missing),
+        )
+    return ""
+
+
+def _listed(items: Sequence[str]) -> str:
+    """A readable list: one, two and three, or one, two, and three."""
+
+    items = list(items)
+    if len(items) <= 1:
+        return items[0] if items else ""
+    if len(items) == 2:
+        return "{} and {}".format(*items)
+    return "{}, and {}".format(", ".join(items[:-1]), items[-1])
