@@ -37,10 +37,13 @@ later stage is reached by feeding it a real upstream result.
 
 from __future__ import annotations
 
+import contextlib
 import inspect
 import itertools
+import os
 import random
 import signal
+import tempfile
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
@@ -379,6 +382,38 @@ def resolve_chain(
     Returns the binding, or a refusal naming the furthest point reached.
     """
 
+    with _scratch_cwd():
+        return _resolve_chain(role, modules, fixture, verify=verify, beam=beam, seed=seed)
+
+
+@contextlib.contextmanager
+def _scratch_cwd():
+    """Probe from a throwaway directory.
+
+    Probing calls student functions, and their functions write: one audited
+    repository rewrites a relative ``db.pkl`` on every add, and probing two
+    repositories left ``db.pkl`` and ``songs.pkl`` in this checkout. Discovery
+    already imports from scratch; the calls that follow it must too.
+    """
+
+    previous = os.getcwd()
+    with tempfile.TemporaryDirectory(prefix="cogworks-probe-") as temporary:
+        os.chdir(temporary)
+        try:
+            yield
+        finally:
+            os.chdir(previous)
+
+
+def _resolve_chain(
+    role: Role,
+    modules: Sequence[Any],
+    fixture: Sequence[Any],
+    *,
+    verify: Optional[Callable[[Sequence[Candidate]], bool]] = None,
+    beam: int = BEAM_WIDTH,
+    seed: int = 0,
+) -> Resolution:
     random.seed(seed)
     candidates = callables_in(modules)
     if not candidates:

@@ -244,6 +244,32 @@ class ChainTests(unittest.TestCase):
         self.assertEqual(first.steps, second.steps)
 
 
+class ContainmentTests(unittest.TestCase):
+    """Probing calls student code, and student code writes."""
+
+    def test_a_function_that_writes_beside_itself_does_not_touch_the_caller(self):
+        """One audited repository keeps a module-global relative db.pkl and
+        rewrites it on every add. Probing two repositories left db.pkl and
+        songs.pkl in this checkout before this was contained."""
+
+        def leaky(samples, rate):
+            Path("db.pkl").write_bytes(b"student state")
+            return _spectrogram(samples, rate)
+
+        module = _module("anything", leaky=leaky, beta=_peaks, gamma=_fanout)
+        before = set(Path.cwd().iterdir())
+
+        resolve_chain(ROLE, [module], FIXTURE)
+
+        self.assertEqual(set(Path.cwd().iterdir()), before)
+
+    def test_the_working_directory_is_restored(self):
+        module = _module("anything", alpha=_spectrogram, beta=_peaks, gamma=_fanout)
+        before = Path.cwd()
+        resolve_chain(ROLE, [module], FIXTURE)
+        self.assertEqual(Path.cwd(), before)
+
+
 class StageProbeTests(unittest.TestCase):
     def test_probe_sources_only_keeps_what_returns_the_right_shape(self):
         module = _module(

@@ -8,12 +8,16 @@ and hands the surviving modules to a benchmark's resolver.
 Three measured facts shape everything here.
 
 **Their sibling imports must work.** ``carti4ce/match.py`` does
-``from database import load``, and ``database.py`` writes ``DB_PATH = "db.pkl"``
-relative to the working directory. Both work under ``sys.path`` plus a working
-directory; both break under ``pip install -e``. So a root is chosen, inserted
-at the front of ``sys.path``, and made the working directory, and modules are
-imported by path so a directory named ``Individual stuff`` never has to be a
-valid package name.
+``from database import load``, which resolves under ``sys.path`` and breaks
+under ``pip install -e``. So a root is chosen and inserted at the front of
+``sys.path``, and modules are imported by path, so a directory named
+``Individual stuff`` never has to be a valid package name.
+
+**Their writes must land somewhere else.** ``database.py`` in the same
+repository writes ``DB_PATH = "db.pkl"`` relative to the working directory and
+rewrites it on every add. Importing is therefore done from a scratch directory
+rather than from the checkout: their code is right about wanting a working
+directory, and it does not get to be the student's repository or ours.
 
 **Importing runs their code.** Two of the audited repositories print a prompt
 and block on ``input()`` at module scope; others build a model or read a file.
@@ -39,6 +43,7 @@ import io
 import json
 import os
 import sys
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import ModuleType
@@ -558,8 +563,13 @@ def _is_student_module(module: object, root: Path) -> bool:
 
 
 @contextlib.contextmanager
-def _entered(root: Path):
-    """Run with ``root`` as the working directory and first on the path.
+def _entered(root: Path, *, working: Optional[Path] = None):
+    """Run with ``root`` first on the path and ``working`` as the directory.
+
+    The two are separate on purpose. ``root`` is where their modules are found,
+    so it must lead ``sys.path`` for their sibling imports to resolve. The
+    working directory is where their relative writes land, and that is a
+    scratch directory rather than their checkout.
 
     Afterwards the student's own modules are evicted so a second repository in
     the same process does not import a stale ``database``, and every other
@@ -577,7 +587,7 @@ def _entered(root: Path):
     previous_cwd = Path.cwd()
     previous_path = list(sys.path)
     before = set(sys.modules)
-    os.chdir(root)
+    os.chdir(working if working is not None else root)
     sys.path.insert(0, str(root))
     try:
         yield
@@ -595,6 +605,7 @@ def discover(
     *,
     declared_root: Optional[str] = None,
     hints: Sequence[str] = (),
+    scratch: Optional[Path] = None,
 ) -> Discovery:
     """Choose a root, import what imports, and report all of it.
 
@@ -611,10 +622,20 @@ def discover(
 
     # Everything else in the repository that holds code, so a capstone split
     # between a root and a package directory is found whole. The chosen root
-    # still goes first: it owns the working directory and import precedence.
+    # still goes first: it owns import precedence.
     extra = [path for path in root.considered if path != root.path]
-    with _entered(root.path):
-        modules, skipped, calls = load_modules(root.path, extra=extra)
+
+    # Importing writes. One audited repository keeps a module-global relative
+    # db.pkl and rewrites it on every add, and importing two repositories in
+    # one session left db.pkl and songs.pkl in this checkout. Their code is
+    # right about wanting a working directory; it does not get to be this one.
+    if scratch is not None:
+        with _entered(root.path, working=Path(scratch)):
+            modules, skipped, calls = load_modules(root.path, extra=extra)
+    else:
+        with tempfile.TemporaryDirectory(prefix="cogworks-import-") as temporary:
+            with _entered(root.path, working=Path(temporary)):
+                modules, skipped, calls = load_modules(root.path, extra=extra)
     return Discovery(root=root, modules=modules, skipped=skipped, stub_calls=calls)
 
 
