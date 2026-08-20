@@ -39,10 +39,12 @@ from __future__ import annotations
 
 import contextlib
 import inspect
+import io
 import itertools
 import os
 import random
 import signal
+import sys
 import tempfile
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
@@ -55,6 +57,8 @@ __all__ = [
     "Refusal",
     "Resolution",
     "callables_in",
+    "instances_in",
+    "methods_of",
     "probe_sources",
     "extend",
     "resolve_chain",
@@ -254,6 +258,63 @@ def callables_in(modules: Sequence[Any]) -> List[Candidate]:
     return found
 
 
+def instances_in(modules: Sequence[Any]) -> List[Tuple[str, Any]]:
+    """One live object per class the team wrote that can be built for free.
+
+    A database is as often a class as a module. One team keeps ``add`` and
+    ``query`` as module functions over a pickle; another writes
+    ``AudioDatabase()`` with every argument defaulted and puts the same two
+    operations on it. Both are the same answer to the same question, so a class
+    that constructs with no required arguments is built once and its methods
+    join the candidate list.
+
+    Only no-required-argument constructors. A class that demands its data up
+    front is not a store the benchmark can fill, and guessing what to pass it
+    would be inventing the team's design rather than finding it.
+    """
+
+    built: List[Tuple[str, Any]] = []
+    for module in modules:
+        module_name = getattr(module, "__name__", "?")
+        for name in sorted(dir(module)):
+            value = getattr(module, name, None)
+            if not isinstance(value, type):
+                continue
+            if getattr(value, "__module__", None) != module_name:
+                continue
+            if name.startswith("_") or any(word in name.lower() for word in _NEVER):
+                continue
+            try:
+                signature = inspect.signature(value)
+                signature.bind()
+            except (TypeError, ValueError):
+                continue
+            try:
+                built.append(("{}.{}()".format(module_name, name), value()))
+            except BaseException:  # noqa: BLE001 - a constructor may do anything
+                continue
+    return built
+
+
+def methods_of(label: str, instance: Any) -> List[Candidate]:
+    """The bound methods of one constructed object, as candidates."""
+
+    found: List[Candidate] = []
+    owner = type(instance)
+    for name in sorted(dir(instance)):
+        if name.startswith("_") or any(word in name.lower() for word in _NEVER):
+            continue
+        if name not in vars(owner) and not any(name in vars(base) for base in owner.__mro__):
+            continue
+        value = getattr(instance, name, None)
+        if not callable(value) or isinstance(value, type):
+            continue
+        if _reaches_outside(value):
+            continue
+        found.append(Candidate("{}.{}".format(label, name), value, label))
+    return found
+
+
 def _order_for(stage: Stage, candidates: Sequence[Candidate]) -> List[Candidate]:
     """Preferred names first. This changes speed, never the outcome.
 
@@ -281,12 +342,33 @@ def _call(candidate: Candidate, args: Sequence[Any]) -> Tuple[bool, Any]:
     previous = signal.signal(signal.SIGALRM, _raise_timeout)
     signal.alarm(CALL_TIMEOUT_SECONDS)
     try:
-        return True, candidate.call(*args)
+        with _muted():
+            return True, candidate.call(*args)
     except BaseException:  # noqa: BLE001 - student code raises anything
         return False, None
     finally:
         signal.alarm(0)
         signal.signal(signal.SIGALRM, previous)
+
+
+@contextlib.contextmanager
+def _muted():
+    """Probe without the student's console.
+
+    Their functions narrate: one prints every fingerprint it built, which is
+    thousands of lines per call and tens of thousands across a search. Their
+    output belongs to their run, not to ours, so probing captures it and
+    throws it away. What a student sees is the report, which says what was
+    tried and what came back.
+    """
+
+    saved_out, saved_err = sys.stdout, sys.stderr
+    sys.stdout = io.StringIO()
+    sys.stderr = io.StringIO()
+    try:
+        yield
+    finally:
+        sys.stdout, sys.stderr = saved_out, saved_err
 
 
 def probe_sources(
