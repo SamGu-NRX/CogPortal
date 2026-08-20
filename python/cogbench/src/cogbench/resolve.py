@@ -348,6 +348,62 @@ def _store_candidates(found: Discovery, chain) -> List[Candidate]:
     return candidates
 
 
+#: Packages the course tells students to install
+#: (docs/capstones/environment.md) and that the hosted images carry. When one
+#: of these is missing it is missing *here*, on this laptop, and telling a
+#: student to add it to a requirements.txt would be blaming them for a gap in
+#: their own machine's environment that the graded run does not have.
+COURSE_PACKAGES = frozenset(
+    {
+        "IPython",
+        "ipython",
+        "jupyter",
+        "notebook",
+        "numpy",
+        "scipy",
+        "matplotlib",
+        "numba",
+        "librosa",
+        "soundfile",
+        "sklearn",
+        "scikit-learn",
+        "torch",
+        "torchvision",
+        "nltk",
+        "cv2",
+        "opencv",
+        "skimage",
+        "xarray",
+        "bottleneck",
+        "gensim",
+        "mygrad",
+        "mynn",
+        "noggin",
+        "cogworks_data",
+    }
+)
+
+
+def _local_gap(missing: Optional[str]) -> str:
+    """What to say when the missing package is one the course prescribes.
+
+    Their code is fine and the hosted run has this package. What they are
+    looking at is their own environment, so the step is to install it, not to
+    declare it.
+    """
+
+    if not missing:
+        return ""
+    top = missing.split(".")[0]
+    if top not in COURSE_PACKAGES:
+        return ""
+    return (
+        "{} is part of the environment the course has you install, and the "
+        "graded run has it. This machine does not, so install it here and run "
+        "this again."
+    ).format(top)
+
+
 def _next_step_for(reason: str, missing: Optional[str]) -> str:
     """The one thing worth doing about an import that failed.
 
@@ -357,7 +413,7 @@ def _next_step_for(reason: str, missing: Optional[str]) -> str:
     """
 
     if reason == "missing_dependency" and missing:
-        return (
+        return _local_gap(missing) or (
             "Add {} to a requirements.txt at the root of your repository, or move "
             "the code the benchmark needs into a module that does not import it."
         ).format(missing)
@@ -387,18 +443,39 @@ def _next_step_for_stall(found: Discovery) -> str:
     missing = sorted(
         {entry.missing for entry in found.skipped if entry.missing},
     )
-    if missing:
-        modules = [entry.name for entry in found.skipped if entry.missing]
-        return (
-            "{} did not import, because {} not installed here. If the function "
-            "the benchmark is looking for lives in one of them, add {} to a "
-            "requirements.txt at the root of your repository."
-        ).format(
-            _listed(modules),
-            "{} is".format(missing[0]) if len(missing) == 1 else "{} are".format(_listed(missing)),
-            _listed(missing),
+    if not missing:
+        return ""
+
+    modules = [entry.name for entry in found.skipped if entry.missing]
+    opening = "{} did not import, because {} not installed here.".format(
+        _listed(modules),
+        "{} is".format(missing[0]) if len(missing) == 1 else "{} are".format(_listed(missing)),
+    )
+
+    # Split the two cases, because they call for opposite things. A package
+    # the course prescribes is missing from this laptop and present in the
+    # graded run, so the fix is to install it. Anything else is theirs to
+    # declare, and declaring it is what makes the graded run work.
+    local = [name for name in missing if name.split(".")[0] in COURSE_PACKAGES]
+    theirs = [name for name in missing if name.split(".")[0] not in COURSE_PACKAGES]
+
+    advice = []
+    if local:
+        advice.append(
+            "{} part of the environment the course has you install, and the "
+            "graded run has {}. Install {} here and run this again.".format(
+                "{} is".format(_listed(local)) if len(local) == 1 else "{} are".format(_listed(local)),
+                "it" if len(local) == 1 else "them",
+                "it" if len(local) == 1 else "them",
+            )
         )
-    return ""
+    if theirs:
+        advice.append(
+            "If the function the benchmark is looking for lives in one of "
+            "them, add {} to a requirements.txt at the root of your "
+            "repository.".format(_listed(theirs))
+        )
+    return " ".join([opening] + advice)
 
 
 def _listed(items: Sequence[str]) -> str:

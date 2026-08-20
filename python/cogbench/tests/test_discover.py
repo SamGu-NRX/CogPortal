@@ -306,6 +306,35 @@ class StubTests(unittest.TestCase):
 
         self.assertIn("theirs", [entry.name for entry in found.modules])
 
+    def test_using_a_stubs_result_names_the_stub_not_the_shape_of_None(self):
+        """`frames, rate = record_audio(5)` failed with "cannot unpack
+        non-iterable NoneType object", which describes our stand-in rather
+        than the microphone that is not here."""
+
+        (self.tmp / "theirs.py").write_text(
+            "from microphone import record_audio\n"
+            "frames, rate = record_audio(5)\n"
+        )
+
+        found = discover(self.tmp)
+
+        self.assertIn("microphone.record_audio", found.skipped[0].detail)
+        self.assertNotIn("NoneType", found.skipped[0].detail)
+
+    def test_a_module_that_guards_on_a_stub_takes_the_branch_without_it(self):
+        """`if record_audio(...)` should behave as it does on a machine with
+        no microphone, which is the branch that runs."""
+
+        (self.tmp / "theirs.py").write_text(
+            "from microphone import record_audio\n"
+            "HAVE_MIC = bool(record_audio(1))\n"
+            "def peaks(x):\n    return x\n"
+        )
+
+        found = discover(self.tmp)
+
+        self.assertEqual([entry.name for entry in found.modules], ["theirs"])
+
     def test_an_unrelated_missing_package_still_fails_and_is_named(self):
         """The stub list is fixed. Answering for anything missing would turn
         a real dependency error into a silent wrong answer."""

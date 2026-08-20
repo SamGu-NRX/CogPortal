@@ -130,18 +130,58 @@ class _Stub(ModuleType):
         if attribute.startswith("__"):
             raise AttributeError(attribute)
         name = "{}.{}".format(self.__name__, attribute)
-        # A submodule of a stub is a stub. Registering it means the import
-        # machinery finds it without a finder, and it keeps recording under
-        # its full dotted name so the report can still say what was reached.
-        if name not in sys.modules:
-            sys.modules[name] = _Stub(name, self.__calls)
 
         def _recorded(*_args, **_kwargs):
             self._Stub__calls.append(name)
-            return None
+            return _Absent(name)
 
         _recorded.__name__ = attribute
         return _recorded
+
+
+class _Absent:
+    """What a stubbed call returns, so a later failure names the stub.
+
+    Returning ``None`` made a module doing ``frames, rate = record_audio(5)``
+    fail with "cannot unpack non-iterable NoneType object". True, and useless:
+    it describes our stand-in rather than the microphone that is not here, and
+    a student reading it would go looking for a bug in their own unpacking.
+    """
+
+    __slots__ = ("_origin",)
+
+    def __init__(self, origin: str) -> None:
+        self._origin = origin
+
+    def _complain(self, *_args, **_kwargs):
+        raise RuntimeError(
+            "{} is not available here, and this used what it returned".format(
+                self._origin
+            )
+        )
+
+    __iter__ = _complain
+    __call__ = _complain
+    __len__ = _complain
+    __getitem__ = _complain
+    __add__ = _complain
+    __sub__ = _complain
+    __mul__ = _complain
+    __array__ = _complain
+
+    def __getattr__(self, attribute: str):
+        if attribute.startswith("_"):
+            raise AttributeError(attribute)
+        return self._complain()
+
+    def __repr__(self) -> str:
+        return "<{} is not available here>".format(self._origin)
+
+    def __bool__(self) -> bool:
+        # A module guarding with `if record_audio(...)` should take the false
+        # branch rather than raise: that branch is the one that runs on a
+        # machine with no microphone.
+        return False
 
 
 @dataclass(frozen=True)
