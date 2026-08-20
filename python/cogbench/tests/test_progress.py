@@ -132,25 +132,34 @@ class EstimateTests(unittest.TestCase):
         """The search stops at the first pairing that works, so a countdown
         that read like a prediction would be wrong most of the time."""
 
-        self.clock.now = 10.0
-        self.progress.attempts(100, 1000)
+        self.clock.now = 100.0
+        self.progress.attempts(1000, 10000)
 
         line = self._line()
         self.assertIn("at most", line)
-        self.assertIn("1m 30s", line)  # 0.1s each, 900 to go
+        self.assertIn("15m 00s", line)  # 0.1s each, 9000 to go
+
+    def test_one_slow_first_attempt_does_not_become_the_estimate(self):
+        """The first pairing warms their imports and their first numba call.
+        Extrapolating from it announced two minutes for a 23-second search."""
+
+        self.clock.now = 2.0
+        self.progress.attempts(1, 6320)
+
+        self.assertNotIn("at most", self._line())
 
     def test_a_search_about_to_end_is_not_given_a_countdown(self):
         """Under a few seconds, the estimate is noise: it may well finish
         before the line is read."""
 
-        self.clock.now = 0.1
-        self.progress.attempts(100, 200)
+        self.clock.now = 0.2
+        self.progress.attempts(400, 500)
 
         self.assertNotIn("at most", self._line())
 
     def test_no_estimate_before_there_is_evidence_for_one(self):
         self.clock.now = 5.0
-        self.progress.attempts(0, 1000)
+        self.progress.attempts(0, 100000)
 
         self.assertNotIn("at most", self._line())
 

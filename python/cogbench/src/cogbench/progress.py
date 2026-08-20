@@ -43,6 +43,13 @@ _FRAME_SECONDS = 0.08
 #: student has read the line.
 _WORTH_ESTIMATING_SECONDS = 3.0
 
+#: Attempts to see before extrapolating from them. The first pairing carries
+#: the cost of warming a student's imports and their first call into numba, so
+#: one sample said "2m 06s" for a search that took 23 seconds. Waiting for a
+#: few hundred costs a second of silence and stops the first number shown from
+#: being the wrong one by a factor of five.
+_ENOUGH_TO_EXTRAPOLATE = 200
+
 
 class Progress:
     """What a search reports as it runs.
@@ -186,7 +193,7 @@ def _estimate(done: int, total: int, elapsed: float) -> str:
     nine times out of ten.
     """
 
-    if done <= 0 or elapsed <= 0 or done >= total:
+    if done < _ENOUGH_TO_EXTRAPOLATE or elapsed <= 0 or done >= total:
         return ""
     remaining = (elapsed / done) * (total - done)
     if remaining < _WORTH_ESTIMATING_SECONDS:
