@@ -27,6 +27,37 @@ test("TypeScript contracts accept all valid v1 golden fixtures", async () => {
     true,
   );
   assert.equal(RunEventV1Schema.safeParse(await fixture("run-event.valid.json")).success, true);
+  // A result from a repository that declared nothing, so the platform found
+  // its functions by running them and reports which ones it chose.
+  assert.equal(
+    BenchmarkResultV1Schema.safeParse(await fixture("benchmark-result.discovered.valid.json"))
+      .success,
+    true,
+  );
+});
+
+test("the checked-in JSON Schema accepts everything the Zod schema does", async () => {
+  // protocols/v1/*.json is the contract an external runner validates against,
+  // and nothing regenerates it from the Zod schemas. It sets
+  // additionalProperties: false, so a field added on one side and forgotten
+  // on the other is not a drift that shows up later; it is an outright
+  // rejection of a valid result.
+  const schema = JSON.parse(
+    await readFile(
+      fileURLToPath(new URL("../../../protocols/v1/benchmark-result.schema.json", import.meta.url)),
+      "utf8",
+    ),
+  ) as { properties: Record<string, unknown>; required: string[] };
+
+  const zodKeys = Object.keys(BenchmarkResultV1Schema.shape).sort();
+  assert.deepEqual(Object.keys(schema.properties).sort(), zodKeys);
+
+  // Required must match too. A field the JSON Schema demands and Zod treats as
+  // optional refuses a result the platform considers valid.
+  const zodRequired = zodKeys
+    .filter((key) => !BenchmarkResultV1Schema.shape[key as keyof typeof BenchmarkResultV1Schema.shape].isOptional())
+    .sort();
+  assert.deepEqual([...schema.required].sort(), zodRequired);
 });
 
 test("TypeScript contracts reject incompatible or incomplete events", async () => {

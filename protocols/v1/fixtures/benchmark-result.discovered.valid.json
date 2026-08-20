@@ -1,0 +1,34 @@
+{
+  "protocolVersion": "1",
+  "benchmarkId": "audio-identification",
+  "benchmarkVersion": 1,
+  "metrics": [
+    {
+      "key": "identification_score",
+      "label": "Identification score",
+      "value": 0.6562,
+      "unit": null,
+      "higherIsBetter": true,
+      "primary": true,
+      "precision": 3
+    }
+  ],
+  "diagnostics": [],
+  "wiring": [
+    {
+      "stage": "spectrogram",
+      "function": "spectrogram.make_spectrogram",
+      "received": "an array of shape (176400,), 44100",
+      "returned": "an array of shape (2049, 63)"
+    },
+    {
+      "stage": "peaks",
+      "function": "fingerprint.find_peaks",
+      "received": "an array of shape (2049, 63)",
+      "returned": "a list of 5158, starting ((221, 468, 1), 0)"
+    },
+    { "stage": "store", "function": "database.add" },
+    { "stage": "query", "function": "match.query_details" }
+  ],
+  "outputDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+}
