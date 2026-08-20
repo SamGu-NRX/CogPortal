@@ -175,6 +175,13 @@ class Candidate:
     label: str
     call: Callable[..., Any]
     module: str
+    #: How to get this callable again from a newly built object, when it is a
+    #: method rather than a plain function. The search fills one instance with
+    #: fixture songs while proving a binding works, and scoring must not start
+    #: from that: the fixture would sit in the database competing with the
+    #: benchmark's own catalog. Given this, a fresh object can be built and the
+    #: same method taken off it.
+    rebuild: Optional[Callable[[], Any]] = field(default=None, compare=False)
 
 
 @dataclass(frozen=True)
@@ -328,6 +335,21 @@ def instances_in(modules: Sequence[Any]) -> List[Tuple[str, Any]]:
     return built
 
 
+def rebuilder_for(instance: Any) -> Optional[Callable[[], Any]]:
+    """A way to build another object like this one, or None.
+
+    Only for a class that constructs with no arguments, which is the only kind
+    `instances_in` builds in the first place.
+    """
+
+    owner = type(instance)
+
+    def _build() -> Any:
+        return owner()
+
+    return _build
+
+
 def methods_of(label: str, instance: Any) -> List[Candidate]:
     """The bound methods of one constructed object, as candidates."""
 
@@ -343,8 +365,26 @@ def methods_of(label: str, instance: Any) -> List[Candidate]:
             continue
         if _reaches_outside(value):
             continue
-        found.append(Candidate("{}.{}".format(label, name), value, label))
+        found.append(
+            Candidate(
+                "{}.{}".format(label, name),
+                value,
+                label,
+                rebuild=_method_rebuilder(instance, name),
+            )
+        )
     return found
+
+
+def _method_rebuilder(instance: Any, name: str) -> Callable[[], Any]:
+    """Take the same method off a newly built object of the same class."""
+
+    owner = type(instance)
+
+    def _fresh() -> Any:
+        return getattr(owner(), name)
+
+    return _fresh
 
 
 def _order_for(stage: Stage, candidates: Sequence[Candidate]) -> List[Candidate]:

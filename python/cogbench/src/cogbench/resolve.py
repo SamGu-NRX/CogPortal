@@ -21,7 +21,7 @@ hard it looked.
 from __future__ import annotations
 
 import itertools
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
@@ -45,6 +45,13 @@ __all__ = ["Submission", "Attempt", "resolve"]
 #: well above both: a repository is refused for having no working pairing, not
 #: for having an unusual one that sits late in the order.
 MAX_ATTEMPTS = 20000
+
+#: What `accepts` returns when a pairing answered the question completely.
+#: A week's acceptance test may return a plain True, which is this; or a
+#: number between 0 and 1 for a pairing that named the right song but told the
+#: benchmark less than it asked for, so the search keeps looking for a better
+#: one among their own functions.
+FULLY_ANSWERED = 1.0
 
 
 @dataclass(frozen=True)
@@ -77,9 +84,53 @@ class Submission:
     #: to know whether that was decided just now or remembered.
     recalled: bool = False
 
+    #: The candidates behind ``enroll`` and ``query``, kept so a scoring run
+    #: can start from an empty database. Not part of the record.
+    _store: Optional[Candidate] = None
+    _ask: Optional[Candidate] = None
+    _arrange: Optional[Callable[..., Sequence[Callable[[], Any]]]] = None
+
     @property
     def ready(self) -> bool:
         return self.enroll is not None and self.query is not None
+
+    def fresh(self) -> "Submission":
+        """The same binding, against a database with nothing in it yet.
+
+        Proving a binding works means enrolling two fixture songs into it, and
+        when a team's database is an object rather than a file, those songs are
+        still in it afterwards. Scoring from there put `fixture_a` in the
+        ranked results for real queries and cost one 2026 team half its score.
+
+        A new object is built and both methods are taken off that same one, so
+        what stores and what answers are the same database. When the binding is
+        plain module functions there is nothing to rebuild and this returns
+        itself: a module-level dict or a pickle file is emptied by the driver's
+        own scratch directory, which is where their file already lands.
+        """
+
+        if not self.ready or self._store is None or self._ask is None:
+            return self
+        if self._store.rebuild is None and self._ask.rebuild is None:
+            return self
+
+        store = self._store.rebuild() if self._store.rebuild else self._store.call
+        ask = self._ask.rebuild() if self._ask.rebuild else self._ask.call
+        # One object, not two. Rebuilding each separately gives a store and a
+        # query looking at different databases, which answers nothing.
+        owner = getattr(store, "__self__", None)
+        if owner is not None and self._ask.rebuild is not None:
+            ask = getattr(owner, self._ask.label.rsplit(".", 1)[-1], ask)
+
+        index = self.attempt.arrangement if self.attempt else 0
+        arrange = self._arrange
+
+        def _enroll(song_id: str, item: Any) -> Any:
+            if arrange is None:
+                return store(song_id, item)
+            return arrange(store, song_id, item)[index]()
+
+        return replace(self, enroll=_enroll, query=ask)
 
     def to_dict(self) -> Dict[str, object]:
         """What the run records, and what every surface renders from."""
@@ -195,6 +246,18 @@ def resolve(
         watcher.found(stage.name, step.label)
 
     candidates = _store_candidates(found, chain)
+    # More than one of their functions can pass. One 2026 team wrote `query`,
+    # which returns the winning song, and `query_details`, which returns the
+    # same winner plus the full vote tally. Both name the right song, so both
+    # pass, and the benchmark asks for a ranked list -- so taking whichever
+    # was reached first cost that team every metric that reads below rank 1.
+    #
+    # The week's own acceptance test says how completely a pairing answered,
+    # by returning a number rather than a bare pass. The search keeps the best
+    # it has seen and stops as soon as one answers fully. Their algorithm is
+    # untouched: this decides which of their functions to ask, never what the
+    # answer should be.
+    best: Optional[Tuple[float, Candidate, Candidate, int, int]] = None
     arrangement_count = len(arrangements(lambda *_: None, "", None))
     # The whole search is enumerable before it starts, so the bar can be
     # honest: every ordered pair of distinct candidates, times the ways one
@@ -219,32 +282,48 @@ def resolve(
                 return arrangements(_s.call, song_id, item)[_i]()
 
             ok, _detail = accepts(chain.steps, _enroll, lambda item, _a=ask: _a.call(item))
-            if ok:
-                watcher.attempts(tried, tried)
-                watcher.done()
-                if key:
-                    memo.write(
-                        repository,
-                        key,
-                        {
-                            "chain": [step.label for step in chain.steps],
-                            "enroll": store.label,
-                            "query": ask.label,
-                            "arrangement": index,
-                            "attemptsTried": tried,
-                        },
-                    )
-                return Submission(
-                    _scored_placeholder(chain),
-                    discovery=found,
-                    chain=chain.steps,
-                    attempt=Attempt(store.label, ask.label, index),
-                    attempts_tried=tried,
-                    enroll=_enroll,
-                    query=ask.call,
-                )
+            grade = float(ok)
+            if grade > 0 and (best is None or grade > best[0]):
+                best = (grade, store, ask, index, tried)
+            if best is not None and best[0] >= FULLY_ANSWERED:
+                break
+        if best is not None and best[0] >= FULLY_ANSWERED:
+            break
         if tried >= max_attempts:
             break
+
+    if best is not None:
+        _grade, store, ask, index, at = best
+
+        def _enroll(song_id: str, item: Any, _s=store, _i=index) -> Any:
+            return arrangements(_s.call, song_id, item)[_i]()
+
+        watcher.attempts(tried, tried)
+        watcher.done()
+        if key:
+            memo.write(
+                repository,
+                key,
+                {
+                    "chain": [step.label for step in chain.steps],
+                    "enroll": store.label,
+                    "query": ask.label,
+                    "arrangement": index,
+                    "attemptsTried": at,
+                },
+            )
+        return Submission(
+            _scored_placeholder(chain),
+            discovery=found,
+            chain=chain.steps,
+            attempt=Attempt(store.label, ask.label, index),
+            attempts_tried=at,
+            enroll=_enroll,
+            query=ask.call,
+            _store=store,
+            _ask=ask,
+            _arrange=arrangements,
+        )
 
     watcher.done()
     return Submission(
@@ -313,6 +392,9 @@ def _replay(
         enroll=_enroll,
         query=ask.call,
         recalled=True,
+        _store=store,
+        _ask=ask,
+        _arrange=arrangements,
     )
 
 
