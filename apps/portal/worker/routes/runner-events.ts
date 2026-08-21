@@ -14,6 +14,7 @@ import {
   runs,
 } from "../db/schema";
 import { hmacSignature } from "../execution/runner";
+import { refundOfficialAttempt, withRefundCapNotice } from "../execution/refunds";
 import { ApiHttpError } from "../http/errors";
 import { respond } from "../http/respond";
 import { constantTimeTextEqual } from "../util/crypto";
@@ -104,6 +105,10 @@ async function applyEvent(env: AppEnv["Bindings"], event: RunEventV1): Promise<v
     return;
   }
 
+  // Set by the failure branch below, read by the terminal write after it. The
+  // two are separated by the outbox insert, which both branches share.
+  let refundCapped = false;
+
   if (event.type === "completed") {
     if (
       event.result.benchmarkId !== run.benchmarkId ||
@@ -155,11 +160,13 @@ async function applyEvent(env: AppEnv["Bindings"], event: RunEventV1): Promise<v
       .update(runPhases)
       .set({ endedAt: event.occurredAt })
       .where(and(eq(runPhases.runId, run.id), eq(runPhases.phase, "scoring")));
-  } else {
-    const consumedAttempt = failureConsumesAttempt(run.mode, event);
-    if (run.mode === "official" && !consumedAttempt) {
-      await db.delete(officialAttempts).where(eq(officialAttempts.runId, run.id));
-    }
+  } else if (!failureConsumesAttempt(run.mode, event)) {
+    // The failure was ours, so the attempt goes back, up to the per-team,
+    // per-benchmark cap in execution/refunds.ts. Past the cap the run still
+    // fails and the attempt stays spent; the terminal write below has to say
+    // so, because a team that silently lost an attempt to our failure cannot
+    // tell that from a bug.
+    refundCapped = (await refundOfficialAttempt(db, run, Date.now())) === "capped";
   }
 
   await db
@@ -189,7 +196,10 @@ async function applyEvent(env: AppEnv["Bindings"], event: RunEventV1): Promise<v
       })
       .where(and(eq(runs.id, run.id), lt(runs.lastEventSequence, event.sequence)));
   } else {
-    const consumedAttempt = failureConsumesAttempt(run.mode, event);
+    // Past the cap the attempt is genuinely spent, and `consumedAttempt` is
+    // documented as the authoritative answer to "did this cost an attempt"
+    // (packages/contracts/src/failures.ts), so it has to report that.
+    const consumedAttempt = failureConsumesAttempt(run.mode, event) || refundCapped;
     await db
       .update(runs)
       .set({
@@ -197,7 +207,9 @@ async function applyEvent(env: AppEnv["Bindings"], event: RunEventV1): Promise<v
         finishedAt: event.occurredAt,
         failureCategory: event.failure.category,
         failurePhase: event.failure.phase,
-        failureDetail: event.failure.detail,
+        failureDetail: refundCapped
+          ? withRefundCapNotice(event.failure.detail)
+          : event.failure.detail,
         // The full verdict, when the failure was "nothing here to score".
         // The capped detail above is for a log; this is what a student reads.
         refusalJson: event.failure.refusal ? JSON.stringify(event.failure.refusal) : null,

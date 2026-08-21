@@ -1,5 +1,5 @@
 import type { Hono } from "hono";
-import { and, asc, count, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 import { z } from "zod";
 import {
   AdminAddMemberRequestSchema,
@@ -46,7 +46,7 @@ async function getAdminTeamSummary(
   db: Database,
   teamId: string,
 ): Promise<AdminTeamSummary> {
-  const [[team], members, tas, [practice], [official], [published]] = await Promise.all([
+  const [[team], members, tas, [practice], [official], [refunds], [published]] = await Promise.all([
     db.select().from(teams).where(eq(teams.id, teamId)).limit(1),
     db
       .select({
@@ -77,6 +77,13 @@ async function getAdminTeamSummary(
       .select({ value: count() })
       .from(officialAttempts)
       .where(eq(officialAttempts.teamId, teamId)),
+    // Refunds a team has received, counted across benchmarks. Nothing counted
+    // these before migration 0029, so a team's total starts at zero on the
+    // deploy that added the column even if they were refunded before it.
+    db
+      .select({ value: count() })
+      .from(runs)
+      .where(and(eq(runs.teamId, teamId), isNotNull(runs.refundedAt))),
     db
       .select({ value: runMetrics.value })
       .from(leaderboardSelections)
@@ -119,6 +126,7 @@ async function getAdminTeamSummary(
     })),
     practiceUsed: practice?.value ?? 0,
     officialUsed: official?.value ?? 0,
+    refundsGiven: refunds?.value ?? 0,
     publishedScore: published?.value ?? null,
   };
 }

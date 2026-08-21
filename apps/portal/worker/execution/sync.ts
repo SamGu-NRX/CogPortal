@@ -4,6 +4,7 @@ import { RUN_PHASES, isTerminal, type FailureCategory } from "@cogworks/contract
 import type { Database } from "../db/client";
 import { officialAttempts, runMetrics, runPhases, runs, type RunRow } from "../db/schema";
 import { fixtureLog, fixtureMetrics, fixtureScenario } from "./fixture";
+import { refundOfficialAttempt, withRefundCapNotice } from "./refunds";
 
 const CONSUMING_FAILURES = new Set<FailureCategory>([
   "student_runtime",
@@ -83,12 +84,24 @@ export async function syncRun(db: Database, row: RunRow, now = Date.now()): Prom
       .where(eq(officialAttempts.runId, row.id));
   }
 
-  const consumedAttempt = terminalFailure
+  const studentFault = terminalFailure
     ? (terminalFailure.phase === "evaluating" || terminalFailure.phase === "scoring") &&
       CONSUMING_FAILURES.has(terminalFailure.category)
     : false;
-  if (row.mode === "official" && terminalFailure && !consumedAttempt) {
-    await db.delete(officialAttempts).where(eq(officialAttempts.runId, row.id));
+  // A failure that is ours gives the attempt back, up to the per-team,
+  // per-benchmark cap in ./refunds.ts. Past the cap the attempt stays spent,
+  // so the run has to say both things: `consumedAttempt` reports what really
+  // happened to the attempt (FailureCard.tsx renders it as the authoritative
+  // line), and the detail explains why, because a team that silently lost an
+  // attempt to our failure cannot tell that from a bug.
+  let failureDetail = terminalFailure?.detail ?? null;
+  let consumedAttempt = studentFault;
+  if (terminalFailure && !studentFault) {
+    const outcome = await refundOfficialAttempt(db, row, now);
+    if (outcome === "capped") {
+      failureDetail = withRefundCapNotice(failureDetail);
+      consumedAttempt = true;
+    }
   }
 
   if (nextStatus === "succeeded") {
@@ -126,7 +139,7 @@ export async function syncRun(db: Database, row: RunRow, now = Date.now()): Prom
       finishedAt,
       failureCategory: terminalFailure?.category ?? null,
       failurePhase: terminalFailure?.phase ?? null,
-      failureDetail: terminalFailure?.detail ?? null,
+      failureDetail,
       failureConsumedAttempt: consumedAttempt,
       log:
         row.mode === "practice" && (nextStatus === "succeeded" || nextStatus === "failed")

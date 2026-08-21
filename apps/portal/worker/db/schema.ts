@@ -312,6 +312,12 @@ export const runs = sqliteTable("runs", {
   failureConsumedAttempt: integer("failure_consumed_attempt", { mode: "boolean" })
     .notNull()
     .default(false),
+  /** When this run's official attempt was given back because the failure was
+   *  ours (migration 0029). Null for every run that was never refunded,
+   *  including every run from before the column existed. Counting these per
+   *  team and benchmark is what the refund cap reads; see
+   *  worker/execution/refunds.ts. */
+  refundedAt: integer("refunded_at"),
   log: text("log"),
   /** Scorer diagnostics from the succeeded event: the benchmark's own
    *  explanation of what a submission got wrong. JSON array of strings. */
@@ -344,6 +350,13 @@ export const runs = sqliteTable("runs", {
     .where(
       sql`${table.status} IN ('queued','preparing','installing','contract_check','evaluating','scoring')`,
     ),
+  // The refund cap counts refunds per team and benchmark on every
+  // platform-caused official failure (migration 0029). Partial, because
+  // refunds are a small minority of runs and the count never asks about the
+  // nulls.
+  index("runs_refunded_team_benchmark_idx")
+    .on(table.teamId, table.benchmarkId, table.benchmarkVersion)
+    .where(sql`${table.refundedAt} IS NOT NULL`),
 ]);
 
 export const templateSources = sqliteTable("template_sources", {

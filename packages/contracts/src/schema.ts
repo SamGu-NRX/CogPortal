@@ -1027,6 +1027,16 @@ export const AdminTeamSummarySchema = z.object({
   ),
   practiceUsed: z.number().int(),
   officialUsed: z.number().int(),
+  /**
+   * Official attempts this team has had given back because a run failed on the
+   * platform's side, across every benchmark. A team that keeps hitting real
+   * infrastructure trouble and a team whose submission provokes the same
+   * platform-side failure over and over look identical from the run list, and
+   * both are worth an instructor's attention. The cap that stops the refunds
+   * is per benchmark (worker/execution/refunds.ts); this total is a prompt to
+   * go look, not the cap itself.
+   */
+  refundsGiven: z.number().int(),
   /** Currently published primary metric value, when a selection exists. */
   publishedScore: z.number().nullable(),
 });

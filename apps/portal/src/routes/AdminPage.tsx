@@ -289,6 +289,16 @@ function TeamRow({ team, canAssignTas }: { team: AdminTeamSummary; canAssignTas:
         </span>
         <span className="u-tnum font-mono text-[11px] text-ink-secondary">
           {team.practiceUsed}/10 · {team.officialUsed}/3
+          {/* Only when there are any. A team that keeps hitting real
+              infrastructure trouble and a team whose submission provokes the
+              same platform-side failure both show up here, and both are worth
+              looking at; a "0 refunded" on every other row would bury that. */}
+          {team.refundsGiven > 0 ? (
+            <span title="Official attempts given back after a run failed on the platform's side.">
+              {" · "}
+              {team.refundsGiven} refunded
+            </span>
+          ) : null}
         </span>
         <span className="u-tnum font-mono text-[13px] font-medium text-ink">
           {team.publishedScore != null ? team.publishedScore.toFixed(3) : "—"}
