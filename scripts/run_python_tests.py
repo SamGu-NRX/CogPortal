@@ -25,6 +25,12 @@ SUITES = (
     (
         "modal runner",
         ["-m", "unittest", "discover", "-s", "apps/runner-modal/tests", "-p", "test_*.py"],
+        # numpy only. The payload tests each put their own benchmark on
+        # sys.path and skip themselves when it is genuinely unavailable, so
+        # requiring the benchmark packages here would refuse to run a suite
+        # that can in fact run. numpy is different: it has no such fallback,
+        # and without it these tests raise ImportError, which unittest counts
+        # as an error rather than a skip.
         ("numpy",),
     ),
     ("template catalog", ["template-catalog/validate.py"], ()),
@@ -32,6 +38,46 @@ SUITES = (
     ("week 3 submodule", ["scripts/validate_week3_submodule.py"], ()),
     ("week 1 submodule", ["scripts/validate_week1_submodule.py"], ()),
 )
+
+
+#: The benchmark packages live in this repository as submodules, so telling
+#: someone to `pip install facial_recognition_benchmark` sends them to PyPI for
+#: a package that is not there. Each one is installed from its own directory.
+_LOCAL_PACKAGES = {
+    "facial_recognition_benchmark": "benchmarks/week2",
+    "language_search_benchmark": "benchmarks/week3",
+    "audio_identification_benchmark": "benchmarks/week1",
+}
+
+
+def _how_to_install(absent) -> str:
+    """The command that actually fixes it, which differs by where it lives."""
+
+    lines = []
+    from_pypi = [name for name in absent if name not in _LOCAL_PACKAGES]
+    if from_pypi:
+        lines.append(
+            "Install it with: {} -m pip install {}".format(
+                sys.executable, " ".join(from_pypi)
+            )
+        )
+    for name in absent:
+        directory = _LOCAL_PACKAGES.get(name)
+        if directory:
+            # `pip install -e` is the usual advice and it fails on the venvs in
+            # this repository, which were built by uv and carry no pip. Putting
+            # the directory on PYTHONPATH needs nothing installed and is what
+            # the test files themselves do, so it is the instruction least
+            # likely to send someone down a second dead end.
+            lines.append(
+                "{} is in this repository, not on PyPI. Either install it with\n"
+                "    uv pip install --python {} -e {}\n"
+                "  or run the suite with it on the path:\n"
+                "    PYTHONPATH={} {} -m pytest ...".format(
+                    name, sys.executable, directory, directory, sys.executable
+                )
+            )
+    return "\n  ".join(lines)
 
 
 def _missing(requirements) -> list:
@@ -54,11 +100,10 @@ def main() -> int:
         if absent:
             print(
                 "\n{}: cannot run, because {} not importable here.\n"
-                "  Install it with: {} -m pip install {}".format(
+                "  {}".format(
                     label,
                     " and ".join(absent) + (" is" if len(absent) == 1 else " are"),
-                    sys.executable,
-                    " ".join(absent),
+                    _how_to_install(absent),
                 )
             )
             failed.append(label)
