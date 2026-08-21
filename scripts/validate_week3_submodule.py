@@ -16,15 +16,25 @@ PLUGIN_EXPECTATIONS = {
     'benchmark_id = "language-search"': "benchmark id",
     "benchmark_version = 1": "benchmark version",
     'contract_version = "cogworks.submissions.v2"': "contract version",
-    'scorer_version = "retrieval-v2"': "scorer version",
+    # Tracks the catalog row, which migration 0030 moved to retrieval-v3 when
+    # `search_mrr` changed from the verbatim rung alone to the mean of the
+    # four query rewrites. Leaving this at retrieval-v2 would assert the
+    # catalog says something it no longer says.
+    'scorer_version = "retrieval-v3"': "scorer version",
     'primary_metric = "overall"': "primary metric",
 }
 
+# Every superseded version stays listed. The check is that some migration
+# mentions each value, so keeping the older ones asserts that the history
+# explaining each bump is still in the tree rather than having been squashed
+# away; a run scored under an older version is still readable only because
+# its migration says what that version measured.
 MIGRATION_EXPECTATIONS = (
     "language-search",
     "cogworks.submissions.v2",
     "language-search-official-v1",
     "retrieval-v2",
+    "retrieval-v3",
     "week3-cpu-v1",
 )
 

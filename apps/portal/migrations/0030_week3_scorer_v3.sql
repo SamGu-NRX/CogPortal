@@ -1,0 +1,51 @@
+-- Week 3's search component changed what it measures, so its version moves.
+--
+-- Under retrieval-v2, `search_mrr` scored the verbatim rung alone: the same
+-- query list over the same pool that `retrieval_mrr` already ranks. Two
+-- metrics built that way can only differ where the correct image falls past
+-- the k-th search result, and measured on the reference submission they
+-- barely did:
+--
+--   test tier        retrieval 0.6336508  search 0.6336508  (equal under ==)
+--   evaluation tier  retrieval 0.2586031  search 0.2572336  (gap 0.0013695)
+--
+-- The whole evaluation-tier gap came from 15 of 150 queries whose correct
+-- image sat beyond rank 50, which is the search payload's depth cap. Top-1
+-- agreement was 150 of 150. A team reading meaning into that gap was reading
+-- the cap, so the run page was showing one measurement twice and inviting a
+-- wrong conclusion about the second copy.
+--
+-- `search_mrr` now averages all four query rewrites (the caption unchanged,
+-- its keywords only, its first three words, and one with a typo), which the
+-- scorer already computed and reported beside it. The two metrics now ask
+-- different questions: `retrieval_mrr` asks whether the embedding space is
+-- aligned, `search_mrr` asks whether end-to-end search survives the queries
+-- a person types. Each rewrite is a prediction the course material makes
+-- (IDF weighting should make stopwords nearly free; an unseen word should
+-- contribute a zero vector), so a submission following the course is not
+-- penalized: the reference scores the same on the rewrites as on the
+-- verbatim captions to within a few percent, and the fixture submission that
+-- does everything right scores 1.0 on all four.
+--
+-- This is NOT backward compatible, and the version bump is what keeps a v2
+-- run from being read as if it reported the same thing. Measured movement on
+-- the reference:
+--
+--   evaluation  search_mrr  0.2572336 -> 0.2308503
+--               overall     0.4329251 -> 0.4241307
+--   test        search_mrr  0.6336508 -> 0.5739670
+--               overall     0.7124339 -> 0.6925393
+--
+-- Two metrics are also new. `search_chance` is the floor for `search_mrr`,
+-- which is not `chance_mrr`: search returns only k ids and scores anything
+-- past them as a miss, so its floor is 0.006427 against the retrieval floor's
+-- 0.010184 on the evaluation pool. `search_mrr_verbatim` publishes the rung
+-- that used to be `search_mrr` under its own name, so a team can still see it
+-- and a v2 number remains locatable on a v3 run page.
+--
+-- Existing rows in `runs` keep the scorer_version that actually scored them.
+-- That column records what a run measured, and rewriting it would claim those
+-- runs reported metrics they never computed.
+UPDATE benchmarks
+SET scorer_version = 'retrieval-v3'
+WHERE id = 'language-search' AND version = 1;
