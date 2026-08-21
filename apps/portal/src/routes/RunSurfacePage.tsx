@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useParams } from "react-router";
+import { Link, useParams } from "react-router";
 import { RunConsole } from "@/components/RunConsole";
 import { LoadingMark, QueryError } from "@/components/Feedback";
 import { ApiRequestError } from "@/lib/api";
@@ -16,7 +16,23 @@ export function RunSurfacePage() {
     surfaceId ? `/api/run-surfaces/${encodeURIComponent(surfaceId)}/stream` : null,
   );
 
-  if (query.isError) return <QueryError error={query.error} retry={() => void query.refetch()} />;
+  // A surface belonging to another team is reported as a 404 on purpose
+  // (worker/routes/run-surfaces.ts:19), so a stale link from Discord lands
+  // here often. The dashboard is a nearer destination than the front page.
+  if (query.isError) {
+    return (
+      <div className="px-3 py-6 sm:px-6 sm:py-10">
+        <QueryError error={query.error} retry={() => void query.refetch()}>
+          <Link
+            to="/dashboard"
+            className="u-pressable inline-flex min-h-11 items-center border border-rule px-5 font-mono text-[11.5px] tracking-[0.09em] text-ink uppercase hover:border-ink-secondary"
+          >
+            Back to dashboard
+          </Link>
+        </QueryError>
+      </div>
+    );
+  }
   if (query.isPending || !stream.snapshot) return <LoadingMark label="Opening live bench" />;
 
   return (

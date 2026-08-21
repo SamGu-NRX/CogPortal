@@ -10,7 +10,7 @@
     "predev": "wrangler d1 migrations apply cogportal-db --local",
     "build": "tsc -b && vite build && node scripts/scrub-dist-secrets.mjs",
     "check": "tsc -b",
-    "test": "tsx --test test/*.test.ts",
+    "test": "TSX_TSCONFIG_PATH=tsconfig.app.json tsx --test test/*.test.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate:local": "wrangler d1 migrations apply cogportal-db --local",
     "deploy": "pnpm build && wrangler deploy",
