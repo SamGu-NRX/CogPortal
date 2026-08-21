@@ -49,6 +49,19 @@ continuing.
 
 ## 3. Pass the Modal M0 gate
 
+`docs/runbooks/gate-1-modal.md` is the ordered, executable version of this
+section: what to run, in what order, what each command proves, and what each
+failure means. It also says, for each of the eight M0 behaviours below, which
+are already covered by a test and which still need an operator to look. Use it
+for the work; this section stays as the provisioning reference.
+
+Start with the offline check, which costs nothing and catches most of what goes
+wrong on a first dispatch:
+
+```sh
+python apps/runner-modal/tools/preflight_dispatch.py
+```
+
 Use Python 3.11 in an isolated operator environment:
 
 ```sh
@@ -61,9 +74,16 @@ modal run apps/runner-modal/src/cogworks_runner/m0_probe.py
 
 Before enabling Week 2, materialize each official track under the private
 `cogworks-hidden-datasets` volume as
-`/<track>/<dataset-version>/payload.zip`. The clustering directory also contains
+`/<track>/<dataset-version>/payload.zip`. Both track directories also contain
 `expected.json`; that file is read only by the controller and is never copied to
-the sandbox. Build bundles from the upstream manifest tooling, verify that
+the sandbox. Clustering's holds the cluster labels. Recognition's holds the
+query grouping: which query photos belong to which enrolled person, and which
+belong to the stranger before and after that stranger is enrolled. That grouping
+used to travel inside `payload.zip`, where a submission could read it and
+reconstruct every expected label without opening a single image, so a
+recognition bundle built by an older copy of
+`tools/materialize_week2_official.py` has no `expected.json` and must be
+rebuilt. Build bundles from the upstream manifest tooling, verify that
 official identities and rows are disjoint from both public manifests, mount the
 volume read-only operationally, and run one network-blocked canary. A missing or
 invalid bundle must surface as `E-DATA` and must not consume an attempt.
@@ -141,7 +161,14 @@ the real controller path, and writes signed runner events to a local sink.
 3. Set `MODAL_RUNNER_URL` to the deployed HTTPS endpoint and add the same
    high-entropy `RUNNER_SIGNING_SECRET` to CogPortal with Wrangler secrets.
 4. Set a content-addressed `RUNNER_IMAGE_DIGEST`; do not ship the
-   `unpublished` placeholder.
+   `unpublished` placeholder. The value comes from
+   `apps/runner-modal/tools/deploy.py`, which prints
+   `published <name> -> im-...` for each sandbox image; write it as
+   `<name>@<id>`. The digest selects no image (`_sandbox_image` picks by name),
+   so a placeholder cannot fail a dispatch. What it does is make the
+   `environmentDigest` on every completed run a hash of the same constant, so
+   two runs on genuinely different images carry an identical reproducibility
+   record.
 5. Deploy with `EXECUTION_PROVIDER=modal`, then run one designated non-credit
    canary repository before allowing students to submit.
 
@@ -168,7 +195,7 @@ pnpm deploy:discord
    `DISCORD_BOT_TOKEN`, and `COURSE_GUILD_ID`, then run
    `pnpm --filter @cogworks/discord-bot commands:register`. The bot token is
    used for registration and for CogPortal's live message delivery. Keep it in
-   a temporary operator environment and the CogPortal Worker secret—never in
+   a temporary operator environment and the CogPortal Worker secret, never in
    source-controlled variables.
 5. Upload `apps/discord-bot/assets/cog-avatar.png` as the application avatar and use the profile
    copy in `apps/discord-bot/README.md`.
