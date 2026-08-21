@@ -10,12 +10,15 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "python" / "cogbench" / "src"))
 
+from cogbench import discover as discover_module  # noqa: E402
 from cogbench.discover import (  # noqa: E402
     STUBBED_MODULES,
     candidate_roots,
     choose_root,
     discover,
+    is_package_directory,
     notebook_source,
+    survey,
 )
 
 
@@ -385,6 +388,422 @@ class StubTests(unittest.TestCase):
 
         self.assertEqual([entry.name for entry in found.modules], [])
         self.assertEqual(found.skipped[0].missing, "definitely_not_a_package")
+
+    def test_a_listed_package_that_is_installed_is_not_stood_in_for(self):
+        """The measured bug, in the shape it actually took.
+
+        `networkx` was on the list while the Week 2 image installed it, so a
+        team's clustering module got a stand-in instead of the real package
+        and their working code was reported as broken. `json` stands in for
+        networkx here because it is always importable, which is the property
+        that made the real case a bug.
+        """
+
+        import json as real_json
+
+        saved = discover_module.STUBBED_MODULES
+        discover_module.STUBBED_MODULES = ("json",)
+        self.addCleanup(setattr, discover_module, "STUBBED_MODULES", saved)
+        sys.modules.pop("json", None)
+        self.addCleanup(sys.modules.__setitem__, "json", real_json)
+
+        (self.tmp / "theirs.py").write_text(
+            "import json\n"
+            "PARSED = json.loads('{\"ok\": 1}')\n"
+            "def peaks(x):\n    return x\n"
+        )
+
+        found = discover(self.tmp)
+
+        self.assertEqual([entry.name for entry in found.modules], ["theirs"])
+        # The real package ran, so the parse produced a real value rather than
+        # the placeholder a stub returns.
+        self.assertEqual(found.modules[0].module.PARSED, {"ok": 1})
+        self.assertNotIn("json", found.to_dict()["stubbed"])
+
+    def test_the_record_names_what_was_replaced_not_what_the_list_allows(self):
+        """A student reads this to find out why a module was skipped, so it
+        has to describe what happened rather than what was permitted."""
+
+        (self.tmp / "a.py").write_text("def f():\n    return 1\n")
+
+        record = discover(self.tmp).to_dict()
+
+        # microphone is not installable anywhere, so it is genuinely stubbed.
+        self.assertIn("microphone", record["stubbed"])
+        for name in record["stubbed"]:
+            self.assertIn(name, STUBBED_MODULES)
+
+    def test_a_real_submodule_survives_when_its_parent_was_not_stubbed(self):
+        """The finder sits first on `sys.meta_path`, so it answers before the
+        real path finder. Matching on the name alone shadowed submodules of a
+        package that is genuinely installed: with the real networkx imported,
+        `networkx.algorithms...` still resolved to a stub, and that install
+        has 294 such submodules."""
+
+        import importlib
+
+        import json as real_json
+
+        saved = discover_module.STUBBED_MODULES
+        discover_module.STUBBED_MODULES = ("json",)
+        self.addCleanup(setattr, discover_module, "STUBBED_MODULES", saved)
+        self.addCleanup(sys.modules.__setitem__, "json", real_json)
+
+        (self.tmp / "a.py").write_text("def f():\n    return 1\n")
+        discover(self.tmp)
+
+        decoder = importlib.import_module("json.decoder")
+        self.assertFalse(isinstance(decoder, discover_module._Stub))
+
+
+class PackageImportTests(unittest.TestCase):
+    """A module inside a package must be imported as part of that package.
+
+    ``from .profile import Profile`` resolves from the importing module's
+    ``__package__``, never from ``sys.path``. Imported under a bare name that
+    attribute is empty, and Python raises "attempted relative import with no
+    known parent package" about a file that is correct. Measured on the 2026
+    corpus: one repository loses ``core/database.py``, the class its whole
+    pipeline is built on, to exactly that.
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def _core(self, *, initializer: bool):
+        """A package directory whose modules import each other with dots."""
+
+        core = self.tmp / "core"
+        core.mkdir()
+        if initializer:
+            core.joinpath("__init__.py").write_text("MARKER = 'the package body ran'\n")
+        (core / "normalize.py").write_text("def resize(image):\n    return image\n")
+        (core / "profile.py").write_text("class Profile:\n    pass\n")
+        (core / "database.py").write_text(
+            "from .normalize import resize\n"
+            "from .profile import Profile\n"
+            "def add(image):\n"
+            "    return resize(image), Profile\n"
+        )
+        return core
+
+    def test_a_package_with_an_init_file_and_a_relative_import_resolves(self):
+        self._core(initializer=True)
+
+        found = discover(self.tmp)
+
+        names = [entry.name for entry in found.modules]
+        self.assertIn("database", names)
+        database = [e for e in found.modules if e.name == "database"][0]
+        self.assertEqual(database.module.add(7), (7, database.module.Profile))
+
+    def test_a_directory_of_relative_imports_with_no_init_file_resolves(self):
+        """No repository in the 2026 corpus has an __init__.py anywhere, and
+        the one directory that uses relative imports has none either. A rule
+        that required the marker file would recover nothing that is broken."""
+
+        core = self._core(initializer=False)
+        self.assertFalse((core / "__init__.py").exists())
+        self.assertTrue(is_package_directory(core))
+
+        found = discover(self.tmp)
+
+        self.assertIn("database", [entry.name for entry in found.modules])
+
+    def test_the_package_body_runs_so_what_it_defines_is_available(self):
+        """An __init__.py is a file the student wrote. Skipping it would drop
+        whatever it offers, silently."""
+
+        core = self._core(initializer=True)
+        (core / "uses_marker.py").write_text(
+            "from . import MARKER\ndef say():\n    return MARKER\n"
+        )
+
+        found = discover(self.tmp)
+        uses = [e for e in found.modules if e.name == "uses_marker"]
+
+        self.assertTrue(uses, "uses_marker did not import")
+        self.assertEqual(uses[0].module.say(), "the package body ran")
+
+    def test_a_package_module_keeps_the_plain_name_a_student_would_recognise(self):
+        """The synthetic package name is machinery. A report that named a
+        student's file `_cogbench_pkg_0_core.database` would be describing our
+        implementation to someone debugging theirs."""
+
+        self._core(initializer=True)
+
+        found = discover(self.tmp)
+        database = [e for e in found.modules if e.name == "database"][0]
+
+        self.assertEqual(database.module.__name__, "database")
+        self.assertEqual(database.module.add.__module__, "database")
+
+    def test_a_relative_import_of_a_module_that_is_broken_names_the_real_cause(self):
+        """The failure must be attributed to the file that actually failed,
+        not to the file that imported it and not to our loader."""
+
+        core = self._core(initializer=False)
+        (core / "normalize.py").write_text("import definitely_not_installed\n")
+
+        found = discover(self.tmp)
+        skipped = {entry.name: entry for entry in found.skipped}
+
+        self.assertEqual(skipped["database"].reason, "missing_dependency")
+        self.assertEqual(skipped["database"].missing, "definitely_not_installed")
+        self.assertNotIn("relative import", skipped["database"].detail)
+
+    def test_one_file_yields_one_module_object_however_it_is_reached(self):
+        """Two objects for one file is the silent-wrong-number failure: a
+        module stores into one copy and a resolver reads the other, empty."""
+
+        core = self._core(initializer=False)
+        (core / "state.py").write_text("CALLS = []\ndef use(x):\n    CALLS.append(x)\n")
+        (core / "driver.py").write_text(
+            "from .state import use, CALLS\ndef go():\n    use('a')\n    return CALLS\n"
+        )
+
+        found = discover(self.tmp)
+        by_name = {entry.name: entry.module for entry in found.modules}
+
+        self.assertIn("driver", by_name)
+        self.assertIn("state", by_name)
+        by_name["driver"].go()
+        self.assertEqual(by_name["state"].CALLS, ["a"])
+
+    def test_a_flat_directory_is_not_treated_as_a_package(self):
+        (self.tmp / "spectrogram.py").write_text("def make(x):\n    return x\n")
+        self.assertFalse(is_package_directory(self.tmp))
+
+
+class PackageIsolationTests(unittest.TestCase):
+    """Two directories may both hold database.py. Neither may become the
+    other, in one repository or across two scored in the same process."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def _repository(self, name: str, where: str) -> Path:
+        """A repository whose core/ package reports which one it is."""
+
+        repository = self.tmp / name
+        core = repository / "core"
+        core.mkdir(parents=True)
+        (core / "normalize.py").write_text("WHERE = {!r}\n".format(where))
+        (core / "database.py").write_text(
+            "from .normalize import WHERE\ndef where():\n    return WHERE\n"
+        )
+        return repository
+
+    def test_two_repositories_scored_in_one_process_do_not_borrow_each_other(self):
+        """A team's code scoring another team's repository is the worst
+        failure available here, and it is silent."""
+
+        first = self._repository("alpha", "alpha")
+        second = self._repository("beta", "beta")
+
+        found_first = discover(first)
+        found_second = discover(second)
+
+        def _where(found):
+            entry = [e for e in found.modules if e.name == "database"]
+            self.assertTrue(entry, "database did not import")
+            return entry[0].module.where()
+
+        self.assertEqual(_where(found_first), "alpha")
+        self.assertEqual(_where(found_second), "beta")
+
+    def test_two_package_directories_in_one_repository_stay_separate(self):
+        repository = self.tmp / "one"
+        for where in ("first", "second"):
+            core = repository / where
+            core.mkdir(parents=True)
+            (core / "normalize.py").write_text("WHERE = {!r}\n".format(where))
+            (core / "shared.py").write_text(
+                "from .normalize import WHERE\ndef where():\n    return WHERE\n"
+            )
+
+        found = discover(repository)
+        wheres = {
+            entry.module.where()
+            for entry in found.modules
+            if entry.name == "shared"
+        }
+
+        # One name, so one module is offered: the dedupe that has always
+        # applied. What must not happen is a `shared` from one directory
+        # answering with the other directory's WHERE.
+        for value in wheres:
+            self.assertIn(value, ("first", "second"))
+        for entry in found.modules:
+            if entry.name == "shared":
+                self.assertEqual(entry.module.where(), entry.path.parent.name)
+
+    def test_nothing_from_a_package_is_left_in_the_calling_process(self):
+        """A synthetic package has no __file__ when the directory had no
+        __init__.py, so eviction by file location alone would leave it behind
+        holding a path into a repository this process has finished with."""
+
+        self._repository("alpha", "alpha")
+        before = set(sys.modules)
+
+        discover(self.tmp / "alpha")
+
+        added = set(sys.modules) - before
+        self.assertEqual(
+            [name for name in added if name.startswith("_cogbench_pkg_")], []
+        )
+        self.assertNotIn("database", sys.modules)
+
+
+class PackageRegressionTests(unittest.TestCase):
+    """The flat layouts resolve today and must keep resolving identically.
+    Eleven of the thirteen 2026 repositories import at least one file under a
+    bare name from a subdirectory, so this is the risk that matters."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def test_a_flat_script_repository_behaves_exactly_as_before(self):
+        (self.tmp / "spectrogram.py").write_text(
+            "def make_spectrogram(s, r):\n    return s\n"
+        )
+        (self.tmp / "fingerprint.py").write_text(
+            "from spectrogram import make_spectrogram\n"
+            "def find_peaks(s):\n    return [make_spectrogram(s, 1)]\n"
+        )
+        (self.tmp / "match.py").write_text(
+            "from fingerprint import find_peaks\ndef query(f):\n    return find_peaks(f)\n"
+        )
+
+        found = discover(self.tmp)
+
+        self.assertEqual(
+            [entry.name for entry in found.modules],
+            ["fingerprint", "match", "spectrogram"],
+        )
+        self.assertEqual(found.skipped, [])
+        for entry in found.modules:
+            # A flat module belongs to no package, exactly as before. A
+            # non-empty __package__ here would mean the loader changed the
+            # meaning of a layout that was already working.
+            self.assertIn(getattr(entry.module, "__package__", "") or "", ("", None))
+            self.assertEqual(entry.module.__name__, entry.name)
+        match = [e for e in found.modules if e.name == "match"][0]
+        self.assertEqual(match.module.query("x"), ["x"])
+
+    def test_a_genuine_syntax_error_is_still_reported_as_a_skip_with_its_reason(self):
+        """Distinguishing our failure from theirs is the whole point. A file
+        that really is broken must still be named, with its line."""
+
+        core = self.tmp / "core"
+        core.mkdir()
+        (core / "normalize.py").write_text("def resize(x):\n    return x\n")
+        (core / "database.py").write_text("from .normalize import resize\n")
+        (core / "broken.py").write_text("def f(:\n    pass\n")
+
+        found = discover(self.tmp)
+        skipped = {entry.name: entry for entry in found.skipped}
+
+        self.assertIn("broken", skipped)
+        self.assertEqual(skipped["broken"].reason, "syntax")
+        self.assertIn("line 1", skipped["broken"].detail)
+        # The broken neighbour costs itself and nothing else.
+        self.assertIn("database", [entry.name for entry in found.modules])
+
+    def test_an_init_file_that_raises_is_reported_and_the_rest_still_loads(self):
+        core = self.tmp / "core"
+        core.mkdir()
+        (core / "__init__.py").write_text("import definitely_not_installed\n")
+        (core / "normalize.py").write_text("def resize(x):\n    return x\n")
+        (core / "database.py").write_text(
+            "from .normalize import resize\ndef add(x):\n    return resize(x)\n"
+        )
+
+        found = discover(self.tmp)
+        skipped = {entry.name: entry for entry in found.skipped}
+
+        self.assertIn("__init__", skipped)
+        self.assertEqual(skipped["__init__"].reason, "missing_dependency")
+        self.assertIn("database", [entry.name for entry in found.modules])
+
+
+class SurveyIsolationTests(unittest.TestCase):
+    """A survey whose child process dies must not read as an empty repository.
+
+    Both used to return `modules: []` and `skipped: []`, which is exactly what
+    a repository holding no Python returns. So a team whose module aborted the
+    interpreter was told their repository had nothing in it: a confident wrong
+    answer about their work, which is the one thing this platform must not do.
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def test_an_empty_repository_is_read_and_found_to_hold_nothing(self):
+        (self.tmp / "README.md").write_text("# our capstone\n")
+
+        result = survey(self.tmp, timeout_seconds=60)
+
+        self.assertTrue(result.ok)
+        self.assertTrue(result.looked)
+        self.assertEqual(result.module_names, [])
+
+    def test_a_repository_whose_reader_dies_says_so_rather_than_saying_empty(self):
+        """os.abort() stands in for the real case: one repository's audio
+        helper loads a second copy of a native backend and the interpreter
+        dies with a nanobind error no `except` clause can see."""
+
+        (self.tmp / "a_fine.py").write_text("def peaks(x):\n    return x\n")
+        (self.tmp / "z_fatal.py").write_text("import os\nos.abort()\n")
+
+        result = survey(self.tmp, timeout_seconds=60)
+
+        self.assertFalse(result.ok)
+        self.assertFalse(result.looked)
+        self.assertTrue(result.record.get("unread"))
+        self.assertNotEqual(result.status, "ok")
+
+    def test_what_was_read_before_the_death_survives_the_process_boundary(self):
+        """Twenty files read successfully must not cost nothing because the
+        twenty-first ended the process."""
+
+        (self.tmp / "a_fine.py").write_text("def peaks(x):\n    return x\n")
+        (self.tmp / "b_missing.py").write_text("import definitely_not_installed\n")
+        (self.tmp / "z_fatal.py").write_text("import os\nos.abort()\n")
+
+        result = survey(self.tmp, timeout_seconds=60)
+
+        self.assertIn("a_fine", result.module_names)
+        reasons = {
+            str(entry["name"]): str(entry["reason"])
+            for entry in result.record["skipped"]
+        }
+        self.assertEqual(reasons.get("b_missing"), "missing_dependency")
+        self.assertIn("z_fatal", str(result.record.get("endedWhileReading", "")))
+
+    def test_the_two_outcomes_do_not_render_as_the_same_sentence(self):
+        from cogbench.report import render_survey
+
+        (self.tmp / "a_fine.py").write_text("def peaks(x):\n    return x\n")
+        (self.tmp / "z_fatal.py").write_text("import os\nos.abort()\n")
+        died = survey(self.tmp, timeout_seconds=60)
+
+        empty_repository = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, empty_repository, ignore_errors=True)
+        (empty_repository / "README.md").write_text("# nothing here\n")
+        empty = survey(empty_repository, timeout_seconds=60)
+
+        died_text = "\n".join(render_survey(died.record))
+        empty_text = "\n".join(render_survey(empty.record))
+
+        self.assertIn("stopped early", died_text)
+        self.assertNotIn("stopped early", empty_text)
+        self.assertIn("nothing", empty_text)
 
 
 if __name__ == "__main__":

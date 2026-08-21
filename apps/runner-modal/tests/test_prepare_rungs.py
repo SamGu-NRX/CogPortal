@@ -13,6 +13,7 @@ instead of the code they told us to run.
 
 from __future__ import annotations
 
+import ast
 import sys
 import unittest
 from pathlib import Path
@@ -20,7 +21,41 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "apps" / "runner-modal" / "src"))
 
-from cogworks_runner.modal_app import EVALUATE_SCRIPT, PREPARE_SCRIPT  # noqa: E402
+MODAL_APP = ROOT / "apps" / "runner-modal" / "src" / "cogworks_runner" / "modal_app.py"
+
+
+def _scripts() -> dict:
+    """Read the two sandbox scripts out of the source, without importing it.
+
+    `modal_app` imports modal and fastapi at module scope and no interpreter in
+    this repository has either, so importing it raised ModuleNotFoundError
+    during collection. Under pytest that aborts the whole directory, so every
+    other test here silently stopped running too; this file was the only one
+    still importing the module rather than reading it, which is the pattern its
+    siblings already use (see test_prediction_validation.py).
+
+    Both constants are plain string literals, so taking them from the AST is
+    the same text the module would have handed back.
+    """
+
+    module = ast.parse(MODAL_APP.read_text(encoding="utf-8"))
+    found = {}
+    for node in module.body:
+        if not isinstance(node, ast.Assign):
+            continue
+        names = [t.id for t in node.targets if isinstance(t, ast.Name)]
+        if not names or names[0] not in ("EVALUATE_SCRIPT", "PREPARE_SCRIPT"):
+            continue
+        if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+            found[names[0]] = node.value.value
+    missing = {"EVALUATE_SCRIPT", "PREPARE_SCRIPT"} - set(found)
+    assert not missing, "modal_app.py is missing {}".format(sorted(missing))
+    return found
+
+
+_SCRIPTS = _scripts()
+EVALUATE_SCRIPT = _SCRIPTS["EVALUATE_SCRIPT"]
+PREPARE_SCRIPT = _SCRIPTS["PREPARE_SCRIPT"]
 
 
 class TheScriptsAreValidPython(unittest.TestCase):

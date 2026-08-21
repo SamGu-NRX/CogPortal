@@ -16,6 +16,7 @@ from typing import Optional, Sequence
 from urllib.parse import urlparse
 
 from . import __version__
+from .environment import gap_note, local_gap
 from .client import (
     PortalError,
     device_status,
@@ -358,6 +359,13 @@ def _check(benchmark: str, as_json: bool, project_root: Path) -> int:
             checks["submissionLoadable"] = bool(submission.ready)
             checks["submissionSource"] = "discovery" if submission.ready else None
 
+    # Which of the graded run's packages this machine cannot import. Reported
+    # whether or not discovery ran, because it explains a difference between
+    # what this command sees and what the graded run sees, and that difference
+    # exists either way. Recorded in the JSON as well as the text report: the
+    # portal and any script reading `check --json` need the same fact.
+    checks["localGap"] = list(local_gap(benchmark))
+
     if as_json:
         print(json.dumps(checks, indent=2, sort_keys=True, default=str))
     else:
@@ -369,6 +377,7 @@ def _check(benchmark: str, as_json: bool, project_root: Path) -> int:
             repository=checks["repositoryFullName"],
             submission=submission,
             survey=survey,
+            local_gap_note=gap_note(benchmark, checks["localGap"]),
         ):
             print(line)
     # `submissionInstalled` is deliberately not required: it only reports the

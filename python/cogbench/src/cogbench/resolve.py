@@ -23,7 +23,7 @@ from __future__ import annotations
 import itertools
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, FrozenSet, List, Optional, Sequence, Tuple
 
 from . import memo
 from .discover import Discovery, discover
@@ -217,7 +217,7 @@ def resolve(
                 not_read(
                     worst.name,
                     worst.detail,
-                    next_step=_next_step_for(worst.reason, worst.missing),
+                    next_step=_next_step_for(worst.reason, worst.missing, benchmark),
                 ),
                 discovery=found,
             )
@@ -259,7 +259,7 @@ def resolve(
                 refusal.stage,
                 reached,
                 last_returned=refusal.last_returned,
-                next_step=_next_step_for_stall(found),
+                next_step=_next_step_for_stall(found, benchmark),
             ),
             discovery=found,
         )
@@ -494,46 +494,37 @@ def _store_candidates(found: Discovery, chain) -> List[Candidate]:
     return candidates
 
 
-#: Packages the course tells students to install
-#: (docs/capstones/environment.md) and that the hosted images carry. When one
-#: of these is missing it is missing *here*, on this laptop, and telling a
-#: student to add it to a requirements.txt would be blaming them for a gap in
-#: their own machine's environment that the graded run does not have.
-COURSE_PACKAGES = frozenset(
-    {
-        "IPython",
-        "ipython",
-        "jupyter",
-        "notebook",
-        "numpy",
-        "scipy",
-        "matplotlib",
-        "numba",
-        "librosa",
-        "soundfile",
-        "sklearn",
-        "scikit-learn",
-        "torch",
-        "torchvision",
-        "nltk",
-        "cv2",
-        "opencv",
-        "skimage",
-        "xarray",
-        "bottleneck",
-        "gensim",
-        "mygrad",
-        "mynn",
-        "noggin",
-        "cogworks_data",
-    }
-)
+def _graded_packages(benchmark: str) -> FrozenSet[str]:
+    """Import names the graded run installs for this benchmark.
+
+    Read from `cogbench.environment`, which is generated from the same data
+    the images are built from, rather than kept as a second list here. It used
+    to be a hand-maintained global frozenset named COURSE_PACKAGES, and being
+    global was the bug: it drove the message "the graded run has it", which
+    cannot be true of all three tracks at once. Checked against the images,
+    most of its entries were wrong somewhere. `nltk` is prescribed for Week 3
+    and installed by no image, so a Week 3 student was told the graded run had
+    a package it does not. `torch` and `cv2` are Week 2 only, `librosa` is
+    Week 1 only, and `ipython`, `jupyter`, `opencv`, and `scikit-learn` could
+    never match anything, being lowercase or distribution-name spellings of
+    import names.
+
+    An unknown benchmark yields an empty set, so the advice falls back to
+    "declare it", which is the safe direction: telling a student to add a
+    package to their requirements.txt costs them a line, while telling them
+    the graded run already has it costs them the run.
+    """
+
+    from .environment import student_modules, track_for
+
+    track = track_for(benchmark)
+    return student_modules(track) if track else frozenset()
 
 
-def _local_gap(missing: Optional[str]) -> str:
-    """What to say when the missing package is one the course prescribes.
+def _local_gap(missing: Optional[str], benchmark: str = "") -> str:
+    """What to say when the missing package is one this track's image carries.
 
-    Their code is fine and the hosted run has this package. What they are
+    Their code is fine and the graded run has this package. What they are
     looking at is their own environment, so the step is to install it, not to
     declare it.
     """
@@ -541,7 +532,7 @@ def _local_gap(missing: Optional[str]) -> str:
     if not missing:
         return ""
     top = missing.split(".")[0]
-    if top not in COURSE_PACKAGES:
+    if top not in _graded_packages(benchmark):
         return ""
     return (
         "{} is part of the environment the course has you install, and the "
@@ -550,16 +541,20 @@ def _local_gap(missing: Optional[str]) -> str:
     ).format(top)
 
 
-def _next_step_for(reason: str, missing: Optional[str]) -> str:
+def _next_step_for(reason: str, missing: Optional[str], benchmark: str = "") -> str:
     """The one thing worth doing about an import that failed.
 
     Named only where the platform honestly knows it. A missing package is ours
     to name; a module that raises is theirs to read, and pretending otherwise
     would be guessing at their code.
+
+    ``benchmark`` decides which image's package list the missing name is
+    checked against, since the advice inverts between the two cases: install it
+    here, or declare it so the graded run gets it.
     """
 
     if reason == "missing_dependency" and missing:
-        return _local_gap(missing) or (
+        return _local_gap(missing, benchmark) or (
             "Add {} to a requirements.txt at the root of your repository, or move "
             "the code the benchmark needs into a module that does not import it."
         ).format(missing)
@@ -576,7 +571,7 @@ def _step_note(stage: str, label: str):
     return Observation(stage, label, "", "")
 
 
-def _next_step_for_stall(found: Discovery) -> str:
+def _next_step_for_stall(found: Discovery, benchmark: str = "") -> str:
     """The one thing worth doing when the chain stalled part way.
 
     Only when the platform honestly knows it. A module the search could not
@@ -599,11 +594,16 @@ def _next_step_for_stall(found: Discovery) -> str:
     )
 
     # Split the two cases, because they call for opposite things. A package
-    # the course prescribes is missing from this laptop and present in the
+    # this track's image carries is missing from this laptop and present in the
     # graded run, so the fix is to install it. Anything else is theirs to
     # declare, and declaring it is what makes the graded run work.
-    local = [name for name in missing if name.split(".")[0] in COURSE_PACKAGES]
-    theirs = [name for name in missing if name.split(".")[0] not in COURSE_PACKAGES]
+    #
+    # Per track, not global: the graded environment is three different images,
+    # and "the graded run has it" is false for at least one of them for almost
+    # any package. See `_graded_packages`.
+    graded = _graded_packages(benchmark)
+    local = [name for name in missing if name.split(".")[0] in graded]
+    theirs = [name for name in missing if name.split(".")[0] not in graded]
 
     advice = []
     if local:

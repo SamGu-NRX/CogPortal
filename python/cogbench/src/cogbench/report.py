@@ -33,6 +33,20 @@ def _plural(count: int, one: str, many: Optional[str] = None) -> str:
     return "{} {}".format(count, one if count == 1 else (many or one + "s"))
 
 
+def _wrapped(text: str, width: int = 78) -> List[str]:
+    """A paragraph broken to terminal width.
+
+    Every other line here is a label and a short value, so nothing needed
+    wrapping before. A paragraph printed as one line wraps at whatever the
+    terminal happens to be and breaks mid-package-name, which is the one part
+    of this report a student is meant to read carefully.
+    """
+
+    import textwrap
+
+    return textwrap.wrap(text, width=width) or [""]
+
+
 def render_survey(record: Dict[str, object]) -> List[str]:
     """What discovery found in the repository, and what it could not read."""
 
@@ -44,6 +58,41 @@ def render_survey(record: Dict[str, object]) -> List[str]:
     reason = str(record.get("rootReason", ""))
     if root:
         lines.append(_line("looked in", "{}  ({})".format(root.split("/")[-1] or root, reason)))
+
+    # "We could not look" and "there was nothing to find" are different claims
+    # and used to print the same line. A survey whose subprocess died returns
+    # empty lists, which is exactly what an empty repository returns, so a
+    # student whose module crashed the reader was told their repository held
+    # nothing. Said first, because it changes how every line under it reads.
+    if record.get("unread"):
+        why = str(record.get("unreadReason", "")).strip()
+        lines.append(
+            _line(
+                "could not finish",
+                "reading this repository stopped early{}".format(
+                    ": " + why if why else ""
+                ),
+            )
+        )
+        stopped_on = str(record.get("endedWhileReading", "")).strip()
+        if stopped_on:
+            lines.append(
+                _line("stopped while reading", stopped_on.split("/")[-1] or stopped_on)
+            )
+        if modules or skipped:
+            lines.append(
+                _line(
+                    "partial",
+                    "what follows is what was read before it stopped, not the "
+                    "whole repository",
+                )
+            )
+        else:
+            # Nothing survived, so there is nothing below to qualify. Saying
+            # "read nothing" here would be the exact false statement this
+            # branch exists to prevent.
+            lines.append(_line("read", "unknown; nothing was reported before it stopped"))
+            return lines
 
     if modules:
         names = ", ".join(str(entry["name"]) for entry in modules)  # type: ignore[index]
@@ -112,12 +161,19 @@ def render_check(
     repository: Optional[str],
     submission: Optional[object] = None,
     survey: Optional[Dict[str, object]] = None,
+    local_gap_note: str = "",
 ) -> List[str]:
     """The whole report, in the order a person asks about it.
 
     ``submission`` is a ``cogbench.resolve.Submission`` when discovery ran.
     Passing ``None`` means it did not, which is itself worth saying rather
     than leaving the reader to infer it from a missing section.
+
+    ``local_gap_note`` is one paragraph naming the graded run's packages this
+    machine cannot import. It goes directly under the list of files that were
+    read, because that list is the thing it qualifies: this command can only
+    read modules whose imports resolve here, and the graded run resolves more
+    of them.
     """
 
     lines: List[str] = []
@@ -135,6 +191,10 @@ def render_check(
     if survey:
         lines.append("")
         lines.extend(render_survey(survey))
+
+    if local_gap_note:
+        lines.append("")
+        lines.extend(_wrapped(local_gap_note))
 
     if submission is None:
         lines.append("")
