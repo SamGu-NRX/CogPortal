@@ -161,6 +161,7 @@ def _metric(
     primary_key: str,
     labels: Optional[dict] = None,
     lower_is_better: Any = (),
+    help_text: Optional[str] = None,
 ) -> Metric:
     label_map = _V2_LABELS if labels is None else labels
     return Metric(
@@ -171,6 +172,7 @@ def _metric(
         higher_is_better=key not in lower_is_better,
         primary=key == primary_key,
         precision=3,
+        help=help_text,
     )
 
 
@@ -190,6 +192,13 @@ def _execute_v2(
         model_factory = plugin_model_factory
     labels = getattr(benchmark, "metric_labels", None)
     lower_is_better = getattr(benchmark, "lower_is_better", ())
+    # What each number means, in the course's vocabulary. The hosted path has
+    # passed this through since metric_help existed (modal_app.py `_wire`),
+    # but this local path never did, so `cogbench run` dropped every
+    # explanation and a student debugging on their own laptop saw bare
+    # numbers while the portal explained them. Absent on plugins that predate
+    # metric_help, which is why it reads as a plain dict lookup.
+    help_text = getattr(benchmark, "metric_help", None) or {}
     if progress:
         _progress(progress, "contract_check")
     try:
@@ -225,7 +234,7 @@ def _execute_v2(
         raise ContractError("Benchmark scorer returned invalid v2 metrics.")
     primary_key = str(benchmark.primary_metric)
     metrics = [
-        _metric(key, value, primary_key, labels, lower_is_better)
+        _metric(key, value, primary_key, labels, lower_is_better, help_text.get(key))
         for key, value in scores.items()
     ]
     if not any(metric.primary for metric in metrics):
