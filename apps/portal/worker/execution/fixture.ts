@@ -62,11 +62,26 @@ export function fixtureMetrics(
     ];
   }
   if (benchmarkId === "language-search") {
-    // Shapes match the real scorer: a strong text pipeline, a harder trained
-    // encoder, search trailing retrieval slightly (their own glue).
+    // Shapes match the real scorer under retrieval-v3, measured on the
+    // reference submission on the evaluation tier (2026-08-20): text 0.7829,
+    // retrieval 0.2586, search 0.2309, with the four rungs at 0.2572
+    // (verbatim), 0.2735 (keywords), 0.1671 (truncated), 0.2256 (typo).
+    //
+    // Search used to be modelled as retrieval minus 0.006, which matched the
+    // old scorer because `search_mrr` was then the verbatim rung over the
+    // same pool retrieval already ranked. It now averages the four query
+    // rewrites, so it sits meaningfully below retrieval and the preview has
+    // to as well: a fixture that still showed the two nearly equal would
+    // teach whoever reads it the wrong shape.
     const text = round4(0.74 + (hash % 900) / 10_000 + improvement);
     const retrieval = round4(0.23 + ((hash >>> 4) % 1100) / 10_000 + improvement);
-    const search = round4(Math.max(0, retrieval - 0.006));
+    // Reference ratios against the verbatim rung: keywords 1.063, truncated
+    // 0.649, typo 0.877, and verbatim itself 0.9947 of retrieval.
+    const verbatim = round4(Math.max(0, retrieval * 0.9947));
+    const keywords = round4(Math.max(0, verbatim * 1.063));
+    const truncated = round4(Math.max(0, verbatim * 0.649));
+    const typo = round4(Math.max(0, verbatim * 0.877));
+    const search = round4((verbatim + keywords + truncated + typo) / 4);
     const metric = (key: string, label: string, value: number, primary = false): Metric => ({
       key,
       label,
@@ -85,7 +100,17 @@ export function fixtureMetrics(
       metric("retrieval_recall_at_5", "Recall@5", round4(Math.min(1, retrieval * 1.44))),
       metric("retrieval_recall_at_10", "Recall@10", round4(Math.min(1, retrieval * 2.2))),
       metric("retrieval_median_rank", "Median rank", round4(8 + ((hash >>> 9) % 40) / 10)),
+      // Three floors, not one. Retrieval ranks the whole 700-image pool;
+      // search returns 50 ids and scores anything past them as a miss, so its
+      // floor is lower; text ranks captions among captions, so its floor is
+      // higher. Exact values from the evaluation tier.
       metric("chance_mrr", "Chance MRR", 0.0102),
+      metric("text_chance", "Text chance MRR", 0.04),
+      metric("search_chance", "Search chance MRR", 0.0064),
+      metric("search_mrr_verbatim", "Search MRR, caption unchanged", verbatim),
+      metric("search_mrr_keywords", "Search MRR, keywords only", keywords),
+      metric("search_mrr_truncated", "Search MRR, first three words", truncated),
+      metric("search_mrr_typo", "Search MRR, one typo", typo),
     ];
   }
   const known = round4(0.82 + (hash % 1000) / 10_000 + improvement);

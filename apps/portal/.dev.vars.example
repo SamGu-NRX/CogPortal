@@ -40,3 +40,90 @@ RUNNER_SIGNING_KEY_ID="runner-v1"
 RUNNER_SIGNING_SECRET=""
 MODAL_RUNNER_URL=""
 RUN_STALE_AFTER_SECONDS="3600"
+
+# ---------------------------------------------------------------------------
+# Running against the real Modal runner, locally
+# ---------------------------------------------------------------------------
+#
+# Everything above this line is the fixture setup, and it is the right default:
+# fixture mode advances runs from a wall clock and never sends anything
+# anywhere, so it costs nothing and needs no credentials. Turning it off means
+# every practice run you start spends real sandbox time.
+#
+# Change these values in your own .dev.vars only. apps/portal/wrangler.jsonc
+# carries its own copy for the deployed staging and production workers, and
+# editing it there is a separate decision that costs money.
+#
+# Before starting anything, run the offline check. It reports what is missing
+# and why, and it compares the two HMAC implementations by computing signatures
+# with both rather than by reading them:
+#
+#   python apps/runner-modal/tools/preflight_dispatch.py
+#
+# Then docs/runbooks/gate-1-modal.md, which is the ordered procedure.
+#
+# EXECUTION_PROVIDER
+#   "fixture" or "modal". With "fixture", dispatch() in
+#   worker/services/run-actions.ts returns immediately and no job is ever sent.
+#   With "modal", starting a run posts one signed job to MODAL_RUNNER_URL.
+#   The value is written onto each run row, so a run started under fixture
+#   keeps behaving as a fixture run after you switch back.
+#
+# MODAL_RUNNER_URL
+#   Not a secret. The https endpoint `modal deploy` prints for submit_job, of
+#   the form https://<workspace>--cogworks-runner-submit-job.modal.run. Find it
+#   again with `modal app list`. Leave empty to keep dispatch unconfigured.
+#
+# RUNNER_SIGNING_SECRET
+#   SECRET. Never commit it, never paste it into a runbook or a chat, never
+#   print it. It must be byte-identical to the value inside the Modal secret
+#   named cogworks-runner-signing (`modal secret list` shows the name; the
+#   value is only in Modal and wherever it was first generated). It signs both
+#   directions: the Worker signs jobs with it, and Modal signs the callbacks
+#   the Worker verifies. A mismatch is a bare 401 with no diagnostics on either
+#   side, which is why tools/preflight_dispatch.py and tools/verify_dispatch.py
+#   both exist. In a deployed environment set it with
+#   `wrangler secret put RUNNER_SIGNING_SECRET`, never as a plain var.
+#
+#   To supply it for one command without writing it down:
+#     RUNNER_SIGNING_SECRET=... pnpm dev
+#
+# RUNNER_SIGNING_KEY_ID
+#   Not a secret. Both sides compare it before checking the signature, so it
+#   must match Modal's RUNNER_SIGNING_KEY_ID exactly. "runner-v1" unless the
+#   secret has been rotated, which increments it.
+#
+# PUBLIC_ORIGIN
+#   Not a secret, and the value most likely to stop a first real run. Two
+#   independent requirements. It must start with https:// or
+#   assertModalConfigured throws 501 before anything is sent. And Modal posts
+#   every run event to <PUBLIC_ORIGIN>/api/internal/v1/runner/events from its
+#   own network, so an origin that only resolves on your laptop dispatches
+#   fine and then strands the run in `queued` until the stale reaper fails it
+#   an hour later. https://localhost:5173 satisfies the first and fails the
+#   second. Use a public tunnel to your dev server, or accept that a local
+#   dispatch is fire-and-forget and read the result from Modal's own logs.
+#
+# RUNNER_IMAGE_DIGEST
+#   Not a secret, and optional: runner.ts falls back to a constant when it is
+#   unset. It selects nothing. Modal picks a sandbox image by name, and this
+#   value's only use is as one of three inputs to the environmentDigest
+#   reported on a completed run. So a placeholder cannot fail a dispatch; what
+#   it does is make every run's reproducibility record a hash of the same word,
+#   so two runs on genuinely different images are recorded as identical. Set it
+#   from the id `python apps/runner-modal/tools/deploy.py` prints, which looks
+#   like `published cogworks-runner-week3 -> im-...`. Writing it as
+#   <name>@<id> keeps both facts in the record.
+#
+# RUNNER_PYTHON_VERSION
+#   Not a secret, and it does not apply to every benchmark. Weeks 1 and 3
+#   always run student code under a pinned CPython 3.8.20 venv baked into their
+#   images, so buildRunJob ignores this for them. It is the default for the
+#   rest. Leave it unset unless you know why you are changing it.
+#
+# EXECUTION_PROVIDER="modal"
+# MODAL_RUNNER_URL="https://<workspace>--cogworks-runner-submit-job.modal.run"
+# RUNNER_SIGNING_SECRET=""
+# RUNNER_SIGNING_KEY_ID="runner-v1"
+# PUBLIC_ORIGIN="https://<your-public-tunnel-host>"
+# RUNNER_IMAGE_DIGEST="cogworks-runner-week3@im-..."
