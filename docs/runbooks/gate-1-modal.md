@@ -32,25 +32,20 @@ python apps/runner-modal/tools/preflight_dispatch.py \
   --deployed https://cogportal-dev.sillion.app
 ```
 
-Both `cogportal-dev.sillion.app` and `cogportal.sillion.app` reported:
+Both `cogportal-dev.sillion.app` and `cogportal.sillion.app` reported one
+blocker, and it is smaller and more specific than it first looked:
 
 ```
-callback route        FAIL  answered 405, so the route is not deployed there
-deployed benchmark    FAIL  scorerVersion: deployed='1' local='clustering-v2'
-                            datasetVersion: deployed='practice-v1' local='celeba-manifests-v1'
-deployed benchmark    FAIL  audio-recognition: deployed offers it, no local plugin
+callback route   FAIL  the route is deployed and RUNNER_SIGNING_SECRET is not set there
 ```
-
-Two separate findings, and each one on its own is enough to make a first
-dispatch meaningless.
 
 **The callback route has no signing secret.** An unsigned POST to
 `/api/internal/v1/runner/events` answers 501, which `verifyRunnerEvent`
 returns before it looks at a signature when `RUNNER_SIGNING_SECRET` is
-absent. The route is deployed; it simply cannot accept anything. Dispatch
-into that and the sandbox runs to completion and posts every event into a
-void, and the run sits in `queued` until the stale reaper resolves it an hour
-later, which reads as a hang rather than as a configuration gap.
+absent. The route is deployed and current; it simply cannot accept anything.
+Dispatch into that and the sandbox runs to completion and posts every event
+into a void, and the run sits in `queued` until the stale reaper resolves it
+an hour later, which reads as a hang rather than as a configuration gap.
 
 Mind the path. The handler registers on the `api` router and `index.ts`
 mounts that at `/api`, so an event goes to `/api/internal/v1/runner/events`.
@@ -59,13 +54,18 @@ which reads exactly like "the route is not deployed." That cost an hour here:
 the wrong path reported 405 against a local dev server running the current
 commit, which is what gave it away.
 
-**The database is on placeholder rows.** `scorerVersion: 1` and
-`datasetVersion: practice-v1` are the column defaults migration 0005 writes.
-Those databases have never run migration 0013 onward. They also list
-`audio-recognition`, a benchmark id that no longer exists. The runner refuses
-a job at `contract_check` when the row and the plugin disagree on any of five
-fields, which is a guard worth having and which means a dispatch today fails
-for a reason that has nothing to do with whether dispatch works.
+**The benchmark rows agree.** Both Week 2 benchmarks are at version 2 with
+matching scorer, dataset, plugin, and contract versions in the deployed
+database and in this checkout. An earlier version of this section said
+otherwise, on the strength of three rows with `active = 0`. Those are
+superseded benchmarks kept so old runs still resolve their own version, and
+the local database holds the same three. Filtering on `active` is the
+difference between "this environment is a month stale" and "this environment
+is current," and I reported the first before checking.
+
+Two active benchmarks are missing from the deployed database rather than
+stale: `audio-identification` is absent, and `language-search` is present but
+retired. Whichever benchmark you intend to run first has to be active there.
 
 So the first honest statement about this platform is not "hosted execution
 has never been switched on." It is that the portal, the Modal images, the

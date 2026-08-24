@@ -430,8 +430,8 @@ class DeployedDriftIsCaught(unittest.TestCase):
     @unittest.skipUnless(_plugins_importable(), "benchmark plugins not on this path")
     def test_a_stale_row_fails_and_names_both_values(self):
         checks = self._deployed(
-            '[{"id":"vision-clustering","version":1,"contractVersion":'
-            '"cogworks.submissions.v1","pluginVersion":"0.1.0",'
+            '[{"id":"vision-clustering","version":1,"active":true,'
+            '"contractVersion":"cogworks.submissions.v1","pluginVersion":"0.1.0",'
             '"datasetVersion":"practice-v1","scorerVersion":"1"}]',
             None,
         )
@@ -445,13 +445,31 @@ class DeployedDriftIsCaught(unittest.TestCase):
     @unittest.skipUnless(_plugins_importable(), "benchmark plugins not on this path")
     def test_a_benchmark_that_no_longer_exists_fails(self):
         checks = self._deployed(
-            '[{"id":"audio-recognition","version":1,"contractVersion":"v1",'
-            '"pluginVersion":"0.1.0","datasetVersion":"practice-v1",'
-            '"scorerVersion":"1"}]',
+            '[{"id":"audio-recognition","version":1,"active":true,'
+            '"contractVersion":"v1","pluginVersion":"0.1.0",'
+            '"datasetVersion":"practice-v1","scorerVersion":"1"}]',
             None,
         )
         self.assertEqual(checks[0].status, FAIL)
         self.assertIn("no longer exists", checks[0].fix)
+
+    def test_a_retired_row_is_not_drift(self):
+        """A superseded benchmark stays in the table with active=0 so old runs
+        keep resolving their own version. Comparing those against today's
+        plugin reports a deliberate record as a problem, and the first version
+        of this check called two environments a month stale on exactly that."""
+
+        checks = self._deployed(
+            '[{"id":"audio-recognition","version":1,"active":false,'
+            '"contractVersion":"v1","pluginVersion":"0.1.0",'
+            '"datasetVersion":"practice-v1","scorerVersion":"1"}]',
+            None,
+        )
+        # No check at all for a retired row, whether or not the plugins are
+        # importable here: a row nobody can start a run against is not part
+        # of the comparison.
+        self.assertEqual([c for c in checks if c.status == FAIL], [])
+        self.assertNotIn("audio-recognition", " ".join(c.name for c in checks))
 
     def test_without_the_plugins_it_says_unknown_rather_than_guessing(self):
         """A comparison needs both sides. Missing the local one is a fact
@@ -461,9 +479,9 @@ class DeployedDriftIsCaught(unittest.TestCase):
         if _plugins_importable():
             self.skipTest("plugins are importable here")
         checks = self._deployed(
-            '[{"id":"vision-clustering","version":1,"contractVersion":"v1",'
-            '"pluginVersion":"0.1.0","datasetVersion":"practice-v1",'
-            '"scorerVersion":"1"}]',
+            '[{"id":"vision-clustering","version":1,"active":true,'
+            '"contractVersion":"v1","pluginVersion":"0.1.0",'
+            '"datasetVersion":"practice-v1","scorerVersion":"1"}]',
             None,
         )
         self.assertEqual(checks[0].status, UNKNOWN)

@@ -1083,8 +1083,21 @@ def check_deployed_agrees(origin: str) -> List[Check]:
         "scorer_version": "scorerVersion",
     }
 
+    # Only rows a run can actually be started against. A benchmark that was
+    # superseded stays in the table with active=0 so old runs keep resolving
+    # their own version, and comparing those against today's plugin reports
+    # drift that is a deliberate record rather than a problem. Measured: the
+    # first version of this check called the deployed environment a month
+    # stale on the strength of three retired rows, and the local database
+    # holds the same three.
+    live = {
+        identifier: row
+        for identifier, row in deployed.items()
+        if row.get("active", True)
+    }
+
     checks: List[Check] = []
-    for identifier in sorted(deployed):
+    for identifier in sorted(live):
         try:
             plugin = load_benchmark(identifier)
         except Exception:  # noqa: BLE001
@@ -1101,10 +1114,10 @@ def check_deployed_agrees(origin: str) -> List[Check]:
             continue
         disagreements = [
             "{}: deployed={!r} local={!r}".format(
-                field, deployed[identifier].get(field), getattr(plugin, attribute, None)
+                field, live[identifier].get(field), getattr(plugin, attribute, None)
             )
             for attribute, field in wire.items()
-            if str(getattr(plugin, attribute, None)) != str(deployed[identifier].get(field))
+            if str(getattr(plugin, attribute, None)) != str(live[identifier].get(field))
         ]
         if disagreements:
             checks.append(
