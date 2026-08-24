@@ -256,3 +256,49 @@ class ProgressTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TheTwoRefusalsDoNotShareASentence(unittest.TestCase):
+    """"Nothing accepted that" and "your chain gave the wrong answer" are
+    opposite findings and were reported identically.
+
+    The first is a wiring problem, often ours to explain. The second is their
+    algorithm, and it means every function the benchmark wanted exists and is
+    connected. Saying the first when the second is true sends a team looking
+    for a function they already wrote.
+
+    Measured on a 2026 repository: its chain runs end to end, and running
+    their own pipeline by hand at every threshold the search tries returns 4,
+    5, or 6 clusters where the fixture has 3. Nothing was unwired.
+    """
+
+    def test_a_chain_that_ran_is_not_reported_as_unwired(self):
+        from cogbench.pipeline import Refusal
+
+        refusal = Refusal(
+            "cluster",
+            ("their.adj_list", "their.whispers"),
+            "labels",
+            "the chain ran but did not return the right answer on the benchmark's own case",
+            ran_to_the_end=True,
+        )
+        self.assertTrue(refusal.ran_to_the_end)
+
+    def test_a_stalled_chain_still_reports_the_handoff(self):
+        from cogbench.pipeline import Refusal
+
+        refusal = Refusal(
+            "cluster",
+            ("their.adj_list",),
+            "graph",
+            "nothing accepted what their.adj_list returned",
+        )
+        self.assertFalse(refusal.ran_to_the_end)
+
+    def test_the_flag_is_a_field_rather_than_a_phrase_match(self):
+        """The two used to be told apart, where they were told apart at all,
+        by their prose. Matching on prose is how they came to share one."""
+
+        from cogbench.pipeline import Refusal
+
+        self.assertIn("ran_to_the_end", Refusal.__dataclass_fields__)

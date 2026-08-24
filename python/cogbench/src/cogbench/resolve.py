@@ -36,7 +36,14 @@ from .pipeline import (
     methods_of,
     resolve_chain,
 )
-from .verdict import SCORED, Verdict, not_read, not_wired, nothing_here
+from .verdict import (
+    SCORED,
+    Verdict,
+    not_read,
+    not_wired,
+    nothing_here,
+    wired_but_wrong,
+)
 
 __all__ = ["Submission", "Attempt", "resolve"]
 
@@ -273,6 +280,34 @@ def resolve(
                 (stage.name for stage in chain_role.stages), refusal.furthest
             )
         )
+        # Two refusals wear one sentence otherwise. "Nothing accepted what
+        # your last function returned" is a wiring problem and often ours to
+        # explain. "Your chain ran end to end and gave the wrong answer" is
+        # their algorithm, and saying the first when the second is true sends
+        # a team to look for a missing function they already wrote.
+        #
+        # Measured on one 2026 repository: its chain runs, and hand-running
+        # their own pipeline at every threshold the search tries produces 4,
+        # 5, or 6 clusters where the fixture has 3. Nothing is unwired. Their
+        # cutoff splits a person, which is a result worth having and the
+        # opposite of what the report said.
+        if refusal.ran_to_the_end:
+            return Submission(
+                wired_but_wrong(
+                    chain_role.name,
+                    "one group per person",
+                    "a different grouping",
+                    reached,
+                    notes=(
+                        "Every function above is yours, and the benchmark "
+                        "passed each one the input it asked for. What comes "
+                        "back is not the grouping the photos have, so the "
+                        "difference is in what your code computes rather "
+                        "than in how it was connected up.",
+                    ),
+                ),
+                discovery=found,
+            )
         return Submission(
             not_wired(
                 chain_role.name,
