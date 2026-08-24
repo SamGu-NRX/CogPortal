@@ -77,7 +77,17 @@ R_search    = reference mean(search rungs 2 to 4) / reference search verbatim
 R_retrieval = reference mean(retrieval rungs 2 to 4) / reference retrieval verbatim
 ```
 
-**Prediction: R_retrieval falls within 0.10 absolute of R_search.** The two
+R_search is computed from numbers recorded in migration 0030 before this
+question was asked: reference search verbatim 0.6336508, four-rung mean
+0.5739670, so the mean of the three rewritten rungs is 0.5541 and
+
+```
+R_search = 0.5541 / 0.6337 = 0.8744
+band     = [0.7744, 0.9744]
+```
+
+**Prediction: R_retrieval falls within 0.10 absolute of R_search, so inside
+[0.7744, 0.9744].** The two
 components draw from the same query list, so the perturbed strings are
 identical between them and only the scoring target differs. The degradation
 should transfer.
