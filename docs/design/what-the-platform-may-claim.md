@@ -152,6 +152,34 @@ and they stop being available as evidence the moment the fix lands.
 The platform reports a reading together with the conditions under which the
 reading is valid. That is what it already asks of the students.
 
+## What it changed, measured
+
+The Week 1 corpus, resolved before and after the precondition landed. The
+column that matters is `ours`: modules skipped for a package the graded run
+installs and this machine lacks.
+
+```
+                          before          after (IPython absent)   after (IPython installed)
+Cog-gurts__Shazam         not_wired       could_not_look  ours=2   not_wired   read=3
+Asterisk__Week1-Capstone  not_wired       could_not_look  ours=4   not_wired   read=4
+rutvim2009__BWSI_Team_1   not_wired       could_not_look  ours=1   not_wired   read=5
+KrazeeCoder__week1        scored 0.5938   scored                   scored 0.5938
+carti4ce__week1           scored 0.6562   scored                   scored 0.6562
+```
+
+Three repositories were being told "we read your code and could not wire it
+up" when the only thing stopping the read was `IPython`, which the Week 1
+image installs because the capstone is written in Jupyter. One 2026 team had
+already lost their whole pipeline to that single import.
+
+Installing it locally drops `ours` to zero and the verdict becomes
+`not_wired` again, honestly this time, with real content: rutvim's now names
+the exact hand-off that failed, "nothing took a tuple of 2, starting with an
+array of shape (1025, 171), which is what audio_parser.spectrogram returned."
+That sentence is worth something. The one it replaced was not.
+
+The two repositories that already scored still score, to four decimals.
+
 ## Who wrote this byte, and had they run student code yet?
 
 The rule above governs what the platform says about a repository. The same
