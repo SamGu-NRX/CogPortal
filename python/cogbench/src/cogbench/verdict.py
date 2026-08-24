@@ -349,19 +349,17 @@ def could_not_look(coverage: "Coverage", *, next_step: str = "") -> Verdict:
     reason, and it does not guess at what was in them.
     """
 
-    # Name a few and count the rest. One repository skips eight modules for
-    # one missing package, and a headline listing all eight buries the fact
-    # that they share a cause and that the cause is ours.
-    names = list(coverage.ours)
-    shown = ", ".join(names[:3])
-    if len(names) > 3:
-        shown += " and {} more".format(len(names) - 3)
+    # The headline states the situation; the next step lists the modules and
+    # says what to install. Naming them in both made the reader compare two
+    # lists to discover they were the same list. The count stays, because
+    # "5 of your files" is the part that says how much was not looked at.
+    count = len(coverage.ours)
     return Verdict(
         COULD_NOT_LOOK,
-        "This machine is missing packages your code imports, so {} could not "
-        "be read here. That is this check's limit, not a problem with your "
-        "repository: the graded run installs them and will read those "
-        "files.".format(shown),
+        "This check could not read {} of your files, because this machine is "
+        "missing packages they import. That is a limit of this check and not "
+        "a problem with your repository: the graded run installs those "
+        "packages and will read them.".format(count),
         next_step=next_step,
         coverage=coverage,
     )

@@ -192,7 +192,15 @@ def render_check(
         lines.append("")
         lines.extend(render_survey(survey))
 
-    if local_gap_note:
+    # The gap note is a caveat: "this report may have read less than the
+    # graded run will." When the run actually stopped because of that gap the
+    # verdict says so outright, and printing both makes the reader work out
+    # that two paragraphs are one fact. The verdict wins, because it is
+    # specific about which modules and this is general.
+    verdict_covers_the_gap = (
+        getattr(getattr(submission, "verdict", None), "status", "") == "could_not_look"
+    )
+    if local_gap_note and not verdict_covers_the_gap:
         lines.append("")
         lines.extend(_wrapped(local_gap_note))
 

@@ -64,8 +64,11 @@ export type WiredStep = z.infer<typeof WiredStepSchema>;
  * a confident wrong guess costs more than saying nothing.
  */
 export const RefusalSchema = z.object({
-  /** Which of the five outcomes this is: not_wired, not_read, nothing_here,
-   *  wired_but_wrong, or scored. */
+  /** Which outcome this is: scored, wired_but_wrong, not_wired, not_read,
+   *  nothing_here, or could_not_look. The last one means the check could not
+   *  read part of the repository for a reason of ours, so it declined to say
+   *  anything about the code. Kept as a string rather than an enum so a new
+   *  outcome reaches the page as itself instead of failing the parse. */
   status: z.string().min(1).max(40),
   /** One sentence naming what stopped, in the student's own function names. */
   headline: z.string().max(600),

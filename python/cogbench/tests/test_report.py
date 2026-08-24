@@ -174,3 +174,76 @@ class CheckTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class WhenTheCheckCouldNotLook(unittest.TestCase):
+    """A run stopped by our own missing packages says so once, not twice.
+
+    The gap note ("this report may have read less than the graded run") and
+    the could_not_look verdict ("this check could not read 5 of your files")
+    are the same fact at two levels of detail. Printing both makes a reader
+    work out that two paragraphs are one thing.
+    """
+
+    def _stopped(self):
+        from cogbench.resolve import Submission
+        from cogbench.verdict import Coverage, could_not_look
+
+        coverage = Coverage(
+            read=("recognizer",),
+            skipped=(("whispers", "imports cv2, which is not installed here", "ours"),),
+        )
+        return Submission(could_not_look(coverage, next_step="Install cv2 here."))
+
+    def test_the_general_caveat_yields_to_the_specific_verdict(self):
+        text = "\n".join(
+            render_check(
+                benchmark="vision-clustering",
+                python_version="3.11.15",
+                hosted_python="3.11",
+                benchmark_ready=True,
+                repository="team/vision",
+                submission=self._stopped(),
+                local_gap_note="12 packages the graded run installs are missing here.",
+            )
+        )
+        self.assertIn("could not read 1 of your files", text)
+        self.assertNotIn("12 packages", text)
+
+    def test_the_caveat_still_prints_when_the_run_was_not_stopped_by_it(self):
+        """A repository that resolved anyway still deserves the warning: the
+        graded run may read more than this did."""
+
+        text = "\n".join(
+            render_check(
+                benchmark="vision-clustering",
+                python_version="3.11.15",
+                hosted_python="3.11",
+                benchmark_ready=True,
+                repository="team/vision",
+                submission=self._ready_submission(),
+                local_gap_note="12 packages the graded run installs are missing here.",
+            )
+        )
+        self.assertIn("12 packages", text)
+
+    def _ready_submission(self):
+        from cogbench.resolve import Attempt, Submission
+        from cogbench.verdict import scored
+
+        return Submission(
+            scored("ready", 1.0),
+            attempt=Attempt("database.add", "match.query", 2),
+            chain=(),
+            attempts_tried=1,
+            enroll=lambda *a: None,
+            query=lambda *a: None,
+        )
+
+    def test_the_headline_does_not_repeat_the_next_step(self):
+        """Both listed the modules, so the reader compared two lists to find
+        out they were the same list."""
+
+        verdict = self._stopped().verdict
+        self.assertNotIn("whispers", verdict.headline)
+        self.assertIn("whispers", verdict.coverage.ours)
