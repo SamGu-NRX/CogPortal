@@ -595,62 +595,6 @@ def _safe(predicate: Callable[[Any], bool], value: Any) -> bool:
         return False
 
 
-def _mutation_mattered(stage, candidates, before, reader, after) -> bool:
-    """Whether the mutator changed what the reader says.
-
-    The pair only means something if running the mutator first changes the
-    answer. Asked by running the reader on the value as it stood BEFORE the
-    mutator touched it and comparing: if the answer is the same either way,
-    the mutator contributed nothing observable and the reader alone is the
-    honest, shorter binding.
-
-    This is the guard against the failure that matters here. A reader that
-    returns a plausible grouping no matter what ran before it would otherwise
-    bind at the last stage, where nothing downstream can catch it, and publish
-    a number. One extra call answers it, and the reader is its own instrument:
-    no snapshotting, no hashing, no guessing at what "changed" means for a
-    class somebody else wrote.
-
-    A reader that raises on the pre-mutation value counts as mattering. It
-    could not answer before and can answer now, which is the strongest form of
-    the mutation being load-bearing.
-    """
-
-    try:
-        for other, control, _passed in extend(stage, candidates, before):
-            if other is reader:
-                return not _same_answer(control, after)
-    except Exception:
-        return True
-    return True
-
-
-def _same_answer(first: Any, second: Any) -> bool:
-    """Whether two returned answers say the same thing.
-
-    Deliberately conservative: anything this cannot compare is treated as
-    different, because the cost of a false "same" is dropping a real binding
-    and the cost of a false "different" is one extra candidate the acceptance
-    test then judges.
-    """
-
-    try:
-        if first is second:
-            return True
-        import numpy as _np
-
-        if isinstance(first, _np.ndarray) or isinstance(second, _np.ndarray):
-            return bool(
-                isinstance(first, _np.ndarray)
-                and isinstance(second, _np.ndarray)
-                and first.shape == second.shape
-                and bool((first == second).all())
-            )
-        return bool(first == second)
-    except Exception:
-        return False
-
-
 def _handoffs(upstream: Any) -> List[Tuple[Any, str]]:
     """The ways one stage's return value can be offered to the next.
 
@@ -883,54 +827,6 @@ def _resolve_chain(
                             partial.stages + (stage.name,),
                         )
                     )
-                    # A stage is only satisfied by a value that answers it,
-                    # and a function that mutates never returns one: it hands
-                    # back diagnostics. That is fine mid-chain, where the next
-                    # stage's function is the reader. At the LAST stage there
-                    # is no next stage, so a chain ending here ends holding a
-                    # graph instead of an answer.
-                    #
-                    # This is not a special case for one repository. The
-                    # capstone requires `propagate_label` to "update that
-                    # node's label" and defines whispers' return as the
-                    # component count over time
-                    # (week2-vision-capstone.md:390-392), so a team following
-                    # the document writes a mutator whose answer lives in the
-                    # graph and a reader that projects it. The most faithful
-                    # decomposition is the one that was being refused.
-                    #
-                    # The reader is drawn from this stage's own nominees, so
-                    # the pair is two functions that each already looked like
-                    # this step, not any function in the repository.
-                    if stage is role.stages[-1]:
-                        for reader, answer, _taken in extend(
-                            stage, candidates, passed
-                        ):
-                            if reader is candidate:
-                                continue
-                            # The mutation has to be load-bearing. If the
-                            # reader answers the same way without the mutator
-                            # having run, the pair is not a pipeline, it is a
-                            # reader with something harmless in front of it,
-                            # and the shorter chain already covers that.
-                            if not _mutation_mattered(
-                                stage, candidates, partial.value, reader, answer
-                            ):
-                                continue
-                            nxt.append(
-                                _Partial(
-                                    partial.chain + (candidate, reader),
-                                    answer,
-                                    partial.received
-                                    + (describe(passed), describe(passed)),
-                                    partial.returned
-                                    + (
-                                        "the value it was given, updated in place",
-                                        describe(answer),
-                                    ),
-                                    partial.stages + (stage.name, stage.name),
-                                )
-                            )
         # A step the previous function already did. Carrying the frontier
         # forward unchanged lets the next stage read what that function
         # returned, which is how a fused pair is found: their combined
