@@ -20,6 +20,10 @@ What each answer means:
     Everything works. The route is live, the secret matches, and the event was
     rejected only because its run id does not exist, which is the correct
     answer to an event about an imaginary run. This is the pass.
+
+    A 400 is also a pass for the same reason one step earlier: the signature
+    was accepted and the body was refused. Either way the secret is proven,
+    which is the one thing this tool exists to establish.
 ``401 signed``
     The route is live and the secret does not match. The one failure this
     tool exists to find.
@@ -120,13 +124,21 @@ def main(argv=None) -> int:
         print("  secret matches; without it the key is unproven.")
         return 1
 
+    # Shaped to pass RunEventV1Schema (packages/contracts/src/protocol.ts).
+    # The first version of this used "phase": "queued", which fails validation
+    # twice over: the status variant's field is `status`, `queued` is not in
+    # its enum, and `occurredAt` is required. A signed event that cannot parse
+    # is refused at 400 rather than reaching the run lookup, so the probe
+    # still distinguished a good secret from a bad one and this document said
+    # to expect the wrong number for a pass.
     event = {
         "protocolVersion": "1",
         "eventId": "evt_{}".format(uuid.uuid4().hex[:16]),
         "runId": PROBE_RUN_ID,
         "sequence": 1,
+        "occurredAt": int(time.time() * 1000),
         "type": "status",
-        "phase": "queued",
+        "status": "preparing",
     }
     body = json.dumps(event, separators=(",", ":"))
     timestamp = str(int(time.time()))

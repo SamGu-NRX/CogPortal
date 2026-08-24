@@ -47,6 +47,11 @@ Dispatch into that and the sandbox runs to completion and posts every event
 into a void, and the run sits in `queued` until the stale reaper resolves it
 an hour later, which reads as a hang rather than as a configuration gap.
 
+Setting it is `docs/runbooks/rotate-signing-secret.md`, which covers the
+first-time case as well as a rotation. Re-confirmed 2026-08-24: both origins
+still answer 501 with
+`{"error":{"code":"provider_unconfigured","message":"Runner signing is not configured."}}`.
+
 Mind the path. The handler registers on the `api` router and `index.ts`
 mounts that at `/api`, so an event goes to `/api/internal/v1/runner/events`.
 Probing without the prefix answers 405 from the single-page app catch-all,
@@ -219,7 +224,7 @@ mean to pay for a full evaluation.
 | Symptom | Cause | Fix |
 | --- | --- | --- |
 | Every check reports 0 with a network error | endpoint not deployed, or no network | `modal app list`; if `cogworks-runner` is not deployed, do step 7 first |
-| The three unauthenticated refusals pass, the signed job returns 401 | the secret or the key id differs between the two sides | Read the value out of the `cogworks-runner-signing` Modal secret again. Check `RUNNER_SIGNING_KEY_ID` on both sides; it is compared first and independently |
+| The three unauthenticated refusals pass, the signed job returns 401 | the secret or the key id differs between the two sides | Read the value out of the `cogworks-runner-signing` Modal secret again. Check `RUNNER_SIGNING_KEY_ID` on both sides; it is compared first and independently. If you decide to set both sides afresh rather than hunt the difference, `docs/runbooks/rotate-signing-secret.md` is the ordered procedure |
 | The signed job returns 400 | the endpoint parsed the body and rejected its shape | The endpoint is running a different protocol version than your tree. Deploy (step 7) |
 | An unauthenticated request is *accepted* | signature verification is not running | Stop. Do not continue. This is a security failure, not a configuration problem |
 
@@ -389,6 +394,38 @@ sets it from the provider.
 | The run sits in `queued` and never moves | dispatch succeeded, callbacks cannot reach you | Step 5. Confirm in Modal's logs that the job ran |
 | `data_download` at contract_check | version disagreement | Step 3 |
 | 409 `not_promotable` | the benchmark is `active = 0` | Week 1 is inactive by design |
+
+### What counts as the same score
+
+The claim worth making from this run is one sentence: a real repository, at a
+real commit, scored hosted, and the number matches what it scores locally.
+That is falsifiable, and a run that scores correctly has necessarily survived
+the snapshot, the network block, and the output path, so it carries several of
+the eight behaviours with it.
+
+**The tolerance is 1e-9 relative on the primary metric, decided here rather
+than after seeing the number.** Deciding it afterwards is how a bar quietly
+moves, and this one has a reason that does not depend on the result.
+
+The scorers are numpy reductions over inputs both sides derive the same way.
+Week 1 renders its corpus from pinned seeds and verifies each signal against a
+sha256 digest, so the audio is identical by construction rather than by
+convention. Week 3 ships one descriptor matrix in the payload. Week 2 hands
+over decoded pixel arrays. In every case the two sides reduce over the same
+bytes, and a reduction over the same bytes in the same order gives the same
+float.
+
+So a gap larger than 1e-9 does not mean floats drifted. It means the inputs
+differed, and that is a finding to chase rather than a threshold to widen. The
+places to look, in order: the corpus digests, the payload contents, and
+whether the two sides ran the same plugin version.
+
+There is one honest exception. Week 2 runs FaceNet under torch, and a
+convolution can dispatch to a different kernel on a different processor. If
+Week 2 alone shows a small gap while Weeks 1 and 3 are exact, that is the
+finding: it names torch as the cause and it is worth recording rather than
+rounding away. Do not use it to excuse a gap in a week that does no
+convolution.
 
 ---
 

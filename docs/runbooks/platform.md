@@ -212,10 +212,14 @@ pnpm deploy:discord
 - Discord incident: deploy or route-disable CogBot. Portal and CogBench local
   operation remain independent. Revoke account links only if identity mapping
   is affected.
-- Signing secret exposure: pause Modal dispatch, wait for active jobs to become
-  terminal or stale, rotate the secret in both systems and increment the key
-  ID, redeploy Modal and Portal, then send a canary. The current v1 boundary
-  intentionally favors one active key over a complex pre-production key ring.
+- Signing secret exposure: follow `docs/runbooks/rotate-signing-secret.md`, which
+  is the ordered procedure with the exact commands for Modal and for each
+  Cloudflare environment, the verification step, and what breaks in the window
+  between the two systems. In short: pause Modal dispatch, wait for active jobs
+  to become terminal or stale, rotate the secret in both systems and increment
+  the key ID, redeploy Modal and Portal, then send a canary. The current v1
+  boundary intentionally favors one active key over a complex pre-production key
+  ring, so the rotation is necessarily a brief outage rather than a swap.
 - GitHub credential exposure: rotate the GitHub App secret, invalidate sessions
   if OAuth tokens may be affected, and revalidate connected repositories.
 - Hidden dataset exposure: disable official runs, rotate the dataset version,

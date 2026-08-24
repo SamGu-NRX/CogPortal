@@ -20,15 +20,21 @@ GITHUB_WEBHOOK_SECRET=""
 # Optional owner/repo allowlist for the course template.
 GITHUB_TEMPLATE_REPO=""
 GITHUB_TEMPLATE_REPO_ID=""
-# Course staff, BWSI CogWorks 2026 cohort. GitHub logins, matched
-# case-insensitively (auth/roles.ts). Owners are also staff by definition
-# (platformRole returns "staff" for either list), so an owner does not need
-# repeating in the staff list; SamGu-NRX appears in both because he is an
-# instructor and a TA. Being a TA for a specific team is a separate thing:
-# that lives in the team_tas table, not here.
-# Update this list at the start of each cohort.
-PLATFORM_STAFF_LOGINS="alihanisarr,carti4ce,r-sxnchez,jayashabarishankar,SamGu-NRX"
-PLATFORM_OWNER_LOGINS="SamGu-NRX,iReynaldo"
+# Platform owners. GitHub logins, comma-separated, matched case-insensitively
+# (auth/roles.ts). This is the only role that lives in configuration, because
+# it is the root of trust: owners manage the staff roster, so an owner list
+# that could be edited from inside the app would let anyone who reached the
+# roster make themselves an owner. It also means a fresh database is never
+# locked out, since owners are staff automatically and can add the first
+# roster row. Changing it needs a redeploy, which is the right cost for a
+# list that changes about once a year.
+PLATFORM_OWNER_LOGINS="your-github-login"
+
+# There is no PLATFORM_STAFF_LOGINS. The staff roster moved into the
+# platform_staff table in migration 0031 and is edited by an owner under
+# PLATFORM STAFF in the admin console, so a cohort change no longer needs a
+# secret edit and a redeploy. Being a TA for a specific team is still separate
+# again: that is a team_tas row, assigned per team in the same console.
 
 # Discord service-binding policy and Modal runner callback signing.
 COURSE_GUILD_ID=""
@@ -37,6 +43,11 @@ COURSE_GUILD_ID=""
 DISCORD_BOT_TOKEN=""
 PUBLIC_ORIGIN="http://localhost:5173"
 RUNNER_SIGNING_KEY_ID="runner-v1"
+# SECRET. Leave empty unless you are running against real Modal locally; empty
+# is read as "not configured" (worker/env.ts sets emptyStringAsUndefined), which
+# is the correct state for fixture mode. To generate, set, or rotate the real
+# value across Modal and both Cloudflare environments, follow
+# docs/runbooks/rotate-signing-secret.md. The notes below explain what it does.
 RUNNER_SIGNING_SECRET=""
 MODAL_RUNNER_URL=""
 RUN_STALE_AFTER_SECONDS="3600"
@@ -81,17 +92,25 @@ RUN_STALE_AFTER_SECONDS="3600"
 #   value is only in Modal and wherever it was first generated). It signs both
 #   directions: the Worker signs jobs with it, and Modal signs the callbacks
 #   the Worker verifies. A mismatch is a bare 401 with no diagnostics on either
-#   side, which is why tools/preflight_dispatch.py and tools/verify_dispatch.py
-#   both exist. In a deployed environment set it with
-#   `wrangler secret put RUNNER_SIGNING_SECRET`, never as a plain var.
+#   side, which is why tools/preflight_dispatch.py, tools/verify_dispatch.py,
+#   and tools/probe_callback.py all exist. In a deployed environment set it with
+#   `wrangler secret put RUNNER_SIGNING_SECRET`, never as a plain var, and once
+#   per environment: Wrangler secrets do not copy from staging to production.
 #
 #   To supply it for one command without writing it down:
 #     RUNNER_SIGNING_SECRET=... pnpm dev
 #
+#   Generating, setting, or changing it is one ordered procedure across three
+#   systems, and doing it out of order strands runs for an hour. It is written
+#   down in docs/runbooks/rotate-signing-secret.md; do not improvise it.
+#
 # RUNNER_SIGNING_KEY_ID
 #   Not a secret. Both sides compare it before checking the signature, so it
 #   must match Modal's RUNNER_SIGNING_KEY_ID exactly. "runner-v1" unless the
-#   secret has been rotated, which increments it.
+#   secret has been rotated. Incrementing it buys no overlap, because only one
+#   key is ever active; what it buys is a distinguishable 401 ("Unknown runner
+#   signing key" rather than "Runner signature is invalid") so a straggler
+#   signed under the old key is not mistaken for a mistyped secret.
 #
 # PUBLIC_ORIGIN
 #   Not a secret, and the value most likely to stop a first real run. Two
