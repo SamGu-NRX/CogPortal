@@ -41,10 +41,29 @@ def plugin_names(group: str) -> List[str]:
 def load_plugin(group: str, name: str, instantiate_classes: bool = True) -> Any:
     matches = [point for point in _unique_entry_points(group) if point.name == name]
     if not matches:
-        available = ", ".join(plugin_names(group)) or "none"
+        installed = plugin_names(group)
+        # Two readers, two sentences. A benchmark that is simply not
+        # installed is the ordinary case and the student's next step is one
+        # command, so say that and nothing else. `cogworks check` has always
+        # said it plainly ("Nothing was searched for, because X is not
+        # installed here"), and `cogworks run` answered the same situation
+        # with 'Entry-point group "cogworks.benchmarks.v1" has no
+        # "audio-identification" registration (available: none)', which names
+        # a Python packaging concept and no next step. Same cause, and the
+        # worse sentence was the one a student reaches after doing more work.
+        #
+        # The group and what is installed still matter when something IS
+        # installed, because then the likely fault is a name or a version
+        # rather than an absence, and the reader is more often us.
+        if not installed:
+            raise PluginError(
+                "{} is not installed here, so there is nothing to run. Install "
+                "the benchmark package for this week and run this again.".format(name)
+            )
         raise PluginError(
-            'Entry-point group "{}" has no "{}" registration (available: {}).'.format(
-                group, name, available
+            '"{}" is not among the benchmarks installed here ({}). Check the '
+            "spelling, or install the package that provides it.".format(
+                name, ", ".join(installed)
             )
         )
     if len(matches) > 1:
