@@ -249,3 +249,86 @@ class TheManifestDescribesTheImages(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AdviceIsWrittenAgainstTheRightImage(unittest.TestCase):
+    """A missing package is either ours to install or theirs to declare, and
+    which one depends on the track.
+
+    There are three graded environments. cv2 is in the Week 2 image and in
+    neither of the others, so "add cv2 to requirements.txt" is right for a
+    Week 1 repository and wrong for a Week 2 one. Getting it backwards sends
+    a team to fix something that is not broken, which is worse than saying
+    nothing: it looks like the platform knows.
+    """
+
+    def test_a_package_the_track_has_is_not_the_students_to_declare(self):
+        from cogbench import environment
+
+        week2 = environment.student_modules("week2")
+        self.assertIn("cv2", week2)
+        self.assertIn("torch", week2)
+
+    def test_the_tracks_genuinely_differ(self):
+        """If they did not, one global list would be correct and none of this
+        would be needed. Asserted so the claim stays true."""
+
+        from cogbench import environment
+
+        week1 = environment.student_modules("week1")
+        week2 = environment.student_modules("week2")
+        week3 = environment.student_modules("week3")
+        self.assertNotEqual(week1, week2)
+        self.assertNotEqual(week2, week3)
+        # The specific asymmetry the advice depends on.
+        self.assertIn("cv2", week2)
+        self.assertNotIn("cv2", week1)
+        self.assertIn("librosa", week1)
+        self.assertNotIn("librosa", week2)
+
+    def test_every_resolve_call_in_the_runner_names_its_benchmark(self):
+        """The advice is only per-track if the caller says which track.
+
+        Both hosted call sites omitted it, so every hosted refusal was
+        written against the union of the three images and told students to
+        declare packages the graded run already had.
+        """
+
+        import ast
+
+        source = (
+            Path(__file__).resolve().parents[3]
+            / "apps"
+            / "runner-modal"
+            / "src"
+            / "cogworks_runner"
+            / "modal_app.py"
+        ).read_text(encoding="utf-8")
+        module = ast.parse(source)
+
+        # Both calls live inside PREPARE_SCRIPT and EVALUATE_SCRIPT, which are
+        # string constants executed in the sandbox. Walking the file's own
+        # tree finds neither, so the scripts are parsed as the programs they
+        # are. An earlier version of this test walked only the file and passed
+        # against the very code it was written to catch.
+        trees = [module]
+        for node in module.body:
+            if isinstance(node, ast.Assign) and any(
+                getattr(t, "id", "").endswith("_SCRIPT") for t in node.targets
+            ):
+                trees.append(ast.parse(ast.literal_eval(node.value)))
+
+        calls = [
+            node
+            for tree in trees
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call) and getattr(node.func, "id", "") == "resolve"
+        ]
+        self.assertGreaterEqual(len(calls), 2, "expected the two hosted resolve calls")
+        for call in calls:
+            self.assertIn(
+                "benchmark",
+                [kw.arg for kw in call.keywords],
+                "resolve() at line {} must name its benchmark, or its advice "
+                "is written against the wrong image".format(call.lineno),
+            )

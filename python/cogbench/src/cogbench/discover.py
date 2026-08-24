@@ -267,6 +267,35 @@ class SkippedModule:
     missing: Optional[str] = None
 
 
+def owner_of_skip(entry: "SkippedModule", benchmark: str = "") -> str:
+    """Whose problem a skipped module is: ours, the environment's, or theirs.
+
+    The distinction decides what the platform is allowed to say. A module we
+    could not read because this machine lacks a package the graded run
+    installs is an absence we manufactured, and a verdict blaming the
+    repository for it is false. One genuinely absent from the graded run too
+    is worth naming, because the graded run fails the same way. A syntax
+    error is theirs.
+
+    ``benchmark`` selects the graded environment, because there are three and
+    they differ: Week 2 runs on Python 3.11 with torch and opencv, Week 1 and
+    Week 3 on a pinned 3.8 with their own package sets. Without it, the union
+    is used, which errs toward calling a skip ours. That is the safe
+    direction: it withholds a verdict rather than asserting a wrong one.
+    """
+
+    if entry.reason == "missing_dependency" and entry.missing:
+        from . import environment
+
+        if benchmark:
+            graded = environment.student_modules(environment.track_for(benchmark))
+        else:
+            graded = environment.all_student_modules()
+        root = entry.missing.split(".", 1)[0]
+        return "ours" if root in graded else "environment"
+    return "theirs"
+
+
 @dataclass(frozen=True)
 class RootChoice:
     """Which directory was searched, and why that one."""

@@ -160,6 +160,26 @@ class Submission:
         return record
 
 
+def _coverage_of(found, benchmark: str = ""):
+    """What the run read, and who owns each thing it could not.
+
+    Built here rather than in discovery because ownership depends on which
+    graded environment the repository is being read for, and discovery does
+    not know the benchmark.
+    """
+
+    from .discover import owner_of_skip
+    from .verdict import Coverage
+
+    return Coverage(
+        read=tuple(module.name for module in found.modules),
+        skipped=tuple(
+            (entry.name, entry.detail, owner_of_skip(entry, benchmark))
+            for entry in found.skipped
+        ),
+    )
+
+
 def resolve(
     repository: Path,
     *,
@@ -260,6 +280,7 @@ def resolve(
                 reached,
                 last_returned=refusal.last_returned,
                 next_step=_next_step_for_stall(found, benchmark),
+                coverage=_coverage_of(found, benchmark),
             ),
             discovery=found,
         )
@@ -374,6 +395,7 @@ def resolve(
                 "The benchmark found your fingerprinting but no pair of functions "
                 "that stores a song and then names it back."
             ),
+            coverage=_coverage_of(found, benchmark),
         ),
         discovery=found,
         chain=chain.steps,

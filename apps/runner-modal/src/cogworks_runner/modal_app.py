@@ -451,6 +451,12 @@ if resolved_by is None:
                 accepts=spec.accepts,
                 arrangements=spec.arrangements,
                 hints=spec.hints,
+                # Without this the advice is written against the union of all
+                # three images, so every missing package reads as one the
+                # student must declare. cv2 is in the Week 2 image; telling a
+                # Week 2 team to add it to requirements.txt sends them to fix
+                # something that is not broken.
+                benchmark=benchmark_id,
             )
             discovery = found.to_dict()
             if found.ready:
@@ -601,6 +607,7 @@ def _discovered_factory(benchmark_id):
         accepts=spec.accepts,
         arrangements=spec.arrangements,
         hints=spec.hints,
+        benchmark=benchmark_id,
     )
     if not found.ready:
         raise RuntimeError(

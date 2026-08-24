@@ -57,6 +57,7 @@ __all__ = [
     "not_read",
     "nothing_here",
     "scored",
+    "could_not_look",
 ]
 
 SCORED = "scored"
@@ -64,6 +65,11 @@ WIRED_BUT_WRONG = "wired_but_wrong"
 NOT_WIRED = "not_wired"
 NOT_READ = "not_read"
 NOTHING_HERE = "nothing_here"
+#: The run could not read part of the repository for a reason that is ours,
+#: so no verdict about their code is supported. Not a sixth kind of judgment:
+#: it is the refusal to judge, which is what an instrument does when it knows
+#: it is out of calibration.
+COULD_NOT_LOOK = "could_not_look"
 
 #: How much of a value to show. Long enough to see a shape and a first element,
 #: short enough that a report stays readable.
@@ -123,6 +129,62 @@ class Observation:
 
 
 @dataclass(frozen=True)
+class Coverage:
+    """How much of the repository the run actually read.
+
+    A verdict says what we concluded. This says what we looked at, and the
+    two are different axes. The case that proves they have to be separate is
+    a SCORED run: if a team's best implementation sits in a module that
+    failed to import, the search binds a weaker candidate from what is left
+    and publishes a real number that is wrong for that repository. No verdict
+    describes that. Only the coverage does.
+
+    Skips have owners, and the owner decides what may be said:
+
+    ``ours``
+        A package the graded run installs but this machine does not have, or
+        a loader defect. The absence is manufactured by us, so a verdict
+        that blames the repository is false. `read_enough_to_judge` is False.
+    ``environment``
+        A package genuinely absent from the graded run too. The verdict
+        stands and the skip is worth naming, because the graded run will
+        fail the same way and saying so early is the point of a local check.
+    ``theirs``
+        A syntax error, or a module that raises on import. The verdict
+        stands and the attribution is now true.
+    """
+
+    read: Tuple[str, ...] = ()
+    #: (module, reason, owner) for each module that could not be read.
+    skipped: Tuple[Tuple[str, str, str], ...] = ()
+
+    @property
+    def ours(self) -> Tuple[str, ...]:
+        return tuple(name for name, _reason, owner in self.skipped if owner == "ours")
+
+    @property
+    def read_enough_to_judge(self) -> bool:
+        """Whether a verdict about their code is supported by this run.
+
+        False when we manufactured an absence. A module we could not read for
+        our own reasons might be the one holding their pipeline, and there is
+        no way to know without reading it.
+        """
+
+        return not self.ours
+
+    def to_dict(self) -> Dict[str, object]:
+        return {
+            "read": list(self.read),
+            "skipped": [
+                {"module": name, "reason": reason, "owner": owner}
+                for name, reason, owner in self.skipped
+            ],
+            "readEnoughToJudge": self.read_enough_to_judge,
+        }
+
+
+@dataclass(frozen=True)
 class Verdict:
     """What happened, and the one thing worth doing about it."""
 
@@ -137,10 +199,13 @@ class Verdict:
     next_step: str = ""
     #: Anything a reader might want that does not belong in the headline.
     notes: Tuple[str, ...] = ()
+    #: What the run read and what it could not. Travels with every verdict,
+    #: because it qualifies all of them; see Coverage.
+    coverage: Coverage = field(default_factory=Coverage)
 
     @property
     def is_failure(self) -> bool:
-        return self.status in (NOT_WIRED, NOT_READ, NOTHING_HERE)
+        return self.status in (NOT_WIRED, NOT_READ, NOTHING_HERE, COULD_NOT_LOOK)
 
     @property
     def is_theirs_to_fix(self) -> bool:
@@ -169,6 +234,7 @@ class Verdict:
             ],
             "nextStep": self.next_step,
             "notes": list(self.notes),
+            "coverage": self.coverage.to_dict(),
         }
 
     def render(self) -> str:
@@ -240,6 +306,7 @@ def not_wired(
     *,
     last_returned: str = "",
     next_step: str = "",
+    coverage: Optional["Coverage"] = None,
 ) -> Verdict:
     """No chain of their functions performs the task.
 
@@ -247,6 +314,16 @@ def not_wired(
     "we could not score you" is not usable and "nothing accepted what
     make_spectrogram returned" is.
     """
+
+    coverage = coverage or Coverage()
+    # NOT_WIRED asserts that we read the code and no chain of it does the
+    # task. When we manufactured an absence, we did not read the code, and
+    # the module we skipped may be the one holding their pipeline. Measured:
+    # three Week 2 repositories were reported NOT_WIRED while the modules
+    # holding their clustering were skipped for packages the graded run
+    # installs. Refusing here is what stops that sentence being written.
+    if not coverage.read_enough_to_judge:
+        return could_not_look(coverage, next_step=next_step)
 
     if trace:
         headline = (
@@ -260,7 +337,34 @@ def not_wired(
             "Nothing in your repository accepted the input the {} step "
             "passes.".format(stage)
         )
-    return Verdict(NOT_WIRED, headline, tuple(trace), next_step=next_step)
+    return Verdict(
+        NOT_WIRED, headline, tuple(trace), next_step=next_step, coverage=coverage
+    )
+
+
+def could_not_look(coverage: "Coverage", *, next_step: str = "") -> Verdict:
+    """We could not read enough of the repository to say anything about it.
+
+    The honest answer when the skip is ours. It names the modules and the
+    reason, and it does not guess at what was in them.
+    """
+
+    # Name a few and count the rest. One repository skips eight modules for
+    # one missing package, and a headline listing all eight buries the fact
+    # that they share a cause and that the cause is ours.
+    names = list(coverage.ours)
+    shown = ", ".join(names[:3])
+    if len(names) > 3:
+        shown += " and {} more".format(len(names) - 3)
+    return Verdict(
+        COULD_NOT_LOOK,
+        "This machine is missing packages your code imports, so {} could not "
+        "be read here. That is this check's limit, not a problem with your "
+        "repository: the graded run installs them and will read those "
+        "files.".format(shown),
+        next_step=next_step,
+        coverage=coverage,
+    )
 
 
 def not_read(module: str, reason: str, *, next_step: str = "") -> Verdict:
