@@ -380,3 +380,149 @@ class ReportingContract(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _plugins_importable() -> bool:
+    """Whether this interpreter can load a benchmark plugin.
+
+    The drift check compares a deployed row against the local plugin, so it
+    needs both. `scripts/make_test_env.py` builds an interpreter that has
+    them; a bare one does not, and the check correctly says UNKNOWN there.
+    """
+
+    try:
+        from cogbench.plugins import load_benchmark
+
+        load_benchmark("vision-clustering")
+        return True
+    except Exception:
+        return False
+
+
+class DeployedDriftIsCaught(unittest.TestCase):
+    """The environment a dispatch lands in is not this checkout.
+
+    Every other check reads local files and the local D1. Measured on
+    2026-08-24: the deployed portal reported `scorerVersion: 1` and
+    `datasetVersion: practice-v1` for all three benchmarks, which are the
+    column defaults migration 0005 writes, so that database had never run
+    migration 0013 onward. It also offered `audio-recognition`, an id that no
+    longer exists. A dispatch would have been refused at contract_check for a
+    reason with nothing to do with dispatch.
+    """
+
+    def _deployed(self, payload, monkey):
+        """Run the check against a canned /api/benchmarks response."""
+
+        import preflight_dispatch as module
+
+        class _Result:
+            returncode = 0
+            stdout = payload
+
+        original = module.subprocess.run
+        module.subprocess.run = lambda *a, **k: _Result()
+        try:
+            return module.check_deployed_agrees("https://example.invalid")
+        finally:
+            module.subprocess.run = original
+
+    @unittest.skipUnless(_plugins_importable(), "benchmark plugins not on this path")
+    def test_a_stale_row_fails_and_names_both_values(self):
+        checks = self._deployed(
+            '[{"id":"vision-clustering","version":1,"contractVersion":'
+            '"cogworks.submissions.v1","pluginVersion":"0.1.0",'
+            '"datasetVersion":"practice-v1","scorerVersion":"1"}]',
+            None,
+        )
+        self.assertEqual(len(checks), 1)
+        self.assertEqual(checks[0].status, FAIL)
+        # Both sides, so a reader can see which way the drift runs without
+        # going to look one of them up.
+        self.assertIn("deployed=", checks[0].reason)
+        self.assertIn("local=", checks[0].reason)
+
+    @unittest.skipUnless(_plugins_importable(), "benchmark plugins not on this path")
+    def test_a_benchmark_that_no_longer_exists_fails(self):
+        checks = self._deployed(
+            '[{"id":"audio-recognition","version":1,"contractVersion":"v1",'
+            '"pluginVersion":"0.1.0","datasetVersion":"practice-v1",'
+            '"scorerVersion":"1"}]',
+            None,
+        )
+        self.assertEqual(checks[0].status, FAIL)
+        self.assertIn("no longer exists", checks[0].fix)
+
+    def test_without_the_plugins_it_says_unknown_rather_than_guessing(self):
+        """A comparison needs both sides. Missing the local one is a fact
+        about this interpreter, not about the deployed environment, and
+        reporting it as drift would send someone to redeploy for no reason."""
+
+        if _plugins_importable():
+            self.skipTest("plugins are importable here")
+        checks = self._deployed(
+            '[{"id":"vision-clustering","version":1,"contractVersion":"v1",'
+            '"pluginVersion":"0.1.0","datasetVersion":"practice-v1",'
+            '"scorerVersion":"1"}]',
+            None,
+        )
+        self.assertEqual(checks[0].status, UNKNOWN)
+
+    def test_an_unreachable_origin_is_unknown_rather_than_failed(self):
+        """Reachability is not the dispatch path. Reporting it as a failure
+        would say the platform is broken when the network is."""
+
+        import preflight_dispatch as module
+
+        class _Result:
+            returncode = 7
+            stdout = ""
+
+        original = module.subprocess.run
+        module.subprocess.run = lambda *a, **k: _Result()
+        try:
+            checks = module.check_deployed_agrees("https://example.invalid")
+        finally:
+            module.subprocess.run = original
+        self.assertEqual(checks[0].status, UNKNOWN)
+
+
+class TheCallbackRouteProbeReadsTheStatus(unittest.TestCase):
+    """401 and 405 mean opposite things and both look like "it didn't work".
+
+    `verifyRunnerEvent` runs before the body is parsed, so an unsigned POST
+    to a deployed route is a 401. A 405 means the route is not there at all,
+    which is invisible from a GET because the SPA catch-all answers those
+    with 200.
+    """
+
+    def _status(self, code):
+        import preflight_dispatch as module
+
+        class _Result:
+            returncode = 0
+            stdout = code
+
+        original = module.subprocess.run
+        module.subprocess.run = lambda *a, **k: _Result()
+        try:
+            return module.check_callback_route_is_live("https://example.invalid")
+        finally:
+            module.subprocess.run = original
+
+    def test_401_is_the_route_working(self):
+        check = self._status("401")
+        self.assertEqual(check.status, PASS)
+
+    def test_405_is_the_route_missing_and_says_what_it_costs(self):
+        check = self._status("405")
+        self.assertEqual(check.status, FAIL)
+        # The consequence, not just the code: a lost event strands the run.
+        self.assertIn("strands", check.fix)
+
+    def test_anything_else_is_unknown(self):
+        """A 500 or a 302 is not a yes and not a no, and guessing which
+        would be the whole failure this file exists to prevent."""
+
+        for code in ("500", "302", "200", ""):
+            self.assertEqual(self._status(code).status, UNKNOWN, code)

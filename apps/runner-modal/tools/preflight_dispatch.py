@@ -1007,6 +1007,195 @@ def run_checks(
     return checks
 
 
+def check_deployed_agrees(origin: str) -> List[Check]:
+    """Whether the environment that will actually run the job is current.
+
+    Every other check here reads this checkout and the local D1. A dispatch
+    goes somewhere else, and that somewhere can be arbitrarily old. Measured
+    on 2026-08-24, before this check existed: the deployed portal reported
+    `scorerVersion: 1` and `datasetVersion: practice-v1` for all three
+    benchmarks, which are the placeholder values migration 0005 writes as
+    column defaults. So the deployed database had never run migration 0013
+    onward, and every benchmark row there described a benchmark that no
+    longer exists. It also listed `audio-recognition`, an id that has since
+    been replaced.
+
+    A dispatch into that would have failed at contract_check, correctly, for
+    a reason with nothing to do with whether dispatch works. That is the
+    worst kind of first run: it teaches you nothing and it looks like it
+    taught you something.
+
+    The check is read-only and needs no credentials: `/api/benchmarks` is
+    public. It reports what disagrees rather than deciding what to do about
+    it, because the fix differs (apply migrations, or redeploy the worker,
+    or both) and only a person knows which environment they meant.
+    """
+
+    url = origin.rstrip("/") + "/api/benchmarks"
+    try:
+        # curl rather than urllib: Cloudflare answers urllib's default agent
+        # with 403, which reads as "the portal is down" and is not.
+        result = subprocess.run(
+            ["curl", "-s", "--max-time", "20", url],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0 or not result.stdout.strip():
+            return [
+                unknown(
+                    "deployed benchmarks",
+                    "{} did not answer".format(url),
+                    "Confirm the origin is right and reachable. This check is "
+                    "read-only and needs no credentials.",
+                )
+            ]
+        deployed = {row["id"]: row for row in json.loads(result.stdout)}
+    except Exception as error:  # noqa: BLE001
+        return [
+            unknown(
+                "deployed benchmarks",
+                "could not read {}: {}".format(url, str(error)[:120]),
+                "This check is read-only. A failure here is about reachability, "
+                "not about the dispatch path.",
+            )
+        ]
+
+    try:
+        from cogbench.plugins import load_benchmark
+    except Exception as error:  # noqa: BLE001
+        return [
+            unknown(
+                "deployed benchmarks",
+                "cogbench could not be imported: {}".format(str(error)[:120]),
+                "Use an interpreter with the benchmark packages; "
+                "scripts/make_test_env.py builds one.",
+            )
+        ]
+
+    # The five fields the runner compares at contract_check, in the shape the
+    # public API reports them.
+    wire = {
+        "benchmark_version": "version",
+        "contract_version": "contractVersion",
+        "plugin_version": "pluginVersion",
+        "dataset_version": "datasetVersion",
+        "scorer_version": "scorerVersion",
+    }
+
+    checks: List[Check] = []
+    for identifier in sorted(deployed):
+        try:
+            plugin = load_benchmark(identifier)
+        except Exception:  # noqa: BLE001
+            checks.append(
+                bad(
+                    "deployed benchmark ({})".format(identifier),
+                    "the deployed portal offers this benchmark and this "
+                    "checkout has no plugin for it",
+                    "The deployed database is describing a benchmark that no "
+                    "longer exists. Apply the pending migrations to that "
+                    "environment.",
+                )
+            )
+            continue
+        disagreements = [
+            "{}: deployed={!r} local={!r}".format(
+                field, deployed[identifier].get(field), getattr(plugin, attribute, None)
+            )
+            for attribute, field in wire.items()
+            if str(getattr(plugin, attribute, None)) != str(deployed[identifier].get(field))
+        ]
+        if disagreements:
+            checks.append(
+                bad(
+                    "deployed benchmark ({})".format(identifier),
+                    "; ".join(disagreements),
+                    "The job would be refused at contract_check. Apply the "
+                    "pending migrations to that environment before "
+                    "dispatching to it.",
+                )
+            )
+        else:
+            checks.append(
+                ok(
+                    "deployed benchmark ({})".format(identifier),
+                    "deployed row and local plugin agree on all five fields",
+                )
+            )
+    return checks
+
+
+def check_callback_route_is_live(origin: str) -> Check:
+    """Whether the deployed portal can receive a runner event at all.
+
+    One unsigned POST separates two states that look identical from the
+    outside and have nothing to do with each other:
+
+    ``401``
+        The route exists and rejected the request for want of a signature.
+        `verifyRunnerEvent` runs before the body is parsed, so this is the
+        correct answer to an unsigned POST and it proves the whole return
+        half is deployed.
+    ``405``
+        The route is not there. The SPA catch-all answers a GET with 200,
+        which is why this has to be a POST: a GET says the origin is up and
+        says nothing about whether it can take an event.
+
+    Measured on 2026-08-24: both deployed environments answered 405 with an
+    empty body. A dispatch then would have run to completion in Modal and
+    posted every event into a void, and the run would have sat in `queued`
+    until the stale reaper resolved it an hour later. That is the failure
+    this check exists to make impossible to walk into, because it looks like
+    a hung run rather than a missing route.
+
+    Nothing is signed here on purpose. A valid signature would prove more and
+    would need the secret; this needs no credentials and can be run by anyone
+    against any environment.
+    """
+
+    url = origin.rstrip("/") + "/internal/v1/runner/events"
+    try:
+        result = subprocess.run(
+            [
+                "curl", "-s", "-o", "/dev/null", "-w", "%{http_code}",
+                "--max-time", "20", "-X", "POST", url,
+                "-H", "content-type: application/json", "-d", "{}",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        status = (result.stdout or "").strip()
+    except Exception as error:  # noqa: BLE001
+        return unknown(
+            "callback route",
+            "could not reach {}: {}".format(url, str(error)[:120]),
+            "This is a reachability failure, not a dispatch failure.",
+        )
+
+    if status == "401":
+        return ok(
+            "callback route",
+            "deployed and refusing an unsigned event, which is the right answer",
+        )
+    if status == "405":
+        return bad(
+            "callback route",
+            "{} answered 405, so the route is not deployed there".format(url),
+            "That environment is running a build without the runner callback. "
+            "Deploy the worker from this commit before dispatching to it, or "
+            "every event the sandbox posts is lost and the run strands in "
+            "`queued` until the stale reaper resolves it.",
+        )
+    return unknown(
+        "callback route",
+        "{} answered {}".format(url, status or "nothing"),
+        "Expected 401 (deployed, unsigned rejected) or 405 (not deployed). "
+        "Anything else needs a person to look at it.",
+    )
+
+
 def _node_error(error: Exception) -> str:
     """The message out of a node stack trace, not the frame it happened in.
 
@@ -1064,6 +1253,17 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         default=DEFAULT_ENV_FILE,
         help="dotenv file to read (default: apps/portal/.dev.vars)",
     )
+    parser.add_argument(
+        "--deployed",
+        metavar="ORIGIN",
+        help=(
+            "also check a deployed portal, e.g. "
+            "https://cogportal-dev.sillion.app. Read-only and unauthenticated: "
+            "it reads /api/benchmarks and compares the five version fields the "
+            "runner compares at contract_check. Every other check here reads "
+            "this checkout, which is not where a dispatch lands."
+        ),
+    )
     arguments = parser.parse_args(argv)
 
     values, found = load_values(arguments.env_file, dict(os.environ))
@@ -1092,6 +1292,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     with tempfile.TemporaryDirectory(prefix="cogworks-preflight-") as directory:
         checks = run_checks(values, node, Path(directory), benchmarks, reason)
+        if arguments.deployed:
+            checks.append(check_callback_route_is_live(arguments.deployed))
+            checks.extend(check_deployed_agrees(arguments.deployed))
         status = report(checks)
 
     print("")
