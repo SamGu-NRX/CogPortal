@@ -21,6 +21,65 @@ and which need you to go and look.
 
 ---
 
+## 0. Find out what is actually deployed
+
+Measured 2026-08-24, and the reason this section is numbered zero rather than
+appended at the end: the two deployed environments are further behind than
+"a month stale."
+
+```sh
+python apps/runner-modal/tools/preflight_dispatch.py \
+  --deployed https://cogportal-dev.sillion.app
+```
+
+Both `cogportal-dev.sillion.app` and `cogportal.sillion.app` reported:
+
+```
+callback route        FAIL  answered 405, so the route is not deployed there
+deployed benchmark    FAIL  scorerVersion: deployed='1' local='clustering-v2'
+                            datasetVersion: deployed='practice-v1' local='celeba-manifests-v1'
+deployed benchmark    FAIL  audio-recognition: deployed offers it, no local plugin
+```
+
+Two separate findings, and each one on its own is enough to make a first
+dispatch meaningless.
+
+**The callback route has no signing secret.** An unsigned POST to
+`/api/internal/v1/runner/events` answers 501, which `verifyRunnerEvent`
+returns before it looks at a signature when `RUNNER_SIGNING_SECRET` is
+absent. The route is deployed; it simply cannot accept anything. Dispatch
+into that and the sandbox runs to completion and posts every event into a
+void, and the run sits in `queued` until the stale reaper resolves it an hour
+later, which reads as a hang rather than as a configuration gap.
+
+Mind the path. The handler registers on the `api` router and `index.ts`
+mounts that at `/api`, so an event goes to `/api/internal/v1/runner/events`.
+Probing without the prefix answers 405 from the single-page app catch-all,
+which reads exactly like "the route is not deployed." That cost an hour here:
+the wrong path reported 405 against a local dev server running the current
+commit, which is what gave it away.
+
+**The database is on placeholder rows.** `scorerVersion: 1` and
+`datasetVersion: practice-v1` are the column defaults migration 0005 writes.
+Those databases have never run migration 0013 onward. They also list
+`audio-recognition`, a benchmark id that no longer exists. The runner refuses
+a job at `contract_check` when the row and the plugin disagree on any of five
+fields, which is a guard worth having and which means a dispatch today fails
+for a reason that has nothing to do with whether dispatch works.
+
+So the first honest statement about this platform is not "hosted execution
+has never been switched on." It is that the portal, the Modal images, the
+plugins, and the database rows are one contract living in four places, and
+those four places have never been deployed from the same commit.
+
+Do not sequence the fix. Deploying three of the four is not a smaller change,
+it is an inconsistent one, and a dispatch against a partly-updated system
+fails at `contract_check` with a cause you can already read from the two
+checks above. Deploy the set together, then run the probes below, then flip
+the provider as the only variable that changes at dispatch time.
+
+---
+
 ## Before you start: what fixture mode was hiding
 
 In fixture mode `dispatch()` in `apps/portal/worker/services/run-actions.ts`
@@ -183,20 +242,44 @@ only resolves on your machine dispatches successfully and then strands the run:
 every `_post_event` call fails, the run sits in `queued` in D1, and only the
 stale reaper resolves it, after an hour.
 
-Two honest options.
+This section used to offer two options, a tunnel or fire-and-forget, and both
+were answers to a question that has a better one. Staging is a real Cloudflare
+Worker on a real https origin with a real D1, and Modal can already reach it.
+It was written before that was true.
 
-**Option A, a public tunnel.** Expose your local dev server on a public https
-host and set `PUBLIC_ORIGIN` to it. This is the only way to see the whole loop
-work locally: dispatch, events arriving, the run page updating, refunds firing.
-It is what you want before believing the platform works.
+**Use staging.** It is the only choice that produces the thing worth having,
+which is a permanent run id someone can open in a month, and it exercises the
+exact code production will run: `origin()`, the D1 phase transitions, callback
+ingestion, the run page, the refund path. Use a clearly labelled synthetic
+team. `wrangler tail` gives you the live log a tunnel would have, and
+`wrangler deploy` iterates in seconds.
 
-**Option B, fire and forget.** Leave the callback pointed somewhere Modal cannot
-reach, accept that the run will strand, and read the result from Modal's own
-logs instead. This tells you the sandboxes work and tells you nothing about the
-portal half. Reasonable when you only want to test the runner.
+**A tunnel is a debugging tool, not the first run.** Reach for it only if a
+staging run fails in a way that needs stepping through Worker code. It is a
+third environment that will not exist tomorrow, so evidence gathered there is
+about nothing that persists, and it adds a component to exactly the run you
+want fewest variables in.
 
-Whichever you choose, know which one you chose. A stranded run is not a failed
+**Fire and forget proves nothing new.** The sandboxes have already been smoke
+tested directly. Watching them work again without the portal half is not
+progress toward this gate.
+
+Whichever you pick, know which one you picked. A stranded run is not a failed
 run, and reading it as one sends you looking for a bug that is not there.
+
+### Split the loop before you close it
+
+The return half can be tested without Modal at all, and it is worth doing
+first because it isolates a failure that otherwise only shows up as a 401 in
+the middle of a full run.
+
+The signing agreement check in `preflight_dispatch.py` proves the two
+implementations compute the same signature over the same bytes. It says
+nothing about whether the deployed secrets match, and a key that differs
+between the Worker and the Modal secret fails exactly like a signing bug.
+Post one hand-signed synthetic event to staging: that exercises the route,
+the deployed secret, verification, and the database write, with no sandbox
+involved. Only a call originating from Modal proves Modal's copy of the key.
 
 ---
 

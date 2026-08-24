@@ -1126,6 +1126,14 @@ def check_deployed_agrees(origin: str) -> List[Check]:
     return checks
 
 
+#: Where the runner posts events. The handler registers on the `api` router
+#: and `index.ts` mounts that at `/api`, so the full path carries that prefix.
+#: Probing `/internal/v1/runner/events` answers 405 from the single-page app
+#: catch-all, which reads exactly like "the route is not deployed" and is not.
+#: Measured: the wrong path said 405 on a local dev server running the current
+#: commit, which is what caught it.
+CALLBACK_PATH = "/api/internal/v1/runner/events"
+
 def check_callback_route_is_live(origin: str) -> Check:
     """Whether the deployed portal can receive a runner event at all.
 
@@ -1154,7 +1162,7 @@ def check_callback_route_is_live(origin: str) -> Check:
     against any environment.
     """
 
-    url = origin.rstrip("/") + "/internal/v1/runner/events"
+    url = origin.rstrip("/") + CALLBACK_PATH
     try:
         result = subprocess.run(
             [
@@ -1179,10 +1187,20 @@ def check_callback_route_is_live(origin: str) -> Check:
             "callback route",
             "deployed and refusing an unsigned event, which is the right answer",
         )
+    if status == "501":
+        return bad(
+            "callback route",
+            "the route is deployed and RUNNER_SIGNING_SECRET is not set there",
+            "`verifyRunnerEvent` returns 501 before it looks at the signature "
+            "when the secret is absent, so every event the sandbox posts is "
+            "refused and the run strands. Set it with "
+            "`wrangler secret put RUNNER_SIGNING_SECRET --env <environment>`, "
+            "using the same value as the Modal secret.",
+        )
     if status == "405":
         return bad(
             "callback route",
-            "{} answered 405, so the route is not deployed there".format(url),
+            "{} answered 405, so nothing handles a POST there".format(url),
             "That environment is running a build without the runner callback. "
             "Deploy the worker from this commit before dispatching to it, or "
             "every event the sandbox posts is lost and the run strands in "
@@ -1191,7 +1209,8 @@ def check_callback_route_is_live(origin: str) -> Check:
     return unknown(
         "callback route",
         "{} answered {}".format(url, status or "nothing"),
-        "Expected 401 (deployed, unsigned rejected) or 405 (not deployed). "
+        "Expected 401 (live, unsigned rejected), 501 (live, no secret), or "
+        "405 (nothing there). "
         "Anything else needs a person to look at it.",
     )
 

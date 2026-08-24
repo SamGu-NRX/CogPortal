@@ -514,11 +514,29 @@ class TheCallbackRouteProbeReadsTheStatus(unittest.TestCase):
         check = self._status("401")
         self.assertEqual(check.status, PASS)
 
-    def test_405_is_the_route_missing_and_says_what_it_costs(self):
+    def test_405_is_nothing_handling_the_post(self):
         check = self._status("405")
         self.assertEqual(check.status, FAIL)
-        # The consequence, not just the code: a lost event strands the run.
         self.assertIn("strands", check.fix)
+
+    def test_501_is_a_live_route_with_no_secret(self):
+        """The third state, and the one that cost an hour. `verifyRunnerEvent`
+        returns 501 before it looks at a signature when the secret is absent,
+        so this is a live route that will refuse every real event."""
+
+        check = self._status("501")
+        self.assertEqual(check.status, FAIL)
+        self.assertIn("wrangler secret put", check.fix)
+
+    def test_the_probed_path_carries_the_api_prefix(self):
+        """The handler registers on the `api` router and index.ts mounts that
+        at /api. Probing without the prefix answers 405 from the single-page
+        app catch-all, which reads exactly like a missing route. Measured: the
+        wrong path said 405 against a local server on the current commit."""
+
+        import preflight_dispatch as module
+
+        self.assertTrue(module.CALLBACK_PATH.startswith("/api/"))
 
     def test_anything_else_is_unknown(self):
         """A 500 or a 302 is not a yes and not a no, and guessing which
@@ -526,3 +544,58 @@ class TheCallbackRouteProbeReadsTheStatus(unittest.TestCase):
 
         for code in ("500", "302", "200", ""):
             self.assertEqual(self._status(code).status, UNKNOWN, code)
+
+
+class TheCallbackProbeSignsTheWayTheWorkerDoes(unittest.TestCase):
+    """The probe's signature has to match the Worker's, or it proves nothing.
+
+    `hmacSignature` in worker/execution/runner.ts signs `${timestamp}.${body}`
+    with HMAC-SHA256 and hex-encodes it. The probe reimplements that in eleven
+    lines of stdlib, deliberately, because two implementations agreeing is
+    evidence and one implementation calling itself is not. This pins the
+    reimplementation to the same vectors the preflight already checks the
+    Worker against.
+    """
+
+    def _sign(self, secret, timestamp, body):
+        sys.path.insert(0, str(ROOT / "apps" / "runner-modal" / "tools"))
+        from probe_callback import signature
+
+        return signature(secret, timestamp, body)
+
+    def test_it_signs_timestamp_dot_body(self):
+        import hashlib
+        import hmac
+
+        secret, timestamp, body = "s3cret", "1756000000", '{"a":1}'
+        expected = hmac.new(
+            secret.encode("utf-8"),
+            "{}.{}".format(timestamp, body).encode("utf-8"),
+            hashlib.sha256,
+        ).hexdigest()
+        self.assertEqual(self._sign(secret, timestamp, body), expected)
+
+    def test_non_ascii_bodies_sign_as_utf8(self):
+        """A student repository name can carry anything. The Worker encodes
+        with TextEncoder, which is utf-8, so this has to agree byte for byte
+        rather than by however Python happens to default."""
+
+        import hashlib
+        import hmac
+
+        secret, timestamp, body = "s3cret", "1756000000", '{"name":"café ☕"}'
+        expected = hmac.new(
+            secret.encode("utf-8"),
+            "{}.{}".format(timestamp, body).encode("utf-8"),
+            hashlib.sha256,
+        ).hexdigest()
+        self.assertEqual(self._sign(secret, timestamp, body), expected)
+
+    def test_the_probe_run_id_cannot_be_a_real_run(self):
+        """A pass must write nothing. The id is refused at the run lookup,
+        before anything is inserted."""
+
+        sys.path.insert(0, str(ROOT / "apps" / "runner-modal" / "tools"))
+        from probe_callback import PROBE_RUN_ID
+
+        self.assertIn("does_not_exist", PROBE_RUN_ID)
