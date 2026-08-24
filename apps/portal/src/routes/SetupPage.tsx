@@ -244,9 +244,19 @@ function SetupGuide({
                 Activate the course environment your instructor provided, then
                 install the lightweight CLI from the TestPyPI pilot channel.
               </p>
+              {/*
+                Deliberately unpinned, where almost everything else here is
+                pinned. This tool reads your repository and tells you what it
+                found, so an old copy does not give a stale answer, it gives a
+                wrong one: 0.1.0 printed nine lines of True and False and named
+                no next step. A student holding that version would be reading a
+                report the platform stopped producing. `--upgrade` costs one
+                network check and always gets the version that matches what the
+                graded run does.
+              */}
               <Code
                 lang="bash"
-                code="python -m pip install --index-url https://test.pypi.org/simple/ --no-deps cogworks-benchmark==0.1.0"
+                code="python -m pip install --upgrade --index-url https://test.pypi.org/simple/ --no-deps cogworks-benchmark"
               />
               <p className="text-[12px] text-ink-faint">
                 The package is named <code className="font-mono">cogworks-benchmark</code>;

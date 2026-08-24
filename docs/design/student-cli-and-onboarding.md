@@ -33,7 +33,7 @@ different names:
 The pilot install is:
 
 ```sh
-python -m pip install --index-url https://test.pypi.org/simple/ --no-deps cogworks-benchmark==0.1.0
+python -m pip install --upgrade --index-url https://test.pypi.org/simple/ --no-deps cogworks-benchmark
 ```
 
 TestPyPI is a release proof, not the permanent course channel. After the
@@ -104,7 +104,7 @@ the instructor-provided course environment, the sequence is:
 ```sh
 git clone https://github.com/TEAM/REPOSITORY.git
 cd REPOSITORY
-python -m pip install --index-url https://test.pypi.org/simple/ --no-deps cogworks-benchmark==0.1.0
+python -m pip install --upgrade --index-url https://test.pypi.org/simple/ --no-deps cogworks-benchmark
 python -m pip install -r requirements-cogbench-pilot.txt
 python -m pip install -e .
 cogworks link --portal https://PORTAL-ORIGIN

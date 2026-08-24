@@ -4,7 +4,17 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cogworks-benchmark"
-version = "0.1.0"
+# 0.2.0, because what `cogworks check` prints is a different thing from what
+# 0.1.0 printed and a student cannot be left holding the old one. 0.1.0 said
+# nine lines of True and False (`benchmarkLoadable False`) and named no next
+# step; this one reads the repository, reports which of their own functions
+# it wired up, and says which packages the graded run has that this machine
+# does not. Same command, unrecognizably different answer.
+#
+# The number also has to move for a plainer reason: 0.1.0 is already on
+# TestPyPI, and an index refuses a second upload of one version. Publishing
+# is `publish-testpypi.yml`, dispatched by hand.
+version = "0.2.0"
 description = "Offline-first CogWorks benchmark SDK and CLI"
 readme = "README.md"
 requires-python = ">=3.8"

@@ -13,7 +13,7 @@ module:  python -m cogbench
 The TestPyPI pilot install is:
 
 ```sh
-python -m pip install --index-url https://test.pypi.org/simple/ --no-deps cogworks-benchmark==0.1.0
+python -m pip install --upgrade --index-url https://test.pypi.org/simple/ --no-deps cogworks-benchmark
 cogworks --help
 ```
 
