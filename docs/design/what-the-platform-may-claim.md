@@ -151,3 +151,66 @@ and they stop being available as evidence the moment the fix lands.
 
 The platform reports a reading together with the conditions under which the
 reading is valid. That is what it already asks of the students.
+
+## Who wrote this byte, and had they run student code yet?
+
+The rule above governs what the platform says about a repository. The same
+failure has a second form, which is what the platform says about itself.
+
+A failed official run either spends one of a team's three attempts or gives
+it back. The controller decided which by reading a marker the sandbox wrote
+to stderr, under a comment asserting the submission could not forge it. The
+assertion was false: `redirect_stderr` rebinds a Python object and leaves
+file descriptor 2 alone, so `os.write(2, ...)` from any student module put
+the marker on the pipe the controller reads. Unlimited refunded attempts,
+and a run page blaming our model cache for the student's bug.
+
+Two earlier fixes had already moved attribution once each: from the adapter
+name, to the words in the exception message, to this marker. Each fix was
+locally correct. Each relocated the trusted channel rather than removing the
+need to trust, so the third defect is the same defect.
+
+The rule that ends the sequence:
+
+**After a process imports student code, everything it emits is student
+speech.** Not stderr in particular. The exit code (`os._exit` beats the
+`SystemExit` the runner would raise), the files it writes, the signals it
+raises. Containment inside the process is not a boundary against code
+running in that process. Only a process boundary, a sandbox boundary, or a
+time boundary counts, and the time boundary means bytes written before the
+import.
+
+A useful corollary: **the sandbox may confess, never accuse.** A claim
+against the writer's own interest is safe to believe, because forging it
+costs the forger an attempt. A claim in the writer's favor has to be
+computed by the controller from what the controller itself observed.
+
+### The review question
+
+"Can the untrusted party influence this?" was asked here, and answered
+wrongly, because it invites a plausibility argument about an abstraction and
+`redirect_stderr` was a plausible abstraction. The replacement asks for a
+fact:
+
+> For every branch that benefits the submission, name the process that wrote
+> each byte the condition reads, and say whether that process had executed
+> student code by the time it wrote it. If it had, the branch fails review.
+
+Thirty seconds, and the answer here was "the compromised process, yes."
+
+### The mechanical form
+
+`apps/runner-modal/tests/test_forgery_corpus.py`. One hostile submission per
+attack, run through the real sandbox script, each asserting on the outcome
+(the attempt was consumed, the failure is the submission's) rather than on
+the classifier that produced it. A test written against the mechanism passes
+again the moment the mechanism moves, which is exactly how this defect
+survived two fixes.
+
+Every historical exploit stays in the corpus after it is fixed, because the
+way this class returns is that someone re-adds a channel nobody still tests.
+Four of the seven fixtures fail against the code they were written for.
+
+One more rule, which this defect's own comment argues for: **a claim in
+prose that something cannot be forged requires a fixture that tries.** Five
+lines would have falsified this one the day it was written.
