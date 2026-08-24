@@ -29,6 +29,7 @@ standing in for it. Both exist because either alone leaves a real gap.
 
 from __future__ import annotations
 
+import ast
 import sys
 import unittest
 from pathlib import Path
@@ -194,3 +195,43 @@ class TheStudentPythonPathsComeFromOnePlace(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EveryImageDrawsToMemory(unittest.TestCase):
+    """No sandbox image may leave matplotlib's backend to chance.
+
+    Student code plots. One 2026 team's `whispers` calls `plt.show()` inside
+    its iteration loop, which is the right thing to write for a notebook and
+    fatal in a sandbox: the call waits for a human to close a window, and
+    nobody is there. Measured locally, where the default backend resolves to
+    MacOSX, a resolve against that repository sat in `_macosx.show` inside a
+    CoreFoundation run loop until it was killed.
+
+    Week 1's image set MPLBACKEND from the start. Weeks 2 and 3 did not, so
+    the same student code would have burned a whole evaluation timeout and
+    reported it as the submission running out of time.
+    """
+
+    def test_all_three_sandbox_images_set_the_backend(self):
+        source = (
+            ROOT / "apps" / "runner-modal" / "src" / "cogworks_runner" / "modal_app.py"
+        ).read_text(encoding="utf-8")
+        module = ast.parse(source)
+        images = {}
+        for node in module.body:
+            if not isinstance(node, ast.Assign):
+                continue
+            name = getattr(node.targets[0], "id", "")
+            if name.endswith("_image"):
+                images[name] = ast.unparse(node.value)
+
+        # The three that run student code. controller_image scores and never
+        # imports a submission, so it is out of scope here.
+        for name in ("week1_image", "benchmark_image", "week3_image"):
+            self.assertIn(name, images, "image {} not found".format(name))
+            self.assertIn(
+                "MPLBACKEND",
+                images[name],
+                "{} runs student code and must pin matplotlib to a backend "
+                "that draws to memory".format(name),
+            )

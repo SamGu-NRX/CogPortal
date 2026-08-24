@@ -149,7 +149,17 @@ benchmark_image = (
     .pipe(lambda i: add_source_dir(i, REPO_ROOT / "apps" / "runner-modal" / "src", "/opt/runner"))
     .pipe(lambda i: add_source_dir(i, REPO_ROOT / "benchmarks" / "week2", "/opt/week2"))
     .run_commands("python -m pip install --no-deps /opt/week2")
-    .env({"PYTHONPATH": "/opt/cogbench:/opt/runner", "TORCH_HOME": "/opt/torch"})
+    # MPLBACKEND: student code plots, and a backend that wants a window blocks
+    # until the sandbox times out. One 2026 team's whispers calls plt.show()
+    # inside its iteration loop. Week 1's image already set this; the other two
+    # did not, so the same student code burned a whole Week 2 evaluation.
+    .env(
+        {
+            "PYTHONPATH": "/opt/cogbench:/opt/runner",
+            "TORCH_HOME": "/opt/torch",
+            "MPLBACKEND": "Agg",
+        }
+    )
     .run_function(cache_facenet_checkpoint)
 )
 
@@ -197,6 +207,8 @@ week3_image = (
         {
             "PYTHONPATH": "/opt/cogbench:/opt/runner",
             "COGWORKS_LANGUAGE_DATA": WEEK3_DATA_DIR,
+            # See the Week 2 image: a plot that wants a window never gets one.
+            "MPLBACKEND": "Agg",
         }
     )
     .run_function(cache_week3_artifacts)

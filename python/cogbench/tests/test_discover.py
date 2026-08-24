@@ -808,3 +808,57 @@ class SurveyIsolationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PlottingDoesNotStopTheSearch(unittest.TestCase):
+    """Student code draws, and drawing must never open a window here.
+
+    One 2026 team's `whispers` calls `plt.show()` inside its iteration loop.
+    That is a reasonable thing to write for a notebook, where the point is to
+    watch the cluster count settle. It is fatal to a search that calls their
+    function: measured on this machine, the default backend with no
+    MPLBACKEND set is MacOSX, and a resolve against that repository sat in
+    `_macosx.show` inside a CoreFoundation run loop until it was killed.
+
+    The hosted Week 1 image already sets MPLBACKEND. This is the same
+    protection everywhere else discovery runs, which includes every student
+    laptop and the Week 2 and Week 3 images.
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def test_the_backend_is_agg_while_their_code_is_imported(self):
+        (self.tmp / "plots.py").write_text(
+            "import os\n"
+            "BACKEND_AT_IMPORT = os.environ.get('MPLBACKEND')\n"
+        )
+        found = discover(self.tmp)
+        module = next(m for m in found.modules if m.name == "plots")
+        self.assertEqual(
+            getattr(module.module, "BACKEND_AT_IMPORT", None),
+            "Agg",
+            "their import must see a backend that draws to memory",
+        )
+
+    def test_the_caller_gets_their_own_setting_back(self):
+        """Discovery runs inside a student's own shell. Leaving MPLBACKEND
+        set behind would change how their next command plots."""
+
+        import os
+
+        previous = os.environ.get("MPLBACKEND")
+        self.addCleanup(
+            lambda: os.environ.__setitem__("MPLBACKEND", previous)
+            if previous is not None
+            else os.environ.pop("MPLBACKEND", None)
+        )
+        os.environ.pop("MPLBACKEND", None)
+        (self.tmp / "quiet.py").write_text("x = 1\n")
+        discover(self.tmp)
+        self.assertIsNone(os.environ.get("MPLBACKEND"))
+
+        os.environ["MPLBACKEND"] = "svg"
+        discover(self.tmp)
+        self.assertEqual(os.environ.get("MPLBACKEND"), "svg")

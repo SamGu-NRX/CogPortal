@@ -1259,7 +1259,20 @@ def _entered(
 
     previous_cwd = Path.cwd()
     previous_path = list(sys.path)
+    previous_backend = os.environ.get("MPLBACKEND")
     before = set(sys.modules)
+    # Draw to memory, never to a window. Student code plots: one 2026 team's
+    # whispers calls plt.show() inside its iteration loop, which is a
+    # reasonable thing to write for a notebook and blocks forever when the
+    # search calls that function. Measured here: with no MPLBACKEND set the
+    # default on this machine is MacOSX, and plt.show() on it waits for a
+    # human to close the window.
+    #
+    # Set before their first import, because matplotlib reads this once when
+    # it is imported and ignores it afterwards. The hosted Week 1 image sets
+    # the same variable; this is the same protection for every other place
+    # discovery runs, including a student's own laptop.
+    os.environ["MPLBACKEND"] = "Agg"
     os.chdir(working if working is not None else root)
     # Root first: it owns precedence when two directories hold the same name.
     for directory in reversed([root, *also]):
@@ -1269,6 +1282,10 @@ def _entered(
     finally:
         os.chdir(previous_cwd)
         sys.path[:] = previous_path
+        if previous_backend is None:
+            os.environ.pop("MPLBACKEND", None)
+        else:
+            os.environ["MPLBACKEND"] = previous_backend
         for name in set(sys.modules) - before:
             module = sys.modules.get(name)
             if module is None:
