@@ -242,3 +242,28 @@ Four of the seven fixtures fail against the code they were written for.
 One more rule, which this defect's own comment argues for: **a claim in
 prose that something cannot be forged requires a fixture that tries.** Five
 lines would have falsified this one the day it was written.
+
+## A URL handed to a machine needs a test that routes it
+
+**A URL we give another machine to call back on gets a test that builds it the
+way the dispatcher does and routes a request at it through the real entry
+point.** A string comparison between two files does not count; it just adds a
+third copy of the agreement being checked.
+
+The reason it has to be behavioural is that this failure has no error. The
+callback path is written as a literal in `worker/execution/runner.ts` and the
+API router is mounted under a prefix in `worker/index.ts`, and the two files
+never import each other. Drop the prefix from either one and the request lands
+on the single-page-app asset fallthrough, which answers **200**. Modal's
+`_post_event` retries 429 and 5xx only, so it reads that as delivery and posts
+a whole evaluation into the void. The run reads as a hang until the stale
+reaper closes it an hour later, and the sandbox time is already paid for. A
+person cannot see this in review, because each file is correct on its own.
+
+Two places in this repository have that shape, and the test is
+`apps/portal/test/dispatched-url-routing.test.ts`: the Modal callback, and the
+eight paths `python/cogbench/src/cogbench/client.py` posts to, whose live-update
+calls `cli.py` deliberately downgrades to one stderr line so a student's run
+finishes and the portal never learns. Every other external URL in the codebase
+either names a third-party host directly or fails loudly where it is called, so
+this is a rule about these two and not a framework.
