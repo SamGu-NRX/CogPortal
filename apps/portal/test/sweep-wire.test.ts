@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { BenchmarkResultV1Schema } from "@cogworks/contracts/protocol";
+import { BenchmarkResultV1Schema, SweepSchema } from "@cogworks/contracts/protocol";
 import { RunDetailSchema } from "@cogworks/contracts/schema";
 
 /**
@@ -64,4 +64,35 @@ test("a malformed stored sweep is rejected rather than rendered", () => {
   // it, so a shape change costs the curve and never the page.
   assert.equal(RunDetailSchema.shape.sweep.safeParse({ axis: "x" }).success, false);
   assert.equal(RunDetailSchema.shape.sweep.safeParse({ axis: "x", metric: "y", points: "no" }).success, false);
+});
+
+test("a rung curve carries the name of each rung, not just its position", () => {
+  // Week 3's sweep x is an ordering (the four query rewrites, from the
+  // caption unchanged to the furthest), so 0 through 3 say nothing on their
+  // own. The schema has always allowed a per-point label; nothing set one
+  // until the rung curve needed it, and the trace printed the bare number in
+  // the drawing and read it aloud the same way.
+  const sweep = SweepSchema.parse({
+    metric: "search_mrr",
+    axis: "how far the query is from the caption",
+    points: [
+      { x: 0, y: 0.95, label: "verbatim" },
+      { x: 1, y: 0.03, label: "keywords" },
+    ],
+  });
+  assert.equal(sweep.points[0].label, "verbatim");
+  assert.equal(sweep.points[1].label, "keywords");
+});
+
+test("a sweep whose x is a real quantity still needs no label", () => {
+  // Week 1's axis is a count of songs and reads correctly as itself.
+  const sweep = SweepSchema.parse({
+    metric: "top1",
+    axis: "songs in the library",
+    points: [
+      { x: 10, y: 0.98 },
+      { x: 120, y: 0.61 },
+    ],
+  });
+  assert.equal(sweep.points[0].label, undefined);
 });

@@ -10,7 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 BENCHMARK = ROOT / "benchmarks" / "week3"
-REVIEWED_COMMIT = "e30a4348e20aab7a759688a450e62c24481d9730"
+REVIEWED_COMMIT = "c28c67b731e40f7569814dd9666d8e28ae4ac6be"
 
 PLUGIN_EXPECTATIONS = {
     'benchmark_id = "language-search"': "benchmark id",

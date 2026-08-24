@@ -44,6 +44,19 @@ function useTraceWidth(): number {
  * a legend, rounded everything) fight the notebook look that the rest of the
  * app holds.
  */
+/**
+ * What to print under a point.
+ *
+ * A sweep's x is usually a quantity and reads correctly as itself: Week 1's
+ * is a count of songs. Week 3's is an ordering, the four query rewrites from
+ * the caption unchanged to the furthest, so its x values are 0 through 3 and
+ * say nothing. Those points carry a name, and it is the name a reader needs,
+ * in the drawing and in the sentence read aloud.
+ */
+function tick(point: Sweep["points"][number]): string {
+  return point.label ?? String(point.x);
+}
+
 export function SweepTrace({ sweep }: { sweep: Sweep }) {
   const WIDTH = useTraceWidth();
   const points = sweep.points;
@@ -74,7 +87,7 @@ export function SweepTrace({ sweep }: { sweep: Sweep }) {
         viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
         className="w-full"
         role="img"
-        aria-label={`${sweep.metric} against ${sweep.axis}, from ${points[0].y.toFixed(2)} at ${points[0].x} to ${last.y.toFixed(2)} at ${last.x}`}
+        aria-label={`${sweep.metric} against ${sweep.axis}, from ${points[0].y.toFixed(2)} at ${tick(points[0])} to ${last.y.toFixed(2)} at ${tick(last)}`}
       >
         {/* Two rules, no grid. The eye reads the shape, and the endpoints are
             labeled, so gridlines would only add ink. */}
@@ -116,7 +129,7 @@ export function SweepTrace({ sweep }: { sweep: Sweep }) {
             className="fill-ink-faint font-mono"
             fontSize="9"
           >
-            {point.x}
+            {tick(point)}
           </text>
         ))}
       </svg>

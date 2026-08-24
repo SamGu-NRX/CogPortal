@@ -2190,11 +2190,21 @@ def _sweep_wire(benchmark):
     y_key = getattr(benchmark, "sweep_y_key", None)
     if not x_key or not y_key:
         return None
+    # An optional per-point name, for a sweep whose x is an ordering rather
+    # than a quantity. Week 3's rungs run from the caption unchanged to the
+    # furthest rewrite, so the x values are 0 through 3 and mean nothing on
+    # their own; the run page prints the endpoint labels and reads them to a
+    # screen reader, which would otherwise say "from 0.95 at 0 to 0.03 at 3".
+    # Absent on Week 1, whose x is a real count of songs and reads correctly
+    # as itself.
+    label_key = getattr(benchmark, "sweep_label_key", None)
     try:
-        wire = [
-            {"x": float(point[x_key]), "y": float(point[y_key])}
-            for point in points[:24]
-        ]
+        wire = []
+        for point in points[:24]:
+            entry = {"x": float(point[x_key]), "y": float(point[y_key])}
+            if label_key and point.get(label_key) is not None:
+                entry["label"] = str(point[label_key])[:40]
+            wire.append(entry)
     except (KeyError, TypeError, ValueError):
         return None
     return {
