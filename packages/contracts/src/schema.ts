@@ -269,8 +269,15 @@ export const TeamSchema = z.object({
 });
 export type Team = z.infer<typeof TeamSchema>;
 
-/** System-level role: staff (TA/instructor) vs student. Derived from the
- *  PLATFORM_STAFF_LOGINS env allowlist at request time — never stored. */
+/**
+ * System-level role: staff (TA/instructor) vs student.
+ *
+ * Resolved at request time from two sources that are never merged: the
+ * owner-managed `platform_staff` table, and the PLATFORM_OWNER_LOGINS
+ * environment list, whose members are staff automatically. Owners stay in the
+ * environment on purpose, so that writing the roster table can never mint an
+ * owner (migration 0031).
+ */
 export const PlatformRoleSchema = z.enum(["student", "staff"]);
 export type PlatformRole = z.infer<typeof PlatformRoleSchema>;
 
@@ -1086,6 +1093,36 @@ export const AdminAddMemberRequestSchema = z.object({
 
 /** POST /api/admin/teams/:teamId/tas */
 export const AdminAssignTaRequestSchema = AdminAddMemberRequestSchema;
+
+/** GET /api/admin/staff — the owner-managed platform staff roster. */
+export const AdminStaffRosterSchema = z.object({
+  entries: z.array(
+    z.object({
+      /** The casing the granting owner typed. Matching is case-insensitive. */
+      login: z.string(),
+      /**
+       * The name on the account holding this GitHub login, or null when
+       * nobody with this login has signed in yet. A roster entry is a login
+       * string, not an account, so an owner can add staff before the term
+       * starts. That also means a typo is accepted and grants nothing, and
+       * this field is how the console shows the difference.
+       */
+      name: z.string().nullable(),
+      /** Login of the owner who added this entry. */
+      grantedBy: z.string(),
+      grantedAt: z.number(),
+    }),
+  ),
+  /**
+   * Logins that are staff because PLATFORM_OWNER_LOGINS names them, shown so
+   * the console does not read as though the listed owners lack access.
+   */
+  owners: z.array(z.string()),
+});
+export type AdminStaffRoster = z.infer<typeof AdminStaffRosterSchema>;
+
+/** POST /api/admin/staff */
+export const AdminAddStaffRequestSchema = AdminAddMemberRequestSchema;
 
 /* ── Error envelope ───────────────────────────────────────────────────── */
 

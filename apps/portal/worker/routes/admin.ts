@@ -1,25 +1,28 @@
 import type { Hono } from "hono";
-import { and, asc, count, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   AdminAddMemberRequestSchema,
+  AdminAddStaffRequestSchema,
   AdminAssignTaRequestSchema,
   AdminCohortPatchSchema,
   AdminOverviewSchema,
+  AdminStaffRosterSchema,
   AdminTeamSummarySchema,
   UpdateTeamRequestSchema,
 } from "@cogworks/contracts/schema";
-import type { AdminTeamSummary, TeamMember } from "@cogworks/contracts/schema";
-import { isPlatformOwner, requireStaff } from "../auth/roles";
+import type { AdminStaffRoster, AdminTeamSummary, TeamMember } from "@cogworks/contracts/schema";
+import { isPlatformOwner, normalizeLogin, requireStaff } from "../auth/roles";
 import { authorizationLogin } from "../auth/session";
 import type { AuthState } from "../auth/session";
 import type { Database } from "../db/client";
 import { getDb } from "../db/client";
-import type { AppEnv } from "../env";
+import type { AppEnv, Env } from "../env";
 import {
   cohorts,
   leaderboardSelections,
   officialAttempts,
+  platformStaff,
   runMetrics,
   runs,
   teamMembers,
@@ -128,6 +131,61 @@ async function getAdminTeamSummary(
     officialUsed: official?.value ?? 0,
     refundsGiven: refunds?.value ?? 0,
     publishedScore: published?.value ?? null,
+  };
+}
+
+/**
+ * The staff roster as the console shows it.
+ *
+ * A roster row is a login string, not an account (migration 0031 explains
+ * why), so the account is looked up separately and may not exist. `name` null
+ * therefore means "nobody with this login has signed in yet", which is also
+ * what a typo looks like; the console says so rather than leaving an entry
+ * that silently grants nothing.
+ *
+ * Owners are listed alongside because they are staff without a roster row. An
+ * owner reading a roster that omits them would reasonably conclude their own
+ * access was missing.
+ */
+async function getStaffRoster(db: Database, env: Env): Promise<AdminStaffRoster> {
+  const entries = await db
+    .select({
+      login: platformStaff.displayLogin,
+      matchLogin: platformStaff.login,
+      grantedBy: platformStaff.grantedBy,
+      grantedAt: platformStaff.grantedAt,
+    })
+    .from(platformStaff)
+    .orderBy(asc(platformStaff.login));
+  // Lowercased on both sides. users.github_login stores GitHub's own casing,
+  // so an exact IN would report a rostered person as "not signed in yet"
+  // purely because the owner typed their login differently. Same reason
+  // routes/team-membership.ts compares logins this way.
+  const accounts = entries.length
+    ? await db
+        .select({ login: users.githubLogin, name: users.name })
+        .from(users)
+        .where(
+          inArray(
+            sql`lower(${users.githubLogin})`,
+            entries.map((entry) => entry.matchLogin),
+          ),
+        )
+    : [];
+  const nameByLogin = new Map(
+    accounts.map((account) => [normalizeLogin(account.login ?? ""), account.name]),
+  );
+  return {
+    entries: entries.map((entry) => ({
+      login: entry.login,
+      name: nameByLogin.get(entry.matchLogin) ?? null,
+      grantedBy: entry.grantedBy,
+      grantedAt: entry.grantedAt,
+    })),
+    owners: (env.PLATFORM_OWNER_LOGINS ?? "")
+      .split(",")
+      .map((login) => login.trim())
+      .filter(Boolean),
   };
 }
 
@@ -338,5 +396,52 @@ export function registerAdminRoutes(app: Hono<AppEnv>): void {
       await db.delete(teamTas).where(and(eq(teamTas.teamId, teamId), eq(teamTas.userId, user.id)));
     }
     return respond(c, AdminTeamSummarySchema, await getAdminTeamSummary(db, teamId));
+  });
+
+  /* ── Platform staff roster (owner only) ──────────────────────────────
+   *
+   * Every one of these is owner-gated, including the read. Staff granting
+   * staff is privilege escalation: a TA who could add a login could add their
+   * own second account, and the roster would stop meaning what an owner set
+   * it to. Owners themselves are not in this table and cannot be added to it,
+   * so no request here can create an owner (auth/roles.ts, migration 0031).
+   */
+
+  app.get("/admin/staff", async (c) => {
+    await requireOwner(c);
+    return respond(c, AdminStaffRosterSchema, await getStaffRoster(getDb(c.env), c.env));
+  });
+
+  app.post("/admin/staff", async (c) => {
+    const auth = await requireOwner(c);
+    const body = await parseBody(c, AdminAddStaffRequestSchema);
+    const db = getDb(c.env);
+    // No users lookup, and that is the point: an owner names the teaching
+    // staff before the term starts, when none of them have signed in. The
+    // response reports whether an account exists so a typo is visible.
+    await db
+      .insert(platformStaff)
+      .values({
+        login: normalizeLogin(body.login),
+        displayLogin: body.login.trim(),
+        grantedBy: authorizationLogin(c.env, auth.user),
+        grantedAt: Date.now(),
+      })
+      // Do nothing rather than update: re-adding somebody already on the
+      // roster should not rewrite who granted it and when. The first grant is
+      // the fact the audit trail exists to keep.
+      .onConflictDoNothing();
+    return respond(c, AdminStaffRosterSchema, await getStaffRoster(db, c.env));
+  });
+
+  app.delete("/admin/staff/:login", async (c) => {
+    await requireOwner(c);
+    const db = getDb(c.env);
+    // Idempotent, like the TA and member removals above: a login that is not
+    // on the roster is already in the state the caller asked for.
+    await db
+      .delete(platformStaff)
+      .where(eq(platformStaff.login, normalizeLogin(c.req.param("login"))));
+    return respond(c, AdminStaffRosterSchema, await getStaffRoster(db, c.env));
   });
 }

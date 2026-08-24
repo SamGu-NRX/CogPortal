@@ -99,12 +99,19 @@
   //      DISCORD_BOT_TOKEN, DISCORD_CLIENT_SECRET, ACTIVITY_SESSION_SECRET,
   //      PLATFORM_OWNER_LOGINS, RUNNER_SIGNING_SECRET —
   //      via `wrangler secret put <NAME> --env production`.
-  //   4. Set the BWSI CogWorks 2026 staff roster (GitHub logins, matched
-  //      case-insensitively). Owners count as staff automatically; a TA for
-  //      one team is a team_tas row, not an entry here:
-  //        PLATFORM_OWNER_LOGINS="SamGu-NRX,iReynaldo"
-  //        PLATFORM_STAFF_LOGINS="alihanisarr,carti4ce,r-sxnchez,jayashabarishankar,SamGu-NRX"
-  //      Refresh this at the start of each cohort.
+  //   4. PLATFORM_OWNER_LOGINS (set in step 3) is the only roster that lives
+  //      in configuration. It holds the GitHub logins of the people who
+  //      administer the platform, comma-separated and matched
+  //      case-insensitively, and it changes about once a year. Owners are the
+  //      root of trust: they manage the staff roster, so putting them where
+  //      the app can write them would let anyone who reached that roster make
+  //      themselves an owner.
+  //      Course staff are NOT set here. Since migration 0031 they live in the
+  //      platform_staff table, and an owner edits them under PLATFORM STAFF in
+  //      the admin console, so a cohort change no longer needs a redeploy. On
+  //      a fresh database that table is empty, which is fine: owners are staff
+  //      automatically and can add the first row. A TA for one team is a
+  //      team_tas row, assigned per team in the same console.
   //   5. Confirm the prod Discord app / activity domain values below.
   // ─────────────────────────────────────────────────────────────────────────
   "env": {

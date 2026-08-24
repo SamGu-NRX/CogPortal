@@ -203,6 +203,26 @@ export const teamTas = sqliteTable(
   (table) => [primaryKey({ columns: [table.teamId, table.userId] })],
 );
 
+/**
+ * Platform staff roster, owner-managed at runtime (migration 0031).
+ *
+ * Keyed on the lowercased login because GitHub logins are case-insensitive and
+ * this replaces an env list that was compared case-insensitively. Owners are
+ * NOT in this table; they stay in PLATFORM_OWNER_LOGINS so a writable roster
+ * can never mint an owner, and so an empty table still has somebody who can
+ * add the first row.
+ */
+export const platformStaff = sqliteTable("platform_staff", {
+  /** Lowercased GitHub login. The only value ever compared. */
+  login: text("login").primaryKey(),
+  /** The casing the owner typed, so the roster reads back as entered. */
+  displayLogin: text("display_login").notNull(),
+  /** Granting owner's login, stored as text: an audit row must outlive the
+   *  granter's account, so this is deliberately not a foreign key. */
+  grantedBy: text("granted_by").notNull(),
+  grantedAt: integer("granted_at").notNull(),
+});
+
 export const setupVerifications = sqliteTable(
   "setup_verifications",
   {
@@ -608,6 +628,7 @@ export const schema = {
   teams,
   teamMembers,
   teamTas,
+  platformStaff,
   setupVerifications,
   benchmarks,
   benchmarkFamilies,

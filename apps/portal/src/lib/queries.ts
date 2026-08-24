@@ -8,6 +8,7 @@ import {
   SETUP_STEPS,
   isTerminal,
   type AdminOverview,
+  type AdminStaffRoster,
 } from "@cogworks/contracts/schema";
 import { api } from "./api";
 
@@ -390,6 +391,34 @@ export function useAdminRemoveTa() {
       api.adminRemoveTa(teamId, login),
     onSuccess: invalidate,
   });
+}
+
+/* The roster is owner-only on the server, so a TA's request would 403. The
+ * query is disabled for them rather than left to fail, so the console does not
+ * show an error for a panel it is not going to render. */
+export function useAdminStaffRoster(enabled = true) {
+  return useQuery({
+    queryKey: ["admin", "staff"],
+    queryFn: api.adminStaffRoster,
+    enabled,
+  });
+}
+
+function useSetStaffRoster() {
+  const qc = useQueryClient();
+  // Both mutations return the whole roster, so the response is authoritative
+  // and replaces the cache directly. Same reason useAdminPatchCohort does.
+  return (roster: AdminStaffRoster) => qc.setQueryData(["admin", "staff"], roster);
+}
+
+export function useAdminAddStaff() {
+  const setRoster = useSetStaffRoster();
+  return useMutation({ mutationFn: api.adminAddStaff, onSuccess: setRoster });
+}
+
+export function useAdminRemoveStaff() {
+  const setRoster = useSetStaffRoster();
+  return useMutation({ mutationFn: api.adminRemoveStaff, onSuccess: setRoster });
 }
 
 export function useStartPractice(benchmarkId: string) {

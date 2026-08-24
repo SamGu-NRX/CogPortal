@@ -19,11 +19,14 @@ import { formatTimeAgo } from "@/lib/format";
 import { EASE_OUT } from "@/lib/motion";
 import {
   useAdminAddMember,
+  useAdminAddStaff,
   useAdminAssignTa,
   useAdminOverview,
   useAdminPatchCohort,
   useAdminRemoveMember,
+  useAdminRemoveStaff,
   useAdminRemoveTa,
+  useAdminStaffRoster,
 } from "@/lib/queries";
 
 /**
@@ -52,6 +55,8 @@ export function AdminPage() {
       {overview.data.scope === "owner" && cohort.joinCode ? (
         <CohortPanel cohort={{ ...cohort, joinCode: cohort.joinCode }} />
       ) : null}
+
+      {overview.data.scope === "owner" ? <StaffPanel /> : null}
 
       <Panel
         label="TEAMS"
@@ -105,6 +110,147 @@ export function AdminPage() {
         </Panel>
       ) : null}
     </div>
+  );
+}
+
+/* ── Platform staff roster (owner only) ────────────────────────────────── */
+
+/**
+ * The roster that decides who has staff access to the portal, editable here
+ * so a cohort change does not need a redeploy. Owners are shown but not
+ * editable: they come from the deployment's configuration on purpose, which
+ * is what guarantees this panel can never lock every administrator out.
+ *
+ * Deliberately a plain list. An entry is an access grant, not a record of a
+ * person, so there is nothing here to rank or score.
+ */
+function StaffPanel() {
+  const roster = useAdminStaffRoster();
+  const add = useAdminAddStaff();
+  const remove = useAdminRemoveStaff();
+  const [newLogin, setNewLogin] = useState("");
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newLogin.trim() || add.isPending) return;
+    add.mutate(newLogin.trim(), { onSuccess: () => setNewLogin("") });
+  };
+
+  return (
+    <Panel
+      label="PLATFORM STAFF"
+      className="mt-4"
+      aside={
+        roster.data ? (
+          <span className="u-tnum font-mono text-[11px] text-ink-faint">
+            {roster.data.entries.length + roster.data.owners.length}
+          </span>
+        ) : null
+      }
+    >
+      <p className="mb-3 text-[12px] leading-relaxed text-ink-faint">
+        Staff see every team's runs and the TA workspace. Logins are matched
+        without regard to capitalization, and a login can be added before that
+        person has ever signed in.
+      </p>
+
+      {roster.isPending ? (
+        <LoadingMark label="Loading roster" />
+      ) : roster.isError ? (
+        <QueryError error={roster.error} retry={() => void roster.refetch()} />
+      ) : (
+        <>
+          {roster.data.owners.length > 0 && (
+            <ul className="divide-y divide-rule-soft border-b border-rule-soft">
+              {roster.data.owners.map((login) => (
+                <li key={login} className="flex items-center gap-3 py-2">
+                  <span className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-ink">
+                    {login}
+                  </span>
+                  <span
+                    className="font-mono text-[10px] tracking-[0.08em] text-ink-faint uppercase"
+                    title="Set in the deployment's configuration, so this panel cannot remove it."
+                  >
+                    owner
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {roster.data.entries.length === 0 ? (
+            <EmptyState message="No staff added yet. Owners already have access; add a GitHub login below to give someone else the same view." />
+          ) : (
+            <ul className="divide-y divide-rule-soft">
+              {roster.data.entries.map((entry) => (
+                <li key={entry.login} className="flex items-center gap-3 py-2">
+                  <span className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-ink">
+                    {entry.login}
+                    {entry.name ? (
+                      <span className="ml-2 text-ink-faint">{entry.name}</span>
+                    ) : (
+                      // An entry is a login string, so a typo looks exactly
+                      // like somebody who has not signed in yet. Saying which
+                      // beats leaving an entry that quietly grants nothing.
+                      <span
+                        className="ml-2 text-ink-faint"
+                        title="Nobody with this login has signed in. If the spelling is wrong, this grants nothing."
+                      >
+                        not signed in yet
+                      </span>
+                    )}
+                  </span>
+                  <span className="hidden font-mono text-[11px] text-ink-faint sm:inline">
+                    added by {entry.grantedBy} {formatTimeAgo(entry.grantedAt)}
+                  </span>
+                  <button
+                    type="button"
+                    title={`Remove ${entry.login} from platform staff`}
+                    onClick={() => remove.mutate(entry.login)}
+                    disabled={remove.isPending}
+                    className="u-pressable flex min-h-8 min-w-8 items-center justify-center text-ink-faint hover:text-detect-deep disabled:opacity-40"
+                  >
+                    <HugeiconsIcon icon={UserRemove01Icon} size={14} strokeWidth={1.8} aria-hidden="true" />
+                    <span className="sr-only">Remove {entry.login} from platform staff</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <form onSubmit={submit} className="mt-3 flex items-center gap-2">
+            <label htmlFor="add-staff" className="sr-only">
+              Add platform staff by GitHub login
+            </label>
+            <input
+              id="add-staff"
+              value={newLogin}
+              onChange={(e) => setNewLogin(e.target.value)}
+              placeholder="github login"
+              spellCheck={false}
+              className="h-9 min-w-0 flex-1 border border-rule bg-paper-sunken px-2.5 font-mono text-[12.5px] text-ink placeholder:text-ink-faint"
+            />
+            <button
+              type="submit"
+              disabled={!newLogin.trim() || add.isPending}
+              className="u-pressable flex min-h-9 items-center gap-1.5 border border-rule px-3 font-mono text-[11px] tracking-[0.07em] text-ink-secondary uppercase hover:border-ink-secondary hover:text-ink disabled:opacity-40"
+            >
+              <HugeiconsIcon icon={UserAdd01Icon} size={13} strokeWidth={1.8} aria-hidden="true" />
+              Add staff
+            </button>
+          </form>
+
+          {(add.error || remove.error) && (
+            <p role="alert" className="mt-2 text-[12.5px] text-detect-deep">
+              {[add.error, remove.error]
+                .filter((e): e is ApiRequestError => e instanceof ApiRequestError)
+                .map((e) => e.message)
+                .join(" ") || "The roster did not change. Try again."}
+            </p>
+          )}
+        </>
+      )}
+    </Panel>
   );
 }
 

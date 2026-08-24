@@ -41,11 +41,20 @@ const serverSchema = {
   /** Immutable numeric ID of the canonical template repository. */
   GITHUB_TEMPLATE_REPO_ID: z.string().optional(),
 
-  /** Comma-separated GitHub logins with staff (TA/instructor) access. Platform
-   *  role is derived from this list at request time — no DB state. */
-  PLATFORM_STAFF_LOGINS: z.string().optional(),
-  /** Comma-separated GitHub logins shown as CogPortal owners. Owners also
-   *  receive staff access, so the two allowlists need not be duplicated. */
+  /**
+   * Comma-separated GitHub logins of the platform's owners, matched
+   * case-insensitively (auth/roles.ts).
+   *
+   * The only role that lives in configuration. Owners manage the staff roster,
+   * which is the `platform_staff` table since migration 0031, so an owner list
+   * the application could write would let anyone who reached that roster make
+   * themselves an owner. Keeping it here also makes an empty roster
+   * recoverable: owners receive staff access automatically, so somebody can
+   * always add the first row.
+   *
+   * Optional, and an unset value means nobody is an owner. That is the correct
+   * reading of "no owners were configured", and it fails closed.
+   */
   PLATFORM_OWNER_LOGINS: z.string().optional(),
 
   BETTER_AUTH_SECRET: z.string().min(32).optional(),

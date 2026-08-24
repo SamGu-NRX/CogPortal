@@ -5,6 +5,7 @@
 import { z } from "zod";
 import {
   AdminOverviewSchema,
+  AdminStaffRosterSchema,
   AdminTeamSummarySchema,
   ApiErrorSchema,
   BenchmarkSchema,
@@ -195,6 +196,14 @@ export const api = {
       AdminTeamSummarySchema,
       { method: "DELETE" },
     ),
+
+  adminStaffRoster: () => request("/api/admin/staff", AdminStaffRosterSchema),
+  adminAddStaff: (login: string) =>
+    request("/api/admin/staff", AdminStaffRosterSchema, { method: "POST", body: { login } }),
+  adminRemoveStaff: (login: string) =>
+    request(`/api/admin/staff/${encodeURIComponent(login)}`, AdminStaffRosterSchema, {
+      method: "DELETE",
+    }),
 
   benchmarks: () => request("/api/benchmarks", z.array(BenchmarkSchema)),
   localReports: (benchmarkId: string) =>
