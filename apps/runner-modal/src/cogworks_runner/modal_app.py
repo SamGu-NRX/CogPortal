@@ -1722,10 +1722,11 @@ def _evaluate_v2(
         if process.returncode != 0:
             stderr_text = process.stderr.read()
             detail = _last_error_line(stderr_text)
-            # The sandbox tags the failing step's owner. Never infer this from
-            # the message text, which the submission controls.
-            if "COG_PLATFORM_ERROR:" in stderr_text:
-                raise RunnerFailure("model_cache", "evaluating", "FaceNet cache validation failed.", True)
+            # No platform-fault branch here, deliberately. See
+            # _platform_owned_evaluation_failure below: anything this process
+            # writes after it imports student code is student speech, and the
+            # conditions a marker used to report are already verified by the
+            # controller before the sandbox starts.
             # Not "contract_invalid" from the message text: that category is
             # absent from CONSUMING_FAILURES in runner-events.ts, so deriving
             # it from student-controlled words was a second way to buy a free
@@ -1873,10 +1874,9 @@ def _evaluate_week3(
         if process.returncode != 0:
             stderr_text = process.stderr.read()
             detail = _last_error_line(stderr_text)
-            # See _evaluate_v2: ownership comes from the sandbox marker, not
-            # from words a submission can put in its own exception.
-            if "COG_PLATFORM_ERROR:" in stderr_text:
-                raise RunnerFailure("model_cache", "evaluating", "Course artifact cache validation failed.", True)
+            # No platform-fault branch. _week3_cases already decoded and
+            # validated the same artifacts in this process, before the sandbox
+            # ran. See _platform_owned_evaluation_failure.
             # Not "contract_invalid" from the message text: that category is
             # absent from CONSUMING_FAILURES in runner-events.ts, so deriving
             # it from student-controlled words was a second way to buy a free
@@ -1957,22 +1957,11 @@ def _evaluate_week1(
         if process.returncode != 0:
             stderr_text = process.stderr.read()
             detail = _last_error_line(stderr_text)
-            # See _evaluate_v2: ownership comes from the sandbox marker, not
-            # from words a submission can put in its own exception.
-            if "COG_PLATFORM_ERROR:" in stderr_text:
-                # Carry the sandbox's own message. "Week 1 corpus validation
-                # failed" alone named the phase and nothing else, which is
-                # exactly the wrong half: this branch is ours by construction,
-                # so the detail is safe to surface and is the only thing that
-                # says which of sha mismatch, import error, or wrong
-                # interpreter actually happened.
-                marker = stderr_text.rsplit("COG_PLATFORM_ERROR:", 1)[-1].strip()
-                raise RunnerFailure(
-                    "data_download",
-                    "evaluating",
-                    "Week 1 corpus validation failed: {}".format(marker[:400] or "no detail"),
-                    True,
-                )
+            # No platform-fault branch. _week1_cases renders the same corpus
+            # from the same seeds in this process and verifies it against the
+            # same pinned digests, before the sandbox starts, so a corpus
+            # fault is caught there by a party the submission cannot reach.
+            # See _platform_owned_evaluation_failure.
             if _timed_out(job, started, process.returncode, stderr_text):
                 raise RunnerFailure(
                     "timeout",
@@ -2005,6 +1994,57 @@ def _evaluate_week1(
     finally:
         if sandbox is not None:
             sandbox.terminate()
+
+
+def _platform_owned_evaluation_failure() -> None:
+    """Why no evaluation failure is ever attributed to the platform from here.
+
+    A failed official run either spends one of a team's three attempts or is
+    refunded. Refunding is the branch that benefits the submission, so the
+    evidence for it has to come from somewhere the submission cannot write.
+
+    The sandbox used to say. It wrote `COG_PLATFORM_ERROR:` to stderr when it
+    failed before importing student code, and the controller read that. The
+    comment above the read said the marker could not be forged because only
+    the message text was student-controlled. That was wrong, and measurably:
+    `contextlib.redirect_stderr` rebinds the `sys.stderr` object and does not
+    touch file descriptor 2, so three lines inside any student module
+
+        import os
+        os.write(2, b"COG_PLATFORM_ERROR: FaceNet cache validation failed")
+
+    put the marker on the pipe the controller reads. That bought `model_cache`,
+    which is infrastructure-owned and absent from CONSUMING_FAILURES, so the
+    attempt came back. Unbounded, and the run page blamed our model cache.
+
+    The exit code is no better: `os._exit` beats the `SystemExit(2)` the script
+    would otherwise raise. Once student code is running in a process, nothing
+    that process emits is evidence about us. That is the rule, and it is why
+    this is not fixed by a harder-to-forge channel. Two earlier fixes each
+    moved the trust to a new channel (adapter name, then message words, then
+    this marker) and each left the shape intact.
+
+    Nothing is lost by not asking. Every condition the marker reported is
+    verified by this process, before the sandbox is created:
+
+      _week1_cases   re-renders the corpus from its seeds and checks it
+                     against the same pinned sha256 digests
+      _week3_cases   decodes and validates the same course artifacts
+      _v2_cases      decodes and validates the payload
+      image_bake     downloads the FaceNet checkpoint under a sha256 lock at
+                     image build time, so a cache fault at evaluation would
+                     mean the image did not build
+
+    So the marker was a second opinion about a settled question, solicited
+    from the one party with a reason to lie. The remaining ways a run can fail
+    through no fault of the submission are the ones the controller observes
+    from outside: a process killed for time or memory, which `_timed_out`
+    decides from elapsed seconds and the return code, and provider faults,
+    which surface as exceptions here rather than as text from in there.
+
+    Not a real function. Somewhere to put the reasoning, referenced from each
+    place that would otherwise look like an oversight.
+    """
 
 
 def _timed_out(job: Dict[str, Any], started: float, returncode: int, stderr_text: str) -> bool:
