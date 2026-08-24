@@ -53,6 +53,7 @@ build/
 # Deploy-only virtualenv (modal + fastapi), created by the runbook.
 .venv-deploy/
 .venv-week1/
+.venv-test/
 
 # Browser-driving screenshots from design passes. Regenerate rather than
 # review a binary diff.

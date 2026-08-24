@@ -33,6 +33,32 @@ SUITES = (
         # as an error rather than a skip.
         ("numpy",),
     ),
+    # The three benchmark suites. 288 tests that `pnpm test:python` never ran,
+    # because the suite list stopped at the platform packages, so a change to
+    # a scorer or a driver could go green here and break a benchmark. Each
+    # requires its own package plus whatever that week's science needs:
+    # week 1 is librosa and numba, week 2 is Pillow, week 3 is gensim. A
+    # missing one refuses the suite by name rather than reporting failures.
+    (
+        "week 1 benchmark",
+        ["-m", "pytest", "benchmarks/week1/tests", "-q"],
+        ("audio_identification_benchmark", "librosa", "numba"),
+    ),
+    (
+        # Run from the submodule's own directory, not from the repository
+        # root. Its pyproject sets testpaths and pythonpath, and pytest reads
+        # those from the rootdir it is invoked in; from here it collected one
+        # of the three configured paths and missed 16 tests.
+        "week 2 benchmark",
+        ["-m", "pytest", "-q"],
+        ("facial_recognition_benchmark", "PIL", "skimage"),
+        "benchmarks/week2",
+    ),
+    (
+        "week 3 benchmark",
+        ["-m", "pytest", "benchmarks/week3/tests", "-q"],
+        ("language_search_benchmark",),
+    ),
     ("template catalog", ["template-catalog/validate.py"], ()),
     ("week 2 submodule", ["scripts/validate_week2_submodule.py"], ()),
     ("week 3 submodule", ["scripts/validate_week3_submodule.py"], ()),
@@ -95,7 +121,11 @@ def _missing(requirements) -> list:
 def main() -> int:
     print("interpreter: {} ({})".format(sys.executable, sys.version.split()[0]))
     failed = []
-    for label, argv, requirements in SUITES:
+    for entry in SUITES:
+        # A fourth element names a directory to run in, for a suite whose
+        # pytest configuration only applies from its own root.
+        label, argv, requirements = entry[0], entry[1], entry[2]
+        working = ROOT / entry[3] if len(entry) > 3 else ROOT
         absent = _missing(requirements)
         if absent:
             print(
@@ -109,7 +139,7 @@ def main() -> int:
             failed.append(label)
             continue
         print("\n--- {} ---".format(label))
-        if subprocess.run([sys.executable, *argv], cwd=ROOT).returncode != 0:
+        if subprocess.run([sys.executable, *argv], cwd=working).returncode != 0:
             failed.append(label)
 
     if failed:
