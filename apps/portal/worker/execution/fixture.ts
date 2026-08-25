@@ -81,7 +81,15 @@ export function fixtureMetrics(
     const keywords = round4(Math.max(0, verbatim * 1.063));
     const truncated = round4(Math.max(0, verbatim * 0.649));
     const typo = round4(Math.max(0, verbatim * 0.877));
-    const search = round4((verbatim + keywords + truncated + typo) / 4);
+    // Three, not four. Under retrieval-v4 the verbatim rung is reported and
+    // not scored: its queries are captions read out of the file the
+    // submission is handed, so a submission that embedded nothing scored a
+    // perfect 1.0000 on the retrieval one. Averaging four here would show a
+    // preview of a scorer that no longer exists.
+    const search = round4((keywords + truncated + typo) / 3);
+    const retrievalScored = round4(
+      Math.max(0, (retrieval * (1.063 + 0.649 + 0.877)) / 3),
+    );
     const metric = (key: string, label: string, value: number, primary = false): Metric => ({
       key,
       label,
@@ -92,9 +100,9 @@ export function fixtureMetrics(
       precision: 3,
     });
     return [
-      metric("overall", "Overall", round4((text + retrieval + search) / 3), true),
+      metric("overall", "Overall", round4((text + retrievalScored + search) / 3), true),
       metric("text_mrr", "Text MRR", text),
-      metric("retrieval_mrr", "Retrieval MRR", retrieval),
+      metric("retrieval_mrr", "Retrieval MRR", retrievalScored),
       metric("search_mrr", "Search MRR", search),
       metric("retrieval_recall_at_1", "Recall@1", round4(retrieval * 0.52)),
       metric("retrieval_recall_at_5", "Recall@5", round4(Math.min(1, retrieval * 1.44))),
@@ -107,7 +115,20 @@ export function fixtureMetrics(
       metric("chance_mrr", "Chance MRR", 0.0102),
       metric("text_chance", "Text chance MRR", 0.04),
       metric("search_chance", "Search chance MRR", 0.0064),
-      metric("search_mrr_verbatim", "Search MRR, caption unchanged", verbatim),
+      // The two probes that are run and reported but never scored, which is
+      // the reading that matters most here: an honest submission scores
+      // about the same on these as on the scored numbers, and one that is
+      // matching text rather than meaning scores far higher.
+      metric(
+        "retrieval_mrr_verbatim",
+        "Retrieval MRR, caption unchanged (not scored)",
+        retrieval,
+      ),
+      metric(
+        "search_mrr_verbatim",
+        "Search MRR, caption unchanged (not scored)",
+        verbatim,
+      ),
       metric("search_mrr_keywords", "Search MRR, keywords only", keywords),
       metric("search_mrr_truncated", "Search MRR, first three words", truncated),
       metric("search_mrr_typo", "Search MRR, one typo", typo),
