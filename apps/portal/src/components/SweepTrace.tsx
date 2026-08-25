@@ -118,6 +118,33 @@ export function SweepTrace({ sweep }: { sweep: Sweep }) {
             className="fill-paper stroke-ink" strokeWidth="1.25"
           />
         ))}
+        {/* The value at each point, printed the way an instrument prints a
+            reading beside its trace.
+            
+            This used to say a label per point turns the trace into a table
+            and the table is already on the page. That was true while every
+            plotted value was also a row. Week 3's rung values are now read
+            here and nowhere else, and nobody can take a number off a 520-unit
+            SVG by eye. A hover would not do: it is undiscoverable, it does
+            nothing on a touch screen, and it is absent from the screenshot a
+            student pastes into their writeup.
+            
+            Above the point, and only when the curve has room. Six points or
+            fewer keeps the labels from colliding; beyond that the endpoints
+            carry it as they did. */}
+        {points.length <= 6 &&
+          points.map((point) => (
+            <text
+              key={`v${point.x}`}
+              x={px(point.x)}
+              y={py(point.y) - 7}
+              textAnchor="middle"
+              className="fill-ink-faint font-mono"
+              fontSize="8.5"
+            >
+              {point.y.toFixed(2)}
+            </text>
+          ))}
         {/* Only the ends are labeled. A label per point turns the trace into
             a table, and the table is already on the page. */}
         {[points[0], last].map((point, index) => (
