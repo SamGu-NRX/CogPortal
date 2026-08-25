@@ -120,3 +120,43 @@ nothing looked like it was scoring something during this investigation.
 reason. The rule is one line longer than that fix: a published metric is
 shown next to its own floor, and a test asserts against that floor rather
 than a shared one.
+
+## 4. The measurement, taken after the band was written
+
+Run on 2026-08-20, after the band above was committed.
+
+**Test tier.** R_retrieval = 0.8744 against R_search = 0.8744, which is
+inside the band by a distance of zero. That is too exact to take at face
+value, and the reason is already recorded in `docs/design/week3-audit.md`:
+on the test tier the reference scores the two components identical to 16
+significant figures, because both are handed the same pinned pool over the
+same query list, so any cosine top-k search reproduces the controller's own
+ranking. The band was near-tautological there.
+
+**Evaluation tier**, where the audit records the two components actually
+separating:
+
+```
+search    verbatim 0.2572  rungs 2 to 4  0.2221   R_search    = 0.8632
+retrieval verbatim 0.2586  rungs 2 to 4  0.2241   R_retrieval = 0.8666
+                                         difference             0.0033
+```
+
+Inside the band, on the tier where passing means something. Ship.
+
+### One finding worth keeping
+
+On the evaluation tier the keywords rung scores 0.2746 against verbatim's
+0.2586. Dropping the stopwords makes retrieval *better*, not merely nearly
+free.
+
+That is the course's own claim about IDF weighting, confirmed on real data:
+if low-information words carry near-zero weight, removing them cannot hurt,
+and where they contribute noise it helps. It also means the pre-registered
+expectation of a small drop was the wrong shape for this rung, though the
+band was on the mean of three and the mean does fall.
+
+Recorded rather than acted on. A submission whose keywords rung sits below
+its verbatim one is doing something the course predicts it should not, and
+that is now a readable signal on the run page rather than a number nobody
+compares.
