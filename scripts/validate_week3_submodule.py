@@ -10,17 +10,17 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 BENCHMARK = ROOT / "benchmarks" / "week3"
-REVIEWED_COMMIT = "c28c67b731e40f7569814dd9666d8e28ae4ac6be"
+REVIEWED_COMMIT = "f74449989d42c2fc63263d355ed4dc633bdb4bad"
 
 PLUGIN_EXPECTATIONS = {
     'benchmark_id = "language-search"': "benchmark id",
     "benchmark_version = 1": "benchmark version",
     'contract_version = "cogworks.submissions.v2"': "contract version",
-    # Tracks the catalog row, which migration 0030 moved to retrieval-v3 when
+    # Tracks the catalog row, which migration 0032 moved to retrieval-v4 when
     # `search_mrr` changed from the verbatim rung alone to the mean of the
     # four query rewrites. Leaving this at retrieval-v2 would assert the
     # catalog says something it no longer says.
-    'scorer_version = "retrieval-v3"': "scorer version",
+    'scorer_version = "retrieval-v4"': "scorer version",
     'primary_metric = "overall"': "primary metric",
 }
 
