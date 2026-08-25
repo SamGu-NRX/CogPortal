@@ -2151,6 +2151,16 @@ def _v2_metrics(benchmark: Any, outputs: List[Any], cases: List[Any]) -> Tuple[L
     # that predate it, which is why this reads as a plain dict lookup rather
     # than a required attribute.
     help_text = getattr(benchmark, "metric_help", {})
+    # What kind of number each one is, and what it belongs beside. A plugin
+    # that declares neither gets today's rendering: one row per metric, with
+    # an arrow saying which direction is better.
+    #
+    # That arrow is an assertion about the submission, and it is false on a
+    # floor. Week 3 publishes three floors and drew "higher is better" on all
+    # of them, which reads as advice to raise a number the student does not
+    # control. `metric_roles` is how a benchmark says so.
+    roles = getattr(benchmark, "metric_roles", {})
+    relations = getattr(benchmark, "metric_relations", {})
     scores = benchmark.score(outputs, cases)
     metrics = [
         Metric(
@@ -2158,10 +2168,15 @@ def _v2_metrics(benchmark: Any, outputs: List[Any], cases: List[Any]) -> Tuple[L
             label=labels.get(key, key.replace("_", " ").title()),
             value=float(value),
             unit=None,
+            # A floor has no direction of better, so it does not get an
+            # arrow at all; the renderer reads the role and draws it as the
+            # scale of the metric it belongs to.
             higher_is_better=key not in lower_is_better,
             primary=key == benchmark.primary_metric,
             precision=3,
             help=help_text.get(key),
+            role=roles.get(key),
+            relates_to=relations.get(key),
         )
         for key, value in scores.items()
     ]

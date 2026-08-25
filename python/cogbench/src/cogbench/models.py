@@ -22,6 +22,20 @@ class Metric:
     #: box, and a black box teaches nothing. Optional so older plugins that
     #: predate it keep working; a plugin supplies it through `metric_help`.
     help: Optional[str] = None
+    #: What kind of number this is: "scored", "floor", "reported", or
+    #: "diagnostic". Absent means scored, which is what everything was before
+    #: this existed, so a plugin that declares nothing renders as it did.
+    #:
+    #: The distinction is not cosmetic. Every metric renders with an arrow
+    #: saying which direction is better, and that is an assertion about the
+    #: submission. A floor is a property of the dataset, so "higher is
+    #: better" on it reads as advice to raise a number the student does not
+    #: control.
+    role: Optional[str] = None
+    #: The metric this one is the floor of, or is reported beside. A floor is
+    #: the scale its metric sits on; a reported metric only means anything
+    #: next to its scored counterpart.
+    relates_to: Optional[str] = None
 
     def to_wire(self) -> Dict[str, Any]:
         wire = {
@@ -38,6 +52,10 @@ class Metric:
         # is the empty string".
         if self.help:
             wire["help"] = self.help
+        if self.role:
+            wire["role"] = self.role
+        if self.relates_to:
+            wire["relatesTo"] = self.relates_to
         return wire
 
     @classmethod

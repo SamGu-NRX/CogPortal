@@ -18,6 +18,29 @@ export const ProtocolMetricSchema = z.object({
    * help affordance rather than with an empty one.
    */
   help: z.string().max(600).optional(),
+  /**
+   * What kind of number this is, which decides how the run page draws it.
+   *
+   * Every metric used to render as one row with an up or down arrow, and the
+   * arrow is an assertion: this measures your submission and here is the
+   * direction of better. That is false for a floor, which is a property of
+   * the dataset. Week 3 published three of them and drew "higher is better"
+   * on all three, which reads as advice to raise a number the submission
+   * does not control.
+   *
+   * `floorOf` and `reportedFor` name the metric this one belongs beside. A
+   * floor is the scale its metric sits on, so it renders inline rather than
+   * as its own row. A reported metric is run and deliberately not scored,
+   * and it only means anything next to its scored counterpart: Week 3's
+   * verbatim probes are answerable from the file the submission is handed,
+   * so the gap between them and the scored number is the reading.
+   *
+   * Absent means "scored", which is what every metric was before this
+   * existed, so a benchmark that declares nothing renders exactly as it did.
+   */
+  role: z.enum(["scored", "floor", "reported", "diagnostic", "plotted"]).optional(),
+  /** The metric this one is the floor of, or is reported alongside. */
+  relatesTo: z.string().max(80).optional(),
 });
 
 /**

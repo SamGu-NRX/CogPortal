@@ -79,6 +79,17 @@ export const MetricSchema = z.object({
    * that predate it send nothing, and the UI shows no help affordance then.
    */
   help: z.string().nullish(),
+  /**
+   * What kind of number this is, so the run page can draw it correctly
+   * without knowing any metric's name. See ProtocolMetricSchema in
+   * protocol.ts for why: an arrow saying which direction is better is an
+   * assertion about the submission, and it is false on a floor.
+   *
+   * Nullish means scored, which is what everything was before this existed.
+   */
+  role: z.enum(["scored", "floor", "reported", "diagnostic", "plotted"]).nullish(),
+  /** The metric this one is the floor of, or is reported alongside. */
+  relatesTo: z.string().nullish(),
 });
 export type Metric = z.infer<typeof MetricSchema>;
 
