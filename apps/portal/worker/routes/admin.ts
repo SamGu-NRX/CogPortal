@@ -32,6 +32,7 @@ import {
 } from "../db/schema";
 import { ApiHttpError } from "../http/errors";
 import { parseBody, respond } from "../http/respond";
+import { isUniqueConstraintError } from "./team";
 
 const AdminCohortSchema = z.object({
   slug: z.string(),
@@ -329,19 +330,52 @@ export function registerAdminRoutes(app: Hono<AppEnv>): void {
     const teamId = c.req.param("teamId");
     await requireTeamScope(c, teamId);
     const [[team], [user]] = await Promise.all([
-      db.select({ id: teams.id }).from(teams).where(eq(teams.id, teamId)).limit(1),
-      db.select({ id: users.id }).from(users).where(eq(users.githubLogin, body.login)).limit(1),
+      db
+        .select({ id: teams.id, cohortId: teams.cohortId })
+        .from(teams)
+        .where(eq(teams.id, teamId))
+        .limit(1),
+      db
+        .select({ id: users.id, cohortId: users.cohortId })
+        .from(users)
+        .where(sql`lower(${users.githubLogin}) = lower(${body.login})`)
+        .limit(1),
     ]);
     if (!team || !user) {
       throw new ApiHttpError(404, "not_found", !team ? "Team not found." : "User not found.");
     }
-    await db
-      .insert(teamMembers)
-      .values({ teamId, userId: user.id, role: "write" })
-      .onConflictDoUpdate({
-        target: [teamMembers.teamId, teamMembers.userId],
-        set: { role: "write" },
-      });
+    // The same refusals the student-facing path makes (routes/team-membership.ts):
+    // without them, a cross-cohort add succeeds silently and the one-team unique
+    // index surfaces as a raw 500.
+    if (user.cohortId !== team.cohortId) {
+      throw new ApiHttpError(403, "not_in_cohort", `@${body.login} is not in this team's cohort.`);
+    }
+    const [membership] = await db
+      .select({ teamId: teamMembers.teamId, teamName: teams.name })
+      .from(teamMembers)
+      .leftJoin(teams, eq(teamMembers.teamId, teams.id))
+      .where(eq(teamMembers.userId, user.id))
+      .limit(1);
+    if (membership) {
+      // Already on this team included: refusing instead of upserting is what
+      // preserves an existing member's role (re-adding a creator used to
+      // silently demote them to "write").
+      throw new ApiHttpError(
+        409,
+        "already_on_team",
+        membership.teamId === teamId
+          ? `@${body.login} is already on this team.`
+          : `@${body.login} is already on team ${membership.teamName ?? "another team"}.`,
+      );
+    }
+    try {
+      await db.insert(teamMembers).values({ teamId, userId: user.id, role: "write" });
+    } catch (error) {
+      if (isUniqueConstraintError(error)) {
+        throw new ApiHttpError(409, "already_on_team", `@${body.login} is already on a team.`);
+      }
+      throw error;
+    }
     return respond(c, AdminTeamSummarySchema, await getAdminTeamSummary(db, teamId));
   });
 
@@ -354,9 +388,23 @@ export function registerAdminRoutes(app: Hono<AppEnv>): void {
     const [user] = await db
       .select({ id: users.id })
       .from(users)
-      .where(eq(users.githubLogin, c.req.param("login")))
+      .where(sql`lower(${users.githubLogin}) = lower(${c.req.param("login")})`)
       .limit(1);
     if (user) {
+      // Same refusal as the team page's removal path (routes/team-membership.ts):
+      // removing the creator strands the team's settings for everyone.
+      const [membership] = await db
+        .select({ role: teamMembers.role })
+        .from(teamMembers)
+        .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, user.id)))
+        .limit(1);
+      if (membership?.role === "admin") {
+        throw new ApiHttpError(
+          403,
+          "cannot_remove_creator",
+          "The team creator cannot be removed.",
+        );
+      }
       await db
         .delete(teamMembers)
         .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, user.id)));
@@ -371,7 +419,7 @@ export function registerAdminRoutes(app: Hono<AppEnv>): void {
     const teamId = c.req.param("teamId");
     const [[team], [user]] = await Promise.all([
       db.select({ id: teams.id }).from(teams).where(eq(teams.id, teamId)).limit(1),
-      db.select({ id: users.id }).from(users).where(eq(users.githubLogin, body.login)).limit(1),
+      db.select({ id: users.id }).from(users).where(sql`lower(${users.githubLogin}) = lower(${body.login})`).limit(1),
     ]);
     if (!team || !user) {
       throw new ApiHttpError(404, "not_found", !team ? "Team not found." : "User must sign in before being assigned as a TA.");
@@ -390,7 +438,7 @@ export function registerAdminRoutes(app: Hono<AppEnv>): void {
     const [user] = await db
       .select({ id: users.id })
       .from(users)
-      .where(eq(users.githubLogin, c.req.param("login")))
+      .where(sql`lower(${users.githubLogin}) = lower(${c.req.param("login")})`)
       .limit(1);
     if (user) {
       await db.delete(teamTas).where(and(eq(teamTas.teamId, teamId), eq(teamTas.userId, user.id)));

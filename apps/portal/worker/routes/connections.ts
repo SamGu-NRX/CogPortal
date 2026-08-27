@@ -187,6 +187,28 @@ export function registerConnectionRoutes(app: Hono<AppEnv>): void {
         ),
       );
     if ((result.meta.changes ?? 0) !== 1) {
+      // Approving twice happens innocently: a reload re-offers the form while
+      // the code is still in the URL. If this user already approved this
+      // code, the approval succeeded; refusing it would tell them otherwise.
+      const [existing] = await getDb(c.env)
+        .select({
+          approvedAt: deviceAuthorizations.approvedAt,
+          userId: deviceAuthorizations.userId,
+          expiresAt: deviceAuthorizations.expiresAt,
+          consumedAt: deviceAuthorizations.consumedAt,
+        })
+        .from(deviceAuthorizations)
+        .where(eq(deviceAuthorizations.userCode, body.userCode))
+        .limit(1);
+      const stillLinkable = existing?.consumedAt != null || (existing?.expiresAt ?? 0) > now;
+      if (existing?.approvedAt && existing.userId === auth.user.id && stillLinkable) {
+        // This user already approved this code and the CLI either finished
+        // linking or still can; a reload re-offering the form is the only way
+        // here. An approved code the CLI never consumed before expiry falls
+        // through to the refusal, because "the terminal will finish linking"
+        // would be false.
+        return c.json({ ok: true }, 200);
+      }
       throw new ApiHttpError(410, "link_expired", "The device code is invalid, expired, or already used.");
     }
     return c.json({ ok: true }, 200);

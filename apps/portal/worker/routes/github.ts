@@ -11,7 +11,7 @@ import {
 import type { GithubRepo } from "@cogworks/contracts/schema";
 import type { AppEnv } from "../env";
 import { devAuthAvailable, githubConfigured } from "../env";
-import { getGithubToken } from "../auth/better-auth";
+import { getGithubToken, getGithubTokenOrThrow } from "../auth/better-auth";
 import {
   authFor,
   authToSession,
@@ -92,14 +92,36 @@ export function registerGithubRoutes(app: Hono<AppEnv>): void {
     if (devAuthAvailable(c.env)) {
       repositories.push(...(await new FixtureGitHubClient().listRepositories()));
     }
-    const githubToken = githubConfigured(c.env)
-      ? await getGithubToken(authFor(c), auth.user.id, c.req.raw.headers)
-      : null;
+    let githubToken: string | null = null;
+    if (githubConfigured(c.env)) {
+      try {
+        githubToken = await getGithubTokenOrThrow(authFor(c), auth.user.id, c.req.raw.headers);
+      } catch {
+        // A failed token lookup is not "the user has no GitHub link": rendering
+        // it as an empty list tells the student their fork is missing.
+        console.warn(JSON.stringify({ evt: "github_api_failure", operation: "token_lookup" }));
+        throw new ApiHttpError(
+          502,
+          "provider_unconfigured",
+          "GitHub did not answer the repository listing. Try again shortly.",
+        );
+      }
+    }
     if (githubToken) {
       try {
         repositories.push(...(await new RealGitHubClient().listRepositories(githubToken)));
       } catch {
         console.warn(JSON.stringify({ evt: "github_api_failure", operation: "list_repositories" }));
+        // Swallowing this returned an empty success, and ConnectPage then
+        // told the student their fork was missing during a GitHub outage.
+        // Fixture repositories cannot soften it: devAuthAvailable requires
+        // GitHub to be unconfigured, so this token and that path never
+        // coexist. Fail the request; the page's error panel offers a retry.
+        throw new ApiHttpError(
+          502,
+          "provider_unconfigured",
+          "GitHub did not answer the repository listing. Try again shortly.",
+        );
       }
     }
     const claims = auth.cohort && repositories.length > 0
@@ -129,6 +151,13 @@ export function registerGithubRoutes(app: Hono<AppEnv>): void {
   app.post("/github/connect", async (c) => {
     const auth = await requireUser(c);
     if (!auth.cohort) throw new ApiHttpError(403, "no_cohort", "Join a cohort first.");
+    // The one-team-per-user unique index would reject this connect anyway,
+    // but as a raw 500. Refuse before any insert, with the join path's
+    // sentence. This also closes the window where a team row was created
+    // and the membership insert then failed, orphaning the claim.
+    if (auth.team) {
+      throw new ApiHttpError(409, "already_on_team", "You are already on a team.");
+    }
     const body = await parseBody(c, ConnectRequestSchema);
     let repository: ConnectRepository;
     let permission: TeamRole;

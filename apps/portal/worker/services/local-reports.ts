@@ -7,7 +7,7 @@ import {
 } from "@cogworks/contracts/schema";
 import type { Env } from "../env";
 import { getDb } from "../db/client";
-import { localReports, teamMembers, teams, users } from "../db/schema";
+import { benchmarks, localReports, teamMembers, teams, users } from "../db/schema";
 import { ApiHttpError } from "../http/errors";
 
 function parseReportRow(row: {
@@ -60,7 +60,22 @@ export async function listTeamLocalReports(
     inArray(localReports.userId, members.map((member) => member.userId)),
     eq(localReports.repositoryFullName, membership.repoFullName),
   ];
-  if (benchmarkId) predicates.push(eq(localReports.benchmarkId, benchmarkId));
+  if (benchmarkId) {
+    // A benchmark bump keeps the id and raises the version, so an id-only
+    // filter mixed pre-bump reports into the current list. Pin the list to
+    // the active version, resolved the same way the dashboard route does.
+    const [active] = await db
+      .select({ version: benchmarks.version })
+      .from(benchmarks)
+      .where(and(eq(benchmarks.id, benchmarkId), eq(benchmarks.active, true)))
+      .orderBy(desc(benchmarks.version))
+      .limit(1);
+    if (!active) return [];
+    predicates.push(
+      eq(localReports.benchmarkId, benchmarkId),
+      eq(localReports.benchmarkVersion, active.version),
+    );
+  }
   const rows = await db
     .select({ report: localReports, login: users.githubLogin, email: users.email, name: users.name })
     .from(localReports)

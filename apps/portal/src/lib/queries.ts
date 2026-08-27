@@ -5,12 +5,12 @@ import {
 } from "@tanstack/react-query";
 import {
   ACTIVE_RUN_POLL_MS,
-  SETUP_STEPS,
   isTerminal,
   type AdminOverview,
   type AdminStaffRoster,
 } from "@cogworks/contracts/schema";
 import { api } from "./api";
+import { CHECKLIST_MACHINE_STEPS } from "./setup-progress";
 
 /** Only used before the benchmark list resolves, as a first-render probe.
  *  Which track a team is actually looking at is `useTrack()` in lib/track.ts;
@@ -247,8 +247,11 @@ export function useSetupState(enabled = true) {
     enabled,
     staleTime: 3_000,
     refetchInterval: (query) => {
+      // Stop on the visible checklist's own completion set. SETUP_STEPS also
+      // carries test/run milestones the checklist never shows, so waiting on
+      // every step kept a finished page polling forever.
       const verified = query.state.data?.verified;
-      return verified && SETUP_STEPS.every((step) => verified.includes(step))
+      return verified && CHECKLIST_MACHINE_STEPS.every((step) => verified.includes(step))
         ? false
         : 2_500;
     },

@@ -1,4 +1,5 @@
 import { Link, useParams } from "react-router";
+import { ApiRequestError } from "@/lib/api";
 import { FAILURE_CATALOG } from "@cogworks/contracts/failures";
 import { OFFICIAL_LIMIT, isTerminal } from "@cogworks/contracts/schema";
 import { Button } from "@/components/Button";
@@ -167,22 +168,34 @@ export function RunDetailPage() {
               Run practice again on {run.branch}
             </Button>
           )}
-          {run.mode === "official" &&
-            !run.failure.consumedAttempt &&
-            run.parentRunId && (
-              <div className="flex flex-wrap items-center gap-3">
-                <ConfirmButton
-                  label="Promote the candidate again"
-                  confirmLabel={`Confirm — uses attempt ${(quota?.officialUsed ?? 0) + 1} of ${OFFICIAL_LIMIT}`}
-                  onConfirm={() => promote.mutate(run.parentRunId!)}
-                  busy={promote.isPending}
-                  disabled={!!quota && quota.officialUsed >= quota.officialLimit}
-                />
-                <span className="font-mono text-[11px] text-ink-faint">
-                  same commit, same prepared environment
-                </span>
-              </div>
-            )}
+          {/* A failed official run occupies its surface, so promoting the
+              same candidate again is refused by the server every time. The
+              real recovery is a fresh practice run: it opens a new surface
+              whose success becomes the next promotable candidate. */}
+          {run.mode === "official" && !run.failure.consumedAttempt && (
+            <div className="flex flex-wrap items-center gap-3">
+              <Button
+                variant="ghost"
+                busy={retry.isPending}
+                onClick={() => retry.mutate(run.branch)}
+              >
+                Run practice again on {run.branch}
+              </Button>
+              <span className="font-mono text-[11px] text-ink-faint">
+                attempt not consumed; a fresh practice run creates the next candidate to promote
+              </span>
+            </div>
+          )}
+          {(retry.error || promote.error) && (
+            <p role="alert" className="mt-3 text-[13px] text-detect-deep">
+              {(() => {
+                const e = retry.error ?? promote.error;
+                return e instanceof ApiRequestError
+                  ? e.message
+                  : "The action couldn't be completed. Try again.";
+              })()}
+            </p>
+          )}
         </div>
       )}
 

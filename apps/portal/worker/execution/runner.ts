@@ -201,10 +201,17 @@ async function dispatchToModal(env: Env, job: RunJobV1): Promise<void> {
   if (response.status !== 202) {
     throw new Error(`Modal runner rejected job with status ${response.status}.`);
   }
-  await getDb(env)
-    .update(runs)
-    .set({ dispatchAttempts: sql`${runs.dispatchAttempts} + 1` })
-    .where(eq(runs.id, job.runId));
+  // Modal holds the job from here on. The attempt counter is bookkeeping; a
+  // failed write must not read as a failed dispatch, or the caller would
+  // release an official-attempt claim for a run that is actually executing.
+  try {
+    await getDb(env)
+      .update(runs)
+      .set({ dispatchAttempts: sql`${runs.dispatchAttempts} + 1` })
+      .where(eq(runs.id, job.runId));
+  } catch {
+    // Accepted; the counter is off by one and nothing else is wrong.
+  }
 }
 
 export async function handleRunQueue(batch: MessageBatch<RunJobV1>, env: Env): Promise<void> {

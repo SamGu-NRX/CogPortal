@@ -128,6 +128,17 @@ function isUniqueConstraintError(error: unknown): boolean {
   return error instanceof Error && /unique constraint failed/i.test(error.message);
 }
 
+function existingOfficialPromotion(run: RunRow, surfaceId: string) {
+  if (run.status === "failed") {
+    throw new ApiHttpError(
+      409,
+      "not_promotable",
+      "This surface already has a failed official run. Rerun hosted verification to create a new surface before promoting again.",
+    );
+  }
+  return { runId: run.id, surfaceId };
+}
+
 async function insertPhaseSkeleton(env: Env, runId: string): Promise<void> {
   await getDb(env).insert(runPhases).values(
     RUN_PHASES.map((phase) => ({ runId, phase, startedAt: null, endedAt: null })),
@@ -141,7 +152,13 @@ async function dispatch(env: Env, runId: string, team: TeamRow, benchmark: Bench
   try {
     await enqueueRun(env, run, team, benchmark);
   } catch {
-    await getDb(env)
+    // The provider never accepted the job (enqueueRun only rejects before
+    // acceptance). The failed-run update and the claim release commit as one
+    // D1 batch, because either half alone is a lie: a failed run keeping its
+    // claim silently spends an attempt, and a released claim on a still-queued
+    // run leaves a claimless run holding the active-run index.
+    const db = getDb(env);
+    const failRun = db
       .update(runs)
       .set({
         status: "failed",
@@ -151,6 +168,11 @@ async function dispatch(env: Env, runId: string, team: TeamRow, benchmark: Bench
         failureDetail: "The run could not be queued for Modal.",
       })
       .where(eq(runs.id, runId));
+    if (run.mode === "official") {
+      await db.batch([failRun, db.delete(officialAttempts).where(eq(officialAttempts.runId, runId))]);
+    } else {
+      await failRun;
+    }
     throw new ApiHttpError(502, "provider_unconfigured", "The run could not be queued. Try again.");
   }
 }
@@ -318,7 +340,7 @@ export async function promotePracticeRun(
     .from(runs)
     .where(and(eq(runs.surfaceId, parent.surfaceId), eq(runs.mode, "official")))
     .limit(1);
-  if (existing) return { runId: existing.id, surfaceId: parent.surfaceId };
+  if (existing) return existingOfficialPromotion(existing, parent.surfaceId);
   const benchmark = await activeBenchmark(env, parent.benchmarkId, parent.benchmarkVersion);
   const teamRuns = await syncTeamRuns(db, actor.team.id, parent.benchmarkId);
   if (hasActive(teamRuns)) throw new ApiHttpError(409, "active_run_exists", "A run is already active for this benchmark.");
@@ -381,7 +403,7 @@ export async function promotePracticeRun(
       .from(runs)
       .where(and(eq(runs.surfaceId, parent.surfaceId), eq(runs.mode, "official")))
       .limit(1);
-    if (raced) return { runId: raced.id, surfaceId: parent.surfaceId };
+    if (raced) return existingOfficialPromotion(raced, parent.surfaceId);
     throw new ApiHttpError(409, "quota_exhausted", "The official attempt could not be claimed.");
   }
   await insertPhaseSkeleton(env, runId);

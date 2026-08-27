@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useParams } from "react-router";
+import { Link, useNavigate, useParams } from "react-router";
 import { RunConsole } from "@/components/RunConsole";
 import { LoadingMark, QueryError } from "@/components/Feedback";
 import { ApiRequestError } from "@/lib/api";
@@ -8,6 +8,7 @@ import { useRunSurfaceStream } from "@/lib/run-surface-stream";
 
 export function RunSurfacePage() {
   const { surfaceId = "" } = useParams();
+  const navigate = useNavigate();
   const query = useRunSurface(surfaceId);
   const mutation = useMutateRunSurface();
   const [mutationError, setMutationError] = useState<string | null>(null);
@@ -45,7 +46,12 @@ export function RunSurfacePage() {
         onAction={async (action) => {
           setMutationError(null);
           try {
-            await mutation.mutateAsync({ surfaceId: stream.snapshot!.id, action });
+            const next = await mutation.mutateAsync({ surfaceId: stream.snapshot!.id, action });
+            // A rerun answers with the successor surface; staying on the old
+            // id would keep showing the finished run it was created from.
+            if (next.id !== surfaceId) {
+              navigate(`/run-surfaces/${encodeURIComponent(next.id)}`);
+            }
           } catch (error) {
             setMutationError(error instanceof ApiRequestError ? error.message : "That action could not be completed.");
           }

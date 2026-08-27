@@ -3,7 +3,7 @@ import { MotionConfig } from "motion/react";
 import type { ReactNode } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router";
 import type { Session } from "@cogworks/contracts/schema";
-import { LoadingMark } from "@/components/Feedback";
+import { LoadingMark, QueryError } from "@/components/Feedback";
 import { Shell } from "@/components/Shell";
 import { useSession } from "@/lib/queries";
 import { AdminPage } from "@/routes/AdminPage";
@@ -37,17 +37,24 @@ export function nextStagePath(session: Session): string {
   return "/dashboard";
 }
 
-function RequireStage({
+/** Exported for the render tests; routes reach it through App alone. */
+export function RequireStage({
   stage,
   children,
 }: {
   stage: "user" | "cohort" | "team";
   children: ReactNode;
 }) {
-  const { data: session, isPending } = useSession();
+  const { data: session, isPending, isError, error, refetch } = useSession();
   const location = useLocation();
   if (isPending) return <LoadingMark />;
-  if (!session) return <LoadingMark />;
+  if (!session) {
+    // A failed session read with nothing cached would otherwise be an
+    // unresolvable loading mark. A warm tab still has data and falls
+    // through to the stage checks below.
+    if (isError) return <QueryError error={error} retry={() => void refetch()} />;
+    return <LoadingMark />;
+  }
 
   if (!session.user) {
     if (location.pathname === "/connections") {
@@ -61,8 +68,11 @@ function RequireStage({
 }
 
 /** Staff-only gate — students never see the admin console. */
-function RequireStaff({ children }: { children: ReactNode }) {
-  const { data: session, isPending } = useSession();
+export function RequireStaff({ children }: { children: ReactNode }) {
+  const { data: session, isPending, isError, error, refetch } = useSession();
+  if (isError && !session) {
+    return <QueryError error={error} retry={() => void refetch()} />;
+  }
   if (isPending || !session) return <LoadingMark />;
   if (!session.user) return <Navigate to="/signin" replace />;
   if (session.user.platformRole !== "staff" && !session.user.isTa) {

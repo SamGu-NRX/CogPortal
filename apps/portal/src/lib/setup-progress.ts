@@ -79,6 +79,11 @@ export function dismissSetup(teamId: string, login: string): void {
 
 export type SetupEntry = "created" | "joined";
 
+/** The machine steps the guide's checklist actually shows. SETUP_STEPS also
+ *  carries test/run, which are later learning milestones. A poll waiting on
+ *  those never stops on a page whose checklist is complete. */
+export const CHECKLIST_MACHINE_STEPS = ["clone", "environment", "project", "wiring"] as const;
+
 /**
  * Shared with the dashboard nudge: how far along the guide is. The optional
  * device-link step never counts toward the total — nobody should sit at
