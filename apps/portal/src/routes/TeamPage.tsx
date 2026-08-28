@@ -19,8 +19,15 @@ import {
   useUpdateTeam,
 } from "@/lib/queries";
 
+/**
+ * Portal roles mirror the team's GitHub repository permissions: whoever GitHub
+ * calls an admin on the fork is a team admin here, with the settings and
+ * repository controls that implies. This is deliberate, so the label says
+ * "admin" rather than "creator": there can be more than one, and the way to
+ * grant or revoke it is on GitHub.
+ */
 const ROLE_LABELS: Record<string, string> = {
-  admin: "creator",
+  admin: "admin",
   maintain: "maintainer",
   write: "member",
 };
@@ -227,8 +234,8 @@ export function TeamPage() {
   );
 }
 
-/** Members, and — for the creator — the door: add cohort students without a
- *  team, remove anyone but the creator. Portal membership only; a GitHub
+/** Members, and for a team admin the door: add cohort students without a
+ *  team, remove anyone but a team admin. Portal membership only; a GitHub
  *  collaborator invite is still what lets them push. */
 function MembersPanel({ team }: { team: TeamDetail }) {
   const [adding, setAdding] = useState(false);

@@ -402,7 +402,7 @@ export function registerAdminRoutes(app: Hono<AppEnv>): void {
         throw new ApiHttpError(
           403,
           "cannot_remove_creator",
-          "The team creator cannot be removed.",
+          "A team admin cannot be removed here. Change their permission on GitHub instead.",
         );
       }
       await db

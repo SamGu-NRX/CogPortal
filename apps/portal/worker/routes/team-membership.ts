@@ -66,7 +66,7 @@ function repoAccessRequired(adminLogin: string | null): ApiHttpError {
   return new ApiHttpError(
     403,
     "repo_access_required",
-    `Ask ${adminLogin ?? "the team creator"} to add you as a collaborator on GitHub — or to add you here from Team settings.`,
+    `Ask ${adminLogin ?? "a team admin"} to add you as a collaborator on GitHub — or to add you here from Team settings.`,
   );
 }
 
@@ -291,7 +291,7 @@ export function registerTeamMembershipRoutes(app: Hono<AppEnv>): void {
       throw new ApiHttpError(
         403,
         "cannot_remove_creator",
-        "The team creator cannot be removed.",
+        "A team admin cannot be removed here. Change their permission on GitHub instead.",
       );
     }
     await db

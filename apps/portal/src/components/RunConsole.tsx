@@ -198,15 +198,13 @@ export function RunConsole({
       setShowCommand(true);
       return;
     }
-    if (action === "verify_hosted") {
-      void onAction?.(action);
-      return;
-    }
-    if (["promote_official", "publish_result", "rerun_hosted"].includes(action)) {
+    if (["verify_hosted", "promote_official", "publish_result", "rerun_hosted"].includes(action)) {
       setPendingAction(action as Mutation);
     }
   };
-  const confirmation = pendingAction === "promote_official"
+  const confirmation = pendingAction === "verify_hosted"
+    ? `Run ${snapshot.shortSha} on the hosted benchmark? This uses one of the team's shared practice runs.`
+    : pendingAction === "promote_official"
     ? `Use official attempt ${snapshot.nextOfficialAttempt ?? "—"} of 3 for ${snapshot.benchmark.title} at ${snapshot.shortSha}?`
     : pendingAction === "publish_result"
       ? `Publish ${snapshot.shortSha} to the public leaderboard?`

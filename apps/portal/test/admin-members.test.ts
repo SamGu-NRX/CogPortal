@@ -173,10 +173,13 @@ test("admin removal of a team's creator is refused, not performed", async () => 
   const removed = await h.call("DELETE", "/admin/teams/team_a/members/creator", { cookie: owner });
   assert.equal(removed.status, 403);
   assert.equal(removed.body.error.code, "cannot_remove_creator");
-  // Same truthful refusal as the team page's own path. The portal has no
-  // creator-transfer or team-deletion operation, so the message must not
-  // invent one; naming an unavailable way out is worse than naming none.
-  assert.equal(removed.body.error.message, "The team creator cannot be removed.");
+  // Same refusal as the team page's own path, and it names the real way out:
+  // portal team authority mirrors GitHub repository permission, so the lever
+  // is on GitHub, not in a portal operation the product does not have.
+  assert.equal(
+    removed.body.error.message,
+    "A team admin cannot be removed here. Change their permission on GitHub instead.",
+  );
   assert.equal(await h.roleOf("team_a", creatorId), "admin");
 });
 
