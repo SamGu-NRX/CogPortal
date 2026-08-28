@@ -20,7 +20,7 @@ import { RunSurfacePage } from "@/routes/RunSurfacePage";
 import { SetupPage } from "@/routes/SetupPage";
 import { SignInPage } from "@/routes/SignInPage";
 import { TeamPage } from "@/routes/TeamPage";
-import { rememberConnectionReturn } from "@/lib/pending-return";
+import { rememberConnectionReturn, rememberDroppedDeviceLink } from "@/lib/pending-return";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -61,6 +61,10 @@ export function RequireStage({
       rememberConnectionReturn(`${location.pathname}${location.search}${location.hash}`);
     }
     return <Navigate to="/signin" replace />;
+  }
+  const owed = (stage !== "user" && !session.cohort) || (stage === "team" && !session.team);
+  if (owed && location.pathname === "/connections") {
+    rememberDroppedDeviceLink(`${location.pathname}${location.search}${location.hash}`);
   }
   if (stage !== "user" && !session.cohort) return <Navigate to="/join" replace />;
   if (stage === "team" && !session.team) return <Navigate to="/connect" replace />;

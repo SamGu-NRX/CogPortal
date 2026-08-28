@@ -10,6 +10,7 @@ import { motion, useReducedMotion } from "motion/react";
 import type { CohortTeam, GithubRepo } from "@cogworks/contracts/schema";
 import { CornerBrackets } from "@/components/Brackets";
 import { Button } from "@/components/Button";
+import { DroppedLinkNotice } from "@/components/DroppedLinkNotice";
 import { LoadingMark, QueryError } from "@/components/Feedback";
 import { GrantAccess } from "@/components/GrantAccess";
 import { RepoPicker } from "@/components/RepoPicker";
@@ -88,6 +89,7 @@ export function ConnectPage() {
 
   return (
     <div className="mx-auto w-full max-w-lg py-14">
+      <DroppedLinkNotice />
       <motion.div
         key={step}
         initial={reduceMotion ? false : { opacity: 0, y: 6 }}
@@ -466,11 +468,21 @@ function OrganizationPrimer() {
           <HugeiconsIcon icon={ArrowUpRight01Icon} size={13} strokeWidth={1.8} aria-hidden="true" />
         </a>
       </div>
-      <ol className="mt-3 grid gap-2 text-[12.5px] leading-relaxed text-ink-secondary sm:grid-cols-3">
-        <li><span className="font-mono text-[10px] text-ink-faint">01</span><br />Create the organization and keep the free plan.</li>
-        <li><span className="font-mono text-[10px] text-ink-faint">02</span><br />Invite teammates; keep two owners for recovery.</li>
-        <li><span className="font-mono text-[10px] text-ink-faint">03</span><br />Fork the starter into that organization.</li>
-      </ol>
+      {/* Collapsed on purpose. This used to be a numbered 01/02/03 list sitting
+          directly above the required fork protocol, which also starts at 01 and
+          also says "fork". Two numbered sequences on one screen, sharing a verb
+          and disagreeing about the destination, read as one broken sequence. */}
+      <details className="mt-3 text-[12.5px] leading-relaxed text-ink-secondary">
+        <summary className="u-pressable cursor-pointer text-ink-secondary hover:text-ink">
+          Teams of two or more: fork into a free GitHub organization so no one's
+          personal account owns the team.
+        </summary>
+        <ol className="mt-3 grid gap-2 sm:grid-cols-3">
+          <li><span className="font-mono text-[10px] text-ink-faint">01</span><br />Create the organization and keep the free plan.</li>
+          <li><span className="font-mono text-[10px] text-ink-faint">02</span><br />Invite teammates; keep two owners for recovery.</li>
+          <li><span className="font-mono text-[10px] text-ink-faint">03</span><br />Fork the starter into that organization.</li>
+        </ol>
+      </details>
       {GITHUB_TEAM_VIDEO && (
         <WalkthroughVideo
           base={GITHUB_TEAM_VIDEO}
@@ -534,7 +546,8 @@ function ForkSteps({
         <li className="flex items-baseline gap-4 px-5 py-3">
           <span className="font-mono text-[11px] text-ink-faint">02</span>
           <span className="text-[13.5px] text-ink-secondary">
-            Let the app see your fork.
+            Let the app see your fork. Install it on the account your fork
+            lives in, which is the organization if you forked there.
             <GrantAccess hasRepos={false} />
           </span>
         </li>

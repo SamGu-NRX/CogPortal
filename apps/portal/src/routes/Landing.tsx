@@ -1,9 +1,7 @@
 import { Link, Navigate } from "react-router";
-import { Code } from "@/components/Code";
 import { GitHubIcon } from "@/components/GitHubIcon";
 import { nextStagePath } from "@/App";
 import { useSession } from "@/lib/queries";
-import { useTrack } from "@/lib/track";
 import { pendingConnectionReturn } from "@/lib/pending-return";
 
 /**
@@ -13,20 +11,11 @@ import { pendingConnectionReturn } from "@/lib/pending-return";
  */
 export function Landing() {
   const { data: session } = useSession();
-  // This is the first page a student reads, so the example has to belong to a
-  // track that is actually open. The factory name stays a placeholder because
-  // it is the student's to choose, not something the catalog knows.
-  const track = useTrack();
-  const selectedModule = track.benchmark?.module;
-  const moduleTracks = selectedModule
-    ? track.tracks.filter((benchmark) => benchmark.module === selectedModule)
-    : [];
-  const entryPointExample = [
-    '[project.entry-points."cogworks.submissions.v2"]',
-    ...(moduleTracks.length > 0 ? moduleTracks : [{ entryPointName: track.benchmarkId }]).map(
-      (b) => `${b.entryPointName} = "benchmark_adapter:<your factory>"`,
-    ),
-  ].join("\n");
+  // This page used to carry the setup commands. It cannot: the sequence needs
+  // a clone step and the CLI's own install, and a signed-out page has no track
+  // to name them against, so a student who followed it literally reached
+  // "cogworks: command not found". The commands live on /setup, which knows
+  // the track and can verify each step. This page sells the shape of the work.
   const authed = Boolean(session?.user);
   const template = session?.auth.templateRepo ?? null;
   const pendingReturn = session?.user ? pendingConnectionReturn() : null;
@@ -88,22 +77,18 @@ export function Landing() {
             )}
           </Step>
 
-          <Step n={2} title="Install and register your adapter">
-            <Code lang="bash" code={"pip install -e ."} />
-            <p className="mt-3 mb-1.5 text-[13px] text-ink-secondary">
-              The template declares your entry point in{" "}
-              <code className="text-[12px] text-ink">pyproject.toml</code>:
+          <Step n={2} title="Set up your machine">
+            <p className="text-[14px] text-ink-secondary">
+              Clone your fork, install the course environment, and install the
+              CogWorks CLI. Sign in and the setup page walks you through it with
+              the exact commands for your track, in order.
             </p>
-            <Code lang="toml" code={entryPointExample} />
           </Step>
 
           <Step n={3} title="Practice locally">
-            <Code
-              lang="bash"
-              code={`cogworks check --benchmark ${track.benchmarkId}\ncogworks run --benchmark ${track.benchmarkId}`}
-            />
-            <p className="mt-2 text-[13px] text-ink-secondary">
-              Practice runs use the same checks and scorer as hosted runs, with no run limit.
+            <p className="text-[14px] text-ink-secondary">
+              Local runs use the same checks and the same scorer as hosted runs,
+              with no limit. Get a score you like here before spending a hosted run.
             </p>
           </Step>
 

@@ -172,9 +172,10 @@ function SetupGuide({
             />
           </div>
           <p className="mt-2 text-[14px] text-ink-secondary">
-            Follow one path from GitHub to a checked local project. CogPortal
-            marks browser facts; the CogWorks CLI checks only the machine facts
-            it can actually inspect.
+            Work top to bottom in your terminal. Nothing here is ticked by hand:
+            steps turn green on their own when the check in the last step runs,
+            and it colors everything it can verify at once. Grey steps after you
+            have done them are normal until then.
           </p>
 
           <ol className="relative mt-9">
@@ -263,12 +264,23 @@ function SetupGuide({
                 the command it installs is <code className="font-mono">cogworks</code>.
                 Those names intentionally differ.
               </p>
+              {/* The most common terminal failure in a mixed conda/Windows
+                  cohort, and it happens before the CLI exists, so the CLI's
+                  own error messages never get to help. */}
+              <p className="text-[12px] text-ink-faint">
+                If your terminal says <code className="font-mono">cogworks: command not found</code>,
+                the course environment is not active. Activate it and install again, or
+                run <code className="font-mono">python -m cogbench</code> in place of{" "}
+                <code className="font-mono">cogworks</code>.
+              </p>
             </Step>
 
             <Step index={number()} state={machineState("project")} title="Install this project" chip={terminalSet.has("project") ? "CLI checked" : undefined}>
               <p>
-                The starter pins the benchmark pilot separately, then registers
-                the adapter entry points this track needs
+                Two installs: the benchmark's pinned dependencies, then your own
+                project in editable mode, so later code changes apply without
+                reinstalling. This is also what registers the entry points the
+                track looks for
                 {moduleEntryPoints.length > 0 ? (
                   <>
                     :{" "}

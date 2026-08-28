@@ -66,7 +66,7 @@ function repoAccessRequired(adminLogin: string | null): ApiHttpError {
   return new ApiHttpError(
     403,
     "repo_access_required",
-    `Ask ${adminLogin ?? "a team admin"} to add you as a collaborator on GitHub — or to add you here from Team settings.`,
+    `Ask ${adminLogin ?? "a team admin"} to add you as a collaborator on GitHub, then accept the invitation GitHub emails you (github.com/notifications) and press Join again. They can also add you here from Team settings.`,
   );
 }
 
