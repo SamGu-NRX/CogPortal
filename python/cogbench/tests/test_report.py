@@ -157,6 +157,42 @@ class CheckTests(unittest.TestCase):
         self.assertIn("requirements.txt", text)
         self.assertNotIn("cogworks run", text)
 
+    def test_a_benchmark_that_cannot_be_searched_does_not_claim_a_package_was_used(self):
+        """Before this existed, a Week 3 repository with no package and no
+        adapter was told "your submission is registered as an installed
+        package, so it was used as is". Nothing was installed and nothing
+        was used; the benchmark simply had no discovery spec."""
+
+        text = "\n".join(
+            render_check(
+                benchmark="language-search",
+                python_version="3.11.15",
+                hosted_python=None,
+                benchmark_ready=True,
+                repository="team/repo",
+                submission=None,
+                submission_source=None,
+            )
+        )
+        self.assertNotIn("used as is", text)
+        self.assertNotIn("installed package", text)
+        self.assertIn("does not yet describe its task", text)
+        self.assertIn("benchmark_adapter.py", text)
+
+    def test_an_installed_entry_point_is_still_reported_as_used(self):
+        text = "\n".join(
+            render_check(
+                benchmark="language-search",
+                python_version="3.11.15",
+                hosted_python=None,
+                benchmark_ready=True,
+                repository="team/repo",
+                submission=None,
+                submission_source="entry_point",
+            )
+        )
+        self.assertIn("used as is", text)
+
     def test_a_missing_benchmark_says_so_rather_than_reporting_nothing(self):
         text = "\n".join(
             render_check(

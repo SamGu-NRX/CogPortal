@@ -378,6 +378,7 @@ def _check(benchmark: str, as_json: bool, project_root: Path) -> int:
             submission=submission,
             survey=survey,
             local_gap_note=gap_note(benchmark, checks["localGap"]),
+            submission_source=checks["submissionSource"],
         ):
             print(line)
     # `submissionInstalled` is deliberately not required: it only reports the

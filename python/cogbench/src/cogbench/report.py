@@ -162,12 +162,19 @@ def render_check(
     submission: Optional[object] = None,
     survey: Optional[Dict[str, object]] = None,
     local_gap_note: str = "",
+    submission_source: Optional[str] = None,
 ) -> List[str]:
     """The whole report, in the order a person asks about it.
 
     ``submission`` is a ``cogbench.resolve.Submission`` when discovery ran.
     Passing ``None`` means it did not, which is itself worth saying rather
     than leaving the reader to infer it from a missing section.
+
+    ``submission_source`` is how the CLI found a declared submission, when it
+    found one: ``"file"`` or ``"entry_point"``. It decides which sentence
+    explains a report with no search in it, because "your package was used
+    as is" and "this benchmark cannot be searched for" are different facts
+    and the reader acts differently on each.
 
     ``local_gap_note`` is one paragraph naming the graded run's packages this
     machine cannot import. It goes directly under the list of files that were
@@ -209,12 +216,25 @@ def render_check(
         if not benchmark_ready:
             lines.append("Nothing was searched for, because {} is not installed here.".format(benchmark))
             lines.append("Install it, then run this again.")
-        else:
-            # The other way to get here: an installed submission package
-            # already answers for this benchmark, so there was nothing to
-            # search for. Saying "not installed" would be a lie, and a
-            # confusing one, since the benchmark plainly ran.
+        elif submission_source == "entry_point":
+            # An installed submission package already answers for this
+            # benchmark, so there was nothing to search for.
             lines.append("Your submission is registered as an installed package, so it was used as is.")
+        elif submission_source == "file":
+            lines.append("Your submission.py at the repository root was used, so nothing was searched for.")
+        else:
+            # Nothing declared and nothing searched: this benchmark does not
+            # describe its task to the search. Before this branch existed the
+            # sentence above printed here, and a Week 3 repository with no
+            # package and no adapter was told its package "was used as is".
+            lines.append(
+                "Nothing was searched for: {} does not yet describe its task to "
+                "the search, so a submission must be declared.".format(benchmark)
+            )
+            lines.append(
+                "Add a benchmark_adapter.py at the repository root that defines "
+                "create_search_adapter(resources), then run this again."
+            )
         return lines
 
     chain = getattr(submission, "chain", ())
