@@ -386,3 +386,143 @@ def _written(name, source):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TuningIsPartOfTheBinding(unittest.TestCase):
+    """The value that made a step run is the value it runs with afterwards.
+
+    A chain the search accepted is handed to the week's acceptance test and
+    then to the driver. Both call the steps again. If the tuning the search
+    found is not on the step, those calls are made without it, and a function
+    that needed one raises on its first call. Measured on one 2026 repository
+    before this existed: the search bound `adj_list(paths, threshold)` at
+    0.3, the acceptance test called `adj_list(paths)`, and the report said
+    their code ran and answered wrongly. It had not run.
+    """
+
+    def test_a_probed_source_carries_the_tuning_that_bound_it(self):
+        module = _written("theirs", "def build(items, threshold):\n    return [threshold] * len(items)\n")
+        stage = Stage("g", produces=lambda v: isinstance(v, list), tunings=(0.5,))
+
+        (candidate, _value), = probe_sources(stage, callables_in([module]), ([1, 2],))
+
+        self.assertEqual(candidate.tuning, 0.5)
+        self.assertEqual(candidate.bound([1, 2, 3]), [0.5, 0.5, 0.5])
+
+    def test_a_plain_call_that_worked_carries_no_tuning(self):
+        module = _written("theirs", "def build(items, threshold=0.9):\n    return [threshold]\n")
+        stage = Stage("g", produces=lambda v: isinstance(v, list), tunings=(0.5,))
+
+        (candidate, _value), = probe_sources(stage, callables_in([module]), ([1, 2],))
+
+        self.assertIsNone(candidate.tuning)
+        self.assertIs(candidate.bound, candidate.call)
+
+    def test_an_extended_step_carries_the_tuning_that_bound_it(self):
+        module = _written("theirs", "def grow(value, cutoff):\n    return [value, cutoff]\n")
+        stage = Stage("g", produces=lambda v: isinstance(v, list), tunings=(3, 7))
+
+        extended = extend(stage, callables_in([module]), 1)
+
+        self.assertEqual(len(extended), 1)
+        candidate, value, _passed = extended[0]
+        self.assertEqual(value, [1, 3])
+        self.assertEqual(candidate.tuning, 3)
+
+    def test_the_bound_chain_reruns_with_the_same_tunings(self):
+        """The whole point: calling `bound` on every step of a resolved chain
+        reproduces the search's own run, which is what a verifier must see."""
+
+        module = _written(
+            "theirs",
+            "def first(items, threshold):\n    return [i * threshold for i in items]\n"
+            "def second(values):\n    return [v + 1 for v in values]\n",
+        )
+        role = Role(
+            "r",
+            (
+                Stage("a", produces=lambda v: isinstance(v, list), tunings=(2,)),
+                Stage("b", produces=lambda v: isinstance(v, list)),
+            ),
+        )
+        seen = []
+
+        def verify(steps):
+            value = steps[0].bound([1, 2])
+            for step in steps[1:]:
+                value = step.bound(value)
+            seen.append(value)
+            return value == [3, 5]
+
+        binding, refusal = resolve_chain(role, [module], ([1, 2],), verify=verify)
+
+        self.assertIsNone(refusal)
+        self.assertEqual(seen, [[3, 5]])
+        self.assertEqual([s.tuning for s in binding.steps], [2, None])
+
+
+class TheFormThatBoundIsPartOfTheBinding(unittest.TestCase):
+    """When a benchmark offers its input in two forms, the chain remembers
+    which one its first step accepted, so the acceptance test and the scored
+    run present that one. Measured on two 2026 repositories: both bound on
+    paths, both were then handed arrays, and both were reported as having
+    run and answered wrongly when they had raised on the first line."""
+
+    def test_the_form_index_is_recorded_on_the_first_step(self):
+        # `.rsplit` exists on a str and not on a list, so the arrays form
+        # raises and only the paths form binds.
+        module = _written("theirs", "def load(paths):\n    return [p.rsplit('.', 1)[1] for p in paths]\n")
+        stage = Stage("d", produces=lambda v: isinstance(v, list))
+        fixture = Fixtures((([[1, 2]],), (["a.png", "b.png"],)))
+
+        (candidate, _value), = probe_sources(stage, callables_in([module]), fixture)
+
+        self.assertEqual(candidate.form, 1)
+        self.assertEqual(fixture.for_chain([candidate]), (["a.png", "b.png"],))
+
+    def test_a_single_form_records_no_index_and_for_chain_returns_it(self):
+        module = _written("theirs", "def load(items):\n    return list(items)\n")
+        stage = Stage("d", produces=lambda v: isinstance(v, list))
+
+        (candidate, _value), = probe_sources(stage, callables_in([module]), ([1, 2],))
+
+        self.assertIsNone(candidate.form)
+        self.assertEqual(Fixtures((([1, 2],),)).for_chain([candidate]), ([1, 2],))
+
+
+class AnInPlaceStepIsNotStarvedByLookalikes(unittest.TestCase):
+    """At an in-place stage the beam keeps the step that answered on the
+    graph ahead of steps whose return merely looks like the answer."""
+
+    def test_the_in_place_chain_survives_a_narrow_beam(self):
+        module = _written(
+            "theirs",
+            # `build` takes ints only, so it cannot pose as a settle step.
+            "def build(items):\n    return [{'label': int(i)} for i in items]\n"
+            "def decoy_a(graph):\n    return [9, 9, 9]\n"
+            "def decoy_b(graph):\n    return [8, 8, 8]\n"
+            "def settle(graph):\n"
+            "    for node in graph: node['label'] = 0\n"
+            "    return 'done'\n"
+            "def read(graph):\n    return [node['label'] for node in graph]\n",
+        )
+        graph = lambda v: isinstance(v, list) and bool(v) and isinstance(v[0], dict)
+        ints = lambda v: isinstance(v, list) and bool(v) and all(isinstance(i, int) for i in v)
+        # Only the last stage knows how many answers there must be, as
+        # Week 2's `cluster_role_for` does. The decoys pass the loose
+        # settle predicate and take beam slots there, which is the
+        # starvation; they fail the sized one at the end.
+        role = Role(
+            "r",
+            (
+                Stage("graph", produces=graph),
+                Stage("settle", prefers=("decoy",), produces=ints, in_place=True),
+                Stage("labels", produces=lambda v: ints(v) and len(v) == 3 and v != [9, 9, 9] and v != [8, 8, 8]),
+            ),
+        )
+
+        binding, refusal = resolve_chain(role, [module], ([1, 2, 3],), beam=2)
+
+        self.assertIsNone(refusal)
+        self.assertEqual([s.label for s in binding.steps], ["theirs.build", "theirs.settle", "theirs.read"])
+        self.assertEqual([s.in_place for s in binding.steps], [False, True, False])

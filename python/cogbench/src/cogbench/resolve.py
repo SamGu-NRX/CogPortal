@@ -329,7 +329,13 @@ def resolve(
             memo.write(
                 repository,
                 key,
-                {"chain": [step.label for step in chain.steps], "arrangement": -1},
+                {
+                    "chain": [step.label for step in chain.steps],
+                    "tunings": [step.tuning for step in chain.steps],
+                    "form": chain.steps[0].form,
+                    "inPlace": [step.in_place for step in chain.steps],
+                    "arrangement": -1,
+                },
             )
         return Submission(
             _scored_placeholder(chain),
@@ -401,6 +407,9 @@ def resolve(
                 key,
                 {
                     "chain": [step.label for step in chain.steps],
+                    "tunings": [step.tuning for step in chain.steps],
+                    "form": chain.steps[0].form,
+                    "inPlace": [step.in_place for step in chain.steps],
                     "enroll": store.label,
                     "query": ask.label,
                     "arrangement": index,
@@ -461,7 +470,7 @@ def _replay(
         for label, instance in instances_in(found.namespace):
             by_label.update({c.label: c for c in methods_of(label, instance)})
         try:
-            steps = tuple(by_label[label] for label in stored["chain"])
+            steps = _retuned(by_label, stored)
         except (KeyError, TypeError):
             return None
         from .pipeline import Binding
@@ -485,7 +494,7 @@ def _replay(
         by_label.update({c.label: c for c in methods_of(label, instance)})
 
     try:
-        steps = tuple(by_label[label] for label in stored["chain"])
+        steps = _retuned(by_label, stored)
         store = by_label[stored["enroll"]]
         ask = by_label[stored["query"]]
         index = int(stored["arrangement"])
@@ -517,6 +526,31 @@ def _replay(
         _ask=ask,
         _arrange=arrangements,
     )
+
+
+def _retuned(by_label: Dict[str, Candidate], stored: Dict[str, Any]) -> Tuple[Candidate, ...]:
+    """The remembered chain, each step carrying the tuning it was bound with.
+
+    An entry written before tunings were remembered has none, and a chain
+    that needed one would then raise on its first call. Refusing the entry
+    (`KeyError`) sends that case back through the search, which is the
+    honest answer: the record did not say how to call their code.
+    """
+
+    labels = stored["chain"]
+    tunings = stored.get("tunings")
+    if tunings is None or len(tunings) != len(labels):
+        raise KeyError("tunings")
+    in_place = stored.get("inPlace")
+    if in_place is None or len(in_place) != len(labels):
+        raise KeyError("inPlace")
+    steps = [
+        replace(by_label[label], tuning=tuning, in_place=bool(flag))
+        for label, tuning, flag in zip(labels, tunings, in_place)
+    ]
+    if steps:
+        steps[0] = replace(steps[0], form=stored.get("form"))
+    return tuple(steps)
 
 
 def _scored_placeholder(chain) -> Verdict:

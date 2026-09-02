@@ -32,7 +32,12 @@ __all__ = ["fingerprint", "read", "write", "cache_path"]
 #: Bumped when a change would make an old entry wrong: a different search
 #: order, a different acceptance test, a different set of stages. The key
 #: covers the student's code, and this covers ours.
-FORMAT = 4
+#: 5: entries carry the tuning each step was bound with. A 4 entry for a
+#: chain that needed one replayed as a bare call and raised.
+#: 6: entries also carry which input form bound the first step and which
+#: steps answered in place, both of which a replay needs to call the chain
+#: the way the search did.
+FORMAT = 6
 
 
 def cache_path(repository: Path) -> Path:

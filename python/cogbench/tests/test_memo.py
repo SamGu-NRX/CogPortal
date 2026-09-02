@@ -172,3 +172,94 @@ def _key(repository: Path) -> str:
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ARememberedTuningIsReplayed(unittest.TestCase):
+    """A stored binding says how to call each step, not only which one."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        (self.tmp / "theirs.py").write_text(
+            "def feats(value, rate, cutoff):\n    return [(value * cutoff, rate)]\n"
+        )
+
+    def _resolve(self):
+        role = Role(
+            "fingerprint",
+            (Stage("features", produces=lambda v: isinstance(v, list), arity=2, tunings=(2,)),),
+        )
+        return resolve(
+            self.tmp,
+            chain_role=role,
+            fixture=FIXTURE,
+            accepts=lambda chain, *_: (True, ""),
+            arrangements=None,
+            remember=True,
+        )
+
+    def test_the_entry_records_the_tuning_and_the_replay_restores_it(self):
+        first = self._resolve()
+        self.assertTrue(first.ready)
+        self.assertEqual(first.chain[0].tuning, 2)
+
+        stored = memo.read(self.tmp, memo.fingerprint([self.tmp / "theirs.py"], benchmark=""))
+        self.assertEqual(stored["tunings"], [2])
+
+        second = self._resolve()
+        self.assertTrue(second.recalled)
+        self.assertEqual(second.chain[0].tuning, 2)
+        self.assertEqual(second.chain[0].bound(7, 44100), [(14, 44100)])
+
+    def test_an_entry_without_tunings_is_searched_again_rather_than_replayed_bare(self):
+        first = self._resolve()
+        path = memo.cache_path(self.tmp)
+        import json
+
+        record = json.loads(path.read_text())
+        del record["binding"]["tunings"]
+        path.write_text(json.dumps(record))
+
+        second = self._resolve()
+        self.assertFalse(second.recalled)
+        self.assertEqual(second.chain[0].tuning, 2)
+
+
+class ARememberedFormIsReplayed(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        # Not `theirs.py`: the class above writes one, discovery registers a
+        # module under its bare file name, and a second `theirs` in the same
+        # process resolved to the first one's function. ints have no
+        # rsplit(), so only the paths form can bind.
+        (self.tmp / "pathfeats.py").write_text(
+            "def feats(paths, rate):\n    return [(p.rsplit('.', 1)[1], rate) for p in paths]\n"
+        )
+
+    def _resolve(self):
+        from cogbench.pipeline import Fixtures
+
+        role = Role(
+            "fingerprint",
+            (Stage("features", produces=lambda v: isinstance(v, list), arity=2),),
+        )
+        forms = Fixtures((([1, 2], 44100), (["a.png", "b.png"], 44100)))
+        return resolve(
+            self.tmp,
+            chain_role=role,
+            fixture=forms,
+            accepts=lambda chain, *_: (True, ""),
+            arrangements=None,
+            remember=True,
+        )
+
+    def test_the_form_survives_a_replay(self):
+        first = self._resolve()
+        self.assertTrue(first.ready)
+        # ints have no rsplit(), so the paths form is the one that bound.
+        self.assertEqual(first.chain[0].form, 1)
+
+        second = self._resolve()
+        self.assertTrue(second.recalled)
+        self.assertEqual(second.chain[0].form, 1)

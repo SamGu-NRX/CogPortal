@@ -7,7 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 BENCHMARK = ROOT / "benchmarks" / "week2"
-REVIEWED_COMMIT = "79bc7252b276aa87621d0c627a8e8728c316dbd5"
+REVIEWED_COMMIT = "385332dd78519cce36dbb7293d65ef1fec5b2e4f"
 
 
 def main() -> None:

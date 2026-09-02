@@ -46,7 +46,7 @@ import random
 import signal
 import sys
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 __all__ = [
@@ -202,6 +202,16 @@ class Fixtures(tuple):
     the only way to tell the two apart without a flag.
     """
 
+    def for_chain(self, chain: Sequence[Any]) -> Any:
+        """The form the first step of ``chain`` was bound with.
+
+        A chain from a single-form search carries no index and gets the
+        first form, which is the only one there was.
+        """
+
+        index = getattr(chain[0], "form", None) if chain else None
+        return self[index if index is not None else 0]
+
 
 @dataclass(frozen=True)
 class _Partial:
@@ -234,6 +244,41 @@ class Candidate:
     #: benchmark's own catalog. Given this, a fresh object can be built and the
     #: same method taken off it.
     rebuild: Optional[Callable[[], Any]] = field(default=None, compare=False)
+    #: The tuning value the search bound this step with, or None when the
+    #: plain call worked. Part of the binding, not of the search: whichever
+    #: cutoff made their `adj_list(paths, threshold)` run is the cutoff their
+    #: chain must run with when it is scored, and when the acceptance test
+    #: runs it. Measured on one 2026 repository before this existed: the
+    #: search bound `adj_list` at threshold 0.3, then handed the bare
+    #: candidate to the acceptance test, which called it with one argument,
+    #: got `TypeError: missing 1 required positional argument`, and reported
+    #: "your code ran end to end and answered a different grouping". Their
+    #: code had not run at all.
+    tuning: Any = None
+    #: Which form of the benchmark's input this first step accepted, as an
+    #: index into the `Fixtures` it was probed with, or None when there was
+    #: only one form. Week 2 offers the same photos as arrays and as paths.
+    #: A function that took paths was then handed arrays by the acceptance
+    #: test and by the scored run, because neither knew which one had bound.
+    #: Measured on two 2026 repositories: `adj_list` did `p.parent` on an
+    #: ndarray, `nodes_and_adj` did `imread` on one, and both were reported
+    #: as having run and answered wrongly.
+    form: Optional[int] = None
+    #: Whether this step left its answer on the value it was given rather
+    #: than returning it, so the chain must carry that value forward past
+    #: it. The search knows this at the moment it happens (the `in_place`
+    #: branch of `_resolve_chain`); a run that re-executes the chain later
+    #: has no other way to know.
+    in_place: bool = False
+
+    @property
+    def bound(self) -> Callable[..., Any]:
+        """The callable with its tuning already attached."""
+
+        if self.tuning is None:
+            return self.call
+        call, tuning = self.call, self.tuning
+        return lambda *args: call(*args, tuning)
 
 
 @dataclass(frozen=True)
@@ -518,19 +563,21 @@ def probe_sources(
     # refusing the one the course taught would be our contract failing them.
     forms = fixture if isinstance(fixture, Fixtures) else (fixture,)
     for candidate in _order_for(stage, candidates):
-        for form in forms:
+        bound_with = None
+        which = None
+        ok, value = False, None
+        for index, form in enumerate(forms):
             ok, value = _call(candidate, form)
-            if ok and value is not None:
-                break
-            if stage.per_item:
+            if (not ok or value is None) and stage.per_item:
                 ok, value = _mapped(candidate, form)
+            for tuning in stage.tunings:
                 if ok and value is not None:
                     break
-            for tuning in stage.tunings:
                 ok, value = _call(candidate, tuple(form) + (tuning,))
                 if ok and value is not None:
-                    break
+                    bound_with = tuning
             if ok and value is not None:
+                which = index if isinstance(fixture, Fixtures) else None
                 break
         if not ok or value is None:
             continue
@@ -539,7 +586,7 @@ def probe_sources(
         # the whole return value to look like a spectrogram refused a
         # function that had plainly done the work.
         if stage.produces is None or _safe_produces(stage, value):
-            accepted.append((candidate, value))
+            accepted.append((replace(candidate, tuning=bound_with, form=which), value))
     return accepted
 
 
@@ -673,15 +720,22 @@ def extend(
             ok, value = _call(candidate, base)
             if (not ok or value is None) and stage.per_item and not isinstance(offered, _Spread):
                 ok, value = _mapped(candidate, base)
+            bound_with = None
             for tuning in stage.tunings:
                 if ok and value is not None:
                     break
                 ok, value = _call(candidate, base + (tuning,))
+                if ok and value is not None:
+                    bound_with = tuning
             if not ok or value is None:
                 continue
             if accept_any or stage.produces is None or _safe(stage.produces, value):
                 accepted.append(
-                    (candidate, value, tuple(offered) if isinstance(offered, _Spread) else offered)
+                    (
+                        replace(candidate, tuning=bound_with),
+                        value,
+                        tuple(offered) if isinstance(offered, _Spread) else offered,
+                    )
                 )
                 break
     return accepted
@@ -815,12 +869,21 @@ def _resolve_chain(
                 # Their function ran on the graph and left the answer there.
                 # The graph goes forward so one more of their own functions
                 # can read it; nothing here inspects or rebuilds it.
-                for candidate, _produced, passed in extend(
+                for candidate, produced, passed in extend(
                     stage, candidates, partial.value, accept_any=True
                 ):
+                    # A function whose return already answers this stage
+                    # did not answer in place; it was recorded above. Marking
+                    # it in place too doubled one 2026 team's
+                    # `connected_components` in the chain, and let two
+                    # decoys that return a labels-shaped list claim the
+                    # in-place slot ahead of the function that settled the
+                    # graph.
+                    if stage.produces is not None and _safe_produces(stage, produced):
+                        continue
                     nxt.append(
                         _Partial(
-                            partial.chain + (candidate,),
+                            partial.chain + (replace(candidate, in_place=True),),
                             passed,
                             partial.received + (describe(passed),),
                             partial.returned + ("the value it was given, updated in place",),
@@ -854,7 +917,20 @@ def _resolve_chain(
         # team's `whispers` -- which returns how the component count moved and
         # leaves the labels on the graph -- crowded out their
         # `connected_comps`, which returns the answer.
-        nxt.sort(key=lambda p: 0 if _safe_produces(stage, p.value) else 1)
+        #
+        # At a stage declared in_place, a step that answered on the graph
+        # ranks ahead of one whose return merely looks like the answer. The
+        # in-place partial carries the graph, which by design does not look
+        # like this stage's output, so the plain sort put it last and the
+        # beam cut it. Measured on the same 2026 repository: at beam 4 their
+        # `adj_list -> whispers -> connected_comps` never reached the
+        # verifier; at beam 64 it did and passed.
+        def _rank(p: _Partial) -> int:
+            if stage.in_place and p.stages[-1] == stage.name and p.chain[-1].in_place:
+                return 0
+            return 1 if _safe_produces(stage, p.value) else 2
+
+        nxt.sort(key=_rank)
         nxt = done + nxt
         if not nxt:
             return None, Refusal(
