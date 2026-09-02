@@ -94,10 +94,17 @@ drivers.run_with_adapter on ALL 9 cases; pass iff every case ok AND text embeddi
 with 8<=D<=512 AND search returns k ids from the pool for every query. Score quality is NOT a gate.
 Weights: candidates = any .npy/.npz/.pkl/.pt under the root whose loaded shape is (512,D) or a
 [W,b] pair with W (512,D); tiebreak = the path THEIR code names in a string literal (AST scan for
-str constants ending in that basename), then refuse-as-ambiguous listing all. Absent weights: per
-Fable's counsel (pending) -- default to binding the image branch with the seeded random init and
-publishing a diagnostic "no trained weights committed; image side is untrained", unless Fable argues
-otherwise. Hash seed: set PYTHONHASHSEED=0 for the discovery subprocess AND the scored run (already
+str constants ending in that basename), then refuse-as-ambiguous listing all. Absent weights (decided, architecture counsel 2026-09-02): the image surfaces are NOT scored and
+the overall is WITHHELD and marked partial; never a seeded random W averaged into a composite, because
+"text 0.87, image unmeasured" and "overall 0.32" are different claims and only the first is true.
+The run page names what is missing in their terms, read statically from their own save call:
+"no trained weights in the repository; your train.py saves to results/modelweights.pkl, which is
+in .gitignore". Text still scores. A bounded run of THEIR trainer is a later, separate diagnostic
+(budget printed on the number, never in the score); not in this build.
+Weights tiebreak: ONLY the file their code names in a load call (cite file:line). No "newest by git"
+(a squashed clone would bind differently). No literal, or disagreeing literals -> refuse as
+ambiguous listing every candidate. A weights file saved at init still binds and scores at chance;
+the instrument measures the artifact, not the intent. Hash seed: set PYTHONHASHSEED=0 for the discovery subprocess AND the scored run (already
 seeded random/numpy); record it on the binding.
 
 ## Acceptance for this build (tests, all must fail before / pass after)
