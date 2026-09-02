@@ -1,4 +1,4 @@
-import { Link, useParams } from "react-router";
+import { Link, useNavigate, useParams } from "react-router";
 import { ApiRequestError } from "@/lib/api";
 import { FAILURE_CATALOG } from "@cogworks/contracts/failures";
 import { OFFICIAL_LIMIT, isTerminal } from "@cogworks/contracts/schema";
@@ -55,6 +55,18 @@ export function RunDetailPage() {
   const promote = usePromote();
   const select = useSelectResult();
   const retry = useStartPractice(runBenchmarkId);
+  const navigate = useNavigate();
+  // A local run from a detached HEAD records no branch, and the page shows
+  // "detached" for it. Passing that word to startPractice asked GitHub for
+  // a ref called `detached`. Omitting the branch lets the server use the
+  // team's default, which is the only branch it can resolve for that run.
+  // And the run the retry starts is the one to look at, so go there: the
+  // old page kept its button, and pressing it again returned
+  // active_run_exists.
+  const retryFrom = (branch: string | null) =>
+    retry.mutate(branch ?? undefined, {
+      onSuccess: ({ runId: started }) => navigate(`/runs/${started}`),
+    });
 
   if (runQuery.isPending) return <LoadingMark label="Reading run record" />;
   if (runQuery.isError) {
@@ -163,9 +175,9 @@ export function RunDetailPage() {
             <Button
               variant="ghost"
               busy={retry.isPending}
-              onClick={() => retry.mutate(run.branch)}
+              onClick={() => retryFrom(run.branch)}
             >
-              Run practice again on {run.branch}
+              Run practice again on {run.branch ?? "the default branch"}
             </Button>
           )}
           {/* A failed official run occupies its surface, so promoting the
@@ -177,23 +189,20 @@ export function RunDetailPage() {
               <Button
                 variant="ghost"
                 busy={retry.isPending}
-                onClick={() => retry.mutate(run.branch)}
+                onClick={() => retryFrom(run.branch)}
               >
-                Run practice again on {run.branch}
+                Run practice again on {run.branch ?? "the default branch"}
               </Button>
               <span className="font-mono text-[11px] text-ink-faint">
                 attempt not consumed; a fresh practice run creates the next candidate to promote
               </span>
             </div>
           )}
-          {(retry.error || promote.error) && (
+          {retry.error && (
             <p role="alert" className="mt-3 text-[13px] text-detect-deep">
-              {(() => {
-                const e = retry.error ?? promote.error;
-                return e instanceof ApiRequestError
-                  ? e.message
-                  : "The action couldn't be completed. Try again.";
-              })()}
+              {retry.error instanceof ApiRequestError
+                ? retry.error.message
+                : "The action couldn't be completed. Try again."}
             </p>
           )}
         </div>
@@ -285,6 +294,18 @@ export function RunDetailPage() {
               All official attempts are used for this benchmark version. Your
               existing successful official runs can still be selected for the
               leaderboard.
+            </p>
+          )}
+          {/* Here, under the button that failed. This used to sit in the
+              failure block above, which renders only when run.failure is
+              set, and promotion is offered only for a run that succeeded:
+              the two never rendered together, so a refused promotion showed
+              a button that stopped spinning and nothing else. */}
+          {promote.error && (
+            <p role="alert" className="mt-3 text-[13px] text-detect-deep">
+              {promote.error instanceof ApiRequestError
+                ? promote.error.message
+                : "The promotion couldn't be started. Try again."}
             </p>
           )}
         </Panel>

@@ -131,6 +131,47 @@ export async function requireTeamAdmin(
       "Only the team creator can change team settings.",
     );
   }
+  // The stored role was written when the team was created or joined and was
+  // never read from GitHub again, so a creator demoted or removed on GitHub
+  // kept renaming the team and managing members here indefinitely. Staff
+  // could not remove them either: the removal route sees the stale admin
+  // role and points staff back at GitHub, where the change has already
+  // happened. Re-reading the permission at the gate closes that. A GitHub
+  // outage keeps the stored role, since refusing every admin action during
+  // one would be the larger failure; the fixture team has no repository to
+  // ask.
+  if (
+    auth.team.repoFullName !== FIXTURE_REPO.fullName &&
+    githubConfigured(c.env) &&
+    auth.user.githubLogin
+  ) {
+    const githubToken = await getGithubToken(authFor(c), auth.user.id, c.req.raw.headers);
+    if (githubToken) {
+      let current: string | null = null;
+      try {
+        current = teamRole(
+          await new RealGitHubClient().getPermission(
+            auth.team.repoFullName,
+            auth.user.githubLogin,
+            githubToken,
+          ),
+        );
+      } catch {
+        return auth;
+      }
+      if (current !== "admin") {
+        await getDb(c.env)
+          .update(teamMembers)
+          .set({ role: current ?? "write" })
+          .where(and(eq(teamMembers.teamId, auth.team.id), eq(teamMembers.userId, auth.user.id)));
+        throw new ApiHttpError(
+          403,
+          "forbidden",
+          "Your GitHub permission on the team repository is no longer admin, so team settings are read-only for you.",
+        );
+      }
+    }
+  }
   return auth;
 }
 

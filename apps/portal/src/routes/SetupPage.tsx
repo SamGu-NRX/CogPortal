@@ -172,10 +172,11 @@ function SetupGuide({
             />
           </div>
           <p className="mt-2 text-[14px] text-ink-secondary">
-            Work top to bottom in your terminal. Nothing here is ticked by hand:
-            steps turn green on their own when the check in the last step runs,
-            and it colors everything it can verify at once. Grey steps after you
-            have done them are normal until then.
+            Work top to bottom in your terminal. Steps turn green on their own
+            when the check in the last step runs, and it colors everything it
+            can verify at once. The one box you tick yourself is the solo one
+            below, because nothing can verify that you meant to work alone.
+            Grey steps after you have done them are normal until then.
           </p>
 
           <ol className="relative mt-9">

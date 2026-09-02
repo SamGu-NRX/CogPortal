@@ -255,16 +255,31 @@ export function registerConnectionRoutes(app: Hono<AppEnv>): void {
 
     const rawToken = `cog_${randomHex(32)}`;
     const expiresAt = now + DEVICE_TOKEN_TTL_MS;
-    await getDb(c.env).insert(cliDevices).values({
-      id: newId("cli_"),
-      userId: authorization.userId,
-      name: authorization.deviceName,
-      tokenHash: await sha256Hex(rawToken),
-      createdAt: now,
-      lastUsedAt: null,
-      expiresAt,
-      revokedAt: null,
-    });
+    try {
+      await getDb(c.env).insert(cliDevices).values({
+        id: newId("cli_"),
+        userId: authorization.userId,
+        name: authorization.deviceName,
+        tokenHash: await sha256Hex(rawToken),
+        createdAt: now,
+        lastUsedAt: null,
+        expiresAt,
+        revokedAt: null,
+      });
+    } catch (error) {
+      // The claim above and this insert are two writes. If the second fails
+      // the code is marked consumed with no device behind it: the CLI gets an
+      // error, its next poll gets link_expired, and the approve endpoint,
+      // which reads consumedAt as "the terminal finished linking", reports
+      // success. Not a batch, because a batch would also commit the device
+      // row when the claim matched nothing. Releasing the claim lets the
+      // CLI's next poll try again.
+      await getDb(c.env)
+        .update(deviceAuthorizations)
+        .set({ consumedAt: null })
+        .where(and(eq(deviceAuthorizations.deviceCodeHash, codeHash), eq(deviceAuthorizations.consumedAt, now)));
+      throw error;
+    }
     return respond(c, DeviceTokenResponseSchema, {
       status: "authorized",
       token: rawToken,

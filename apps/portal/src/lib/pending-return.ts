@@ -30,6 +30,10 @@ const DROPPED_KEY = "cogportal.droppedDeviceLink";
 export function rememberDroppedDeviceLink(path: string): void {
   if (path.startsWith("/connections?user_code=") || path.startsWith("/connections#discord=")) {
     sessionStorage.setItem(DROPPED_KEY, path.includes("user_code=") ? "device" : "discord");
+    // The return that sign-in saved for this same link. Dropping the link
+    // and keeping its return sent a student who had since made a team back
+    // to a dead device code from `/` and `/signin`, with no way to clear it.
+    sessionStorage.removeItem(STORAGE_KEY);
   }
 }
 
