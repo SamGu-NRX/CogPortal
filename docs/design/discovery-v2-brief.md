@@ -115,3 +115,50 @@ seeded random/numpy); record it on the binding.
 - Determinism: two cold resolves -> byte-identical to_dict().
 - Unit tests per primitive P1-P9 in python/cogbench/tests/test_pipeline.py / test_discover.py.
 - All existing suites green; submodule pins advanced.
+
+## Week 3 wire contract for a withheld overall (decided)
+The ProtocolMetricSchema `value` is a number and the driver already scores a missing component as
+zero with a diagnostic. A withheld overall therefore does NOT ship a null value; it ships:
+- no `overall` metric at all, and the plugin's `primary_metric` resolves to `text_mrr` for that run,
+  with a run-level diagnostic first in `last_diagnostics`: "overall withheld: the image side has no
+  trained weights to measure. Your training.py saves to results/modelweights.pkl (training.py:113),
+  and *.pkl is in .gitignore (line 31). Commit that file and run again." (paths/lines read statically
+  from their own save call and .gitignore).
+- `retrieval_mrr` and `search_mrr` are omitted (not zero); their floors are still reported.
+- The renderer needs nothing new: a run whose primary is `text_mrr` renders as any run does, and the
+  diagnostic leads the Finding. A later portal change may add a "partial" chip; not in this build.
+The plugin decides this in `submission_from_discovery` + `score`: if the discovered binding has
+`weights=None` for the image branch, the built adapter has no embed_images/prepare/search, the driver
+records those components as errors, and `score` drops the three image-side keys and `overall`
+instead of zeroing them, and prepends the diagnostic.
+
+## Week 3 spec: exact stage design (for the implementer)
+Fixture (built lazily in discovery(), COGWORKS_SHOWCASE=0 during probes):
+  resources = build_resources(download=False, build_kv=True); cases = load_cases("test")
+  text_case (75 captions), retrieval_case (20 queries, 100x512 descriptors), search_case (ids, descriptors, k=50)
+  extras pool seeds: glove=resources.load_glove(), corpus=[a["caption"] for a in load_captions()["annotations"]],
+                     descriptors_dict=resources.load_descriptors()
+Branches (P4), shared extras + instance pools:
+  fit "idf":   Stage(fit=True, fixture=(corpus,), produces=looks_like_idf_table)  # dict[str,float] or None
+  branch "text": Stage("text", accepts=list_of_str, produces=looks_like_matrix(N), per_item=True,
+                       extras=("glove","idf"), fusible=False)
+                 # per-item form tokenize->embed is 2 steps for rutvim (caption_processor then embed_text):
+                 # allow a 2-stage text chain: Stage("tokens", produces=list_of_str, per_item, optional)
+  branch "image": Stage("weights", fit=True, fixture=(root,), produces=looks_like_W)  # (512,D) or [W,b]; see below
+                  Stage("image", accepts=(M,512) float, produces=looks_like_matrix(M), extras=("W","weights_model"), per_item=True)
+  branch "prepare": Stage("prepare", accepts=(ids, descriptors), produces=any, extras=("W","image_embeddings"), identity=False)
+                    # ctor-as-stage (P3): ImageDatabase(ids, desc, W); CaptionImageQuery(EMB, ids) -> so extend must offer
+                    # BOTH raw descriptors and the image branch's projected output as the descriptor slot.
+  branch "search":  Stage("search", accepts=(str,int), produces=looks_like_id_list, extras=("glove","idf","store"),
+                    per_item=False)  # query(vec,k) on the prepare instance; or query_database(vec, db, k) module fn
+                    # text->vector is the text branch's chain applied to the query string (reuse, not re-search).
+Weights stage detail: candidates are every file under root matching *.npy|*.npz|*.pkl|*.pt|*.pth whose
+loaded object is (512,D) float or [W(512,D), b] or a dict/npz holding such; loaded with np.load/pickle in
+a subprocess; tiebreak per the decision above (their load-call literal, cite file:line; else refuse
+ambiguous listing all). Also a model class with a .load(path) method is a way to apply W (Bagel).
+accepts(bound): build the adapter object from the branches, run drivers.run_with_adapter on all 9 test
+cases, pass iff every case ok=True and the text matrix is finite; NO score threshold.
+discovered.py: DiscoveredSearch(text_chain, image_chain|None, prepare, search, extras) exposing
+embed_text/embed_images/prepare_database/search; mygrad Tensor -> .data; search rows of dicts -> 'image_id'.
+Hash seed: run_isolated child gets PYTHONHASHSEED=0; the sandbox image env sets PYTHONHASHSEED=0; the
+binding records it. Text MRR on rutvim moves 0.83..0.92 with the seed otherwise.
