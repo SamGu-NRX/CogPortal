@@ -14,6 +14,7 @@ instead of the code they told us to run.
 from __future__ import annotations
 
 import ast
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -136,10 +137,25 @@ class RungOrderTests(unittest.TestCase):
         self.assertNotEqual(index, -1, "prepare no longer contains: {}".format(needle))
         return index
 
+    def _discovery_position(self) -> int:
+        """Where prepare imports the resolver, whatever the resolver is called.
+
+        These three tests spelled `from cogbench.resolve import resolve`. The
+        runner moved to `from_spec` and all three began failing on a string
+        that no longer existed, which says nothing about rung order. The
+        module is the stable part of that import; the name is not.
+        """
+
+        found = re.search(r"from cogbench\.resolve import (\w+)", PREPARE_SCRIPT)
+        self.assertIsNotNone(
+            found, "prepare no longer imports anything from cogbench.resolve"
+        )
+        return found.start()
+
     def test_discovery_runs_after_both_ways_a_repository_can_declare_itself(self):
         entry_point = self._position('resolved_by = "entry_point"')
         own_file = self._position('resolved_by = (\n        "instructor_adapter:"')
-        discovery = self._position("from cogbench.resolve import resolve")
+        discovery = self._discovery_position()
 
         self.assertLess(entry_point, discovery)
         self.assertLess(own_file, discovery)
@@ -147,7 +163,7 @@ class RungOrderTests(unittest.TestCase):
     def test_discovery_only_runs_when_nothing_else_resolved(self):
         """Guarded on `resolved_by is None`, not merely ordered after."""
 
-        discovery = self._position("from cogbench.resolve import resolve")
+        discovery = self._discovery_position()
         guard = PREPARE_SCRIPT.rfind("if resolved_by is None:", 0, discovery)
 
         self.assertNotEqual(guard, -1)
@@ -157,7 +173,7 @@ class RungOrderTests(unittest.TestCase):
         """The report is what a student reads. A traceback out of prepare
         replaces it with our stack instead of their verdict."""
 
-        discovery = self._position("from cogbench.resolve import resolve")
+        discovery = self._discovery_position()
         after = PREPARE_SCRIPT[discovery:]
 
         self.assertIn("except Exception as error:", after)

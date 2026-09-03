@@ -37,7 +37,11 @@ __all__ = ["fingerprint", "read", "write", "cache_path"]
 #: 6: entries also carry which input form bound the first step and which
 #: steps answered in place, both of which a replay needs to call the chain
 #: the way the search did.
-FORMAT = 6
+#: 7: entries carry the whole argument plan of each step -- the side inputs
+#: it was handed, the item identity it was given, whether it ran once per
+#: item, and which part of each item's result it produced. A 6 entry for a
+#: chain that needed any of those replayed as a plain one-argument call.
+FORMAT = 7
 
 
 def cache_path(repository: Path) -> Path:

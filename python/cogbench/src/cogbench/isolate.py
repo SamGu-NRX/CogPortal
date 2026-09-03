@@ -43,6 +43,8 @@ __all__ = [
     "RAISED",
     "COMPLETED",
     "run_isolated",
+    "ensure_pinned_hash_seed",
+    "hash_seed_in_effect",
 ]
 
 COMPLETED = "completed"
@@ -92,6 +94,122 @@ class Outcome:
         return self.status == COMPLETED
 
 
+#: Set on a process this module has already re-executed, so a failure to take
+#: the seed cannot become an exec loop.
+_REEXEC_MARK = "COGBENCH_HASH_SEED_PINNED"
+
+
+def hash_seed_in_effect() -> Optional[str]:
+    """The hash seed this interpreter is actually running with, or None.
+
+    None means the interpreter chose a seed at startup and does not expose
+    it: CPython keeps `_Py_HashSecret` private and offers no way to read or
+    reset it. That is the whole reason pinning has to happen before the
+    first line runs, and the reason a run that was not pinned has to say so
+    rather than report a seed it is guessing.
+    """
+
+    if sys.flags.hash_randomization:
+        return None
+    return os.environ.get("PYTHONHASHSEED", "0")
+
+
+def _original_command() -> Optional[list]:
+    """The exact command line this interpreter was started with.
+
+    `sys.argv` is not it and cannot be made into it: under ``python -m
+    cogbench check`` it holds the path of ``__main__.py``, and re-running
+    that file as a script breaks its relative imports; under ``python -c
+    SOURCE`` it holds ``["-c"]`` and the source is simply gone. Both were
+    tried, and both produced a re-execution that failed rather than a run
+    with a pinned seed.
+
+    ``sys.orig_argv`` is the real thing and exists from Python 3.10. Below
+    that there is no way to reconstruct a ``-m`` or ``-c`` invocation, so
+    this returns None for anything but a plain script and the run stays
+    unpinned, which the record then says.
+    """
+
+    original = getattr(sys, "orig_argv", None)
+    if original:
+        return list(original)
+    if sys.argv and sys.argv[0] and not sys.argv[0].startswith("-"):
+        return [sys.executable] + list(sys.argv)
+    return None
+
+
+def ensure_pinned_hash_seed(command: Optional[list] = None) -> bool:
+    """Re-execute this process once with ``PYTHONHASHSEED=0``, if it must.
+
+    An interpreter's hash seed is fixed before its first line runs. Setting
+    ``os.environ["PYTHONHASHSEED"]`` afterwards changes what its CHILDREN
+    get and nothing about itself, and `run_isolated` forks rather than
+    executes, so the discovery child inherits whatever the parent was given.
+    Measured before this existed: four independent parents each ran
+    ``run_isolated(lambda: hash("cogbench-seed-probe"))`` and got four
+    different hashes, while the child reported ``PYTHONHASHSEED="0"``.
+
+    The only way to actually get a pinned seed is to start an interpreter
+    with one, so a command-line entry point calls this first and, when the
+    seed is loose, replaces itself with the same command under a pinned
+    environment. Returns whether a re-execution happened, which is never on
+    the second pass.
+
+    Deliberately not called from library code. Replacing the process is a
+    reasonable thing for `python -m cogbench` to do to itself and not
+    something an imported function may do to its caller; a hosted run gets
+    the same guarantee from the image, which sets the variable for every
+    process in the sandbox.
+    """
+
+    if not sys.flags.hash_randomization:
+        return False
+    if os.environ.get(_REEXEC_MARK):
+        # Already tried and the seed still did not take. Re-executing again
+        # would be a loop, and the binding records that it is not pinned.
+        return False
+    line = list(command) if command else _original_command()
+    if not line:
+        return False
+    environment = dict(os.environ)
+    environment["PYTHONHASHSEED"] = "0"
+    environment[_REEXEC_MARK] = "1"
+    try:
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os.execve(sys.executable, line, environment)
+    except OSError:
+        # A machine that will not execute us again is not a reason to refuse
+        # to run. The seed stays loose and the record says so.
+        return False
+    raise AssertionError("unreachable")  # pragma: no cover - execve does not return
+
+
+def _pin_hash_seed() -> None:
+    """Fix the hash seed for everything this child starts.
+
+    This does NOT re-seed the child itself, and it never did: the child is a
+    fork, its seed was fixed when the parent started, and no environment
+    variable set afterwards can change it. `ensure_pinned_hash_seed` is what
+    actually pins a run, at the entry point, before any of this.
+
+    What this still buys is every process the child starts, and every
+    re-execution of it. Kept for that, and for the reason below.
+
+    One 2026 repository builds its inverse-document-frequency table by
+    iterating a set, so the order words land in the table depends on string
+    hashing, and its text retrieval score moved between 0.8188 and 0.8335
+    across three seeds. That is a number the student did not choose and
+    cannot reproduce, which makes it a bad thing to score.
+
+    Whether the run was pinned is recorded on the binding
+    (`Submission.to_dict`), so a run that was not pinned says so rather than
+    claiming a determinism it does not have.
+    """
+
+    os.environ["PYTHONHASHSEED"] = "0"
+
+
 def _apply_limits(memory_bytes: int, timeout_seconds: int) -> None:
     """Bound the child before it runs a line of student code."""
 
@@ -137,6 +255,7 @@ def _child(
         pass
     try:
         os.chdir(scratch)
+        _pin_hash_seed()
         _apply_limits(memory_bytes, timeout_seconds)
         # Student code that reads from a terminal gets EOF rather than a hang.
         devnull = os.open(os.devnull, os.O_RDONLY)

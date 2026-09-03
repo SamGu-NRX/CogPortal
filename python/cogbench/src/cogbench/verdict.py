@@ -41,6 +41,7 @@ wrong or what to change.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -76,6 +77,20 @@ COULD_NOT_LOOK = "could_not_look"
 _SUMMARY_LIMIT = 160
 
 
+#: The address in the default `object.__repr__`. Two runs of the same
+#: repository put different numbers here, and these strings are recorded on
+#: the binding, so `to_dict()` was never byte-identical between two cold
+#: resolves of a chain that carries their own objects: week 2's `whispers`
+#: chain differed in six places on nothing but `id()`. The address says
+#: nothing a student can use -- the class name beside it is the whole
+#: content -- so it is dropped rather than reported.
+_ADDRESS = re.compile(r" at 0x[0-9a-fA-F]+")
+
+
+def _stable(text: str) -> str:
+    return _ADDRESS.sub("", text)
+
+
 def describe(value: Any) -> str:
     """What a value is, in the terms a student would recognise it by.
 
@@ -83,6 +98,9 @@ def describe(value: Any) -> str:
     fingerprint list than its first two entries do, and an array preview is
     almost always noise: what a reader checks is whether the shape is the one
     their next function expects.
+
+    Free of anything that moves between two runs of the same repository, so
+    that a binding record can be compared byte for byte.
     """
 
     shape = getattr(value, "shape", None)
@@ -100,7 +118,7 @@ def describe(value: Any) -> str:
             return "{} of {}, starting with an array of shape {}".format(
                 name, len(value), tuple(inner)
             )
-        head = repr(first)
+        head = _stable(repr(first))
         if len(head) > 48:
             head = head[:45] + "..."
         return "{} of {}, starting {}".format(name, len(value), head)
@@ -108,7 +126,7 @@ def describe(value: Any) -> str:
         return "a dict of {} entries".format(len(value))
     if value is None:
         return "None"
-    text = repr(value)
+    text = _stable(repr(value))
     return text if len(text) <= _SUMMARY_LIMIT else text[: _SUMMARY_LIMIT - 3] + "..."
 
 

@@ -20,7 +20,8 @@ survive a new week at all.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Callable, Sequence
+from pathlib import Path
+from typing import Any, Callable, Mapping, Optional, Sequence
 
 __all__ = ["DiscoverySpec"]
 
@@ -51,3 +52,31 @@ class DiscoverySpec:
     #: Directory names worth preferring when a repository holds several weeks.
     #: A preference only: the import graph decides when these do not apply.
     hints: Sequence[str] = field(default_factory=tuple)
+
+    #: The benchmark's own resources, by name, for stages that declare them
+    #: (``Stage.extras``). Week 3's GloVe vectors are the case: their
+    #: embedder takes them as an argument, the benchmark owns the file, and
+    #: no amount of searching their repository produces one. Data, never
+    #: arithmetic.
+    extras: Mapping[str, Any] = field(default_factory=dict)
+
+    #: What each item of the input is called, for stages that declare
+    #: ``Stage.identity``. Left empty when the input says it itself: a list
+    #: of photo paths already names its items, and the search reads that.
+    identities: Sequence[Any] = field(default_factory=tuple)
+
+    #: Basename to the benchmark's copy, for a course artifact a repository
+    #: opens at a path this machine does not have. Only consulted after an
+    #: import has already failed on that exact basename.
+    resource_files: Mapping[str, Path] = field(default_factory=dict)
+
+    #: Which of their zero-argument functions returns an empty database that
+    #: their store and query both take as a first argument. A predicate, not
+    #: a name, because the week knows what an empty database looks like for
+    #: its own task and the resolver does not.
+    factories: Optional[Callable[[Any], bool]] = None
+
+    #: How many of their own functions may be applied to what the query
+    #: returned before the answer is read. Zero for a week whose query
+    #: answers directly, which is every week before this existed.
+    readers: int = 0

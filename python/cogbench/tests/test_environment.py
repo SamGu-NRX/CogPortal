@@ -318,13 +318,35 @@ class AdviceIsWrittenAgainstTheRightImage(unittest.TestCase):
             ):
                 trees.append(ast.parse(ast.literal_eval(node.value)))
 
+        # Which name the runner calls is read off its own imports rather than
+        # spelled here. This test named `resolve` literally, the runner moved
+        # to `from_spec`, and the test went on passing against zero calls: it
+        # asserted `len(calls) >= 2` on a list that could only be empty. A
+        # check whose subject can vanish is not a check.
+        entries = {
+            alias.asname or alias.name
+            for tree in trees
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom) and node.module == "cogbench.resolve"
+            for alias in node.names
+        }
+        self.assertTrue(
+            entries,
+            "the runner imports nothing from cogbench.resolve; it no longer "
+            "resolves repositories, or this test is looking in the wrong file",
+        )
+
         calls = [
             node
             for tree in trees
             for node in ast.walk(tree)
-            if isinstance(node, ast.Call) and getattr(node.func, "id", "") == "resolve"
+            if isinstance(node, ast.Call) and getattr(node.func, "id", "") in entries
         ]
-        self.assertGreaterEqual(len(calls), 2, "expected the two hosted resolve calls")
+        self.assertGreaterEqual(
+            len(calls),
+            2,
+            "expected the two hosted calls to {}".format("/".join(sorted(entries))),
+        )
         for call in calls:
             self.assertIn(
                 "benchmark",

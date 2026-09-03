@@ -170,3 +170,39 @@ class OtherOutcomeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TwoRunsOfTheSameRepositoryDescribeItTheSameWay(unittest.TestCase):
+    """`describe` output is recorded on the binding, and a binding record has
+    to be comparable byte for byte between two cold resolves.
+
+    The default `object.__repr__` carries the address, so a chain that
+    carries the student's own objects produced a different record every run:
+    week 2's `whispers` chain differed in six places on nothing but `id()`.
+    The address says nothing a student can use -- the class name beside it is
+    the whole content -- so it is dropped rather than reported.
+    """
+
+    class Node:
+        pass
+
+    def test_a_students_object_is_described_without_its_address(self):
+        first = describe(self.Node())
+        second = describe(self.Node())
+
+        self.assertEqual(first, second)
+        self.assertNotIn("0x", first)
+        self.assertIn("Node", first)
+
+    def test_and_so_is_a_list_of_them(self):
+        first = describe([self.Node(), self.Node()])
+        second = describe([self.Node(), self.Node()])
+
+        self.assertEqual(first, second)
+        self.assertNotIn("0x", first)
+
+    def test_the_observations_a_run_records_are_stable(self):
+        first = Observation("settle", "whispers.whispers", describe([self.Node()]), "x")
+        second = Observation("settle", "whispers.whispers", describe([self.Node()]), "x")
+
+        self.assertEqual(first.line(), second.line())

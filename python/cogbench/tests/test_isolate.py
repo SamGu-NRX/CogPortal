@@ -120,3 +120,100 @@ class IsolationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+#: Run in four independent parent processes: pin the seed the way a command
+#: line entry point does, then ask the isolated child what a string hashes to.
+#: `run_isolated` forks, so the child's seed is whatever the parent was given
+#: and the pinning has to have happened before this process started.
+_SEED_PROBE = """
+import sys
+sys.path.insert(0, {src!r})
+from cogbench.isolate import ensure_pinned_hash_seed, run_isolated
+
+ensure_pinned_hash_seed()
+print(run_isolated(_probe).value)
+"""
+
+_PROBE_BODY = """
+def _probe():
+    return hash("cogbench-seed-probe")
+"""
+
+
+class DiscoveryRunsUnderASeedSomebodyChose(unittest.TestCase):
+    """Same repository bytes, same binding, same score.
+
+    One 2026 repository builds its IDF table by iterating a set, so which
+    order words land in it depends on string hashing and its text retrieval
+    score moved with the seed. An interpreter's seed is fixed before its
+    first line runs, so setting `PYTHONHASHSEED` after the fork -- which is
+    what the child did -- changes what the child's own children get and
+    nothing about the child. Measured before this existed: four independent
+    parents each got a different hash while the child reported
+    `PYTHONHASHSEED="0"`.
+    """
+
+    def _hash_from_a_fresh_process(self) -> str:
+        import subprocess
+
+        source = _PROBE_BODY + _SEED_PROBE.format(
+            src=str(ROOT / "python" / "cogbench" / "src")
+        )
+        environment = dict(os.environ)
+        # The state a student's machine is in: no seed chosen, so the
+        # interpreter picks one. Anything that pins the run has to do it
+        # from here.
+        environment["PYTHONHASHSEED"] = "random"
+        environment.pop("COGBENCH_HASH_SEED_PINNED", None)
+        done = subprocess.run(
+            [sys.executable, "-c", source],
+            capture_output=True,
+            text=True,
+            env=environment,
+        )
+        self.assertEqual(done.returncode, 0, done.stderr)
+        return done.stdout.strip()
+
+    def test_four_independent_runs_hash_a_string_the_same_way(self):
+        answers = {self._hash_from_a_fresh_process() for _ in range(4)}
+
+        self.assertEqual(len(answers), 1, answers)
+
+    def test_the_seed_that_was_in_effect_is_readable(self):
+        from cogbench.isolate import hash_seed_in_effect
+
+        # This interpreter's own state, whatever it is: pinned reports the
+        # seed, unpinned reports None rather than a guess.
+        seed = hash_seed_in_effect()
+        if sys.flags.hash_randomization:
+            self.assertIsNone(seed)
+        else:
+            self.assertEqual(seed, os.environ.get("PYTHONHASHSEED", "0"))
+
+    def test_pinning_is_a_no_op_once_the_seed_is_already_fixed(self):
+        """A run that is already reproducible must not restart itself.
+
+        Checked in a subprocess rather than here, because whether this
+        interpreter is pinned depends on how the suite was started and a
+        test that skips itself on the ordinary machine is not a test.
+        """
+
+        import subprocess
+
+        source = (
+            "import sys\n"
+            "sys.path.insert(0, {src!r})\n"
+            "from cogbench.isolate import ensure_pinned_hash_seed\n"
+            "print(ensure_pinned_hash_seed())\n"
+        ).format(src=str(ROOT / "python" / "cogbench" / "src"))
+
+        done = subprocess.run(
+            [sys.executable, "-c", source],
+            capture_output=True,
+            text=True,
+            env=dict(os.environ, PYTHONHASHSEED="0"),
+        )
+
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(done.stdout.strip(), "False")

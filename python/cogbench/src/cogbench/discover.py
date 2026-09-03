@@ -70,7 +70,9 @@ a package in the only other way Python accepts.
 
 from __future__ import annotations
 
+import __future__
 import ast
+import builtins
 import contextlib
 import importlib.machinery
 import importlib.util
@@ -83,7 +85,7 @@ import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import ModuleType
-from typing import Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
 __all__ = [
     "STUBBED_MODULES",
@@ -128,7 +130,11 @@ __all__ = [
 #: removal would turn a module that imports networkx from readable into
 #: skipped. The check gives both tracks the right answer from one list: stub
 #: where the package is missing, stand aside where it is installed.
-STUBBED_MODULES = ("streamlit", "microphone", "pyaudio")
+#: ``camera`` joined on 2026-09-02 for the same reason as ``microphone``: it
+#: is the course's webcam helper, it is absent from all three images, and no
+#: scored path takes a picture. A module that imports it for a demo now yields
+#: its functions instead of being skipped.
+STUBBED_MODULES = ("streamlit", "microphone", "pyaudio", "camera")
 
 #: Never searched for student code.
 SKIPPED_DIRECTORIES = frozenset(
@@ -253,6 +259,20 @@ class LoadedModule:
     #: which matters when explaining why one of its functions failed.
     origin: str
 
+    #: The directory this module was imported from, when importing it from
+    #: the working directory failed and importing it from its own folder
+    #: worked. Recorded because it changes what their relative reads found,
+    #: and a student reading the report should know we moved.
+    cwd_hint: Optional[Path] = None
+    #: Whether this module was compiled with ``from __future__ import
+    #: annotations`` after a name in one of its type annotations turned out
+    #: not to exist. Their functions behave identically; only the annotation
+    #: stops being evaluated.
+    future_annotations: bool = False
+    #: Basenames whose path was answered from the benchmark's own copy,
+    #: because the path their code names is not on this machine.
+    redirected: Tuple[str, ...] = ()
+
 
 @dataclass(frozen=True)
 class SkippedModule:
@@ -331,10 +351,7 @@ class Discovery:
             "root": str(self.root.path),
             "rootReason": self.root.reason,
             "considered": [str(path) for path in self.root.considered],
-            "modules": [
-                {"name": entry.name, "path": str(entry.path), "origin": entry.origin}
-                for entry in self.modules
-            ],
+            "modules": [_module_record(entry) for entry in self.modules],
             "skipped": [
                 {
                     "name": entry.name,
@@ -351,6 +368,33 @@ class Discovery:
             "stubbed": list(self.stubbed),
             "stubCalls": sorted(set(self.stub_calls)),
         }
+
+
+def _module_record(entry: "LoadedModule") -> Dict[str, object]:
+    """One module in the record, and anything unusual it took to read it.
+
+    The optional keys are absent when nothing unusual happened, so the record
+    for an ordinary repository is exactly the one it produced before any of
+    this existed.
+    """
+
+    record: Dict[str, object] = {
+        "name": entry.name,
+        "path": str(entry.path),
+        "origin": entry.origin,
+    }
+    if entry.cwd_hint is not None:
+        record["importedFrom"] = str(entry.cwd_hint)
+        record["note"] = "imported from its own folder"
+    if entry.future_annotations:
+        record["futureAnnotations"] = True
+    if entry.redirected:
+        record["redirected"] = list(entry.redirected)
+        record["redirectNote"] = [
+            "their path to {} was redirected to the benchmark's copy".format(name)
+            for name in entry.redirected
+        ]
+    return record
 
 
 def _python_files(directory: Path) -> List[Path]:
@@ -569,6 +613,16 @@ def notebook_source(path: Path) -> Optional[str]:
             for line in text.splitlines(keepends=True)
             if not line.lstrip().startswith(("!", "%", "?"))
         )
+        # A cell boundary is a line break. A notebook stores a cell without a
+        # trailing newline whenever its last line has none, and joining the
+        # cells as written glues the last line of one onto the first line of
+        # the next. Counted on the 2026 corpus on 2026-09-02: 118 such
+        # boundaries in Cog-gurts' week 1 repository, 174 in their week 2 one,
+        # 11 in rutvim's. One of rutvim's produces `import uuidclass
+        # SongMetadata:`, which was reported to that team as a syntax error in
+        # a file they wrote correctly.
+        if lines and not lines[-1].endswith("\n"):
+            lines[-1] = lines[-1] + "\n"
 
     try:
         tree = ast.parse("".join(lines))
@@ -944,25 +998,136 @@ def _forget(name: str, package: Optional[str]) -> None:
     sys.modules.pop(name, None)
 
 
-def _import_one(
+#: Where a retry that changed the working directory is reading from, as
+#: (scratch mirror, the folder that may not be written into). None outside
+#: such a retry, which is what makes `_write_guard` free the rest of the time.
+_GUARDED: Optional[Tuple[Path, Path]] = None
+_GUARD_INSTALLED = False
+
+#: `open` modes that create or truncate. `r` alone is absent on purpose.
+_WRITING = ("w", "a", "x", "+")
+
+
+def _write_guard(event: str, arguments) -> None:  # pragma: no cover - process-wide hook
+    """Refuse a write that would land in the repository being read.
+
+    Only armed while `_reading_from` is running, and only for `open`, so
+    every other call in the process pays one comparison against None.
+    """
+
+    if _GUARDED is None or event != "open" or len(arguments) < 2:
+        return
+    target, mode = arguments[0], arguments[1]
+    if not mode or not any(letter in str(mode) for letter in _WRITING):
+        return
+    mirror, protected = _GUARDED
+    try:
+        where = Path(os.fsdecode(target)).resolve()
+    except (TypeError, ValueError, OSError):
+        return
+    if _inside(where, mirror) or not _inside(where, protected):
+        return
+    raise PermissionError(
+        "cogbench does not write into a repository it is reading: {}".format(where)
+    )
+
+
+def _inside(where: Path, root: Path) -> bool:
+    try:
+        where.relative_to(root)
+    except ValueError:
+        return False
+    return True
+
+
+@contextlib.contextmanager
+def _reading_from(folder: Path):
+    """Work from a throwaway copy of the module's own folder, not from it.
+
+    The retry below re-executes a module with its own directory as the
+    working directory, because a module that reads ``data/trumpet.wav`` at
+    import scope is right about where that file is and wrong only about the
+    working directory the platform chose.
+
+    Doing that with a plain ``os.chdir(folder)`` put the student's checkout
+    under the student's own ``open(..., "w")``. Measured: a module that wrote
+    ``marker.txt`` before reading ``data.txt`` failed the scratch import,
+    succeeded on this retry, and left ``marker.txt`` in the repository. The
+    loader's rule is that student writes land in scratch, and discovery may
+    not modify a tree it was asked to read.
+
+    So the working directory is a temporary directory whose top-level entries
+    are symlinks to theirs. A relative read at any depth resolves through
+    those links to the real file; a relative write creates a new entry here
+    and the repository never sees it. A write that would still resolve into
+    their folder -- truncating a file they already have, or creating one
+    inside a linked subdirectory -- is refused by `_write_guard` rather than
+    performed, because there is no copy of it to write into.
+
+    Top-level entries only. Mirroring the tree would be one symlink per file
+    in a checkout that runs to gigabytes, for a case a directory link already
+    covers.
+    """
+
+    global _GUARDED, _GUARD_INSTALLED
+
+    with tempfile.TemporaryDirectory(prefix="cogworks-import-") as temporary:
+        mirror = Path(temporary).resolve()
+        try:
+            entries = sorted(folder.iterdir())
+        except OSError:
+            entries = []
+        for entry in entries:
+            try:
+                os.symlink(entry, mirror / entry.name)
+            except OSError:
+                continue
+        if not _GUARD_INSTALLED:
+            sys.addaudithook(_write_guard)
+            _GUARD_INSTALLED = True
+        was = _GUARDED
+        previous = os.getcwd()
+        _GUARDED = (mirror, folder.resolve())
+        try:
+            os.chdir(mirror)
+            yield
+        finally:
+            _GUARDED = was
+            os.chdir(previous)
+
+
+@dataclass
+class _Notes:
+    """What it took to read one module, beyond opening the file.
+
+    Every entry here is something the platform did that the student did not
+    ask for, so every entry is reported. A module that imported the ordinary
+    way carries none of them and its record is unchanged.
+    """
+
+    cwd_hint: Optional[Path] = None
+    future_annotations: bool = False
+    redirected: Tuple[str, ...] = ()
+
+
+def _execute(
     name: str,
     path: Path,
     source: Optional[str],
-    timeout: int = IMPORT_TIMEOUT_SECONDS,
-    package: Optional[str] = None,
-) -> Tuple[Optional[ModuleType], Optional[SkippedModule]]:
-    # A module that already loaded under this package keeps the object it
-    # produced. `load_modules` normally prevents a second attempt, but a
-    # package member can be pulled in early by a neighbour's relative import,
-    # and re-executing the file would produce a second object with independent
-    # globals: one copy takes the stores and the other is read back empty.
-    if package is not None:
-        already = sys.modules.get("{}.{}".format(package, name))
-        if already is not None:
-            return already, None
+    timeout: int,
+    package: Optional[str],
+    *,
+    future_annotations: bool = False,
+) -> Tuple[Optional[ModuleType], Optional[BaseException], Optional[SkippedModule]]:
+    """Run one module's body once, and hand back what happened.
+
+    Three returns rather than two because the caller now has to decide
+    whether the failure is one it can honestly retry, and deciding that needs
+    the exception rather than a sentence about it.
+    """
 
     try:
-        if source is None:
+        if source is None and not future_annotations:
             if package is not None:
                 spec = _PackageFinder(package, path.parent).find_spec(
                     "{}.{}".format(package, name)
@@ -970,8 +1135,15 @@ def _import_one(
             else:
                 spec = importlib.util.spec_from_file_location(name, path)
             if spec is None or spec.loader is None:
-                return None, SkippedModule(
-                    name, path, "syntax", "Python could not read this file as a module."
+                return (
+                    None,
+                    None,
+                    SkippedModule(
+                        name,
+                        path,
+                        "syntax",
+                        "Python could not read this file as a module.",
+                    ),
                 )
             module = importlib.util.module_from_spec(spec)
             # Registered under both names deliberately. The dotted name is
@@ -985,49 +1157,243 @@ def _import_one(
             sys.modules.setdefault(name, module)
             with _quiet_import(), _deadline(timeout, name):
                 spec.loader.exec_module(module)
-        else:
-            # A notebook module is built from lifted definitions rather than
-            # executed from its file, so it has no package to belong to and
-            # relative imports in a notebook cannot be made to work here.
-            # `setdefault` keeps it from displacing a .py of the same stem
-            # that already loaded, which `_consume` also guards.
-            module = ModuleType(name)
-            module.__file__ = str(path)
-            sys.modules.setdefault(name, module)
-            with _quiet_import(), _deadline(timeout, name):
-                exec(compile(source, str(path), "exec"), module.__dict__)
-        return module, None
+            return module, None, None
+
+        # A notebook module is built from lifted definitions rather than
+        # executed from its file, so it has no package to belong to and
+        # relative imports in a notebook cannot be made to work here.
+        # `setdefault` keeps it from displacing a .py of the same stem
+        # that already loaded, which `_consume` also guards.
+        text = source if source is not None else path.read_text(
+            encoding="utf-8", errors="replace"
+        )
+        module = ModuleType(name)
+        module.__file__ = str(path)
+        if package is not None:
+            module.__package__ = package
+            sys.modules["{}.{}".format(package, name)] = module
+        sys.modules.setdefault(name, module)
+        flags = __future__.annotations.compiler_flag if future_annotations else 0
+        with _quiet_import(), _deadline(timeout, name):
+            exec(compile(text, str(path), "exec", flags=flags), module.__dict__)
+        return module, None, None
     except _ImportTimeout:
         _forget(name, package)
-        return None, SkippedModule(
-            name,
-            path,
-            "too_slow",
-            "still running after {} seconds; it does work when imported rather "
-            "than when called".format(timeout),
+        return (
+            None,
+            None,
+            SkippedModule(
+                name,
+                path,
+                "too_slow",
+                "still running after {} seconds; it does work when imported rather "
+                "than when called".format(timeout),
+            ),
         )
     except SyntaxError as error:
         _forget(name, package)
-        return None, SkippedModule(
-            name, path, "syntax", "line {}: {}".format(error.lineno, error.msg)
+        return (
+            None,
+            error,
+            SkippedModule(
+                name, path, "syntax", "line {}: {}".format(error.lineno, error.msg)
+            ),
         )
     except BaseException as error:  # noqa: BLE001 - student code raises anything
         _forget(name, package)
         missing = _missing_module(error)
         if missing:
-            return None, SkippedModule(
+            return (
+                None,
+                error,
+                SkippedModule(
+                    name,
+                    path,
+                    "missing_dependency",
+                    "imports {}, which is not installed here".format(missing),
+                    missing,
+                ),
+            )
+        return (
+            None,
+            error,
+            SkippedModule(
                 name,
                 path,
-                "missing_dependency",
-                "imports {}, which is not installed here".format(missing),
-                missing,
-            )
-        return None, SkippedModule(
-            name,
-            path,
-            "raised",
-            "{}: {}".format(type(error).__name__, str(error)[:200]),
+                "raised",
+                "{}: {}".format(type(error).__name__, str(error)[:200]),
+            ),
         )
+
+
+def _import_one(
+    name: str,
+    path: Path,
+    source: Optional[str],
+    timeout: int = IMPORT_TIMEOUT_SECONDS,
+    package: Optional[str] = None,
+    redirects: Optional["_Redirects"] = None,
+) -> Tuple[Optional[ModuleType], Optional[SkippedModule], _Notes]:
+    """Import one module, retrying only where the failure is ours to answer.
+
+    Three retries, each for a failure that is not a bug in their code and
+    each disclosed on the module record. In order:
+
+    Their own folder. A module that reads ``data/trumpet.wav`` at import
+    scope is right about where that file is relative to itself and wrong only
+    about the working directory the platform chose. Retried once with the
+    module's own directory as the working directory, and only for a relative
+    path: an absolute path names a machine, and answering for one would be
+    inventing a file.
+
+    A name in an annotation. ``def f(x) -> Tuple[Dict[DatabaseKey, int]]``
+    with ``DatabaseKey`` undefined kills a module at import even though no
+    line of it would ever run that expression. Recompiled once with
+    ``from __future__ import annotations``, which makes Python keep the
+    annotation as text. Their functions are unchanged; nothing in the corpus
+    reads ``__annotations__``.
+
+    A course artifact at a path this machine does not have. See
+    ``_Redirects``.
+    """
+
+    notes = _Notes()
+    # A module that already loaded under this package keeps the object it
+    # produced. `load_modules` normally prevents a second attempt, but a
+    # package member can be pulled in early by a neighbour's relative import,
+    # and re-executing the file would produce a second object with independent
+    # globals: one copy takes the stores and the other is read back empty.
+    if package is not None:
+        already = sys.modules.get("{}.{}".format(package, name))
+        if already is not None:
+            return already, None, notes
+
+    module, error, failure = _execute(name, path, source, timeout, package)
+    if module is not None:
+        return module, None, notes
+
+    folder = _own_folder(error, path)
+    if folder is not None:
+        try:
+            with _reading_from(folder):
+                retried, _again, _failure = _execute(
+                    name, path, source, timeout, package
+                )
+        except OSError:
+            retried = None
+        if retried is not None:
+            notes.cwd_hint = folder
+            return retried, None, notes
+
+    if _annotation_only(error, path, source):
+        retried, _again, _failure = _execute(
+            name, path, source, timeout, package, future_annotations=True
+        )
+        if retried is not None:
+            notes.future_annotations = True
+            return retried, None, notes
+
+    basename = redirects.wanted(error) if redirects is not None else None
+    if basename is not None:
+        redirects.install(basename)
+        retried, _again, _failure = _execute(name, path, source, timeout, package)
+        if retried is not None:
+            notes.redirected = (basename,)
+            return retried, None, notes
+
+    return None, failure, notes
+
+
+def _own_folder(error: Optional[BaseException], path: Path) -> Optional[Path]:
+    """The module's own directory, when a relative read is what stopped it.
+
+    Only for a relative path. An absolute one names a location on some
+    machine, and if it is not here then no working directory makes it appear;
+    retrying would only hide the real answer, which is that the file is not
+    on this machine.
+    """
+
+    if not isinstance(error, (FileNotFoundError, IsADirectoryError)):
+        return None
+    named = getattr(error, "filename", None)
+    if not named or os.path.isabs(str(named)):
+        return None
+    folder = path.parent
+    return folder if folder.is_dir() else None
+
+
+def _annotation_only(
+    error: Optional[BaseException], path: Path, source: Optional[str]
+) -> bool:
+    """Whether a NameError came from a type annotation and nowhere else.
+
+    Both halves are required. The traceback's innermost frame has to be a
+    ``def`` line, because that is where an annotation is evaluated; and every
+    mention of the missing name in the file has to be inside an annotation,
+    because a name their code actually uses is a real error and recompiling
+    would only move the failure to the first call.
+    """
+
+    if not isinstance(error, NameError):
+        return False
+    missing = getattr(error, "name", None)
+    if not missing:
+        return False
+    trace = error.__traceback__
+    if trace is None:
+        return False
+    while trace.tb_next is not None:
+        trace = trace.tb_next
+    lineno = trace.tb_lineno
+    text = source
+    if text is None:
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return False
+    try:
+        tree = ast.parse(text)
+    except (SyntaxError, ValueError):
+        return False
+
+    on_a_def_line = False
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.body:
+            if node.lineno <= lineno < node.body[0].lineno:
+                on_a_def_line = True
+                break
+    if not on_a_def_line:
+        return False
+
+    annotated = set()
+    for node in ast.walk(tree):
+        holders = []
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            holders.append(node.returns)
+            arguments = node.args
+            every = (
+                list(arguments.args)
+                + list(arguments.posonlyargs)
+                + list(arguments.kwonlyargs)
+                + [arguments.vararg, arguments.kwarg]
+            )
+            holders.extend(item.annotation for item in every if item is not None)
+        elif isinstance(node, ast.AnnAssign):
+            holders.append(node.annotation)
+        for holder in holders:
+            if holder is None:
+                continue
+            for inner in ast.walk(holder):
+                annotated.add(id(inner))
+
+    mentions = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Name) and node.id == missing
+    ]
+    if not mentions:
+        return False
+    return all(id(node) in annotated for node in mentions)
 
 
 def _note(
@@ -1073,7 +1439,9 @@ def _run_package_body(package: str, path: Path) -> Optional[SkippedModule]:
     # same timeout, the same missing-dependency wording, the same syntax
     # line numbers. `package=None` because the body is not a member of the
     # package, it is the package.
-    body, failure = _import_one("__init__", path, None, IMPORT_TIMEOUT_SECONDS, None)
+    body, failure, _notes = _import_one(
+        "__init__", path, None, IMPORT_TIMEOUT_SECONDS, None
+    )
     if failure is not None:
         return failure
     if body is not None:
@@ -1087,12 +1455,219 @@ def _run_package_body(package: str, path: Path) -> Optional[SkippedModule]:
     return None
 
 
+#: The two package paths the `ipynb` package exposes. ``full`` runs a
+#: notebook's cells; ``defs`` keeps only its definitions. Discovery answers
+#: for both with the definitions it already lifts, because running the cells
+#: is exactly what the lifter exists to avoid: the notebook one 2026 team
+#: imports this way reads a wav file out of a Music/ directory at cell scope.
+_NOTEBOOK_PACKAGES = ("ipynb", "ipynb.fs", "ipynb.fs.full", "ipynb.fs.defs")
+
+
+class _NotebookFsFinder:
+    """Answers ``ipynb.fs.full.<stem>`` with the lifted notebook of that stem.
+
+    ``from ipynb.fs.full.metadata import SongMetadata`` is a real line in the
+    2026 corpus and means "the definitions in metadata.ipynb", which is the
+    module discovery already builds. Without this it is reported as the
+    missing dependency ``ipynb``, and the team loses every module that
+    imports it.
+
+    Installed even when the real ``ipynb`` package is present. Its importer
+    executes the notebook's script cells, and a scored run does not get to
+    run a training loop because of how a file was imported.
+
+    A stem with no notebook beside it is not answered for, so an import of
+    something that genuinely is not there still fails and is still named.
+    """
+
+    def __init__(self, directories: Sequence[Path], import_timeout: int) -> None:
+        self._directories = list(directories)
+        self._timeout = import_timeout
+        self._made: List[str] = []
+
+    def find_spec(self, name: str, path=None, target=None):
+        if name in _NOTEBOOK_PACKAGES:
+            return importlib.machinery.ModuleSpec(name, self, is_package=True)
+        stem = self._stem(name)
+        if stem is None or self._notebook(stem) is None:
+            return None
+        return importlib.machinery.ModuleSpec(name, self)
+
+    def create_module(self, spec):
+        self._made.append(spec.name)
+        if spec.name in _NOTEBOOK_PACKAGES:
+            shell = ModuleType(spec.name)
+            shell.__path__ = []
+            return shell
+        stem = self._stem(spec.name)
+        source = notebook_source(self._notebook(stem))
+        if source is None:
+            raise ImportError(
+                "{}.ipynb holds no definitions to import".format(stem), name=spec.name
+            )
+        module = ModuleType(spec.name)
+        module.__file__ = str(self._notebook(stem))
+        exec(compile(source, module.__file__, "exec"), module.__dict__)
+        return module
+
+    def exec_module(self, module):
+        return None
+
+    def withdraw(self) -> None:
+        """Take this finder and everything it answered for back out.
+
+        The package shells have no ``__file__``, so `_entered` cannot see
+        that they came from this repository, and a finder that outlives its
+        run would answer for a notebook in a directory the process has
+        finished with.
+        """
+
+        sys.meta_path[:] = [finder for finder in sys.meta_path if finder is not self]
+        for name in self._made:
+            sys.modules.pop(name, None)
+
+    def _stem(self, name: str) -> Optional[str]:
+        for prefix in ("ipynb.fs.full.", "ipynb.fs.defs."):
+            if name.startswith(prefix):
+                stem = name[len(prefix):]
+                return stem if stem and "." not in stem else None
+        return None
+
+    def _notebook(self, stem: Optional[str]) -> Optional[Path]:
+        if not stem:
+            return None
+        for directory in self._directories:
+            candidate = directory / (stem + ".ipynb")
+            if candidate.is_file():
+                return candidate
+        return None
+
+
+class _Redirects:
+    """Answer a course artifact from the benchmark's copy of it.
+
+    One 2026 repository loads GloVe from ``C:\\Users\\...\\glove.6B.200d.kv``
+    at module scope. The file is the same course artifact the benchmark
+    already owns; the path is a machine that is not this one. Every module in
+    that repository is skipped as "raised", so the week has nothing to search.
+
+    Only a basename the benchmark named, and only after a module has already
+    failed on it. Nothing is guessed: the week passes the map, the failure
+    names the file, and both have to agree before anything is patched. The
+    file is data, so supplying it is input in the same sense as supplying the
+    photos; the report says which basename was answered for.
+
+    ``open`` is wrapped rather than the filesystem being changed, and
+    ``gensim``'s loader is patched only when their code has already imported
+    it. ``COGWORKS_LANGUAGE_DATA`` is set from the same map, because the
+    course's own ``cogworks_data.get_data_path`` reads it and several
+    repositories go through that instead of naming a path.
+    """
+
+    def __init__(self, mapping: Mapping[str, Path]) -> None:
+        self._map = {str(name): Path(where) for name, where in mapping.items()}
+        self._live: Dict[str, Path] = {}
+        self._open = None
+        self._loader = None
+        self._previous_env = None
+
+    def enter(self) -> None:
+        if not self._map:
+            return
+        self._previous_env = os.environ.get("COGWORKS_LANGUAGE_DATA")
+        folders = {str(where.parent) for where in self._map.values()}
+        if len(folders) == 1:
+            os.environ["COGWORKS_LANGUAGE_DATA"] = folders.pop()
+
+    def leave(self) -> None:
+        if self._open is not None:
+            builtins.open = self._open
+            self._open = None
+        if self._loader is not None:
+            owner, name, original = self._loader
+            setattr(owner, name, original)
+            self._loader = None
+        if self._map:
+            if self._previous_env is None:
+                os.environ.pop("COGWORKS_LANGUAGE_DATA", None)
+            else:
+                os.environ["COGWORKS_LANGUAGE_DATA"] = self._previous_env
+        self._live.clear()
+
+    def wanted(self, error: Optional[BaseException]) -> Optional[str]:
+        """The basename this failure was about, when the benchmark has it."""
+
+        if not self._map or error is None:
+            return None
+        if not isinstance(error, (OSError, NotImplementedError)):
+            return None
+        for token in self._tokens(error):
+            name = token.replace("\\", "/").rsplit("/", 1)[-1]
+            if name in self._map and name not in self._live:
+                return name
+        return None
+
+    def install(self, basename: str) -> None:
+        """Answer for this one basename for the rest of discovery."""
+
+        self._live[basename] = self._map[basename]
+        if self._open is None:
+            self._open = builtins.open
+            builtins.open = self._opened
+        self._patch_gensim()
+
+    def _tokens(self, error: BaseException) -> List[str]:
+        found = [str(getattr(error, "filename", "") or "")]
+        text = str(error)
+        for separator in ("'", '"', " ", ":", ","):
+            text = text.replace(separator, "\n")
+        found.extend(text.split("\n"))
+        return [token for token in found if token]
+
+    def _redirected(self, target):
+        try:
+            name = os.path.basename(str(target)).replace("\\", "/").rsplit("/", 1)[-1]
+        except Exception:  # noqa: BLE001 - a path-like may be anything
+            return target
+        where = self._live.get(name)
+        if where is None or os.path.exists(target):
+            return target
+        return str(where)
+
+    def _opened(self, file, *args, **keywords):
+        return self._open(self._redirected(file), *args, **keywords)
+
+    def _patch_gensim(self) -> None:
+        """Point ``KeyedVectors.load`` at the benchmark's file.
+
+        Only when their code already imported gensim. Importing it here to
+        patch it would spend seconds on a package this repository may not
+        use, and would report a dependency it does not have.
+        """
+
+        if self._loader is not None:
+            return
+        models = sys.modules.get("gensim.models")
+        owner = getattr(models, "KeyedVectors", None)
+        if owner is None:
+            return
+        original = owner.load
+        redirect = self._redirected
+
+        def _load(cls_or_path, *args, **keywords):
+            return original(redirect(cls_or_path), *args, **keywords)
+
+        self._loader = (owner, "load", original)
+        owner.load = _load
+
+
 def load_modules(
     root: Path,
     *,
     extra: Sequence[Path] = (),
     import_timeout: int = IMPORT_TIMEOUT_SECONDS,
     journal: Optional[Callable[[str, object], None]] = None,
+    resource_files: Optional[Mapping[str, Path]] = None,
 ) -> Tuple[List[LoadedModule], List[SkippedModule], List[str]]:
     """Import every module in ``root``, then in each of ``extra``.
 
@@ -1128,6 +1703,11 @@ def load_modules(
 
     calls: List[str] = []
     _install_stubs(calls)
+    directories = [root] + [path for path in extra if path != root]
+    notebooks = _NotebookFsFinder(directories, import_timeout)
+    sys.meta_path.insert(0, notebooks)
+    redirects = _Redirects(resource_files or {})
+    redirects.enter()
 
     loaded: List[LoadedModule] = []
     skipped: List[SkippedModule] = []
@@ -1161,11 +1741,19 @@ def load_modules(
             # interpreter down produces no outcome at all, so this line is the
             # only evidence that it was the one being read.
             _note(journal, "reading", path)
-            module, failure = _import_one(
-                path.stem, path, None, import_timeout, package
+            module, failure, notes = _import_one(
+                path.stem, path, None, import_timeout, package, redirects
             )
             if module is not None:
-                entry = LoadedModule(path.stem, path, module, "file")
+                entry = LoadedModule(
+                    path.stem,
+                    path,
+                    module,
+                    "file",
+                    cwd_hint=notes.cwd_hint,
+                    future_annotations=notes.future_annotations,
+                    redirected=notes.redirected,
+                )
                 loaded.append(entry)
                 taken.add(path.stem)
                 _note(journal, "module", entry)
@@ -1187,9 +1775,19 @@ def load_modules(
                 _note(journal, "skipped", unreadable)
                 continue
             _note(journal, "reading", path)
-            module, failure = _import_one(path.stem, path, source, import_timeout)
+            module, failure, notes = _import_one(
+                path.stem, path, source, import_timeout, None, redirects
+            )
             if module is not None:
-                entry = LoadedModule(path.stem, path, module, "notebook")
+                entry = LoadedModule(
+                    path.stem,
+                    path,
+                    module,
+                    "notebook",
+                    cwd_hint=notes.cwd_hint,
+                    future_annotations=notes.future_annotations,
+                    redirected=notes.redirected,
+                )
                 loaded.append(entry)
                 taken.add(path.stem)
                 _note(journal, "module", entry)
@@ -1197,10 +1795,14 @@ def load_modules(
                 skipped.append(failure)
                 _note(journal, "skipped", failure)
 
-    _consume(root)
-    for directory in extra:
-        if directory != root:
-            _consume(directory)
+    try:
+        _consume(root)
+        for directory in extra:
+            if directory != root:
+                _consume(directory)
+    finally:
+        notebooks.withdraw()
+        redirects.leave()
 
     return loaded, skipped, calls
 
@@ -1318,6 +1920,7 @@ def discover(
     scratch: Optional[Path] = None,
     import_timeout: int = IMPORT_TIMEOUT_SECONDS,
     journal: Optional[Callable[[str, object], None]] = None,
+    resource_files: Optional[Mapping[str, Path]] = None,
 ) -> Discovery:
     """Choose a root, import what imports, and report all of it.
 
@@ -1329,6 +1932,13 @@ def discover(
     ``journal`` receives each module outcome as it happens. ``survey`` uses it
     to keep what was learned when a module ends the process, which no return
     value can carry.
+
+    ``resource_files`` maps a basename to the benchmark's copy of that file.
+    A module that fails at import because it opens a course artifact at a
+    path this machine does not have is retried once with that basename
+    answered from the benchmark's copy, and the module record says so. See
+    ``_Redirects``; nothing is redirected that the week did not name and that
+    a failure did not ask for.
     """
 
     repository = Path(repository).resolve()
@@ -1365,6 +1975,7 @@ def discover(
                 extra=extra,
                 import_timeout=import_timeout,
                 journal=journal,
+                resource_files=resource_files,
             )
             stubbed = stubbed_now()
     else:
@@ -1375,6 +1986,7 @@ def discover(
                     extra=extra,
                     import_timeout=import_timeout,
                     journal=journal,
+                    resource_files=resource_files,
                 )
                 stubbed = stubbed_now()
     return Discovery(

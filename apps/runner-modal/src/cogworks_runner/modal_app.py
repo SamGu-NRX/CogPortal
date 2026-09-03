@@ -450,19 +450,19 @@ if resolved_by is None:
     try:
         sys.path.insert(0, "/opt/cogbench")
         from cogbench.plugins import load_benchmark
-        from cogbench.resolve import resolve
+        from cogbench.resolve import from_spec
 
         plugin = load_benchmark(benchmark_id)
         describes = getattr(plugin, "discovery", None)
         if callable(describes):
             spec = describes()
-            found = resolve(
+            # from_spec forwards everything a week declares: its resources,
+            # its resource files, its database factory predicate, its reader
+            # budget. Naming the five original fields here is how Week 3's
+            # GloVe would have quietly never reached its own stages.
+            found = from_spec(
                 project,
-                chain_role=spec.chain_role,
-                fixture=spec.fixture,
-                accepts=spec.accepts,
-                arrangements=spec.arrangements,
-                hints=spec.hints,
+                spec,
                 # Without this the advice is written against the union of all
                 # three images, so every missing package reads as one the
                 # student must declare. cv2 is in the Week 2 image; telling a
@@ -608,19 +608,11 @@ def _discovered_factory(benchmark_id):
     # A benchmark supplies its own submission_from_discovery, because turning
     # a binding into the object its driver expects is that benchmark protocol,
     # not something the resolver knows.
-    from cogbench.resolve import resolve
+    from cogbench.resolve import from_spec
 
     benchmark = load_benchmark(benchmark_id)
     spec = benchmark.discovery()
-    found = resolve(
-        repo_root,
-        chain_role=spec.chain_role,
-        fixture=spec.fixture,
-        accepts=spec.accepts,
-        arrangements=spec.arrangements,
-        hints=spec.hints,
-        benchmark=benchmark_id,
-    )
+    found = from_spec(repo_root, spec, benchmark=benchmark_id)
     if not found.ready:
         raise RuntimeError(
             "The functions found when preparing this repository could not be "

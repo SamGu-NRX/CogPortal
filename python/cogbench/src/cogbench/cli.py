@@ -29,7 +29,7 @@ from .client import (
     update_setup_checks,
 )
 from .models import LocalReport
-from .resolve import resolve
+from .resolve import from_spec, resolve
 from .plugins import (
     PluginError,
     load_benchmark,
@@ -230,13 +230,9 @@ def _discover(benchmark: str, project_root: Path, as_json: bool):
 
     watcher = None if as_json else TerminalProgress()
     try:
-        submission = resolve(
+        submission = from_spec(
             project_root,
-            chain_role=spec.chain_role,
-            fixture=spec.fixture,
-            accepts=spec.accepts,
-            arrangements=spec.arrangements,
-            hints=spec.hints,
+            spec,
             progress=watcher,
             remember=True,
             benchmark=benchmark,
@@ -575,6 +571,22 @@ def _start_live_run(
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
+    # Before anything reads a repository. Discovery runs student code whose
+    # answer can depend on string hashing -- one 2026 repository builds its
+    # IDF table by iterating a set -- and an interpreter's seed is fixed
+    # before its first line, so this is the last moment a run can be made
+    # reproducible. It replaces this process at most once and is a no-op
+    # under a seed that is already pinned, which is what the hosted image
+    # gives every sandbox.
+    #
+    # Only when this really is the command line. `main(["check", ...])` is
+    # how the tests drive the CLI, and replacing the process there would
+    # restart the test runner rather than the command.
+    if argv is None:
+        from .isolate import ensure_pinned_hash_seed
+
+        ensure_pinned_hash_seed()
+
     parser = _parser()
     args = parser.parse_args(argv)
     if args.command is None:
