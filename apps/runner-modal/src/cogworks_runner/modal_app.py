@@ -158,6 +158,14 @@ benchmark_image = (
             "PYTHONPATH": "/opt/cogbench:/opt/runner",
             "TORCH_HOME": "/opt/torch",
             "MPLBACKEND": "Agg",
+            # PYTHONHASHSEED: one 2026 team builds its IDF table by iterating
+            # a set, so which order words land in it depends on string
+            # hashing, and its text retrieval score moved between 0.8188 and
+            # 0.8335 across three seeds. An interpreter's seed is fixed before
+            # its first line, so it has to come from the image environment,
+            # where every process in the sandbox inherits it. The binding
+            # records whether it was pinned (isolate.hash_seed_in_effect).
+            "PYTHONHASHSEED": "0",
         }
     )
     .run_function(cache_facenet_checkpoint)
@@ -209,6 +217,14 @@ week3_image = (
             "COGWORKS_LANGUAGE_DATA": WEEK3_DATA_DIR,
             # See the Week 2 image: a plot that wants a window never gets one.
             "MPLBACKEND": "Agg",
+            # PYTHONHASHSEED: one 2026 team builds its IDF table by iterating
+            # a set, so which order words land in it depends on string
+            # hashing, and its text retrieval score moved between 0.8188 and
+            # 0.8335 across three seeds. An interpreter's seed is fixed before
+            # its first line, so it has to come from the image environment,
+            # where every process in the sandbox inherits it. The binding
+            # records whether it was pinned (isolate.hash_seed_in_effect).
+            "PYTHONHASHSEED": "0",
         }
     )
     .run_function(cache_week3_artifacts)

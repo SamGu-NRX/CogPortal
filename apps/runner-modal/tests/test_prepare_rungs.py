@@ -193,3 +193,25 @@ class RungOrderTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TheSandboxRunsUnderAPinnedHashSeed(unittest.TestCase):
+    """Every image that runs student code sets PYTHONHASHSEED.
+
+    Discovery and scoring both iterate student dicts and sets, and one 2026
+    team's text score moved with the seed. The seed cannot be set from
+    inside a running interpreter, so the image environment is the only place
+    it can be pinned for a sandbox, and every such image has to do it.
+    """
+
+    def test_every_student_image_pins_it(self):
+        import re as _re
+
+        source = (
+            Path(__file__).resolve().parents[1] / "src" / "cogworks_runner" / "modal_app.py"
+        ).read_text(encoding="utf-8")
+        env_blocks = _re.findall(r"\.env\(\s*\{(.*?)\}\s*\)", source, _re.S)
+        student_blocks = [block for block in env_blocks if '"MPLBACKEND"' in block]
+        self.assertGreaterEqual(len(student_blocks), 2)
+        for block in student_blocks:
+            self.assertIn('"PYTHONHASHSEED": "0"', block)
