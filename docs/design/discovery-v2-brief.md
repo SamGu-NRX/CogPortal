@@ -327,3 +327,12 @@ A fresh verifier closed 13 of the 14 week 1 findings and found one more: a table
 its keys and filled in place changes neither identity nor size, so `_FromTheirStore` read it as
 untouched and refused the store as ambiguous beside its settings dict. The snapshot taken before
 enrolling now keeps a shallow copy of each mapping's contents as well.
+
+Open after this round (search time only; every score above is unaffected): Cog-gurts week 1
+resolves in 1,244 s. The state shape answers with 0.5 after 9,127 trials, and because a half grade
+keeps looking for a full one, the plain shape then runs its 19,152 pairings, and the reader search
+inside them makes 125,104 trials. The portal's sandbox allows 900 s for prepare
+(apps/portal/worker/execution/runner.ts:133), so this repository binds locally and would time out
+hosted. Two candidate fixes, neither made yet: stop the plain shape once a shape with a smaller
+candidate set has answered at all (the readers for the half grade have already been tried), or give
+the reader search a per-chain budget. Both are search-order decisions the brief's invariants allow.
