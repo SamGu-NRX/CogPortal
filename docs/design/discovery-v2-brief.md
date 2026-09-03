@@ -162,3 +162,35 @@ discovered.py: DiscoveredSearch(text_chain, image_chain|None, prepare, search, e
 embed_text/embed_images/prepare_database/search; mygrad Tensor -> .data; search rows of dicts -> 'image_id'.
 Hash seed: run_isolated child gets PYTHONHASHSEED=0; the sandbox image env sets PYTHONHASHSEED=0; the
 binding records it. Text MRR on rutvim moves 0.83..0.92 with the seed otherwise.
+
+## Engine gaps found by probing the week 3 branches on the corpus (2026-09-02, after cc9bcc9)
+Measured with the four-branch role on Lashika: text binds, image refuses "nothing accepted the
+input the image step passes". Root causes, each generic:
+G1. A branch's OUTPUT never enters the extras pool. Bagel's CaptionImageQuery(EMBEDDINGS, ids)
+    takes the image branch's projected matrix; Lashika's search takes the prepare branch's store.
+    Fix: after a branch binds, pool[branch.name] = the value its last step produced (Binding gains
+    a private _value), and later branches may name it in Stage.extras or in their fixture.
+G2. Branch fixtures are fixed at role construction, so a branch cannot be probed with a value
+    another branch produced. Fix: Role.fixture may be a callable (pool, chains) -> fixture or
+    Fixtures, evaluated when the branch is resolved. Week 3's search branch fixture is
+    (text_chain(query), k); its prepare fixture is Fixtures over (ids, descriptors), (descriptors,
+    ids), (ids, pool["image"]), (pool["image"], ids).
+G3. Branches resolve in declared order once. Lashika's image step is a method of the object the
+    PREPARE branch constructs (ImageDatabase(ids, desc, W).descriptor_to_embedding), and Bagel's
+    prepare needs the IMAGE branch's output: the two repos need opposite orders. Fix: resolve
+    branches to a fixpoint: loop over unresolved branches, resolve any that can, repeat until a
+    pass makes no progress. Deterministic (declared order within each pass).
+G4. A side input that is itself callable cannot be a step. Bagel's image encoder is
+    ImageToCaption() (zero-arg) + .load(their pickle) + __call__; methods_of skips underscore names
+    and the loaded instance lives in the pool as "weights_model". Fix: a pool entry named in
+    Stage.extras that is callable is offered as a candidate for that stage, labeled by the extra's
+    name plus the object's class, recorded as supplied (the week says what it loaded and from where).
+G5. The hand-off the search chose between two steps (whole value, spread, reversed, element k) is
+    described in _Partial.received but not recorded on the Candidate, so a scored run re-derives it
+    or guesses. Same defect class as tuning/form/in_place, fixed the same way: Candidate.handoff
+    (None | "spread" | "reversed" | "element:k"), applied by bound()/_invoke, stored in the memo
+    (FORMAT 8), replayed. Week 1's _run re-derivation in the uncommitted week1 tree must then go.
+G6. One failing branch refuses the whole role. Under the withheld-overall decision a week-3 repo
+    with no weights must still bind text. Fix: Role.optional on a branch; a required branch failing
+    refuses the role; an optional one failing is recorded on the binding as
+    Binding.missing[name] = Refusal and the role proceeds. Submission.to_dict carries "missing".
