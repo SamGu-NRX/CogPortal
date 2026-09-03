@@ -93,6 +93,38 @@ class DiscoverySpec:
     #: has nothing honest to bind.
     prepare: Optional[Callable[[Path, Sequence[Any]], Mapping[str, Any]]] = None
 
+    #: How the week puts its world back to empty, when part of that world is
+    #: somewhere the resolver cannot reach. Called once per pairing trial,
+    #: immediately before that trial's database is made, and again before a
+    #: scored run is built from an accepted binding.
+    #:
+    #: The resolver can already make a store's own object again when the
+    #: store is a method (``Candidate.rebuild``), call the week's factory
+    #: again when there is one, and a week whose acceptance test gives each
+    #: attempt a fresh working directory gets a file-backed database emptied
+    #: for free. What none of those reach is state that is neither an object
+    #: the search built nor a file: a repository that writes ``_DB = {}`` at
+    #: module scope and fills it from a plain function keeps every item the
+    #: search enrolled, so the two fixture items are still in the database
+    #: when the benchmark's own catalog is scored against it, and every trial
+    #: after the first enrolls into whatever the trials before it left.
+    #:
+    #: The resolver cannot know where that state lives or how to empty it,
+    #: and guessing (clearing every module-level container it can see) would
+    #: reach past the repository into the benchmark's own modules. So the
+    #: week says how, and the resolver only says when.
+    #:
+    #: A week that needs the repository's own modules to do it gets them from
+    #: ``prepare``, which is handed the loaded namespace before the search
+    #: begins; the modules are not otherwise reachable, since discovery
+    #: unregisters them from ``sys.modules`` once it has imported them. A week
+    #: whose state is its own -- a cache it keeps between calls -- needs
+    #: nothing but itself.
+    #:
+    #: Optional. A week that leaves it unset gets exactly the search it had
+    #: before this field existed, which is why it is not required.
+    reset: Optional[Callable[[], None]] = None
+
     #: The right answer to that test, in the week's own words, for the
     #: headline of a chain that ran end to end and answered something else.
     #: "one group per person" for week 2, "the enrolled song at rank 1" for

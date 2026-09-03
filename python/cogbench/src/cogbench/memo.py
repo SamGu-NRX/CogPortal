@@ -52,7 +52,16 @@ __all__ = ["fingerprint", "read", "write", "cache_path"]
 #: repository with this shape means calling a three-argument matcher with
 #: one argument: the replay raises instead of scoring, and it is a stored
 #: entry, so it would keep raising until the cache was cleared.
-FORMAT = 9
+#: 10 (2026-09-03): the search changed what it accepts and what it counts.
+#: Every pairing trial now gets its own store object rather than sharing the
+#: one instance the scan built, so a pairing an earlier trial's leftovers had
+#: made raise is now reachable and a 9 entry can name a worse pairing than
+#: the search would pick today. A store's pre-existing tables no longer count
+#: toward the state form being ambiguous, which is the same kind of change in
+#: the other direction. And `attemptsTried` is now the whole search rather
+#: than the accepted chain's own ordinal, so a 9 entry replays a number that
+#: understates the work by every chain tried before the one that bound.
+FORMAT = 10
 
 
 def cache_path(repository: Path) -> Path:

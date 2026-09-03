@@ -302,3 +302,28 @@ before its file is reached, and the live table hid the encoder that loads their 
 INSTALLED displaced module is put back on leave (another repository's hand adapter leaves a bare
 `database` behind, and restoring it handed the next adapter the wrong team's code: carti4ce's oracle
 scored 0.0 after KrazeeCoder's test).
+
+## Week 1 store-week review round (2026-09-03, 20 findings from four lenses, each verified by two refuters)
+Engine (resolve.py): every pairing trial rebuilds a method store and takes the query and readers off
+the same fresh owner (a rejected query used to fill the one instance every later trial shared);
+`Submission.fresh()` rebinds readers to the new owner and builds the class once; the database is
+made on the first enrolling call, inside the week's own fresh-state context; `DiscoverySpec.reset`
+lets a week empty what the resolver cannot reach (a module-global store); `max_attempts` is one
+ceiling for the whole search and `attemptsTried` is the whole count; `_FromTheirStore` counts only
+mappings that changed during enrolling. Two search fixes from the Cog-gurts profile: shapes are
+tried smallest-first when the ceiling cannot hold them all (57 candidates make 19,152 plain
+pairings against a ceiling of 20,000, and the state shape holding the only working pair was never
+entered), and a reader tail runs under a 20-second clock with the bare query's grade banked first
+(one tail spent 274 s refilling a per-fingerprint store). Cog-gurts week 1 binds through its own
+`AudioDatabase().add_hash` and `Spectogram.match_fingerprint(fp, hash_map, {id: id})` and scores
+0.5156. Week 1 (roles.py): the fixture-fingerprint cache is keyed by the exact bound call, not
+labels; a pairing is graded through the scorer's own `_ranking` and `coerce_candidates`; a
+three-argument store may default its offset; a store in `__slots__` is read; a flat triple is not
+a fingerprint (nothing in the corpus produces one, and the split was a silent guess). The seventh
+per-fingerprint order (key, time, id) was measured and NOT added: at six arrangements rutvim's
+plain shape costs 14,700 attempts and its factory shapes stay reachable; at seven it costs 17,150
+and rutvim drops from 0.5469 to 0.125.
+A fresh verifier closed 13 of the 14 week 1 findings and found one more: a table preallocated with
+its keys and filled in place changes neither identity nor size, so `_FromTheirStore` read it as
+untouched and refused the store as ambiguous beside its settings dict. The snapshot taken before
+enrolling now keeps a shallow copy of each mapping's contents as well.

@@ -132,6 +132,11 @@ class Submission:
     #: than trusting this, because it is describing what happened during the
     #: search and the scored run is a different object.
     _state_attribute: Optional[str] = None
+    #: The week's way of emptying state the resolver cannot reach, when the
+    #: week has one. See `DiscoverySpec.reset`. Held rather than called once
+    #: at the end of the search, because the run that has to start empty is
+    #: the scored one and it is built later, by `fresh`.
+    _reset: Optional[Callable[[], None]] = None
 
     @property
     def ready(self) -> bool:
@@ -161,15 +166,26 @@ class Submission:
         still in it afterwards. Scoring from there put `fixture_a` in the
         ranked results for real queries and cost one 2026 team half its score.
 
-        A new object is built and both methods are taken off that same one, so
-        what stores and what answers are the same database. When the binding is
-        plain module functions there is nothing to rebuild and this returns
-        itself: a module-level dict or a pickle file is emptied by the driver's
-        own scratch directory, which is where their file already lands.
+        One object, and everything that touches it taken off that one. The
+        store is rebuilt first, and then whatever else came off the same
+        original object -- the query, and any of their readers -- is taken off
+        the rebuilt one, in the order the search recorded. Rebuilding each
+        separately is two databases and answers nothing; rebuilding the
+        query's owner and discarding it is a call to their constructor that
+        the accepted pairing never made.
+
+        When the binding is plain module functions there is nothing here to
+        rebuild: a pickle file is emptied by the driver's own scratch
+        directory, which is where their file already lands, and anything the
+        week keeps elsewhere is emptied by the week's own `reset`.
         """
 
         if self._store is None or self._ask is None:
             return self
+        if self._reset is not None:
+            # Before anything is built, so a store made now is made into an
+            # empty world rather than into the one the search filled.
+            self._reset()
         if (
             self._store.rebuild is None
             and self._ask.rebuild is None
@@ -178,12 +194,20 @@ class Submission:
             return self
 
         store = self._store.rebuild() if self._store.rebuild else self._store.call
-        ask = self._ask.rebuild() if self._ask.rebuild else self._ask.call
-        # One object, not two. Rebuilding each separately gives a store and a
-        # query looking at different databases, which answers nothing.
+        original = _bound_to(self._store)
         owner = getattr(store, "__self__", None)
-        if owner is not None and self._ask.rebuild is not None:
-            ask = getattr(owner, self._ask.label.rsplit(".", 1)[-1], ask)
+        shared = owner is not None and original is not None
+        if shared and _bound_to(self._ask) is original:
+            # Their query is another method of the object their store is a
+            # method of, so it is already on the database this just rebuilt.
+            # Calling `self._ask.rebuild()` here built a third object and
+            # threw it away: a constructor call the accepted pairing never
+            # made, on a repository whose constructor may read a file.
+            ask = _same_method_on(owner, self._ask) or self._ask.call
+        elif self._ask.rebuild is not None:
+            ask = self._ask.rebuild()
+        else:
+            ask = self._ask.call
 
         index = self.attempt.arrangement if self.attempt else 0
         arrange = self._arrange
@@ -193,7 +217,13 @@ class Submission:
         # a module global; scoring from the one the search filled would leave
         # the fixture songs competing with the benchmark's catalog.
         held = self._factory.call() if self._factory is not None else None
-        readers = self._readers
+        # Their readers, taken off the object this rebuilt too, in the order
+        # the search bound them. A reader is one of their own functions, and a
+        # week whose store and query are methods can have one that is a method
+        # as well; such a reader was still bound to the object the search
+        # filled, so it answered about the fixture rather than about what this
+        # run enrolled. Measured in `AScoredRunReadsTheObjectItJustBuilt`.
+        readers = tuple(_rebound(reader, original, owner) for reader in self._readers)
         # Read off the object this run just built, never off the one the
         # search filled. The attribute name on the record says what happened
         # during the search; a scored run enrols different songs into a
@@ -282,6 +312,47 @@ def _leading(call: Callable[..., Any], held: Any) -> Callable[..., Any]:
     """Their function with their own database object as its first argument."""
 
     return lambda *args, **keywords: call(held, *args, **keywords)
+
+
+def _bound_to(candidate: Any) -> Any:
+    """The object one of their methods is bound to, or None for a function."""
+
+    return getattr(getattr(candidate, "call", None), "__self__", None)
+
+
+def _same_method_on(owner: Any, candidate: Candidate) -> Optional[Callable[..., Any]]:
+    """The same method as ``candidate``, taken off ``owner`` instead.
+
+    By the attribute the candidate was enumerated under, falling back to the
+    last segment of its label, which is what that attribute is named after.
+    """
+
+    name = candidate.attribute or candidate.label.rsplit(".", 1)[-1]
+    method = getattr(owner, name, None)
+    return method if callable(method) else None
+
+
+def _rebound(candidate: Candidate, original: Any, owner: Any) -> Candidate:
+    """``candidate`` taken off ``owner``, when it came off ``original``.
+
+    The one question this answers is whether two of their callables are two
+    methods of the SAME object, and it answers it by identity rather than by
+    name or by class: `instances_in` builds one object per class, so every
+    method of that class in the candidate list is bound to that one instance,
+    and a store rebuilt on its own leaves the query and the readers pointing
+    at the database the search filled.
+
+    A candidate bound to some other object, or to nothing, is returned
+    unchanged. Rebuilding one of those would hand back an object nothing ever
+    enrolled into, which is a worse answer than the one it has.
+    """
+
+    if original is None or owner is None or owner is original:
+        return candidate
+    if _bound_to(candidate) is not original:
+        return candidate
+    method = _same_method_on(owner, candidate)
+    return candidate if method is None else replace(candidate, call=method)
 
 
 def _supplied_by(submission: "Submission") -> List[Dict[str, object]]:
@@ -378,6 +449,7 @@ def from_spec(repository: Path, spec: Any, **overrides: Any) -> Submission:
         "factories": getattr(spec, "factories", None),
         "readers": int(getattr(spec, "readers", 0) or 0),
         "prepare": getattr(spec, "prepare", None),
+        "reset": getattr(spec, "reset", None),
         "expects": getattr(spec, "expects", None),
     }
     arguments.update(overrides)
@@ -425,6 +497,7 @@ def resolve(
     factories: Optional[Callable[[Candidate], bool]] = None,
     readers: int = 0,
     prepare: Optional[Callable[[Path, Sequence[Any]], Mapping[str, Any]]] = None,
+    reset: Optional[Callable[[], None]] = None,
     expects: Optional[str] = None,
 ) -> Submission:
     """Resolve one repository against one week's task.
@@ -459,6 +532,12 @@ def resolve(
     `query_database` returns a vote tally, `get_sorted_matches` turns it into
     a ranking, and `get_sorted_songs` turns that into song ids -- three of
     their functions deep, all theirs, none of them ours to write.
+
+    ``reset`` is the week's way of emptying state neither a rebuilt object
+    nor a fresh working directory reaches, such as a module-level container
+    the repository fills. Called before every pairing trial builds its
+    database and before a scored run is built. A week without one searches
+    exactly as it did before this existed.
 
     ``remember`` writes the binding into the repository and reuses it while
     their code is unchanged. It is off by default, because a graded run should
@@ -534,6 +613,7 @@ def resolve(
             fixture=fixture,
             extras=extras,
             identities=identities,
+            reset=reset,
         )
         if recalled is not None:
             watcher.done()
@@ -572,6 +652,18 @@ def resolve(
         # `make_spectrogram -> find_peaks -> find_peaks`, which pairs with
         # nothing that answers, and the run scored 0.125 instead of 0.640625.
         def verify(steps: Any) -> bool:
+            # The first complete chain, kept for the report when none of them
+            # pairs. "We found your fingerprinting and no database" has to be
+            # able to name the fingerprinting it found, and a refusal carries
+            # labels rather than the bound steps.
+            paired.setdefault("steps", tuple(steps))
+            # The ceiling is on the search, not on one chain of it. Restarting
+            # it per chain meant a repository offering twelve complete chains
+            # could try twelve times `max_attempts` pairings, so the number
+            # that exists to bound how long a student waits bounded nothing.
+            remaining = max_attempts - paired["tried"]
+            if remaining <= 0:
+                return False
             best, tried = _pair(
                 steps,
                 found,
@@ -579,16 +671,13 @@ def resolve(
                 accepts,
                 factories,
                 readers,
-                max_attempts,
+                remaining,
                 watcher,
+                offset=paired["tried"],
+                reset=reset,
             )
             paired["tried"] += tried
             paired["chains"] += 1
-            # The first complete chain, kept for the report when none of them
-            # pairs. "We found your fingerprinting and no database" has to be
-            # able to name the fingerprinting it found, and a refusal carries
-            # labels rather than the bound steps.
-            paired.setdefault("steps", tuple(steps))
             if best is None:
                 return False
             paired["best"] = best
@@ -697,7 +786,10 @@ def resolve(
             query=None,
         )
 
-    _grade, store, ask, index, at, shape = paired["best"]
+    # The accepted pairing's ordinal within its own chain is not how much work
+    # this took: every chain before it was searched too. `paired["tried"]` is
+    # the whole search, and it is what the record and the memo carry.
+    _grade, store, ask, index, _at, shape = paired["best"]
     held = shape.hold()
     call = store.rebuild() if shape.state and store.rebuild else store.call
     state = _FromTheirStore(call) if shape.state else None
@@ -718,7 +810,7 @@ def resolve(
                 enroll=store.label,
                 query=ask.label,
                 arrangement=index,
-                attemptsTried=at,
+                attemptsTried=paired["tried"],
                 factory=shape.factory.label if shape.factory else None,
                 readers=[reader.label for reader in shape.readers],
                 state=shape.state,
@@ -733,7 +825,7 @@ def resolve(
         fits=chain.fits,
         missing=dict(chain.missing),
         attempt=Attempt(store.label, ask.label, index),
-        attempts_tried=at,
+        attempts_tried=paired["tried"],
         enroll=_enroll,
         query=lambda item, _a=ask, _h=held, _r=shape.readers, _s=state: _read(
             _a, _h, _r, item, _s
@@ -745,6 +837,7 @@ def resolve(
         _readers=shape.readers,
         _state=shape.state,
         _state_attribute=shape.state_attribute,
+        _reset=reset,
     )
 
 
@@ -757,6 +850,8 @@ def _pair(
     readers: int,
     max_attempts: int,
     watcher: Any,
+    offset: int = 0,
+    reset: Optional[Callable[[], None]] = None,
 ) -> Tuple[Optional[Tuple[float, Candidate, Candidate, int, int, "_Shape"]], int]:
     """The best pair of their functions that stores a song through ``steps``
     and names it back, or None when no pair does.
@@ -764,6 +859,12 @@ def _pair(
     Returns the pairing and how many were tried. This is the week's real
     question about a chain, which is why `resolve` hands it to `resolve_chain`
     as the verifier rather than running it on whichever chain came back first.
+
+    ``max_attempts`` is what is LEFT of the search's ceiling, and ``offset``
+    is what the chains before this one already spent. Both exist because the
+    ceiling belongs to the search rather than to one chain of it, and because
+    a progress bar that restarts at zero for every chain reads as no progress
+    at all.
     """
 
     candidates = _store_candidates(found, steps)
@@ -786,17 +887,6 @@ def _pair(
     # a reader budget runs exactly the search it ran before, in the same order
     # and for the same number of attempts.
     shapes = _shapes_for(candidates, factories, readers)
-    # The whole search is enumerable before it starts, so the bar can be
-    # honest: every ordered pair of distinct candidates, times the ways one
-    # item can be handed to a store, times those shapes. Nothing here is
-    # extrapolated.
-    total = min(
-        len(candidates)
-        * max(len(candidates) - 1, 0)
-        * arrangement_count
-        * len(shapes),
-        max_attempts,
-    )
     watcher.phase(
         "Trying your functions to find which pair stores a song and names it back"
     )
@@ -807,6 +897,39 @@ def _pair(
     # as candidates squared.
     holds_state = {c.label for c in candidates if _FromTheirStore.possible(c.call)}
     takes_three = {c.label for c in candidates if _takes_n(c, 3)}
+    # The whole search is enumerable before it starts, so the bar can be
+    # honest: every ordered pair of distinct candidates that this shape will
+    # actually try, times the ways one item can be handed to a store. Counting
+    # every pair for every shape overstated it, because the state shape skips
+    # any pairing whose store is not a method and whose query does not take
+    # three arguments -- on a repository with fifty candidates and one such
+    # method that is thousands of attempts the bar counts and the loop never
+    # makes, so a finished search stopped a long way short of its own total.
+    labels = {c.label for c in candidates}
+    ordinary = len(candidates) * max(len(candidates) - 1, 0)
+    # The state shape's pairs are the stores that have an object times the
+    # queries that take three arguments, less the ones that are the same
+    # candidate, which the loop skips.
+    stateful = (
+        len(labels & holds_state) * len(labels & takes_three)
+        - len(labels & holds_state & takes_three)
+    )
+
+    def _pairs_in(shape: "_Shape") -> int:
+        return (stateful if shape.state else ordinary) * arrangement_count
+
+    eligible = sum(_pairs_in(shape) for shape in shapes)
+    if eligible > max_attempts:
+        # The ceiling cannot hold every shape, so the shapes with the fewest
+        # pairs go first: each is a complete search of its own, and a small
+        # one finished is worth more than a large one cut off. Measured on
+        # one 2026 repository: 57 candidates make 19,152 plain pairings, the
+        # ceiling is 20,000, and the state shape (1,002 pairings, holding the
+        # only pair that answers) was never entered. Sorted only when it
+        # matters, so a repository that fits keeps the plain-first order and
+        # the attempt counts it always had. The sort is stable.
+        shapes = sorted(shapes, key=_pairs_in)
+    total = offset + min(eligible, max_attempts)
     tried = 0
     for shape in shapes:
         for store, ask in itertools.product(candidates, candidates):
@@ -820,39 +943,20 @@ def _pair(
                 if tried >= max_attempts:
                     break
                 tried += 1
-                watcher.attempts(tried, total)
+                watcher.attempts(offset + tried, total)
 
-                # A trial gets its own database and its own enroll closure
-                # over it. Sharing one across trials let the second trial
-                # enrol into a database the first had already filled, so a
-                # store that refuses a song id it has seen raised on every
-                # trial after the first and the tail that would have answered
-                # was recorded as one that raised.
-                def _trial(_s=store, _i=index, _shape=shape):
-                    held = _shape.hold()
-                    if held is _FAILED:
-                        return None, None, None
-                    # A trial that reads state needs its own object as well
-                    # as its own database, and the song ids to build the
-                    # id-to-name table from are the ones this trial enrols.
-                    call = _s.rebuild() if _shape.state and _s.rebuild else _s.call
-                    state = _FromTheirStore(call) if _shape.state else None
+                # A trial gets its own database. Sharing one across trials let
+                # the second trial enrol into a database the first had already
+                # filled, so a store that refuses a song id it has seen raised
+                # on every trial after the first and the tail that would have
+                # answered was recorded as one that raised.
+                def _trial(_s=store, _a=ask, _i=index, _shape=shape) -> "_Trial":
+                    return _Trial(_shape, _s, _a, arrangements, _i, reset)
 
-                    def _enroll(song_id: str, item: Any, _h=held, _c=call) -> Any:
-                        if state is not None:
-                            state.enrolling(song_id)
-                        return arrangements(
-                            _c if _h is None else _leading(_c, _h), song_id, item
-                        )[_i]()
-
-                    return _enroll, held, state
-
-                _enroll, held, state = _trial()
-                if _enroll is None:
-                    continue
-
-                asked = _Asked(ask, held, shape.readers, state)
-                ok, _detail = accepts(steps, _enroll, asked)
+                attempt = _trial()
+                asked = _Asked(attempt.query_with(shape.readers))
+                ok, _detail = accepts(steps, attempt.enroll, asked)
+                state = attempt.state
                 grade = float(ok)
                 # The shape this pairing bound with, kept apart from the one
                 # the loop is iterating. Assigning readers back onto `shape`
@@ -860,6 +964,19 @@ def _pair(
                 # same pass was then run through readers chosen for an
                 # earlier one.
                 bound = shape
+                if state is not None:
+                    # Which attribute their query was actually handed, now
+                    # that a pairing has run and found out.
+                    bound = replace(bound, state_attribute=state.chosen)
+                # The bare query's grade is banked before any reader is
+                # tried. The reader search rebuilds and refills the database
+                # once per tail, which for a per-fingerprint store is tens of
+                # thousands of calls per tail, and a search that ran long or
+                # raised there used to take the pairing's own 0.5 with it
+                # (measured on one 2026 repository whose one working pairing
+                # earns exactly 0.5).
+                if grade > 0 and (best is None or grade > best[0]):
+                    best = (grade, store, ask, index, tried, bound)
                 if grade < FULLY_ANSWERED and readers > 0 and asked.ran:
                     # Their query answered something the benchmark could not
                     # read as a ranking. Before giving that a lower grade, try
@@ -885,13 +1002,9 @@ def _pair(
                         accepts, steps, _trial, ask, candidates, readers, grade
                     )
                     if better is not None:
-                        grade, bound = better[0], replace(shape, readers=better[1])
-                if grade > 0 and (best is None or grade > best[0]):
-                    if state is not None:
-                        # Which attribute their query was actually handed, now
-                        # that a pairing has run and found out.
-                        bound = replace(bound, state_attribute=state.chosen)
-                    best = (grade, store, ask, index, tried, bound)
+                        grade, bound = better[0], replace(bound, readers=better[1])
+                        if best is None or grade > best[0]:
+                            best = (grade, store, ask, index, tried, bound)
                 if best is not None and best[0] >= FULLY_ANSWERED:
                     break
             if best is not None and best[0] >= FULLY_ANSWERED:
@@ -947,6 +1060,150 @@ class _Shape:
             return _FAILED
 
 
+class NoDatabase(Exception):
+    """This pairing could not be given a database of its own.
+
+    Their factory raised, or their store's class could not be constructed a
+    second time. Raised from the enrolling call rather than reported before
+    it, because the database is now made at the moment it is first used and
+    that moment is inside the week's acceptance test, which already reads an
+    enrolling that raised as a pairing that does not work.
+    """
+
+
+class _Trial:
+    """One pairing, with its own database, made the first time it is used.
+
+    Two things have to be true at once and neither was.
+
+    The database has to be this pairing's alone. `_Shape.hold` already made a
+    new one per trial for a week that declares a factory, but an ordinary
+    store that is a method kept the single object `instances_in` built and
+    carried whatever every earlier pairing had put in it. A store that
+    refuses an id it has already seen then raised on every trial after the
+    first, and the pairing that would have answered was recorded as one that
+    raised. So the store is rebuilt per trial whenever it can be, and the
+    query and the readers are taken off that same new object whenever they
+    came off the same old one -- rebuilding the store alone leaves the query
+    answering from the database the search filled.
+
+    And it has to be built where the week's acceptance test runs. A week may
+    give each attempt a world of its own: week 1 changes to an empty
+    directory inside `accepts`, which is after the search has already called
+    the factory or the constructor. A database built in one directory and
+    filled in another is not the program the scored run runs, whose object is
+    built inside the driver's own scratch directory. So nothing is built
+    here. The first enrolling call builds it, and the query reads whatever
+    that call built.
+    """
+
+    __slots__ = (
+        "_shape",
+        "_store",
+        "_ask",
+        "_arrange",
+        "_index",
+        "_reset",
+        "_begun",
+        "_refused",
+        "_held",
+        "_call",
+        "_asking",
+        "_owner",
+        "_original",
+        "state",
+    )
+
+    def __init__(
+        self,
+        shape: "_Shape",
+        store: Candidate,
+        ask: Candidate,
+        arrange: Callable[..., Sequence[Callable[[], Any]]],
+        index: int,
+        reset: Optional[Callable[[], None]] = None,
+    ) -> None:
+        self._shape = shape
+        self._store = store
+        self._ask = ask
+        self._arrange = arrange
+        self._index = index
+        self._reset = reset
+        self._begun = False
+        self._refused = ""
+        self._held: Any = None
+        self._call: Any = store.call
+        self._asking = ask
+        self._owner: Any = None
+        self._original = _bound_to(store)
+        #: Set once the database exists, so a caller that needs to know which
+        #: attribute their store filled reads it after the pairing has run.
+        self.state: Optional["_FromTheirStore"] = None
+
+    def _begin(self) -> None:
+        """Make this trial's database, once, at the moment it is first used."""
+
+        if self._begun:
+            if self._refused:
+                raise NoDatabase(self._refused)
+            return
+        self._begun = True
+        if self._reset is not None:
+            # The week's own way of emptying what neither a new object nor a
+            # new working directory reaches. Before the database is made, so
+            # a store made now is made into an empty world.
+            self._reset()
+        held = self._shape.hold()
+        if held is _FAILED:
+            self._refused = "their factory raised, so this pairing has no database"
+            raise NoDatabase(self._refused)
+        call = self._store.call
+        owner = None
+        if self._store.rebuild is not None:
+            try:
+                call = self._store.rebuild()
+            except BaseException as error:  # noqa: BLE001 - their constructor
+                self._refused = "{} could not be built again: {}".format(
+                    self._store.label, type(error).__name__
+                )
+                raise NoDatabase(self._refused) from None
+            owner = getattr(call, "__self__", None)
+        self._held = held
+        self._call = call
+        self._owner = owner
+        self._asking = _rebound(self._ask, self._original, owner)
+        self.state = _FromTheirStore(call) if self._shape.state else None
+
+    def enroll(self, song_id: str, item: Any) -> Any:
+        """Put one item in this trial's database, the week's way round."""
+
+        self._begin()
+        if self.state is not None:
+            self.state.enrolling(song_id)
+        target = self._call if self._held is None else _leading(self._call, self._held)
+        return self._arrange(target, song_id, item)[self._index]()
+
+    def query_with(
+        self, readers: Sequence[Candidate] = ()
+    ) -> Callable[[Any], Any]:
+        """Their query over this trial's database, then ``readers`` in turn.
+
+        The tail is an argument rather than a field because `_read_further`
+        asks one trial's database the same question through many tails, and
+        each of those readers has to come off this trial's object too when it
+        came off the store's original one.
+        """
+
+        def _ask(item: Any) -> Any:
+            self._begin()
+            tail = tuple(
+                _rebound(reader, self._original, self._owner) for reader in readers
+            )
+            return _read(self._asking, self._held, tail, item, self.state)
+
+        return _ask
+
+
 class AmbiguousStore(Exception):
     """Their store object holds more than one filled table after enrolling.
 
@@ -977,12 +1234,16 @@ class _FromTheirStore:
     unchanged. Anything else would be putting words in their matcher's mouth.
     """
 
-    __slots__ = ("_instance", "_enrolled", "chosen")
+    __slots__ = ("_instance", "_enrolled", "_before", "chosen")
 
     def __init__(self, store_call: Callable[..., Any]) -> None:
         self._instance = getattr(store_call, "__self__", None)
         self._enrolled: List[str] = []
         self.chosen: Optional[str] = None
+        # Every mapping the object already had, and how big it was, read
+        # before anything is enrolled. What their store filled is the
+        # difference between this and the object afterwards; see `_filled_here`.
+        self._before = _mappings_on(self._instance)
 
     @staticmethod
     def possible(store_call: Callable[..., Any]) -> bool:
@@ -993,14 +1254,57 @@ class _FromTheirStore:
     def enrolling(self, song_id: str) -> None:
         self._enrolled.append(song_id)
 
+    def _filled_here(self, name: str, value: Any) -> bool:
+        """Whether enrolling is what put something in this mapping.
+
+        A store object arrives with mappings that have nothing to do with
+        songs. Week 1's corpus has a database class whose constructor makes a
+        metadata table beside its fingerprint table, and a settings dict read
+        at construction is the same shape. Counting any non-empty mapping as
+        a candidate made such an object ambiguous and refused a pairing that
+        works, on the grounds that two tables meant two answers -- when one of
+        them was never an answer, because their store never touched it.
+
+        So the comparison is the object before enrolling against the object
+        after. A mapping that is still the same object at the same size is one
+        their store did not fill. Identity as well as size, because a store
+        that replaces a table rather than adding to it has still filled it.
+
+        This only ever narrows. When their store filled nothing at all there
+        is no difference to read, and `arguments` falls back to naming what
+        the object holds, which is the most that can honestly be said.
+        """
+
+        before = self._before.get(name)
+        if before is None:
+            # An attribute their store created while enrolling. Nothing else
+            # could have made it.
+            return True
+        was, size, contents = before
+        if value is not was or len(value) != size:
+            return True
+        if contents is _UNCOPIED:
+            return False
+        try:
+            return dict(value) != contents
+        except BaseException:  # noqa: BLE001 - their mapping, their equality
+            return False
+
     def arguments(self) -> Tuple[Any, Dict[str, str]]:
         """The filled table and the id-to-name table, in that order."""
 
-        filled = [
+        holds = [
             (name, value)
             for name, value in sorted(vars(self._instance).items())
             if isinstance(value, _MappingABC) and len(value) > 0
         ]
+        filled = [pair for pair in holds if self._filled_here(*pair)]
+        if not filled:
+            # Their store put nothing anywhere this query could read, so there
+            # is no difference to tell their table from their settings by.
+            # What the object holds is then the whole of what can be reported,
+            # and reporting it is what names both tables in the refusal.
+            filled = holds
         if not filled:
             raise AmbiguousStore("their store filled nothing this query could read")
         if len(filled) > 1:
@@ -1012,6 +1316,42 @@ class _FromTheirStore:
             )
         self.chosen = filled[0][0]
         return filled[0][1], {song_id: song_id for song_id in self._enrolled}
+
+
+#: A mapping whose contents could not be copied before enrolling; compared
+#: by identity and size only afterwards.
+_UNCOPIED = object()
+
+
+def _mappings_on(instance: Any) -> Dict[str, Tuple[Any, int, Any]]:
+    """Every mapping attribute an object has right now: the object, its size,
+    and a shallow copy of its contents.
+
+    The object itself is kept, not just its size, so a store that swaps in a
+    new table is not mistaken for one that left the old one alone; the copy
+    is what tells a table filled in place from one left alone.
+    """
+
+    if instance is None:
+        return {}
+    try:
+        items = list(vars(instance).items())
+    except TypeError:
+        return {}
+    found: Dict[str, Tuple[Any, int, Any]] = {}
+    for name, value in items:
+        if not isinstance(value, _MappingABC):
+            continue
+        try:
+            size = len(value)
+        except BaseException:  # noqa: BLE001 - their mapping, their __len__
+            continue
+        try:
+            contents: Any = dict(value)
+        except BaseException:  # noqa: BLE001 - a mapping that cannot be read whole
+            contents = _UNCOPIED
+        found[name] = (value, size, contents)
+    return found
 
 
 def _read(
@@ -1051,23 +1391,17 @@ class _Asked:
     query returned.
     """
 
-    __slots__ = ("_ask", "_held", "_readers", "_state", "answer")
+    __slots__ = ("_ask", "answer")
 
-    def __init__(
-        self,
-        ask: Candidate,
-        held: Any,
-        readers: Sequence[Candidate] = (),
-        state: Optional["_FromTheirStore"] = None,
-    ) -> None:
+    def __init__(self, ask: Callable[[Any], Any]) -> None:
+        #: The trial's own query. A callable rather than the pieces of one,
+        #: because the trial builds its database when it is first used and so
+        #: does not have those pieces until then.
         self._ask = ask
-        self._held = held
-        self._readers = tuple(readers)
-        self._state = state
         self.answer: Any = _UNASKED
 
     def __call__(self, item: Any) -> Any:
-        self.answer = _read(self._ask, self._held, self._readers, item, self._state)
+        self.answer = self._ask(item)
         return self.answer
 
     @property
@@ -1121,12 +1455,20 @@ def _shapes_for(
     return shapes
 
 
+#: How long one reader tail may run before the search moves on. A tail
+#: rebuilds and refills the database and then asks; for a store that takes
+#: one fingerprint per call that is tens of thousands of calls, and one 2026
+#: repository spent 274 seconds inside a single tail whose reader could not
+#: read the answer anyway. The pairing's own grade is banked before any tail
+#: runs, so a tail cut off costs the search nothing it had. Set with the
+#: measured tail times: the tails that answer take under a second.
+READER_TAIL_SECONDS = 20
+
+
 def _read_further(
     accepts: Callable[..., Tuple[Any, str]],
     steps: Sequence[Candidate],
-    trial: Callable[
-        [], Tuple[Optional[Callable[..., Any]], Any, Optional["_FromTheirStore"]]
-    ],
+    trial: Callable[[], "_Trial"],
     ask: Candidate,
     candidates: Sequence[Candidate],
     readers: int,
@@ -1140,8 +1482,8 @@ def _read_further(
     something; a step that raises is not a reader of that value. Returns
     the grade and the tail, or None when no tail improved on the bare query.
 
-    ``trial`` builds a fresh database and a fresh enroll closure over it, and
-    is called once per tail. Reusing one database across tails let each tail
+    ``trial`` makes another `_Trial`, with a database of its own, and is
+    called once per tail. Reusing one database across tails let each tail
     enrol into whatever the tails before it had already stored: a store that
     rejects a song id it has already seen then raised on every tail but the
     first, and the tail that would have answered was graded as one that
@@ -1169,15 +1511,10 @@ def _read_further(
                 if reader in tail:
                     continue
                 tail_with = tail + (reader,)
-                enroll, held, state = trial()
-                if enroll is None:
-                    continue
-                ok, _detail = accepts(
-                    steps,
-                    enroll,
-                    lambda item, _a=ask, _h=held, _r=tail_with, _s=state: _read(
-                        _a, _h, _r, item, _s
-                    ),
+                attempt = trial()
+                ok = _under_a_clock(
+                    lambda: accepts(steps, attempt.enroll, attempt.query_with(tail_with))[0],
+                    READER_TAIL_SECONDS,
                 )
                 grade = float(ok)
                 if grade <= floor:
@@ -1192,6 +1529,34 @@ def _read_further(
         if not frontier:
             break
     return best
+
+
+def _under_a_clock(call: Callable[[], Any], seconds: int) -> Any:
+    """Run one call with an alarm; a call that runs out is a plain False.
+
+    The same alarm `pipeline._call` uses, cancelled inside the guarded block
+    for the reason given there: an alarm that lands between the return and
+    the cancel must not leave this function.
+    """
+
+    import signal
+
+    from .pipeline import _Timeout, _raise_timeout
+
+    previous = signal.signal(signal.SIGALRM, _raise_timeout)
+    signal.alarm(seconds)
+    try:
+        try:
+            return call()
+        finally:
+            signal.alarm(0)
+    except _Timeout:
+        return False
+    except BaseException:  # noqa: BLE001 - the week's test already reads a raise as a no
+        return False
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, previous)
 
 
 def _takes_one(candidate: Candidate) -> bool:
@@ -1266,6 +1631,7 @@ def _replay(
     fixture: Sequence[Any] = (),
     extras: Optional[Dict[str, Any]] = None,
     identities: Sequence[Any] = (),
+    reset: Optional[Callable[[], None]] = None,
 ) -> Optional[Submission]:
     """Rebind a remembered result, or return None and let the search run.
 
@@ -1367,6 +1733,7 @@ def _replay(
         _readers=readers,
         _state=shape.state,
         _state_attribute=shape.state_attribute,
+        _reset=reset,
     )
 
 

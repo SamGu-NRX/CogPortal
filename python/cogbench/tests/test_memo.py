@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import shutil
 import sys
 import tempfile
@@ -14,7 +15,15 @@ from cogbench.pipeline import Role, Stage  # noqa: E402
 from cogbench.resolve import resolve  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_resolve import REPO, ROLE, FIXTURE, _accepts, _arrangements  # noqa: E402
+from test_resolve import (  # noqa: E402
+    FIXTURE,
+    MANY_CHAINS_REPO,
+    REPO,
+    ROLE,
+    _Recorder,
+    _accepts,
+    _arrangements,
+)
 
 
 class KeyTests(unittest.TestCase):
@@ -334,3 +343,39 @@ class ARememberedHandoffIsReplayed(unittest.TestCase):
 
         self.assertFalse(second.recalled)
         self.assertEqual(second.chain[1].handoff, "element:1")
+
+
+class WhatIsRememberedIsTheWholeSearch(unittest.TestCase):
+    """An entry says how much work the search did, and a surface reports that
+    without searching again.
+
+    It recorded the accepted chain's own ordinal. A repository whose first
+    complete chains cannot be paired -- three of them here, two of which run
+    end to end and name nothing back -- remembered a number that left every
+    pairing tried before the winning chain out of the count.
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        (self.tmp / "theirs.py").write_text(MANY_CHAINS_REPO)
+
+    def test_the_entry_counts_every_pairing_rather_than_the_last_chains(self):
+        watcher = _Recorder()
+
+        submission = resolve(
+            self.tmp,
+            chain_role=ROLE,
+            fixture=FIXTURE,
+            accepts=_accepts,
+            arrangements=_arrangements,
+            remember=True,
+            benchmark="mini",
+            progress=watcher,
+        )
+        stored = json.loads(memo.cache_path(self.tmp).read_text(encoding="utf-8"))
+
+        tried = max(done for done, _ in watcher.counts)
+        self.assertGreater(tried, 0)
+        self.assertEqual(submission.attempts_tried, tried)
+        self.assertEqual(stored["binding"]["attemptsTried"], tried)

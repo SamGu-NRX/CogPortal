@@ -1020,3 +1020,740 @@ class AChainThatRanAndAnsweredWronglyIsReportedInTheWeeksWords(unittest.TestCase
 
         self.assertIn("the answer the benchmark's own case has", submission.verdict.headline)
         self.assertNotIn("grouping", submission.verdict.headline)
+
+
+# ---------------------------------------------------------------------------
+# Their database is one of their own objects
+#
+# `instances_in` builds exactly one object per class, for the whole search, and
+# every method of that class in the candidate list is bound to that one object.
+# What follows is what a trial and a scored run each have to do about that.
+# ---------------------------------------------------------------------------
+
+#: Their store refuses an id it has already seen, which is an ordinary thing
+#: for a database to do, and the search reaches that store more than once
+#: because it pairs it with every other candidate in turn.
+GUARDED_OBJECT_REPO = '''
+def make_features(value, rate):
+    return [(value * 2, rate)]
+
+
+class Cabinet:
+    def __init__(self):
+        self.kept = {}
+        self.ids = []
+
+    def acknowledge(self, features):
+        """One argument, so no arrangement fits it as a store."""
+        return ""
+
+    def remember(self, item_id, features):
+        if item_id in self.ids:
+            raise ValueError("{!r} is already in this database".format(item_id))
+        self.ids.append(item_id)
+        self.kept[tuple(features)] = item_id
+
+    def whose(self, features):
+        return self.kept.get(tuple(features), "")
+'''
+
+
+class EveryTrialGetsItsOwnStoreObject(unittest.TestCase):
+    """One object shared by every trial made an earlier rejected pairing
+    decide a later valid one.
+
+    The search pairs `remember` with `acknowledge` first, which stores both
+    items and then fails to name one back. `remember` is then paired with
+    `whose`, which is the pairing that works -- and it raised, because the
+    ids were already in the one object the first pairing had filled. The
+    repository was refused for having no store.
+
+    The store alone is not enough. Rebuilding it and leaving `whose` bound to
+    the object the search built means the query is asked about a database
+    nothing enrolled into, so no pairing of two methods could ever bind.
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        (self.tmp / "theirs.py").write_text(GUARDED_OBJECT_REPO)
+
+    def test_a_rejected_pairing_no_longer_fills_the_database_a_later_one_needs(self):
+        submission = resolve(
+            self.tmp,
+            chain_role=ROLE,
+            fixture=FIXTURE,
+            accepts=_accepts,
+            arrangements=_arrangements,
+        )
+
+        self.assertTrue(submission.ready, submission.verdict.headline)
+        self.assertEqual(submission.attempt.enroll, "theirs.Cabinet().remember")
+        self.assertEqual(submission.attempt.query, "theirs.Cabinet().whose")
+
+
+#: The same shape, plus one of their own functions applied to what the query
+#: returned -- and that reader reads the object's own state, so which object
+#: it is bound to decides what it says.
+READING_OBJECT_REPO = '''
+def make_features(value, rate):
+    return [(value * 2, rate)]
+
+
+class Shelf:
+    def __init__(self):
+        self.kept = {}
+        self.seen = []
+
+    def lookup(self, features):
+        return self.kept.get(tuple(features), "")
+
+    def ranked(self, name):
+        return [name] + [other for other in self.seen if other != name]
+
+    def remember(self, item_id, features):
+        self.kept[tuple(features)] = item_id
+        self.seen.append(item_id)
+'''
+
+
+class AScoredRunReadsTheObjectItJustBuilt(unittest.TestCase):
+    """`fresh` rebuilt the store and rebound the query, and left their readers
+    bound to the object the search had filled.
+
+    A reader is one of their functions and can be a method like any other. One
+    that reads instance state then answered from the fixture the search
+    enrolled, or -- when the state was a path -- from a scratch directory the
+    search had already deleted.
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        (self.tmp / "theirs.py").write_text(READING_OBJECT_REPO)
+
+    def _resolve(self):
+        return resolve(
+            self.tmp,
+            chain_role=ROLE,
+            fixture=FIXTURE,
+            accepts=_ranked_accepts,
+            arrangements=_arrangements,
+            readers=1,
+        )
+
+    def test_their_reader_answers_from_what_this_run_enrolled(self):
+        submission = self._resolve()
+        self.assertTrue(submission.ready, submission.verdict.headline)
+        self.assertEqual(
+            [reader.label for reader in submission._readers],
+            ["theirs.Shelf().ranked"],
+        )
+
+        ready = submission.fresh()
+        ready.enroll("gamma", [(28, 44100)])
+        ready.enroll("delta", [(36, 44100)])
+
+        self.assertEqual(ready.query([(28, 44100)]), ["gamma", "delta"])
+
+
+#: The same shape again, counting constructions. Their constructor is one of
+#: their functions and may do anything, so calling it a third time is a call
+#: the accepted pairing never proved.
+COUNTED_BUILD_REPO = '''
+BUILDS = []
+
+
+def make_features(value, rate):
+    return [(value * 2, rate)]
+
+
+class Vault:
+    def __init__(self):
+        BUILDS.append(1)
+        self.kept = {}
+
+    def remember(self, item_id, features):
+        self.kept[tuple(features)] = item_id
+
+    def whose(self, features):
+        return self.kept.get(tuple(features), "")
+'''
+
+
+def _module_holding(submission, attribute):
+    """The loaded repository module carrying this name."""
+
+    for module in submission.discovery.namespace:
+        if hasattr(module, attribute):
+            return module
+    raise AssertionError("no loaded module has {}".format(attribute))
+
+
+class AScoredRunBuildsTheirClassOnce(unittest.TestCase):
+    """The store and the query are two methods of one object, so making the
+    store's object again is the whole job.
+
+    `fresh` called the class twice and threw the second object away: the
+    store's, and then the query's, whose owner was discarded a line later.
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        (self.tmp / "theirs.py").write_text(COUNTED_BUILD_REPO)
+
+    def test_only_the_store_owner_is_rebuilt(self):
+        submission = resolve(
+            self.tmp,
+            chain_role=ROLE,
+            fixture=FIXTURE,
+            accepts=_accepts,
+            arrangements=_arrangements,
+        )
+        self.assertTrue(submission.ready, submission.verdict.headline)
+        theirs = _module_holding(submission, "BUILDS")
+        before = len(theirs.BUILDS)
+
+        submission.fresh()
+
+        self.assertEqual(len(theirs.BUILDS) - before, 1)
+
+
+#: Their factory writes a file beside itself, which is what a factory that
+#: makes a database on disk does.
+WRITING_FACTORY_REPO = '''
+def make_features(value, rate):
+    return [(value * 2, rate)]
+
+
+def create_database():
+    with open("built-here.txt", "w") as opened:
+        opened.write("x")
+    return {}
+
+
+def add_fingerprints(database, item_id, features):
+    for key in features:
+        database.setdefault(key, []).append(item_id)
+
+
+def query_database(database, features):
+    for key in features:
+        for item_id in database.get(key, []):
+            return item_id
+    return ""
+'''
+
+
+def _is_factory_probed_elsewhere(candidate):
+    """A week's own answer to "what does an empty database look like", asked
+    somewhere their factory's files cannot be mistaken for the search's."""
+
+    import inspect
+
+    try:
+        inspect.signature(candidate.call).bind()
+    except (TypeError, ValueError):
+        return False
+    previous = os.getcwd()
+    with tempfile.TemporaryDirectory() as probe:
+        os.chdir(probe)
+        try:
+            made = candidate.call()
+        except BaseException:  # noqa: BLE001
+            return False
+        finally:
+            os.chdir(previous)
+    return isinstance(made, dict) and not made
+
+
+class TheDatabaseIsMadeWhereTheWeeksTestRuns(unittest.TestCase):
+    """A week may give each attempt a world of its own, and it does that
+    inside its acceptance test.
+
+    The search made the database before calling that test, so a week whose
+    fresh state is a fresh working directory had the database built in one
+    directory and filled in another. The scored run does neither: its database
+    is built inside the driver's own scratch directory, with the driver
+    already there.
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        (self.tmp / "theirs.py").write_text(WRITING_FACTORY_REPO)
+        elsewhere = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, elsewhere, ignore_errors=True)
+        previous = os.getcwd()
+        os.chdir(elsewhere)
+        self.addCleanup(os.chdir, previous)
+        self.built_in_the_attempt = []
+
+    def _accepts_in_a_world_of_its_own(self, chain, enroll_call, query_call):
+        previous = os.getcwd()
+        with tempfile.TemporaryDirectory() as attempt:
+            os.chdir(attempt)
+            try:
+                return _accepts(chain, enroll_call, query_call)
+            finally:
+                self.built_in_the_attempt.append(
+                    (Path(attempt) / "built-here.txt").exists()
+                )
+                os.chdir(previous)
+
+    def test_their_factory_runs_inside_the_attempts_own_directory(self):
+        submission = resolve(
+            self.tmp,
+            chain_role=ROLE,
+            fixture=FIXTURE,
+            accepts=self._accepts_in_a_world_of_its_own,
+            arrangements=_arrangements,
+            factories=_is_factory_probed_elsewhere,
+        )
+
+        self.assertTrue(submission.ready, submission.verdict.headline)
+        self.assertTrue(
+            any(self.built_in_the_attempt),
+            "their factory never ran inside an attempt's own directory",
+        )
+
+
+#: The same guarded store, but their database is a module-level dict rather
+#: than an object. There is nothing here for the resolver to rebuild.
+GUARDED_MODULE_REPO = '''
+_DB = {}
+
+
+def make_features(value, rate):
+    return [(value * 2, rate)]
+
+
+def acknowledge(features):
+    return ""
+
+
+def remember(item_id, features):
+    if item_id in _DB.values():
+        raise ValueError("{!r} is already in this database".format(item_id))
+    _DB[tuple(features)] = item_id
+
+
+def whose(features):
+    return _DB.get(tuple(features), "")
+'''
+
+
+class TheWeekSaysHowToEmptyWhatTheResolverCannotReach(unittest.TestCase):
+    """A database kept in a module-level dict is out of the resolver's reach.
+
+    There is no object to rebuild, no factory to call again, and no file for a
+    fresh working directory to leave behind. So every trial enrols into
+    whatever the trials before it left, and the two fixture items are still in
+    the database when the benchmark's own catalog is scored against it.
+
+    Only the week can say how to empty such a thing, and a week that needs the
+    repository's own modules to do it reads them from `prepare`, which is the
+    one place the loaded namespace is offered. Discovery unregisters those
+    modules from `sys.modules` once it has imported them, so there is no other
+    handle on them.
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.loaded = []
+        self.emptied = []
+
+    def _capture(self, root, modules):
+        """What a week already does with the namespace, kept for `_forget`."""
+
+        self.loaded[:] = list(modules)
+        return {}
+
+    def _forget(self):
+        self.emptied.append(1)
+        for module in self.loaded:
+            database = getattr(module, "_DB", None)
+            if isinstance(database, dict):
+                database.clear()
+
+    def _resolve(self, **kwargs):
+        return resolve(
+            self.tmp,
+            chain_role=ROLE,
+            fixture=FIXTURE,
+            accepts=_accepts,
+            arrangements=_arrangements,
+            **kwargs,
+        )
+
+    def test_without_the_hook_what_one_trial_left_sinks_a_later_one(self):
+        """The gap this exists to close, stated as a measurement."""
+
+        (self.tmp / "theirs.py").write_text(GUARDED_MODULE_REPO)
+
+        self.assertFalse(self._resolve(prepare=self._capture).ready)
+
+    def test_the_hook_gives_each_trial_an_empty_database(self):
+        (self.tmp / "theirs.py").write_text(GUARDED_MODULE_REPO)
+
+        submission = self._resolve(prepare=self._capture, reset=self._forget)
+
+        self.assertTrue(submission.ready, submission.verdict.headline)
+        self.assertEqual(submission.attempt.enroll, "theirs.remember")
+        self.assertEqual(submission.attempt.query, "theirs.whose")
+        # One per pairing tried, and nothing else running their code.
+        self.assertEqual(len(self.emptied), submission.attempts_tried)
+
+    def test_the_hook_empties_it_before_a_scored_run_too(self):
+        """`REPO` stores whatever it is given, so the search leaves the two
+        fixture items in the database a scored run then reads."""
+
+        (self.tmp / "theirs.py").write_text(REPO)
+
+        without = self._resolve(prepare=self._capture).fresh()
+        self.assertEqual(without.query([(14, 44100)]), "alpha")
+
+        ready = self._resolve(prepare=self._capture, reset=self._forget).fresh()
+        self.assertEqual(ready.query([(14, 44100)]), "")
+        ready.enroll("gamma", [(14, 44100)])
+        self.assertEqual(ready.query([(14, 44100)]), "gamma")
+
+
+#: Two more complete chains, both of which map every item to the same
+#: features, so they run end to end and no pairing of their functions can name
+#: one item back. Both sort before `make_features`, so the search pairs two
+#: chains that cannot work before it reaches the one that can.
+MANY_CHAINS_REPO = REPO + '''
+
+def blur_features(value, rate):
+    return [(0, rate)]
+
+
+def flat_features(value, rate):
+    return [(1, rate)]
+'''
+
+
+class TheCeilingAndTheCountAreOnTheSearch(unittest.TestCase):
+    """Both numbers were per chain, and both are claims about the search.
+
+    `max_attempts` restarted for every complete chain, so a repository
+    offering several of them could try several times the ceiling and the one
+    number that bounds how long a student waits bounded nothing. And a
+    successful submission reported the accepted chain's own ordinal, so the
+    work spent on every chain before it was not counted anywhere.
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        (self.tmp / "theirs.py").write_text(MANY_CHAINS_REPO)
+
+    def test_the_ceiling_bounds_the_whole_search_not_each_chain(self):
+        submission = resolve(
+            self.tmp,
+            chain_role=ROLE,
+            fixture=FIXTURE,
+            accepts=lambda *_: (False, "never"),
+            arrangements=_arrangements,
+            max_attempts=5,
+        )
+
+        self.assertLessEqual(submission.attempts_tried, 5)
+
+    def test_a_successful_search_reports_every_pairing_it_tried(self):
+        watcher = _Recorder()
+
+        submission = resolve(
+            self.tmp,
+            chain_role=ROLE,
+            fixture=FIXTURE,
+            accepts=_accepts,
+            arrangements=_arrangements,
+            progress=watcher,
+        )
+
+        self.assertTrue(submission.ready, submission.verdict.headline)
+        self.assertEqual(submission.chain[0].label, "theirs.make_features")
+        ticks = [done for done, _ in watcher.counts]
+        # The bar never restarts, and where it ends is what the record says.
+        self.assertEqual(ticks, sorted(ticks))
+        self.assertEqual(max(ticks), submission.attempts_tried)
+
+    def test_the_bar_only_counts_pairings_the_search_will_make(self):
+        watcher = _Recorder()
+
+        resolve(
+            self.tmp,
+            chain_role=ROLE,
+            fixture=FIXTURE,
+            accepts=_accepts,
+            arrangements=_arrangements,
+            progress=watcher,
+        )
+
+        for done, total in watcher.counts:
+            self.assertLessEqual(done, total)
+
+
+#: Their store is a method that fills a table on its own object, their query
+#: is a plain function that takes that table -- and their object also carries
+#: a settings table their constructor made, which is not an answer to
+#: anything.
+CONFIGURED_STORE_REPO = '''
+def make_features(value, rate):
+    return [(value * 2, rate)]
+
+
+class Cabinet:
+    def __init__(self):
+        self.settings = {"fanout": 15, "window": 4}
+        self.hashes = {}
+
+    def add_hash(self, item_id, features):
+        for key in features:
+            self.hashes.setdefault(key, []).append(item_id)
+
+
+def match(features, hashes, names):
+    for key in features:
+        for item_id in hashes.get(key, []):
+            return names[item_id]
+    return ""
+'''
+
+
+class OnlyWhatEnrollingFilledCountsAsTheirTable(unittest.TestCase):
+    """Two filled tables on a store object are two answers to "what did the
+    store fill", and picking one by name would be picking one of their data
+    structures at random. So the search refuses.
+
+    It counted every non-empty mapping, including the ones their constructor
+    made and their store never touched. A database class that keeps settings,
+    or metadata, beside its fingerprints was refused for being ambiguous when
+    only one of those mappings had anything to do with enrolling.
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        (self.tmp / "theirs.py").write_text(CONFIGURED_STORE_REPO)
+
+    def test_a_settings_table_does_not_make_their_store_ambiguous(self):
+        submission = resolve(
+            self.tmp,
+            chain_role=ROLE,
+            fixture=FIXTURE,
+            accepts=_accepts,
+            arrangements=_arrangements,
+        )
+
+        self.assertTrue(submission.ready, submission.verdict.headline)
+        self.assertEqual(submission.attempt.enroll, "theirs.Cabinet().add_hash")
+        self.assertEqual(submission.attempt.query, "theirs.match")
+        self.assertEqual(submission._state_attribute, "hashes")
+
+
+class TheSmallestShapeGoesFirstWhenTheCeilingCannotHoldThemAll(unittest.TestCase):
+    """One 2026 repository has 57 store and query candidates, so its plain
+    shape alone is 19,152 pairings against a ceiling of 20,000, and the
+    state shape (1,002 pairings, holding the only pair that answers) was
+    never entered. When the shapes do not fit, the smallest complete search
+    runs first; when they do, the order is the one every week always had."""
+
+    def _order_tried(self, decoys, max_attempts):
+        """The shapes `_pair` enters, in order, on a fake repository."""
+
+        from cogbench import resolve as R
+
+        seen = []
+        original = R._Trial
+
+        class Spy(original):
+            __slots__ = ()
+
+            def __init__(self, shape, *args, **kw):
+                seen.append("state" if shape.state else ("factory" if shape.factory else "plain"))
+                super().__init__(shape, *args, **kw)
+
+        tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        body = "def make_features(value, rate):\n    return [(value * 2, rate)]\n"
+        body += "class Store:\n    def __init__(self):\n        self.t = {}\n"
+        body += "    def add(self, key, sid, when):\n        self.t[key] = sid\n"
+        body += "def match(fp, table, index):\n    return index[table[fp[0][0]]]\n"
+        for i in range(decoys):
+            body += "def f{}(a, b=None, c=None):\n    raise TypeError('no')\n".format(i)
+        (tmp / "theirs.py").write_text(body)
+
+        def _never(chain, enroll_call, query_call):
+            try:
+                enroll_call("alpha", chain[0].call(7, 44100))
+            except BaseException:  # noqa: BLE001 - a fake store may raise
+                return False, "no"
+            return False, "no"
+
+        R._Trial = Spy
+        try:
+            resolve(
+                tmp,
+                chain_role=ROLE,
+                fixture=FIXTURE,
+                accepts=_never,
+                arrangements=_arrangements,
+                max_attempts=max_attempts,
+            )
+        finally:
+            R._Trial = original
+        order = []
+        for name in seen:
+            if not order or order[-1] != name:
+                order.append(name)
+        return order
+
+    def test_the_plain_shape_stays_first_when_everything_fits(self):
+        order = self._order_tried(2, 100000)
+
+        self.assertTrue(order, "no trial was made")
+        self.assertEqual(order[0], "plain")
+
+    def test_the_smallest_shape_goes_first_when_they_do_not_fit(self):
+        # Eight or so candidates make more plain pairings than the ceiling
+        # holds; the state shape has one store and one matcher.
+        order = self._order_tried(6, 40)
+
+        self.assertTrue(order, "no trial was made")
+        self.assertEqual(order[0], "state")
+
+
+class ABareQuerysGradeSurvivesTheReaderSearch(unittest.TestCase):
+    """A reader search that raises must not take the pairing's own grade
+    with it: the base grade is recorded before any tail is tried."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        (self.tmp / "theirs.py").write_text(
+            "_DB = {}\n"
+            "def make_features(value, rate):\n    return [(value * 2, rate)]\n"
+            "def remember(features, item_id):\n    _DB[tuple(features)] = item_id\n"
+            "def whose(features):\n    return _DB.get(tuple(features), '')\n"
+            "def reader(answer):\n    raise RuntimeError('a reader that always fails')\n"
+        )
+
+    def test_the_half_grade_is_kept_when_every_reader_raises(self):
+        def _half(chain, enroll_call, query_call):
+            try:
+                for item_id, value in (("alpha", 7), ("beta", 9)):
+                    enroll_call(item_id, chain[0].call(value, 44100))
+                answer = query_call(chain[0].call(7, 44100))
+            except BaseException:  # noqa: BLE001 - a wrong pairing raises
+                return False, "raised"
+            return (0.5 if answer == "alpha" else False), "half"
+
+        submission = resolve(
+            self.tmp,
+            chain_role=ROLE,
+            fixture=FIXTURE,
+            accepts=_half,
+            arrangements=_arrangements,
+            readers=1,
+        )
+
+        self.assertTrue(submission.ready, submission.verdict.headline)
+        self.assertEqual(submission.attempt.query, "theirs.whose")
+        self.assertEqual(submission.to_dict().get("readers"), None)
+
+
+class AReaderTailThatRunsLongIsCutOffNotWaitedFor(unittest.TestCase):
+    """One 2026 repository spent 274 seconds inside a single reader tail
+    whose reader could not read the answer anyway. The tail is clocked; the
+    pairing's own grade was banked before it ran."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        (self.tmp / "theirs.py").write_text(
+            "import time\n"
+            "_DB = {}\n"
+            "def make_features(value, rate):\n    return [(value * 2, rate)]\n"
+            "def remember(features, item_id):\n    _DB[tuple(features)] = item_id\n"
+            "def whose(features):\n    return _DB.get(tuple(features), '')\n"
+            "def slow_reader(answer):\n    time.sleep(3)\n    return [answer]\n"
+        )
+
+    def test_the_half_grade_stands_and_the_search_returns_promptly(self):
+        import time as _time
+        from cogbench import resolve as R
+
+        def _half(chain, enroll_call, query_call):
+            try:
+                for item_id, value in (("alpha", 7), ("beta", 9)):
+                    enroll_call(item_id, chain[0].call(value, 44100))
+                answer = query_call(chain[0].call(7, 44100))
+            except BaseException:  # noqa: BLE001
+                return False, "raised"
+            if isinstance(answer, list) and answer == ["alpha"]:
+                return 1.0, "ranked"
+            return (0.5 if answer == "alpha" else False), "half"
+
+        was = R.READER_TAIL_SECONDS
+        R.READER_TAIL_SECONDS = 1
+        started = _time.monotonic()
+        try:
+            submission = resolve(
+                self.tmp,
+                chain_role=ROLE,
+                fixture=FIXTURE,
+                accepts=_half,
+                arrangements=_arrangements,
+                readers=1,
+            )
+        finally:
+            R.READER_TAIL_SECONDS = was
+
+        self.assertTrue(submission.ready, submission.verdict.headline)
+        self.assertEqual(submission.attempt.query, "theirs.whose")
+        self.assertIsNone(submission.to_dict().get("readers"))
+        self.assertLess(_time.monotonic() - started, 20)
+
+
+class ATablePreallocatedAndFilledInPlaceIsStillTheirTable(unittest.TestCase):
+    """A store that creates its keys up front and writes the values during
+    enrolling changes neither the mapping's identity nor its size. An
+    independent review built one beside a settings dict and the pairing was
+    refused as ambiguous; the contents are what changed."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        (self.tmp / "theirs.py").write_text(
+            "def make_features(value, rate):\n    return [(value * 2, rate)]\n"
+            "class Cabinet:\n"
+            "    def __init__(self):\n"
+            "        self.settings = {'fanout': 15}\n"
+            "        self.hashes = {(14, 44100): None, (18, 44100): None}\n"
+            "    def add_hash(self, item_id, features):\n"
+            "        for key in features:\n"
+            "            self.hashes[key] = item_id\n"
+            "def match(features, hashes, names):\n"
+            "    for key in features:\n"
+            "        if hashes.get(key) is not None:\n"
+            "            return names[hashes[key]]\n"
+            "    return ''\n"
+        )
+
+    def test_the_filled_table_is_the_one_handed_to_their_matcher(self):
+        submission = resolve(
+            self.tmp,
+            chain_role=ROLE,
+            fixture=FIXTURE,
+            accepts=_accepts,
+            arrangements=_arrangements,
+        )
+
+        self.assertTrue(submission.ready, submission.verdict.headline)
+        self.assertEqual(submission.attempt.query, "theirs.match")
+        self.assertEqual(submission._state_attribute, "hashes")
