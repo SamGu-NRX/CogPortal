@@ -80,3 +80,23 @@ class DiscoverySpec:
     #: returned before the answer is read. Zero for a week whose query
     #: answers directly, which is every week before this existed.
     readers: int = 0
+
+    #: Side inputs that come from the REPOSITORY rather than the benchmark,
+    #: read once the root is known: ``prepare(root, modules) -> dict`` is
+    #: merged into the extras pool before the search, with their loaded
+    #: modules alongside so a week can build one of their objects around a
+    #: file. Week 3's trained projection is the case. It is a file the team
+    #: committed, so `discovery()` cannot know it when it runs (before any
+    #: repository is chosen), and without it every repository read as having
+    #: no weights. A hook that raises refuses the search with its message,
+    #: because a week that could not read what it needs from a repository
+    #: has nothing honest to bind.
+    prepare: Optional[Callable[[Path, Sequence[Any]], Mapping[str, Any]]] = None
+
+    #: The right answer to that test, in the week's own words, for the
+    #: headline of a chain that ran end to end and answered something else.
+    #: "one group per person" for week 2, "the enrolled song at rank 1" for
+    #: week 1. The default is a sentence that is true of every week; the
+    #: week 2 sentence was hard-coded in the resolver and a week 3 team read
+    #: that their caption search "answered a different grouping".
+    expects: str = "the answer the benchmark's own case has"

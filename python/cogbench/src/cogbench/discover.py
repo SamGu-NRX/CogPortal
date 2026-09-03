@@ -860,6 +860,34 @@ def _deadline(seconds: int, name: str):
 #: directories called ``core`` apart, in one repository or across two.
 _PACKAGE_PREFIX = "_cogbench_pkg_"
 
+#: Modules a student's file displaced from `sys.modules` during one
+#: discovery, by name, put back when it leaves. Filled by `_import_one`.
+_DISPLACED: Dict[str, ModuleType] = {}
+
+#: The names in `sys.modules` when discovery entered: the real modules a
+#: student's file may not take a dotted name from.
+_PREEXISTING: set = set()
+
+
+def _is_installed(module: ModuleType) -> bool:
+    """Whether a module belongs to the interpreter or its site-packages.
+
+    A builtin or frozen module has no file. Anything else is installed
+    when its file sits under one of the interpreter's own library paths,
+    which is what separates `json` from a `database.py` some other code
+    imported by bare name.
+    """
+
+    import sysconfig
+
+    file = getattr(module, "__file__", None)
+    if not file:
+        return True
+    where = str(Path(file).resolve())
+    roots = {str(Path(p).resolve()) for p in sysconfig.get_paths().values() if p}
+    roots.update(str(Path(p).resolve()) for p in (sys.prefix, sys.base_prefix))
+    return any(where.startswith(root + os.sep) or where == root for root in roots)
+
 #: Never restarted within a process. Restarting it would let the second
 #: repository scored in one interpreter reuse the first one's package names,
 #: which is the shadowing this whole mechanism exists to prevent.
@@ -1153,6 +1181,20 @@ def _execute(
             # finds, which is how every flat repository in the corpus works.
             # `setdefault` for the bare name so the chosen root keeps
             # precedence on a stem collision, which `_consume` relies on.
+            displaced = sys.modules.get(spec.name)
+            if (
+                displaced is not None
+                and spec.name not in _DISPLACED
+                and _is_installed(displaced)
+            ):
+                # Put back when discovery leaves (`_entered`); evicting the
+                # student's module alone left the real one gone for the
+                # rest of the process. Only an installed module is put
+                # back: a bare `database` left behind by another
+                # repository's hand adapter is not one, and restoring it
+                # handed the next adapter the wrong team's code (measured:
+                # carti4ce's oracle scored 0.0 after KrazeeCoder's test).
+                _DISPLACED[spec.name] = displaced
             sys.modules[spec.name] = module
             sys.modules.setdefault(name, module)
             with _quiet_import(), _deadline(timeout, name):
@@ -1268,40 +1310,49 @@ def _import_one(
         if already is not None:
             return already, None, notes
 
+    # The remedies compose, and one module can need more than one. One 2026
+    # file (Cog-gurts, `Day 4/pipeline.py`) reads `data/trumpet.wav` at
+    # import scope AND annotates a return type with a name it never defines.
+    # Fixing the working directory reveals the NameError; fixing the
+    # NameError alone still cannot find the file. Applied once each from the
+    # ORIGINAL error, as the first draft did, neither remedy ever saw the
+    # failure it was for, and the module stayed skipped while every function
+    # the chain needed sat inside it. So each remedy stays on once applied
+    # and the import is retried until no remedy applies to the failure in
+    # hand. Each applies at most once, so this ends after at most three
+    # retries.
+    folder: Optional[Path] = None
+    future = False
     module, error, failure = _execute(name, path, source, timeout, package)
-    if module is not None:
-        return module, None, notes
-
-    folder = _own_folder(error, path)
-    if folder is not None:
+    while module is None:
+        found = _own_folder(error, path) if folder is None else None
+        if found is not None:
+            folder = found
+        elif not future and _annotation_only(error, path, source):
+            future = True
+        else:
+            basename = redirects.wanted(error) if redirects is not None else None
+            if basename is None:
+                return None, failure, notes
+            redirects.install(basename)
+            notes.redirected = notes.redirected + (basename,)
         try:
-            with _reading_from(folder):
-                retried, _again, _failure = _execute(
-                    name, path, source, timeout, package
+            if folder is not None:
+                with _reading_from(folder):
+                    module, error, failure = _execute(
+                        name, path, source, timeout, package, future_annotations=future
+                    )
+            else:
+                module, error, failure = _execute(
+                    name, path, source, timeout, package, future_annotations=future
                 )
         except OSError:
-            retried = None
-        if retried is not None:
-            notes.cwd_hint = folder
-            return retried, None, notes
-
-    if _annotation_only(error, path, source):
-        retried, _again, _failure = _execute(
-            name, path, source, timeout, package, future_annotations=True
-        )
-        if retried is not None:
-            notes.future_annotations = True
-            return retried, None, notes
-
-    basename = redirects.wanted(error) if redirects is not None else None
-    if basename is not None:
-        redirects.install(basename)
-        retried, _again, _failure = _execute(name, path, source, timeout, package)
-        if retried is not None:
-            notes.redirected = (basename,)
-            return retried, None, notes
-
-    return None, failure, notes
+            return None, failure, notes
+    if folder is not None:
+        notes.cwd_hint = folder
+    if future:
+        notes.future_annotations = True
+    return module, None, notes
 
 
 def _own_folder(error: Optional[BaseException], path: Path) -> Optional[Path]:
@@ -1569,6 +1620,8 @@ class _Redirects:
         self._live: Dict[str, Path] = {}
         self._open = None
         self._loader = None
+        self._course = None
+        self._w2v = None
         self._previous_env = None
 
     def enter(self) -> None:
@@ -1587,6 +1640,14 @@ class _Redirects:
             owner, name, original = self._loader
             setattr(owner, name, original)
             self._loader = None
+        if self._course is not None:
+            owner, name, original = self._course
+            setattr(owner, name, original)
+            self._course = None
+        if self._w2v is not None:
+            owner, name, original = self._w2v
+            setattr(owner, name, original)
+            self._w2v = None
         if self._map:
             if self._previous_env is None:
                 os.environ.pop("COGWORKS_LANGUAGE_DATA", None)
@@ -1615,6 +1676,7 @@ class _Redirects:
             self._open = builtins.open
             builtins.open = self._opened
         self._patch_gensim()
+        self._patch_course_loader()
 
     def _tokens(self, error: BaseException) -> List[str]:
         found = [str(getattr(error, "filename", "") or "")]
@@ -1622,6 +1684,20 @@ class _Redirects:
         for separator in ("'", '"', " ", ":", ","):
             text = text.replace(separator, "\n")
         found.extend(text.split("\n"))
+        # The path is not always in the message. One 2026 file loads GloVe
+        # from `r"C:\\Users\\...\\glove.6B.200d.kv"`; on POSIX the loader
+        # reads `C:` as a URL scheme and raises "Unable to handle scheme
+        # 'c'", which names no file. The student's own line does, so the
+        # string constants on the frames of THEIR files are read too. Only
+        # their files: a frame inside a library names the library's paths.
+        import linecache
+        import traceback
+
+        for frame in traceback.extract_tb(error.__traceback__ or None):
+            line = frame.line or linecache.getline(frame.filename, frame.lineno or 0)
+            for quote in ('"', "'"):
+                parts = line.split(quote)
+                found.extend(parts[1::2])
         return [token for token in found if token]
 
     def _redirected(self, target):
@@ -1636,6 +1712,54 @@ class _Redirects:
 
     def _opened(self, file, *args, **keywords):
         return self._open(self._redirected(file), *args, **keywords)
+
+    def _patch_course_loader(self) -> None:
+        """Point ``cogworks_data.language.get_data_path`` at the benchmark's files.
+
+        Three of the four 2026 Week 3 repositories call it at module scope
+        for the captions, the descriptors, and the GloVe text file. On a
+        machine with the course cache that is a 15-second parse of a 693 MB
+        file per import and on the sandbox it is a download. The benchmark
+        owns the same three files, and hands over its pre-parsed GloVe
+        (`.kv`) for the text one, which `KeyedVectors.load_word2vec_format`
+        cannot read; so that call is answered through `KeyedVectors.load`
+        when the mapped file is a `.kv`. Only when their code already
+        imported the loader, for the reason `_patch_gensim` gives.
+        """
+
+        if self._course is not None:
+            return
+        language = sys.modules.get("cogworks_data.language")
+        original = getattr(language, "get_data_path", None)
+        if original is None:
+            return
+        live = self._map
+
+        def _get_data_path(file_name, *args, **keywords):
+            name = str(file_name).replace("\\", "/").rsplit("/", 1)[-1]
+            if name.endswith(".zip"):
+                name = name[: -len(".zip")]
+            if name in live:
+                self._live[name] = live[name]
+                return str(live[name])
+            return original(file_name, *args, **keywords)
+
+        self._course = (language, "get_data_path", original)
+        language.get_data_path = _get_data_path
+
+        models = sys.modules.get("gensim.models")
+        owner = getattr(models, "KeyedVectors", None)
+        if owner is not None and self._w2v is None:
+            text_loader = owner.load_word2vec_format
+
+            def _load_w2v(path, *args, **keywords):
+                target = str(path)
+                if target.endswith(".kv"):
+                    return owner.load(target, mmap="r")
+                return text_loader(target, *args, **keywords)
+
+            self._w2v = (owner, "load_word2vec_format", text_loader)
+            owner.load_word2vec_format = _load_w2v
 
     def _patch_gensim(self) -> None:
         """Point ``KeyedVectors.load`` at the benchmark's file.
@@ -1659,6 +1783,27 @@ class _Redirects:
 
         self._loader = (owner, "load", original)
         owner.load = _load
+
+
+def _qualified(path: Path, directory: Path, directories: Sequence[Path]) -> Optional[str]:
+    """``folder.stem`` for a file whose bare stem is already taken, or None.
+
+    Relative to the outermost directory being read that contains it, so
+    the name is the one a student would write in an import from the root.
+    A folder that is not a valid identifier (`Day 4`) has no such name and
+    the file keeps being skipped, as before.
+    """
+
+    for base in directories:
+        try:
+            relative = path.relative_to(base)
+        except ValueError:
+            continue
+        parts = list(relative.parts[:-1]) + [path.stem]
+        if all(part.isidentifier() for part in parts) and len(parts) > 1:
+            return ".".join(parts)
+        return None
+    return None
 
 
 def load_modules(
@@ -1735,18 +1880,39 @@ def load_modules(
                     _note(journal, "skipped", failure)
 
         for path in files:
-            if path.stem in taken:
-                continue
+            # A file whose stem an earlier directory already owns is read
+            # under its folder-qualified name rather than skipped. The root
+            # keeps the bare name, which is import precedence; the other
+            # file is still their code. Measured on one 2026 repository:
+            # `image_caption_model.py` at the root has no `load`, and
+            # `model_tests/image_caption_model.py`, the one their scripts
+            # import and the only one that reads their trained weights, was
+            # never read at all.
+            name = path.stem
+            if name in taken:
+                name = _qualified(path, directory, directories)
+                if name is None or name in taken or name in _PREEXISTING:
+                    # A dotted name that was a real module before discovery
+                    # began (`json.tool`) is not one their file may take; an
+                    # independent review loaded a fixture as `json.tool` and
+                    # a later import in the same process received student
+                    # code. Judged against the modules present BEFORE entry,
+                    # not the live table: their own scripts import their own
+                    # files, so `model_tests.image_caption_model` is in the
+                    # table by the time its file is reached, and reading the
+                    # live table skipped the one encoder that loads their
+                    # weights.
+                    continue
             # Announced before the attempt, not after. A module that takes the
             # interpreter down produces no outcome at all, so this line is the
             # only evidence that it was the one being read.
             _note(journal, "reading", path)
             module, failure, notes = _import_one(
-                path.stem, path, None, import_timeout, package, redirects
+                name, path, None, import_timeout, package, redirects
             )
             if module is not None:
                 entry = LoadedModule(
-                    path.stem,
+                    name,
                     path,
                     module,
                     "file",
@@ -1755,7 +1921,7 @@ def load_modules(
                     redirected=notes.redirected,
                 )
                 loaded.append(entry)
-                taken.add(path.stem)
+                taken.add(name)
                 _note(journal, "module", entry)
             elif failure is not None:
                 skipped.append(failure)
@@ -1863,6 +2029,9 @@ def _entered(
     previous_path = list(sys.path)
     previous_backend = os.environ.get("MPLBACKEND")
     before = set(sys.modules)
+    _DISPLACED.clear()
+    _PREEXISTING.clear()
+    _PREEXISTING.update(before)
     # Draw to memory, never to a window. Student code plots: one 2026 team's
     # whispers calls plt.show() inside its iteration loop, which is a
     # reasonable thing to write for a notebook and blocks forever when the
@@ -1888,6 +2057,9 @@ def _entered(
             os.environ.pop("MPLBACKEND", None)
         else:
             os.environ["MPLBACKEND"] = previous_backend
+        for name, original in list(_DISPLACED.items()):
+            sys.modules[name] = original
+        _DISPLACED.clear()
         for name in set(sys.modules) - before:
             module = sys.modules.get(name)
             if module is None:
@@ -1951,11 +2123,18 @@ def discover(
     # package directory is found whole. The chosen root goes first; it owns
     # import precedence.
     #
-    # Except when the root is a week directory. A repository holding Week1,
-    # Week2, and Week3 has three capstones in it, and reading all of them while
-    # scoring one offers the search functions from the wrong assignment. Only
-    # what lives under the chosen week is read then.
-    if "matches this week" in root.reason:
+    # Except when the root is a week directory, matched or declared. A
+    # repository holding Week1, Week2, and Week3 has three capstones in it,
+    # and reading all of them while scoring one offers the search functions
+    # from the wrong assignment. Only what lives under the chosen week is
+    # read then. The declared case was measured: with `Week3` declared, the
+    # week 2 `facerecognizer.cosine_threshold` was read alongside and bound
+    # as the week 3 store, a function from another assignment on a week 3
+    # run page.
+    inside_a_week = root.path != repository and (
+        "matches this week" in root.reason or "declared" in root.reason
+    )
+    if inside_a_week:
         extra = [
             path
             for path in root.considered

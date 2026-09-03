@@ -386,6 +386,23 @@ def _written(name, source):
     exec(compile(source, name, "exec"), module.__dict__)
     return module
 
+
+def _imported(name, path):
+    """A module from a real file, for code that resolves its own `__file__`.
+
+    `_written` is enough for almost everything here, but a module built from
+    a string has no file, and a team who computes a path from `__file__` is
+    exactly the case some of these tests are about.
+    """
+
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(name, str(path))
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
 if __name__ == "__main__":
     unittest.main()
 
@@ -767,6 +784,62 @@ class AClassThatDemandsItsDataIsAStep(unittest.TestCase):
         )
         self.assertTrue(binding.steps[1].in_place)
 
+    def test_fusible_in_place_skips_do_not_cut_a_multi_step_mutation(self):
+        source = "".join(
+            "class Graph{0}:\n"
+            "    def __init__(self, rows):\n        self.rows = list(rows)\n"
+            "    def create_matrix(self):\n        pass\n"
+            "    def create_nodes(self):\n        pass\n"
+            "    def train_sweeps(self):\n        pass\n"
+            "    def sorted_images(self):\n        return [0 for _ in self.rows]\n".format(
+                index
+            )
+            for index in range(4)
+        )
+        module = _written("theirs", source)
+        graph = lambda value: hasattr(value, "rows")
+        labels = lambda value: isinstance(value, list) and len(value) == 2
+        role = Role(
+            "cluster",
+            (
+                Stage("graph", produces=graph),
+                Stage(
+                    "edges",
+                    prefers=("matrix",),
+                    produces=graph,
+                    fusible=True,
+                    in_place=True,
+                ),
+                Stage(
+                    "nodes",
+                    prefers=("nodes",),
+                    produces=graph,
+                    fusible=True,
+                    in_place=True,
+                ),
+                Stage(
+                    "settle",
+                    prefers=("train",),
+                    produces=labels,
+                    in_place=True,
+                ),
+                Stage("labels", prefers=("sorted",), produces=labels),
+            ),
+        )
+        expected = ["create_matrix", "create_nodes", "train_sweeps", "sorted_images"]
+
+        def verify(steps):
+            return [step.label.rsplit(".", 1)[-1] for step in steps[1:]] == expected
+
+        binding, refusal = resolve_chain(
+            role, [module], ([1, 2],), beam=4, verify=verify
+        )
+
+        self.assertIsNone(refusal)
+        self.assertEqual(
+            [step.label.rsplit(".", 1)[-1] for step in binding.steps[1:]], expected
+        )
+
     def test_a_constructed_step_never_outranks_a_function_that_answered(self):
         """Measured the moment classes became candidates: one 2026 team's
         `Profile(name)` accepted the groups their `connected_components` had
@@ -1077,6 +1150,58 @@ class TheirPipelineOverAFolder(unittest.TestCase):
         self.assertIsNone(binding)
         self.assertEqual(refusal.stage, "d")
 
+    def test_the_refusal_says_which_folder_of_theirs_was_in_the_way(self):
+        """Refusing the constructor is right and, on its own, unreadable.
+
+        A repository whose whole pipeline hangs off such a constructor has
+        nothing else to offer, so the search wanders through whatever other
+        classes it has and stalls several stages later. The refusal then names
+        a hand-off that is true and beside the point. Measured on week 2's
+        CoggurtFilter, which was told that nothing took what its profile class
+        returned, a class its team never meant to be part of the pipeline.
+        """
+
+        checkout = self.tmp / "checkout"
+        (checkout / "src").mkdir(parents=True)
+        photos = checkout / "photos"
+        photos.mkdir()
+        (photos / "aiken.png").write_bytes(b"their photo")
+        (checkout / "src" / "clustering.py").write_text(
+            "import os\n"
+            "from pathlib import Path\n"
+            "class Album:\n"
+            "    def __init__(self):\n"
+            "        here = Path(__file__).resolve().parent.parent / 'photos'\n"
+            "        self.names = sorted(os.listdir(here))\n"
+        )
+        module = _imported("clustering", checkout / "src" / "clustering.py")
+        self.addCleanup(sys.modules.pop, "clustering", None)
+        role = Role(
+            "cluster",
+            (Stage("d", produces=lambda v: isinstance(v, list), folder=True),),
+        )
+
+        binding, refusal = resolve_chain(role, [module], (self.files,))
+
+        self.assertIsNone(binding)
+        self.assertEqual(
+            refusal.notes,
+            (
+                "clustering.Album() reads photos/ next to its own file, which "
+                "holds your photos rather than the benchmark's, so it cannot "
+                "be given the benchmark's photos; a constructor that takes "
+                "the folder path as an argument, or reads it relative to the "
+                "working directory, can.",
+            ),
+        )
+
+    def test_a_repository_with_no_such_constructor_gets_no_such_note(self):
+        role = Role("cluster", (Stage("d", produces=lambda v: v is None),))
+
+        _binding, refusal = resolve_chain(role, [self._module()], (self.files,))
+
+        self.assertEqual(refusal.notes, ())
+
     def test_nothing_is_written_where_the_benchmark_was_run_from(self):
         """The photos go into the throwaway directory the search probes from
         and nowhere else. Writing this test the direct way put a `baseImages`
@@ -1350,3 +1475,1108 @@ class ABranchCanUseWhatAnEarlierBranchBuilt(unittest.TestCase):
             [step.label for step in binding.branches["search"]],
             ["shared.Shared.search"],
         )
+
+
+class ABranchsOutputIsSomethingTheNextBranchCanTake(unittest.TestCase):
+    """G1. Bagel's week 3 `CaptionImageQuery(EMBEDDINGS, ids)` takes the image
+    branch's projected matrix, and Lashika's search takes the store the
+    prepare branch built. The value a branch produced was thrown away the
+    moment the branch was accepted, so neither could be reached and the
+    prepare stage reported that nothing accepted the descriptors."""
+
+    @staticmethod
+    def _module():
+        return _written(
+            "theirs",
+            "def project(rows):\n    return [r * 10 for r in rows]\n"
+            "def index(ids, image):\n"
+            "    return {i: v for i, v in zip(ids, image)}\n",
+        )
+
+    @staticmethod
+    def _role():
+        return Role(
+            "all",
+            (),
+            branches=(
+                Role(
+                    "image",
+                    (Stage("image", produces=lambda v: isinstance(v, list)),),
+                    fixture=([1, 2],),
+                ),
+                Role(
+                    "prepare",
+                    (
+                        Stage(
+                            "prepare",
+                            produces=lambda v: isinstance(v, dict),
+                            extras=("image",),
+                        ),
+                    ),
+                    fixture=(["a", "b"],),
+                ),
+            ),
+        )
+
+    def test_a_later_branch_is_handed_what_an_earlier_branch_produced(self):
+        binding, refusal = resolve_chain(self._role(), [self._module()], ())
+
+        self.assertIsNone(refusal, refusal.detail if refusal else "")
+        self.assertEqual(
+            [step.label for step in binding.branches["prepare"]], ["theirs.index"]
+        )
+
+    def test_the_step_records_the_branch_output_it_was_given(self):
+        binding, _refusal = resolve_chain(self._role(), [self._module()], ())
+
+        self.assertEqual(
+            binding.branches["prepare"][0].plan, ("value", "extra:image")
+        )
+
+
+class ABranchsInputIsMadeWhenTheBranchRuns(unittest.TestCase):
+    """G2. Week 3's search branch is probed with the text branch's own chain
+    applied to the query string, and its prepare branch with the image
+    branch's projected matrix alongside the raw descriptors. A fixture fixed
+    at role construction cannot say either, because neither value exists
+    until another branch has run."""
+
+    @staticmethod
+    def _module():
+        return _written(
+            "theirs",
+            "def embed(texts):\n    return [len(t) for t in texts]\n"
+            "def find(vector, k):\n    return [vector] * k\n",
+        )
+
+    def test_a_branch_is_probed_with_what_another_branch_produced(self):
+        role = Role(
+            "all",
+            (),
+            branches=(
+                Role(
+                    "text",
+                    (
+                        Stage(
+                            "text",
+                            produces=lambda v: isinstance(v, list)
+                            and bool(v)
+                            and isinstance(v[0], int),
+                        ),
+                    ),
+                    fixture=(["abc"],),
+                ),
+                Role(
+                    "search",
+                    (Stage("search", produces=lambda v: isinstance(v, list)),),
+                    fixture=lambda pool, chains: (pool["text"][0], 2),
+                ),
+            ),
+        )
+
+        binding, refusal = resolve_chain(role, [self._module()], ())
+
+        self.assertIsNone(refusal, refusal.detail if refusal else "")
+        self.assertEqual(
+            [step.label for step in binding.branches["search"]], ["theirs.find"]
+        )
+
+    def test_the_fixture_is_also_shown_the_chains_that_bound(self):
+        seen = {}
+
+        def made(pool, chains):
+            seen.update(chains)
+            return (3, 2)
+
+        role = Role(
+            "all",
+            (),
+            branches=(
+                Role(
+                    "text",
+                    (Stage("text", produces=lambda v: isinstance(v, list)),),
+                    fixture=(["abc"],),
+                ),
+                Role(
+                    "search",
+                    (Stage("search", produces=lambda v: isinstance(v, list)),),
+                    fixture=made,
+                ),
+            ),
+        )
+
+        resolve_chain(role, [self._module()], ())
+
+        self.assertEqual(
+            {name: [step.label for step in steps] for name, steps in seen.items()},
+            {"text": ["theirs.embed"]},
+        )
+
+
+class BranchesResolveUntilNothingMoreCan(unittest.TestCase):
+    """G3. Lashika's week 3 image step is a method of the object the PREPARE
+    branch constructs, `ImageDatabase(ids, descriptors, W)
+    .descriptor_to_embedding`, so image has to come after prepare. Bagel's
+    prepare takes the IMAGE branch's projected matrix, so prepare has to come
+    after image. One declared order cannot serve both repositories."""
+
+    @staticmethod
+    def _module():
+        class ImageDatabase:
+            def __init__(self, ids, descriptors):
+                self.ids = list(ids)
+                self.descriptors = list(descriptors)
+
+            def descriptor_to_embedding(self, descriptor):
+                return [descriptor * 2]
+
+        return _module("theirs", ImageDatabase=ImageDatabase)
+
+    @staticmethod
+    def _role():
+        rows = lambda v: isinstance(v, list) and bool(v) and isinstance(v[0], list)
+        return Role(
+            "all",
+            (),
+            branches=(
+                # Declared first and only bindable last.
+                Role(
+                    "image",
+                    (Stage("image", produces=rows, per_item=True),),
+                    fixture=([1, 2],),
+                ),
+                Role(
+                    "prepare",
+                    (Stage("prepare", produces=lambda v: hasattr(v, "ids")),),
+                    fixture=([10, 20], [1, 2]),
+                ),
+            ),
+        )
+
+    def test_a_branch_declared_first_may_bind_after_one_declared_later(self):
+        binding, refusal = resolve_chain(self._role(), [self._module()], ())
+
+        self.assertIsNone(refusal, refusal.detail if refusal else "")
+        self.assertEqual(
+            [step.label for step in binding.branches["image"]],
+            ["theirs.ImageDatabase.descriptor_to_embedding"],
+        )
+
+    def test_the_fixpoint_is_the_same_every_time(self):
+        """Labels, because a method of a constructor stage is bound to the
+        object that stage just built and two searches build two objects.
+        What is written down is the name, which is what has to agree."""
+
+        first, _ = resolve_chain(self._role(), [self._module()], ())
+        second, _ = resolve_chain(self._role(), [self._module()], ())
+
+        def named(binding):
+            return {
+                name: [step.label for step in steps]
+                for name, steps in binding.branches.items()
+            }
+
+        self.assertEqual(named(first), named(second))
+        self.assertEqual(list(first.branches), list(second.branches))
+
+    def test_a_fixture_that_cannot_be_made_yet_is_tried_again_next_pass(self):
+        module = _written(
+            "later",
+            "def embed(texts):\n    return [len(t) for t in texts]\n"
+            "def find(vector, k):\n    return [vector] * k\n",
+        )
+        role = Role(
+            "all",
+            (),
+            branches=(
+                # Its fixture raises KeyError on the first pass, because the
+                # branch that fills that slot is declared after it.
+                Role(
+                    "search",
+                    (Stage("search", produces=lambda v: isinstance(v, list)),),
+                    fixture=lambda pool, chains: (pool["text"][0], 2),
+                ),
+                Role(
+                    "text",
+                    (
+                        Stage(
+                            "text",
+                            produces=lambda v: isinstance(v, list)
+                            and bool(v)
+                            and isinstance(v[0], int),
+                        ),
+                    ),
+                    fixture=(["abc"],),
+                ),
+            ),
+        )
+
+        binding, refusal = resolve_chain(role, [module], ())
+
+        self.assertIsNone(refusal, refusal.detail if refusal else "")
+        self.assertEqual(sorted(binding.branches), ["search", "text"])
+
+
+class ASideInputThatIsItselfAStep(unittest.TestCase):
+    """G4. Bagel's week 3 image encoder is `ImageToCaption()`, built with no
+    arguments, handed their own pickle through `.load(path)`, and then
+    called. `methods_of` skips `__call__` with every other underscore name
+    and the loaded instance lives in the extras pool rather than in one of
+    their modules, so nothing in the repository could serve that stage."""
+
+    def test_a_callable_pool_entry_is_offered_for_a_stage_that_named_it(self):
+        module = _written("theirs", "def unrelated(x):\n    return None\n")
+        stage = Stage(
+            "image",
+            produces=lambda v: isinstance(v, list),
+            extras=("weights_model",),
+        )
+
+        found = probe_sources(
+            stage,
+            callables_in([module]),
+            ([1, 2],),
+            extras={"weights_model": _Encoder()},
+        )
+
+        self.assertEqual([c.label for c, _ in found], ["weights_model (_Encoder)"])
+        self.assertEqual(found[0][1], [3, 6])
+
+    def test_one_of_their_own_functions_is_tried_first(self):
+        module = _written(
+            "theirs", "def encode(rows):\n    return [r + 1 for r in rows]\n"
+        )
+        stage = Stage(
+            "image",
+            produces=lambda v: isinstance(v, list),
+            extras=("weights_model",),
+        )
+
+        found = probe_sources(
+            stage,
+            callables_in([module]),
+            ([1, 2],),
+            extras={"weights_model": _Encoder()},
+        )
+
+        self.assertEqual([c.label for c, _ in found][0], "theirs.encode")
+
+    def test_the_object_it_was_handed_is_recorded_on_the_step(self):
+        module = _written("theirs", "def unrelated(x):\n    return None\n")
+        stage = Stage(
+            "image",
+            produces=lambda v: isinstance(v, list),
+            extras=("weights_model",),
+        )
+
+        (candidate, _value), = probe_sources(
+            stage,
+            callables_in([module]),
+            ([1],),
+            extras={"weights_model": _Encoder()},
+        )
+
+        self.assertEqual(candidate.supplied["pooled"], "weights_model")
+
+    def test_a_pool_entry_that_is_only_data_is_never_a_step(self):
+        module = _written("theirs", "def unrelated(x):\n    return None\n")
+        stage = Stage(
+            "text", produces=lambda v: isinstance(v, list), extras=("glove",)
+        )
+
+        found = probe_sources(
+            stage, callables_in([module]), ([1],), extras={"glove": {"a": 1}}
+        )
+
+        self.assertEqual(found, [])
+
+
+class _Encoder:
+    """One of their objects, built and loaded by the benchmark."""
+
+    def __call__(self, rows):
+        return [row * 3 for row in rows]
+
+
+class WhichPartOfATupleBoundIsPartOfTheBinding(unittest.TestCase):
+    """G5. rutvim's week 1 `spectrogram_conversion` returns
+    `(log_spectrogram, peaks)` and their `generate_fingerprints` accepts
+    either: 609 fingerprints and 0.547 on the peaks, 2970 and 0.094 on the
+    spectrogram. The search knows which one bound at the moment it binds; a
+    run that re-derived it later scored the other one and reported the
+    difference as their code."""
+
+    @staticmethod
+    def _role():
+        return Role(
+            "fingerprint",
+            (
+                Stage("fused", produces=lambda v: isinstance(v, tuple)),
+                Stage(
+                    "fingerprints",
+                    produces=lambda v: isinstance(v, list)
+                    and bool(v)
+                    and isinstance(v[0], tuple),
+                ),
+            ),
+        )
+
+    def test_the_part_that_bound_is_recorded_and_replayed(self):
+        module = _written(
+            "theirs",
+            "def fused(samples):\n    return ('grid', [(0, 1), (2, 3)])\n"
+            "def prints(peaks):\n    return [((a, b), 0) for a, b in peaks]\n",
+        )
+
+        binding, refusal = resolve_chain(self._role(), [module], ([1],))
+
+        self.assertIsNone(refusal, refusal.detail if refusal else "")
+        self.assertEqual(binding.steps[1].handoff, "element:1")
+        self.assertEqual(
+            binding.steps[1].bound(("grid", [(4, 5)])), [((4, 5), 0)]
+        )
+
+    def test_a_pair_passed_as_two_arguments_is_recorded_as_spread(self):
+        module = _written(
+            "theirs",
+            "def build(items):\n    return ([1, 2], {'w': 5})\n"
+            "def settle(nodes, adj):\n"
+            "    return [(n, adj['w']) for n in nodes]\n",
+        )
+        role = Role(
+            "group",
+            (
+                Stage("build", produces=lambda v: isinstance(v, tuple)),
+                Stage(
+                    "settle",
+                    produces=lambda v: isinstance(v, list)
+                    and bool(v)
+                    and isinstance(v[0], tuple),
+                ),
+            ),
+        )
+
+        binding, refusal = resolve_chain(role, [module], ([1],))
+
+        self.assertIsNone(refusal, refusal.detail if refusal else "")
+        self.assertEqual(binding.steps[1].handoff, "spread")
+        self.assertEqual(binding.steps[1].bound(([9], {"w": 5})), [(9, 5)])
+
+    def test_a_pair_taken_the_other_way_round_is_recorded_as_reversed(self):
+        module = _written(
+            "theirs",
+            "def build(items):\n    return ([1, 2], {'w': 5})\n"
+            "def settle(adj, nodes):\n"
+            "    return [(n, adj['w']) for n in nodes]\n",
+        )
+        role = Role(
+            "group",
+            (
+                Stage("build", produces=lambda v: isinstance(v, tuple)),
+                Stage(
+                    "settle",
+                    produces=lambda v: isinstance(v, list)
+                    and bool(v)
+                    and isinstance(v[0], tuple),
+                ),
+            ),
+        )
+
+        binding, refusal = resolve_chain(role, [module], ([1],))
+
+        self.assertIsNone(refusal, refusal.detail if refusal else "")
+        self.assertEqual(binding.steps[1].handoff, "reversed")
+        self.assertEqual(binding.steps[1].bound(([9], {"w": 5})), [(9, 5)])
+
+    def test_a_step_handed_the_whole_value_records_nothing(self):
+        module = _module("anything", alpha=_spectrogram, beta=_peaks, gamma=_fanout)
+
+        binding, _refusal = resolve_chain(ROLE, [module], FIXTURE)
+
+        self.assertEqual([step.handoff for step in binding.steps], [None, None, None])
+
+
+class ABranchTheWeekMayDoWithout(unittest.TestCase):
+    """G6. A week 3 repository with no trained weights has no image side at
+    all, and the decided policy withholds those numbers rather than zeroing
+    them (docs/design/discovery-v2-brief.md, "Absent weights"). That only
+    means anything if the text branch still binds: refusing the whole role
+    tells a team whose caption embedding works that their code is not wired
+    up."""
+
+    @staticmethod
+    def _module():
+        return _written(
+            "theirs", "def embed(texts):\n    return [len(t) for t in texts]\n"
+        )
+
+    @staticmethod
+    def _role(optional):
+        return Role(
+            "search",
+            (),
+            branches=(
+                Role(
+                    "text",
+                    (Stage("text", produces=lambda v: isinstance(v, list)),),
+                    fixture=(["a"],),
+                ),
+                Role(
+                    "image",
+                    (Stage("image", produces=lambda v: isinstance(v, dict)),),
+                    fixture=([1],),
+                    optional=optional,
+                ),
+            ),
+        )
+
+    def test_the_role_binds_without_a_branch_the_week_can_do_without(self):
+        binding, refusal = resolve_chain(self._role(True), [self._module()], ())
+
+        self.assertIsNone(refusal, refusal.detail if refusal else "")
+        self.assertEqual(sorted(binding.branches), ["text"])
+
+    def test_the_branch_that_is_absent_is_named_with_the_refusal_it_ended_on(self):
+        binding, _refusal = resolve_chain(self._role(True), [self._module()], ())
+
+        self.assertEqual(sorted(binding.missing), ["image"])
+        self.assertEqual(binding.missing["image"].stage, "image")
+
+    def test_a_required_branch_that_never_binds_still_refuses_the_role(self):
+        binding, refusal = resolve_chain(self._role(False), [self._module()], ())
+
+        self.assertIsNone(binding)
+        self.assertEqual(refusal.role, "search.image")
+
+    def test_the_week_is_handed_only_the_branches_that_bound(self):
+        seen = {}
+
+        def verify(chains):
+            seen.update(chains)
+            return True
+
+        resolve_chain(self._role(True), [self._module()], (), verify=verify)
+
+        self.assertEqual(sorted(seen), ["text"])
+
+
+class AHandoffThatCannotBeAppliedIsNotSilentlyAnotherOne(unittest.TestCase):
+    """The search bound a step on one part of what came before it. A run
+    whose upstream has no such part has changed shape, and the step must
+    say so rather than quietly take the whole value, which is a call the
+    search never proved."""
+
+    def test_a_missing_element_raises_and_names_the_reading(self):
+        from cogbench.pipeline import _handed
+
+        step = Candidate("t.f", lambda v: v, "t", handoff="element:2")
+
+        with self.assertRaises(TypeError) as caught:
+            _handed(step, ((1, 2),))
+        self.assertIn("element:2", str(caught.exception))
+        self.assertIn("t.f", str(caught.exception))
+
+    def test_a_present_element_is_read_as_before(self):
+        from cogbench.pipeline import _handed
+
+        step = Candidate("t.f", lambda v: v, "t", handoff="element:1")
+
+        self.assertEqual(_handed(step, ((1, 2),)), (2,))
+
+
+class AFixtureThatFailsIsNotAFixtureThatIsNotReady(unittest.TestCase):
+    """A branch fixture that raises because the pool lacks what it reads is
+    tried again next pass. One that raises for a reason of its own is the
+    week's bug, and the refusal has to say which."""
+
+    def test_a_missing_pool_key_reads_as_not_yet(self):
+        branch = Role(
+            "a", (Stage("a", produces=lambda v: True),),
+            fixture=lambda pool, chains: (pool["never"],),
+        )
+        _binding, refusal = resolve_chain(
+            Role("all", (), branches=(branch,)), [_module("t", f=lambda x: x)], ()
+        )
+        self.assertIn("not produced by any other branch", refusal.detail)
+
+    def test_a_fixture_that_breaks_names_its_own_error(self):
+        def broken(pool, chains):
+            raise RuntimeError("their loader broke")
+
+        branch = Role("a", (Stage("a", produces=lambda v: True),), fixture=broken)
+        _binding, refusal = resolve_chain(
+            Role("all", (), branches=(branch,)), [_module("t", f=lambda x: x)], ()
+        )
+        self.assertIn("RuntimeError", refusal.detail)
+        self.assertIn("their loader broke", refusal.detail)
+
+
+class AStepsSideInputsAreThisRunsNotTheSearchs(unittest.TestCase):
+    """A step bound with another branch's output as its extra kept the
+    search fixture's value on `supplied`, and a scored run built its
+    database from that. `runtime_pool` puts the run's own values in front."""
+
+    @staticmethod
+    def _module():
+        return _written(
+            "theirs",
+            "def project(rows):\n    return [r * 10 for r in rows]\n"
+            "def index(ids, image):\n    return {i: v for i, v in zip(ids, image)}\n",
+        )
+
+    def _binding(self):
+        role = Role(
+            "all", (),
+            branches=(
+                Role("image", (Stage("image", produces=lambda v: isinstance(v, list)),), fixture=([1, 2],)),
+                Role("prepare", (Stage("prepare", produces=lambda v: isinstance(v, dict), extras=("image",)),), fixture=(["a", "b"],)),
+            ),
+        )
+        binding, refusal = resolve_chain(role, [self._module()], ())
+        self.assertIsNone(refusal)
+        return binding
+
+    def test_without_a_runtime_pool_the_fixture_value_is_used(self):
+        binding = self._binding()
+        prepare = binding.branches["prepare"][0]
+        self.assertEqual(prepare.bound(["a", "b"]), {"a": 10, "b": 20})
+
+    def test_the_runtime_pool_replaces_it_for_the_scored_run(self):
+        from cogbench.pipeline import runtime_pool
+
+        binding = self._binding()
+        image = binding.branches["image"][0]
+        prepare = binding.branches["prepare"][0]
+        run_rows = image.bound([7, 8])
+        with runtime_pool({"image": run_rows}):
+            self.assertEqual(prepare.bound(["a", "b"]), {"a": 70, "b": 80})
+        self.assertEqual(prepare.bound(["a", "b"]), {"a": 10, "b": 20})
+
+
+class AMethodCarriedAcrossBranchesIsTakenOffThisRunsObject(unittest.TestCase):
+    @staticmethod
+    def _module():
+        return _written(
+            "theirs",
+            "class Store:\n"
+            "    def __init__(self, rows):\n        self.rows = list(rows)\n"
+            "    def search(self, needle):\n        return [r for r in self.rows if r == needle]\n",
+        )
+
+    def test_the_search_step_answers_about_the_scored_store(self):
+        from cogbench.pipeline import runtime_pool
+
+        prepare = Role("prepare", (Stage("store", produces=lambda v: v is not None),), fixture=([1, 2, 3],))
+        search = Role("search", (Stage("ask", produces=lambda v: isinstance(v, list)),), fixture=(2,))
+        binding, refusal = resolve_chain(Role("all", (), branches=(prepare, search)), [self._module()], ())
+        self.assertIsNone(refusal)
+        ask = binding.branches["search"][0]
+        self.assertEqual(ask.branch, "prepare")
+        self.assertEqual(ask.bound(2), [2])
+
+        scored_store = binding.branches["prepare"][0].bound([9, 9])
+        with runtime_pool({"prepare": scored_store}):
+            self.assertEqual(ask.bound(9), [9, 9])
+            self.assertEqual(ask.bound(2), [])
+
+
+class SpreadAndReversedNeedATuple(unittest.TestCase):
+    def test_a_list_is_not_spread(self):
+        from cogbench.pipeline import _handed
+
+        with self.assertRaises(TypeError):
+            _handed(Candidate("t.f", lambda *a: a, "t", handoff="spread"), ([1, 2],))
+        with self.assertRaises(TypeError):
+            _handed(Candidate("t.f", lambda *a: a, "t", handoff="reversed"), ([1, 2],))
+        with self.assertRaises(TypeError):
+            _handed(Candidate("t.f", lambda *a: a, "t", handoff="element:0"), ([1, 2],))
+        self.assertEqual(_handed(Candidate("t.f", lambda *a: a, "t", handoff="spread"), ((1, 2),)), (1, 2))
+
+
+class AStudentCallThatReturnsAsTheClockRunsOutIsStillJustANo(unittest.TestCase):
+    """The alarm used to be cancelled in the outer `finally`, outside the
+    `except`, so a `_Timeout` raised between the student call returning and
+    the cancel left `_call` and ended the whole search. One 2026 repository's
+    constructor probe took exactly the ten seconds and did that."""
+
+    def test_the_timeout_never_leaves_the_call(self):
+        import signal
+        from cogbench import pipeline
+        from cogbench.pipeline import Candidate, _call
+
+        def slow(value):
+            # Let the alarm fire while the frame is still inside the guarded
+            # block: a zero-delay alarm is delivered at the next bytecode.
+            signal.setitimer(signal.ITIMER_REAL, 0.001)
+            end = time.monotonic() + 0.2
+            while time.monotonic() < end:
+                pass
+            return value
+
+        ok, value = _call(Candidate("theirs.slow", slow, "theirs"), (1,))
+
+        self.assertFalse(ok)
+        self.assertIsNone(value)
+        self.assertEqual(signal.getitimer(signal.ITIMER_REAL), (0.0, 0.0))
+
+    def test_module_values_leave_out_functions_classes_and_modules(self):
+        import types
+        from cogbench.pipeline import values_in
+
+        module = _module(
+            "theirs",
+            idf={"a": 0.5},
+            helper=lambda: None,
+            Thing=type("Thing", (), {}),
+            np=types.ModuleType("np"),
+            _private=[1],
+            nothing=None,
+        )
+
+        self.assertEqual(
+            [(label, value) for label, _, value in values_in([module])],
+            [("theirs.idf", {"a": 0.5})],
+        )
+
+
+class AWholeCallThatAnswersWronglyDoesNotHideThePerItemForm(unittest.TestCase):
+    """One 2026 tokenizer walks its argument character by character. Handed
+    the whole list of captions it treated each caption as one character,
+    returned a single flat token list, and because that call had "succeeded"
+    the per-item form was never tried and the branch refused."""
+
+    def _stage(self):
+        return Stage(
+            "tokens",
+            produces=lambda v: isinstance(v, list) and bool(v) and isinstance(v[0], list),
+            per_item=True,
+        )
+
+    def test_the_per_item_form_is_tried_and_kept(self):
+        module = _written(
+            "theirs",
+            "def tokenize(text):\n    return [str(c) for c in text]\n",
+        )
+
+        (candidate, value), = probe_sources(
+            self._stage(), callables_in([module]), (["ab", "cd"],)
+        )
+
+        self.assertTrue(candidate.per_item)
+        self.assertEqual(value, [["a", "b"], ["c", "d"]])
+
+    def test_a_whole_answer_of_the_right_shape_is_kept_as_it_was(self):
+        module = _written(
+            "theirs",
+            "def tokenize(texts):\n    return [list(t) for t in texts]\n",
+        )
+
+        (candidate, value), = probe_sources(
+            self._stage(), callables_in([module]), (["ab"],)
+        )
+
+        self.assertFalse(candidate.per_item)
+        self.assertEqual(value, [["a", "b"]])
+
+
+class AFusedFirstStepIsCarriedPastTheBeam(unittest.TestCase):
+    """A chain whose first function already did the second stage's work is
+    appended after every plain first-stage hit. At the last stage the whole
+    frontier is read rather than the beam's share of it, so with four or
+    more plain hits ahead of it the fused chain is still asked."""
+
+    def test_the_fused_chain_survives_four_plain_hits(self):
+        def plain(texts):
+            return [list(t) for t in texts]
+
+        def fused(texts):
+            return [[1.0] for _ in texts]
+
+        module = _module(
+            "theirs",
+            aaa=plain,
+            bbb=plain,
+            ccc=plain,
+            ddd=plain,
+            eee=plain,
+            embed=fused,
+        )
+        role = Role(
+            "text",
+            (
+                Stage(
+                    "tokens",
+                    produces=lambda v: isinstance(v, list) and isinstance(v[0][0], str),
+                    fusible=True,
+                ),
+                Stage(
+                    "text",
+                    produces=lambda v: isinstance(v, list) and isinstance(v[0][0], float),
+                ),
+            ),
+        )
+
+        binding, refusal = resolve_chain(
+            role,
+            [module],
+            (["ab"],),
+            beam=4,
+            # Only the fused chain is right; the point is that it is asked.
+            verify=lambda steps: [s.label for s in steps] == ["theirs.embed"],
+        )
+
+        self.assertIsNone(refusal)
+        self.assertEqual([s.label for s in binding.steps], ["theirs.embed"])
+
+
+class AChainThroughTheirOwnFunctionIsAskedBeforeAFusedOne(unittest.TestCase):
+    """rutvim's week 3 `embed_text(tokens, ...)` also accepts a raw caption and
+    iterates its characters. Both `caption_processor -> embed_text` and
+    `embed_text` alone pass the week's test; the first is how they wrote it."""
+
+    def test_the_unfused_chain_wins_when_both_pass(self):
+        def tokens(text):
+            return text.split()
+
+        def embed(words):
+            # A str is iterable too, so this "accepts" a raw caption.
+            return [float(len(w)) for w in words]
+
+        module = _module("theirs", tokens=tokens, embed=embed)
+        role = Role(
+            "text",
+            (
+                Stage(
+                    "tokens",
+                    produces=lambda v: isinstance(v, list) and isinstance(v[0], list),
+                    per_item=True,
+                    fusible=True,
+                ),
+                Stage(
+                    "text",
+                    produces=lambda v: isinstance(v, list) and isinstance(v[0], list)
+                    and isinstance(v[0][0], float),
+                    per_item=True,
+                ),
+            ),
+        )
+
+        binding, refusal = resolve_chain(
+            role, [module], (["a bb", "ccc d"],), verify=lambda steps: True
+        )
+
+        self.assertIsNone(refusal)
+        self.assertEqual([s.label for s in binding.steps], ["theirs.tokens", "theirs.embed"])
+
+
+class AFusibleStageCanBeAbsorbedByTheStepAfterIt(unittest.TestCase):
+    """Cog-gurts' `fingerprint_recording(spectrogram)` finds the peaks and
+    pairs them in one call, and their separate peak finder needs a
+    neighbourhood array and an amplitude floor no benchmark can supply.
+    Folding the peaks stage into the function BEFORE it cannot reach that,
+    because a spectrogram is not peaks."""
+
+    def _role(self, guard=None):
+        return Role(
+            "fingerprint",
+            (
+                Stage("spectrogram", produces=lambda v: isinstance(v, list) and v and isinstance(v[0], list)),
+                Stage("peaks", produces=lambda v: isinstance(v, list) and v and isinstance(v[0], tuple), fusible=True),
+                Stage(
+                    "fingerprints",
+                    produces=lambda v: isinstance(v, dict) and bool(v),
+                    accepts=guard,
+                ),
+            ),
+        )
+
+    def test_the_following_step_takes_this_stages_input(self):
+        module = _written(
+            "theirs",
+            "def spectrogram(samples, rate):\n    return [[1.0, 2.0], [3.0, 4.0]]\n"
+            "def peak_locations(spec, neighbourhood, floor):\n    return [(0, 1)]\n"
+            "def fingerprint_recording(spec):\n    return {(1, 2, 3): 0}\n",
+        )
+
+        binding, refusal = resolve_chain(self._role(), [module], ([0.0] * 10, 44100))
+
+        self.assertIsNone(refusal)
+        self.assertEqual(
+            [s.label for s in binding.steps],
+            ["theirs.spectrogram", "theirs.fingerprint_recording"],
+        )
+        self.assertEqual(binding.describe()[-1].split(" <- ")[0] if False else binding._stage_names[-1], "peaks + fingerprints")
+
+    def test_the_following_stages_own_accepts_does_not_refuse_the_input(self):
+        """The guard on the fingerprints stage says what it takes from the
+        PEAKS stage's output; it must not refuse the peaks stage's input."""
+
+        module = _written(
+            "theirs",
+            "def spectrogram(samples, rate):\n    return [[1.0, 2.0], [3.0, 4.0]]\n"
+            "def fingerprint_recording(spec):\n    return {(1, 2, 3): 0}\n",
+        )
+        refuse_matrices = lambda v: not (isinstance(v, list) and isinstance(v[0], list))
+
+        binding, refusal = resolve_chain(
+            self._role(guard=refuse_matrices), [module], ([0.0] * 10, 44100)
+        )
+
+        self.assertIsNone(refusal)
+        self.assertEqual(binding._stage_names[-1], "peaks + fingerprints")
+
+    def test_a_chain_with_a_real_peak_step_is_asked_first(self):
+        module = _written(
+            "theirs",
+            "def spectrogram(samples, rate):\n    return [[1.0, 2.0], [3.0, 4.0]]\n"
+            "def peaks(spec):\n    return [(0, 1)]\n"
+            "def fingerprints(peaks):\n    return {(1, 2, 3): 0}\n"
+            "def fingerprint_recording(spec):\n    return {(9, 9, 9): 0}\n",
+        )
+
+        binding, refusal = resolve_chain(self._role(), [module], ([0.0] * 10, 44100))
+
+        self.assertIsNone(refusal)
+        # A separate peak step was found, so the forward reading (input of
+        # the peaks stage handed to a fingerprinter) was not the one asked.
+        # Which of the two fingerprinters follows `peaks` is the beam's
+        # ordinary order and not what this test pins.
+        self.assertEqual(binding._stage_names, ("spectrogram", "peaks", "fingerprints"))
+        self.assertEqual(binding.steps[1].label, "theirs.peaks")
+
+
+class AnInPlaceStepIsReplayedByTheBoundCall(unittest.TestCase):
+    """The search records a step that returned nothing and changed its
+    argument as `in_place` and carries the argument forward. `bound` handed
+    the next step None instead, which an independent review found; no week
+    had witnessed it because week 2 replays through its own `_run`."""
+
+    def test_the_object_goes_forward_when_the_call_returns_nothing(self):
+        from cogbench.pipeline import Candidate
+
+        def settle(graph):
+            graph.append("settled")
+
+        step = Candidate("theirs.settle", settle, "theirs", in_place=True)
+        graph = ["node"]
+
+        self.assertIs(step.bound(graph), graph)
+        self.assertEqual(graph, ["node", "settled"])
+
+    def test_a_value_the_call_returns_is_still_returned(self):
+        from cogbench.pipeline import Candidate
+
+        step = Candidate("theirs.read", lambda graph: list(graph), "theirs", in_place=True)
+
+        self.assertEqual(step.bound(["a"]), ["a"])
+
+
+class ABranchBoundOnTheWrongFormIsRetriedWhenALaterBranchCannotBind(unittest.TestCase):
+    """Bagel's `CaptionImageQuery(image_embeddings, image_ids)` builds with
+    the ids and the descriptors in either order, and only its `search` can
+    tell which was right. The prepare branch bound on the first form that
+    constructed, and the search branch then found nothing to call."""
+
+    def _module(self):
+        return _written(
+            "theirs",
+            "class Store:\n"
+            "    def __init__(self, rows, ids):\n"
+            "        self.rows = list(rows)\n"
+            "        self.ids = list(ids)\n"
+            "    def search(self, k):\n"
+            "        if not isinstance(self.rows[0], float):\n"
+            "            raise TypeError('the rows are ids')\n"
+            "        return self.ids[:k]\n",
+        )
+
+    def _role(self):
+        prepare = Role(
+            "prepare",
+            (Stage("prepare", produces=lambda v: hasattr(v, "ids")),),
+            fixture=Fixtures((([1, 2], [0.5, 0.25]), ([0.5, 0.25], [1, 2]))),
+        )
+        search = Role(
+            "search",
+            (
+                Stage(
+                    "search",
+                    produces=lambda v: isinstance(v, list) and bool(v) and isinstance(v[0], int),
+                ),
+            ),
+            fixture=(1,),
+            optional=True,
+        )
+        return Role("all", (), branches=(prepare, search))
+
+    def test_the_form_a_later_branch_can_use_wins(self):
+        binding, refusal = resolve_chain(self._role(), [self._module()], ((),))
+
+        self.assertIsNone(refusal)
+        self.assertEqual(sorted(binding.branches), ["prepare", "search"])
+        self.assertEqual(binding.branches["prepare"][0].form, 1)
+        self.assertEqual(binding.missing, {})
+
+    def test_a_repository_with_no_later_function_keeps_its_first_binding(self):
+        module = _written(
+            "theirs",
+            "class Store:\n"
+            "    def __init__(self, rows, ids):\n"
+            "        self.rows = list(rows)\n        self.ids = list(ids)\n",
+        )
+
+        binding, refusal = resolve_chain(self._role(), [module], ((),))
+
+        self.assertIsNone(refusal)
+        self.assertEqual(sorted(binding.branches), ["prepare"])
+        self.assertEqual(binding.branches["prepare"][0].form, 0)
+        self.assertEqual(sorted(binding.missing), ["search"])
+
+
+class AFunctionParkedInsideAClassIsACandidate(unittest.TestCase):
+    """One 2026 team keeps its whole pipeline under `class Spectogram:` with
+    no `self` anywhere and calls each piece unbound. `methods_of` exposed
+    only the bound copy, where the first argument is swallowed as `self`."""
+
+    def test_the_unbound_function_is_offered_and_a_real_method_is_not(self):
+        module = _written(
+            "theirs",
+            "class Namespace:\n"
+            "    def match(fp, database, index):\n"
+            "        return index[max(database, key=database.get)]\n"
+            "    def helper(self):\n"
+            "        return 1\n"
+            "    @staticmethod\n"
+            "    def other(a):\n"
+            "        return a\n",
+        )
+
+        labels = [c.label for c in callables_in([module])]
+
+        self.assertIn("theirs.Namespace.match", labels)
+        self.assertNotIn("theirs.Namespace.helper", labels)
+        self.assertNotIn("theirs.Namespace.other", labels)
+        match = next(c for c in callables_in([module]) if c.label.endswith("match"))
+        self.assertEqual(match.call([1], {"a": 2, "b": 5}, {"b": "song"}), "song")
+
+
+class FormBacktrackingSearchesEveryCombinationItNeeds(unittest.TestCase):
+    """An independent review built a role where the only working pair of
+    forms was (A=2, B=0) and the first search never tried it: a ban on B's
+    form 0, placed under A=0, stayed in force after A moved."""
+
+    def _module(self):
+        return _written(
+            "theirs",
+            "class A:\n"
+            "    def __init__(self, x):\n        self.x = x\n"
+            "class B:\n"
+            "    def __init__(self, y):\n        self.y = y\n"
+            "def c(a, b):\n"
+            "    if a.x == 'a2' and b.y == 'b0':\n        return ['ok']\n"
+            "    raise TypeError('not this pair')\n",
+        )
+
+    def _role(self):
+        a = Role("A", (Stage("A", produces=lambda v: hasattr(v, "x")),), fixture=Fixtures((("a0",), ("a1",), ("a2",))))
+        b = Role("B", (Stage("B", produces=lambda v: hasattr(v, "y")),), fixture=Fixtures((("b0",), ("b1",))))
+        c = Role(
+            "C",
+            (Stage("C", produces=lambda v: v == ["ok"], extras=("A", "B")),),
+            fixture=lambda pool, chains: (pool["A"], pool["B"]) if "A" in pool and "B" in pool else None,
+        )
+        from dataclasses import replace as _replace
+
+        return Role("all", (), branches=(a, b, _replace(c, optional=True)))
+
+    def test_the_pair_a_later_branch_needs_is_found(self):
+        binding, refusal = resolve_chain(self._role(), [self._module()], ((),))
+
+        self.assertIsNone(refusal)
+        self.assertEqual(sorted(binding.branches), ["A", "B", "C"])
+        self.assertEqual(binding.branches["A"][0].form, 2)
+        self.assertEqual(binding.branches["B"][0].form, 0)
+
+    def test_an_attempt_covering_the_required_branch_beats_an_earlier_one(self):
+        module = _written(
+            "theirs",
+            "class A:\n"
+            "    def __init__(self, x):\n        self.x = x\n"
+            "def opt(a):\n"
+            "    if a.x == 'a0':\n        return 'optional'\n"
+            "    raise TypeError\n"
+            "def req(a):\n"
+            "    if a.x == 'a1':\n        return 'required'\n"
+            "    raise TypeError\n",
+        )
+        a = Role("A", (Stage("A", produces=lambda v: hasattr(v, "x")),), fixture=Fixtures((("a0",), ("a1",))))
+        optional = Role("O", (Stage("O", produces=lambda v: v == "optional"),), fixture=lambda pool, chains: (pool["A"],), optional=True)
+        required = Role("R", (Stage("R", produces=lambda v: v == "required"),), fixture=lambda pool, chains: (pool["A"],))
+        role = Role("all", (), branches=(a, optional, required))
+
+        binding, refusal = resolve_chain(role, [module], ((),))
+
+        self.assertIsNone(refusal)
+        self.assertIn("R", binding.branches)
+        self.assertEqual(sorted(binding.missing), ["O"])
+
+
+class InPlaceReplayCoversEveryCallPath(unittest.TestCase):
+    def test_a_self_only_in_place_method_hands_on_its_object(self):
+        from cogbench.pipeline import Candidate
+
+        class Graph:
+            def __init__(self):
+                self.settled = False
+
+            def settle(self):
+                self.settled = True
+
+        graph = Graph()
+        step = Candidate(
+            "theirs.Graph.settle", graph.settle, "theirs",
+            self_only=True, in_place=True, attribute="settle", owner=Graph,
+        )
+
+        self.assertIs(step.bound(graph), graph)
+        self.assertTrue(graph.settled)
+
+    def test_a_per_item_in_place_step_hands_on_the_items(self):
+        from cogbench.pipeline import Candidate
+
+        def mark(item):
+            item.append("seen")
+
+        items = [[1], [2]]
+        step = Candidate("theirs.mark", mark, "theirs", per_item=True, in_place=True)
+
+        self.assertEqual(step.bound(items), [[1, "seen"], [2, "seen"]])
+
+
+class AWrongWholeAnswerDoesNotEndTheCandidate(unittest.TestCase):
+    """A tokenizer that returns nothing without its table and the right
+    thing with it: the whole call answered wrongly, the per-item call too,
+    and the shape that supplies the table was never tried."""
+
+    def test_the_shape_with_the_side_input_is_still_tried(self):
+        module = _written(
+            "theirs",
+            "def tokenize(texts, idfs=None):\n"
+            "    if idfs is None:\n        return []\n"
+            "    return [[str(x)] for x in texts]\n",
+        )
+        stage = Stage(
+            "tokens",
+            # Non-empty token lists: the per-item call without the table
+            # returns `[]` per item, which a looser check read as tokens.
+            produces=lambda v: isinstance(v, list) and bool(v) and all(
+                isinstance(row, list) and bool(row) for row in v
+            ),
+            per_item=True,
+            extras=("idfs",),
+        )
+
+        found = probe_sources(stage, callables_in([module]), (["a", "b"],), extras={"idfs": {"a": 1.0}})
+
+        self.assertEqual([c.label for c, _ in found], ["theirs.tokenize"])
+        self.assertIn("extra:idfs", found[0][0].plan)

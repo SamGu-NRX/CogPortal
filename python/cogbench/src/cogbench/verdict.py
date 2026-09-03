@@ -325,6 +325,7 @@ def not_wired(
     last_returned: str = "",
     next_step: str = "",
     coverage: Optional["Coverage"] = None,
+    notes: Sequence[str] = (),
 ) -> Verdict:
     """No chain of their functions performs the task.
 
@@ -356,7 +357,15 @@ def not_wired(
             "passes.".format(stage)
         )
     return Verdict(
-        NOT_WIRED, headline, tuple(trace), next_step=next_step, coverage=coverage
+        NOT_WIRED,
+        headline,
+        tuple(trace),
+        next_step=next_step,
+        coverage=coverage,
+        # The headline names the hand-off that failed. When the search knows
+        # something the hand-off does not say, it says it here rather than in
+        # place of the headline, which is still the first thing to check.
+        notes=tuple(notes),
     )
 
 

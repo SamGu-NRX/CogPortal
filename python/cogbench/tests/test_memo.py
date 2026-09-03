@@ -263,3 +263,74 @@ class ARememberedFormIsReplayed(unittest.TestCase):
         second = self._resolve()
         self.assertTrue(second.recalled)
         self.assertEqual(second.chain[0].form, 1)
+
+
+class ARememberedHandoffIsReplayed(unittest.TestCase):
+    """Which part of a fused step's return the next step was handed is part
+    of the binding, not something a replay may work out again. rutvim's week
+    1 `spectrogram_conversion` returns `(log_spectrogram, peaks)` and their
+    `generate_fingerprints` accepts either, at 0.547 and 0.094."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        # Not `theirs.py`: another class in this file writes one, discovery
+        # registers a module under its bare file name, and a second `theirs`
+        # in the same process resolves to the first one's functions.
+        (self.tmp / "fused.py").write_text(
+            "def two(value, rate):\n    return ('grid', [(value, rate)])\n"
+            "def prints(peaks):\n    return [((a, b), 0) for a, b in peaks]\n"
+        )
+
+    def _resolve(self):
+        role = Role(
+            "fingerprint",
+            (
+                Stage("fused", produces=lambda v: isinstance(v, tuple), arity=2),
+                Stage(
+                    "prints",
+                    produces=lambda v: isinstance(v, list)
+                    and bool(v)
+                    and isinstance(v[0], tuple),
+                ),
+            ),
+        )
+        return resolve(
+            self.tmp,
+            chain_role=role,
+            fixture=FIXTURE,
+            accepts=lambda chain, *_: (True, ""),
+            arrangements=None,
+            remember=True,
+        )
+
+    def test_the_entry_records_the_handoff_and_the_replay_restores_it(self):
+        first = self._resolve()
+        self.assertTrue(first.ready)
+        self.assertEqual(first.chain[1].handoff, "element:1")
+
+        stored = memo.read(
+            self.tmp, memo.fingerprint([self.tmp / "fused.py"], benchmark="")
+        )
+        self.assertEqual(stored["handoffs"], [None, "element:1"])
+
+        second = self._resolve()
+        self.assertTrue(second.recalled)
+        self.assertEqual(second.chain[1].handoff, "element:1")
+        self.assertEqual(
+            second.chain[1].bound(("grid", [(7, 44100)])), [((7, 44100), 0)]
+        )
+
+    def test_an_entry_that_does_not_say_which_part_bound_is_searched_again(self):
+        self._resolve()
+        path = memo.cache_path(self.tmp)
+        import json
+
+        record = json.loads(path.read_text())
+        del record["binding"]["handoffs"]
+        path.write_text(json.dumps(record))
+
+        second = self._resolve()
+
+        self.assertFalse(second.recalled)
+        self.assertEqual(second.chain[1].handoff, "element:1")

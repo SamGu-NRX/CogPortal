@@ -688,3 +688,335 @@ class TheRecordSaysWhichHashSeedTheRunHad(unittest.TestCase):
 
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(done.stdout.strip(), "null")
+
+
+class _Encoder:
+    """One of their objects, built and loaded by the benchmark from a path."""
+
+    def __call__(self, rows):
+        return [row * 3 for row in rows]
+
+
+class AnObjectTheBenchmarkHandedOverIsAStepOnTheRecord(unittest.TestCase):
+    """G4. Bagel's week 3 image encoder is their own `ImageToCaption`, built
+    with no arguments and loaded from their pickle by the benchmark. Nothing
+    in the repository can serve that stage: `methods_of` skips `__call__`
+    and the loaded instance lives in the extras pool. A step that was not one
+    of their functions at all is the largest thing a run can supply, so it is
+    the one thing that must never be missing from the record."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        (self.tmp / "theirs.py").write_text("def unrelated(x):\n    return None\n")
+
+    def _submission(self):
+        role = Role(
+            "search",
+            (
+                Stage(
+                    "image",
+                    produces=lambda v: isinstance(v, list),
+                    extras=("weights_model",),
+                ),
+            ),
+        )
+        return resolve(
+            self.tmp,
+            chain_role=role,
+            fixture=([1, 2],),
+            accepts=lambda chain, *_: (True, ""),
+            arrangements=None,
+            extras={"weights_model": _Encoder()},
+        )
+
+    def test_the_stage_binds_to_the_object_the_week_put_in_the_pool(self):
+        submission = self._submission()
+
+        self.assertTrue(submission.ready)
+        self.assertEqual(
+            [step.label for step in submission.chain], ["weights_model (_Encoder)"]
+        )
+
+    def test_it_appears_under_supplied(self):
+        supplied = self._submission().to_dict()["supplied"]
+
+        self.assertIn(
+            {
+                "step": "weights_model (_Encoder)",
+                "supplied": "weights_model (_Encoder) handed to the chain as this step",
+            },
+            supplied,
+        )
+
+
+class ASurfaceTheRepositoryDoesNotHaveIsNamedRatherThanScored(unittest.TestCase):
+    """G6. A week 3 repository with no trained weights has no image side, and
+    the decided policy withholds those numbers rather than zeroing them. The
+    run then has to say which surface is absent and how far the search got
+    looking for it, in their terms."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        (self.tmp / "theirs.py").write_text(
+            "def embed(texts):\n    return [len(t) for t in texts]\n"
+        )
+
+    def _submission(self):
+        role = Role(
+            "search",
+            (),
+            branches=(
+                Role(
+                    "text",
+                    (Stage("text", produces=lambda v: isinstance(v, list)),),
+                    fixture=(["a"],),
+                ),
+                Role(
+                    "image",
+                    (Stage("image", produces=lambda v: isinstance(v, dict)),),
+                    fixture=([1],),
+                    optional=True,
+                ),
+            ),
+        )
+        return resolve(
+            self.tmp,
+            chain_role=role,
+            fixture=(["a"],),
+            accepts=lambda chains, *_: (True, ""),
+            arrangements=None,
+        )
+
+    def test_the_half_that_works_still_resolves(self):
+        submission = self._submission()
+
+        self.assertEqual(
+            submission.to_dict()["branches"], {"text": ["theirs.embed"]}
+        )
+
+    def test_the_record_names_the_surface_that_is_not_there(self):
+        record = self._submission().to_dict()["missing"]
+
+        self.assertEqual(sorted(record), ["image"])
+        self.assertEqual(record["image"]["stage"], "image")
+        self.assertIn("nothing accepted", record["image"]["detail"])
+
+    def test_a_role_whose_branches_all_bound_records_no_missing(self):
+        role = Role(
+            "search",
+            (),
+            branches=(
+                Role(
+                    "text",
+                    (Stage("text", produces=lambda v: isinstance(v, list)),),
+                    fixture=(["a"],),
+                ),
+            ),
+        )
+        submission = resolve(
+            self.tmp,
+            chain_role=role,
+            fixture=(["a"],),
+            accepts=lambda chains, *_: (True, ""),
+            arrangements=None,
+        )
+
+        self.assertNotIn("missing", submission.to_dict())
+
+
+class ABranchBindingIsReadyToScore(unittest.TestCase):
+    """A role made of branches leaves `chain` empty; the branches are the
+    binding, and `ready` has to read them or the CLI refuses to score a
+    repository the search just bound."""
+
+    def test_ready_reads_the_branches(self):
+        import tempfile, shutil
+        from cogbench.pipeline import Role, Stage
+
+        tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        (tmp / "theirs.py").write_text("def embed(xs):\n    return [[1.0] for _ in xs]\n")
+        role = Role("all", (), branches=(Role("text", (Stage("text", produces=lambda v: isinstance(v, list)),), fixture=(["a"],)),))
+        found = resolve(tmp, chain_role=role, fixture=(["a"],), accepts=lambda chains, *_: (True, ""), arrangements=None)
+        self.assertEqual(found.verdict.status, SCORED)
+        self.assertTrue(found.branches)
+        self.assertTrue(found.ready)
+
+
+class WhatTheRepositoryItselfSuppliesIsReadOnceTheRootIsKnown(unittest.TestCase):
+    """A week 3 team's trained projection is a file in their repository. The
+    spec is built before any repository is chosen, so it cannot hold the
+    matrix; a hook run after discovery picks the root reads it and puts it in
+    the pool. Without this every repository read as having no weights, with
+    `data/W_embed.npy` sitting in the tree."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        (self.tmp / "theirs.py").write_text(
+            "def project(rows, W):\n    return [r * W for r in rows]\n"
+        )
+        self.role = Role(
+            "image",
+            (Stage("image", produces=lambda v: isinstance(v, list), extras=("W",)),),
+        )
+
+    def test_the_hook_sees_the_chosen_root_and_the_loaded_modules(self):
+        seen = {}
+
+        def prepare(root, modules):
+            seen["root"] = root
+            seen["modules"] = [m.__name__ for m in modules]
+            return {"W": 3}
+
+        submission = resolve(
+            self.tmp,
+            chain_role=self.role,
+            fixture=([1, 2],),
+            accepts=lambda chain, *_: (chain[0].bound([1]) == [3], ""),
+            arrangements=None,
+            prepare=prepare,
+        )
+
+        self.assertTrue(submission.ready, submission.verdict.headline)
+        self.assertEqual(seen["root"], self.tmp)
+        self.assertEqual(seen["modules"], ["theirs"])
+
+    def test_the_benchmarks_own_extras_win_over_the_repositorys(self):
+        submission = resolve(
+            self.tmp,
+            chain_role=self.role,
+            fixture=([1],),
+            accepts=lambda chain, *_: (chain[0].bound([1]) == [5], ""),
+            arrangements=None,
+            extras={"W": 5},
+            prepare=lambda root, modules: {"W": 3},
+        )
+
+        self.assertTrue(submission.ready, submission.verdict.headline)
+
+    def test_a_hook_that_raises_refuses_with_its_own_words(self):
+        def prepare(root, modules):
+            raise RuntimeError("two files could be the projection: a.npy, b.npy")
+
+        submission = resolve(
+            self.tmp,
+            chain_role=self.role,
+            fixture=([1],),
+            accepts=lambda chain, *_: (True, ""),
+            arrangements=None,
+            prepare=prepare,
+        )
+
+        self.assertEqual(submission.verdict.status, NOT_READ)
+        self.assertIn("two files could be the projection", submission.verdict.headline)
+
+
+class AValueTheirModuleComputedWhenItLoadedCanAnswerAFitStage(unittest.TestCase):
+    """One 2026 repository has no IDF function. `text_to_image` builds `idf`
+    at module scope in a loop over the course captions and every embedding
+    call reads the global. The computation is theirs and it ran; a fit stage
+    that only calls functions reported that nothing produced the table."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def _role(self):
+        return Role(
+            "search",
+            (
+                Stage(
+                    "idfs",
+                    fit=True,
+                    fixture=(["a", "b"],),
+                    produces=lambda v: isinstance(v, dict) and all(
+                        isinstance(x, float) for x in v.values()
+                    ),
+                ),
+                Stage("text", produces=lambda v: isinstance(v, list), extras=("idfs",)),
+            ),
+        )
+
+    def test_the_module_value_is_used_and_disclosed(self):
+        (self.tmp / "theirs.py").write_text(
+            "idf = {'a': 0.5, 'b': 1.5}\n"
+            "counts = {'a': 2, 'b': 1}\n"
+            "def embed(texts, idfs):\n    return [idfs[t] for t in texts]\n"
+        )
+
+        submission = resolve(
+            self.tmp,
+            chain_role=self._role(),
+            fixture=(["a"],),
+            accepts=lambda chain, *_: (chain[0].bound(["b"]) == [1.5], ""),
+            arrangements=None,
+        )
+
+        self.assertTrue(submission.ready, submission.verdict.headline)
+        record = submission.to_dict()
+        self.assertEqual(record["fits"], [["idfs", "theirs.idf"]])
+        notes = [row["supplied"] for row in record["supplied"]]
+        self.assertIn(
+            "read from theirs.idf, a value their module computes when it loads", notes
+        )
+
+    def test_one_of_their_functions_is_preferred_over_a_module_value(self):
+        (self.tmp / "theirs.py").write_text(
+            "idf = {'a': 0.5}\n"
+            "def compute_idfs(corpus):\n    return {w: 2.5 for w in corpus}\n"
+            "def embed(texts, idfs):\n    return [idfs[t] for t in texts]\n"
+        )
+
+        submission = resolve(
+            self.tmp,
+            chain_role=self._role(),
+            fixture=(["a"],),
+            accepts=lambda chain, *_: (True, ""),
+            arrangements=None,
+        )
+
+        self.assertTrue(submission.ready, submission.verdict.headline)
+        self.assertEqual(submission.to_dict()["fits"], [["idfs", "theirs.compute_idfs"]])
+
+
+class AChainThatRanAndAnsweredWronglyIsReportedInTheWeeksWords(unittest.TestCase):
+    """The resolver's headline for this case said "answered a different
+    grouping where the answer is one group per person", which is week 2's
+    sentence, to a week 3 team whose caption search had run. The week says
+    what its test expects, and what the test said goes in the headline."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        (self.tmp / "theirs.py").write_text("def answer(xs):\n    return 'no'\n")
+        self.role = Role("say", (Stage("say", produces=lambda v: isinstance(v, str)),))
+
+    def test_the_headline_carries_what_the_week_expected_and_what_its_test_said(self):
+        submission = resolve(
+            self.tmp,
+            chain_role=self.role,
+            fixture=([1],),
+            accepts=lambda chain, *_: (False, "asked for yes and got no"),
+            arrangements=None,
+            expects="yes",
+        )
+
+        headline = submission.verdict.headline
+        self.assertIn("where the answer is yes", headline)
+        self.assertIn("asked for yes and got no", headline)
+        self.assertNotIn("grouping", headline)
+
+    def test_a_week_that_says_nothing_gets_a_sentence_true_of_every_week(self):
+        submission = resolve(
+            self.tmp,
+            chain_role=self.role,
+            fixture=([1],),
+            accepts=lambda chain, *_: (False, ""),
+            arrangements=None,
+        )
+
+        self.assertIn("the answer the benchmark's own case has", submission.verdict.headline)
+        self.assertNotIn("grouping", submission.verdict.headline)

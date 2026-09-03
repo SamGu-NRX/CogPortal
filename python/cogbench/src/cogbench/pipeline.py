@@ -267,7 +267,31 @@ class Role:
 
     #: This role's own first-stage input. Only read for a branch; the outer
     #: fixture is used when it is None.
+    #:
+    #: May be a callable ``(pool, chains) -> fixture``, evaluated at the
+    #: moment the branch is resolved rather than when the role was built.
+    #: Week 3 needs that in both directions: the search branch is probed with
+    #: the text branch's own chain applied to the query string, and the
+    #: prepare branch is offered the image branch's projected matrix as its
+    #: descriptor slot. Neither value exists when the role is constructed.
+    #: A callable that raises, or returns None, means this branch cannot be
+    #: probed yet on this pass; the fixpoint in `_resolve_branches` comes
+    #: back to it once another branch has filled the pool.
     fixture: Any = None
+
+    #: Whether the role still resolves when this branch does not.
+    #:
+    #: Week 3 with no trained weights in the repository is the case. The
+    #: decided policy withholds the overall and the three image-side numbers
+    #: rather than zeroing them (docs/design/discovery-v2-brief.md, "Absent
+    #: weights"), which only means anything if the text branch still binds.
+    #: Refusing the whole role over the image half reports "your code is not
+    #: wired up" to a team whose caption embedding works.
+    #:
+    #: A required branch that never resolves refuses the role and names
+    #: itself. An optional one is recorded on the binding under `missing`
+    #: and the role goes on without it.
+    optional: bool = False
 
 
 class _Spread(tuple):
@@ -313,6 +337,12 @@ class _Partial:
     #: globally because two partials may have built two different stores, and
     #: a method of one is not a step of the other's chain.
     reach: Tuple["Candidate", ...] = ()
+    #: How many stages were skipped by handing their INPUT to a later step
+    #: (see the forward reading in `_resolve_chain`). Weaker evidence than a
+    #: stage absorbed backward, where one of their functions was seen to
+    #: produce the later stage's output; counted so the final ask tries such
+    #: chains after the others.
+    forward: int = 0
 
 
 @dataclass(frozen=True)
@@ -406,6 +436,32 @@ class Candidate:
     #: compared: `label` already says which method this is.
     attribute: Optional[str] = field(default=None, compare=False)
     owner: Optional[type] = field(default=None, compare=False, repr=False)
+    #: The branch whose chain built the object this method is taken off,
+    #: when the method is used from a DIFFERENT branch. A scored run builds
+    #: that object again under this name (see `runtime_pool`), and the
+    #: method has to be re-taken off the new one; the search-time object
+    #: holds the fixture. Set by `_resolve_branches` as it carries methods
+    #: forward; None for every method used inside its own chain.
+    branch: Optional[str] = field(default=None, compare=False)
+
+    #: Which reading of the upstream value this step was called with, when
+    #: the search took the value apart before handing it over: None for the
+    #: whole value, "spread" for a tuple passed as several arguments,
+    #: "reversed" for a two-tuple passed the other way round, and
+    #: "element:<k>" for one part of it. The readings are `_handoffs`, and
+    #: nothing here transforms a value: it is passed exactly as it was
+    #: returned, or exactly one part of it is.
+    #:
+    #: Recorded for the same reason as `tuning`, `form`, and `in_place`. The
+    #: search knows which reading bound at the moment it binds, and a run
+    #: that re-executes the chain later has nothing to work it out from:
+    #: rutvim's week 1 `spectrogram_conversion` returns `(log_spectrogram,
+    #: peaks)` and their `generate_fingerprints` accepts either, returning
+    #: 609 fingerprints and scoring 0.547 on the peaks and 2970 and 0.094 on
+    #: the spectrogram (benchmarks/week1/tests/test_discovered_chain.py,
+    #: `WhichPartOfATupleTheNextStepIsHanded`). Both readings run, so the
+    #: difference is a score rather than an error.
+    handoff: Optional[str] = None
 
     @property
     def bound(self) -> Callable[..., Any]:
@@ -423,6 +479,9 @@ class Candidate:
             and not self.per_item
             and self.element is None
             and not self.self_only
+            and self.handoff is None
+            and self.attribute is None
+            and not self.in_place
         ):
             return self.call
         return lambda *args: _invoke(self, args)
@@ -433,14 +492,51 @@ class Candidate:
         supplied: Optional[Dict[str, Any]] = None,
         keywords: Sequence[str] = (),
     ) -> "Candidate":
-        """The same candidate called a different way."""
+        """The same candidate called a different way.
 
+        What was already on `supplied` is kept underneath. A candidate that
+        is itself one of the benchmark's own objects (see `_from_pool`)
+        carries the note saying so, and building a shape out of it must not
+        drop that note: it is the only record that the step the chain ran
+        was not one of their functions.
+        """
+
+        merged = dict(self.supplied)
+        merged.update(supplied or {})
         return replace(
             self,
             plan=tuple(plan),
             keywords=tuple(keywords),
-            supplied=dict(supplied or {}),
+            supplied=merged,
         )
+
+
+#: Values that replace a step's remembered side inputs for the duration of one
+#: run. Set by a week's discovered adapter before it runs a chain, so a step
+#: whose extra was another branch's output takes THIS run's output rather
+#: than the search fixture's. Measured before this existed: a prepare step
+#: bound with supplied={"image": <fixture rows>} built the scored database
+#: from the fixture's projected descriptors, not the run's.
+_RUNTIME: Dict[str, Any] = {}
+
+
+@contextlib.contextmanager
+def runtime_pool(values: Dict[str, Any]):
+    """Make ``values`` the live side inputs for every step called inside."""
+
+    previous = dict(_RUNTIME)
+    _RUNTIME.update(values)
+    try:
+        yield
+    finally:
+        _RUNTIME.clear()
+        _RUNTIME.update(previous)
+
+
+def _supplied_now(candidate: Candidate, name: str) -> Any:
+    if name in _RUNTIME:
+        return _RUNTIME[name]
+    return candidate.supplied[name]
 
 
 def _arguments(candidate: Candidate, positional: Sequence[Any], index: Optional[int] = None):
@@ -468,13 +564,26 @@ def _arguments(candidate: Candidate, positional: Sequence[Any], index: Optional[
         elif slot == "tuning":
             args.append(candidate.tuning)
         elif slot == "identity":
-            identities = candidate.supplied.get("identity", ())
+            # This run's items, not the search's. The identity slot holds the
+            # names of the photos the benchmark is passing, and the search
+            # bound it on the fixture's copies; a scored run writes its own
+            # and then reads the answer back by those names. Measured on week
+            # 2's Bagel repository, whose `Whispers(vectors, names, threshold)`
+            # stores each name on its node and whose `sorted_images` returns
+            # the groups keyed by them: replaying the search's names made
+            # every group name a photo this run had never seen, and placing
+            # the answer raised instead of scoring.
+            identities = (
+                _RUNTIME["identity"]
+                if "identity" in _RUNTIME
+                else candidate.supplied.get("identity", ())
+            )
             args.append(identities[index] if index is not None else list(identities))
         elif slot.startswith("extra:"):
-            args.append(candidate.supplied[slot[len("extra:"):]])
+            args.append(_supplied_now(candidate, slot[len("extra:"):]))
         else:  # pragma: no cover - a plan is built here and nowhere else
             raise TypeError("unknown argument slot {!r}".format(slot))
-    keywords = {name: candidate.supplied[name] for name in candidate.keywords}
+    keywords = {name: _supplied_now(candidate, name) for name in candidate.keywords}
     return tuple(args), keywords
 
 
@@ -496,20 +605,88 @@ def _rebound(candidate: Candidate, positional: Sequence[Any]) -> Callable[..., A
     method of a constructor stage's instance, so nothing else changes.
     """
 
-    if candidate.attribute is None or not positional:
+    if candidate.attribute is None:
         return candidate.call
-    held = positional[0]
-    if candidate.owner is not None and not isinstance(held, candidate.owner):
-        return candidate.call
-    later = getattr(held, candidate.attribute, None)
-    return later if callable(later) else candidate.call
+    # The object this run built, in one of two places: carried by the chain
+    # as the value the constructor step just returned, or, for a method
+    # reached from ANOTHER branch, in the runtime pool under that branch's
+    # name. Measured before the second was read: a search branch bound to
+    # `Store([1]).search` from the prepare branch kept answering about
+    # `[1]` after the scored run had built `Store([9])`.
+    holders: List[Any] = []
+    if positional:
+        holders.append(positional[0])
+    if candidate.branch is not None and candidate.branch in _RUNTIME:
+        holders.append(_RUNTIME[candidate.branch])
+    for held in holders:
+        if candidate.owner is not None and not isinstance(held, candidate.owner):
+            continue
+        later = getattr(held, candidate.attribute, None)
+        if callable(later):
+            return later
+    return candidate.call
+
+
+def _handed(candidate: Candidate, positional: Sequence[Any]) -> Tuple[Any, ...]:
+    """The upstream value read the way the search read it when this bound.
+
+    `extend` offers a stage's value whole and then taken apart (`_handoffs`),
+    and whichever reading ran is recorded on the step. This applies that same
+    reading to the value a later call carries, so the acceptance test and the
+    scored run make the call the search made. Nothing is transformed: the
+    value is passed as it was returned, spread as the arguments it already
+    is, or one of its parts is passed as it was returned.
+
+    A value the reading cannot be applied to raises, with the reading and
+    the value named. The search bound this step on a value that had this
+    part; a scored run that hands it one that does not has an upstream
+    whose shape changed, which is their bug to see. Falling through to the
+    whole value instead, which the first draft did, silently scored a
+    different call from the one the search proved: measured with a step
+    bound on "element:2" and handed a pair, it was called with the pair.
+    """
+
+    if candidate.handoff is None or not positional:
+        return tuple(positional)
+    value = positional[0]
+    rest = tuple(positional[1:])
+    try:
+        # These readings were discovered on a tuple and mean nothing on
+        # anything else. A list would spread and a string would index, and
+        # either is a call the search never proved.
+        if candidate.handoff in ("spread", "reversed") and not isinstance(value, tuple):
+            raise TypeError("not a tuple")
+        if candidate.handoff == "spread":
+            return tuple(value) + rest
+        if candidate.handoff == "reversed":
+            return (value[1], value[0]) + rest
+        if candidate.handoff.startswith("element:"):
+            if not isinstance(value, tuple):
+                raise TypeError("not a tuple")
+            return (value[int(candidate.handoff[len("element:"):])],) + rest
+    except (TypeError, IndexError, KeyError, ValueError) as error:
+        raise TypeError(
+            "{} was bound on {} of what the step before it returned, and this "
+            "run's value has no such part: {}".format(
+                candidate.label, candidate.handoff, type(error).__name__
+            )
+        ) from error
+    return tuple(positional)
 
 
 def _invoke(candidate: Candidate, positional: Sequence[Any]) -> Any:
     """Run one bound candidate on the arguments a chain hands it."""
 
+    positional = _handed(candidate, positional)
     if candidate.self_only:
-        return _rebound(candidate, positional)()
+        return _carried(candidate, positional, _rebound(candidate, positional)())
+    if candidate.attribute is not None and candidate.branch is not None:
+        # A method of an object another branch built. The object is not in
+        # this chain's arguments, so it is looked up by branch name, and the
+        # arguments go to the method as they are.
+        call = _rebound(candidate, ())
+        args, keywords = _arguments(candidate, positional)
+        return _carried(candidate, positional, call(*args, **keywords))
     if candidate.per_item:
         if not positional:
             raise TypeError("a per-item step needs the items to run over")
@@ -519,12 +696,30 @@ def _invoke(candidate: Candidate, positional: Sequence[Any]) -> Any:
         for index, item in enumerate(items):
             args, keywords = _arguments(candidate, (item,) + rest, index)
             produced.append(candidate.call(*args, **keywords))
+        if candidate.in_place and all(row is None for row in produced):
+            # Each item was changed where it sat; the items go forward.
+            return items
         if candidate.element is not None:
             return [row[candidate.element] for row in produced]
         return produced
     args, keywords = _arguments(candidate, positional)
-    return candidate.call(*args, **keywords)
+    return _carried(candidate, positional, candidate.call(*args, **keywords))
 
+
+def _carried(candidate: Candidate, positional: Sequence[Any], result: Any) -> Any:
+    """What a step hands on: its result, or the object it changed in place.
+
+    The search recorded an in-place step as answering on the object it was
+    given (`extend`, the `stage.in_place` branch) and carried that object
+    forward; a scored run has to carry the same thing. One helper for every
+    call path, because the first version covered only the plain call and an
+    independent review found the self-only and cross-branch paths handing
+    the next step None.
+    """
+
+    if candidate.in_place and result is None and positional:
+        return positional[0]
+    return result
 
 @dataclass(frozen=True)
 class Binding:
@@ -565,9 +760,25 @@ class Binding:
     #: an ordinary single-chain role, which is every week before week 3.
     branches: Dict[str, Tuple[Candidate, ...]] = field(default_factory=dict)
 
+    #: The branches this role declared optional that never resolved, by
+    #: name, with the refusal each ended on. Empty for every role whose
+    #: branches all bound, which is every role before week 3.
+    missing: Dict[str, "Refusal"] = field(default_factory=dict)
+
     _stage_names: Tuple[str, ...] = field(default=(), compare=False)
     _received: Tuple[str, ...] = field(default=(), compare=False)
     _returned: Tuple[str, ...] = field(default=(), compare=False)
+    #: What this chain's last step produced, kept so a later branch of the
+    #: same role can be probed with it. Bagel's week 3
+    #: `CaptionImageQuery(EMBEDDINGS, ids)` takes the image branch's
+    #: projected matrix and Lashika's search takes the prepare branch's
+    #: store; before this the value a branch produced was thrown away the
+    #: moment the branch was accepted, so neither could be reached.
+    #:
+    #: Not part of the record and not compared: it is a live object out of
+    #: their code, sometimes a large array, and two runs of the same
+    #: repository are the same binding whatever it holds.
+    _value: Any = field(default=None, compare=False, repr=False)
     #: The methods of every object this chain's constructor stages built.
     #: Carried out of the search so a later branch of the same role can call
     #: one; see `_resolve_branches`. Not part of the record and not compared.
@@ -596,6 +807,12 @@ class Refusal:
     #: `detail`, because the two refusals need opposite sentences and matching
     #: on prose is how they came to share one.
     ran_to_the_end: bool = False
+    #: Anything the search learned about why nothing bound that the stage and
+    #: the furthest chain do not say. A refusal names the hand-off that
+    #: failed, which is the right headline and is sometimes not the reason:
+    #: see `_folders_of_their_own`, where the reason is a constructor the
+    #: search had to refuse three stages earlier.
+    notes: Tuple[str, ...] = ()
 
 
 Resolution = Tuple[Optional[Binding], Optional[Refusal]]
@@ -653,6 +870,45 @@ def callables_in(modules: Sequence[Any]) -> List[Candidate]:
                 found.append(
                     Candidate("{}.{}".format(module_name, name), value, module_name)
                 )
+                continue
+            if isinstance(value, type) and getattr(value, "__module__", None) == module_name:
+                found.extend(_namespaced_in(value, module_name, name))
+    return found
+
+
+def _namespaced_in(owner: type, module_name: str, class_name: str) -> List[Candidate]:
+    """Plain functions a team parked inside a class, called unbound.
+
+    A class whose functions take no `self` is a namespace, not a type: one
+    2026 team keeps its whole week 1 pipeline under `class Spectogram:` and
+    calls each piece as `Spectogram.match_fingerprint(fp, db, index)`.
+    `methods_of` only ever exposes the bound copy, where the first argument
+    is swallowed as `self`, so their matcher could take two arguments where
+    it needs three and nothing in the repository answered the query. The
+    first parameter not being named `self` is what separates such a
+    function from a method, and every real method stays with `methods_of`.
+    """
+
+    found: List[Candidate] = []
+    for name in sorted(vars(owner)):
+        if name.startswith("_") or any(word in name.lower() for word in _NEVER):
+            continue
+        value = vars(owner)[name]
+        if isinstance(value, (staticmethod, classmethod)) or not inspect.isfunction(value):
+            continue
+        if getattr(value, "__module__", None) != module_name:
+            continue
+        try:
+            parameters = list(inspect.signature(value).parameters)
+        except (TypeError, ValueError):
+            continue
+        if not parameters or parameters[0] in ("self", "cls"):
+            continue
+        if _reaches_outside(value):
+            continue
+        found.append(
+            Candidate("{}.{}.{}".format(module_name, class_name, name), value, module_name)
+        )
     return found
 
 
@@ -748,6 +1004,45 @@ def constructors_in(modules: Sequence[Any]) -> List[Candidate]:
     return found
 
 
+def folder_readers_in(modules: Sequence[Any]) -> List[Candidate]:
+    """Every class the team wrote that builds with no arguments at all.
+
+    `instances_in` builds these once, up front, to find a store the benchmark
+    can fill; `constructors_in` leaves them alone for exactly that reason.
+    Neither reaches a team who wrote their pipeline over a directory: week
+    2's CoggurtFilter has `clusterCreator()`, whose `__init__` reads a folder
+    of photos and describes every one of them, so the class IS the step and
+    the folder is its input.
+
+    Offered only to a stage that declared `Stage.folder`, since that is the
+    stage that knows the benchmark's input can be handed over as a directory,
+    and `_from_a_folder` is what decides whether the call read one.
+    """
+
+    found: List[Candidate] = []
+    for module in modules:
+        module_name = getattr(module, "__name__", "?")
+        for name in sorted(dir(module)):
+            value = getattr(module, name, None)
+            if not isinstance(value, type):
+                continue
+            if getattr(value, "__module__", None) != module_name:
+                continue
+            if name.startswith("_") or any(word in name.lower() for word in _NEVER):
+                continue
+            try:
+                inspect.signature(value).bind()
+            except (TypeError, ValueError):
+                continue
+            initializer = getattr(value, "__init__", None)
+            if initializer is not None and _reaches_outside(initializer):
+                continue
+            found.append(
+                Candidate("{}.{}".format(module_name, name), value, module_name)
+            )
+    return found
+
+
 def rebuilder_for(instance: Any) -> Optional[Callable[[], Any]]:
     """A way to build another object like this one, or None.
 
@@ -782,7 +1077,17 @@ def methods_of(
             continue
         if name not in vars(owner) and not any(name in vars(base) for base in owner.__mro__):
             continue
-        value = getattr(instance, name, None)
+        try:
+            value = getattr(instance, name, None)
+        except BaseException:  # noqa: BLE001 - reading an attribute runs their code
+            # A property is their code, and reading one runs it. Week 2's
+            # Lashika repository has `Profile.average_descriptor`, a property
+            # that averages the descriptors it was built with; on an object
+            # the search constructed out of a cutoff there are none, and
+            # `np.mean(0.3, axis=0)` raises. Enumerating what an object can
+            # do must never end discovery, so an attribute that will not be
+            # read is simply not a candidate.
+            continue
         if not callable(value) or isinstance(value, type):
             continue
         if _reaches_outside(value):
@@ -856,13 +1161,23 @@ def _call(
     previous = signal.signal(signal.SIGALRM, _raise_timeout)
     signal.alarm(CALL_TIMEOUT_SECONDS)
     try:
-        with _muted():
-            return True, candidate.call(*args, **keywords)
+        # The alarm is cancelled inside the guarded block, not in the outer
+        # `finally`. A call that returns just as the clock runs out has the
+        # alarm land between the return and the cancel; when the cancel sat
+        # in `finally`, that was outside the `except`, and the `_Timeout`
+        # left this function and ended the whole search. Measured on one
+        # 2026 repository whose constructor probe took ten seconds.
+        try:
+            with _muted():
+                result = candidate.call(*args, **keywords)
+        finally:
+            signal.alarm(0)
     except BaseException:  # noqa: BLE001 - student code raises anything
         return False, None
     finally:
         signal.alarm(0)
         signal.signal(signal.SIGALRM, previous)
+    return True, result
 
 
 @contextlib.contextmanager
@@ -892,6 +1207,7 @@ def probe_sources(
     *,
     extras: Optional[Dict[str, Any]] = None,
     identities: Sequence[Any] = (),
+    skip_forms: FrozenSet[int] = frozenset(),
 ) -> List[Tuple[Candidate, Any]]:
     """Which candidates accept the benchmark's own input and return something.
 
@@ -913,11 +1229,16 @@ def probe_sources(
     # refusing the one the course taught would be our contract failing them.
     forms = fixture if isinstance(fixture, Fixtures) else (fixture,)
     pool = dict(extras or {})
-    for candidate in _order_for(stage, candidates):
+    for candidate in _order_for(stage, candidates) + _from_pool(stage, pool):
         bound: Optional[Candidate] = None
         value: Any = None
         which = None
         for index, form in enumerate(forms):
+            if index in skip_forms:
+                # Ruled out by the caller: a branch bound on this form and a
+                # later branch then found nothing to call (see the form
+                # backtracking in `_resolve_branches`).
+                continue
             bound, value = _bind_one(
                 stage, candidate, tuple(form), pool, identities_for(identities, form)
             )
@@ -933,6 +1254,42 @@ def probe_sources(
         if stage.produces is None or _safe_produces(stage, value):
             accepted.append((replace(bound, form=which), value))
     return accepted
+
+
+def _from_pool(stage: Stage, pool: Dict[str, Any]) -> List[Candidate]:
+    """The side inputs this stage declared that are themselves callable.
+
+    A side input is usually data. Bagel's week 3 image encoder is not: it is
+    `ImageToCaption()`, built with no arguments, handed their own pickle
+    through `.load(path)`, and then called. The object is theirs and the
+    weights inside it are theirs; the only thing the benchmark supplied is
+    the path. Nothing in the repository can serve that stage, because
+    `methods_of` skips `__call__` along with every other underscore name and
+    the loaded instance lives in the pool rather than in a module.
+
+    Offered after every candidate the repository itself provides, so one of
+    their functions always wins where one exists, and recorded as supplied so
+    a run page can say the step was not one of their own functions.
+    """
+
+    found: List[Candidate] = []
+    for name in stage.extras:
+        value = pool.get(name)
+        if value is None or not callable(value):
+            continue
+        label = "{} ({})".format(name, type(value).__name__)
+        found.append(
+            Candidate(
+                label,
+                value,
+                name,
+                supplied={
+                    name: "{} handed to the chain as this step".format(label),
+                    "pooled": name,
+                },
+            )
+        )
+    return found
 
 
 def identities_for(identities: Sequence[Any], form: Sequence[Any]) -> Sequence[Any]:
@@ -998,7 +1355,32 @@ def _bind_one(
             continue
         ok, value = _call(shape, positional)
         if ok and value is not None:
-            return shape, value
+            if (
+                not stage.per_item
+                or spread
+                or stage.produces is None
+                or _safe_produces(stage, value)
+            ):
+                return shape, value
+            # Their function took the whole list and answered, but not with
+            # this stage's output. One 2026 tokenizer walks its argument
+            # character by character, so handed 75 captions it treated each
+            # caption as a character, joined them, and returned one flat
+            # token list; the per-item form was never tried because the
+            # whole call had "succeeded", and the branch refused. The
+            # per-item form is tried before the whole answer is kept, and
+            # kept only when it looks like this stage's output.
+            ok, produced = _mapped(shape, positional)
+            if ok and produced:
+                element, offered = _pick_element(stage, produced)
+                if _safe_produces(stage, offered):
+                    return replace(shape, per_item=True, element=element), offered
+            # Neither reading looks like this stage's output; the next
+            # shape (side inputs, keywords, identity) may. Returning the
+            # wrong whole answer here ended the candidate: a tokenizer that
+            # returns nothing without its table never reached the shape
+            # that supplies it.
+            continue
         if stage.per_item and not spread:
             ok, produced = _mapped(shape, positional)
             if ok and produced:
@@ -1013,6 +1395,12 @@ def _bind_one(
     return None, None
 
 
+#: How many branch attempts a form search may make in one role. A guard for
+#: a role with many multi-form branches, set with no evidence of being
+#: reached: week 3 has one four-form branch and every other week has one
+#: form per branch.
+_FORM_ATTEMPTS = 32
+
 #: Where a folder read is recorded while one dry probe runs, or None when
 #: nothing is being watched. A module global because `sys.addaudithook` takes
 #: a plain function and cannot be uninstalled: the hook is added at most once
@@ -1023,6 +1411,21 @@ _HOOK_INSTALLED = False
 #: The throwaway directory the current search is probing from, and the only
 #: directory anything here may write into. None outside a search.
 _SCRATCH: Optional["Path"] = None
+
+#: What one zero-argument constructor read and returned when dry-called
+#: during this search, by constructor and fixture files. Cleared with the
+#: scratch directory, because the answer is about files that live there.
+#: The last entry is the folder of their own the call read instead of ours,
+#: when it read one; see `_folder_of_their_own`.
+_DRY_CALLS: Dict[
+    Tuple[int, Tuple[str, ...]], Tuple[Optional[str], bool, Any, Optional[str]]
+] = {}
+
+#: The zero-argument constructors that answered out of a folder of their own,
+#: by label, and the folder each one read. A refusal turns these into the one
+#: sentence that says why a repository whose whole pipeline hangs off such a
+#: constructor could not be wired up. Cleared with `_DRY_CALLS`.
+_FOLDER_OF_THEIR_OWN: Dict[str, str] = {}
 
 #: The audit events that mean "this code is reading a directory". `open` is
 #: here because a folder read often ends in one, and its argument is what
@@ -1088,40 +1491,143 @@ def _from_a_folder(
     files = _files_in(positional)
     if not files:
         return None
+    # One dry call per constructor per search. The call is what decides
+    # whether the class reads a folder, and its answer does not change
+    # between the fixture forms or the stages that ask. Measured on one
+    # 2026 repository: `clusterCreator()` builds a FaceNet model and
+    # describes their own 34 photos on every call, about four seconds, and
+    # was called once per form per folder-declaring stage, which is what
+    # put that repository past the ten-minute budget.
+    key = (id(candidate.call), tuple(str(f) for f in files))
     trial = replace(candidate, self_only=True)
+    if key in _DRY_CALLS:
+        folder, ok, value, theirs = _DRY_CALLS[key]
+    else:
+        folder, ok, value, theirs = _dry_call_over_a_folder(trial, files)
+        _DRY_CALLS[key] = (folder, ok, value, theirs)
+    if theirs is not None:
+        # Refused just below, and the only place that knows both which
+        # constructor it was and what it read. A repository whose pipeline
+        # starts here has nothing else to offer, so the refusal that follows
+        # is the one place a team will look; see `_folders_of_their_own`.
+        _FOLDER_OF_THEIR_OWN[candidate.label] = theirs
+    if folder is None or not ok or value is None:
+        return None
+    # The stage's own output check is applied per stage and never memoized:
+    # the same constructor is offered to every folder-declaring stage, and
+    # week 2's `Album()` is not descriptors but is a graph, so the
+    # descriptors stage refuses it and the graph stage, one probe later,
+    # binds it. A memo that stored the refusal lost the binding.
+    if stage.produces is not None and not _safe_produces(stage, value):
+        return None
+    supplied = dict(trial.supplied)
+    supplied["folder"] = folder
+    return replace(trial, supplied=supplied), value
+
+
+def _dry_call_over_a_folder(
+    trial: Candidate, files: Sequence[Any]
+) -> Tuple[Optional[str], bool, Any, Optional[str]]:
+    """Call once, hand over the folder it asked for, and say what it read.
+
+    Returns ``(folder, ok, value, theirs)``: the folder the call read here or
+    was given, what it returned, and the folder of their own it answered out
+    of instead. ``folder`` is None when the call read no folder, read one
+    outside the scratch directory, or asked for one that could not be
+    written; ``theirs`` is set only in the middle case, so that a refusal can
+    say which folder it was. Memoized by the caller because the second call,
+    made after the folder exists, cannot be repeated: replaying only the
+    first half against a folder that now exists reads "nothing was wanted"
+    and refuses a class the first pass had bound.
+    """
+
     with _watching() as seen:
         ok, value = _call(trial, ())
     if ok and value is not None:
         if _read_elsewhere(seen):
-            return None
-        # It has to have gone looking for a folder. Without this a
-        # zero-argument call that reads nothing at all was accepted whenever
-        # its return value happened to pass `produces`: with `aaa_factory()`
-        # returning `[]` and a real folder reader sorted after it, the search
-        # bound the factory and recorded no folder. Turning `folder=True` on
-        # then widened the candidate set to every zero-argument callable in
-        # the repository, which is not what this primitive is for.
-        here = _folder_read_here(seen)
-        if here is None:
-            return None
-        if stage.produces is None or _safe_produces(stage, value):
-            supplied = dict(trial.supplied)
-            supplied["folder"] = here
-            return replace(trial, supplied=supplied), value
-        return None
+            return None, ok, value, _folder_of_their_own(seen, trial.call)
+        return _folder_read_here(seen), ok, value, None
     name = _folder_wanted(seen)
-    if name is None:
-        return None
-    if not _materialize(name, files):
-        return None
+    if name is None or not _materialize(name, files):
+        return None, False, None, None
     ok, value = _call(trial, ())
     if not ok or value is None:
+        return None, False, None, None
+    return name, ok, value, None
+
+
+def _folder_of_their_own(seen: Sequence[str], call: Any) -> Optional[str]:
+    """The folder of theirs, beside their own file, that this call listed.
+
+    Two filters, and both are what make the sentence a refusal writes out of
+    this true rather than merely plausible.
+
+    Only a directory counts. The audit hook records the path of every event
+    it watches and not which event it was, and a call that reads a folder of
+    photos also opens a model's weights and whatever its imports touch. A
+    listing names a directory; every one of those others names a file.
+
+    And only a directory under their own file. `~/.cache/torch/checkpoints`
+    is outside the scratch directory too, and saying their pipeline reads it
+    next to its own file would be false. What is being reported is a folder
+    they shipped, which is the one thing the benchmark cannot hand over and
+    cannot write into.
+    """
+
+    from pathlib import Path as _Path
+
+    if _SCRATCH is None:
         return None
-    if stage.produces is not None and not _safe_produces(stage, value):
+    for read in seen:
+        try:
+            where = _Path(str(read)).resolve()
+        except OSError:
+            continue
+        if not where.is_dir():
+            continue
+        try:
+            where.relative_to(_SCRATCH)
+        except ValueError:
+            named = _their_name_for(where, call)
+            if named is not None:
+                return named
+    return None
+
+
+def _their_name_for(folder: "Path", call: Any) -> Optional[str]:
+    """One folder of theirs, written the way the file that read it wrote it.
+
+    Relative to whichever directory above their file holds it, which for a
+    folder inside their checkout is the path they typed. None when no
+    directory above their file holds it, and the folder's own name when it
+    does but the path there is longer than anything they would have written.
+    """
+
+    from pathlib import Path as _Path
+
+    # A class is a harder thing to place than a function: `inspect.getfile`
+    # reads a class's file out of `sys.modules`, and a module discovery
+    # imported under a name of its own making is not there under the name the
+    # class remembers. Its `__init__` carries the filename in its own code
+    # object, which is the file the class was written in either way.
+    written = call if inspect.isfunction(call) else getattr(call, "__init__", call)
+    try:
+        theirs = _Path(inspect.getfile(written)).resolve().parent
+    except (TypeError, OSError):
         return None
-    supplied = dict(trial.supplied)
-    supplied["folder"] = name
-    return replace(trial, supplied=supplied), value
+    for anchor in (theirs, *theirs.parents):
+        if anchor == anchor.parent:
+            # The filesystem root holds everything, which says nothing.
+            break
+        try:
+            named = _Path(*folder.relative_to(anchor).parts)
+        except ValueError:
+            continue
+        # The first anchor that holds it is the closest one, so this is the
+        # shortest way to say where the folder is. Anything longer is a path
+        # across the machine rather than a name out of their code.
+        return str(named) if len(named.parts) <= 3 else folder.name
+    return None
 
 
 def _folder_read_here(seen: Sequence[str]) -> Optional[str]:
@@ -1537,7 +2043,7 @@ def _safe(predicate: Callable[[Any], bool], value: Any) -> bool:
         return False
 
 
-def _handoffs(upstream: Any) -> List[Tuple[Any, str]]:
+def _handoffs(upstream: Any) -> List[Tuple[Any, Optional[str]]]:
     """The ways one stage's return value can be offered to the next.
 
     A stage's value is never altered, but it can be *unpacked*. Teams return a
@@ -1552,7 +2058,10 @@ def _handoffs(upstream: Any) -> List[Tuple[Any, str]]:
     own representation.
     """
 
-    offers: List[Tuple[Any, str]] = [(upstream, "")]
+    # The second half of each pair names the reading, and is what a bound
+    # step records as its `handoff`. It used to be prose nobody read, which
+    # is why a replay had to re-derive which part of a tuple had bound.
+    offers: List[Tuple[Any, Optional[str]]] = [(upstream, None)]
     if isinstance(upstream, tuple) and upstream:
         # Spread, when the previous step returned exactly the arguments the
         # next one takes. One 2026 team's `adj_list` returns `(nodes, adj)`
@@ -1562,25 +2071,25 @@ def _handoffs(upstream: Any) -> List[Tuple[Any, str]]:
         # (docs/capstones/week2-vision-capstone.md:386). Nothing is
         # transformed; the tuple is handed over as the arguments it already
         # is.
-        offers.append((_Spread(upstream), " (both parts)"))
+        offers.append((_Spread(upstream), "spread"))
         if len(upstream) == 2:
             # The same two parts the other way round. One 2026 team's
             # `adj_list` returns `(nodes, adj)` and their own
             # `connected_comps(adj, nodes)` takes them reversed, which is
             # their choice of parameter order and not a different answer.
-            offers.append((_Spread((upstream[1], upstream[0])), " (both parts, reversed)"))
+            offers.append((_Spread((upstream[1], upstream[0])), "reversed"))
         # Every element, not only the first. `specgram` returns
         # `(spectrogram, freqs, times)` and one team's combined peak finder
         # returns `(peaks, freqs, times, spectrogram)`, where the part the
         # next stage wants is last. Each element is offered exactly as it was
         # returned, and the stage's own validator decides.
         seen = set()
-        for element in upstream:
+        for index, element in enumerate(upstream):
             marker = id(element)
             if marker in seen:
                 continue
             seen.add(marker)
-            offers.append((element, " (part of what it returned)"))
+            offers.append((element, "element:{}".format(index)))
     return offers
 
 
@@ -1602,7 +2111,7 @@ def extend(
 
     pool = dict(extras or {})
     accepted: List[Tuple[Candidate, Any]] = []
-    for candidate in _order_for(stage, candidates):
+    for candidate in _order_for(stage, candidates) + _from_pool(stage, pool):
         # A method of the object the chain is carrying is called with no
         # arguments at all: the object it is bound to IS the input. Week 2's
         # Bagel repository builds its graph with `Whispers(...)` and then
@@ -1621,7 +2130,7 @@ def extend(
                 # object goes forward for one of their own functions to read.
                 accepted.append((replace(trial, in_place=True), upstream, upstream))
                 continue
-        for offered, _note in _handoffs(upstream):
+        for offered, handoff in _handoffs(upstream):
             if (
                 stage.accepts is not None
                 and not isinstance(offered, _Spread)
@@ -1646,7 +2155,10 @@ def extend(
             if accept_any or stage.produces is None or _safe(stage.produces, value):
                 accepted.append(
                     (
-                        bound,
+                        # Which reading of the upstream value this call was
+                        # made with, so the same call can be made again from
+                        # the whole value alone.
+                        replace(bound, handoff=handoff),
                         value,
                         tuple(offered) if isinstance(offered, _Spread) else offered,
                     )
@@ -1705,6 +2217,28 @@ def resolve_chain(
         )
 
 
+@dataclass(frozen=True)
+class _Attempt:
+    """What one run of the branch fixpoint found, kept so it can be redone
+    from the middle (see the form backtracking in `_resolve_branches`)."""
+
+    chains: Dict[str, Tuple[Candidate, ...]]
+    fits: Tuple[Tuple[str, Candidate], ...]
+    #: Branches that did not bind, in declared order.
+    pending: List[Role]
+    refusals: Dict[str, Refusal]
+    #: Per bound branch, the fixture form its first step bound with and how
+    #: many forms it was offered.
+    forms: Dict[str, Tuple[Optional[int], int]]
+    #: Branches whose input existed and were searched, bound or not.
+    searched: set
+    #: Bound branches in the order they bound.
+    order: List[str]
+    values: Dict[str, Any]
+    branch_fits: Dict[str, List[Tuple[str, Candidate]]]
+    carried: Dict[str, List[Candidate]]
+
+
 def _resolve_branches(
     role: Role,
     modules: Sequence[Any],
@@ -1724,6 +2258,20 @@ def _resolve_branches(
     object the search branch calls a method on. Resolving them independently
     would find four chains that cannot be composed.
 
+    Branches are resolved to a fixpoint rather than once in declared order,
+    because the corpus needs opposite orders. Lashika's week 3 image step is
+    `ImageDatabase(ids, descriptors, W).descriptor_to_embedding`, a method of
+    the object the PREPARE branch builds, so image must come after prepare;
+    declared in the week's order it refused with "nothing accepted the input
+    the image step passes" (measured 2026-09-02). Bagel's
+    `CaptionImageQuery(EMBEDDINGS, ids)` takes the IMAGE branch's projected
+    matrix, so prepare must come after image. One declared order cannot
+    serve both. So: walk the unresolved branches in declared order, bind
+    whichever can bind now, and go round again until a whole pass binds
+    nothing. A branch that resolved is never resolved again, and the order
+    within each pass is the declared one, so the result is the same on every
+    run.
+
     Each branch is verified only by the whole, because a branch on its own
     answers nothing the benchmark asked for.
     """
@@ -1736,7 +2284,7 @@ def _resolve_branches(
     # would compute it again per branch and, worse, let two branches bind two
     # different tables.
     candidates = callables_in(modules) + constructors_in(modules)
-    fits, missing = _fits_of(role, candidates, pool, identities)
+    fits, missing = _fits_of(role, candidates, pool, identities, values_in(modules))
     if missing is not None:
         return None, Refusal(
             role.name,
@@ -1744,59 +2292,318 @@ def _resolve_branches(
             missing,
             "nothing produced the {} the later steps need".format(missing),
         )
-    for branch in role.branches:
-        binding, refusal = _resolve_chain(
-            branch,
-            modules,
-            branch.fixture if branch.fixture is not None else fixture,
-            verify=None,
-            beam=beam,
-            seed=seed,
-            extras=pool,
-            identities=identities,
-            carried=carried,
+
+    def _attempt(
+        banned: Dict[str, FrozenSet[int]],
+        keep: Optional[_Attempt] = None,
+        before: Optional[str] = None,
+    ) -> _Attempt:
+        """One run of the fixpoint, from scratch or from an earlier attempt.
+
+        ``banned`` names, per branch, the fixture forms not to offer again.
+        ``keep`` and ``before`` carry over every branch the earlier attempt
+        bound before ``before`` in its own binding order: those bindings
+        never saw the branch being retried, so running them again would
+        find the same thing more slowly.
+        """
+
+        pool_now: Dict[str, Any] = dict(pool)
+        carried_now: List[Candidate] = []
+        chains_now: Dict[str, Tuple[Candidate, ...]] = {}
+        fits_now: List[Tuple[str, Candidate]] = list(fits)
+        forms_now: Dict[str, Tuple[Optional[int], int]] = {}
+        values_now: Dict[str, Any] = {}
+        branch_fits: Dict[str, List[Tuple[str, Candidate]]] = {}
+        carried_by: Dict[str, List[Candidate]] = {}
+        order: List[str] = []
+        if keep is not None and before is not None:
+            for name in keep.order:
+                if name == before:
+                    break
+                chains_now[name] = keep.chains[name]
+                pool_now[name] = keep.values[name]
+                values_now[name] = keep.values[name]
+                forms_now[name] = keep.forms[name]
+                branch_fits[name] = list(keep.branch_fits[name])
+                fits_now.extend(keep.branch_fits[name])
+                carried_by[name] = list(keep.carried[name])
+                carried_now.extend(keep.carried[name])
+                order.append(name)
+        pending = [branch for branch in role.branches if branch.name not in chains_now]
+        refusals: Dict[str, Refusal] = {}
+        searched: set = set()
+        while pending:
+            progressed = False
+            waiting: List[Role] = []
+            for branch in pending:
+                own = _fixture_for(branch, fixture, pool_now, chains_now)
+                if own is _UNREADY:
+                    refusals[branch.name] = Refusal(
+                        role.name,
+                        (),
+                        branch.stages[0].name if branch.stages else branch.name,
+                        "the input this branch takes was not produced by any "
+                        "other branch",
+                    )
+                    waiting.append(branch)
+                    continue
+                if isinstance(own, _Broken):
+                    refusals[branch.name] = Refusal(
+                        role.name,
+                        (),
+                        branch.stages[0].name if branch.stages else branch.name,
+                        "the benchmark's own input for this branch could not be "
+                        "made: {}: {}".format(
+                            type(own.error).__name__, str(own.error)[:120]
+                        ),
+                    )
+                    waiting.append(branch)
+                    continue
+                searched.add(branch.name)
+
+                # The week's test judges each branch as it binds, with every
+                # branch bound so far beside it, so a chain the test rejects
+                # is passed over for the next one rather than ending the
+                # search. Measured on Lashika: the image branch first bound
+                # `triplet_utils.train_val_split`, whose per-row split
+                # gathers into a (100, 409) matrix that passes the stage's
+                # loose width check; the test refused it (409-d against
+                # 200-d text) and the role was reported as ran-but-wrong
+                # while their `descriptor_to_embedding` was never asked.
+                def _judge(steps: Sequence[Candidate], _name: str = branch.name) -> bool:
+                    if verify is None:
+                        return True
+                    trial = dict(chains_now)
+                    trial[_name] = tuple(steps)
+                    return bool(verify(trial))
+
+                binding, refusal = _resolve_chain(
+                    branch,
+                    modules,
+                    own,
+                    verify=_judge,
+                    beam=beam,
+                    seed=seed,
+                    extras=pool_now,
+                    identities=identities,
+                    carried=carried_now,
+                    skip_forms=banned.get(branch.name, frozenset()),
+                )
+                if binding is None:
+                    assert refusal is not None
+                    # Not final. Another branch may still put the object or
+                    # the matrix this one needs into the pool, and the loop
+                    # comes back to it while any pass makes progress.
+                    refusals[branch.name] = refusal
+                    waiting.append(branch)
+                    continue
+                progressed = True
+                refusals.pop(branch.name, None)
+                chains_now[branch.name] = binding.steps
+                branch_fits[branch.name] = list(binding.fits)
+                fits_now.extend(binding.fits)
+                # What this branch produced, under its own name, so a later
+                # branch can name it in `Stage.extras` or read it out of the
+                # pool in its own fixture.
+                pool_now[branch.name] = binding._value
+                values_now[branch.name] = binding._value
+                total = len(own) if isinstance(own, Fixtures) else 1
+                forms_now[branch.name] = (
+                    binding.steps[0].form if binding.steps else None,
+                    total,
+                )
+                # What this branch built, handed to the next one: only what
+                # a constructor stage actually produced, and only after the
+                # branch was accepted.
+                mine: List[Candidate] = []
+                for reached in binding._reach:
+                    if not any(held.label == reached.label for held in carried_now):
+                        stamped = replace(reached, branch=branch.name)
+                        carried_now.append(stamped)
+                        mine.append(stamped)
+                carried_by[branch.name] = mine
+                order.append(branch.name)
+            pending = waiting
+            if not progressed:
+                break
+        return _Attempt(
+            chains_now,
+            tuple(fits_now),
+            pending,
+            refusals,
+            forms_now,
+            searched,
+            order,
+            values_now,
+            branch_fits,
+            carried_by,
         )
-        if binding is None:
-            assert refusal is not None
-            return None, replace(
-                refusal, role="{}.{}".format(role.name, branch.name)
-            )
-        chains[branch.name] = binding.steps
-        fits = fits + list(binding.fits)
-        # What this branch built, handed to the next one. `carried` existed
-        # and was read by `_resolve_chain`, but nothing ever put anything in
-        # it, so the shared instance pool this function's docstring describes
-        # was empty every time: a prepare branch that constructs `Shared(rows)`
-        # left the search branch unable to reach `Shared.search`, which is the
-        # whole prepare-to-search shape of week 3.
-        #
-        # Only what a constructor stage actually produced, and only after the
-        # branch was accepted. A method of an object no branch bound is not
-        # something a later branch may call.
-        for reached in binding._reach:
-            if not any(held.label == reached.label for held in carried):
-                carried.append(reached)
-    if verify is None or verify(dict(chains)):
-        return (
-            Binding(
-                role.name,
-                (),
-                fits=tuple(fits),
-                branches=dict(chains),
-                _stage_names=tuple(chains),
-                _received=tuple("" for _ in chains),
-                _returned=tuple("" for _ in chains),
-            ),
-            None,
+
+    latest = _attempt({})
+    best = latest
+
+    def _covers(attempt: _Attempt) -> Tuple[int, int]:
+        # Required branches first, then how many branches at all. An
+        # independent review built a role where the earliest attempt bound
+        # an optional branch and a later one bound the required branch
+        # instead; counting chains alone kept the first and refused the
+        # role with the required branch found.
+        required_names = {branch.name for branch in role.branches if not branch.optional}
+        return (len(required_names & set(attempt.chains)), len(attempt.chains))
+
+    # Depth-first over the forms the bound branches were offered. A state
+    # is the exact form forced on each branch of a prefix of the binding
+    # order; every later branch keeps all its forms open, because a form
+    # banned under one upstream state was never tried under another (the
+    # review's A=2, B=0 case). A visited state ends that path; the cap
+    # guards a role with many multi-form branches and no corpus repository
+    # comes near it (week 3 has one four-form branch). The attempt that
+    # covers the most required branches, then the most branches, wins.
+    seen_states = {frozenset()}
+    stack: List[Tuple[_Attempt, Dict[str, int]]] = [(latest, {})]
+    attempts = 1
+    while stack and attempts < _FORM_ATTEMPTS:
+        attempt, forced = stack.pop()
+        if not any(branch.name in attempt.searched for branch in attempt.pending):
+            continue
+        for name in reversed(attempt.order):
+            used, total = attempt.forms[name]
+            if used is None or total <= 1:
+                continue
+            position = attempt.order.index(name)
+            prefix = {n: f for n, f in forced.items() if n in attempt.order[:position]}
+            for form in range(total):
+                if form == used:
+                    continue
+                choice = dict(prefix)
+                choice[name] = form
+                state = frozenset(choice.items())
+                if state in seen_states:
+                    continue
+                seen_states.add(state)
+                banned = {
+                    n: frozenset(range(attempt.forms[n][1])) - {f} for n, f in choice.items()
+                }
+                attempts += 1
+                fresh = _attempt(banned, attempt, name)
+                if _covers(fresh) > _covers(best):
+                    best = fresh
+                stack.append((fresh, choice))
+                if attempts >= _FORM_ATTEMPTS:
+                    break
+            if attempts >= _FORM_ATTEMPTS:
+                break
+
+    required = [branch for branch in best.pending if not branch.optional]
+    if required:
+        stuck_branch = required[0]
+        return None, replace(
+            best.refusals[stuck_branch.name],
+            role="{}.{}".format(role.name, stuck_branch.name),
         )
-    last = role.branches[-1]
-    return None, Refusal(
-        role.name,
-        tuple(step.label for step in chains[last.name]),
-        last.stages[-1].name if last.stages else last.name,
-        "the chain ran but did not return the right answer on the benchmark's own case",
-        ran_to_the_end=True,
+    if not best.chains:
+        first = role.branches[0]
+        return None, replace(
+            best.refusals[first.name], role="{}.{}".format(role.name, first.name)
+        )
+    # The optional branches that never bound, kept with the refusal each one
+    # ended on. The week decides what a partial set means; discovery's job is
+    # to say exactly which surface is absent and why. Every chain in the
+    # answer passed the week's test beside the chains bound before it, and
+    # the last one beside all of them, so the whole has been judged.
+    absent = {branch.name: best.refusals[branch.name] for branch in best.pending}
+    return (
+        Binding(
+            role.name,
+            (),
+            fits=best.fits,
+            branches=dict(best.chains),
+            missing=absent,
+            _stage_names=tuple(best.chains),
+            _received=tuple("" for _ in best.chains),
+            _returned=tuple("" for _ in best.chains),
+        ),
+        None,
     )
+
+#: What a branch fixture says when the value it needs is not in the pool yet.
+#: Not None, because None is how a branch says "use the role's own fixture",
+#: and the two must not be confused: one means come back next pass, the other
+#: means probe now with what the role was given.
+_UNREADY = object()
+
+
+def _fixture_for(
+    branch: Role,
+    outer: Sequence[Any],
+    pool: Dict[str, Any],
+    chains: Dict[str, Tuple[Candidate, ...]],
+) -> Any:
+    """This branch's own input, made at the moment the branch is resolved.
+
+    A plain fixture is used as it is, which is every branch before week 3. A
+    callable is handed the pool and the branches bound so far and asked for
+    one: week 3's search branch is probed with its own text chain applied to
+    the query string, which does not exist until the text branch has bound,
+    and its prepare branch is offered the image branch's projected matrix
+    alongside the raw descriptors.
+
+    Raising is how the week says "not yet". The pool and the chains are
+    copies, so a week that reads them cannot change what the search is
+    carrying.
+    """
+
+    own = branch.fixture
+    if own is None:
+        return outer
+    if not callable(own):
+        return own
+    try:
+        made = own(dict(pool), dict(chains))
+    except (KeyError, LookupError):
+        # The pool does not hold what this fixture reads yet. That is the
+        # "not yet" this function exists for, and the fixpoint comes back.
+        return _UNREADY
+    except BaseException as error:  # noqa: BLE001 - a week's fixture may do anything
+        # Anything else is the fixture itself failing, which no later pass
+        # will change. Reported as such, because the first draft folded it
+        # into "not produced by any other branch", which told a week author
+        # to look at branch order when the bug was in the fixture they wrote.
+        return _Broken(error)
+    return _UNREADY if made is None else made
+
+
+class _Broken:
+    """A branch fixture that raised for a reason of its own, kept for the refusal."""
+
+    def __init__(self, error: BaseException) -> None:
+        self.error = error
+
+
+def values_in(modules: Sequence[Any]) -> List[Tuple[str, str, Any]]:
+    """Every module-scope value the team's code built when it loaded.
+
+    As ``(label, module, value)`` in a stable order. Functions, classes,
+    modules, and private names are left out; what remains is data their own
+    statements produced at import: a table, a matrix, a loaded resource.
+    One audited repository has no IDF function at all. Its `text_to_image`
+    computes `idf` at module scope, in a loop over the course captions, and
+    every embedding call reads that global. The computation is theirs and it
+    ran; a fit stage that only looks for a function to call reports that
+    nothing produced the table while the table sits in their namespace.
+    """
+
+    found: List[Tuple[str, str, Any]] = []
+    for module in modules:
+        module_name = getattr(module, "__name__", "?")
+        for name in sorted(dir(module)):
+            if name.startswith("_"):
+                continue
+            value = getattr(module, name, None)
+            if value is None or callable(value) or inspect.ismodule(value):
+                continue
+            found.append(("{}.{}".format(module_name, name), module_name, value))
+    return found
 
 
 def _fits_of(
@@ -1804,6 +2611,7 @@ def _fits_of(
     candidates: Sequence[Candidate],
     pool: Dict[str, Any],
     identities: Sequence[Any],
+    values: Sequence[Tuple[str, str, Any]] = (),
 ) -> Tuple[List[Tuple[str, Candidate]], Optional[str]]:
     """Run this role's fit stages into the pool, or name the one that failed.
 
@@ -1816,7 +2624,7 @@ def _fits_of(
     for stage in role.stages:
         if not stage.fit:
             continue
-        hit = _fit(stage, candidates, pool, identities)
+        hit = _fit(stage, candidates, pool, identities, values)
         if hit is None:
             return found, stage.name
         candidate, value = hit
@@ -1830,6 +2638,7 @@ def _fit(
     candidates: Sequence[Candidate],
     pool: Dict[str, Any],
     identities: Sequence[Any],
+    values: Sequence[Tuple[str, str, Any]] = (),
 ) -> Optional[Tuple[Candidate, Any]]:
     """Run the one of their functions that produces this side input.
 
@@ -1847,7 +2656,93 @@ def _fit(
     hits = probe_sources(
         stage, candidates, stage.fixture, extras=pool, identities=identities
     )
-    return hits[0] if hits else None
+    if hits:
+        return hits[0]
+    # No function of theirs produces it. A value their module built when it
+    # loaded may be the same table (see `values_in`); it is offered only
+    # after every function has been tried, so a team with a function is
+    # bound to the call the search witnessed. Recorded as supplied by name,
+    # because a scored run cannot recompute a value that was never a call.
+    if stage.produces is None:
+        return None
+    for label, module_name, value in values:
+        if not _safe_produces(stage, value):
+            continue
+        note = "read from {}, a value their module computes when it loads".format(label)
+
+        def _held(value=value):
+            return value
+
+        return (
+            Candidate(
+                label,
+                _held,
+                module_name,
+                self_only=True,
+                supplied={"value": note},
+            ),
+            value,
+        )
+    return None
+
+
+def _already_ran(candidate: Candidate, partial: _Partial) -> bool:
+    """Whether this chain has already run this function on this object.
+
+    Only for a step that answers in place. Such a step returns nothing and
+    changes the value it was given, so the search cannot see what it did and
+    every one of them looks equally good; taking the same one again is the
+    same step twice rather than the next one.
+
+    Measured on week 2's Bagel repository, whose graph object offers seven
+    methods that return nothing. Without this the beam filled with
+    `create_matrix` repeated at every stage -- the alphabetically first of
+    them -- and their `train_sweeps`, which is the step that actually runs
+    whispers, was never reached at any beam width.
+    """
+
+    if not candidate.in_place:
+        return False
+    return any(step.label == candidate.label for step in partial.chain)
+
+
+def _shared_out(
+    partials: Sequence[_Partial],
+    parents: Sequence[int],
+    rank: Callable[[_Partial], Any],
+) -> List[_Partial]:
+    """The next frontier, with the beam shared out between its parents.
+
+    The rank still decides which of ONE chain's continuations is better, and
+    a frontier grown from a single chain comes out in exactly the order the
+    plain sort gave it. What changes is what happens between chains: every
+    chain's best continuation is offered before any chain's second, so a
+    branch cannot be cut before it has been tried once.
+
+    Measured on week 2's Bagel repository. Their `Whispers(vectors, names,
+    threshold)` accepts the raw photos as its vectors too, so the fused
+    first-stage probe binds it on the fixture and that chain runs beside the
+    real one through `get_descriptor`. The pixel chain then answers the
+    graph stage with a method while the real one can only construct, which
+    the rank puts last, and both go on to offer five in-place methods of the
+    same object. At beam 4 every slot went to the pixel chain from the graph
+    stage onwards: the chain running on their descriptors was built and
+    thrown away at each stage, and the repository was refused.
+    """
+
+    grouped: Dict[int, List[Tuple[Any, int, _Partial]]] = {}
+    for index, (partial, parent) in enumerate(zip(partials, parents)):
+        grouped.setdefault(parent, []).append((rank(partial), index, partial))
+    ordered: List[Tuple[Tuple[Any, ...], _Partial]] = []
+    for parent in sorted(grouped):
+        # Ranked within its own parent first, so which continuation of a
+        # chain is best is decided exactly as before; the position in that
+        # order is then what the parents take turns on.
+        for nth, (score, index, partial) in enumerate(
+            sorted(grouped[parent], key=lambda entry: (entry[0], entry[1]))
+        ):
+            ordered.append(((nth, score, parent, index), partial))
+    return [partial for _key, partial in sorted(ordered, key=lambda pair: pair[0])]
 
 
 def _reachable(
@@ -1874,9 +2769,14 @@ def _reachable(
     if not isinstance(value, candidate.call):
         return ()
     arguments = tuple(positional)
+    # The arguments were already read out of the upstream value by the
+    # handoff this step bound with, so rebuilding must not read them again:
+    # a constructor bound on `element:1` would take element 1 of its own
+    # argument the second time round.
+    plain = replace(candidate, handoff=None)
 
     def _build() -> Any:
-        return _invoke(candidate, arguments)
+        return _invoke(plain, arguments)
 
     return tuple(methods_of(candidate.label, value, build=_build))
 
@@ -1902,7 +2802,40 @@ def _scratch_cwd():
             yield
         finally:
             _SCRATCH = was
+            _DRY_CALLS.clear()
+            _FOLDER_OF_THEIR_OWN.clear()
             os.chdir(previous)
+
+
+def _folders_of_their_own() -> Tuple[str, ...]:
+    """Why a constructor that reads a folder of their own could not be used.
+
+    A pipeline written over a directory is a shape the search supports: a
+    constructor that takes nothing is handed the benchmark's photos in a
+    folder of the name its code looks for. That only works while the folder
+    it looks for is one the benchmark can write. A constructor that resolves
+    its folder from its own file finds its own photos instead, succeeds, and
+    has answered a question about their data rather than ours, so it is
+    refused; writing the benchmark's photos into their checkout to make it
+    ours is not something a benchmark may do.
+
+    The refusal that follows names the hand-off that failed, which for such a
+    repository is three stages downstream and true but useless. Measured on
+    week 2's CoggurtFilter: nothing else there builds a graph from
+    descriptors, so the search wandered through the two other classes and
+    stalled at the labels step, and the report named a profile class the team
+    never meant to be part of the pipeline.
+
+    Sorted, so two runs of the same repository write the same report.
+    """
+
+    return tuple(
+        "{}() reads {}/ next to its own file, which holds your photos rather "
+        "than the benchmark's, so it cannot be given the benchmark's photos; "
+        "a constructor that takes the folder path as an argument, or reads it "
+        "relative to the working directory, can.".format(label, folder)
+        for label, folder in sorted(_FOLDER_OF_THEIR_OWN.items())
+    )
 
 
 def _resolve_chain(
@@ -1916,6 +2849,7 @@ def _resolve_chain(
     extras: Optional[Dict[str, Any]] = None,
     identities: Sequence[Any] = (),
     carried: Optional[List[Candidate]] = None,
+    skip_forms: FrozenSet[int] = frozenset(),
 ) -> Resolution:
     random.seed(seed)
     pool: Dict[str, Any] = dict(extras or {})
@@ -1924,6 +2858,13 @@ def _resolve_chain(
     # they only reach the search here. `callables_in` is untouched, so the
     # store-and-query pairing search below still sees plain functions only.
     candidates = candidates + constructors_in(modules)
+    # A class that builds with no arguments is a container `instances_in`
+    # fills, not a step -- unless a stage said its input can be handed over
+    # as a directory, in which case a constructor that reads one is the step.
+    # Only then, because it widens the candidate set to every no-argument
+    # class in the repository.
+    if any(stage.folder for stage in role.stages):
+        candidates = candidates + folder_readers_in(modules)
     if carried:
         candidates = candidates + list(carried)
     if not candidates:
@@ -1932,7 +2873,7 @@ def _resolve_chain(
     # The side inputs their own code computes, once, before anything else
     # runs. Each joins the pool under its stage's name, which is how a later
     # stage asks for it (`Stage.extras`).
-    fits, missing = _fits_of(role, candidates, pool, identities)
+    fits, missing = _fits_of(role, candidates, pool, identities, values_in(modules))
     if missing is not None:
         return None, Refusal(
             role.name,
@@ -1957,6 +2898,23 @@ def _resolve_chain(
     # only useful thing the platform can offer is the smallest reproduction it
     # has -- which of their functions ran, on what, and what came back.
     forms = fixture if isinstance(fixture, Fixtures) else (fixture,)
+
+    def _identities_of(partial: _Partial) -> Sequence[Any]:
+        """The identity of each item, in the form this chain's first step took.
+
+        `probe_sources` works this out per form and the first stage gets it;
+        every stage after it was handed the caller's `identities`, which is
+        empty for a week that lets the input name its own items. Week 2's
+        Bagel repository needs it downstream rather than at the first step:
+        `file_descriptors(photo)` takes only the photo, and it is
+        `Whispers(vectors, names, threshold)` two stages later that asks
+        which photo each descriptor came from. Without this the identity slot
+        was never offered after the first stage and the constructor could not
+        be called at all.
+        """
+
+        return identities_for(identities, forms[partial.chain[0].form or 0])
+
     frontier: List[_Partial] = [
         _Partial(
             (candidate,),
@@ -1967,7 +2925,7 @@ def _resolve_chain(
             _reachable(candidate, value, forms[candidate.form or 0]),
         )
         for candidate, value in probe_sources(
-            first, candidates, fixture, extras=pool, identities=identities
+            first, candidates, fixture, extras=pool, identities=identities, skip_forms=skip_forms
         )
     ]
 
@@ -1981,7 +2939,7 @@ def _resolve_chain(
         second = role.stages[1]
         seen = {step.chain[0].label for step in frontier}
         for candidate, value in probe_sources(
-            second, candidates, fixture, extras=pool, identities=identities
+            second, candidates, fixture, extras=pool, identities=identities, skip_forms=skip_forms
         ):
             if candidate.label in seen:
                 continue
@@ -1993,6 +2951,10 @@ def _resolve_chain(
                     (describe(value),),
                     ("{} + {}".format(first.name, second.name),),
                     _reachable(candidate, value, forms[candidate.form or 0]),
+                    # The first stage's input handed to the second stage's
+                    # function: the forward reading, asked after any chain
+                    # that found a function for the first stage.
+                    1,
                 )
             )
     if not frontier:
@@ -2003,6 +2965,7 @@ def _resolve_chain(
             "nothing accepted the {} the benchmark passes".format(
                 "arguments" if first.arity > 1 else "input"
             ),
+            notes=_folders_of_their_own(),
         )
 
     furthest: Tuple[str, ...] = (frontier[0].chain[0].label,)
@@ -2011,13 +2974,38 @@ def _resolve_chain(
 
     for stage in role.stages[1:]:
         nxt: List[_Partial] = []
+        # Which frontier entry each new chain grew out of. The beam is then
+        # shared between them rather than filled by whichever entry happened
+        # to have the most children; see `_shared_out`.
+        parents: List[int] = []
+        # The last stage is what makes a chain askable, and the verifier
+        # below already asks every chain that reaches it rather than the
+        # beam's share of them. So the beam bounds how many chains are
+        # BUILT, and the final step is where building one costs a single
+        # call. Measured on week 2's Bagel repository: their `train_sweeps`
+        # is the fourth of seven methods that answer in place, so the chain
+        # that runs whispers sat outside the beam at the last stage at every
+        # width up to 128 and was never asked, while the three ahead of it
+        # were asked and refused for not having settled.
+        growing = frontier if stage is role.stages[-1] else frontier[:beam]
         # A chain that already absorbed this stage while probing skips it.
-        done = [p for p in frontier[:beam] if p.stages[-1].endswith("+ " + stage.name)]
-        for partial in frontier[:beam]:
+        done = [p for p in growing if p.stages[-1].endswith("+ " + stage.name)]
+        for where, partial in enumerate(growing):
+            if any(p is partial for p in done):
+                # It served this stage already (its last step's input was
+                # read as this stage, see the forward reading below).
+                # Running another of their functions on top would put two
+                # steps at one stage: a chain grew a second
+                # `fingerprint_recording` after the first had absorbed the
+                # peaks stage.
+                continue
             reachable = list(candidates) + list(partial.reach)
+            mine = _identities_of(partial)
             for candidate, produced, passed in extend(
-                stage, reachable, partial.value, extras=pool, identities=identities
+                stage, reachable, partial.value, extras=pool, identities=mine
             ):
+                if _already_ran(candidate, partial):
+                    continue
                 nxt.append(
                     _Partial(
                         partial.chain + (candidate,),
@@ -2033,8 +3021,10 @@ def _resolve_chain(
                             produced,
                             passed if isinstance(passed, tuple) else (passed,),
                         ),
+                        partial.forward,
                     )
                 )
+                parents.append(where)
             if stage.in_place:
                 # Their function ran on the graph and left the answer there.
                 # The graph goes forward so one more of their own functions
@@ -2045,7 +3035,7 @@ def _resolve_chain(
                     partial.value,
                     accept_any=True,
                     extras=pool,
-                    identities=identities,
+                    identities=mine,
                 ):
                     # A function whose return already answers this stage
                     # did not answer in place; it was recorded above. Marking
@@ -2056,6 +3046,8 @@ def _resolve_chain(
                     # graph.
                     if stage.produces is not None and _safe_produces(stage, produced):
                         continue
+                    if _already_ran(replace(candidate, in_place=True), partial):
+                        continue
                     nxt.append(
                         _Partial(
                             partial.chain + (replace(candidate, in_place=True),),
@@ -2064,8 +3056,10 @@ def _resolve_chain(
                             partial.returned + ("the value it was given, updated in place",),
                             partial.stages + (stage.name,),
                             partial.reach,
+                            partial.forward,
                         )
                     )
+                    parents.append(where)
         # A step the previous function already did. Carrying the frontier
         # forward unchanged lets the next stage read what that function
         # returned, which is how a fused pair is found: their combined
@@ -2075,10 +3069,22 @@ def _resolve_chain(
         # complete. One 2026 team ends at `connected_comps`, which is both
         # their graph reader and their answer; requiring another function
         # after it would refuse a finished pipeline.
+        #
+        # Kept beside the beam rather than inside it. The beam bounds how
+        # many chains are BUILT and no call is made to carry one forward, so
+        # a chain that skipped this stage costs nothing and cannot be worth
+        # a slot that a step of their code could have had. Measured on week
+        # 2's Lashika repository: their `adj_list` does three of the week's
+        # stages in one call, and at every stage the carry-forward was
+        # appended after every candidate the search had tried and sorted out
+        # of a beam of four, so their `whispers` was never reached.
+        skipped: List[_Partial] = []
+        skipped_parents: List[int] = []
         if stage.fusible:
-            for partial in frontier[:beam]:
+            for where, partial in enumerate(growing):
                 if _safe_produces(stage, partial.value):
-                    nxt.append(
+                    skipped_parents.append(where)
+                    skipped.append(
                         _Partial(
                             partial.chain,
                             partial.value,
@@ -2087,8 +3093,75 @@ def _resolve_chain(
                             partial.stages[:-1]
                             + ("{} + {}".format(partial.stages[-1], stage.name),),
                             partial.reach,
+                            partial.forward,
                         )
                     )
+            # The other direction: a fusible stage absorbed by the step
+            # AFTER it. The previous function did not do this stage's work,
+            # but the next stage's function takes this stage's input and
+            # does both. One 2026 team's `fingerprint_recording(spectrogram)`
+            # finds the peaks and pairs them in one call, and their
+            # `local_peak_locations` needs a neighbourhood array and an
+            # amplitude floor no benchmark could honestly supply; folding
+            # the peaks stage into the function before it (above) cannot
+            # reach that, because the spectrogram is not peaks. So the next
+            # stage is probed against this stage's input as well, and the
+            # step that binds is recorded as having done both.
+            following = role.stages[role.stages.index(stage) + 1] if stage is not role.stages[-1] else None
+            # Only into a following stage whose own output check can say the
+            # work was done. An in-place following step returns nothing, so
+            # "their method did this stage's work and the next" could never
+            # be checked, and on week 2's Bagel it was taken anyway:
+            # `train_sweeps()` absorbed the `nodes` stage, `create_nodes`
+            # was never called, and `sorted_images()` returned an empty
+            # dict that the week's test read as "does not say which photos
+            # go together".
+            if following is not None and (following.in_place or following.produces is None):
+                following = None
+            if following is not None:
+                # The value handed over is THIS stage's input, so this
+                # stage's `accepts` governs the probe, not the following
+                # stage's, which describes what it takes from this stage's
+                # output. Week 1's fingerprints stage refuses a bare
+                # spectrogram for that reason (rutvim's fingerprinter
+                # accepts one and scores 0.094 on it), and that rule is
+                # right for a chain that has peaks to offer and wrong for a
+                # team whose fingerprinter finds them itself.
+                absorbed = replace(following, accepts=stage.accepts)
+                # Only where nothing of theirs served this stage from this
+                # chain, and never with the function that just answered:
+                # `fingerprint_recording -> fingerprint_recording` is the
+                # same call made twice, not a stage absorbed.
+                served = set(parents)
+                for where, partial in enumerate(growing):
+                    if any(p is partial for p in done) or where in served:
+                        continue
+                    if any(p.chain is partial.chain for p in skipped):
+                        continue
+                    reachable = list(candidates) + list(partial.reach)
+                    mine = _identities_of(partial)
+                    for candidate, produced, passed in extend(
+                        absorbed, reachable, partial.value, extras=pool, identities=mine
+                    ):
+                        if partial.chain and candidate.label == partial.chain[-1].label:
+                            continue
+                        nxt.append(
+                            _Partial(
+                                partial.chain + (candidate,),
+                                produced,
+                                partial.received + (describe(passed),),
+                                partial.returned + (describe(produced),),
+                                partial.stages + ("{} + {}".format(stage.name, following.name),),
+                                partial.reach
+                                + _reachable(
+                                    candidate,
+                                    produced,
+                                    passed if isinstance(passed, tuple) else (passed,),
+                                ),
+                                partial.forward + 1,
+                            )
+                        )
+                        parents.append(where)
         # A chain that reached this stage's own answer goes first. Otherwise
         # the beam keeps whichever branch was found earliest, and one 2026
         # team's `whispers` -- which returns how the component count moved and
@@ -2124,8 +3197,23 @@ def _resolve_chain(
                 return (int(built), 0)
             return (int(built), 1 if _safe_produces(stage, p.value) else 2)
 
-        nxt.sort(key=_rank)
-        nxt = done + nxt
+        # Rank no-call fused readings with actual continuations. A real
+        # in-place call ranks ahead of the unchanged object, while a fused
+        # reading wins ties against normal or constructed continuations. This
+        # keeps multi-step mutations alive without displacing shorter chains.
+        # One share-out over calls and skipped readings together, each with
+        # its parent. A global sort after the share-out regrouped one
+        # parent's children ahead of another parent's best, which is the
+        # starvation `_shared_out` exists to prevent (found by review with
+        # two parents at beam 2). Within a parent `_rank` still puts an
+        # in-place call ahead of the unchanged object.
+        # Skipped readings first in the combined list, so on a rank tie
+        # within one parent the fused reading is offered before a call that
+        # merely looks like this stage's output: Lashika's `whispers` returns
+        # a list of ints that passes the labels check, and offered ahead of
+        # the fused reading it ended the chain a step early and the run
+        # reported every photo in its own group.
+        nxt = done + _shared_out(skipped + nxt, skipped_parents + parents, _rank)
         if not nxt:
             return None, Refusal(
                 role.name,
@@ -2135,6 +3223,7 @@ def _resolve_chain(
                     furthest[-1] if furthest else "the last step"
                 ),
                 last_returned=last_returned,
+                notes=_folders_of_their_own(),
             )
         frontier = nxt
         furthest = tuple(step.label for step in frontier[0].chain)
@@ -2155,7 +3244,26 @@ def _resolve_chain(
     # only turn a refusal into a binding: the chains the beam kept are still
     # tried first and in the same order.
     asked = set()
-    for partial in frontier:
+    # A chain that found one of their functions for every stage is asked
+    # before one that read a stage as fused into a neighbour. A fusible
+    # stage is declared as one their code MAY not have; when it does, and a
+    # chain through it passes the week's test, that chain is their division
+    # of the work and the fused reading is the fallback it was meant to be.
+    # Measured on rutvim's week 3: `embed_text(tokens, glove, idf)` accepts
+    # a raw caption too and iterates its characters, and that fused chain
+    # passed the week's test ahead of `caption_processor -> embed_text`
+    # (text MRR 0.54 against 0.83). Both are their code; only one is how
+    # they wrote it.
+    #
+    # A stage read forward (its input handed to a later step, at the head
+    # of the chain or in the middle) sorts after every other reading,
+    # because nothing of theirs was seen to produce that stage's output.
+    # Among the rest the beam's own order stands: `_rank` already puts a
+    # chain that answered ahead of one that merely built an object.
+    # Measured on week 2's fixture: sorting on fused count alone put
+    # `group -> Profile` ahead of `group` fused with `settle`, a chain that
+    # builds a profile and throws it away. The sort is stable.
+    for partial in sorted(frontier, key=lambda p: p.forward):
         key = tuple(
             (
                 step.label,
@@ -2167,6 +3275,7 @@ def _resolve_chain(
                 step.element,
                 step.self_only,
                 step.in_place,
+                step.handoff,
             )
             for step in partial.chain
         )
@@ -2183,6 +3292,7 @@ def _resolve_chain(
                     _received=partial.received,
                     _returned=partial.returned,
                     _reach=partial.reach,
+                    _value=partial.value,
                 ),
                 None,
             )

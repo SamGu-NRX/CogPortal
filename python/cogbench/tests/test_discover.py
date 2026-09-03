@@ -1212,3 +1212,132 @@ class TheOwnFolderRetryNeverWritesIntoTheCheckout(unittest.TestCase):
         self.assertEqual(
             (self.tmp / "keep.txt").read_text(encoding="utf-8"), "theirs\n"
         )
+
+
+class AFileShadowedByTheRootIsReadUnderItsFolderName(unittest.TestCase):
+    """One 2026 repository keeps `image_caption_model.py` at the root with no
+    `load`, and the copy under `model_tests/` that its scripts import and
+    that reads the trained weights. The second stem was skipped as a
+    duplicate, so the only encoder that could load their file was never
+    read."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        (self.tmp / "model.py").write_text("WHICH = 'root'\n")
+        (self.tmp / "tests").mkdir()
+        (self.tmp / "tests" / "model.py").write_text("WHICH = 'tests'\n")
+        (self.tmp / "Day 4").mkdir()
+        (self.tmp / "Day 4" / "model.py").write_text("WHICH = 'day'\n")
+
+    def test_both_files_load_and_the_root_keeps_the_bare_name(self):
+        found = discover(self.tmp)
+
+        names = {entry.name: entry.module.WHICH for entry in found.modules}
+        self.assertEqual(names.get("model"), "root")
+        self.assertEqual(names.get("tests.model"), "tests")
+        # A folder that is not an identifier has no importable name.
+        self.assertNotIn("Day 4.model", names)
+
+
+class ADeclaredWeekRootReadsOnlyItsOwnFiles(unittest.TestCase):
+    """A repository holding Week1, Week2, and Week3 with `Week3` declared was
+    read whole, and a week 2 function bound as the week 3 store. The rule
+    that a matched week directory reads only what lives under it now covers
+    a declared one too."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        for week in ("Week2", "Week3"):
+            (self.tmp / week).mkdir()
+            (self.tmp / week / "{}_code.py".format(week.lower())).write_text("X = 1\n")
+        (self.tmp / "Week3" / "inner").mkdir()
+        (self.tmp / "Week3" / "inner" / "deeper.py").write_text("Y = 2\n")
+
+    def test_the_other_week_is_not_read(self):
+        found = discover(self.tmp, declared_root="Week3")
+
+        names = sorted(entry.name for entry in found.modules)
+        self.assertEqual(names, ["deeper", "week3_code"])
+
+
+class AStudentFileNeverDisplacesARealModule(unittest.TestCase):
+    """An independent review loaded a fixture under `json.tool` and a later
+    import in the same process received student code; a root `json.py`
+    displaced the real `json` for the rest of the process."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def test_a_dotted_name_that_already_exists_is_not_taken(self):
+        import json.tool
+
+        real_tool = sys.modules["json.tool"]
+        (self.tmp / "tool.py").write_text("X = 'root'\n")
+        (self.tmp / "json").mkdir()
+        (self.tmp / "json" / "tool.py").write_text("STUDENT = True\n")
+
+        found = discover(self.tmp)
+
+        self.assertIn("tool", [entry.name for entry in found.modules])
+        self.assertNotIn("json.tool", [entry.name for entry in found.modules])
+        self.assertIs(sys.modules["json.tool"], real_tool)
+
+    def test_a_displaced_module_is_put_back_when_discovery_leaves(self):
+        import json
+
+        real_json = sys.modules["json"]
+        (self.tmp / "json.py").write_text("X = 1\n")
+
+        found = discover(self.tmp)
+
+        self.assertEqual([entry.name for entry in found.modules], ["json"])
+        self.assertIs(sys.modules["json"], real_json)
+        self.assertEqual(json.loads("[1]"), [1])
+
+
+class AFileTheirOwnScriptsAlreadyImportedIsStillRead(unittest.TestCase):
+    """Bagel's `get_model_embeddings.py` imports `model_tests.image_caption_model`
+    before discovery reaches that file, so the name is in `sys.modules` by
+    then. A guard that read the live table skipped the one encoder that
+    loads their weights."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        (self.tmp / "model.py").write_text("WHICH = 'root'\n")
+        (self.tmp / "tests").mkdir()
+        (self.tmp / "tests" / "model.py").write_text("WHICH = 'tests'\n")
+        (self.tmp / "script.py").write_text("from tests.model import WHICH\n")
+
+    def test_the_shadowed_file_loads_under_its_folder_name(self):
+        found = discover(self.tmp)
+
+        names = {entry.name: entry.module.WHICH for entry in found.modules}
+        self.assertEqual(names.get("tests.model"), "tests")
+
+
+class OnlyAnInstalledModuleIsPutBackAfterDiscovery(unittest.TestCase):
+    """Another repository's hand adapter leaves a bare `database` in
+    `sys.modules`; discovery of a repository with its own `database.py`
+    displaces it, and putting it back handed the next adapter the wrong
+    team's code (carti4ce's oracle scored 0.0 after KrazeeCoder's test)."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.addCleanup(sys.modules.pop, "database", None)
+
+    def test_a_bare_module_from_elsewhere_is_not_restored(self):
+        import types
+
+        stranger = types.ModuleType("database")
+        stranger.__file__ = str(self.tmp / "elsewhere" / "database.py")
+        sys.modules["database"] = stranger
+        (self.tmp / "database.py").write_text("MINE = True\n")
+
+        discover(self.tmp)
+
+        self.assertIsNot(sys.modules.get("database"), stranger)

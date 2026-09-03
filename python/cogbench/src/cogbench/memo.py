@@ -41,7 +41,18 @@ __all__ = ["fingerprint", "read", "write", "cache_path"]
 #: it was handed, the item identity it was given, whether it ran once per
 #: item, and which part of each item's result it produced. A 6 entry for a
 #: chain that needed any of those replayed as a plain one-argument call.
-FORMAT = 7
+#: 8: entries carry which reading of the upstream value each step was
+#: called with -- the whole thing, spread as arguments, reversed, or one
+#: part of it. A 7 entry left a replay to work that out from the shapes,
+#: and one 2026 repository's fused first step returns both a spectrogram
+#: and its peaks, either of which their next function accepts.
+#: 9: entries carry whether the query was handed the table their store
+#: filled on its own object, and which attribute that was. An 8 entry for
+#: such a binding replayed as `ask(item)`, which for the one 2026
+#: repository with this shape means calling a three-argument matcher with
+#: one argument: the replay raises instead of scoring, and it is a stored
+#: entry, so it would keep raising until the cache was cleared.
+FORMAT = 9
 
 
 def cache_path(repository: Path) -> Path:

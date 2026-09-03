@@ -194,3 +194,111 @@ G6. One failing branch refuses the whole role. Under the withheld-overall decisi
     with no weights must still bind text. Fix: Role.optional on a branch; a required branch failing
     refuses the role; an optional one failing is recorded on the binding as
     Binding.missing[name] = Refusal and the role proceeds. Submission.to_dict carries "missing".
+
+## Engine gaps found running the four-branch role end to end (2026-09-02, after G1-G6)
+Each measured on the corpus with the full role, each fixed generically, each with a unit test.
+G7. The repository's own contribution to the pool. Week 3's trained W is a file the team committed,
+    so `discovery()` (built before any repository is chosen) cannot hold it, and every repository read
+    as having no weights with `data/W_embed.npy` in the tree. `DiscoverySpec.prepare(root, modules)`
+    runs after the root is chosen, and its result is merged UNDER the benchmark's extras. A hook that
+    raises refuses the search with its own words.
+G8. The call clock could escape. `_call` cancelled the alarm in the outer `finally`, outside the
+    `except`, so a `_Timeout` raised between the student call returning and the cancel left `_call`
+    and ended the whole search (CogFinder: `Search(model)` takes exactly ten seconds). The cancel now
+    sits inside the guarded block.
+G9. A value their module computes at load can answer a fit stage. rutvim has no IDF function; the
+    table is a module-scope loop and every embedding call reads the global. `values_in` offers
+    module-scope data, only after every function has been tried, recorded as "read from
+    text_to_image.idf, a value their module computes when it loads".
+G10. A whole-list call that answers with the WRONG shape hid the per-item form. CogFinder's
+    `tokenize(text)` walks characters; handed 75 captions it returned one flat list, the call had
+    "succeeded", and the per-item form was never tried. `_bind_one` now tries the per-item form when
+    the whole answer fails `produces` and keeps it only when it passes.
+G11. A stem the root already owns was skipped, not read. Bagel's root `image_caption_model.py` has no
+    `load`; `model_tests/image_caption_model.py`, the one their scripts import and the only encoder
+    that reads their weights, was never read. Shadowed files load under `folder.stem`; the root keeps
+    the bare name and import precedence; a folder that is not an identifier (`Day 4`) is still skipped.
+G12. A DECLARED week root read the sibling weeks. With `Week3` declared, rutvim's week 2
+    `facerecognizer.cosine_threshold` bound as the week 3 store. The matched-week rule (read only what
+    lives under the chosen week) now covers a declared one.
+
+Week 3 rules that changed in the same pass:
+- A load call under a module-scope guard that is statically false does not run
+  (`_dead_when_loaded`): Bagel's `test_db.py` sets `t = 0` and loads `test1.pkl` under `elif t == 1`.
+  Guards the folder cannot decide (`__main__`, a name bound by a call) count as running.
+- A table whose every weight is a whole number is a count table, not an IDF table; the first draft
+  accepted ints, so its own docstring was untrue.
+- Their model object (`roles.loaded_model`): a zero-argument class of theirs with `load(path)` that
+  accepts the file AND encodes a (1, 512) probe afterwards is put in the pool as `weights_model`.
+- Ambiguous weights withhold the image side (with the competing files named) rather than refusing
+  the repository: a text side that works is not thrown away over a question about the image side.
+
+## Engine gaps found running the corpus end to end again (2026-09-03)
+G13. A branch was judged only when every branch was in. Lashika's image branch first bound
+    `triplet_utils.train_val_split` (a (100, 409) matrix passes the loose width check), the week's
+    test refused the whole, and the role was reported ran-but-wrong while `descriptor_to_embedding`
+    was never asked. Each branch is now judged as it binds, beside the branches bound so far, and a
+    rejected chain is passed over for the next one in the frontier.
+G14. A branch bound on the first fixture form its function accepted, with no way back. Bagel's
+    `CaptionImageQuery(image_embeddings, image_ids)` constructs with the arguments swapped and only its
+    `search`, one branch later, can tell. `_resolve_branches` now backtracks over forms: when a
+    branch whose input existed still could not bind, the last-bound branch with a form not yet tried
+    is bound again without it and everything after it is searched again; bounded by the number of
+    forms; the attempt that binds the most branches wins.
+G15. A fusible stage could only be absorbed by the step BEFORE it (their function produced this
+    stage's output). Cog-gurts' `fingerprint_recording(spectrogram)` finds the peaks and pairs them,
+    and their separate `local_peak_locations` needs a neighbourhood array and an amplitude floor no
+    benchmark can supply. The stage's INPUT is now also handed to the following stage's candidates
+    (recorded as "peaks + fingerprints"), governed by this stage's `accepts`, only where nothing of
+    theirs served the stage, never into an in-place following stage, and asked after every chain
+    that found a function for the stage (`_Partial.forward`).
+G16. The folder dry call ran once per fixture form per folder-declaring stage. CoggurtFilter's
+    `clusterCreator()` builds FaceNet and describes 34 photos on every call. Memoized per constructor
+    per search; the stage's own output check stays per stage.
+G17. `bound()` did not replay `in_place`: a step recorded as answering on its argument handed the next
+    step None in a scored run. No week had witnessed it (week 2 replays through its own `_run`).
+G18. Week 2 and week 3 leaked one scratch directory per resolve (`write_photos`, week 1's
+    `mkdtemp`); a corpus pass filled the disk. Removed at process exit.
+G19. The ran-but-wrong headline hard-coded week 2's sentence ("answered a different grouping where
+    the answer is one group per person") and a week 3 team read it about their caption search.
+    `DiscoverySpec.expects` carries the week's own words and the headline quotes what the week's
+    test said.
+G20. A store that forgot the images bound as week 3's prepare step (CogFinder's
+    `generate_letter(ids, descriptors)` returned a letter). `looks_like_store_of(ids)` requires the
+    ids, or one row per id, somewhere in the value to depth two.
+G21. A text embedder that maps every caption to one vector passed week 3's test (CogFinder's
+    `tokenize -> embed_caption` re-tokenizes the token list into one unknown word). Refused when
+    all rows are equal; not a score threshold.
+
+Week 3 policy addition: a bound image side with no bound search side withholds `search_mrr` and
+the overall, leads with `retrieval_mrr`, and names the search step's refusal. Bagel's first
+end-to-end run had scored search 0.0 into an overall of 0.4183.
+
+Known refusals that stand, with the reason a student would read:
+- CoggurtFilter (week 2): `clusterCreator()` reads `baseImages/` next to their code through
+  `Path(__file__)`, so a folder of the benchmark's photos cannot be handed to it; skipping their
+  constructor (`__new__`) is a decision about their design, not a binding. Their
+  `detect_and_describe(model, image)` needs the benchmark's model as a LEADING extra, which the week
+  2 spec does not yet declare; once it does, the refusal should name the constructor's folder read.
+- rutvim week 2: `whispers.py:1` shadows the model; refused at the first broken line.
+- Asterisk week 1: no function stores fingerprints.
+
+Review findings on the above (fresh Sol, 2026-09-03), all fixed the same night with a test each:
+form backtracking now a bounded depth-first search over form prefixes (a ban under one upstream
+state never carries to another; best attempt by required branches covered, then all branches);
+`loaded_model` runs the constructor, loader, and a probe call under the search's clock and the
+prepare hook runs from the scratch directory; week 3's `_run` makes each call exactly once through
+`bound` (the element-0 retry was a call the search never proved); a student file never takes a
+dotted name that already exists and a displaced module is put back when discovery leaves;
+skipped readings share the beam with their parents in one share-out; a wrong whole-list answer
+moves to the next shape instead of ending the candidate; `retrieval_median_rank` is withheld with
+the image side; guard folding short-circuits `and`/`or` and walks an unknown `if` from a copy per
+branch; in-place replay covers the self-only, cross-branch, and per-item paths; the showcase
+environment variable is restored after each acceptance run.
+
+Two corrections after the review round, both measured: the dotted-name guard is judged against the
+modules present BEFORE discovery entered (Bagel's own scripts import `model_tests.image_caption_model`
+before its file is reached, and the live table hid the encoder that loads their weights); only an
+INSTALLED displaced module is put back on leave (another repository's hand adapter leaves a bare
+`database` behind, and restoring it handed the next adapter the wrong team's code: carti4ce's oracle
+scored 0.0 after KrazeeCoder's test).
