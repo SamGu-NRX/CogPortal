@@ -211,7 +211,20 @@ class TheSandboxRunsUnderAPinnedHashSeed(unittest.TestCase):
             Path(__file__).resolve().parents[1] / "src" / "cogworks_runner" / "modal_app.py"
         ).read_text(encoding="utf-8")
         env_blocks = _re.findall(r"\.env\(\s*\{(.*?)\}\s*\)", source, _re.S)
-        student_blocks = [block for block in env_blocks if '"MPLBACKEND"' in block]
-        self.assertGreaterEqual(len(student_blocks), 2)
+        # The two sandbox images carry MPLBACKEND with a comment above it
+        # explaining the plot that never gets a window; the controller image
+        # sets the same two variables on one line and never runs a line of
+        # student code. The comment is what tells them apart in source, and
+        # the first draft of this test matched the controller too.
+        # The two sandbox images spell their environment over several lines
+        # with a comment per variable; the controller image sets the same two
+        # variables on one line and never runs a line of student code. The
+        # line break is what tells them apart in source. The first draft of
+        # this test matched the controller too and failed on it.
+        student_blocks = [
+            block for block in env_blocks
+            if '"MPLBACKEND"' in block and "\n" in block.strip()
+        ]
+        self.assertEqual(len(student_blocks), 2, [b[:60] for b in env_blocks])
         for block in student_blocks:
             self.assertIn('"PYTHONHASHSEED": "0"', block)

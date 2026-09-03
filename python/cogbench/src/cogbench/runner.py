@@ -232,7 +232,10 @@ def _execute_v2(
         for key, value in scores.items()
     ):
         raise ContractError("Benchmark scorer returned invalid v2 metrics.")
-    primary_key = str(benchmark.primary_metric)
+    # A plugin may say which metric is primary for THIS run, after scoring.
+    # Week 3 withholds `overall` when the image side was never measured and
+    # names `text_mrr` instead; the class attribute stays the general answer.
+    primary_key = str(getattr(benchmark, "primary_metric_for_run", None) or benchmark.primary_metric)
     metrics = [
         _metric(key, value, primary_key, labels, lower_is_better, help_text.get(key))
         for key, value in scores.items()

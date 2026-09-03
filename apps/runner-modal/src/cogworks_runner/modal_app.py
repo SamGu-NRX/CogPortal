@@ -2140,6 +2140,19 @@ def _last_error_line(value: str) -> str:
     return "The student process exited before producing a valid result."
 
 
+def _primary_for_run(benchmark) -> str:
+    """The primary metric for the run just scored.
+
+    A plugin may override its class-level `primary_metric` per run. Week 3
+    withholds `overall` when the image side was never measured (no trained
+    weights in the repository) and names `text_mrr`; scoring a run under a
+    primary that is not in the metrics would fail the contract check and
+    hide the text score that was measured.
+    """
+
+    return str(getattr(benchmark, "primary_metric_for_run", None) or benchmark.primary_metric)
+
+
 def _v2_metrics(benchmark: Any, outputs: List[Any], cases: List[Any]) -> Tuple[List[Any], List[str]]:
     from cogbench.models import Metric
 
@@ -2180,7 +2193,7 @@ def _v2_metrics(benchmark: Any, outputs: List[Any], cases: List[Any]) -> Tuple[L
             # arrow at all; the renderer reads the role and draws it as the
             # scale of the metric it belongs to.
             higher_is_better=key not in lower_is_better,
-            primary=key == benchmark.primary_metric,
+            primary=key == _primary_for_run(benchmark),
             precision=3,
             help=help_text.get(key),
             role=roles.get(key),
@@ -2232,7 +2245,7 @@ def _sweep_wire(benchmark):
         return None
     return {
         "axis": getattr(benchmark, "sweep_axis_label", "difficulty"),
-        "metric": benchmark.primary_metric,
+        "metric": _primary_for_run(benchmark),
         "points": wire,
     }
 
