@@ -12,20 +12,22 @@ import {
   useFamilyLeaderboard,
   useLeaderboard,
 } from "@/lib/queries";
-import { MODULE_ACCENT } from "@/lib/track";
+import { COURSE_ORDER, MODULE_ACCENT } from "@/lib/track";
 
-const TRACKS: Array<{ module: Module; label: string }> = [
-  { module: "vision", label: "Vision" },
-  { module: "language", label: "Language" },
-  { module: "audio", label: "Audio" },
-];
+// Audio, vision, language, which is the order the course runs them in. This
+// list used to be written out here in a different order, so the leaderboard
+// disagreed with every other surface about which week comes first.
+const TRACKS: Array<{ module: Module; label: string }> = COURSE_ORDER.map((module) => ({
+  module,
+  label: MODULE_ACCENT[module].label,
+}));
 
 /** Row grid shared by the header and every entry. */
 const ROW_GRID = "grid grid-cols-[3rem_minmax(0,1fr)_auto_2rem] items-baseline gap-x-4";
 
 export function LeaderboardPage() {
   const benchmarks = useBenchmarks();
-  const [module, setModule] = useState<Module>("vision");
+  const [module, setModule] = useState<Module>(TRACKS[0]!.module);
   const [visionView, setVisionView] = useState<
     "overall" | "recognition" | "clustering"
   >("overall");
