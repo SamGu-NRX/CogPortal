@@ -246,6 +246,10 @@ export function useChangeTeamRepo() {
       void qc.invalidateQueries({ queryKey: ["dashboard"] });
       void qc.invalidateQueries({ queryKey: ["repositories"] });
       void qc.invalidateQueries({ queryKey: ["leaderboard"] });
+      // The signals describe a repository's history, so they belong to the
+      // repository rather than to the team. Leaving them cached showed the
+      // previous repository's stages under the new repository's name.
+      void qc.invalidateQueries({ queryKey: ["team-process"] });
     },
   });
 }

@@ -449,6 +449,10 @@ export function registerTeamRoutes(app: Hono<AppEnv>): void {
           templateSourceRepoId: repository.sourceRepositoryId,
         })
         .where(eq(teams.id, auth.team.id));
+      // The cached signals describe the repository that was connected a
+      // moment ago. Serving them for another thirty minutes shows the old
+      // repository's stages and commits under the new repository's name.
+      await db.delete(teamProcessSignals).where(eq(teamProcessSignals.teamId, auth.team.id));
     } catch (error) {
       if (isUniqueConstraintError(error)) {
         const [racingClaim] = await db
