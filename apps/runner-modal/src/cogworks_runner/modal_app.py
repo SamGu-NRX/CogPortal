@@ -17,6 +17,13 @@ from fastapi import Request, Response
 from .image_bake import WEEK3_DATA_DIR, cache_facenet_checkpoint, cache_week3_artifacts
 from .protocol import canonical_json, signature, validate_job, verify_signature
 
+# Every request the runner makes to the portal or to GitHub carries this.
+# urllib's default is "Python-urllib/3.11", and Cloudflare's managed rules
+# in front of the portal answer that with 403 (error 1010) before the worker
+# sees the request. The 2026-09-04 audio run stalled in "queued" for an hour
+# for exactly that reason: the sandbox could not report "preparing".
+RUNNER_USER_AGENT = "cogworks-runner"
+
 
 def _repo_root() -> Path:
     """Monorepo root, needed only by the `add_local_dir` calls in the image
@@ -325,11 +332,13 @@ import sys
 import tarfile
 import urllib.request
 
+RUNNER_USER_AGENT = "cogworks-runner"
+
 archive_url, benchmark_id, contract_group = sys.argv[1], sys.argv[2], sys.argv[3]
 weights = json.loads(sys.argv[4])
 archive = pathlib.Path("/tmp/source.tar.gz")
 max_archive_bytes = 100 * 1024 * 1024
-request = urllib.request.Request(archive_url, headers={"User-Agent": "cogworks-runner"})
+request = urllib.request.Request(archive_url, headers={"User-Agent": RUNNER_USER_AGENT})
 try:
     with urllib.request.urlopen(request, timeout=30) as response, archive.open("wb") as output:
         declared = int(response.headers.get("Content-Length", "0"))
@@ -381,7 +390,9 @@ for weight in weights:
     if project.resolve() not in target.parents:
         raise RuntimeError("Weight file has an unsafe path: {}".format(relative_path))
     target.parent.mkdir(parents=True, exist_ok=True)
-    request = urllib.request.Request(weight["url"], headers=weight["headers"])
+    request = urllib.request.Request(
+        weight["url"], headers={"User-Agent": RUNNER_USER_AGENT, **weight["headers"]}
+    )
     digest = hashlib.sha256()
     try:
         with urllib.request.urlopen(request) as response, target.open("wb") as output:
@@ -895,6 +906,7 @@ def _post_event(job: Dict[str, Any], event: Dict[str, Any]) -> None:
             method="POST",
             headers={
                 "Content-Type": "application/json",
+                "User-Agent": RUNNER_USER_AGENT,
                 "X-Cogworks-Timestamp": timestamp,
                 "X-Cogworks-Key-Id": job["callback"]["keyId"],
                 "X-Cogworks-Signature": "v1=" + signature(secret, timestamp, body),

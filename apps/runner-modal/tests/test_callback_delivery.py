@@ -71,6 +71,7 @@ def _post_event_function():
                 "urllib": urllib,
                 "canonical_json": canonical_json,
                 "signature": signature,
+                "RUNNER_USER_AGENT": "cogworks-runner",
                 "Dict": dict,
                 "Any": object,
             }
@@ -108,6 +109,7 @@ class RecordingPortal:
                         "signature": self.headers.get("X-Cogworks-Signature", ""),
                         "timestamp": self.headers.get("X-Cogworks-Timestamp", ""),
                         "keyId": self.headers.get("X-Cogworks-Key-Id", ""),
+                        "userAgent": self.headers.get("User-Agent", ""),
                     }
                 )
                 index = len(outer.requests) - 1
@@ -316,6 +318,17 @@ class RetryIsSafe(unittest.TestCase):
         with RecordingPortal([]) as portal:
             POST_EVENT(job_for(portal.url), completed_event())
         self.assertEqual(portal.requests[0]["keyId"], "runner-v1")
+
+    def test_the_user_agent_is_not_urllib_s_default(self):
+        """Cloudflare's managed rules in front of the portal answer
+        "Python-urllib/3.11" with a 403 before the worker sees the request, so
+        a runner that sends urllib's default cannot report a single event and
+        the run sits in "queued" until the stale sweep fails it. Observed on
+        the 2026-09-04 audio run; this pins the header that fixed it."""
+
+        with RecordingPortal([]) as portal:
+            POST_EVENT(job_for(portal.url), completed_event())
+        self.assertEqual(portal.requests[0]["userAgent"], "cogworks-runner")
 
     def test_retries_are_spread_out_rather_than_immediate(self):
         """Three requests in the same millisecond are not a retry policy.
