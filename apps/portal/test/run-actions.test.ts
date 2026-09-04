@@ -253,7 +253,7 @@ test("a failed official run blocks same-surface re-promotion", async () => {
       assert.ok(error instanceof ApiHttpError);
       assert.equal(error.status, 409);
       assert.equal(error.code, "not_promotable");
-      assert.match(error.message, /failed official run/);
+      assert.match(error.message, /already ran and failed.*new practice run/);
       return true;
     },
   );

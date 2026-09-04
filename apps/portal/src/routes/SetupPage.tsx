@@ -174,9 +174,8 @@ function SetupGuide({
           <p className="mt-2 text-[14px] text-ink-secondary">
             Work top to bottom in your terminal. Steps turn green on their own
             when the check in the last step runs, and it colors everything it
-            can verify at once. The one box you tick yourself is the solo one
-            below, because nothing can verify that you meant to work alone.
-            Grey steps after you have done them are normal until then.
+            can verify at once. Grey steps after you have done them are normal
+            until then.
           </p>
 
           <ol className="relative mt-9">
@@ -311,8 +310,8 @@ function SetupGuide({
               chip={deviceLinked ? "linked" : undefined}
             >
               <p>
-                This visibly online command opens CogPortal for approval, then
-                returns to the terminal. The connection is revocable from{" "}
+                This command opens CogPortal for approval, then returns to the
+                terminal. The connection is revocable from{" "}
                 <Link to="/connections" className="text-ink underline decoration-rule underline-offset-4 hover:decoration-ink">
                   Connections
                 </Link>

@@ -133,7 +133,7 @@ function existingOfficialPromotion(run: RunRow, surfaceId: string) {
     throw new ApiHttpError(
       409,
       "not_promotable",
-      "This surface already has a failed official run. Rerun hosted verification to create a new surface before promoting again.",
+      "That official attempt already ran and failed. Start a new practice run to create the next candidate to promote.",
     );
   }
   return { runId: run.id, surfaceId };

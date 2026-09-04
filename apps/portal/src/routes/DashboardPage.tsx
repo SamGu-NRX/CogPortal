@@ -196,7 +196,7 @@ export function DashboardPage() {
                 </div>
               </div>
             ) : (
-              <EmptyState message="Nothing published yet. Promote a successful practice run, then select the official result you want public." />
+              <EmptyState message="Nothing published yet. Promote a successful practice run, then open the official run and publish it to the leaderboard." />
             )}
           </Panel>
         </div>
@@ -327,8 +327,7 @@ function CurrentRunPanel({
       {practiceExhausted ? (
         <p className="text-[14px] text-ink">
           All {d.quota.practiceLimit} hosted practice runs are used. Local
-          practice stays unlimited; a successful candidate can still be
-          promoted below.
+          practice stays unlimited.
         </p>
       ) : (
         <>

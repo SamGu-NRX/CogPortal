@@ -521,27 +521,27 @@ function ForkSteps({
             Fork the template on GitHub. Keep the fork public; the benchmark
             runs from it.
           </span>
-          <Button
-            type="button"
-            onClick={() =>
-              window.open(
-                template
-                  ? `https://github.com/${template}/fork`
-                  : "https://github.com",
-                "_blank",
-                "noreferrer",
-              )
-            }
-            className="!min-h-9 shrink-0 px-4 text-[12.5px]"
-          >
-            Fork {template ?? "the template"}
-            <HugeiconsIcon
-              icon={ArrowUpRight01Icon}
-              size={13}
-              strokeWidth={1.8}
-              aria-hidden="true"
-            />
-          </Button>
+          {template && (
+            <Button
+              type="button"
+              onClick={() =>
+                window.open(
+                  `https://github.com/${template}/fork`,
+                  "_blank",
+                  "noreferrer",
+                )
+              }
+              className="!min-h-9 shrink-0 px-4 text-[12.5px]"
+            >
+              Fork {template}
+              <HugeiconsIcon
+                icon={ArrowUpRight01Icon}
+                size={13}
+                strokeWidth={1.8}
+                aria-hidden="true"
+              />
+            </Button>
+          )}
         </li>
         <li className="flex items-baseline gap-4 px-5 py-3">
           <span className="font-mono text-[11px] text-ink-faint">02</span>

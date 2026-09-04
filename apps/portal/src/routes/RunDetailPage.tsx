@@ -280,7 +280,14 @@ export function RunDetailPage() {
             <ConfirmButton
               label="Promote to official"
               confirmLabel={`Confirm, uses attempt ${(quota?.officialUsed ?? 0) + 1} of ${OFFICIAL_LIMIT}`}
-              onConfirm={() => promote.mutate(run.id)}
+              onConfirm={() =>
+                promote.mutate(run.id, {
+                  // The official run is the one to watch, and nothing on this
+                  // page links to it. The retry path above navigates for the
+                  // same reason.
+                  onSuccess: ({ runId: started }) => navigate(`/runs/${started}`),
+                })
+              }
               busy={promote.isPending}
               disabled={!quota || quota.officialUsed >= quota.officialLimit}
             />

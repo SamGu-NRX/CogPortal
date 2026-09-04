@@ -368,6 +368,15 @@ export function RunConsole({
                 {busyAction === action ? "Working…" : ACTION_COPY[action]}
               </button>
             ))}
+            {/* The reference above states "Uncommitted changes" and the
+                hosted action silently disappears, so the one fact that
+                explains the missing button was the one thing not said. */}
+            {snapshot.dirty && snapshot.stage === "local" && snapshot.status === "succeeded" && (
+              <p className="text-[12px] leading-relaxed text-ink-secondary">
+                Hosted verification needs a commit. Commit and push this work,
+                then run it again.
+              </p>
+            )}
             {onOpenPortal && (
               <button type="button" className="min-h-11 px-3 text-left text-[12px] text-ink-secondary underline decoration-rule underline-offset-4" onClick={onOpenPortal}>
                 Open Cog*Portal ↗
