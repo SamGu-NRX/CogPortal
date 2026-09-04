@@ -76,13 +76,19 @@ Open http://localhost:5173, sign in with GitHub, and walk:
 
 1. **Dashboard.** The run list, the practice and official counters.
 2. **A succeeded run.** The finding sentence leads, then the metric grid, then
-   the wiring trace: their function names, in their order, as the platform
-   called them.
-3. **A refused run.** The same refusal from Act 2, on a page.
-4. **Team.** The process panel: which capstone stage each person touched and
+   the diagnostics that say which component lost the points.
+3. **Team.** The process panel: which capstone stage each person touched and
    when, the first run that scored end to end, and any commit that changed a
    contract file since. No per-person totals anywhere, on purpose.
-5. **Leaderboard.**
+4. **Leaderboard.**
+
+Two things this local database cannot show, so do not promise them here. The
+seeded runs carry no wiring trace and no refusal card, because they were
+written by the fixture provider rather than by a sandbox that ran discovery;
+Act 2 is where the refusal lives. And the team is connected to the fixture
+repository, which is not on GitHub, so the process panel says it could not
+read a commit history rather than drawing the stage rows. Connecting a real
+repository with the GitHub App installed fills it.
 
 Runs on this machine are scripted (`EXECUTION_PROVIDER=fixture`); the hosted
 runner is deployed but the demo does not need it. Say that if asked. The
