@@ -3,6 +3,7 @@ import {
   RUNNER_PROTOCOL_VERSION,
   RunJobV1Schema,
   type RunJobV1,
+  type WeightFile,
 } from "@cogworks/contracts/protocol";
 import type { Env } from "../env";
 import { getDb } from "../db/client";
@@ -10,6 +11,8 @@ import type { BenchmarkRow, RunRow, TeamRow } from "../db/schema";
 import { runs } from "../db/schema";
 import { ApiHttpError } from "../http/errors";
 import { newId } from "../util/id";
+import { getLatestTeamWeightPaths } from "../services/local-reports";
+import { weightManifest } from "../services/weights";
 
 const DEFAULT_IMAGE_DIGEST = "cogworks-week2-cpu-v1:unpublished";
 
@@ -56,6 +59,7 @@ export function buildRunJob(
   run: RunRow,
   team: TeamRow,
   benchmark: BenchmarkRow,
+  weights: WeightFile[] = [],
 ): RunJobV1 {
   const fullName = `${encodeURIComponent(team.repoOwner)}/${encodeURIComponent(team.repoName)}`;
   return RunJobV1Schema.parse({
@@ -137,6 +141,7 @@ export function buildRunJob(
       url: `${origin(env)}/api/internal/v1/runner/events`,
       keyId: env.RUNNER_SIGNING_KEY_ID ?? "runner-v1",
     },
+    ...(run.preparedArtifactId ? {} : { weights }),
   });
 }
 
@@ -157,7 +162,12 @@ export async function enqueueRun(
   benchmark: BenchmarkRow,
 ): Promise<void> {
   assertModalConfigured(env);
-  const job = buildRunJob(env, run, team, benchmark);
+  let weights: WeightFile[] = [];
+  if (!run.preparedArtifactId) {
+    const paths = await getLatestTeamWeightPaths(env, run.teamId, team.repoFullName, run.sha);
+    weights = await weightManifest(env.ARTIFACTS, team.repoFullName, run.sha, paths);
+  }
+  const job = buildRunJob(env, run, team, benchmark, weights);
   if (env.RUN_QUEUE) {
     await env.RUN_QUEUE.send(job, { contentType: "json" });
     return;

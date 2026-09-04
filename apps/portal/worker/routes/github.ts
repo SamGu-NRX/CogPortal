@@ -69,7 +69,11 @@ export function registerGithubRoutes(app: Hono<AppEnv>): void {
     const result = await authFor(c).api.signInSocial({
       body: {
         provider: "github",
-        callbackURL: "/",
+        // The sign-in page routes a signed-in user to their next stage (join,
+        // connect, setup, dashboard) and to any pending connection return;
+        // the marketing page does neither, so landing there after GitHub
+        // left every new student on the front page with a signed-in header.
+        callbackURL: "/signin",
         // Better Auth falls errorCallbackURL back to callbackURL, so without
         // this a failed or cancelled sign-in landed on the marketing page with
         // an ?error= nobody reads, and the student saw no explanation at all.

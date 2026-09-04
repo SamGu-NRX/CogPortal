@@ -351,6 +351,8 @@ export const runs = sqliteTable("runs", {
   /** The scorer's difficulty sweep, as JSON. Null when the benchmark has no
    *  difficulty knob, or when the run predates migration 0023. */
   sweepJson: text("sweep_json"),
+  /** Repository-relative weight paths present in this run's prepared snapshot. */
+  weightsSuppliedJson: text("weights_supplied_json").notNull().default("[]"),
   createdAt: integer("created_at").notNull(),
   finishedAt: integer("finished_at"),
   provider: text("provider", { enum: ["fixture", "modal"] }).notNull().default("fixture"),
@@ -449,6 +451,8 @@ export const localReports = sqliteTable("local_reports", {
   finishedAt: integer("finished_at").notNull(),
   metricsJson: text("metrics_json").notNull(),
   diagnosticsJson: text("diagnostics_json").notNull(),
+  /** Paths discovery read while producing this local report. */
+  weightsUsedJson: text("weights_used_json").notNull().default("[]"),
   syncedAt: integer("synced_at").notNull(),
 });
 

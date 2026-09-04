@@ -242,7 +242,13 @@ export async function startPracticeRun(
   } else if (fixtureRepository) {
     sha = await new FixtureGitHubClient().resolveRef(actor.team.repoOwner, actor.team.repoName, branch);
   } else if (githubToken) {
-    sha = await new RealGitHubClient().resolveRef(actor.team.repoOwner, actor.team.repoName, branch, githubToken);
+    try {
+      sha = await new RealGitHubClient().resolveRef(actor.team.repoOwner, actor.team.repoName, branch, githubToken);
+    } catch {
+      // The exact-sha path above says "push it first"; a branch that GitHub
+      // cannot resolve deserves a sentence too, not a bare 500.
+      throw new ApiHttpError(409, "invalid_request", `GitHub has no branch named ${branch}.`);
+    }
   } else {
     throw new ApiHttpError(403, "forbidden", "Sign in to GitHub on Cog*Portal first.");
   }

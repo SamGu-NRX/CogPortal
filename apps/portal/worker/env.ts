@@ -1,4 +1,4 @@
-import type { D1Database, DurableObjectNamespace, Fetcher, Queue } from "@cloudflare/workers-types";
+import type { D1Database, DurableObjectNamespace, Fetcher, Queue, R2Bucket } from "@cloudflare/workers-types";
 import type { RunJobV1 } from "@cogworks/contracts/protocol";
 import { createEnv, perRequestEnv } from "@cogworks/env";
 import { z } from "zod";
@@ -7,6 +7,7 @@ export interface Bindings {
   DB: D1Database;
   ASSETS: Fetcher;
   RUN_SURFACES: DurableObjectNamespace;
+  ARTIFACTS: R2Bucket;
   RUN_QUEUE?: Queue<RunJobV1>;
 }
 

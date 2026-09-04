@@ -147,6 +147,7 @@ export async function serializeRunDetail(
     // Names their own modules and functions, so it is safe on an official run
     // for the same reason diagnostics are.
     refusal: parseRefusal(row.refusalJson),
+    weightsSupplied: parseWeightsSupplied(row.weightsSuppliedJson),
     log: row.mode === "practice" ? row.log : null,
     selected: selection[0]?.runId === row.id,
   };
@@ -200,5 +201,14 @@ function parseSweep(value: string | null): RunDetail["sweep"] {
     return parsed.success ? parsed.data : null;
   } catch {
     return null;
+  }
+}
+
+function parseWeightsSupplied(value: string): RunDetail["weightsSupplied"] {
+  try {
+    const parsed = RunDetailSchema.shape.weightsSupplied.safeParse(JSON.parse(value));
+    return parsed.success ? parsed.data : [];
+  } catch {
+    return [];
   }
 }

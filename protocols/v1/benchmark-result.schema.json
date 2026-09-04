@@ -83,6 +83,15 @@
         "maxLength": 240
       }
     },
+    "weightsSupplied": {
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 500
+      }
+    },
     "sweep": {
       "description": "How the score moved as the benchmark's difficulty knob turned. Omitted by a benchmark whose difficulty has no natural knob.",
       "type": "object",

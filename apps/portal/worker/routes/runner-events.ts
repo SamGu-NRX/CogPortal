@@ -38,7 +38,11 @@ function failureConsumesAttempt(runMode: string, event: Extract<RunEventV1, { ty
   );
 }
 
-async function verifyRunnerEvent(c: Context<AppEnv>, body: string) {
+export async function verifyRunnerSignature(
+  c: Context<AppEnv>,
+  payload: string,
+  maxAgeSeconds = MAX_CLOCK_SKEW_SECONDS,
+) {
   const secret = c.env.RUNNER_SIGNING_SECRET;
   if (!secret) throw new ApiHttpError(501, "provider_unconfigured", "Runner signing is not configured.");
   const keyId = c.req.header("X-Cogworks-Key-Id");
@@ -51,10 +55,13 @@ async function verifyRunnerEvent(c: Context<AppEnv>, body: string) {
     throw new ApiHttpError(401, "unauthorized", "Runner signature is missing.");
   }
   const seconds = Number(timestamp);
-  if (!Number.isSafeInteger(seconds) || Math.abs(Math.floor(Date.now() / 1_000) - seconds) > MAX_CLOCK_SKEW_SECONDS) {
+  if (
+    !Number.isSafeInteger(seconds) ||
+    Math.abs(Math.floor(Date.now() / 1_000) - seconds) > maxAgeSeconds
+  ) {
     throw new ApiHttpError(401, "unauthorized", "Runner signature timestamp is invalid.");
   }
-  const expected = await hmacSignature(secret, timestamp, body);
+  const expected = await hmacSignature(secret, timestamp, payload);
   if (!constantTimeTextEqual(expected, supplied.slice(3))) {
     throw new ApiHttpError(401, "unauthorized", "Runner signature is invalid.");
   }
@@ -127,6 +134,9 @@ async function applyEvent(env: AppEnv["Bindings"], event: RunEventV1): Promise<v
         // submission, because then nothing was inferred.
         wiringJson: event.result.wiring ? JSON.stringify(event.result.wiring) : null,
         sweepJson: event.result.sweep ? JSON.stringify(event.result.sweep) : null,
+        ...(event.result.weightsSupplied === undefined
+          ? {}
+          : { weightsSuppliedJson: JSON.stringify(event.result.weightsSupplied) }),
       })
       .where(eq(runs.id, run.id));
     for (const metric of event.result.metrics) {
@@ -239,7 +249,7 @@ export function runnerSurfaceStatusCode(
 export function registerRunnerEventRoutes(app: Hono<AppEnv>): void {
   app.post("/internal/v1/runner/events", async (c) => {
     const body = await c.req.text();
-    await verifyRunnerEvent(c, body);
+    await verifyRunnerSignature(c, body);
     let event: RunEventV1;
     try {
       event = RunEventV1Schema.parse(JSON.parse(body));

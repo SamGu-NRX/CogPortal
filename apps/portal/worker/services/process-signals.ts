@@ -45,6 +45,16 @@
  *   this" value Python already uses for a non-usable history -- no new
  *   sentence is needed for it, because `findingSentences`'s per-stage loops
  *   simply have no stages to iterate, which is the correct honest silence.
+ * - Authorship is a set of logins per commit, not one login. process.py's
+ *   `Commit.author_login` is a single string because process.py was written
+ *   against `git log` output, which reports one author. GitHub's own
+ *   attribution reads `Co-authored-by:` trailers too, and a 2026 team that
+ *   worked in one editor session put a real student on three commits and
+ *   nowhere else. Resolving a trailer to a person needs the team roster, so
+ *   the roster is an input here (`RosterMember[]`) rather than something
+ *   `../github/commits.ts` could have applied on its way past. See
+ *   `resolveCoAuthorLogin` for what counts as a resolution and why anything
+ *   else is dropped.
  * - `RunRecord.createdAt` is deliberately *not* sourced from the `runs`
  *   table's `created_at` column despite matching process.py's `Run.created_at`
  *   field name. `first_light` is about when a run finished and scored, and
@@ -56,7 +66,7 @@
  *   where this mapping happens.
  */
 
-import type { CommitRecord } from "../github/commits";
+import type { CoAuthorTrailer, CommitRecord } from "../github/commits";
 import type { FetchCommitsResult } from "../github/commits";
 
 // ---------------------------------------------------------------------------
@@ -184,6 +194,67 @@ function matchesAny(path: string, patterns: string[]): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Who a commit is by
+// ---------------------------------------------------------------------------
+
+/** One team member, as co-author resolution needs them. */
+export interface RosterMember {
+  login: string;
+  email: string;
+}
+
+const NOREPLY_HOST = "@users.noreply.github.com";
+
+/** `12345+ada@users.noreply.github.com` -> `ada`; `ada@users.noreply.github.com` -> `ada`. */
+function loginFromNoreply(email: string): string | null {
+  if (!email.endsWith(NOREPLY_HOST)) return null;
+  const local = email.slice(0, -NOREPLY_HOST.length);
+  const plus = local.indexOf("+");
+  return (plus === -1 ? local : local.slice(plus + 1)) || null;
+}
+
+/**
+ * The roster member a trailer names, or `null`.
+ *
+ * Three ways to resolve, in order: GitHub's own noreply address, which
+ * carries the login; the address the portal already has on file for a
+ * member; and the trailer's name field when it is literally a roster login,
+ * which is what an editor writes when it has a login and no address.
+ *
+ * A trailer that matches none of them is dropped, and that single rule is
+ * the whole defence against bots, AI assistants, and outside contributors
+ * appearing in a team's ownership map. There is deliberately no list of
+ * their names to maintain: anyone not on this team's roster is not on this
+ * team's roster, whoever they are.
+ *
+ * The roster's own spelling of the login is returned, not the trailer's, so
+ * the same person cannot appear twice under two casings.
+ */
+function resolveCoAuthorLogin(trailer: CoAuthorTrailer, roster: RosterMember[]): string | null {
+  const email = trailer.email.toLowerCase();
+  const noreplyLogin = loginFromNoreply(email);
+  if (noreplyLogin) {
+    const byNoreply = roster.find((member) => member.login.toLowerCase() === noreplyLogin);
+    if (byNoreply) return byNoreply.login;
+  }
+  const byEmail = roster.find((member) => member.email.toLowerCase() === email);
+  if (byEmail) return byEmail.login;
+  const name = trailer.name.trim().toLowerCase();
+  const byName = name ? roster.find((member) => member.login.toLowerCase() === name) : undefined;
+  return byName ? byName.login : null;
+}
+
+/** Every person a commit is by: its author, plus each trailer that resolves. */
+function commitAuthorLogins(commit: CommitRecord, roster: RosterMember[]): string[] {
+  const logins = [commit.authorLogin];
+  for (const trailer of commit.coAuthors) {
+    const login = resolveCoAuthorLogin(trailer, roster);
+    if (login !== null) logins.push(login);
+  }
+  return logins;
+}
+
+// ---------------------------------------------------------------------------
 // Signal 1: stage footprint
 // ---------------------------------------------------------------------------
 
@@ -235,6 +306,7 @@ function degradedStageMap(
 export function stageFootprint(
   commits: CommitRecord[],
   stageMap: Record<string, string[]>,
+  roster: RosterMember[],
 ): Record<string, StageActivity> {
   const quality = classifyHistoryQuality(commits);
   if (quality !== HISTORY_USABLE) {
@@ -250,7 +322,7 @@ export function stageFootprint(
     for (const commit of commits) {
       if (!commit.filesChanged.some((path) => matchesAny(path, patterns))) continue;
       commitCount += 1;
-      authors.add(commit.authorLogin);
+      for (const login of commitAuthorLogins(commit, roster)) authors.add(login);
       if (firstTouchAt === null || commit.authoredAt < firstTouchAt) firstTouchAt = commit.authoredAt;
       if (lastTouchAt === null || commit.authoredAt > lastTouchAt) lastTouchAt = commit.authoredAt;
     }
@@ -378,6 +450,7 @@ export function boundaryChurn(
 export function ownershipBreadth(
   commits: CommitRecord[],
   stageMap: Record<string, string[]>,
+  roster: RosterMember[],
 ): Record<string, string[]> {
   if (classifyHistoryQuality(commits) !== HISTORY_USABLE) return {};
 
@@ -385,7 +458,8 @@ export function ownershipBreadth(
   for (const [stage, patterns] of Object.entries(stageMap)) {
     const authors = new Set<string>();
     for (const commit of commits) {
-      if (commit.filesChanged.some((path) => matchesAny(path, patterns))) authors.add(commit.authorLogin);
+      if (!commit.filesChanged.some((path) => matchesAny(path, patterns))) continue;
+      for (const login of commitAuthorLogins(commit, roster)) authors.add(login);
     }
     result[stage] = Array.from(authors).sort();
   }
@@ -549,6 +623,10 @@ export interface BuildProcessSignalsInput {
   commitsResult: FetchCommitsResult;
   runs: RunRecord[];
   weekLabel: WeekLabel | null;
+  /** The team, for resolving `Co-authored-by:` trailers. An empty roster
+   *  resolves nothing, which is the honest reading of "we don't know who
+   *  these people are" rather than a reason to guess. */
+  roster: RosterMember[];
 }
 
 /**
@@ -582,10 +660,10 @@ export function buildProcessSignals(input: BuildProcessSignalsInput): ProcessSig
   const commits = input.commitsResult.commits;
   return {
     historyQuality: classifyHistoryQuality(commits),
-    stageFootprint: stageMap ? stageFootprint(commits, stageMap) : {},
+    stageFootprint: stageMap ? stageFootprint(commits, stageMap, input.roster) : {},
     firstLight: light,
     boundaryChurn: boundaryChurn(commits, BOUNDARY_FILES, light.firstScoredAt),
-    ownershipBreadth: stageMap ? ownershipBreadth(commits, stageMap) : {},
+    ownershipBreadth: stageMap ? ownershipBreadth(commits, stageMap, input.roster) : {},
     weekLabel: input.weekLabel,
   };
 }

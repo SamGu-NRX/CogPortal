@@ -34,6 +34,11 @@
     }
   ],
 
+  "r2_buckets": [
+    // A staging upload must not be able to replace a production artifact.
+    { "binding": "ARTIFACTS", "bucket_name": "cogportal-artifacts-dev" }
+  ],
+
   "durable_objects": {
     "bindings": [
       {
@@ -133,6 +138,9 @@
           "migrations_dir": "migrations"
         }
       ],
+      "r2_buckets": [
+        { "binding": "ARTIFACTS", "bucket_name": "cogportal-artifacts" }
+      ],
       "durable_objects": {
         "bindings": [{ "name": "RUN_SURFACES", "class_name": "RunSurfaceHub" }]
       },
@@ -174,7 +182,4 @@
   //     "retry_delay": 30
   //   }]
   // },
-  // "r2_buckets": [
-  //   { "binding": "ARTIFACTS", "bucket_name": "cogportal-artifacts" }
-  // ]
 }

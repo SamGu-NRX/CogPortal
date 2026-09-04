@@ -15,7 +15,11 @@ import {
   users,
 } from "../worker/db/schema.ts";
 import type { Env } from "../worker/env.ts";
-import { listTeamLocalReports } from "../worker/services/local-reports.ts";
+import {
+  getLatestTeamWeightPaths,
+  getWeightUploadTarget,
+  listTeamLocalReports,
+} from "../worker/services/local-reports.ts";
 
 /**
  * A benchmark bump keeps the id and raises the version. The team list
@@ -162,4 +166,66 @@ test("a benchmark id with no active version returns nothing rather than stale ro
   await db.insert(localReports).values([reportRow("report_pre_bump", 1)]);
 
   assert.deepEqual(await listTeamLocalReports(env, "user_1", BENCHMARK), []);
+});
+
+
+test("a report cannot upload weights into another repository prefix", async () => {
+  const { env, db } = await seededDb();
+  await db.insert(localReports).values({
+    ...reportRow("report_other_repo", 1),
+    repositoryFullName: "other-org/other-repo",
+    sha: "a".repeat(40),
+    weightsUsedJson: JSON.stringify(["models/search.pkl"]),
+  });
+
+  await assert.rejects(
+    getWeightUploadTarget(env, "user_1", "report_other_repo", "models/search.pkl"),
+    (error: unknown) =>
+      error instanceof Error &&
+      "status" in error &&
+      error.status === 403 &&
+      /team repository/.test(error.message),
+  );
+});
+
+test("the newest matching team report supplies the run weight paths", async () => {
+  const { env, db } = await seededDb();
+  await db.insert(users).values([
+    { id: "user_2", name: "Grace", email: "grace@example.com" },
+    { id: "user_3", name: "Mallory", email: "mallory@example.com" },
+  ]);
+  await db.insert(teamMembers).values({ teamId: "team_1", userId: "user_2", role: "member" });
+  const sha = "b".repeat(40);
+  await db.insert(localReports).values([
+    {
+      ...reportRow("report_old_member", 1),
+      sha,
+      weightsUsedJson: JSON.stringify(["models/old.pkl"]),
+      syncedAt: 10,
+    },
+    {
+      ...reportRow("report_new_member", 1),
+      userId: "user_2",
+      sha,
+      weightsUsedJson: JSON.stringify(["models/current.pkl"]),
+      syncedAt: 20,
+    },
+    {
+      ...reportRow("report_newest_outsider", 1),
+      userId: "user_3",
+      sha,
+      weightsUsedJson: JSON.stringify(["models/injected.pkl"]),
+      syncedAt: 30,
+    },
+    {
+      ...reportRow("report_wrong_commit", 1),
+      sha: "c".repeat(40),
+      weightsUsedJson: JSON.stringify(["models/wrong-commit.pkl"]),
+      syncedAt: 40,
+    },
+  ]);
+
+  assert.deepEqual(await getLatestTeamWeightPaths(env, "team_1", REPO, sha), [
+    "models/current.pkl",
+  ]);
 });

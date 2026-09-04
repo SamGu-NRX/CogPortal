@@ -215,9 +215,41 @@ export const RunDetailSchema = RunSummarySchema.extend({
         )
         .max(16)
         .default([]),
+      /* The three fields below default to [] so that a refusal stored before
+         they existed still parses and still renders its headline. */
+      /** What the search learned that the headline does not say. */
+      notes: z.array(z.string().max(600)).max(8).default([]),
+      /** Files the run could not read. `owner` is "theirs", "ours", or
+          "environment"; a skip that is ours is our fault and the page says
+          so rather than letting it read as their bug. */
+      skipped: z
+        .array(
+          z.object({
+            module: z.string().max(200),
+            reason: z.string().max(300),
+            owner: z.string().max(20).default("theirs"),
+          }),
+        )
+        .max(32)
+        .default([]),
+      /** What their code raised while the search called it, at the file and
+          line inside their own repository. */
+      errors: z
+        .array(
+          z.object({
+            file: z.string().max(200),
+            line: z.number().int().min(0),
+            function: z.string().max(200),
+            message: z.string().max(200),
+          }),
+        )
+        .max(16)
+        .default([]),
     })
     .nullable()
     .default(null),
+  /** Repository-relative files copied from the student's local run. */
+  weightsSupplied: z.array(z.string().min(1).max(500)).max(32).default([]),
   /** Capped install/eval log. Practice runs only; null for official (§5). */
   log: z.string().nullable(),
   /** Official runs: currently published on the leaderboard. */
@@ -420,6 +452,7 @@ export const LocalReportInputSchema = z.object({
   finishedAt: z.number().int(),
   metrics: z.array(MetricSchema).max(32),
   diagnostics: z.array(z.string().max(240)).max(32),
+  weightsUsed: z.array(z.string().min(1).max(500)).max(32),
 });
 export type LocalReportInput = z.infer<typeof LocalReportInputSchema>;
 

@@ -29,5 +29,12 @@
   "callback": {
     "url": "https://portal.example/api/internal/v1/runner/events",
     "keyId": "runner-v1"
-  }
+  },
+  "weights": [
+    {
+      "path": "models/search.pkl",
+      "size": 411000,
+      "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    }
+  ]
 }

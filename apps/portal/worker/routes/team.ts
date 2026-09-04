@@ -34,11 +34,21 @@ import { validateTemplateRepository } from "../github/template";
 import { ApiHttpError } from "../http/errors";
 import { parseBody, respond } from "../http/respond";
 import { buildProcessSignals, findingSentences } from "../services/process-signals";
-import type { RunRecord, WeekLabel } from "../services/process-signals";
+import type { RosterMember, RunRecord, WeekLabel } from "../services/process-signals";
 
 function memberRole(role: string): TeamMember["role"] {
   if (role === "admin" || role === "maintain" || role === "write") return role;
   throw new Error("Team member has an invalid role.");
+}
+
+/**
+ * What to call a member. `github_login` is null for a development account
+ * (see routes/session.ts), so the email's local part stands in. One function
+ * because the name shown on the team page and the name a co-author trailer
+ * resolves to have to be the same string, or the same person reads as two.
+ */
+function displayLogin(row: { login: string | null; email: string }): string {
+  return row.login ?? row.email.split("@")[0];
 }
 
 export async function getTeamDetail(
@@ -96,13 +106,13 @@ export async function getTeamDetail(
       defaultBranch: team.defaultBranch,
     },
     members: members.map((member) => ({
-      login: member.login ?? member.email.split("@")[0],
+      login: displayLogin(member),
       name: member.name,
       avatarUrl: member.avatarUrl,
       role: memberRole(member.role),
     })),
     tas: tas.map((ta) => ({
-      login: ta.login ?? ta.email.split("@")[0],
+      login: displayLogin(ta),
       name: ta.name,
       avatarUrl: ta.avatarUrl,
     })),
@@ -227,6 +237,21 @@ async function scoredRunRecords(db: Database, teamId: string): Promise<RunRecord
     .map((run) => ({ runId: run.id, createdAt: run.finishedAt, scored: true }));
 }
 
+/**
+ * The team, as co-author resolution needs it. A `Co-authored-by:` trailer
+ * names a person by GitHub login or by email address, and only this layer
+ * knows which of those belong to this team; the fetch that reads the
+ * trailers (`../github/commits.ts`) has no roster to check them against.
+ */
+async function teamRoster(db: Database, teamId: string): Promise<RosterMember[]> {
+  const rows = await db
+    .select({ login: users.githubLogin, email: users.email })
+    .from(teamMembers)
+    .innerJoin(users, eq(teamMembers.userId, users.id))
+    .where(eq(teamMembers.teamId, teamId));
+  return rows.map((row) => ({ login: displayLogin(row), email: row.email }));
+}
+
 export function registerTeamRoutes(app: Hono<AppEnv>): void {
   app.get("/team", async (c) => {
     const auth = await requireTeam(c);
@@ -253,8 +278,11 @@ export function registerTeamRoutes(app: Hono<AppEnv>): void {
       return respond(c, TeamProcessSignalsSchema, { ...signals, computedAt: cached.computedAt });
     }
 
-    const weekLabel = await resolveWeekLabel(db, teamId);
-    const runRecords = await scoredRunRecords(db, teamId);
+    const [weekLabel, runRecords, roster] = await Promise.all([
+      resolveWeekLabel(db, teamId),
+      scoredRunRecords(db, teamId),
+      teamRoster(db, teamId),
+    ]);
 
     let commitsResult: Awaited<ReturnType<typeof fetchCommitHistory>>;
     if (auth.team.repoFullName === FIXTURE_REPO.fullName && devAuthAvailable(c.env)) {
@@ -272,7 +300,7 @@ export function registerTeamRoutes(app: Hono<AppEnv>): void {
         : { ok: false, reason: "fetch_failed" };
     }
 
-    const signals = buildProcessSignals({ commitsResult, runs: runRecords, weekLabel });
+    const signals = buildProcessSignals({ commitsResult, runs: runRecords, weekLabel, roster });
     const payload: Omit<TeamProcessSignals, "computedAt"> = {
       ...signals,
       findingSentences: findingSentences(signals),

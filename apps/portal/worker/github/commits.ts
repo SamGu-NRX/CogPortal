@@ -23,6 +23,40 @@ export interface CommitRecord {
   authorLogin: string;
   authoredAt: number;
   filesChanged: string[];
+  /**
+   * `Co-authored-by:` trailers exactly as the commit message wrote them,
+   * unresolved. One 2026 student authored no commits under `authorLogin` and
+   * co-authored three, because the team worked in a single editor session; to
+   * every signal below they did not exist. Resolving a trailer to a person
+   * needs the team roster, which this module has no access to, so the raw
+   * trailer travels and `../services/process-signals.ts` decides who (if
+   * anyone) it names.
+   */
+  coAuthors: CoAuthorTrailer[];
+}
+
+/** One `Co-authored-by: Name <email>` trailer, as written. */
+export interface CoAuthorTrailer {
+  name: string;
+  email: string;
+}
+
+/**
+ * Git trailer lines, matched case-insensitively on the key. A trailer whose
+ * value is not `Something <address>` is not a co-author attribution and is
+ * skipped; anything that survives here still has to resolve to a roster
+ * member downstream, which is what keeps bots and strangers out without a
+ * list of their names.
+ */
+const CO_AUTHOR_TRAILER = /^co-authored-by:\s*(.*?)\s*<([^>]+)>$/i;
+
+export function parseCoAuthorTrailers(message: string): CoAuthorTrailer[] {
+  const trailers: CoAuthorTrailer[] = [];
+  for (const line of message.split("\n")) {
+    const match = CO_AUTHOR_TRAILER.exec(line.trim());
+    if (match) trailers.push({ name: match[1], email: match[2].trim() });
+  }
+  return trailers;
 }
 
 /**
@@ -91,11 +125,14 @@ function parseCommitDetail(value: unknown): CommitRecord | null {
         .filter((name): name is string => name !== null)
     : [];
 
+  const message = commit.message;
+
   return {
     sha,
     authorLogin: linkedLogin ?? gitAuthorName,
     authoredAt,
     filesChanged,
+    coAuthors: typeof message === "string" ? parseCoAuthorTrailers(message) : [],
   };
 }
 

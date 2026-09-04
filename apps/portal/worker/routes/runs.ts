@@ -10,12 +10,14 @@ import {
 import type { AppEnv } from "../env";
 import { requireTeam } from "../auth/session";
 import { getDb } from "../db/client";
-import { runs } from "../db/schema";
+import { runs, teams } from "../db/schema";
 import { syncRun, syncTeamRuns } from "../execution/sync";
 import { ApiHttpError } from "../http/errors";
 import { parseBody, respond } from "../http/respond";
 import { serializeRunDetail, serializeRunSummary } from "../http/serializers";
 import { actorFromAuth, promotePracticeRun, startPracticeRun } from "../services/run-actions";
+import { verifyRunnerSignature } from "./runner-events";
+import { MAX_WEIGHT_BYTES, validateWeightPath, weightObjectKey } from "../services/weights";
 
 export function registerRunRoutes(app: Hono<AppEnv>): void {
   app.post("/runs/practice", async (c) => {
@@ -50,6 +52,30 @@ export function registerRunRoutes(app: Hono<AppEnv>): void {
       .orderBy(desc(runs.createdAt));
     const summaries = await Promise.all(rows.map((run) => serializeRunSummary(db, run)));
     return respond(c, z.array(RunSummarySchema), summaries);
+  });
+
+  app.get("/v1/runs/:id/weights/*", async (c) => {
+    // Weight URLs are minted before preparation starts, so they use the same
+    // 900-second window as the prepare timeout in execution/runner.ts.
+    await verifyRunnerSignature(c, new URL(c.req.url).pathname, 900);
+    const path = validateWeightPath(c.req.param("*") ?? "");
+    const [record] = await getDb(c.env)
+      .select({ run: runs, repositoryFullName: teams.repoFullName })
+      .from(runs)
+      .innerJoin(teams, eq(runs.teamId, teams.id))
+      .where(eq(runs.id, c.req.param("id")))
+      .limit(1);
+    if (!record) throw new ApiHttpError(404, "not_found", "Run not found.");
+    const object = await c.env.ARTIFACTS.get(
+      weightObjectKey(record.repositoryFullName, record.run.sha, path),
+    );
+    if (!object) throw new ApiHttpError(404, "not_found", "Weight file not found.");
+    if (object.size > MAX_WEIGHT_BYTES) {
+      throw new ApiHttpError(413, "invalid_request", "Weight files may not exceed 100 MiB.");
+    }
+    const headers = new Headers({ "Content-Length": String(object.size) });
+    object.writeHttpMetadata(headers);
+    return new Response(object.body, { headers });
   });
 
   app.get("/runs/:id", async (c) => {

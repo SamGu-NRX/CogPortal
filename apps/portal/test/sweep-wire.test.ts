@@ -37,6 +37,7 @@ const RESULT = {
   ],
   diagnostics: ["Identification holds steady from 5 songs to 30."],
   outputDigest: "a".repeat(64),
+  weightsSupplied: [],
 };
 
 test("the runner may send a sweep", () => {

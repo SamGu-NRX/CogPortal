@@ -3,7 +3,7 @@ import { ApiErrorSchema } from "@cogworks/contracts/schema";
 import type { ApiErrorCode } from "@cogworks/contracts/schema";
 import type { AppEnv } from "../env";
 
-type ApiStatus = 400 | 401 | 403 | 404 | 409 | 410 | 500 | 501 | 502;
+type ApiStatus = 400 | 401 | 403 | 404 | 409 | 410 | 413 | 500 | 501 | 502;
 
 export class ApiHttpError extends Error {
   constructor(

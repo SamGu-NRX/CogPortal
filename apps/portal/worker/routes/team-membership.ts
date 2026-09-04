@@ -223,7 +223,7 @@ export function registerTeamMembershipRoutes(app: Hono<AppEnv>): void {
       throw new ApiHttpError(
         404,
         "user_not_found",
-        "No CogPortal account with that GitHub login yet — they need to sign in once first.",
+        "No CogPortal account with that GitHub login yet. They need to sign in once first.",
       );
     }
     const githubLogin = user.githubLogin;

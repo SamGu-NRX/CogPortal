@@ -79,6 +79,30 @@ export const WiredStepSchema = z.object({
 });
 export type WiredStep = z.infer<typeof WiredStepSchema>;
 
+/** One file the run could not read, and whose problem that is. */
+export const SkippedModuleSchema = z.object({
+  module: z.string().min(1).max(200),
+  reason: z.string().max(300),
+  owner: z.string().max(20).default("theirs"),
+});
+export type SkippedModule = z.infer<typeof SkippedModuleSchema>;
+
+/**
+ * One exception out of their own code, where a compiler would print it.
+ *
+ * `file` is relative to their repository and `line` is a line in it, so a
+ * team can open the file and look. The message is the exception type and its
+ * first line, which is all the platform is willing to say: it reports what it
+ * saw and never guesses at a cause.
+ */
+export const RaisedSchema = z.object({
+  file: z.string().min(1).max(200),
+  line: z.number().int().min(0),
+  function: z.string().max(200),
+  message: z.string().max(200),
+});
+export type Raised = z.infer<typeof RaisedSchema>;
+
 /**
  * A refusal a student can act on.
  *
@@ -100,8 +124,30 @@ export const RefusalSchema = z.object({
   nextStep: z.string().max(600).default(""),
   /** How far the search got: each step it bound, and the shapes it saw. */
   trace: z.array(WiredStepSchema).max(16).default([]),
+  /** What the search learned that the headline does not say. Prose, and the
+   *  only part of a refusal that is written as sentences. */
+  notes: z.array(z.string().max(600)).max(8).default([]),
+  /** Files the run could not read, and why. `owner` is "theirs", "ours", or
+   *  "environment": a module we skipped for a reason of ours is our fault
+   *  and the page has to say so rather than let it read as their bug. */
+  skipped: z.array(SkippedModuleSchema).max(32).default([]),
+  /** What their code raised while the search called it, with the file and
+   *  line inside their repository. */
+  errors: z.array(RaisedSchema).max(16).default([]),
 });
 export type Refusal = z.infer<typeof RefusalSchema>;
+
+// Workers caps request bodies at 100 MB on Free and Pro plans, and this
+// account's plan is not established. The largest trained weight in the 2026
+// corpus is 411 KB. Week 3's separate 200 MiB discovery probe is unchanged.
+export const MAX_WEIGHT_BYTES = 100 * 1024 * 1024;
+
+export const WeightFileSchema = z.object({
+  path: z.string().min(1).max(500),
+  size: z.number().int().nonnegative().max(MAX_WEIGHT_BYTES),
+  sha256: z.string().regex(/^[0-9a-f]{64}$/),
+});
+export type WeightFile = z.infer<typeof WeightFileSchema>;
 
 export const BenchmarkResultV1Schema = z.object({
   protocolVersion: RunnerProtocolVersionSchema,
@@ -109,6 +155,7 @@ export const BenchmarkResultV1Schema = z.object({
   benchmarkVersion: z.number().int().positive(),
   metrics: z.array(ProtocolMetricSchema).min(1).max(32),
   diagnostics: z.array(z.string().max(240)).max(32),
+  weightsSupplied: z.array(z.string().min(1).max(500)).max(32).optional(),
   /**
    * Optional: a benchmark whose difficulty has no natural knob omits it, and
    * the run page shows the metric grid alone rather than an empty axis.
@@ -155,6 +202,9 @@ export const RunJobV1Schema = z.object({
     url: z.string().url().startsWith("https://"),
     keyId: z.string().min(1).max(80),
   }),
+  // The 2026 corpus has at most three candidates in one repository, and
+  // discovery loads one. Eight rejects a broken report before preparation.
+  weights: z.array(WeightFileSchema).max(8).optional(),
 });
 export type RunJobV1 = z.infer<typeof RunJobV1Schema>;
 

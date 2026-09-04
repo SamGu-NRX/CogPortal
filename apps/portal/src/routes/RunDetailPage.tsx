@@ -64,7 +64,7 @@ export function RunDetailPage() {
   // old page kept its button, and pressing it again returned
   // active_run_exists.
   const retryFrom = (branch: string | null) =>
-    retry.mutate(branch ?? undefined, {
+    retry.mutate(branch && branch !== "detached" ? branch : undefined, {
       onSuccess: ({ runId: started }) => navigate(`/runs/${started}`),
     });
 
@@ -139,6 +139,11 @@ export function RunDetailPage() {
           </>
         )}
       </p>
+      {run.weightsSupplied.length > 0 && (
+        <p className="mt-2 break-words font-mono text-[11px] leading-relaxed text-ink-faint">
+          {run.weightsSupplied.join(", ")} from your local run at {run.shortSha}
+        </p>
+      )}
 
       {/* ── Pipeline ── */}
       <Panel label="PIPELINE" className="mt-8">
@@ -274,10 +279,10 @@ export function RunDetailPage() {
           <div className="mt-4 flex flex-wrap items-center gap-4">
             <ConfirmButton
               label="Promote to official"
-              confirmLabel={`Confirm — uses attempt ${(quota?.officialUsed ?? 0) + 1} of ${OFFICIAL_LIMIT}`}
+              confirmLabel={`Confirm, uses attempt ${(quota?.officialUsed ?? 0) + 1} of ${OFFICIAL_LIMIT}`}
               onConfirm={() => promote.mutate(run.id)}
               busy={promote.isPending}
-              disabled={!!quota && quota.officialUsed >= quota.officialLimit}
+              disabled={!quota || quota.officialUsed >= quota.officialLimit}
             />
             {quota && (
               <span className="u-tnum font-mono text-[12px] text-ink-secondary">
@@ -331,7 +336,7 @@ export function RunDetailPage() {
             <>
               <p className="max-w-prose text-[14px] text-ink-secondary">
                 Publishes this run as your team's public result. You can switch
-                to another successful official run at any time — free.
+                to another successful official run at any time, at no cost.
               </p>
               <ConfirmButton
                 variant="primary"
