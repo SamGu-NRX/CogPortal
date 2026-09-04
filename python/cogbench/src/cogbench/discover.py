@@ -2329,6 +2329,13 @@ def survey(
                     journal=_record,
                 ).to_dict()
 
+        if not hasattr(os, "fork"):
+            # Windows has no fork, so there is no isolation to offer. Running
+            # the same work here is what the platform can do: the caller loses
+            # the protection above, and gains a report. Refusing instead told
+            # every Windows student their repository could not be read, which
+            # is a sentence about their code that nothing observed.
+            return Survey("ok", _work())
         outcome = run_isolated(_work, timeout_seconds=timeout_seconds)
         if outcome.status == COMPLETED and isinstance(outcome.value, dict):
             return Survey("ok", outcome.value)

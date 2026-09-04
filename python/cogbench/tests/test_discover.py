@@ -1360,3 +1360,25 @@ class OnlyAnInstalledModuleIsPutBackAfterDiscovery(unittest.TestCase):
         discover(self.tmp)
 
         self.assertIsNot(sys.modules.get("database"), other_repository_module)
+
+
+class APlatformWithoutForkStillReadsTheRepository(unittest.TestCase):
+    """Windows has no fork. The survey runs in-process there rather than
+    reporting that nothing could be read."""
+
+    def test_the_survey_reads_the_modules_anyway(self):
+        import cogbench.discover as discover_module
+
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        (root / "theirs.py").write_text("def solve(x):\n    return x\n")
+
+        real_fork = os.fork
+        del os.fork
+        try:
+            found = discover_module.survey(root)
+        finally:
+            os.fork = real_fork
+
+        self.assertTrue(found.looked)
+        self.assertEqual(found.module_names, ["theirs"])

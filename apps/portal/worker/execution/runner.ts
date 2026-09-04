@@ -163,7 +163,7 @@ export async function enqueueRun(
 ): Promise<void> {
   assertModalConfigured(env);
   let weights: WeightFile[] = [];
-  if (!run.preparedArtifactId) {
+  if (env.ARTIFACTS && !run.preparedArtifactId) {
     const paths = await getLatestTeamWeightPaths(env, run.teamId, team.repoFullName, run.sha);
     weights = await weightManifest(env.ARTIFACTS, team.repoFullName, run.sha, paths);
   }

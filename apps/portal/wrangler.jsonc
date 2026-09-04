@@ -34,10 +34,14 @@
     }
   ],
 
-  "r2_buckets": [
-    // A staging upload must not be able to replace a production artifact.
-    { "binding": "ARTIFACTS", "bucket_name": "cogportal-artifacts-dev" }
-  ],
+  // Enable R2 on the account and create both buckets, then uncomment this and
+  // the production block below. Until then the worker deploys without them,
+  // the weights upload answers 501, and every other surface is unaffected.
+  // A staging upload must not be able to replace a production artifact, which
+  // is why the two environments name different buckets.
+  // "r2_buckets": [
+  //   { "binding": "ARTIFACTS", "bucket_name": "cogportal-artifacts-dev" }
+  // ],
 
   "durable_objects": {
     "bindings": [
@@ -138,9 +142,9 @@
           "migrations_dir": "migrations"
         }
       ],
-      "r2_buckets": [
-        { "binding": "ARTIFACTS", "bucket_name": "cogportal-artifacts" }
-      ],
+      // "r2_buckets": [
+      //   { "binding": "ARTIFACTS", "bucket_name": "cogportal-artifacts" }
+      // ],
       "durable_objects": {
         "bindings": [{ "name": "RUN_SURFACES", "class_name": "RunSurfaceHub" }]
       },

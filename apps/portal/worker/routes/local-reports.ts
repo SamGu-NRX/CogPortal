@@ -6,6 +6,7 @@ import {
 } from "@cogworks/contracts/schema";
 import type { AppEnv } from "../env";
 import { requireDevice } from "../auth/device";
+import { ApiHttpError } from "../http/errors";
 import { requireTeam } from "../auth/session";
 import { parseBody, respond } from "../http/respond";
 import {
@@ -34,6 +35,13 @@ export function registerLocalReportRoutes(app: Hono<AppEnv>): void {
     );
     const rawLength = c.req.header("Content-Length");
     const contentLength = rawLength == null ? null : Number(rawLength);
+    if (!c.env.ARTIFACTS) {
+      throw new ApiHttpError(
+        501,
+        "provider_unconfigured",
+        "This portal cannot store trained weights yet. Your report synced; the score stands.",
+      );
+    }
     const uploaded = await uploadWeight(
       c.env.ARTIFACTS,
       target.repositoryFullName,

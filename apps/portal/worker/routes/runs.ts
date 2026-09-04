@@ -66,6 +66,7 @@ export function registerRunRoutes(app: Hono<AppEnv>): void {
       .where(eq(runs.id, c.req.param("id")))
       .limit(1);
     if (!record) throw new ApiHttpError(404, "not_found", "Run not found.");
+    if (!c.env.ARTIFACTS) throw new ApiHttpError(404, "not_found", "Weight file not found.");
     const object = await c.env.ARTIFACTS.get(
       weightObjectKey(record.repositoryFullName, record.run.sha, path),
     );

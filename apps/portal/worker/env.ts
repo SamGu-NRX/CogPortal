@@ -7,7 +7,10 @@ export interface Bindings {
   DB: D1Database;
   ASSETS: Fetcher;
   RUN_SURFACES: DurableObjectNamespace;
-  ARTIFACTS: R2Bucket;
+  /** Optional for the same reason RUN_QUEUE is: the account may not have R2
+   *  enabled yet, and a required binding fails the whole deploy. Absent means
+   *  weights do not travel; every other surface works. */
+  ARTIFACTS?: R2Bucket;
   RUN_QUEUE?: Queue<RunJobV1>;
 }
 
