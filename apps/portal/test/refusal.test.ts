@@ -73,6 +73,40 @@ test("the headline is allowed to be longer than a log line", () => {
   assert.equal(RunDetailSchema.shape.refusal.safeParse(refusal).success, true);
 });
 
+test("a refusal stored before the error report existed still renders", () => {
+  // Every run that failed before today is in the database without these three
+  // fields, and the run page reads them unconditionally. Defaulting to empty
+  // is what keeps those pages showing their headline instead of nothing.
+  const parsed = RunDetailSchema.shape.refusal.safeParse(refusal);
+
+  assert.equal(parsed.success, true);
+  assert.deepEqual(parsed.success && parsed.data?.notes, []);
+  assert.deepEqual(parsed.success && parsed.data?.skipped, []);
+  assert.deepEqual(parsed.success && parsed.data?.errors, []);
+});
+
+test("the run page receives skipped files and raised lines as structure", () => {
+  // Not prose. The card prints file, line, and message in their own columns,
+  // and the owner decides whether a skip is named as theirs at all.
+  const parsed = RunDetailSchema.shape.refusal.safeParse({
+    ...refusal,
+    notes: ["clustering.clusterCreator() reads baseImages/ next to its own file."],
+    skipped: [{ module: "master", reason: "is empty", owner: "theirs" }],
+    errors: [
+      {
+        file: "whispers.py",
+        line: 66,
+        function: "whispers.create_graph",
+        message: "AttributeError: module 'pyexpat.model' has no attribute 'detect'",
+      },
+    ],
+  });
+
+  assert.equal(parsed.success, true);
+  assert.equal(parsed.success && parsed.data?.errors[0]?.line, 66);
+  assert.equal(parsed.success && parsed.data?.skipped[0]?.owner, "theirs");
+});
+
 test("the adapter failure no longer tells a team to write packaging metadata", () => {
   // Zero of the thirteen 2026 capstones has a pyproject.toml, and the
   // platform no longer needs one. Sending a team to write an entry point

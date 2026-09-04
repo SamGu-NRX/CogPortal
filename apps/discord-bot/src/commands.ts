@@ -233,7 +233,7 @@ async function connectView(
 ): Promise<InteractionResponse> {
   const start = await portal.createDiscordLink(guildId, user.id, discordIdentity(user));
   if (start.alreadyLinked) return homeView(interaction, portal, guildId, user);
-  if (!start.url) return message("I couldn't make a connection link just now. Nothing changed—try again in a moment.");
+  if (!start.url) return message("I couldn't make a connection link just now. Nothing changed. Try again in a moment.");
 
   return componentMessage(
     [

@@ -7,8 +7,10 @@ import { Button } from "@/components/Button";
 import { ConfirmButton } from "@/components/ConfirmButton";
 import { LoadingMark, QueryError } from "@/components/Feedback";
 import { GrantAccess } from "@/components/GrantAccess";
+import { MemberAvatar } from "@/components/MemberAvatar";
 import { MemberPalette } from "@/components/MemberPalette";
 import { Panel } from "@/components/Panel";
+import { ProcessPanel } from "@/components/ProcessPanel";
 import { RepoPicker } from "@/components/RepoPicker";
 import { ApiRequestError } from "@/lib/api";
 import {
@@ -205,6 +207,9 @@ export function TeamPage() {
       {/* ── Members ── */}
       <MembersPanel team={t} />
 
+      {/* ── The process layer, read from this team's commits and runs ── */}
+      <ProcessPanel members={t.members} />
+
       {/* ── Repository ── */}
       <Panel label="REPOSITORY" className="mt-4">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -345,19 +350,6 @@ function RemoveMember({ login, onRemoved }: { login: string; onRemoved: () => vo
   );
 }
 
-function MemberAvatar({ login, avatarUrl }: { login: string; avatarUrl: string | null }) {
-  return avatarUrl ? (
-    <img src={avatarUrl} alt="" className="size-6 rounded-[2px]" />
-  ) : (
-    <span
-      aria-hidden="true"
-      className="flex size-6 items-center justify-center border border-rule bg-paper-sunken font-mono text-[10px] text-ink-secondary uppercase"
-    >
-      {login[0]}
-    </span>
-  );
-}
-
 /** Admin-only: repoint the team at a different repository. History and
  *  attempts stay with the team; blocked server-side while a run is active. */
 function ChangeRepository({ currentFullName }: { currentFullName: string }) {
@@ -409,7 +401,7 @@ function ChangeRepository({ currentFullName }: { currentFullName: string }) {
       <div className="mt-4 flex items-center gap-3">
         <ConfirmButton
           label="Change repository"
-          confirmLabel="Confirm — history stays with the team"
+          confirmLabel="Confirm, history stays with the team"
           onConfirm={() => {
             if (!selected) return;
             change.mutate(selected.fullName, {

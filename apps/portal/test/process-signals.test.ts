@@ -16,8 +16,10 @@ import {
 import type {
   BuildProcessSignalsInput,
   ProcessSignals,
+  RosterMember,
   RunRecord,
 } from "../worker/services/process-signals.ts";
+import { parseCoAuthorTrailers } from "../worker/github/commits.ts";
 import type { CommitRecord, FetchCommitsResult } from "../worker/github/commits.ts";
 
 const DAY = 24 * 60 * 60 * 1_000;
@@ -29,9 +31,12 @@ function commit(overrides: Partial<CommitRecord> = {}): CommitRecord {
     authorLogin: "ada",
     authoredAt: T0,
     filesChanged: ["src/find_peaks.py"],
+    coAuthors: [],
     ...overrides,
   };
 }
+
+const NO_ROSTER: RosterMember[] = [];
 
 function run(overrides: Partial<RunRecord> = {}): RunRecord {
   return { runId: "run_1", createdAt: T0, scored: true, ...overrides };
@@ -58,7 +63,7 @@ test("one commit holding most of the changed files across the whole history is b
 test("bulk_upload marks every commit-derived signal unavailable, with a reason", () => {
   const commits = [commit({ sha: "a".repeat(40) })];
 
-  const footprint = stageFootprint(commits, WEEK1_STAGE_MAP);
+  const footprint = stageFootprint(commits, WEEK1_STAGE_MAP, NO_ROSTER);
   for (const stage of Object.keys(WEEK1_STAGE_MAP)) {
     assert.equal(footprint[stage].available, false);
     assert.equal(footprint[stage].commitCount, null);
@@ -68,7 +73,7 @@ test("bulk_upload marks every commit-derived signal unavailable, with a reason",
 
   // {}, not per-stage empty arrays -- see ownershipBreadth's own docstring
   // on why that distinction matters.
-  assert.deepEqual(ownershipBreadth(commits, WEEK1_STAGE_MAP), {});
+  assert.deepEqual(ownershipBreadth(commits, WEEK1_STAGE_MAP, NO_ROSTER), {});
 
   // Boundary churn is also commit-derived and degrades the same way, even
   // when a first-light timestamp exists to measure churn against.
@@ -85,6 +90,7 @@ test("first light still reports a scored run even when the commit history is bul
     commitsResult: { ok: true, commits: [commit({ sha: "a".repeat(40) })] },
     runs: [run({ runId: "run_1", createdAt: T0, scored: true })],
     weekLabel: "week1",
+    roster: NO_ROSTER,
   };
   const signals = buildProcessSignals(input);
 
@@ -100,6 +106,7 @@ test("first light ignores commit history entirely, including a fetch failure", (
     commitsResult: { ok: false, reason: "fetch_failed" },
     runs: [run({ runId: "run_1", createdAt: T0, scored: true })],
     weekLabel: "week1",
+    roster: NO_ROSTER,
   };
   const signals = buildProcessSignals(input);
   assert.equal(signals.historyQuality, HISTORY_FETCH_FAILED);
@@ -124,6 +131,80 @@ test("a boundary-file commit before first light is ordinary design work, not chu
 test("no first light means nothing counts as churn, even with boundary-file commits", () => {
   const commits = [commit({ sha: "a".repeat(40), authoredAt: T0, filesChanged: ["submission.py"] })];
   assert.deepEqual(boundaryChurn(commits, ["submission.py"], null), []);
+});
+
+// ---------------------------------------------------------------------------
+// Co-authored commits
+// ---------------------------------------------------------------------------
+
+test("a Co-authored-by trailer is read off the commit message", () => {
+  const trailers = parseCoAuthorTrailers(
+    [
+      "Wire the query stage to the database",
+      "",
+      "Co-Authored-By: Grace Hopper <9+grace@users.noreply.github.com>",
+      "co-authored-by: Ada <ada@dev.local>",
+      "Signed-off-by: Someone <someone@example.com>",
+    ].join("\n"),
+  );
+  assert.deepEqual(trailers, [
+    { name: "Grace Hopper", email: "9+grace@users.noreply.github.com" },
+    { name: "Ada", email: "ada@dev.local" },
+  ]);
+});
+
+test("a co-author on the roster is counted, and one who isn't counts nobody", () => {
+  const roster: RosterMember[] = [{ login: "grace", email: "grace@dev.local" }];
+  const commits = [
+    // The whole point: `authorLogin` is a teammate's machine, and the person
+    // who did the work is named only in the trailer.
+    commit({
+      sha: "a".repeat(40),
+      authorLogin: "shared-laptop",
+      authoredAt: T0,
+      filesChanged: ["find_peaks.py"],
+      coAuthors: [
+        { name: "Grace Hopper", email: "9+grace@users.noreply.github.com" },
+        { name: "Claude", email: "noreply@anthropic.com" },
+      ],
+    }),
+    commit({ sha: "b".repeat(40), authorLogin: "shared-laptop", authoredAt: T0 + DAY }),
+  ];
+
+  const owners = ownershipBreadth(commits, WEEK1_STAGE_MAP, roster);
+  assert.deepEqual(owners.peaks, ["grace", "shared-laptop"]);
+  assert.equal(stageFootprint(commits, WEEK1_STAGE_MAP, roster).peaks.distinctAuthorCount, 2);
+
+  // With no roster to check against, the same trailers resolve to nobody.
+  assert.deepEqual(ownershipBreadth(commits, WEEK1_STAGE_MAP, NO_ROSTER).peaks, [
+    "shared-laptop",
+  ]);
+});
+
+test("a trailer resolves by stored email or by a bare roster login", () => {
+  const roster: RosterMember[] = [
+    { login: "grace", email: "grace@dev.local" },
+    { login: "ada", email: "ada@example.edu" },
+  ];
+  const commits = [
+    commit({
+      sha: "a".repeat(40),
+      authorLogin: "shared-laptop",
+      filesChanged: ["find_peaks.py"],
+      coAuthors: [
+        { name: "A. Lovelace", email: "ADA@example.edu" },
+        { name: "Grace", email: "grace@personal.example" },
+      ],
+    }),
+    commit({ sha: "b".repeat(40), authorLogin: "shared-laptop", authoredAt: T0 + DAY }),
+  ];
+
+  // Both resolve, and both come back spelled the way the roster spells them.
+  assert.deepEqual(ownershipBreadth(commits, WEEK1_STAGE_MAP, roster).peaks, [
+    "ada",
+    "grace",
+    "shared-laptop",
+  ]);
 });
 
 // ---------------------------------------------------------------------------
@@ -184,11 +265,20 @@ test("no output key, anywhere in the tree, is a per-person total or a line count
           authorLogin: "hedy",
           authoredAt: T0 + 3 * DAY,
           filesChanged: ["database.py", "submission.py"],
+          // A resolved co-author is in the fixture so the walk covers the
+          // authorship path that reads trailers, not only the one that
+          // reads the author field.
+          coAuthors: [{ name: "Grace Hopper", email: "9+grace@users.noreply.github.com" }],
         }),
       ],
     },
     runs: [run({ runId: "run_1", createdAt: T0 + 2 * DAY, scored: true })],
     weekLabel: "week1",
+    roster: [
+      { login: "grace", email: "grace@dev.local" },
+      { login: "ada", email: "ada@dev.local" },
+      { login: "hedy", email: "hedy@dev.local" },
+    ],
   });
   const payload = { ...richSignals, findingSentences: findingSentences(richSignals), computedAt: Date.now() };
 
@@ -214,8 +304,8 @@ test("an empty repository and a fetch failure never produce the same historyQual
   const emptyResult: FetchCommitsResult = { ok: true, commits: [] };
   const failedResult: FetchCommitsResult = { ok: false, reason: "fetch_failed" };
 
-  const emptySignals = buildProcessSignals({ commitsResult: emptyResult, runs: [], weekLabel: null });
-  const failedSignals = buildProcessSignals({ commitsResult: failedResult, runs: [], weekLabel: null });
+  const emptySignals = buildProcessSignals({ commitsResult: emptyResult, runs: [], weekLabel: null, roster: NO_ROSTER });
+  const failedSignals = buildProcessSignals({ commitsResult: failedResult, runs: [], weekLabel: null, roster: NO_ROSTER });
 
   assert.equal(emptySignals.historyQuality, HISTORY_EMPTY);
   assert.equal(failedSignals.historyQuality, HISTORY_FETCH_FAILED);
@@ -227,11 +317,13 @@ test("an empty repository and a fetch failure read differently in the finding se
     commitsResult: { ok: true, commits: [] },
     runs: [],
     weekLabel: null,
+    roster: NO_ROSTER,
   });
   const failedSignals = buildProcessSignals({
     commitsResult: { ok: false, reason: "fetch_failed" },
     runs: [],
     weekLabel: null,
+    roster: NO_ROSTER,
   });
 
   const emptySentence = findingSentences(emptySignals)[0];

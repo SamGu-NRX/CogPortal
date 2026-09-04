@@ -43,6 +43,7 @@ export function RunSurfacePage() {
         streamState={stream.state}
         busyAction={mutation.isPending ? mutation.variables?.action ?? null : null}
         error={mutationError}
+        onOpenPortal={() => navigate("/dashboard")}
         onAction={async (action) => {
           setMutationError(null);
           try {

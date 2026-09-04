@@ -26,6 +26,7 @@ import {
   SetupStateSchema,
   StartRunResponseSchema,
   TeamDetailSchema,
+  TeamProcessSignalsSchema,
   type ApiErrorCode,
 } from "@cogworks/contracts/schema";
 
@@ -132,6 +133,7 @@ export const api = {
     }),
 
   team: () => request("/api/team", TeamDetailSchema),
+  teamProcess: () => request("/api/v1/team/process", TeamProcessSignalsSchema),
   updateTeam: (body: { name?: string; description?: string | null }) =>
     request("/api/team", TeamDetailSchema, { method: "PATCH", body }),
   changeTeamRepo: (fullName: string) =>
