@@ -230,8 +230,8 @@ both scoreable student repos run end to end against real synthesized audio:
     KrazeeCoder/week1-capstone-team4   identification_score 0.5938
     carti4ce/week1_capstone            identification_score 0.6562
 
-Both were scored through instructor-written adapters in `benchmarks/adapters/`,
-and both runs carry a diagnostic naming what wiring we supplied.
+Automatic discovery scores both repositories and records the bound functions
+in each run.
 
 **The catalog row ships `active = 0`, and that is the headline result.**
 Calibration measured that the shipped 8-cell grid does not rank. Four cells
@@ -265,11 +265,11 @@ Four defects were found by adversarial review after the build and are fixed:
 
 ## Hosted: verified 2026-08-17
 
-Week 1 now runs on Modal end to end, on a real student repository, with no
-edit to that repository. `KrazeeCoder/week1-capstone-team4` fetches, prepares,
+Week 1 runs on Modal end to end, on a real student repository, with no edit
+to that repository. `KrazeeCoder/week1-capstone-team4` fetches, prepares,
 evaluates under Python 3.8.20, and scores `identification_score 0.5375` over
-282 cases, carrying the provenance line that says our adapter supplied the
-wiring. Reproduce with:
+282 cases while recording the functions selected by automatic discovery.
+Reproduce with:
 
     python apps/runner-modal/tools/smoke_modal.py \
         --benchmark audio-identification --repo <owner>/<name>
@@ -293,10 +293,9 @@ It now tries packaging first, then a root `submission.py`, and reports which
 rung resolved. The file rung is also the safer one: `pip install -e` runs the
 repository's own `setup.py` in the prepare sandbox, which still has network.
 
-**Instructor adapters could not reach the sandbox.** Teams that finished
-before the benchmark existed cannot have written an adapter, so the images
-carry `benchmarks/adapters/` at `/opt/adapters` and prepare copies one in when
-a repository has none of its own. A repository's own adapter always wins.
+**Automatic discovery binds undeclared repositories.** The runner records the
+functions it selects when a repository has no installed entry point or root
+submission file.
 
 **A timeout was reported as a crash.** Modal enforces its budget with a kill,
 which is indistinguishable from a crash by return code, so
@@ -316,7 +315,7 @@ since that is the number a team will argue about.
 
 ### The same two repositories, both paths
 
-Local, 8-song test tier, through the same instructor adapters:
+Local, 8-song test tier, through automatic discovery:
 
     KrazeeCoder/week1-capstone-team4   0.5938   clean 1.000  pitch 0.188   2 s
     carti4ce/week1_capstone            0.6562   clean 1.000  pitch 0.312   7 s

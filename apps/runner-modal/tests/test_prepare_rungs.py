@@ -152,9 +152,9 @@ class RungOrderTests(unittest.TestCase):
         )
         return found.start()
 
-    def test_discovery_runs_after_both_ways_a_repository_can_declare_itself(self):
+    def test_automatic_discovery_runs_after_rungs_zero_and_one(self):
         entry_point = self._position('resolved_by = "entry_point"')
-        own_file = self._position('resolved_by = (\n        "instructor_adapter:"')
+        own_file = self._position('resolved_by = "file:" + adapter_file.name')
         discovery = self._discovery_position()
 
         self.assertLess(entry_point, discovery)
@@ -211,20 +211,13 @@ class TheSandboxRunsUnderAPinnedHashSeed(unittest.TestCase):
             Path(__file__).resolve().parents[1] / "src" / "cogworks_runner" / "modal_app.py"
         ).read_text(encoding="utf-8")
         env_blocks = _re.findall(r"\.env\(\s*\{(.*?)\}\s*\)", source, _re.S)
-        # The two sandbox images carry MPLBACKEND with a comment above it
-        # explaining the plot that never gets a window; the controller image
-        # sets the same two variables on one line and never runs a line of
-        # student code. The comment is what tells them apart in source, and
-        # the first draft of this test matched the controller too.
-        # The two sandbox images spell their environment over several lines
-        # with a comment per variable; the controller image sets the same two
-        # variables on one line and never runs a line of student code. The
-        # line break is what tells them apart in source. The first draft of
-        # this test matched the controller too and failed on it.
-        student_blocks = [
-            block for block in env_blocks
-            if '"MPLBACKEND"' in block and "\n" in block.strip()
-        ]
-        self.assertEqual(len(student_blocks), 2, [b[:60] for b in env_blocks])
+        # Every image that runs student code sets MPLBACKEND, because student
+        # code plots; the controller runs no student code and has no `.env`
+        # call. So the student images are exactly the blocks that carry
+        # MPLBACKEND, and there are three: week 1, week 2, and week 3. The
+        # earlier filter also required a line break inside the block, which
+        # excluded the one-line week 1 block, the only one without a seed.
+        student_blocks = [block for block in env_blocks if '"MPLBACKEND"' in block]
+        self.assertEqual(len(student_blocks), 3, [b[:60] for b in env_blocks])
         for block in student_blocks:
             self.assertIn('"PYTHONHASHSEED": "0"', block)

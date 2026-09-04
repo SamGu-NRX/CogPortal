@@ -7,6 +7,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from urllib.parse import quote, urlsplit
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -145,7 +146,6 @@ benchmark_image = (
     # explicitly so a pin change in scikit-image cannot silently drop them.
     .pip_install(*ENVIRONMENT.requirement_strings("week2"))
     .pipe(lambda i: add_source_dir(i, REPO_ROOT / "python" / "cogbench" / "src", "/opt/cogbench"))
-    .pipe(lambda i: add_source_dir(i, REPO_ROOT / "benchmarks" / "adapters", "/opt/adapters"))
     .pipe(lambda i: add_source_dir(i, REPO_ROOT / "apps" / "runner-modal" / "src", "/opt/runner"))
     .pipe(lambda i: add_source_dir(i, REPO_ROOT / "benchmarks" / "week2", "/opt/week2"))
     .run_commands("python -m pip install --no-deps /opt/week2")
@@ -193,7 +193,6 @@ week3_image = (
         "uv>=0.5",
     )
     .pipe(lambda i: add_source_dir(i, REPO_ROOT / "python" / "cogbench" / "src", "/opt/cogbench"))
-    .pipe(lambda i: add_source_dir(i, REPO_ROOT / "benchmarks" / "adapters", "/opt/adapters"))
     .pipe(lambda i: add_source_dir(i, REPO_ROOT / "apps" / "runner-modal" / "src", "/opt/runner"))
     .pipe(lambda i: add_source_dir(i, REPO_ROOT / "benchmarks" / "week3", "/opt/week3"))
     .run_commands(
@@ -245,7 +244,6 @@ week1_image = (
         "uv>=0.5",
     )
     .pipe(lambda i: add_source_dir(i, REPO_ROOT / "python" / "cogbench" / "src", "/opt/cogbench"))
-    .pipe(lambda i: add_source_dir(i, REPO_ROOT / "benchmarks" / "adapters", "/opt/adapters"))
     .pipe(lambda i: add_source_dir(i, REPO_ROOT / "apps" / "runner-modal" / "src", "/opt/runner"))
     .pipe(lambda i: add_source_dir(i, REPO_ROOT / "benchmarks" / "week1", "/opt/week1"))
     .run_commands(
@@ -279,7 +277,16 @@ week1_image = (
         # would otherwise surface as every student's run failing.
         "/opt/cogworks-py38/bin/python -c \"import numpy, scipy, matplotlib, numba, soundfile, librosa, IPython\"",
     )
-    .env({"PYTHONPATH": "/opt/cogbench:/opt/runner", "MPLBACKEND": "Agg"})
+    .env(
+        {
+            "PYTHONPATH": "/opt/cogbench:/opt/runner",
+            # Discovery and scoring iterate the student's dicts and sets. Weeks
+            # 2 and 3 pin the seed; week 1 did not, so two hosted runs of one
+            # repository could bind different functions and score differently.
+            "PYTHONHASHSEED": "0",
+            "MPLBACKEND": "Agg",
+        }
+    )
 )
 
 # The controller scores every benchmark, so it carries every plugin package;
@@ -310,14 +317,16 @@ WEEK1_SANDBOX_IMAGE = "cogworks-runner-week1"
 
 PREPARE_SCRIPT = r"""
 import importlib.metadata
+import json
 import pathlib
 import subprocess
+import hashlib
 import sys
 import tarfile
 import urllib.request
 
 archive_url, benchmark_id, contract_group = sys.argv[1], sys.argv[2], sys.argv[3]
-repository_slug = sys.argv[4] if len(sys.argv) > 4 else ""
+weights = json.loads(sys.argv[4])
 archive = pathlib.Path("/tmp/source.tar.gz")
 max_archive_bytes = 100 * 1024 * 1024
 request = urllib.request.Request(archive_url, headers={"User-Agent": "cogworks-runner"})
@@ -352,21 +361,65 @@ if len(projects) != 1:
     raise RuntimeError("Source archive must contain one project root.")
 project = projects[0]
 
-# Two ways a repository can declare itself, checked in this order.
+# Workers caps request bodies at 100 MB on Free and Pro plans, and this
+# account's plan is not established. The largest trained weight in the 2026
+# corpus is 411 KB. Week 3's separate 200 MiB discovery probe is unchanged.
+max_weight_bytes = 100 * 1024 * 1024
+for weight in weights:
+    relative_path = weight["path"]
+    expected_size = weight["size"]
+    expected_digest = weight["sha256"]
+    if (
+        not relative_path
+        or relative_path.startswith("/")
+        or ".." in relative_path.split("/")
+    ):
+        raise RuntimeError("Weight file has an unsafe path: {}".format(relative_path))
+    if expected_size > max_weight_bytes:
+        raise RuntimeError("Weight file is larger than 100 MiB: {}".format(relative_path))
+    target = (project / relative_path).resolve()
+    if project.resolve() not in target.parents:
+        raise RuntimeError("Weight file has an unsafe path: {}".format(relative_path))
+    target.parent.mkdir(parents=True, exist_ok=True)
+    request = urllib.request.Request(weight["url"], headers=weight["headers"])
+    digest = hashlib.sha256()
+    try:
+        with urllib.request.urlopen(request) as response, target.open("wb") as output:
+            declared = int(response.headers.get("Content-Length", "0"))
+            if declared > max_weight_bytes:
+                raise RuntimeError("Weight file is larger than 100 MiB.")
+            total = 0
+            while True:
+                chunk = response.read(1024 * 1024)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > max_weight_bytes:
+                    raise RuntimeError("Weight file is larger than 100 MiB.")
+                digest.update(chunk)
+                output.write(chunk)
+        if total != expected_size:
+            raise RuntimeError(
+                "Weight file size changed from {} to {} bytes.".format(expected_size, total)
+            )
+    except Exception as error:
+        raise RuntimeError(
+            "Weight file {} could not be downloaded safely.".format(relative_path)
+        ) from error
+    if digest.hexdigest() != expected_digest:
+        raise RuntimeError("Weight file {} did not match its digest.".format(relative_path))
+
+# Resolution uses the most explicit available route.
 #
-# 1. A packaging file plus a `cogworks.submissions.v2` entry point. This is the
-#    template's shape and the shape `examples/` uses.
-# 2. A `submission.py` (or `benchmark_adapter.py`) at the repository root,
-#    imported by path. This is what actually serves student repositories: none
-#    of the thirteen audited this year carries a pyproject.toml or setup.py, so
-#    requiring rung 1 rejected every one of them at prepare time.
+# 0. An installed package exposes a `cogworks.submissions.v2` entry point.
+# 1. The repository declares its binding through `cogworks.toml` or a root
+#    `submission.py` or `benchmark_adapter.py`. The root file is imported by
+#    path.
+# 2. Automatic discovery runs only when neither declaration resolves the run.
 #
-# Rung 2 is also the safer rung, which is why it is not merely a fallback for
-# the unpackaged. `pip install -e` executes the repository's own setup.py, and
-# it does so HERE, in the prepare sandbox, which still has network access for
-# PyPI. Importing one file happens in the evaluate sandbox instead, behind
-# block_network=True. Every repository that can take rung 2 therefore runs less
-# student code with a network than one that takes rung 1.
+# A root file avoids executing the repository's setup.py in this prepare
+# sandbox, which still has network access for PyPI. The evaluate sandbox
+# imports the file behind block_network=True.
 has_packaging = any(
     (project / name).is_file() for name in ("pyproject.toml", "setup.py", "setup.cfg")
 )
@@ -378,17 +431,6 @@ adapter_file = next(
     ),
     None,
 )
-
-# Only when the repository has none of its own. A team that writes an adapter
-# is scored by it, always: an instructor adapter that could shadow a student's
-# would silently score our wiring instead of their work.
-staged_adapter = None
-if adapter_file is None and repository_slug:
-    candidate = pathlib.Path("/opt/adapters") / repository_slug / "submission.py"
-    if candidate.is_file():
-        adapter_file = project / "submission.py"
-        adapter_file.write_bytes(candidate.read_bytes())
-        staged_adapter = repository_slug
 
 installed = False
 if has_packaging:
@@ -445,16 +487,11 @@ if installed:
     elif len(matches) > 1:
         raise RuntimeError("Submission adapter entry point is ambiguous.")
 if resolved_by is None and adapter_file is not None:
-    resolved_by = (
-        "instructor_adapter:" + staged_adapter
-        if staged_adapter
-        else "file:" + adapter_file.name
-    )
-# 3. Discovery. Nothing in the repository declares itself, so the benchmark
-#    describes what it needs and `cogbench.resolve` searches for functions that
-#    do it by running them. This is the rung every 2026 repository actually
-#    reaches, and it runs last so that a team who declares anything is scored
-#    by their declaration rather than by our inference.
+    resolved_by = "file:" + adapter_file.name
+# 2. Automatic discovery. When the repository declares no binding, the
+#    benchmark describes what it needs and `cogbench.resolve` searches for
+#    functions that perform the task. It runs last so a declaration always
+#    wins over inference.
 #
 #    Failure here is never fatal to the sandbox. The report is written either
 #    way and the evaluate step reads it, so a repository that cannot be
@@ -790,6 +827,8 @@ def _refusal_from(sandbox) -> Optional[Dict[str, Any]]:
     verdict = record.get("verdict") if isinstance(record, dict) else None
     if not isinstance(verdict, dict):
         return None
+    coverage = verdict.get("coverage")
+    skipped = coverage.get("skipped") if isinstance(coverage, dict) else None
     refusal = {
         "status": str(verdict.get("status", ""))[:40],
         "headline": str(verdict.get("headline", ""))[:600],
@@ -803,6 +842,31 @@ def _refusal_from(sandbox) -> Optional[Dict[str, Any]]:
             }
             for step in (verdict.get("trace") or [])[:16]
             if isinstance(step, dict)
+        ],
+        # The three below are the rest of what the check already worked out
+        # and used to leave in the sandbox. A refusal that names the step
+        # which stalled and nothing else is true and thin: the modules that
+        # could not be read, and the lines their own code raised on, are what
+        # a team opens a file over. Caps match the protocol schema.
+        "notes": [str(note)[:600] for note in (verdict.get("notes") or [])[:8]],
+        "skipped": [
+            {
+                "module": str(entry.get("module", ""))[:200],
+                "reason": str(entry.get("reason", ""))[:300],
+                "owner": str(entry.get("owner", "theirs"))[:20],
+            }
+            for entry in (skipped or [])[:32]
+            if isinstance(entry, dict)
+        ],
+        "errors": [
+            {
+                "file": str(error.get("file", ""))[:200],
+                "line": int(error.get("line", 0) or 0),
+                "function": str(error.get("function", ""))[:200],
+                "message": str(error.get("message", ""))[:200],
+            }
+            for error in (verdict.get("errors") or [])[:16]
+            if isinstance(error, dict)
         ],
     }
     return refusal if refusal["status"] and refusal["headline"] else None
@@ -1114,44 +1178,47 @@ def _student_python(job: Dict[str, Any]) -> str:
     }.get(job["benchmark"]["id"], "python")
 
 
-#: Instructor-written adapters for repositories that predate the benchmark,
-#: keyed by `owner/name`. Baked into the images from `benchmarks/adapters/`.
-STAGED_ADAPTER_DIR = "/opt/adapters"
-
-
-def _repository_slug(job: Dict[str, Any]) -> str:
-    """`owner/name` as the directory name `benchmarks/adapters/` uses.
-
-    Teams that finished a capstone before the benchmark existed could not have
-    written a `submission.py`. Scoring them otherwise means either editing
-    their repository or refusing to score them, so the images carry our
-    adapters and the prepare step copies one in when the repository has none
-    of its own. The run result says so: each adapter carries a `PROVENANCE`
-    dict the driver surfaces, so a leaderboard row reads "scored through an
-    instructor-supplied adapter" rather than passing our wiring off as theirs.
-
-    A repository's own `submission.py` always wins; see PREPARE_SCRIPT. This
-    is a bridge for existing work, not a substitute for the template.
-    """
-
-    return str(job["source"]["fullName"]).replace("/", "__")
-
-
 def _prepare(job: Dict[str, Any], reporter: LiveReporter) -> str:
     sandbox = None
     try:
+        callback = urlsplit(job["callback"]["url"])
+        portal_origin = "{}://{}".format(callback.scheme, callback.netloc)
+        timestamp = str(int(time.time()))
+        weight_requests = []
+        for weight in job["weights"]:
+            pathname = "/api/v1/runs/{}/weights/{}".format(
+                job["runId"], quote(weight["path"], safe="/")
+            )
+            weight_requests.append({
+                "path": weight["path"],
+                "size": weight["size"],
+                "sha256": weight["sha256"],
+                "url": portal_origin + pathname,
+                "headers": {
+                    "X-Cogworks-Key-Id": job["callback"]["keyId"],
+                    "X-Cogworks-Timestamp": timestamp,
+                    "X-Cogworks-Signature": "v1=" + signature(
+                        os.environ["RUNNER_SIGNING_SECRET"],
+                        timestamp,
+                        pathname.encode("utf-8"),
+                    ),
+                },
+            })
+        allowlist = [
+            "api.github.com",
+            "codeload.github.com",
+            "pypi.org",
+            "files.pythonhosted.org",
+        ]
+        if callback.hostname and callback.hostname not in allowlist:
+            allowlist.append(callback.hostname)
         sandbox = modal.Sandbox.create(
             image=_sandbox_image(job),
             app=app,
             cpu=(0.5, job["runtime"]["cpu"]),
             memory=(512, job["runtime"]["memoryMb"]),
             timeout=job["runtime"]["timeoutSeconds"],
-            outbound_domain_allowlist=[
-                "api.github.com",
-                "codeload.github.com",
-                "pypi.org",
-                "files.pythonhosted.org",
-            ],
+            outbound_domain_allowlist=allowlist,
         )
         reporter.status("preparing")
         sandbox.filesystem.write_text(PREPARE_SCRIPT, "/tmp/cog-prepare.py")
@@ -1163,7 +1230,7 @@ def _prepare(job: Dict[str, Any], reporter: LiveReporter) -> str:
                 job["source"]["archiveUrl"],
                 job["benchmark"]["id"],
                 job["benchmark"]["contractVersion"],
-                _repository_slug(job),
+                json.dumps(weight_requests, separators=(",", ":")),
             )
             process.wait()
         if process.returncode != 0:
@@ -1178,6 +1245,8 @@ def _prepare(job: Dict[str, Any], reporter: LiveReporter) -> str:
             normalized = (detail + " " + stderr_text[-400:]).lower()
             if "source archive" in normalized:
                 raise RunnerFailure("repository_fetch", "preparing", detail, False)
+            if "weight file" in normalized:
+                raise RunnerFailure("data_download", "preparing", detail, False)
             # "no adapter found" is the message PREPARE_SCRIPT raises when a
             # repository has neither a submission.py nor an entry point;
             # "entry point" catches the older ambiguous-registration message.
@@ -2264,7 +2333,9 @@ def execute_job(job_value: Dict[str, Any]) -> None:
     reporter = LiveReporter(job)
     phase = "queued"
     try:
+        prepared_this_run = job["preparedArtifactId"] is None
         snapshot_id = job["preparedArtifactId"] or _prepare(job, reporter)
+        weights_supplied = [weight["path"] for weight in job.get("weights", [])]
         phase = "contract_check"
         if job["preparedArtifactId"]:
             reporter.status("contract_check")
@@ -2334,6 +2405,8 @@ def execute_job(job_value: Dict[str, Any]) -> None:
             "diagnostics": [str(item)[:240] for item in diagnostics[:32]],
             "outputDigest": output_digest,
         }
+        if prepared_this_run:
+            result["weightsSupplied"] = weights_supplied
         sweep = _sweep_wire(benchmark)
         if sweep:
             result["sweep"] = sweep

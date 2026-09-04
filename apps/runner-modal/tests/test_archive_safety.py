@@ -26,6 +26,7 @@ from __future__ import annotations
 import ast
 import http.server
 import io
+import json
 import socketserver
 import subprocess
 import sys
@@ -221,7 +222,7 @@ class ArchiveServer:
         return "http://127.0.0.1:{}/{}".format(self.server.server_address[1], path)
 
 
-def run_prepare(url: str, benchmark_id: str = "language-search") -> tuple:
+def run_prepare(url: str, benchmark_id: str = "language-search", weights=None) -> tuple:
     """Run the real prepare script against one URL, in its own directory.
 
     The script hardcodes `/workspace` and `/tmp`, which belong to the sandbox.
@@ -240,7 +241,14 @@ def run_prepare(url: str, benchmark_id: str = "language-search") -> tuple:
     script = root / "prepare.py"
     script.write_text(body, encoding="utf-8")
     finished = subprocess.run(
-        [sys.executable, str(script), url, benchmark_id, "cogworks.submissions.v2", ""],
+        [
+            sys.executable,
+            str(script),
+            url,
+            benchmark_id,
+            "cogworks.submissions.v2",
+            json.dumps(weights or []),
+        ],
         capture_output=True,
         text=True,
         timeout=300,
@@ -275,6 +283,7 @@ class RefusedArchives(unittest.TestCase):
             "absolute": absolute_path_archive(),
             "two-roots": two_roots_archive(),
             "ordinary": ordinary_repository(),
+            "weight": b"trained weights",
         }
         cls.server = ArchiveServer(cls.archives)
         cls.server.__enter__()
@@ -336,12 +345,46 @@ class RefusedArchives(unittest.TestCase):
         self.assertNotEqual(code, 0)
         self.assertIn("could not be downloaded safely", stderr)
 
+    def test_a_weight_path_cannot_leave_the_checkout(self):
+        code, stderr, workspace = run_prepare(
+            self.server.url("ordinary"),
+            weights=[{
+                "path": "../stolen.pkl",
+                "size": 1,
+                "sha256": "0" * 64,
+                "url": self.server.url("ordinary"),
+                "headers": {},
+            }],
+        )
+
+        self.assertNotEqual(code, 0)
+        self.assertIn("Weight file has an unsafe path", stderr)
+        self.assertFalse((workspace.parent / "stolen.pkl").exists())
+
+    def test_a_weight_digest_mismatch_is_refused(self):
+        code, stderr, _ = run_prepare(
+            self.server.url("ordinary"),
+            weights=[{
+                "path": "models/search.pkl",
+                "size": len(b"trained weights"),
+                "sha256": "0" * 64,
+                "url": self.server.url("weight"),
+                "headers": {},
+            }],
+        )
+
+        self.assertNotEqual(code, 0)
+        self.assertIn(
+            "Weight file models/search.pkl did not match its digest.",
+            stderr,
+        )
+
     def test_an_ordinary_repository_gets_past_every_archive_check(self):
         """The control. Without it, a script that refused everything would pass
         every test above and prove nothing.
 
         This one runs to completion, because a `submission.py` at the
-        repository root is rung 2 of the prepare step's resolution order and
+        repository root is rung 1 of the prepare step's resolution order and
         needs nothing installed. The two files it writes are what the evaluate
         sandbox reads, so their presence says the archive path finished rather
         than merely got further.
