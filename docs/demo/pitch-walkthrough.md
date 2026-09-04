@@ -1,61 +1,70 @@
 # Pitch walkthrough
 
-Fifteen minutes, three acts. Everything here runs offline against real 2026
-student repositories. Nothing needs Modal, R2, or a deploy.
+Deck, terminal, website, in that order. The site is
+https://cogportal-dev.sillion.app, deployed from this branch.
 
-Setup, once, before anyone is watching:
+## Before anyone is watching
 
-```sh
-cd ~/BWSI/2026/CogPortal
-pnpm --filter @cogworks/portal dev          # http://localhost:5173
-```
+Do these in order. The order matters and the reason is given.
+
+1. **Connect the demo repository.** Sign in on the site, go to Team, Change
+   repository, and pick `SamGu-NRX/cogportal-demo-week1`. Grant the GitHub App
+   access to it when prompted. That repository is a fork of a real 2026 week 1
+   capstone and carries the original team's history: eight contributors across
+   the five stages of the assignment. Your own CogPortal repository has one
+   contributor, which is why the team page said "only one person has touched"
+   every stage.
+
+2. **Start one audio run.** The team page reads the stage names from your
+   team's most recent run, not from the repository, so with a vision run last
+   the page looks for vision stages in an audio repository and finds nothing.
+   One practice run on Song Identification fixes it. Do this before the pitch,
+   not during.
+
+3. **Open the terminal in the demo clone** and warm the caches:
+
+   ```sh
+   cd ~/BWSI/2026/CogPortal/.cache/demo/cogportal-demo-week1
+   cogworks check --benchmark audio-identification
+   ```
+
+   The second run of `check` is faster than the first because the resolution is
+   memoized per commit. Run it once now so the demo is the fast one.
 
 ## Act 1: the claim, in a terminal
 
-A repository nobody prepared, scored by running it.
-
 ```sh
-cd .cache/student-repos/carti4ce__week1_capstone
 cogworks check --benchmark audio-identification
 ```
 
-Under two seconds. It reads seven of their files, skips fifteen scripts that
-want a microphone this machine does not have, and prints the five functions it
-will call:
+Under two seconds, and it prints the five functions it will call:
 
 ```
 Wired up:
-  spectrogram    spectrogram.make_spectrogram
-  peaks          fingerprint.find_peaks
-  fingerprints   fingerprint.make_fgp
-  store          database.add
-  query          match.query_details
-
-Your code is wired up and ready to score.
+  spectrogram    create_spectogram.create_spectrogram
+  peaks          find_peaks.find_peaks
+  fingerprints   create_fingerprints.peaks_to_fingerprints
+  store          database.AudioDatabase().store_fingerprints
+  query          database.AudioDatabase().query
 ```
 
-The point to say out loud: nobody wrote an adapter for this team. Their
-functions are called `add` and `query_details`. The names ordered the
-candidates; running them decided.
-
-Then score it:
+Say: nobody wrote an adapter for this team. Two of those are methods on an
+object their code builds. The names ordered the candidates; running them
+decided.
 
 ```sh
 cogworks run --benchmark audio-identification
 ```
 
-Forty seconds, ending in `identification_score` and six diagnostics that name
-which half of their pipeline lost the points.
+Forty seconds to a real score with diagnostics that name which half of the
+pipeline lost the points.
 
 ## Act 2: what it says when it cannot
 
 ```sh
-cd ../CogWorks-2026-Team-Asterisk__Week1-Capstone-Shazam
+cd ../../student-repos/CogWorks-2026-Team-Asterisk__Week1-Capstone-Shazam
 cogworks check --benchmark audio-identification
 ```
-
-This team's capstone does not run. The report says so the way a compiler
-would:
 
 ```
 Could not read:
@@ -67,38 +76,34 @@ Nothing in your repository took that for the database step, which is what
 newton's_code.create_fingerprints returned.
 ```
 
-It still names the two steps it did bind. The line worth saying: a refusal has
-to be worth reading, because half of a real cohort will see one first.
+Say: half a real cohort meets a refusal before they ever see a score, so the
+refusal is the product.
 
-## Act 3: the platform
+## Act 3: the commit
 
-Open http://localhost:5173, sign in with GitHub, and walk:
+Make a one-line change in the demo clone, commit it, push it.
 
-1. **Dashboard.** The run list, the practice and official counters.
-2. **A succeeded run.** The finding sentence leads, then the metric grid, then
-   the diagnostics that say which component lost the points.
-3. **Team.** The process panel: which capstone stage each person touched and
-   when, the first run that scored end to end, and any commit that changed a
-   contract file since. No per-person totals anywhere, on purpose.
-4. **Leaderboard.**
+Say: the score belongs to a commit. An uncommitted change is refused for the
+official run on purpose, because a leaderboard row is a claim about code
+somebody can go read. Then `cogworks sync` puts the local result on the
+dashboard, marked as local and self-reported, and the hosted run is what turns
+it into a verified one.
 
-Two things this local database cannot show, so do not promise them here. The
-seeded runs carry no wiring trace and no refusal card, because they were
-written by the fixture provider rather than by a sandbox that ran discovery;
-Act 2 is where the refusal lives. And the team is connected to the fixture
-repository, which is not on GitHub, so the process panel says it could not
-read a commit history rather than drawing the stage rows. Connecting a real
-repository with the GitHub App installed fills it.
+## Act 4: the site
 
-Runs on this machine are scripted (`EXECUTION_PROVIDER=fixture`); the hosted
-runner is deployed but the demo does not need it. Say that if asked. The
-scoring in Act 1 is real and is the same code the sandbox runs.
+1. **Dashboard**, the runs and the two counters.
+2. **A run page**: the finding sentence, the metrics, the diagnostics.
+3. **Team**: the stages of the capstone with the eight people who touched them.
+   This is the multi-person answer. The team is the repository: anyone with
+   push access who signs in is a member, so there is no roster to maintain.
+4. **Leaderboard**, Song Identification.
 
-## If someone asks what is next
+## What to say if asked
 
-- R2 is not yet enabled on the Cloudflare account, which is the last step
-  before a team's trained weights can travel from their laptop to a hosted
-  run without being committed.
-- `EXECUTION_PROVIDER` is still `fixture` in both deployed workers.
-- 46 defects are written down in `docs/product-description/bug-triage.md`,
-  ranked by what a first-time user hits first.
+- **Is the scoring real?** The terminal scoring is real and is the same code
+  the sandbox runs. Hosted runs on this deployment are scripted unless the
+  Modal provider is switched on.
+- **What about cheating?** The official set is hidden, it never enters the
+  sandbox that runs student code, and every team gets three official attempts.
+- **What does it cost the course?** No lecture time. Connect a repository and
+  run three commands.

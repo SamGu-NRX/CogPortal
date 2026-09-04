@@ -80,8 +80,10 @@
     "RUNNER_PYTHON_VERSION": "3.11",
     "RUNNER_IMAGE_DIGEST": "cogworks-python-3.11:unpublished",
     "RUN_STALE_AFTER_SECONDS": "3600",
-    // Keep fixture mode until the Modal M0 probe and external resources pass.
-    "EXECUTION_PROVIDER": "fixture"
+    // The Modal app, redeployed from this branch on 2026-09-04 as v17. Going
+    // back to scripted runs is one edit here and one deploy, about a minute.
+    "MODAL_RUNNER_URL": "https://samgu-nrx--cogworks-runner-submit-job.modal.run",
+    "EXECUTION_PROVIDER": "modal"
   },
 
   "triggers": {
