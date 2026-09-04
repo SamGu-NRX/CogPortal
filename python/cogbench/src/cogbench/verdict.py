@@ -45,6 +45,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+from .raised import Raised
+
 __all__ = [
     "SCORED",
     "WIRED_BUT_WRONG",
@@ -220,6 +222,11 @@ class Verdict:
     #: What the run read and what it could not. Travels with every verdict,
     #: because it qualifies all of them; see Coverage.
     coverage: Coverage = field(default_factory=Coverage)
+    #: What their code raised while the search tried it, with the file and
+    #: line inside their repository. A refusal names the hand-off that
+    #: failed; these say what went wrong underneath it, and a student reads
+    #: them the way they read a compiler.
+    errors: Tuple[Raised, ...] = ()
 
     @property
     def is_failure(self) -> bool:
@@ -253,7 +260,36 @@ class Verdict:
             "nextStep": self.next_step,
             "notes": list(self.notes),
             "coverage": self.coverage.to_dict(),
+            "errors": [error.to_dict() for error in self.errors],
         }
+
+    def problems(self) -> List[str]:
+        """The two blocks a student reads the way they read a compiler.
+
+        What could not be read, then what blew up, one line each. Kept apart
+        from `render` because the terminal report assembles a verdict from
+        its parts (it prints the chain under its own heading), and two places
+        formatting the same lines is how they come to disagree.
+
+        Empty when there is nothing to say, so a caller can extend
+        unconditionally.
+        """
+
+        lines: List[str] = []
+        if self.coverage.skipped:
+            lines.append("")
+            lines.append("Could not read:")
+            lines.extend(
+                "  {}: {}{}".format(
+                    module, reason, "" if owner == "theirs" else " ({})".format(owner)
+                )
+                for module, reason, owner in self.coverage.skipped
+            )
+        if self.errors:
+            lines.append("")
+            lines.append("Raised while trying:")
+            lines.extend("  " + error.line_text() for error in self.errors)
+        return lines
 
     def render(self) -> str:
         """The whole verdict as text, for the terminal and the run log."""
@@ -266,6 +302,10 @@ class Verdict:
         for note in self.notes:
             lines.append("")
             lines.append(note)
+        # Below the prose because they are a reference rather than the
+        # sentence; above the next step because the next step is what to do
+        # after reading them.
+        lines.extend(self.problems())
         if self.next_step:
             lines.append("")
             lines.append(self.next_step)
@@ -326,6 +366,7 @@ def not_wired(
     next_step: str = "",
     coverage: Optional["Coverage"] = None,
     notes: Sequence[str] = (),
+    errors: Sequence[Raised] = (),
 ) -> Verdict:
     """No chain of their functions performs the task.
 
@@ -342,7 +383,7 @@ def not_wired(
     # holding their clustering were skipped for packages the graded run
     # installs. Refusing here is what stops that sentence being written.
     if not coverage.read_enough_to_judge:
-        return could_not_look(coverage, next_step=next_step)
+        return could_not_look(coverage, next_step=next_step, errors=errors)
 
     if trace:
         headline = (
@@ -366,10 +407,13 @@ def not_wired(
         # something the hand-off does not say, it says it here rather than in
         # place of the headline, which is still the first thing to check.
         notes=tuple(notes),
+        errors=tuple(errors),
     )
 
 
-def could_not_look(coverage: "Coverage", *, next_step: str = "") -> Verdict:
+def could_not_look(
+    coverage: "Coverage", *, next_step: str = "", errors: Sequence[Raised] = ()
+) -> Verdict:
     """We could not read enough of the repository to say anything about it.
 
     The honest answer when the skip is ours. It names the modules and the
@@ -389,6 +433,9 @@ def could_not_look(coverage: "Coverage", *, next_step: str = "") -> Verdict:
         "packages and will read them.".format(count),
         next_step=next_step,
         coverage=coverage,
+        # Still true, and still theirs: a module we could not read does not
+        # make an AttributeError in a module we did read go away.
+        errors=tuple(errors),
     )
 
 

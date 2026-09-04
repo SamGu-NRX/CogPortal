@@ -206,6 +206,22 @@ class NotebookTests(unittest.TestCase):
         self.assertEqual(found.skipped[0].reason, "syntax")
         self.assertIn("as they run", found.skipped[0].detail)
 
+    def test_an_empty_notebook_is_called_empty(self):
+        # Measured on one 2026 repository: `master.ipynb` is a zero-byte file
+        # in the checkout and at origin, and was reported as "no importable
+        # definitions; its cells build what they use as they run", which sent
+        # a team looking for a cell that does not exist.
+        (self.tmp / "master.ipynb").write_text("")
+        found = discover(self.tmp)
+        self.assertEqual(found.skipped[0].detail, "is empty")
+
+    def test_a_notebook_that_is_not_json_says_so(self):
+        (self.tmp / "master.ipynb").write_text("this was never a notebook\n")
+        found = discover(self.tmp)
+        self.assertEqual(
+            found.skipped[0].detail, "is not a notebook this can read (not JSON)"
+        )
+
     def test_a_python_file_wins_over_a_notebook_of_the_same_name(self):
         (self.tmp / "database.py").write_text("def add(x):\n    return 'file'\n")
         (self.tmp / "database.ipynb").write_text(_notebook("def add(x):\n    return 'notebook'\n"))
@@ -888,7 +904,7 @@ class ACellBoundaryIsALineBreak(unittest.TestCase):
 
     def test_a_notebook_whose_only_definition_follows_such_a_cell_imports(self):
         path = self.tmp / "peaks.ipynb"
-        path.write_text(_notebook("import numpy as np", "def find(x):\n    return x\n"))
+        path.write_text(_notebook("import json", "def find(x):\n    return x\n"))
 
         found = discover(self.tmp)
 
@@ -1320,24 +1336,27 @@ class AFileTheirOwnScriptsAlreadyImportedIsStillRead(unittest.TestCase):
 
 
 class OnlyAnInstalledModuleIsPutBackAfterDiscovery(unittest.TestCase):
-    """Another repository's hand adapter leaves a bare `database` in
-    `sys.modules`; discovery of a repository with its own `database.py`
-    displaces it, and putting it back handed the next adapter the wrong
-    team's code (carti4ce's oracle scored 0.0 after KrazeeCoder's test)."""
+    """A bare module loaded from another repository is not installed state.
+
+    Discovery must leave the repository's own module in place instead of
+    restoring unrelated code under the same import name.
+    """
 
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp()).resolve()
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
         self.addCleanup(sys.modules.pop, "database", None)
 
-    def test_a_bare_module_from_elsewhere_is_not_restored(self):
+    def test_a_bare_module_from_another_repository_is_not_restored(self):
         import types
 
-        stranger = types.ModuleType("database")
-        stranger.__file__ = str(self.tmp / "elsewhere" / "database.py")
-        sys.modules["database"] = stranger
+        other_repository_module = types.ModuleType("database")
+        other_repository_module.__file__ = str(
+            self.tmp / "other-repository" / "database.py"
+        )
+        sys.modules["database"] = other_repository_module
         (self.tmp / "database.py").write_text("MINE = True\n")
 
         discover(self.tmp)
 
-        self.assertIsNot(sys.modules.get("database"), stranger)
+        self.assertIsNot(sys.modules.get("database"), other_repository_module)

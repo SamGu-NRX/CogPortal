@@ -379,3 +379,22 @@ class WhatIsRememberedIsTheWholeSearch(unittest.TestCase):
         self.assertGreater(tried, 0)
         self.assertEqual(submission.attempts_tried, tried)
         self.assertEqual(stored["binding"]["attemptsTried"], tried)
+
+
+class TheWorkspaceIgnoresItself(unittest.TestCase):
+    """A local run must not dirty the checkout it ran in."""
+
+    def test_git_does_not_see_the_cogbench_directory(self):
+        import subprocess
+
+        from cogbench.storage import workspace_dir
+
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+        (workspace_dir(root) / "resolved.json").write_text("{}")
+
+        status = subprocess.run(
+            ["git", "status", "--porcelain"], cwd=root, check=True, capture_output=True, text=True
+        ).stdout
+        self.assertEqual(status, "")

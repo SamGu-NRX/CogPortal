@@ -85,7 +85,7 @@ import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import ModuleType
-from typing import Callable, Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
 __all__ = [
     "STUBBED_MODULES",
@@ -160,9 +160,16 @@ SKIPPED_DIRECTORIES = frozenset(
 #: ``src/cogworks/``.
 MAX_ROOT_DEPTH = 2
 
-#: Wall clock for importing one module. The slowest legitimate import in the
-#: corpus builds a FaceNet model; the ones that exceed this are blocking on
-#: input() or opening a window.
+#: Wall clock for importing one module. Importing runs whatever a file does at
+#: module level, and files do real work there: one 2026 repository tunes a
+#: threshold across 25 iterations while being imported, which took 77 seconds
+#: of a 77-second run, and another could loop forever with nothing to report at
+#: all, because the report is written after discovery finishes.
+#:
+#: Thirty seconds is well past anything a definition file needs -- the slowest
+#: legitimate import in the corpus builds a FaceNet model -- and well short of
+#: a student giving up. A module that exceeds it is skipped and named, so the
+#: search continues without it and the report says which file it was.
 IMPORT_TIMEOUT_SECONDS = 30.0
 
 
@@ -624,8 +631,9 @@ def notebook_source(path: Path) -> Optional[str]:
         if lines and not lines[-1].endswith("\n"):
             lines[-1] = lines[-1] + "\n"
 
+    text = "".join(lines)
     try:
-        tree = ast.parse("".join(lines))
+        tree = ast.parse(text)
     except SyntaxError:
         return None
 
@@ -645,7 +653,13 @@ def notebook_source(path: Path) -> Optional[str]:
     ):
         return None
 
-    return ast.unparse(ast.Module(body=kept, type_ignores=[]))
+    # Their own text for each kept node rather than `ast.unparse`, which is
+    # 3.9+ while this package declares 3.8 and the hosted week 1 and week 3
+    # venvs run CPython 3.8.20; measured on CI, every notebook test errored
+    # there. Keeping the source also keeps their comments and formatting.
+    return "\n".join(
+        segment for segment in (ast.get_source_segment(text, node) for node in kept) if segment
+    )
 
 
 @contextlib.contextmanager
@@ -798,19 +812,6 @@ def _missing_module(error: BaseException) -> Optional[str]:
     return getattr(error, "name", None) if isinstance(error, ImportError) else None
 
 
-#: How long one module may spend at import scope before it is abandoned.
-#: Importing runs whatever a file does at module level, and files do real work
-#: there: one 2026 repository tunes a threshold across 25 iterations while
-#: being imported, which took 77 seconds of a 77-second run. Another could
-#: loop forever and there would be nothing to report at all, because the
-#: report is written after discovery finishes.
-#:
-#: Thirty seconds is well past anything a definition file needs and well short
-#: of a student giving up. A module that exceeds it is skipped and named, so
-#: the search continues without it and the report says which file it was.
-IMPORT_TIMEOUT_SECONDS = 30
-
-
 class _ImportTimeout(BaseException):
     """Raised inside the importing thread when a module runs too long.
 
@@ -820,7 +821,7 @@ class _ImportTimeout(BaseException):
 
 
 @contextlib.contextmanager
-def _deadline(seconds: int, name: str):
+def _deadline(seconds: float, name: str):
     """Interrupt an import that will not finish.
 
     Uses a timer that raises in the main thread, which is where the import
@@ -1142,7 +1143,7 @@ def _execute(
     name: str,
     path: Path,
     source: Optional[str],
-    timeout: int,
+    timeout: float,
     package: Optional[str],
     *,
     future_annotations: bool = False,
@@ -1272,7 +1273,7 @@ def _import_one(
     name: str,
     path: Path,
     source: Optional[str],
-    timeout: int = IMPORT_TIMEOUT_SECONDS,
+    timeout: float = IMPORT_TIMEOUT_SECONDS,
     package: Optional[str] = None,
     redirects: Optional["_Redirects"] = None,
 ) -> Tuple[Optional[ModuleType], Optional[SkippedModule], _Notes]:
@@ -1531,7 +1532,7 @@ class _NotebookFsFinder:
     something that genuinely is not there still fails and is still named.
     """
 
-    def __init__(self, directories: Sequence[Path], import_timeout: int) -> None:
+    def __init__(self, directories: Sequence[Path], import_timeout: float) -> None:
         self._directories = list(directories)
         self._timeout = import_timeout
         self._made: List[str] = []
@@ -1660,7 +1661,11 @@ class _Redirects:
 
         if not self._map or error is None:
             return None
-        if not isinstance(error, (OSError, NotImplementedError)):
+        # Git LFS leaves a small text pointer in a clone without downloaded
+        # objects. Course loaders report that as a parse ValueError rather
+        # than as a missing file, but the student's failing line still names
+        # the exact benchmark artifact before any redirect is allowed.
+        if not isinstance(error, (OSError, NotImplementedError, ValueError)):
             return None
         for token in self._tokens(error):
             name = token.replace("\\", "/").rsplit("/", 1)[-1]
@@ -1698,6 +1703,16 @@ class _Redirects:
             for quote in ('"', "'"):
                 parts = line.split(quote)
                 found.extend(parts[1::2])
+        # A path assembled in a module variable leaves no string literal on
+        # the failing call. Loader frames still carry that exact path as a
+        # local, so inspect path-like locals and keep the same basename match
+        # in `wanted` as the final gate.
+        current = error.__traceback__
+        while current is not None:
+            for value in current.tb_frame.f_locals.values():
+                if isinstance(value, (str, os.PathLike)):
+                    found.append(os.fspath(value))
+            current = current.tb_next
         return [token for token in found if token]
 
     def _redirected(self, target):
@@ -1706,9 +1721,21 @@ class _Redirects:
         except Exception:  # noqa: BLE001 - a path-like may be anything
             return target
         where = self._live.get(name)
-        if where is None or os.path.exists(target):
+        if where is None:
+            return target
+        if os.path.exists(target) and not self._is_lfs_pointer(target):
             return target
         return str(where)
+
+    def _is_lfs_pointer(self, target: Any) -> bool:
+        """Whether an existing course file is only a Git LFS pointer."""
+
+        opener = self._open or builtins.open
+        try:
+            with opener(target, "rb") as stream:
+                return stream.read(42) == b"version https://git-lfs.github.com/spec/v1"
+        except (OSError, TypeError, ValueError):
+            return False
 
     def _opened(self, file, *args, **keywords):
         return self._open(self._redirected(file), *args, **keywords)
@@ -1806,11 +1833,44 @@ def _qualified(path: Path, directory: Path, directories: Sequence[Path]) -> Opti
     return None
 
 
+#: Why a notebook produced nothing to import, when the reason is the file
+#: rather than its cells. The general sentence below is about a notebook that
+#: is a transcript; these two are about a notebook that is not a notebook.
+def _why_no_module(path: Path) -> str:
+    """What is wrong with this .ipynb, in the terms its author would check.
+
+    Measured on one 2026 repository: `master.ipynb` is a zero-byte file, in
+    the checkout and at origin, and was reported as having "no importable
+    definitions; its cells build what they use as they run", which describes
+    a notebook it is not. A team reading that goes looking for the cell that
+    built something, and there are no cells.
+    """
+
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        # `notebook_source` read the same file a moment ago and guards this
+        # too. The general sentence stays true when the read fails.
+        return _CELLS_BUILD_WHAT_THEY_USE
+    if not text.strip():
+        return "is empty"
+    try:
+        json.loads(text)
+    except ValueError:
+        return "is not a notebook this can read (not JSON)"
+    return _CELLS_BUILD_WHAT_THEY_USE
+
+
+_CELLS_BUILD_WHAT_THEY_USE = (
+    "no importable definitions; its cells build what they use as they run"
+)
+
+
 def load_modules(
     root: Path,
     *,
     extra: Sequence[Path] = (),
-    import_timeout: int = IMPORT_TIMEOUT_SECONDS,
+    import_timeout: float = IMPORT_TIMEOUT_SECONDS,
     journal: Optional[Callable[[str, object], None]] = None,
     resource_files: Optional[Mapping[str, Path]] = None,
 ) -> Tuple[List[LoadedModule], List[SkippedModule], List[str]]:
@@ -1932,10 +1992,7 @@ def load_modules(
             source = notebook_source(path)
             if source is None:
                 unreadable = SkippedModule(
-                    path.stem,
-                    path,
-                    "syntax",
-                    "no importable definitions; its cells build what they use as they run",
+                    path.stem, path, "syntax", _why_no_module(path)
                 )
                 skipped.append(unreadable)
                 _note(journal, "skipped", unreadable)
@@ -2090,7 +2147,7 @@ def discover(
     declared_root: Optional[str] = None,
     hints: Sequence[str] = (),
     scratch: Optional[Path] = None,
-    import_timeout: int = IMPORT_TIMEOUT_SECONDS,
+    import_timeout: float = IMPORT_TIMEOUT_SECONDS,
     journal: Optional[Callable[[str, object], None]] = None,
     resource_files: Optional[Mapping[str, Path]] = None,
 ) -> Discovery:

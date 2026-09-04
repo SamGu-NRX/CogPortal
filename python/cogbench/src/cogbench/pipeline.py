@@ -51,6 +51,8 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Callable, Dict, FrozenSet, List, Optional, Sequence, Tuple
 
+from .raised import Raised, message_of, where_it_raised
+
 __all__ = [
     "Stage",
     "Role",
@@ -214,6 +216,15 @@ class Stage:
     #: downstream takes it alongside its input. So it runs once, against
     #: `fixture`, and joins the extras pool under this stage's name.
     fit: bool = False
+    #: Whether the search may go on without this fit stage when nothing in
+    #: the repository computes it. A stage that binds without the extra is
+    #: then offered its input alone, which `_shapes` already does for any
+    #: extra absent from the pool. Measured on one 2026 repository (Asterisk
+    #: week 3): the IDF weighting lives inside their `CaptionVectorizer`,
+    #: nothing maps a corpus to a word-to-idf table, and their embedder takes
+    #: the caption alone; a required `idfs` fit refused the whole text side
+    #: before that embedder was ever called.
+    optional: bool = False
 
     #: This stage's own input, when it has one. A `fit` stage is called with
     #: it; a branch's first stage takes it from `Role.fixture` instead.
@@ -813,6 +824,12 @@ class Refusal:
     #: see `_folders_of_their_own`, where the reason is a constructor the
     #: search had to refuse three stages earlier.
     notes: Tuple[str, ...] = ()
+    #: The candidates this search called that raised from inside their own
+    #: code, in the order they were tried. "Nothing accepted the input" is
+    #: what the search observed; these are the reasons underneath it, and on
+    #: one 2026 repository the reason is a single bad import three files away
+    #: from anything the headline names.
+    errors: Tuple[Raised, ...] = ()
 
 
 Resolution = Tuple[Optional[Binding], Optional[Refusal]]
@@ -1135,6 +1152,168 @@ def _order_for(stage: Stage, candidates: Sequence[Candidate]) -> List[Candidate]
     return sorted(candidates, key=rank)
 
 
+#: Where their code lives, for the search that is running now. Set from the
+#: modules discovery loaded, because that is the one place the repository root
+#: is known: this process probes from a scratch directory, so the working
+#: directory says nothing about where their files are. None outside a search.
+_THEIR_ROOT: Optional["Path"] = None
+
+#: Every candidate this search called that raised from inside their own code,
+#: in the order they were tried, one entry per candidate. Cleared with the
+#: scratch directory.
+#:
+#: Resolved to a file and a line here rather than kept as exceptions: an
+#: exception holds its traceback, a traceback holds its frames, and a frame
+#: holds their locals, which on this corpus means spectrogram arrays staying
+#: alive until the search ends.
+_RAISED: List[Raised] = []
+
+
+def _record_raise(candidate: Candidate, error: BaseException) -> None:
+    """Write down a failure that came out of their code, and only that.
+
+    The search calls candidates with input they may not take, so most of what
+    lands here is the probe being wrong rather than their code being wrong: a
+    call with the wrong arity raises TypeError from the calling frame, which
+    is ours, and `where_it_raised` returns None for it. A timeout is ours too,
+    since it is our clock rather than anything they wrote.
+
+    One entry per candidate, because a stage calls the same function in
+    several shapes and three lines differing only in which arguments we
+    guessed say nothing a student can use. Which of those calls is kept is
+    decided by whether it raised in the candidate's own file. Measured on
+    rutvim's week 2 repository: `whispers.create_graph` was first offered the
+    photos as arrays, which its own `jpg_to_rgb` tried to open as a path, and
+    the FileNotFoundError that produced is about our probe. Offered the
+    photos as paths it reaches its own line 66 and raises
+    `module 'pyexpat.model' has no attribute 'detect'`, which is the bug in
+    that repository. A raise it triggered in another of their files belongs
+    to whichever function owns that file, and the search probes that one too.
+    """
+
+    if _THEIR_ROOT is None or isinstance(error, _Timeout):
+        return
+    spot = where_it_raised(error, _THEIR_ROOT)
+    if spot is None:
+        return
+    found = Raised(
+        spot[0], spot[1], candidate.label, _throwaway_paths_out(message_of(error))
+    )
+    for index, entry in enumerate(_RAISED):
+        if entry.function != candidate.label:
+            continue
+        if _in_its_own_file(entry, candidate) or not _in_its_own_file(found, candidate):
+            return
+        _RAISED[index] = found
+        return
+    _RAISED.append(found)
+
+
+def _in_its_own_file(entry: Raised, candidate: Candidate) -> bool:
+    """Whether this raise happened in the file the candidate is defined in.
+
+    `Candidate.module` is a module name for a plain function and the owning
+    candidate's label for a method, so the file is matched against any
+    segment of it rather than against the whole: `clustering.clusterCreator`
+    is a class in `clustering.py`, and `model_tests.image_caption_model` is a
+    module in `image_caption_model.py`.
+    """
+
+    return Path(entry.file).stem in candidate.module.split(".")
+
+
+#: The throwaway directories a probe runs from and the week's fixtures live
+#: in. Their names carry a fresh random suffix per run, so a message quoting
+#: the path it was handed differs between two runs of the same repository.
+#: Both spellings, because macOS reports the same directory as `/var/folders`
+#: and `/private/var/folders` depending on who asked.
+_THROWAWAY = re.compile(
+    r"(?:{})[^\s'\"]*".format(
+        "|".join(
+            sorted(
+                {
+                    re.escape(str(Path(tempfile.gettempdir()))),
+                    re.escape(str(Path(tempfile.gettempdir()).resolve())),
+                }
+            )
+        )
+    )
+)
+
+
+def _throwaway_paths_out(message: str) -> str:
+    """The message with this run's temporary directories replaced.
+
+    A verdict is compared byte for byte between two runs of the same
+    repository (see `verdict.describe`), and a FileNotFoundError naming the
+    scratch directory it was handed is the one thing in a message that cannot
+    survive that.
+    """
+
+    return _THROWAWAY.sub("a temporary path", message)
+
+
+#: How many raises a refusal carries. Five was the first number tried and it
+#: hid the answer: on rutvim's week 2 repository twelve of their functions
+#: raise, and the one that explains all of them (`whispers.py:66`, an
+#: attribute taken off `pyexpat.model` because line 1 imports the wrong
+#: `model`) is the ninth in candidate order. A repository this broken has a
+#: dozen lines to report and a compiler would print all of them; the cap is
+#: here to bound the block, not to choose for the reader. Under the protocol's
+#: own limit of sixteen, which is what a stored refusal may carry.
+_ERRORS_IN_A_REFUSAL = 12
+
+
+def _raised_in_this_search() -> Tuple[Raised, ...]:
+    """Everything their code raised while this search ran.
+
+    Not scoped to the stage that refused, though that was the first thing
+    tried. A stage after the first is reached by extending chains, and every
+    candidate that was going to raise had already raised while the first
+    stage probed it, so the per-stage slice was empty for every refusal
+    except a first-stage one. Measured on week 2's CoggurtFilter, which
+    stalls four stages in and reported nothing.
+
+    One line per place, not per function: several of their functions calling
+    one broken helper is one problem, and repeating it once per caller buries
+    the rest.
+    """
+
+    kept: List[Raised] = []
+    seen = set()
+    for entry in _RAISED:
+        where = (entry.file, entry.line, entry.message)
+        if where in seen:
+            continue
+        seen.add(where)
+        kept.append(entry)
+        if len(kept) == _ERRORS_IN_A_REFUSAL:
+            break
+    return tuple(kept)
+
+
+def _their_root(modules: Sequence[Any]) -> Optional["Path"]:
+    """The directory holding the modules discovery read, or None.
+
+    The common parent of their files. A repository that keeps a matcher at
+    its root and descriptors under `core/` gives the root; one whose code all
+    sits in `Week2/` gives `Week2/`, which is what a student would type.
+    """
+
+    folders = []
+    for module in modules:
+        where = getattr(module, "__file__", None)
+        if not where:
+            continue
+        try:
+            folders.append(str(Path(where).resolve().parent))
+        except (OSError, ValueError):
+            continue
+    if not folders:
+        return None
+    return Path(os.path.commonpath(folders))
+
+
 def _call(
     candidate: Candidate, positional: Sequence[Any], index: Optional[int] = None
 ) -> Tuple[bool, Any]:
@@ -1145,6 +1324,10 @@ def _call(
     side inputs, the item's identity -- is on the candidate as a plan, and is
     filled in here so that this call and the one a scored run makes later are
     produced by the same three lines.
+
+    A no is still a no. What changes is that a no caused by their own code
+    raising is written down first: see `_record_raise`. The search does not
+    read it, and a refusal does.
     """
 
     if candidate.self_only:
@@ -1172,7 +1355,8 @@ def _call(
                 result = candidate.call(*args, **keywords)
         finally:
             signal.alarm(0)
-    except BaseException:  # noqa: BLE001 - student code raises anything
+    except BaseException as error:  # noqa: BLE001 - student code raises anything
+        _record_raise(candidate, error)
         return False, None
     finally:
         signal.alarm(0)
@@ -2193,7 +2377,10 @@ def resolve_chain(
     Returns the binding, or a refusal naming the furthest point reached.
     """
 
+    global _THEIR_ROOT
+
     with _scratch_cwd():
+        _THEIR_ROOT = _their_root(modules)
         if role.branches:
             return _resolve_branches(
                 role,
@@ -2626,6 +2813,8 @@ def _fits_of(
             continue
         hit = _fit(stage, candidates, pool, identities, values)
         if hit is None:
+            if stage.optional:
+                continue
             return found, stage.name
         candidate, value = hit
         pool[stage.name] = value
@@ -2791,7 +2980,7 @@ def _scratch_cwd():
     already imports from scratch; the calls that follow it must too.
     """
 
-    global _SCRATCH
+    global _SCRATCH, _THEIR_ROOT
 
     previous = os.getcwd()
     was = _SCRATCH
@@ -2802,8 +2991,10 @@ def _scratch_cwd():
             yield
         finally:
             _SCRATCH = was
+            _THEIR_ROOT = None
             _DRY_CALLS.clear()
             _FOLDER_OF_THEIR_OWN.clear()
+            _RAISED.clear()
             os.chdir(previous)
 
 
@@ -2966,6 +3157,7 @@ def _resolve_chain(
                 "arguments" if first.arity > 1 else "input"
             ),
             notes=_folders_of_their_own(),
+            errors=_raised_in_this_search(),
         )
 
     furthest: Tuple[str, ...] = (frontier[0].chain[0].label,)
@@ -3224,6 +3416,7 @@ def _resolve_chain(
                 ),
                 last_returned=last_returned,
                 notes=_folders_of_their_own(),
+                errors=_raised_in_this_search(),
             )
         frontier = nxt
         furthest = tuple(step.label for step in frontier[0].chain)

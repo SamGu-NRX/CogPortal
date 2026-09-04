@@ -181,7 +181,7 @@ def _bar(done: int, total: int) -> str:
 
 
 def _count(done: int, total: int) -> str:
-    return "{:,}/{:,} pairings".format(done, total)
+    return "{:,}/{:,} attempts".format(done, total)
 
 
 def _estimate(done: int, total: int, elapsed: float) -> str:

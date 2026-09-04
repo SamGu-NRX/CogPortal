@@ -41,9 +41,10 @@ class WhichCodeIsScored(unittest.TestCase):
         cli.resolve_submission = lambda *a, **k: ("theirs", "file", "submission.py")
         cli._discover = lambda *a, **k: (_ready(), None)
 
-        chosen = cli._submission_for("b", _Benchmark(), self.tmp, as_json=False)
+        adapter, weights = cli._submission_for("b", _Benchmark(), self.tmp, as_json=False)
 
-        self.assertEqual(chosen, "theirs")
+        self.assertEqual(adapter, "theirs")
+        self.assertEqual(weights, [])
 
     def test_an_installed_entry_point_does_not_answer_for_this_repository(self):
         """It belongs to whatever was pip-installed, which on a machine that
@@ -56,10 +57,25 @@ class WhichCodeIsScored(unittest.TestCase):
         )
         cli._discover = lambda *a, **k: (_ready(), None)
 
-        chosen = cli._submission_for("b", _Benchmark(), self.tmp, as_json=False)
+        adapter, weights = cli._submission_for("b", _Benchmark(), self.tmp, as_json=False)
 
-        self.assertNotEqual(chosen, "somebody else's")
-        self.assertEqual(chosen()[0], "discovered")
+        self.assertNotEqual(adapter, "somebody else's")
+        self.assertEqual(adapter()[0], "discovered")
+        self.assertEqual(weights, [])
+
+    def test_discovery_weight_paths_travel_with_the_adapter(self):
+        cli.resolve_submission = lambda *a, **k: (None, "entry_point", "")
+
+        class _Found:
+            ready = True
+            weights_used = ("models/search.pkl",)
+
+        cli._discover = lambda *a, **k: (_Found(), None)
+
+        adapter, weights = cli._submission_for("b", _Benchmark(), self.tmp, as_json=False)
+
+        self.assertEqual(adapter()[0], "discovered")
+        self.assertEqual(weights, ["models/search.pkl"])
 
     def test_an_empty_repository_refuses_rather_than_scoring_something(self):
         cli.resolve_submission = lambda *a, **k: (None, "entry_point", "")
@@ -94,6 +110,7 @@ class WhichCodeIsScored(unittest.TestCase):
 def _ready():
     class _S:
         ready = True
+        weights_used = ()
 
     return _S()
 

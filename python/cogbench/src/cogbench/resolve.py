@@ -12,15 +12,14 @@ chain of functions that performs the week's task, the week's own acceptance
 test decides whether the chain is right, and ``verdict`` says what happened in
 a sentence a student can act on.
 
-The search is bounded by attempts rather than by names. Every pairing tried is
-counted and reported, so a repository that takes four thousand attempts and one
-that takes thirty-five are both explicable, and a search that gives up says how
-hard it looked.
+The search is bounded by attempts rather than by names. Every run of the week's
+acceptance test is counted and reported, so a repository that takes two
+thousand attempts and one that takes fifty are both explicable, and a search
+that gives up says how hard it looked.
 """
 
 from __future__ import annotations
 
-import itertools
 import sys
 from collections.abc import Mapping as _MappingABC
 from dataclasses import dataclass, field, replace
@@ -41,6 +40,7 @@ from .pipeline import (
     instances_in,
     methods_of,
     resolve_chain,
+    _muted,
     _scratch_cwd,
 )
 from .verdict import (
@@ -54,10 +54,16 @@ from .verdict import (
 
 __all__ = ["Submission", "Attempt", "resolve", "from_spec"]
 
-#: How many (store, query, arrangement) pairings to try before giving up.
-#: KrazeeCoder's database needs 3962 and carti4ce's 35, so the ceiling is set
-#: well above both: a repository is refused for having no working pairing, not
-#: for having an unusual one that sits late in the order.
+#: How many attempts to make before giving up. An attempt is one run of the
+#: week's acceptance test, and `_pair` makes two kinds: a probe asking whether
+#: one of their functions takes an enrolment at all, and a pairing asking
+#: whether a store and a query answer together.
+#:
+#: Measured on the 2026 week 1 corpus, a whole search costs 48 attempts for
+#: the repository with no database, 203 for carti4ce, 275 for KrazeeCoder,
+#: 1,230 for Cog-gurts and 1,956 for rutvim2009. The ceiling is well above all
+#: of them: a repository is refused for having no working pairing, not for
+#: being large.
 MAX_ATTEMPTS = 20000
 
 #: What `accepts` returns when a pairing answered the question completely.
@@ -113,6 +119,13 @@ class Submission:
     #: the whole thing. What a partial set is worth is the week's to decide;
     #: this says which surface is absent and why.
     missing: Dict[str, Any] = field(default_factory=dict)
+    #: Repository-relative POSIX paths of the trained-weights files the
+    #: week's `prepare` hook loaded for this run, sorted; empty when none.
+    #: Recorded here rather than left in the extras pool because `cogworks
+    #: sync` uploads exactly these files so the hosted run can fetch them,
+    #: and the upload must name the files discovery actually used, not the
+    #: files a directory listing happens to contain.
+    weights_used: Tuple[str, ...] = ()
 
     #: The candidates behind ``enroll`` and ``query``, kept so a scoring run
     #: can start from an empty database. Not part of the record.
@@ -132,11 +145,6 @@ class Submission:
     #: than trusting this, because it is describing what happened during the
     #: search and the scored run is a different object.
     _state_attribute: Optional[str] = None
-    #: The week's way of emptying state the resolver cannot reach, when the
-    #: week has one. See `DiscoverySpec.reset`. Held rather than called once
-    #: at the end of the search, because the run that has to start empty is
-    #: the scored one and it is built later, by `fresh`.
-    _reset: Optional[Callable[[], None]] = None
 
     @property
     def ready(self) -> bool:
@@ -176,16 +184,11 @@ class Submission:
 
         When the binding is plain module functions there is nothing here to
         rebuild: a pickle file is emptied by the driver's own scratch
-        directory, which is where their file already lands, and anything the
-        week keeps elsewhere is emptied by the week's own `reset`.
+        directory, which is where their file already lands.
         """
 
         if self._store is None or self._ask is None:
             return self
-        if self._reset is not None:
-            # Before anything is built, so a store made now is made into an
-            # empty world rather than into the one the search filled.
-            self._reset()
         if (
             self._store.rebuild is None
             and self._ask.rebuild is None
@@ -265,6 +268,7 @@ class Submission:
             record["arrangement"] = self.attempt.arrangement
         if self.discovery is not None:
             record["discovery"] = self.discovery.to_dict()
+        record["weightsUsed"] = list(self.weights_used)
         supplied = _supplied_by(self)
         if supplied:
             # Everything the benchmark handed their code that did not come out
@@ -441,6 +445,7 @@ def from_spec(repository: Path, spec: Any, **overrides: Any) -> Submission:
         "chain_role": spec.chain_role,
         "fixture": spec.fixture,
         "accepts": spec.accepts,
+        "grades": getattr(spec, "grades", None),
         "arrangements": spec.arrangements,
         "hints": getattr(spec, "hints", ()),
         "extras": dict(getattr(spec, "extras", {}) or {}),
@@ -449,7 +454,6 @@ def from_spec(repository: Path, spec: Any, **overrides: Any) -> Submission:
         "factories": getattr(spec, "factories", None),
         "readers": int(getattr(spec, "readers", 0) or 0),
         "prepare": getattr(spec, "prepare", None),
-        "reset": getattr(spec, "reset", None),
         "expects": getattr(spec, "expects", None),
     }
     arguments.update(overrides)
@@ -482,6 +486,7 @@ def resolve(
     chain_role: Role,
     fixture: Sequence[Any],
     accepts: Callable[..., Tuple[bool, str]],
+    grades: Optional[Callable[[Any], Tuple[Any, str]]] = None,
     arrangements: Optional[
         Callable[[Callable[..., Any], str, Any], Sequence[Callable[[], Any]]]
     ] = None,
@@ -497,14 +502,19 @@ def resolve(
     factories: Optional[Callable[[Candidate], bool]] = None,
     readers: int = 0,
     prepare: Optional[Callable[[Path, Sequence[Any]], Mapping[str, Any]]] = None,
-    reset: Optional[Callable[[], None]] = None,
     expects: Optional[str] = None,
 ) -> Submission:
     """Resolve one repository against one week's task.
 
     ``chain_role`` and ``fixture`` describe the pipeline the week asks for.
     ``accepts`` is the week's own end-to-end test, and it is the only thing
-    that can accept a binding.
+    that can accept a binding. It is also asked the smaller question, with
+    ``query_call=None``: can this store take the fixture at all. See
+    `DiscoverySpec.accepts` and `_pair`.
+
+    ``grades`` reads a grade off one answer, with no store and no query
+    involved. A week that declares ``readers`` must supply it, because a
+    reader is chosen by grading what it returned.
 
     ``arrangements`` is for a week whose task ends in a database: it enumerates
     the ways a store might want one item offered to it, and the search then
@@ -533,18 +543,22 @@ def resolve(
     a ranking, and `get_sorted_songs` turns that into song ids -- three of
     their functions deep, all theirs, none of them ours to write.
 
-    ``reset`` is the week's way of emptying state neither a rebuilt object
-    nor a fresh working directory reaches, such as a module-level container
-    the repository fills. Called before every pairing trial builds its
-    database and before a scored run is built. A week without one searches
-    exactly as it did before this existed.
-
     ``remember`` writes the binding into the repository and reuses it while
     their code is unchanged. It is off by default, because a graded run should
     search: the point of an official score is that it was computed, not
     recalled. ``cogworks check`` turns it on, since that is the command a
     student runs every few minutes.
     """
+
+    if readers > 0 and grades is None:
+        # Said here rather than discovered as an empty reader search: a week
+        # that declares readers and no way to grade one would silently bind
+        # none of them, and the repository that needed them would be refused
+        # for a reason nobody could see.
+        raise ValueError(
+            "this week allows {} function(s) after the query and gives no "
+            "`grades`; a reader is chosen by grading what it returned".format(readers)
+        )
 
     watcher = progress or Progress()
     repository = Path(repository).resolve()
@@ -556,6 +570,7 @@ def resolve(
         declared_root=declared_root,
         resource_files=resource_files,
     )
+    weights_used: Tuple[str, ...] = ()
     if prepare is not None:
         # What this repository itself supplies to the search: week 3's
         # trained projection, read off the chosen root. Merged under the
@@ -574,7 +589,9 @@ def resolve(
                     "{}: {}".format(type(error).__name__, str(error)[:200]),
                 ),
                 discovery=found,
+                weights_used=weights_used,
             )
+        weights_used = tuple(sorted(str(p) for p in from_repository.pop("weights_used", ())))
         extras = dict(from_repository, **(extras or {}))
     if found.modules:
         watcher.note(
@@ -596,6 +613,7 @@ def resolve(
                     next_step=_next_step_for(worst.reason, worst.missing, benchmark),
                 ),
                 discovery=found,
+                weights_used=weights_used,
             )
         return Submission(nothing_here(repository.name), discovery=found)
 
@@ -613,7 +631,6 @@ def resolve(
             fixture=fixture,
             extras=extras,
             identities=identities,
-            reset=reset,
         )
         if recalled is not None:
             watcher.done()
@@ -669,12 +686,12 @@ def resolve(
                 found,
                 arrangements,
                 accepts,
+                grades,
                 factories,
                 readers,
                 remaining,
                 watcher,
                 offset=paired["tried"],
-                reset=reset,
             )
             paired["tried"] += tried
             paired["chains"] += 1
@@ -733,6 +750,7 @@ def resolve(
                     coverage=_coverage_of(found, benchmark),
                 ),
                 discovery=found,
+                weights_used=weights_used,
                 chain=paired.get("steps", ()),
                 attempts_tried=paired["tried"],
             )
@@ -753,6 +771,7 @@ def resolve(
                     ),
                 ),
                 discovery=found,
+                weights_used=weights_used,
             )
         return Submission(
             not_wired(
@@ -763,8 +782,10 @@ def resolve(
                 next_step=_next_step_for_stall(found, benchmark),
                 coverage=_coverage_of(found, benchmark),
                 notes=refusal.notes,
+                errors=refusal.errors,
             ),
             discovery=found,
+            weights_used=weights_used,
         )
 
     for step, stage in zip(chain.steps, chain_role.stages):
@@ -777,6 +798,7 @@ def resolve(
         return Submission(
             _scored_placeholder(chain),
             discovery=found,
+            weights_used=weights_used,
             chain=chain.steps,
             branches=dict(chain.branches),
             fits=chain.fits,
@@ -820,6 +842,7 @@ def resolve(
     return Submission(
         _scored_placeholder(chain),
         discovery=found,
+        weights_used=weights_used,
         chain=chain.steps,
         branches=dict(chain.branches),
         fits=chain.fits,
@@ -837,7 +860,6 @@ def resolve(
         _readers=shape.readers,
         _state=shape.state,
         _state_attribute=shape.state_attribute,
-        _reset=reset,
     )
 
 
@@ -846,19 +868,38 @@ def _pair(
     found: Discovery,
     arrangements: Callable[..., Any],
     accepts: Callable[..., Tuple[Any, str]],
+    grades: Optional[Callable[[Any], Tuple[Any, str]]],
     factories: Optional[Callable[[Candidate], bool]],
     readers: int,
     max_attempts: int,
     watcher: Any,
     offset: int = 0,
-    reset: Optional[Callable[[], None]] = None,
 ) -> Tuple[Optional[Tuple[float, Candidate, Candidate, int, int, "_Shape"]], int]:
     """The best pair of their functions that stores a song through ``steps``
     and names it back, or None when no pair does.
 
-    Returns the pairing and how many were tried. This is the week's real
-    question about a chain, which is why `resolve` hands it to `resolve_chain`
-    as the verifier rather than running it on whichever chain came back first.
+    Two questions, asked separately, because they have separate answers.
+
+    Whether a store takes an enrolment is a property of the store, of the
+    arrangement it is offered in, and of the shape around it. The query is not
+    one of its inputs and cannot change the answer, so it is asked once per
+    (shape, store, arrangement) with ``query_call=None`` and only the stores
+    that said yes are paired at all.
+
+    Whether a pair answers is the week's whole acceptance test, and it is run
+    once per accepted store and query candidate whose signature can take the
+    call that shape makes.
+
+    Asking the first question inside the second is what made this quadratic in
+    the size of a repository. Measured on Cog-gurts__Shazam-Project, week 1:
+    59 candidates, the state shape answering at grade 0.5 after 9,127 trials
+    and the plain shape then running 19,152 pairings plus 125,104 reader
+    trials, 1,244 seconds against a 900-second hosted limit. Two of those 59
+    candidates take an enrolment and six can be asked, which is 12 pairings.
+
+    Returns the pairing and how many attempts it took, probes included: both
+    halves run the week's test on their code, and a bar that counted only one
+    of them would sit still through the other.
 
     ``max_attempts`` is what is LEFT of the search's ceiling, and ``offset``
     is what the chains before this one already spent. Both exist because the
@@ -868,6 +909,70 @@ def _pair(
     """
 
     candidates = _store_candidates(found, steps)
+    arrangement_count = len(arrangements(lambda *_: None, "", None))
+    # The shapes a store and a query can have between them. The first is the
+    # one the search has always tried -- two of their functions, nothing in
+    # front and nothing after.
+    shapes = _shapes_for(candidates, factories, readers)
+    watcher.phase(
+        "Trying your functions to find which pair stores a song and names it back"
+    )
+    # Which of their functions could take the state form at all, and which
+    # could be handed what each shape's query call passes. Both are properties
+    # of the candidate rather than of a pairing, and both read a signature,
+    # which is the expensive part, so each is answered once here.
+    holds_state = {c.label for c in candidates if _FromTheirStore.possible(c.call)}
+    asking = {
+        arity: [c for c in candidates if _takes_n(c, arity)]
+        for arity in {shape.query_arity for shape in shapes}
+    }
+    # A reader takes what the query returned and nothing else, so only a
+    # function with exactly one required positional argument can be one.
+    readable = [c for c in candidates if _takes_one(c)] if readers > 0 else []
+
+    probes = [
+        (at, shape, store, index)
+        for at, shape in enumerate(shapes)
+        for store in candidates
+        for index in range(arrangement_count)
+        if not shape.state or store.label in holds_state
+    ]
+    probe_total = offset + min(len(probes), max_attempts)
+    tried = 0
+    # Every arrangement one store took, grouped by the (shape, store) it took
+    # them in and in the order the probes tried them, so the pairings below
+    # are enumerated the way the exhaustive search enumerated them: one store,
+    # then every query, then every arrangement. Two pairings that both answer
+    # fully are then settled the same way they always were.
+    accepted: List[Tuple["_Shape", Candidate, List[int]]] = []
+    by_store: Dict[Tuple[int, str], List[int]] = {}
+    for at, shape, store, index in probes:
+        if tried >= max_attempts:
+            break
+        tried += 1
+        watcher.attempts(offset + tried, probe_total)
+        # A probe gets its own database for the same reason a pairing does,
+        # and no query, because there is nothing here a query could answer.
+        probe = _Trial(shape, store, None, arrangements, index)
+        enrolled, _detail = accepts(steps, probe.enroll, None)
+        if not enrolled:
+            continue
+        indexes = by_store.get((at, store.label))
+        if indexes is None:
+            indexes = []
+            by_store[(at, store.label)] = indexes
+            accepted.append((shape, store, indexes))
+        indexes.append(index)
+
+    pairings = [
+        (shape, store, ask, index)
+        for shape, store, indexes in accepted
+        for ask in asking[shape.query_arity]
+        if ask is not store
+        for index in indexes
+    ]
+    total = offset + min(len(probes) + len(pairings), max_attempts)
+
     # More than one of their functions can pass. One 2026 team wrote `query`,
     # which returns the winning song, and `query_details`, which returns the
     # same winner plus the full vote tally. Both name the right song, so both
@@ -880,140 +985,63 @@ def _pair(
     # untouched: this decides which of their functions to ask, never what the
     # answer should be.
     best: Optional[Tuple[float, Candidate, Candidate, int, int, _Shape]] = None
-    arrangement_count = len(arrangements(lambda *_: None, "", None))
-    # The shapes a store and a query can have between them. The first is the
-    # one the search has always tried -- two of their functions, nothing in
-    # front and nothing after -- so a week that declares neither a factory nor
-    # a reader budget runs exactly the search it ran before, in the same order
-    # and for the same number of attempts.
-    shapes = _shapes_for(candidates, factories, readers)
-    watcher.phase(
-        "Trying your functions to find which pair stores a song and names it back"
-    )
-    # Which of their functions could take the state form at all. Both are
-    # properties of the candidate rather than of the attempt, so they are
-    # answered once each here instead of per pairing: `_takes_n` reads a
-    # signature, which is the expensive part, and there are as many pairings
-    # as candidates squared.
-    holds_state = {c.label for c in candidates if _FromTheirStore.possible(c.call)}
-    takes_three = {c.label for c in candidates if _takes_n(c, 3)}
-    # The whole search is enumerable before it starts, so the bar can be
-    # honest: every ordered pair of distinct candidates that this shape will
-    # actually try, times the ways one item can be handed to a store. Counting
-    # every pair for every shape overstated it, because the state shape skips
-    # any pairing whose store is not a method and whose query does not take
-    # three arguments -- on a repository with fifty candidates and one such
-    # method that is thousands of attempts the bar counts and the loop never
-    # makes, so a finished search stopped a long way short of its own total.
-    labels = {c.label for c in candidates}
-    ordinary = len(candidates) * max(len(candidates) - 1, 0)
-    # The state shape's pairs are the stores that have an object times the
-    # queries that take three arguments, less the ones that are the same
-    # candidate, which the loop skips.
-    stateful = (
-        len(labels & holds_state) * len(labels & takes_three)
-        - len(labels & holds_state & takes_three)
-    )
-
-    def _pairs_in(shape: "_Shape") -> int:
-        return (stateful if shape.state else ordinary) * arrangement_count
-
-    eligible = sum(_pairs_in(shape) for shape in shapes)
-    if eligible > max_attempts:
-        # The ceiling cannot hold every shape, so the shapes with the fewest
-        # pairs go first: each is a complete search of its own, and a small
-        # one finished is worth more than a large one cut off. Measured on
-        # one 2026 repository: 57 candidates make 19,152 plain pairings, the
-        # ceiling is 20,000, and the state shape (1,002 pairings, holding the
-        # only pair that answers) was never entered. Sorted only when it
-        # matters, so a repository that fits keeps the plain-first order and
-        # the attempt counts it always had. The sort is stable.
-        shapes = sorted(shapes, key=_pairs_in)
-    total = offset + min(eligible, max_attempts)
-    tried = 0
-    for shape in shapes:
-        for store, ask in itertools.product(candidates, candidates):
-            if store is ask:
-                continue
-            if shape.state and (
-                store.label not in holds_state or ask.label not in takes_three
-            ):
-                continue
-            for index in range(arrangement_count):
-                if tried >= max_attempts:
-                    break
-                tried += 1
-                watcher.attempts(offset + tried, total)
-
-                # A trial gets its own database. Sharing one across trials let
-                # the second trial enrol into a database the first had already
-                # filled, so a store that refuses a song id it has seen raised
-                # on every trial after the first and the tail that would have
-                # answered was recorded as one that raised.
-                def _trial(_s=store, _a=ask, _i=index, _shape=shape) -> "_Trial":
-                    return _Trial(_shape, _s, _a, arrangements, _i, reset)
-
-                attempt = _trial()
-                asked = _Asked(attempt.query_with(shape.readers))
-                ok, _detail = accepts(steps, attempt.enroll, asked)
-                state = attempt.state
-                grade = float(ok)
-                # The shape this pairing bound with, kept apart from the one
-                # the loop is iterating. Assigning readers back onto `shape`
-                # rewrote the loop variable, so every later pairing in the
-                # same pass was then run through readers chosen for an
-                # earlier one.
-                bound = shape
-                if state is not None:
-                    # Which attribute their query was actually handed, now
-                    # that a pairing has run and found out.
-                    bound = replace(bound, state_attribute=state.chosen)
-                # The bare query's grade is banked before any reader is
-                # tried. The reader search rebuilds and refills the database
-                # once per tail, which for a per-fingerprint store is tens of
-                # thousands of calls per tail, and a search that ran long or
-                # raised there used to take the pairing's own 0.5 with it
-                # (measured on one 2026 repository whose one working pairing
-                # earns exactly 0.5).
-                if grade > 0 and (best is None or grade > best[0]):
-                    best = (grade, store, ask, index, tried, bound)
-                if grade < FULLY_ANSWERED and readers > 0 and asked.ran:
-                    # Their query answered something the benchmark could not
-                    # read as a ranking. Before giving that a lower grade, try
-                    # up to `readers` more of their own functions on what it
-                    # returned: rutvim2009 Week1's `query_database` returns a
-                    # vote tally keyed by `(song_id, offset)`, and its
-                    # `get_sorted_matches` then `get_sorted_songs` are what
-                    # turn that into song names.
-                    #
-                    # `asked.ran` is what keeps this affordable, and it is
-                    # the whole rule: a reader reads what the query returned,
-                    # so a pairing whose query raised never reached the point
-                    # where one could be applied. An empty answer is not
-                    # excluded, because turning an empty tally into a ranking
-                    # is a thing one of their readers can do, and excluding it
-                    # made that reader unreachable. Gating on a factory being
-                    # in play instead, which is what stood here, let all 2,724
-                    # pairings before the right one on rutvim2009 Week1 start
-                    # a 576-run reader search, and the repository timed out at
-                    # ten minutes having spent all of it re-reading answers
-                    # that were not there.
-                    better = _read_further(
-                        accepts, steps, _trial, ask, candidates, readers, grade
-                    )
-                    if better is not None:
-                        grade, bound = better[0], replace(bound, readers=better[1])
-                        if best is None or grade > best[0]:
-                            best = (grade, store, ask, index, tried, bound)
-                if best is not None and best[0] >= FULLY_ANSWERED:
-                    break
-            if best is not None and best[0] >= FULLY_ANSWERED:
-                break
-            if tried >= max_attempts:
-                break
-        if best is not None and best[0] >= FULLY_ANSWERED:
-            break
+    for shape, store, ask, index in pairings:
         if tried >= max_attempts:
+            break
+        tried += 1
+        watcher.attempts(offset + tried, total)
+
+        # A trial gets its own database. Sharing one across trials let the
+        # second trial enrol into a database the first had already filled, so
+        # a store that refuses a song id it has seen raised on every trial
+        # after the first and the tail that would have answered was recorded
+        # as one that raised.
+        trial = _Trial(shape, store, ask, arrangements, index)
+        asked = _Asked(trial.query())
+        ok, _detail = accepts(steps, trial.enroll, asked)
+        grade = float(ok)
+        # The shape this pairing bound with, kept apart from the one the loop
+        # is iterating. Assigning readers back onto `shape` rewrote the loop
+        # variable, so every later pairing in the same pass was then run
+        # through readers chosen for an earlier one.
+        bound = shape
+        if trial.state is not None:
+            # Which attribute their query was actually handed, now that a
+            # pairing has run and found out.
+            bound = replace(bound, state_attribute=trial.state.chosen)
+        # The bare query's grade is banked before any reader is tried, so a
+        # reader search that finds nothing cannot cost the pairing the grade
+        # it already earned (measured on one 2026 repository whose one working
+        # pairing earns exactly 0.5).
+        if grade > 0 and (best is None or grade > best[0]):
+            best = (grade, store, ask, index, tried, bound)
+        if grade < FULLY_ANSWERED and readers > 0 and asked.ran:
+            # Their query answered something the benchmark could not read as a
+            # ranking. Before giving that a lower grade, try up to `readers`
+            # more of their own functions on what it returned: rutvim2009
+            # Week1's `query_database` returns a vote tally keyed by
+            # `(song_id, offset)`, and its `get_sorted_matches` then
+            # `get_sorted_songs` are what turn that into song names.
+            #
+            # `asked.ran` is the whole rule: a reader reads what the query
+            # returned, so a pairing whose query raised never reached the
+            # point where one could be applied. An empty answer is not
+            # excluded, because turning an empty tally into a ranking is a
+            # thing one of their readers can do, and excluding it made that
+            # reader unreachable.
+            better = _read_further(
+                grades,
+                asked.answer,
+                trial,
+                [c for c in readable if c is not store and c is not ask],
+                readers,
+                grade,
+            )
+            if better is not None:
+                grade, bound = better[0], replace(bound, readers=better[1])
+                if best is None or grade > best[0]:
+                    best = (grade, store, ask, index, tried, bound)
+        if best is not None and best[0] >= FULLY_ANSWERED:
             break
 
     return best, tried
@@ -1048,6 +1076,22 @@ class _Shape:
     #: nothing about the object says which of its attributes the store fills
     #: until the store has filled one.
     state_attribute: Optional[str] = None
+
+    @property
+    def query_arity(self) -> int:
+        """How many positional arguments `_read` hands their query here.
+
+        The three branches of `_read` are these three numbers: the plain shape
+        asks with the item alone, a factory shape puts their own database in
+        front of it, and the state shape adds the table their store filled and
+        an id-to-name table beside it. A candidate whose signature cannot take
+        that many is not a query of this shape, and offering it one was a call
+        that could only raise.
+        """
+
+        if self.state:
+            return 3
+        return 1 if self.factory is None else 2
 
     def hold(self) -> Any:
         """Their empty database, made fresh, or None when there is none."""
@@ -1103,7 +1147,6 @@ class _Trial:
         "_ask",
         "_arrange",
         "_index",
-        "_reset",
         "_begun",
         "_refused",
         "_held",
@@ -1118,17 +1161,17 @@ class _Trial:
         self,
         shape: "_Shape",
         store: Candidate,
-        ask: Candidate,
+        ask: Optional[Candidate],
         arrange: Callable[..., Sequence[Callable[[], Any]]],
         index: int,
-        reset: Optional[Callable[[], None]] = None,
     ) -> None:
+        #: None for the enrolment probe, which asks whether this store takes
+        #: the fixture at all and so has no query to bind.
+        self._ask = ask
         self._shape = shape
         self._store = store
-        self._ask = ask
         self._arrange = arrange
         self._index = index
-        self._reset = reset
         self._begun = False
         self._refused = ""
         self._held: Any = None
@@ -1148,11 +1191,6 @@ class _Trial:
                 raise NoDatabase(self._refused)
             return
         self._begun = True
-        if self._reset is not None:
-            # The week's own way of emptying what neither a new object nor a
-            # new working directory reaches. Before the database is made, so
-            # a store made now is made into an empty world.
-            self._reset()
         held = self._shape.hold()
         if held is _FAILED:
             self._refused = "their factory raised, so this pairing has no database"
@@ -1171,7 +1209,8 @@ class _Trial:
         self._held = held
         self._call = call
         self._owner = owner
-        self._asking = _rebound(self._ask, self._original, owner)
+        if self._ask is not None:
+            self._asking = _rebound(self._ask, self._original, owner)
         self.state = _FromTheirStore(call) if self._shape.state else None
 
     def enroll(self, song_id: str, item: Any) -> Any:
@@ -1183,25 +1222,26 @@ class _Trial:
         target = self._call if self._held is None else _leading(self._call, self._held)
         return self._arrange(target, song_id, item)[self._index]()
 
-    def query_with(
-        self, readers: Sequence[Candidate] = ()
-    ) -> Callable[[Any], Any]:
-        """Their query over this trial's database, then ``readers`` in turn.
-
-        The tail is an argument rather than a field because `_read_further`
-        asks one trial's database the same question through many tails, and
-        each of those readers has to come off this trial's object too when it
-        came off the store's original one.
-        """
+    def query(self) -> Callable[[Any], Any]:
+        """Their query over this trial's database."""
 
         def _ask(item: Any) -> Any:
             self._begin()
-            tail = tuple(
-                _rebound(reader, self._original, self._owner) for reader in readers
-            )
-            return _read(self._asking, self._held, tail, item, self.state)
+            return _read(self._asking, self._held, (), item, self.state)
 
         return _ask
+
+    def reading(self, candidate: Candidate) -> Callable[[Any], Any]:
+        """One of their functions, taken off this trial's own object.
+
+        A reader is one of their functions and can be a method like any other.
+        One that came off the object the store was rebuilt from has to be
+        taken off the rebuilt one, or it reads the database an earlier trial
+        filled rather than this one's.
+        """
+
+        self._begin()
+        return _rebound(candidate, self._original, self._owner).call
 
 
 class AmbiguousStore(Exception):
@@ -1361,7 +1401,12 @@ def _read(
     item: Any,
     state: Optional[_FromTheirStore] = None,
 ) -> Any:
-    """Ask their query, then hand the answer to their own readers in turn."""
+    """Ask their query, then hand the answer to their own readers in turn.
+
+    The three branches below are what `_Shape.query_arity` counts, and a
+    candidate is only offered as a query of a shape whose count its signature
+    can take.
+    """
 
     if state is not None:
         answer = ask.call(item, *state.arguments())
@@ -1455,108 +1500,69 @@ def _shapes_for(
     return shapes
 
 
-#: How long one reader tail may run before the search moves on. A tail
-#: rebuilds and refills the database and then asks; for a store that takes
-#: one fingerprint per call that is tens of thousands of calls, and one 2026
-#: repository spent 274 seconds inside a single tail whose reader could not
-#: read the answer anyway. The pairing's own grade is banked before any tail
-#: runs, so a tail cut off costs the search nothing it had. Set with the
-#: measured tail times: the tails that answer take under a second.
-READER_TAIL_SECONDS = 20
-
-
 def _read_further(
-    accepts: Callable[..., Tuple[Any, str]],
-    steps: Sequence[Candidate],
-    trial: Callable[[], "_Trial"],
-    ask: Candidate,
-    candidates: Sequence[Candidate],
+    grades: Callable[[Any], Tuple[Any, str]],
+    answer: Any,
+    trial: "_Trial",
+    pool: Sequence[Candidate],
     readers: int,
     floor: float = 0.0,
 ) -> Optional[Tuple[float, Tuple[Candidate, ...]]]:
-    """The shortest run of their readers that turns a named song into a ranking.
+    """The shortest run of their readers that turns ``answer`` into something
+    the benchmark can read, or None when none of them improves on it.
 
-    Depth-first over the candidates, shortest tails first, stopping at the
-    first tail the week's acceptance test grades as fully answered. A reader
-    is any of their functions that takes the previous answer and returns
-    something; a step that raises is not a reader of that value. Returns
-    the grade and the tail, or None when no tail improved on the bare query.
+    A reader reads a value, so whether it can read this one is a property of
+    the reader and the value and costs one call to settle: ``reader(answer)``
+    either returns or raises, and one that raises is not a reader of that
+    value and is not extended. What it returned is graded by the week off the
+    answer alone (`DiscoverySpec.grades`), which is the same reading the week
+    gave the bare query, so a tail that scores higher scores higher for the
+    same reason.
 
-    ``trial`` makes another `_Trial`, with a database of its own, and is
-    called once per tail. Reusing one database across tails let each tail
-    enrol into whatever the tails before it had already stored: a store that
-    rejects a song id it has already seen then raised on every tail but the
-    first, and the tail that would have answered was graded as one that
-    raised.
+    Settling it by rebuilding the database, re-enrolling the fixture and
+    re-querying it once per candidate tail is what this replaces. Measured on
+    Cog-gurts__Shazam-Project: 125,104 such runs after the pairing search, and
+    one 2026 repository spent 274 seconds inside a single tail whose reader
+    could not read the answer anyway. Neither is a clock away: the work was
+    re-enrolment, and a reader no longer does any.
 
-    ``floor`` is the grade the query already earned on its own, and a tail
-    has to beat it rather than match it. A reader that leaves the grade where
-    it was changed nothing the benchmark can see, and binding it would put
-    one of their functions in the record for a run whose answer it did not
+    Shortest tails first, stopping at the first tail the week grades as fully
+    answered. ``floor`` is the grade the query already earned on its own, and
+    a tail has to beat it rather than match it: a reader that leaves the grade
+    where it was changed nothing the benchmark can see, and binding it would
+    put one of their functions in the record for a run whose answer it did not
     alter.
     """
 
     best: Optional[Tuple[float, Tuple[Candidate, ...]]] = None
-    # A reader takes what the query returned and nothing else, so only a
-    # function with exactly one required positional argument can be one.
-    # Measured on the notebook-only 2026 repository that needs readers: 52
-    # candidates, 25 reader-shaped; at depth two the difference is 2,550
-    # acceptance runs against 600, each an enroll of two songs and a query.
-    pool = [c for c in candidates if c is not ask and _takes_one(c)]
-    frontier: List[Tuple[Candidate, ...]] = [()]
+    frontier: List[Tuple[Tuple[Candidate, ...], Any]] = [((), answer)]
     for _depth in range(max(readers, 0)):
-        nxt: List[Tuple[Candidate, ...]] = []
-        for tail in frontier:
+        onward: List[Tuple[Tuple[Candidate, ...], Any]] = []
+        for tail, value in frontier:
             for reader in pool:
                 if reader in tail:
                     continue
+                try:
+                    # Muted for the reason `pipeline._muted` gives: their
+                    # functions narrate, and this one is being probed rather
+                    # than run.
+                    with _muted():
+                        produced = trial.reading(reader)(value)
+                except BaseException:  # noqa: BLE001 - not a reader of this value
+                    continue
                 tail_with = tail + (reader,)
-                attempt = trial()
-                ok = _under_a_clock(
-                    lambda: accepts(steps, attempt.enroll, attempt.query_with(tail_with))[0],
-                    READER_TAIL_SECONDS,
-                )
-                grade = float(ok)
+                onward.append((tail_with, produced))
+                grade = float(grades(produced)[0])
                 if grade <= floor:
-                    nxt.append(tail_with)
                     continue
                 if best is None or grade > best[0]:
                     best = (grade, tail_with)
                 if grade >= FULLY_ANSWERED:
                     return best
-                nxt.append(tail_with)
-        frontier = nxt
+        frontier = onward
         if not frontier:
             break
     return best
-
-
-def _under_a_clock(call: Callable[[], Any], seconds: int) -> Any:
-    """Run one call with an alarm; a call that runs out is a plain False.
-
-    The same alarm `pipeline._call` uses, cancelled inside the guarded block
-    for the reason given there: an alarm that lands between the return and
-    the cancel must not leave this function.
-    """
-
-    import signal
-
-    from .pipeline import _Timeout, _raise_timeout
-
-    previous = signal.signal(signal.SIGALRM, _raise_timeout)
-    signal.alarm(seconds)
-    try:
-        try:
-            return call()
-        finally:
-            signal.alarm(0)
-    except _Timeout:
-        return False
-    except BaseException:  # noqa: BLE001 - the week's test already reads a raise as a no
-        return False
-    finally:
-        signal.alarm(0)
-        signal.signal(signal.SIGALRM, previous)
 
 
 def _takes_one(candidate: Candidate) -> bool:
@@ -1565,13 +1571,22 @@ def _takes_one(candidate: Candidate) -> bool:
     return _takes_n(candidate, 1)
 
 
-def _takes_n(candidate: Candidate, count: int) -> bool:
-    """Whether this callable takes exactly ``count`` required positionals."""
+def _takes_n(candidate: Any, count: int) -> bool:
+    """Whether this callable takes exactly ``count`` required positionals.
+
+    A `Candidate` or the callable itself. The same question is asked of a
+    candidate here, where it decides which shape's query a function can be,
+    and of a bare store in `roles._one_at_a_time`, where it decides whether a
+    store can be handed a fingerprint, an id and a time. One predicate,
+    because two of them answered differently on the same signature.
+    """
 
     import inspect
 
     try:
-        parameters = inspect.signature(candidate.call).parameters.values()
+        parameters = inspect.signature(
+            getattr(candidate, "call", candidate)
+        ).parameters.values()
     except (TypeError, ValueError):
         return False
     required = [
@@ -1631,7 +1646,6 @@ def _replay(
     fixture: Sequence[Any] = (),
     extras: Optional[Dict[str, Any]] = None,
     identities: Sequence[Any] = (),
-    reset: Optional[Callable[[], None]] = None,
 ) -> Optional[Submission]:
     """Rebind a remembered result, or return None and let the search run.
 
@@ -1733,7 +1747,6 @@ def _replay(
         _readers=readers,
         _state=shape.state,
         _state_attribute=shape.state_attribute,
-        _reset=reset,
     )
 
 

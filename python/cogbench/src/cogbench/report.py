@@ -269,6 +269,11 @@ def render_check(
         lines.append(verdict.headline)
         for note in getattr(verdict, "notes", ()):
             lines.append(note)
+        # The files that could not be read and the lines their code raised
+        # on. Taken from the verdict rather than formatted here, so `cogworks
+        # check` and a run page cannot come to print two different reports
+        # out of one record.
+        lines.extend(verdict.problems())
         if getattr(verdict, "next_step", ""):
             lines.append("")
             lines.append(verdict.next_step)

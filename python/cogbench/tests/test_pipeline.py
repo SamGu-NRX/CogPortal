@@ -2580,3 +2580,30 @@ class AWrongWholeAnswerDoesNotEndTheCandidate(unittest.TestCase):
 
         self.assertEqual([c.label for c, _ in found], ["theirs.tokenize"])
         self.assertIn("extra:idfs", found[0][0].plan)
+
+
+class OptionalFitStageTests(unittest.TestCase):
+    """A fit stage marked optional is skipped when nothing computes it, and
+    the stages after it bind from their input alone."""
+
+    def test_missing_optional_fit_is_skipped_not_refused(self):
+        from cogbench.pipeline import Role, Stage, _fits_of
+
+        role = Role(
+            "text",
+            (
+                Stage("idfs", fit=True, fixture=(["a b"],), optional=True),
+                Stage("embed"),
+            ),
+        )
+        found, failed = _fits_of(role, [], {}, [])
+        self.assertEqual(found, [])
+        self.assertIsNone(failed)
+
+    def test_missing_required_fit_names_itself(self):
+        from cogbench.pipeline import Role, Stage, _fits_of
+
+        role = Role("text", (Stage("idfs", fit=True, fixture=(["a b"],)), Stage("embed")))
+        found, failed = _fits_of(role, [], {}, [])
+        self.assertEqual(found, [])
+        self.assertEqual(failed, "idfs")

@@ -116,7 +116,9 @@ def write(repository: Path, key: str, binding: Dict[str, Any]) -> None:
 
     path = cache_path(repository)
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
+        from .storage import workspace_dir
+
+        workspace_dir(Path(repository))
         temporary = path.with_name(path.name + ".tmp")
         temporary.write_text(
             json.dumps({"key": key, "binding": binding}, indent=2, sort_keys=True) + "\n",

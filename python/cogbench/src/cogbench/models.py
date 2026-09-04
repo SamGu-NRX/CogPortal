@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 
@@ -96,6 +96,7 @@ class LocalReport:
     metrics: List[Metric]
     diagnostics: List[str]
     output_digest: str
+    weights_used: List[str] = field(default_factory=list)
 
     @classmethod
     def create(
@@ -111,6 +112,7 @@ class LocalReport:
         metrics: List[Metric],
         diagnostics: List[str],
         predictions: List[Any],
+        weights_used: Optional[List[str]] = None,
     ) -> "LocalReport":
         encoded = json.dumps(predictions, sort_keys=True, separators=(",", ":")).encode("utf-8")
         return cls(
@@ -126,6 +128,7 @@ class LocalReport:
             metrics=metrics,
             diagnostics=[str(item)[:240] for item in diagnostics[:32]],
             output_digest=hashlib.sha256(encoded).hexdigest(),
+            weights_used=weights_used or [],
         )
 
     def to_wire(self) -> Dict[str, Any]:
@@ -144,6 +147,7 @@ class LocalReport:
             "finishedAt": self.finished_at,
             "metrics": [metric.to_wire() for metric in self.metrics],
             "diagnostics": list(self.diagnostics),
+            "weightsUsed": list(self.weights_used) if self.weights_used else [],
         }
 
     def to_json(self) -> str:
@@ -173,4 +177,5 @@ class LocalReport:
             metrics=[Metric.from_wire(metric) for metric in value["metrics"]],
             diagnostics=[str(item) for item in value.get("diagnostics", [])],
             output_digest=str(value["outputDigest"]),
+            weights_used=[str(item) for item in value.get("weightsUsed", [])],
         )

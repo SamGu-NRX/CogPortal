@@ -26,7 +26,10 @@ from __future__ import annotations
 
 import os
 import pickle
-import resource
+try:
+    import resource
+except ImportError:  # Windows has no rlimits; `run_isolated` refuses there
+    resource = None  # type: ignore[assignment]
 import signal
 import struct
 import sys

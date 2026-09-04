@@ -68,9 +68,10 @@ def execute(
     cwd: Path,
     smoke: bool = False,
     progress: Optional[Callable[..., None]] = None,
+    weights: Optional[List[str]] = None,
 ) -> LocalReport:
     if str(getattr(benchmark, "contract_version", "")) == "cogworks.submissions.v2":
-        return _execute_v2(benchmark, adapter, cwd, smoke, progress)
+        return _execute_v2(benchmark, adapter, cwd, smoke, progress, weights)
     if progress:
         _progress(progress, "contract_check")
     cases = list(benchmark.public_cases())
@@ -103,6 +104,7 @@ def execute(
         metrics=list(metrics),
         diagnostics=list(diagnostics),
         predictions=predictions,
+        weights_used=weights,
     )
 
 
@@ -182,6 +184,7 @@ def _execute_v2(
     cwd: Path,
     smoke: bool,
     progress: Optional[Callable[..., None]],
+    weights: Optional[List[str]] = None,
     model_factory: Callable[[], Any] = _facenet_model,
 ) -> LocalReport:
     tier = "test" if smoke else "evaluation"
@@ -255,6 +258,7 @@ def _execute_v2(
         metrics=metrics,
         diagnostics=list(getattr(benchmark, "last_diagnostics", [])),
         predictions=outputs,
+        weights_used=weights,
     )
 
 
