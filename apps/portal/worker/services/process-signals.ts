@@ -483,83 +483,152 @@ export interface ProcessSignals {
   weekLabel: WeekLabel | null;
 }
 
-/** `src/audio/find_peaks.py` -> `find_peaks`, for naming a file in prose. Port of process.py's `_stem`. */
-function stem(path: string): string {
-  const segments = path.split("/");
-  const name = segments[segments.length - 1];
-  const dot = name.lastIndexOf(".");
-  return dot === -1 ? name : name.slice(0, dot);
-}
-
 /** Epoch ms -> `YYYY-MM-DD` (UTC), matching process.py's `_format_date` (`.date().isoformat()`). */
 function formatDate(epochMs: number): string {
   return new Date(epochMs).toISOString().slice(0, 10);
 }
 
 /**
+ * Stage names as prose: `["peaks"]` -> `"the peaks stage"`, `["peaks",
+ * "fanout"]` -> `"the peaks and fanout stages"`. The conjunction is a
+ * parameter because a negative sentence ("no commit has touched X or Y")
+ * and a positive one ("one person has committed to X and Y") need
+ * different ones to mean the same thing.
+ */
+function stagePhrase(stages: string[], conjunction: "and" | "or"): string {
+  const noun = stages.length === 1 ? "stage" : "stages";
+  if (stages.length === 1) return `the ${stages[0]} ${noun}`;
+  if (stages.length === 2) return `the ${stages[0]} ${conjunction} ${stages[1]} ${noun}`;
+  const last = stages[stages.length - 1];
+  return `the ${stages.slice(0, -1).join(", ")}, ${conjunction} ${last} ${noun}`;
+}
+
+/**
+ * The ceiling on how many sentences a team can be shown at once.
+ *
+ * The assembly below cannot exceed it today: the history caveat and the two
+ * coverage sentences are mutually exclusive (a history the caveat is about
+ * leaves `stageFootprint` unavailable and `ownershipBreadth` empty), so the
+ * longest real list is first light, contract churn, untouched stages, and
+ * single-author stages. The slice is here for whoever adds a fifth, because
+ * "a wall of sentences" is the failure this panel already had once.
+ */
+const MAX_FINDING_SENTENCES = 4;
+
+/** What happened to the pipeline: the history we could read, the first run
+ *  that scored, and whether the benchmark's own entry points moved after it. */
+function pipelineSentences(signals: ProcessSignals): string[] {
+  const sentences: string[] = [];
+
+  if (signals.historyQuality === HISTORY_BULK_UPLOAD) {
+    sentences.push(
+      "The repository arrived as one upload, so there is no way to tell which commit touched which stage; the runs are the portal's own record and still hold.",
+    );
+  } else if (signals.historyQuality === HISTORY_EMPTY) {
+    sentences.push(
+      "There is no commit history yet, so there is nothing to read about which parts of the pipeline have been worked on.",
+    );
+  } else if (signals.historyQuality === HISTORY_FETCH_FAILED) {
+    sentences.push(
+      "The commit history could not be read from GitHub just now, so the stages below are blank; the runs are the portal's own record and still hold.",
+    );
+  }
+
+  if (signals.firstLight.firstScoredAt === null) {
+    sentences.push(
+      "No run has scored end to end yet, so there is no working pipeline to read anything else against. Integration is the part the course says is hardest, and it usually takes longer than teams expect.",
+    );
+  } else {
+    const date = formatDate(signals.firstLight.firstScoredAt);
+    // `scoredRunCount` counts every scored run including the first, so "since"
+    // would be off by one. Say "in total" and it is exactly what was counted.
+    sentences.push(
+      signals.firstLight.scoredRunCount === 1
+        ? `Your pipeline first scored end to end on ${date}, and that is still the only run that has scored.`
+        : `Your pipeline first scored end to end on ${date}, and ${signals.firstLight.scoredRunCount} runs have scored in total.`,
+    );
+  }
+
+  // One sentence for the whole set, not one per file. Per-file sentences
+  // were both a wall and an overclaim: `boundaryChurn.files` records that a
+  // file was touched, never what changed inside it, so naming a signature
+  // change was a claim the signal cannot support.
+  const churned = signals.boundaryChurn.length;
+  if (churned > 0) {
+    sentences.push(
+      `${churned} commit${churned === 1 ? " has" : "s have"} changed the files the benchmark calls since that run, so a run that passed before can stop passing.`,
+    );
+  }
+
+  return sentences;
+}
+
+/** Who has worked where, as two whole-team readings rather than one line per
+ *  stage. Both are stage-wide, which is the only shape this module allows:
+ *  see the no-per-person rule in the module docstring. */
+function coverageSentences(signals: ProcessSignals): string[] {
+  const sentences: string[] = [];
+
+  const untouched = Object.keys(signals.stageFootprint)
+    .filter((stage) => {
+      const activity = signals.stageFootprint[stage];
+      return activity.available && activity.commitCount === 0;
+    })
+    .sort();
+  if (untouched.length > 0) {
+    sentences.push(
+      `No commit has touched ${stagePhrase(untouched, "or")} yet, so that work either hasn't started or lives in files the portal doesn't read as that stage.`,
+    );
+  }
+
+  // A stage with no commits has no authors either, so it is already covered
+  // by the sentence above and cannot appear here as well.
+  const solo = Object.keys(signals.ownershipBreadth)
+    .filter((stage) => signals.ownershipBreadth[stage].length === 1)
+    .sort();
+  if (solo.length > 0) {
+    sentences.push(
+      `Only one person has committed to ${stagePhrase(solo, "and")}, so if they get stuck, nobody else has been inside that code.`,
+    );
+  }
+
+  return sentences;
+}
+
+/**
  * Template-assembled sentences describing `signals`, in the course's
- * register.
+ * register, in two groups: what happened to the pipeline, then who has
+ * worked where.
  *
  * Every sentence here is a fixed template selected by a condition on the
  * data; nothing is generated. That is a hard requirement, not a style
  * preference: a wrong generated claim about which teammate did what is
  * socially expensive to a team of seventeen-year-olds in a way a wrong
  * number is not (see `docs/design/the-instrument-not-the-judge.md`, "What
- * this forbids"). Each sentence states one observation and stops; a stage
- * with ordinary, spread-out activity gets no sentence at all, because an
- * unremarkable stage is not a finding. Direct port of process.py's
- * `finding_sentences`, plus one new sentence for `HISTORY_FETCH_FAILED`,
- * the TS-only state Python cannot produce (see module docstring).
+ * this forbids").
+ *
+ * Two things changed from process.py's `finding_sentences`, both because
+ * students read the first version on the deployed site and could not tell
+ * what it was for:
+ *
+ * - Each sentence now states its consequence, not only its observation.
+ *   "Only one person has touched the descriptors stage" is a fact with no
+ *   reason to care attached; a reader has to already know why a bus factor
+ *   of one matters before the sentence means anything.
+ * - The per-stage and per-file loops are gone. They emitted one sentence per
+ *   stage and one per contract file, which on a real team was seven lines of
+ *   near-identical prose above a stage list that said the same thing again.
+ *   Each is now a single sentence naming every stage it covers, so the list
+ *   cannot grow with the repository. `MAX_FINDING_SENTENCES` is the backstop.
+ *
+ * The `HISTORY_FETCH_FAILED` sentence remains TS-only; Python cannot produce
+ * that state (see module docstring).
  */
 export function findingSentences(signals: ProcessSignals): string[] {
-  const sentences: string[] = [];
-
-  if (signals.historyQuality === HISTORY_BULK_UPLOAD) {
-    sentences.push(
-      "The commit history is a single upload, so stage and ownership findings below aren't available; the runs are the portal's own observations and still count.",
-    );
-  } else if (signals.historyQuality === HISTORY_EMPTY) {
-    sentences.push("There is no commit history yet, so stage and ownership findings aren't available.");
-  } else if (signals.historyQuality === HISTORY_FETCH_FAILED) {
-    sentences.push(
-      `The commit history could not be read from GitHub just now, so stage and ownership findings aren't available; the runs are still reliable.`,
-    );
-  }
-
-  if (signals.firstLight.firstScoredAt === null) {
-    sentences.push(
-      "No end-to-end run yet. Integration is the part the course says is hardest, and it usually takes longer than teams expect.",
-    );
-  } else {
-    const count = signals.firstLight.scoredRunCount;
-    sentences.push(
-      `The first end-to-end run landed on ${formatDate(signals.firstLight.firstScoredAt)}, with ${count} scored run${count === 1 ? "" : "s"} since.`,
-    );
-  }
-
-  const namedFiles = new Set<string>();
-  for (const event of signals.boundaryChurn) {
-    for (const path of event.files) {
-      const fileStem = stem(path);
-      if (namedFiles.has(fileStem)) continue;
-      namedFiles.add(fileStem);
-      sentences.push(`The ${fileStem} signature changed after your pipeline first worked.`);
-    }
-  }
-
-  for (const stageName of Object.keys(signals.ownershipBreadth).sort()) {
-    const authors = signals.ownershipBreadth[stageName];
-    if (authors.length === 1) sentences.push(`Only one person has touched the ${stageName} stage.`);
-  }
-
-  for (const stageName of Object.keys(signals.stageFootprint).sort()) {
-    const activity = signals.stageFootprint[stageName];
-    if (activity.available && activity.commitCount === 0) {
-      sentences.push(`No commits have touched the ${stageName} stage yet.`);
-    }
-  }
-
-  return sentences;
+  return [...pipelineSentences(signals), ...coverageSentences(signals)].slice(
+    0,
+    MAX_FINDING_SENTENCES,
+  );
 }
 
 // ---------------------------------------------------------------------------

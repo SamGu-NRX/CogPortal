@@ -207,9 +207,6 @@ export function TeamPage() {
       {/* ── Members ── */}
       <MembersPanel team={t} />
 
-      {/* ── The process layer, read from this team's commits and runs ── */}
-      <ProcessPanel members={t.members} />
-
       {/* ── Repository ── */}
       <Panel label="REPOSITORY" className="mt-4">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -227,6 +224,11 @@ export function TeamPage() {
         </div>
         {t.isAdmin && <ChangeRepository currentFullName={t.repo.fullName} />}
       </Panel>
+
+      {/* ── Where the work went, read from this team's commits and runs ──
+          Last on the page, and the only panel here that is a reading rather
+          than a setting: everything above it is something you change. */}
+      <ProcessPanel members={t.members} />
 
       <Link
         to="/dashboard"

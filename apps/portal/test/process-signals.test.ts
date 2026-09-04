@@ -334,6 +334,68 @@ test("an empty repository and a fetch failure read differently in the finding se
   assert.notEqual(emptySentence, failedSentence);
 });
 
+// ---------------------------------------------------------------------------
+// The finding list cannot grow with the repository
+// ---------------------------------------------------------------------------
+
+/**
+ * The first version emitted one sentence per contract file and one per stage,
+ * which on a real week-2 team was seven near-identical lines above a stage
+ * list that repeated them. Each group is now one sentence naming every stage
+ * or counting every commit it covers, so the only way the list grows is if
+ * someone adds a new kind of finding -- and `MAX_FINDING_SENTENCES` caps that
+ * too. This pins the shape, not the prose.
+ */
+test("every group of findings is one sentence, however many stages or files it covers", () => {
+  const signals = buildProcessSignals({
+    commitsResult: {
+      ok: true,
+      commits: [
+        // `peaks` gets two authors, `database` gets one, and `spectrogram`,
+        // `fanout`, and `query` get none.
+        commit({ sha: "a".repeat(40), authorLogin: "grace", authoredAt: T0, filesChanged: ["find_peaks.py"] }),
+        commit({ sha: "b".repeat(40), authorLogin: "ada", authoredAt: T0 + DAY, filesChanged: ["find_peaks.py"] }),
+        commit({ sha: "c".repeat(40), authorLogin: "hedy", authoredAt: T0 + 2 * DAY, filesChanged: ["database.py"] }),
+        // Two commits, two contract files each, all after the scored run.
+        commit({
+          sha: "d".repeat(40),
+          authorLogin: "ada",
+          authoredAt: T0 + 4 * DAY,
+          filesChanged: ["submission.py", "src/benchmark_adapter.py"],
+        }),
+        commit({
+          sha: "e".repeat(40),
+          authorLogin: "grace",
+          authoredAt: T0 + 5 * DAY,
+          filesChanged: ["submission.py", "src/benchmark_adapter.py"],
+        }),
+      ],
+    },
+    runs: [run({ runId: "run_1", createdAt: T0 + 3 * DAY, scored: true })],
+    weekLabel: "week1",
+    roster: NO_ROSTER,
+  });
+
+  const sentences = findingSentences(signals);
+  assert.equal(sentences.length, 4, `expected four findings, got ${sentences.length}`);
+
+  const [firstRun, churn, untouched, solo] = sentences;
+  assert.match(firstRun, /first scored end to end on 2026-06-04/);
+  // Two commits touched four boundary paths between them; one sentence.
+  assert.match(churn, /^2 commits have changed the files the benchmark calls/);
+  // Three stages have no commits; one sentence naming all three.
+  assert.match(untouched, /the fanout, query, or spectrogram stages/);
+  // One stage has a single author; still one sentence.
+  assert.match(solo, /Only one person has committed to the database stage/);
+
+  // And no sentence anywhere names a person or counts their work.
+  for (const sentence of sentences) {
+    for (const login of ["grace", "ada", "hedy"]) {
+      assert.ok(!sentence.includes(login), `finding named a person: ${sentence}`);
+    }
+  }
+});
+
 test("classifyHistoryQuality never returns fetch_failed -- only buildProcessSignals can", () => {
   // A pure sanity check on the module docstring's own claim: process.py has
   // no notion of a fetch failing, so the 3-state pure port must not either.
