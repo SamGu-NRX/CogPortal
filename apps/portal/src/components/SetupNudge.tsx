@@ -36,9 +36,9 @@ export function SetupNudge() {
   if (hidden || !team.data || !session?.user) return null;
   const login = session.user.login;
   if (isSetupDismissed(team.data.id, login)) return null;
-  // The track decides whether a benchmark package exists to install, so it
-  // decides the denominator. Waiting avoids a count that renumbers itself.
-  if (track.isPending) return null;
+  // The track decides which commands exist. Setup evidence and connections
+  // decide which are verified. Waiting keeps the count from renumbering itself.
+  if (track.isPending || setupState.isPending || connections.isPending) return null;
 
   const { verified, total } = setupCommandProgress(
     setupCommandsForTeam({

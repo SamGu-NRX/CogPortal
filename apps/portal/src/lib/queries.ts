@@ -443,9 +443,10 @@ export function useStartPractice(benchmarkId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (branch?: string) => api.startPractice(benchmarkId, branch),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ["dashboard", benchmarkId] });
-    },
+    // Returning this promise keeps the launch pending until the stale
+    // zero-run dashboard has been replaced by the refetched state.
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ["dashboard", benchmarkId] }),
   });
 }
 

@@ -26,8 +26,9 @@ export function FailureCard({
   /** A run that carries a refusal has a card of its own that says how far the
    *  search got, in the team's own function names. Beside it this card's title,
    *  explanation, and corrective action are the generic form of the same
-   *  event, so it collapses to the three facts the refusal does not carry:
-   *  which failure this is, which mode the run was in, and what it cost. */
+   *  event, so it collapses to the facts the refusal does not carry: which
+   *  failure this is and which mode the run was in. Official runs also say
+   *  whether they consumed an attempt; practice quota is already visible. */
   collapsed?: boolean;
 }) {
   const copy = resolveFailureCopy(failure.category, { benchmarkId, module });
@@ -35,8 +36,10 @@ export function FailureCard({
   if (collapsed) {
     return (
       <span className="font-mono text-[12.5px] text-ink-secondary">
-        {copy.code} · {mode} · attempt{" "}
-        {failure.consumedAttempt ? "consumed" : "not consumed"}
+        {copy.code} · {mode}
+        {mode === "official" && (
+          <> · attempt {failure.consumedAttempt ? "consumed" : "not consumed"}</>
+        )}
       </span>
     );
   }

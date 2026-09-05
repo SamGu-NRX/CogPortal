@@ -235,6 +235,9 @@ export function DashboardPage() {
         </div>
       </div>
 
+        </>
+      )}
+
       {/* Nothing while the query is in flight, so the panel does not appear
           and then withdraw. A failed query still renders: that a self-reported
           number could not be read is a fact about this session. */}
@@ -289,8 +292,6 @@ export function DashboardPage() {
             </div>
           )}
         </Panel>
-      )}
-        </>
       )}
     </div>
   );

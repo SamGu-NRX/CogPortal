@@ -8,6 +8,7 @@ import { RunDetailSchema } from "@cogworks/contracts/schema";
 
 (globalThis as typeof globalThis & { React: typeof React }).React = React;
 
+import { FailureCard } from "../src/components/FailureCard.tsx";
 import {
   RefusalCard,
   errorClass,
@@ -296,4 +297,34 @@ test("the exception class is read off the head of the line, or not at all", () =
   assert.equal(errorClass("AttributeError: module 'pyexpat.model' has no attribute 'detect'"), "AttributeError");
   assert.equal(errorClass("is empty"), null);
   assert.equal(errorClass("could not be read on this machine"), null);
+});
+
+
+test("collapsed failure copy reports attempt use only for official runs", () => {
+  const failure = {
+    category: "adapter_missing" as const,
+    phase: "contract_check" as const,
+    detail: null,
+    consumedAttempt: false,
+  };
+  const practice = renderToStaticMarkup(
+    React.createElement(FailureCard, {
+      failure,
+      mode: "practice",
+      benchmarkId: "audio-identification",
+      collapsed: true,
+    }),
+  );
+  const official = renderToStaticMarkup(
+    React.createElement(FailureCard, {
+      failure,
+      mode: "official",
+      benchmarkId: "audio-identification",
+      collapsed: true,
+    }),
+  );
+
+  assert.match(practice, /E-ADAPTER · practice/);
+  assert.doesNotMatch(practice, /attempt/);
+  assert.match(official, /E-ADAPTER · official · attempt not consumed/);
 });

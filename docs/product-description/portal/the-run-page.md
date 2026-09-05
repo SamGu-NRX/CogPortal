@@ -16,7 +16,7 @@ Everything else on the page follows from that. The scorer's own notes lead. Unde
 
 A failed run gets the same treatment from the other side. It is never "Something went wrong": it is a named phase, a stable code, a plain-language explanation, the raw detail, one next step, a copyable command that reproduces it locally, and, for an official run, a line saying whether it cost an attempt.
 
-The page is reached from `RUN LOG` on the dashboard, from the `CURRENT RUN` panel, from the candidate line, and from the published result. It loads with `GET /api/runs/:id` and, once that answers, a second request for the run's own benchmark so the failure copy and the quota belong to this run rather than to whichever track the dashboard defaulted to (`apps/portal/src/routes/RunDetailPage.tsx:47`).
+The page is reached from `RUN LOG` on the dashboard, from the `CURRENT RUN` panel, from the candidate line, and from the published result. It loads with `GET /api/runs/:id` and, once that answers, a second request for the run's own benchmark so the failure copy and the quota belong to this run rather than to whichever track the dashboard defaulted to (`apps/portal/src/routes/RunDetailPage.tsx:47-50`).
 
 One consequence of the rule is worth stating in advance, because it is what a reader will notice first: for a run that scored, the largest text on the page is a sentence, not a number, and the number is roughly a third of the way down. For a run that failed, the largest text is the name of what went wrong, and the phase it happened in is the panel's own label.
 
@@ -36,11 +36,27 @@ Then `RESULTS`, in two columns. On the left the primary metric, bracketed, its l
 
 Then `PROMOTE`, which belongs to [`promote-to-the-leaderboard.md`](promote-to-the-leaderboard.md). Then, for a practice run that produced one, `LOG · CAPPED`.
 
-A failed run replaces the middle of that page with one alert-toned panel labelled `FAILED DURING EVALUATE`, and everything below the pipeline changes accordingly. There are no metrics, no finding, no promote block, and often no log.
+A failed run replaces the middle of that page with one panel, and everything below the pipeline changes accordingly. There are no metrics, no finding, no promote block, and often no log. Which panel it is depends on whether the run carries a refusal, and the two are alternatives rather than a stack (`RunDetailPage.tsx:174-196`).
 
-That panel reads top to bottom as one argument. `E-RUNTIME` in a mono chip in the corner. "Your code raised an exception" in serif. Then the explanation: "Evaluation started, but your submission raised an unhandled exception while processing benchmark inputs." Then the runner's own detail in a monospaced block, wrapped rather than truncated. Then `What to do`: "Reproduce with the local practice runner; the traceback excerpt is in the log below. Fix, verify locally, then run practice again before promoting." Then `Reproduce locally` and a copyable `cogworks run --benchmark audio-identification`.
+**A failure with a traceback** gets the full `FailureCard`: an alert-toned panel labelled `FAILED DURING EVALUATE`, reading top to bottom as one argument. `E-RUNTIME` in a mono chip in the corner. "Your code raised an exception" in serif. Then the explanation: "Evaluation started, but your submission raised an unhandled exception while processing benchmark inputs." Then the runner's own detail in a monospaced block, wrapped rather than truncated. Then `What to do`: "Reproduce with the local practice runner; the traceback excerpt is in the log below. Fix, verify locally, then run practice again before promoting." Then `Reproduce locally` and a copyable `cogworks run --benchmark audio-identification`.
 
-For a run that failed because nothing in the repository could be scored, a second panel follows it, headed `WHAT THE BENCHMARK LOOKED FOR`, carrying the sentence that says how far the search got and, under it, the incomplete chain of the team's own functions.
+**A failure that is a refusal** gets the `RefusalCard` instead, and the failure card collapses into one line inside it. The card is set like a compiler diagnostic. Its heading is `refused at database`, rendered uppercase, and to its right, in the same baseline row, the collapsed failure: `E-ADAPTER · practice`. Under the heading, the refusal's headline as one plain line. Then a label column nine characters wide with one row per observation the payload actually carries:
+
+```
+refused at DATABASE                        E-ADAPTER · practice
+
+We ran your functions and none of them produced the input the database step passes.
+
+after     fingerprint returned a list of 5158 pairs
+not read  2 modules, any of which may hold what the run looked for
+          song_database.py  FileNotFoundError: 'song_list'
+                            fix  open the file inside the function, not at import
+          mic_helpers.py    RuntimeError: no microphone available  (ours)
+raised    match.py:41       KeyError: 'peaks'  (in build_index)
+next      cogworks check --benchmark audio-identification --update-setup
+```
+
+Under a rule below that, the incomplete chain of the team's own functions, headed `How far your code was followed`.
 
 ## The ask, event by event
 
@@ -63,7 +79,7 @@ stateDiagram-v2
 
 Arriving on a finished run commits nothing and changes nothing. The URL carries the run id, and the page reads it and three more things: the run record, the benchmark list, and the dashboard for the run's own benchmark.
 
-The dashboard query is deliberately deferred until the run record has arrived, and deliberately keyed to the run's benchmark rather than the current track, because "Quota, retry, and failure copy all belong to *this run's* benchmark" (`RunDetailPage.tsx:47`). The consequence is that the quota is unavailable on the page's first render, which matters for the promote button; see [`promote-to-the-leaderboard.md`](promote-to-the-leaderboard.md).
+The dashboard query is deliberately deferred until the run record has arrived, and deliberately keyed to the run's benchmark rather than the current track, because "Quota, retry, and failure copy all belong to *this run's* benchmark" (`RunDetailPage.tsx:47-50`). The consequence is that the quota is unavailable on the page's first render, which matters for the promote button; see [`promote-to-the-leaderboard.md`](promote-to-the-leaderboard.md).
 
 Nothing on this page is user input. Every control except the retry button and the two official ones is a disclosure: a supporting metric row that opens its note, a log that expands, a commit chip that copies.
 
@@ -73,7 +89,7 @@ Nothing on this page is user input. Every control except the retry button and th
 
 One refusal. A run id that is not this team's is a `404` with "Run not found." (`apps/portal/worker/routes/runs.ts:63`), because the query filters by team before it filters by id, so "does not exist" and "belongs to someone else" are the same answer.
 
-It renders as an absence rather than a fault: "The portal has no record at this address. Trying again will return the same answer." with no retry button and a "Back to dashboard" link the page supplies itself (`RunDetailPage.tsx:74`).
+It renders as an absence rather than a fault: "The portal has no record at this address. Trying again will return the same answer." with no retry button and a "Back to dashboard" link the page supplies itself (`RunDetailPage.tsx:72-82`).
 
 A session that expired renders `SESSION ENDED` instead, and a genuine server fault renders `FAILED ON OUR SIDE` with the server's own sentence and a second line, "If it happens again, tell a TA; this one is ours to fix." (`apps/portal/src/lib/query-error-state.ts:54`).
 
@@ -81,7 +97,7 @@ A session that expired renders `SESSION ENDED` instead, and a genuine server fau
 
 Reading a finished run never begins any work. The page has exactly two controls that do, and both are on the failure path or the promotion path.
 
-The first is "Run practice again on main", which appears for a practice run whose failure is marked retryable, and for an official run that did not consume its attempt. It starts a new practice run and then navigates to it, because "the old page kept its button, and pressing it again returned active_run_exists" (`RunDetailPage.tsx:64`). It spends one of the team's ten hosted runs.
+The first is "Run practice again on main", which appears for a practice run whose failure is marked retryable, and for an official run that did not consume its attempt. It starts a new practice run and then navigates to it, because "the old page kept its button, and pressing it again returned active_run_exists" (`RunDetailPage.tsx:60-69`). It spends one of the team's ten hosted runs.
 
 The second is promotion, which is [`promote-to-the-leaderboard.md`](promote-to-the-leaderboard.md).
 
@@ -109,7 +125,7 @@ Nothing in it is written by the portal. "The text arrives from the benchmark, as
 
 Diagnostics are capped at 32 entries of 240 characters each by the contract (`packages/contracts/src/schema.ts:150`), and they are safe on an official run because "they describe the submission's own output shape, never the hidden data" (`apps/portal/worker/http/serializers.ts:140`).
 
-When a run succeeded and the scorer wrote nothing at all, the `RESULTS` panel carries one line instead: "The scorer had no notes on this run." (`RunDetailPage.tsx:255`). The comment says it is "Kept for a run whose scorer had nothing to say, which is rare and would otherwise lose its notes entirely."
+When a run succeeded and the scorer wrote nothing at all, the `RESULTS` panel carries one line instead: "The scorer had no notes on this run." (`RunDetailPage.tsx:276-279`). The comment says it is "Kept for a run whose scorer had nothing to say, which is rare and would otherwise lose its notes entirely."
 
 ### The sweep
 
@@ -127,7 +143,7 @@ It exists because nothing in a 2026 repository declares which function is the pe
 
 The received and returned strings are shapes rather than values: "an array of shape (1025, 171)", "a list of 5158 pairs". They are described as "the reproduction a team debugs from" and "the platform's whole contribution to a chain that runs and answers wrongly: what ran, on what, and what came back" (`WiringTrace.tsx:54`).
 
-It sits below the finding and above the number, and the page comment gives the reason: "a team checks it when a score surprises them, which is after they have read the finding and before they argue with the number" (`RunDetailPage.tsx:234`). It is absent for a repository that declared its own submission, because then nothing was inferred. The contract caps it at 16 steps.
+It sits below the finding and above the number, and the page comment gives the reason: "a team checks it when a score surprises them, which is after they have read the finding and before they argue with the number" (`RunDetailPage.tsx:257-263`). It is absent for a repository that declared its own submission, because then nothing was inferred. The contract caps it at 16 steps.
 
 ### The metrics
 
@@ -149,17 +165,46 @@ All of it is driven by the metric's own `role` and `relatesTo` fields and never 
 
 ### The refusal card
 
-`RefusalCard` is headed `WHAT THE BENCHMARK LOOKED FOR`. It carries the refusal's headline in serif at 17px to 19px, an optional next step in smaller type, and, when there is one, an incomplete wiring trace under a rule.
+`RefusalCard` is a diagnostic, set the way a compiler sets one: one label column, one observation per row, and no row at all where the payload has nothing to put in it (`apps/portal/src/components/RefusalCard.tsx:5-8`).
 
-It renders only under a failure, and the page comment says why it sits there: "Under the failure card, because the card says which phase stopped and this says why. Only for a run that failed for want of code to score; every other failure has a traceback, and the log is where that belongs" (`RunDetailPage.tsx:169`).
+It is the whole failure block for a run that carries a refusal, and it replaces the failure card rather than sitting under it. The page comment gives the reason: a refusal is written in the team's own function names and module names, and the failure card beside it is the same event in the generic, so the refusal leads and the card collapses to the three things it alone carries, which failure, which mode, and what it cost (`RunDetailPage.tsx:168-173`). Every other failure has a traceback, keeps its full card, and sends the reader to the log.
 
-The next step appears only when the platform honestly has one, "a package it can name, a file it could not read. Most refusals have none, and an invented next step is worse than an absent one" (`apps/portal/src/components/RefusalCard.tsx:32`). The card offers no diagnosis at all: "The platform cannot know which of their lines is wrong, and a confident wrong guess costs a team more time than saying nothing does" (`RefusalCard.tsx:13`). See [`../foundations/what-the-portal-claims.md`](../foundations/what-the-portal-claims.md).
+**The heading names where the run stopped.** `refused`, and then `at {stage}` when a stage can be named, with the stage itself in full ink (`RefusalCard.tsx:122-126`). The stage is read out of the headline, because the payload carries no field for it: `cogbench.verdict` writes the stage into the not_wired sentence and nowhere else, in one of two forms that both put the name between "the" and "step" (`RefusalCard.tsx:68-82`, quoting `python/cogbench/src/cogbench/verdict.py:389` and `:397`). A headline of any other shape returns null and the header falls back to the run's phase, so a new verdict wording degrades to a coarser true answer rather than a wrong one. The distinction is the point: "REFUSED AT DATABASE" tells a team which hand-off to go look at, and "REFUSED AT CONTRACT CHECK" only tells them when (`RefusalCard.tsx:114-116`).
+
+**The collapsed failure sits beside it,** on the same baseline, passed in as the card's `aside` (`RunDetailPage.tsx:179-187`). It reads `{code} · {mode}`, and for an official run adds `· attempt consumed` or `· attempt not consumed` (`apps/portal/src/components/FailureCard.tsx:35-45`). A practice run says nothing about attempts: `consumedAttempt` describes official attempts only, and a failed hosted practice run still counts against the practice quota the dashboard shows, so the old wording promised something the quota line contradicted.
+
+**Then the headline, as one line of ink** (`RefusalCard.tsx:130-132`). It is the only place the stage the run wanted is named at all, which is why it leads (`RefusalCard.tsx:20-22`).
+
+**Then a label column nine characters wide,** holding up to four rows (`RefusalCard.tsx:134-220`):
+
+| Row | When it renders | What it says |
+| --- | --- | --- |
+| `after` | The trace has at least one step that returned something | The last hand-off the search completed, as `{function} returned {returned}`. Everything after it is what the platform could not find (`:113`, `:135-142`). |
+| `not read` | The payload lists skipped modules | "1 module, which may hold what the run looked for", or "{n} modules, any of which may hold what the run looked for", then one line per module: its name, the reason with any exception class lifted into full ink, an owner tag when the owner is not the team, and a `fix` line for the two classes the platform can name (`:144-183`). |
+| `raised` | Their own code raised inside their own repository | One line per error: `{file}:{line}`, or just the file when the line would point nowhere, then the message with its class in ink and `(in {function})` (`:185-208`). |
+| `next` | Always | The refusal's own next step when there is one, then `cogworks check --benchmark {id} --update-setup` (`:210-219`). |
+
+Two of those rows carry judgments worth stating outright.
+
+**The card offers no diagnosis**, and prints exactly two tokens in ink, where the run stopped and the exception class an import raised, so it has as many focal points as it has facts a team can act on (`RefusalCard.tsx:10-15`). Everything else is context and sits in secondary ink.
+
+**A fix line appears for two exception classes and no others.** `refusalFix` returns "move the microphone call out of module scope" for a `RuntimeError` whose message mentions a microphone or recording, and "open the file inside the function, not at import" for a `FileNotFoundError` (`RefusalCard.tsx:57-66`). Both have the same mechanical cause, work that belongs inside a function running while the module was being read, which is a fix a team can apply without knowing anything else about their code. Every other class returns null, including an empty module, "because a wrong fix sends a team somewhere an absent one does not" (`RefusalCard.tsx:43-55`). The line is templated in the browser and never sent by the runner: the runner reports what it saw, and this maps a class the portal recognizes onto the edit that answers it.
+
+**An owner is named only when it is not the team's fault** (`RefusalCard.tsx:159-164`). A module skipped because this machine lacks a package the graded run installs is the platform's absence, and letting it sit unlabelled beside a syntax error of theirs reads as one more thing they got wrong.
+
+The `next` row is the one row that always renders, but the refusal's own next step inside it appears only when the platform honestly has one, "a package it can name, a file it could not read. Most refusals have none, and an invented next step is worse than an absent one" (`RefusalCard.tsx:212-214`). The command under it is unconditional. See [`../foundations/what-the-portal-claims.md`](../foundations/what-the-portal-claims.md).
+
+The refusal's `notes` field is not rendered at all, for the same reason the headline is (`RefusalCard.tsx:25-26`). Under everything, when the trace has any steps, the incomplete wiring trace sits below a rule (`RefusalCard.tsx:223-227`).
 
 ### The failure card
 
-`FailureCard` is titled `FAILED DURING {PHASE}` in capitals, with the phase taken from the failure itself, and a mono code chip in the panel's corner. Under it: a serif title, an explanation, the raw `failureDetail` in a preformatted block when there is one, a `What to do` block, a `Reproduce locally` copy block when a command applies, and for an official run one line stating the cost.
+`FailureCard` has two forms.
 
-That line is one of exactly two sentences: "This failure consumed one official attempt." or "No official attempt was consumed." (`apps/portal/src/components/FailureCard.tsx:69`). It is coloured against the two outcomes and is the only place on the page that answers the question directly.
+**Collapsed**, when a refusal is leading, it is one mono line and nothing else: `{code} · {mode}`, with `· attempt consumed` or `· attempt not consumed` appended only for an official run (`apps/portal/src/components/FailureCard.tsx:35-45`). The prop's own docstring says what it is for: beside a refusal, this card's title, explanation, and corrective action are the generic form of the same event, so it keeps only the three facts the refusal does not carry (`FailureCard.tsx:26-31`).
+
+**Full**, for every other failure, it is titled `FAILED DURING {PHASE}` in capitals, with the phase taken from the failure itself, and a mono code chip in the panel's corner. Under it: a serif title, an explanation, the raw `failureDetail` in a preformatted block when there is one, a `What to do` block, a `Reproduce locally` copy block when a command applies, and for an official run one line stating the cost.
+
+That line is one of exactly two sentences: "This failure consumed one official attempt." or "No official attempt was consumed." (`FailureCard.tsx:85-87`). It is coloured against the two outcomes and is the only place on the page that states the cost in words. In the collapsed form the same fact survives as the three words at the end of the line, for every mode rather than for official runs alone.
 
 The copy comes from a fixed catalog of twelve categories, sharpened per module where the concept genuinely differs (`packages/contracts/src/failures.ts:31`).
 
@@ -202,7 +247,7 @@ A failed run puts a red cross on the failed node and leaves every node after it 
 
 An official run never has one. The runner writes `log` only when the mode is practice (`apps/portal/worker/routes/runner-events.ts:194`), so the panel is absent rather than empty, and the only place the page explains that is the live line the student may never have seen.
 
-The masthead's own chips finish the record. The mode chip reads `Practice` in neutral rule or `Official · attempt 2/3` in detector red. The status chip pairs a word with a coloured square and never colour alone, and the square pulses only while the instrument is measuring, which on this page means never. Under `EXECUTION_PROVIDER=fixture` a third chip reads `simulated`, whose tooltip says "Execution provider is in fixture mode — results are scripted, not real evaluation." (`apps/portal/src/components/SimulatedChip.tsx:8`).
+The masthead's own chips finish the record. The mode chip reads `Practice` in neutral rule or `Official · attempt 2/3` in detector red. The status chip pairs a word with a coloured square and never colour alone, and the square pulses only while the instrument is measuring, which on this page means never. Under `EXECUTION_PROVIDER=fixture` a third chip reads `simulated`, whose tooltip says "Execution provider is in fixture mode. Results are scripted, not real evaluation." (`apps/portal/src/components/SimulatedChip.tsx:8`).
 
 ## Modifiers
 
@@ -221,7 +266,7 @@ The masthead's own chips finish the record. The mode chip reads `Practice` in ne
 | You stop it yourself | Nothing to stop. There is no cancel on this page, and no code path anywhere writes the `cancelled` status the rail and the status chip both have words for. | Closing an expanded metric note or collapsing the log changes only what is on screen. Neither is persisted, so a reload returns every row to its folded state. |
 | You do something else mid-way | Leaving the page loses nothing; the record is durable. | Pressing "Run practice again" navigates away to the new run as soon as the server answers. Pressing it twice is stopped by the button's busy state and, failing that, by the server's `active_run_exists`. |
 | A teammate acts at the same time | A teammate promoting this run does not change this page, which describes one run. Their new official run is a different page. | The page does not poll once terminal, so a teammate's action is invisible until a reload. The one visible consequence is a promote button that has gone stale and will be refused by the server. |
-| The network or the portal fails | A failed load replaces the page with the query-error card and a "Back to dashboard" link. | Nothing is in flight, so nothing to lose. A failed retry prints either the server's sentence or "The action couldn't be completed. Try again." under the button (`RunDetailPage.tsx:205`). |
+| The network or the portal fails | A failed load replaces the page with the query-error card and a "Back to dashboard" link. | Nothing is in flight, so nothing to lose. A failed retry prints either the server's sentence or "The action couldn't be completed. Try again." under the button (`RunDetailPage.tsx:224-230`). |
 | The page or the process goes away | Nothing pending. | The record is durable and identical on reload, apart from the expanded rows and the expanded log, which reset. |
 | The thing being measured changes | The run is about a commit that was resolved when it started. A push, a branch deletion, or a repository change does not alter it. | A benchmark version bump does not alter a finished run either. It does alter the quota shown beside promote, and it makes the run's own version visibly older than the active one, which the page shows as `v3` in the metadata line and never flags. |
 | The platform refuses or credit runs out | Reading costs nothing and is never refused for quota. | The retry button spends a practice run and can be refused for quota; the promote button spends an official attempt. See [`../cross-cutting/credit-and-quota.md`](../cross-cutting/credit-and-quota.md). |
@@ -246,27 +291,31 @@ The masthead's own chips finish the record. The mode chip reads `Practice` in ne
 
 ## Edge cases
 
-- **A succeeded run with no primary metric renders no results at all.** The results block requires `run.status === "succeeded" && primary` (`RunDetailPage.tsx:212`), so a run that scored nothing primary shows a pipeline, possibly a finding, and then the promote panel with no number above it.
-- **A failed run with an unknown failure category renders nothing for the failure.** The block requires both `run.failure` and a catalog entry (`RunDetailPage.tsx:161`), so a category the catalog does not carry would leave a page with a red cross on the rail and no explanation. All twelve current categories are in the catalog.
+- **A succeeded run with no primary metric renders no results at all.** The results block requires `run.status === "succeeded" && primary` (`RunDetailPage.tsx:235`), so a run that scored nothing primary shows a pipeline, possibly a finding, and then the promote panel with no number above it.
+- **A failed run with an unknown failure category renders nothing for the failure.** The block requires both `run.failure` and a catalog entry (`RunDetailPage.tsx:166`), so a category the catalog does not carry would leave a page with a red cross on the rail and no explanation. All twelve current categories are in the catalog.
 - **The retry button's fallback text is unreachable.** It reads "Run practice again on {branch}" with a fallback of "the default branch", but `branch` is a non-nullable string in the contract (`schema.ts:130`), so the fallback never renders.
-- **A retry on a detached run asks GitHub for a branch called `detached`.** A run started from an exact SHA with no branch stores the literal `detached` (`apps/portal/worker/services/run-actions.ts:279`). The comment above `retryFrom` says omitting the branch lets the server use the team's default (`RunDetailPage.tsx:59`), but because the field is never null, the literal is sent instead, and resolving it is unguarded.
+- **A retry on a detached run asks GitHub for a branch called `detached`.** A run started from an exact SHA with no branch stores the literal `detached` (`apps/portal/worker/services/run-actions.ts:279`). The comment above `retryFrom` says omitting the branch lets the server use the team's default (`RunDetailPage.tsx:59-65`), but because the field is never null, the literal is sent instead, and resolving it is unguarded.
 - **The log's line count is of the whole log, not of what is shown.** `show all 214 lines` counts every line while the pane shows fourteen, which is the right number to promise and does mean the button understates how much is hidden by exactly fourteen.
 - **A phase that was skipped and a phase that took no time look the same.** A timing renders only when both ends exist, so a run that never installed anything shows `Install` with nothing under it, exactly like a phase whose events were lost.
 - **The `Complete` node is not a phase.** It has no timing, it is drawn by the component rather than by the contract's `RUN_PHASES`, and it fills only on `succeeded`. A failed run leaves it an outline forever.
-- **The metadata line's duration is wall-clock from creation.** It is `finishedAt - createdAt` (`RunDetailPage.tsx:91`), so time spent queued is inside it, and the sum of the per-phase timings under the rail can be visibly smaller.
+- **The metadata line's duration is wall-clock from creation.** It is `finishedAt - createdAt` (`RunDetailPage.tsx:91-92`), so time spent queued is inside it, and the sum of the per-phase timings under the rail can be visibly smaller.
 - **Diagnostics and the finding are the same list.** The finding is `diagnostics[0]` and the supporting bullets are the rest, so a benchmark that writes its most important note second buries it.
 - **An official run shows its wiring trace and diagnostics.** Both are safe "on the same grounds as diagnostics: it describes their code, never the data" (`serializers.ts:144`), so an official run is not as opaque as its suppressed log suggests.
-- **The page announces its status to a screen reader on every render** through a visually hidden live region reading `Run status: Succeeded` (`RunDetailPage.tsx:122`), which on a terminal run fires once and then never again.
+- **The page announces its status to a screen reader on every render** through a visually hidden live region reading `Run status: Succeeded` (`RunDetailPage.tsx:122-124`), which on a terminal run fires once and then never again.
 - **An expanded metric note is not addressable.** The disclosure is component state with a generated id, so there is no way to link a teammate to an open explanation, and a reload closes every one.
-- **The refusal card renders under a failure only.** `run.refusal` is a field on every run detail, but the page only draws it inside the failure block (`RunDetailPage.tsx:173`), so a refusal attached to a run that somehow succeeded would never be shown.
+- **The refusal card renders inside a failure only.** `run.refusal` is a field on every run detail, but the page only reads it inside the failure block (`RunDetailPage.tsx:174`), so a refusal attached to a run that somehow succeeded would never be shown.
+- **A refusal suppresses the reproduce command and the raw detail.** The collapsed failure card keeps the code, the mode, and the attempt, and drops the title, the explanation, the `failureDetail` block, the `What to do` text, and the `Reproduce locally` copy block (`FailureCard.tsx:35-42`). For `E-ADAPTER` that is the intended trade, since the refusal says the same thing in the team's own names, but the copyable command is gone with it and the card's `next` row offers `cogworks check` rather than `cogworks run`.
+- **The official attempt line changes shape with the card.** A full card states the cost as a sentence in coloured type, and only for an official run (`FailureCard.tsx:79-89`); the collapsed line states it as two or three words, for every run (`:38-41`). An official refusal therefore reports its cost more quietly than an official failure of any other kind.
+- **The heading and the headline can name different stages.** The heading prefers the stage parsed out of the headline and falls back to the phase the page read off the failure (`RefusalCard.tsx:117`), so `PHASE_LABELS[failure.phase]` is used only when the parse fails. A headline that names a stage the phase disagrees with is resolved silently in the headline's favour.
 - **The failure detail is the only surviving text on an official failure.** With no log, `failureDetail` carries everything, which is why the refund cap notice is appended to it rather than replacing it: replacing "would delete the very evidence the message tells the team to bring to an instructor" (`apps/portal/worker/execution/refunds.ts:55`).
 - **Two runs on the same commit look identical above the fold.** The masthead shows the run label, the mode, the status, the benchmark, the branch, and the commit, and two practice runs of the same commit differ only in their label and their timestamp.
 - **The sweep's aria label reads the endpoints only.** A screen reader hears the first and last values and the axis, never the shape between them, which is the part the component exists to show (`SweepTrace.tsx:90`).
 - **The `← Dashboard` link is the only way back.** It sits above the masthead in small mono capitals, and a student who arrived from Discord or from a pasted link has nothing else on the page pointing anywhere.
 - **Nothing on the page names the run surface it belongs to,** so a run reached from the dashboard gives no route to the live console that was following it. See [`watching-a-run.md`](watching-a-run.md).
+
 ## Open questions and verification
 
-- The retry path for a run whose branch is the literal `detached` sends that string to GitHub, contradicting the comment directly above it (`RunDetailPage.tsx:59`). The resolve is unguarded on that path (`run-actions.ts:245`), so the likely outcome is an unhandled error rather than a sentence. Worth treating as a bug. **Unverified.**
+- The retry path for a run whose branch is the literal `detached` sends that string to GitHub, contradicting the comment directly above it (`RunDetailPage.tsx:59-65`). The resolve is unguarded on that path (`run-actions.ts:245`), so the likely outcome is an unhandled error rather than a sentence. Worth treating as a bug. **Unverified.**
 - A succeeded run with diagnostics but no primary metric renders a finding and no `RESULTS` panel, so "The scorer had no notes on this run." can never appear for it. Whether that combination occurs was not established.
 - Whether the finding genuinely leads the eye ahead of the 5xl number below it was not observed, and it is the central claim of the page's design. It needs a screenshot. **Unverified.**
 - Whether a student can tell a floor from a score at a glance in the supporting list was not observed. The floor renders inline as `floor 0.42` at the metric's own precision, which reads correctly in the source. **Unverified.**
@@ -274,7 +323,10 @@ The masthead's own chips finish the record. The mode chip reads `Practice` in ne
 - The failure card's attempt line is the only place the cost of an official failure is stated. Whether a student reads it, given that it sits at the bottom of a long alert panel, was not observed. **Unverified.**
 - Whether any current benchmark sends a `plotted` metric that is not also in the sweep was not checked. If one does, it is dropped from the list and drawn nowhere.
 - `cancelled` remains unreachable: the rail would draw it as a completed pipeline (`apps/portal/src/lib/run-meta.ts:47`) and the status chip would render it in muted grey, but nothing writes it and there is no cancel endpoint. Carried to triage.
-- The `simulated` chip's tooltip contains an em dash, which `docs/design/voice.md` rules out ("Execution provider is in fixture mode — results are scripted, not real evaluation.", `SimulatedChip.tsx:8`). It is a title attribute rather than body copy, but it is student-visible. Carried to triage.
 - Reading a run page can advance the run, because the handler syncs before serialising. Whether that has any visible effect under the Modal provider was not established. **Unverified.**
 - Whether the per-phase timings ever sum visibly short of the stated duration was not measured; the gap is the queued time and any phase whose events were lost. **Unverified.**
+- Whether a team reads the refusal card's four labels as a diagnostic or as an error dump was not observed with anybody. It is the densest thing on the page and the only place the portal sets a team's own file and line beside a class name. **Unverified.**
+- The refusal card's heading depends on a regular expression over a sentence the CLI writes (`RefusalCard.tsx:80-82`). Nothing tests the two together, so a reworded verdict silently downgrades every heading to the coarser phase name and nothing anywhere reports the downgrade. Carried to triage.
+- Whether any current refusal payload carries both `skipped` entries and `errors` entries at once, which is the case the nine-character label column was sized for, was not established from a real run. **Unverified.**
+
 Verified against Cog\*Portal commit `f74e087`.

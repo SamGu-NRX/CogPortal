@@ -149,10 +149,10 @@ export function RefusalCard({
                   ? "1 module, which may hold what the run looked for"
                   : `${refusal.skipped.length} modules, any of which may hold what the run looked for`}
                 <div className="mt-1.5 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-[2ch] gap-y-1.5">
-                  {refusal.skipped.map((file) => {
+                  {refusal.skipped.map((file, index) => {
                     const fix = refusalFix(file.reason);
                     return (
-                      <Fragment key={file.module}>
+                      <Fragment key={`${file.module}:${index}`}>
                         <div className="break-words">{file.module}</div>
                         <div className="min-w-0 break-words">
                           <Raised message={file.reason} />

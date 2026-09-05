@@ -65,6 +65,12 @@ function SetupGuide({
       ? requestedReplay
       : null;
 
+  // These reads decide both the commands and their verified state. Their
+  // fallback values are not safe instructions for a student to copy.
+  if (track.isPending || setupState.isPending || connections.isPending) {
+    return <LoadingMark label="Loading your team" />;
+  }
+
   // Replay masks the evidence rather than the commands: a rehearsing owner
   // sees the sheet a student sees on day zero.
   const lines = setupCommandsForTeam({
