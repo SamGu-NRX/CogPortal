@@ -257,6 +257,17 @@ export function registerRunnerEventRoutes(app: Hono<AppEnv>): void {
       throw new ApiHttpError(400, "invalid_request", "Runner event is invalid.");
     }
     const db = getDb(c.env);
+    // Look the run up before recording the event. run_events.run_id is a
+    // foreign key, so an event about a run that does not exist used to fail
+    // the insert and answer 500, which reads as a portal bug to the runner
+    // and to tools/probe_callback.py. It is a 404: the runner is talking
+    // about a run this portal never created.
+    const [known] = await db
+      .select({ id: runs.id })
+      .from(runs)
+      .where(eq(runs.id, event.runId))
+      .limit(1);
+    if (!known) throw new ApiHttpError(404, "not_found", "Run not found.");
     const inserted = await db
       .insert(runEvents)
       .values({
