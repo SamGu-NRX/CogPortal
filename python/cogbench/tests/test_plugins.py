@@ -10,6 +10,7 @@ sys.path.insert(0, str(ROOT / "python" / "cogbench" / "src"))
 
 from cogbench.plugins import (  # noqa: E402
     PluginError,
+    benchmark_install_command,
     load_plugin,
     load_submission,
     plugin_names,
@@ -50,6 +51,54 @@ class PluginDiscoveryTests(unittest.TestCase):
 
         with self.assertRaisesRegex(PluginError, "More than one"):
             load_plugin("cogworks.submissions.v1", "vision-recognition")
+
+    def test_every_shipped_benchmark_has_its_pinned_install_command(self):
+        expected = {
+            "audio-identification": (
+                'python -m pip install "cogworks-week1-audio-benchmark @ '
+                'git+https://github.com/SamGu-NRX/cogworks-week1-audio-benchmark.git'
+                '@b590638a4c6d7b0e840723f5d4d38b1a90070a62"'
+            ),
+            "vision-recognition": (
+                'python -m pip install "cogworks-week2-vision-benchmark @ '
+                'git+https://github.com/iReynaldo/ComputerVisionBenchmark.git'
+                '@c177cf23cdd4f8dbe55401a2eb4bada4c64d37c2"'
+            ),
+            "vision-clustering": (
+                'python -m pip install "cogworks-week2-vision-benchmark @ '
+                'git+https://github.com/iReynaldo/ComputerVisionBenchmark.git'
+                '@c177cf23cdd4f8dbe55401a2eb4bada4c64d37c2"'
+            ),
+            "language-search": (
+                'python -m pip install "cogworks-week3-language-benchmark @ '
+                'git+https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git'
+                '@b166f5c15e950baccc3785839cdcc660ffe01bb4"'
+            ),
+        }
+        self.assertEqual(
+            {name: benchmark_install_command(name) for name in expected},
+            expected,
+        )
+
+    @patch("cogbench.plugins._entry_points", return_value=[])
+    def test_a_known_missing_benchmark_prints_the_exact_install_command(self, _entry_points):
+        command = benchmark_install_command("audio-identification")
+        with self.assertRaises(PluginError) as caught:
+            load_plugin("cogworks.benchmarks.v2", "audio-identification")
+
+        self.assertIn(command, str(caught.exception))
+
+    @patch("cogbench.plugins._entry_points", return_value=[])
+    def test_an_unknown_missing_benchmark_keeps_the_general_sentence(self, _entry_points):
+        with self.assertRaises(PluginError) as caught:
+            load_plugin("cogworks.benchmarks.v2", "not-a-shipped-benchmark")
+
+        self.assertEqual(
+            str(caught.exception),
+            "not-a-shipped-benchmark is not installed here, so there is "
+            "nothing to run. Install the benchmark package for this week and "
+            "run this again.",
+        )
 
     @patch("cogbench.plugins._entry_points")
     def test_v2_submission_class_is_loaded_as_raw_factory(self, entry_points):

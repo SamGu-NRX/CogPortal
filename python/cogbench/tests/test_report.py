@@ -7,6 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "python" / "cogbench" / "src"))
 
+from cogbench.models import LocalReport, RepositoryState  # noqa: E402
 from cogbench.report import render_check, render_survey  # noqa: E402
 from cogbench.resolve import Attempt, Submission  # noqa: E402
 from cogbench.verdict import Observation, not_wired, scored  # noqa: E402
@@ -206,6 +207,48 @@ class CheckTests(unittest.TestCase):
         )
         self.assertIn("not installed", text)
         self.assertIn("not a git repository", text)
+        self.assertIn(
+            'python -m pip install "cogworks-week1-audio-benchmark @ '
+            'git+https://github.com/SamGu-NRX/cogworks-week1-audio-benchmark.git'
+            '@b590638a4c6d7b0e840723f5d4d38b1a90070a62"',
+            text,
+        )
+
+    def test_an_unknown_missing_benchmark_keeps_the_current_next_step(self):
+        lines = render_check(
+            benchmark="not-a-shipped-benchmark",
+            python_version="3.11.15",
+            hosted_python=None,
+            benchmark_ready=False,
+            repository=None,
+            submission=None,
+        )
+        self.assertEqual(lines[-1], "Install it, then run this again.")
+
+
+class LocalReportDiagnosticTests(unittest.TestCase):
+    def test_a_four_hundred_character_two_sentence_note_is_not_cut_mid_word(self):
+        first = "First " + "alpha " * 32 + "ends."
+        second = "Second " + "bravo " * 32 + "ends."
+        note = first + " " + second
+        self.assertGreater(len(note), 400)
+
+        report = LocalReport.create(
+            benchmark_id="audio-identification",
+            benchmark_version=1,
+            contract_version="cogworks.submissions.v2",
+            sdk_version="0.2.0",
+            plugin_version="0.2.0",
+            repository=RepositoryState(None, None, None, False),
+            started_at=1,
+            finished_at=2,
+            metrics=[],
+            diagnostics=[note],
+            predictions=[],
+        )
+
+        self.assertEqual(report.diagnostics, [first, second])
+        self.assertTrue(all(len(line) <= 240 for line in report.diagnostics))
 
 
 if __name__ == "__main__":

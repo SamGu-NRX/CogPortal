@@ -19,6 +19,8 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional, Sequence
 
+from .plugins import benchmark_install_command
+
 __all__ = ["render_check", "render_survey"]
 
 #: Wide enough for the longest label, narrow enough to read on a laptop.
@@ -215,7 +217,13 @@ def render_check(
         lines.append("")
         if not benchmark_ready:
             lines.append("Nothing was searched for, because {} is not installed here.".format(benchmark))
-            lines.append("Install it, then run this again.")
+            command = benchmark_install_command(benchmark)
+            if command:
+                lines.append(
+                    "Install it with `{}`, then run this again.".format(command)
+                )
+            else:
+                lines.append("Install it, then run this again.")
         elif submission_source == "entry_point":
             # An installed submission package already answers for this
             # benchmark, so there was nothing to search for.

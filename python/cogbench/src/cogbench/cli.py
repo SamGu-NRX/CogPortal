@@ -65,7 +65,7 @@ def _parser() -> argparse.ArgumentParser:
     for name, help_text in (
         ("check", "check the local project and benchmark environment"),
         ("doctor", None),  # deprecated alias for check; hidden from help
-        ("test", "run one fast contract case"),
+        ("test", "check your code against one small benchmark case"),
         ("run", "run the public local practice benchmark"),
     ):
         command = subparsers.add_parser(name, **({} if help_text is None else {"help": help_text}))
@@ -82,17 +82,41 @@ def _parser() -> argparse.ArgumentParser:
                 action="store_true",
                 help="share one live progress bubble with your linked team",
             )
-            command.add_argument("--portal")
+            command.add_argument(
+                "--portal",
+                help="use this CogPortal address instead of the saved one",
+            )
     report = subparsers.add_parser("report", help="show a saved local report")
-    report.add_argument("path", nargs="?")
+    report.add_argument(
+        "path",
+        nargs="?",
+        help="saved report file to show (uses the latest report when omitted)",
+    )
     link = subparsers.add_parser("link", help="link this device to CogPortal")
-    link.add_argument("--portal")
-    link.add_argument("--no-browser", action="store_true")
+    link.add_argument(
+        "--portal",
+        help="use this CogPortal address instead of the saved one",
+    )
+    link.add_argument(
+        "--no-browser",
+        action="store_true",
+        help="print the approval link without opening your browser",
+    )
     sync = subparsers.add_parser("sync", help="explicitly sync one local report")
-    sync.add_argument("path", nargs="?")
-    sync.add_argument("--portal")
+    sync.add_argument(
+        "path",
+        nargs="?",
+        help="saved report file to sync (uses the latest report when omitted)",
+    )
+    sync.add_argument(
+        "--portal",
+        help="use this CogPortal address instead of the saved one",
+    )
     status = subparsers.add_parser("status", help="show this device's CogPortal connection")
-    status.add_argument("--portal")
+    status.add_argument(
+        "--portal",
+        help="use this CogPortal address instead of the saved one",
+    )
     return parser
 
 
@@ -166,8 +190,14 @@ def _print_report(report: LocalReport, as_json: bool = False) -> None:
         return
     print("{} v{} · LOCAL · SELF-REPORTED".format(report.benchmark_id, report.benchmark_version))
     for metric in report.metrics:
-        value = ("{:.%df}" % metric.precision).format(metric.value)
-        print("{}: {}{}".format(metric.label, value, " " + metric.unit if metric.unit else ""))
+        precision = max(metric.precision, 4) if metric.primary else metric.precision
+        value = ("{:.%df}" % precision).format(metric.value)
+        unit = metric.unit
+        # Older plugins omitted the unit for timing metrics. The key is the
+        # only remaining evidence that the value is measured in seconds.
+        if not unit and metric.key.endswith("_seconds"):
+            unit = "s"
+        print("{}: {}{}".format(metric.label, value, " " + unit if unit else ""))
     if report.repository.sha:
         print("commit: {}{}".format(report.repository.sha[:7], " (dirty)" if report.repository.dirty else ""))
     for diagnostic in report.diagnostics:
@@ -181,6 +211,22 @@ def _resolve_report(path_value: Optional[str], project_root: Path) -> Path:
     if latest is None:
         raise ContractError("No local reports found. Run `cogworks run` first.")
     return latest
+
+
+def _format_expiry(expires_at_ms: int, now: Optional[datetime] = None) -> str:
+    expires = datetime.fromtimestamp(expires_at_ms / 1000, tz=timezone.utc)
+    current = now or datetime.now(timezone.utc)
+    days = (expires.date() - current.astimezone(timezone.utc).date()).days
+    date = "{} {}".format(expires.strftime("%b"), expires.day)
+    if days == 0:
+        return "{} (today)".format(date)
+    if days == 1:
+        return "{} (in 1 day)".format(date)
+    if days > 1:
+        return "{} (in {} days)".format(date, days)
+    if days == -1:
+        return "{} (1 day ago)".format(date)
+    return "{} ({} days ago)".format(date, abs(days))
 
 
 #: The interpreter each track's student code actually runs on when hosted.
@@ -783,16 +829,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             print("GitHub   @{}".format(value["githubLogin"]))
             print("Team     {}".format(value["teamName"]))
             print("Repo     {}".format(value["repositoryFullName"]))
-            print("Discord  {}".format(
-                "#{}".format(value["discordChannelId"])
-                if value.get("discordChannelId") else "team channel not chosen"
-            ))
+            print(
+                "Discord  team channel {}".format(
+                    "chosen" if value.get("discordChannelId") else "not chosen"
+                )
+            )
             print("Device   {}".format(value["deviceName"]))
-            expires = datetime.fromtimestamp(
-                int(value["deviceExpiresAt"]) / 1000,
-                tz=timezone.utc,
-            ).isoformat().replace("+00:00", "Z")
-            print("Expires  {}".format(expires))
+            print("Expires  {}".format(_format_expiry(int(value["deviceExpiresAt"]))))
             print("Portal   {}".format(portal))
             return 0
     except KeyboardInterrupt:

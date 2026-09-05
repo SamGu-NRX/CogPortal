@@ -127,6 +127,13 @@ class TheNoteSaysWhatTheStudentNeedsToKnow(unittest.TestCase):
         for word in ("error", "failed", "problem with your", "fix"):
             self.assertNotIn(word, note.lower())
 
+    def test_it_names_where_skipped_modules_appear_and_who_reads_them(self):
+        note = environment.gap_note("vision-recognition", ("torch", "cv2"))
+        self.assertIn("listed above under 'could not read'", note)
+        self.assertIn("this machine skipped it", note)
+        self.assertIn("The hosted run has the packages and will read those modules.", note)
+        self.assertNotIn("imports one of them", note)
+
     def test_nothing_missing_says_nothing(self):
         """A caller prints this unconditionally, so an empty gap has to
         produce no paragraph rather than a reassuring one."""
