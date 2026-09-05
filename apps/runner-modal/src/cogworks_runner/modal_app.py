@@ -2275,7 +2275,9 @@ def _v2_metrics(benchmark: Any, outputs: List[Any], cases: List[Any]) -> Tuple[L
             # scale of the metric it belongs to.
             higher_is_better=key not in lower_is_better,
             primary=key == _primary_for_run(benchmark),
-            precision=3,
+            # Four for the primary, three for the rest; runner.py says why, and
+            # local and hosted must print the same digits for the same score.
+            precision=4 if key == _primary_for_run(benchmark) else 3,
             help=help_text.get(key),
             role=roles.get(key),
             relates_to=relations.get(key),

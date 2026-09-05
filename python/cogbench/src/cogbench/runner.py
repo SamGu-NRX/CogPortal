@@ -173,7 +173,10 @@ def _metric(
         unit=None,
         higher_is_better=key not in lower_is_better,
         primary=key == primary_key,
-        precision=3,
+        # The primary is the leaderboard number and teams differ in the fourth
+        # place (0.5375 against 0.5292 on two real week 1 repositories), so it
+        # keeps four; the rest are read for shape, not rank.
+        precision=4 if key == primary_key else 3,
         help=help_text,
     )
 
