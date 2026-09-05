@@ -6,7 +6,7 @@ import { StaticRouter } from "react-router";
 
 (globalThis as typeof globalThis & { React: typeof React }).React = React;
 
-import { QueryError } from "../src/components/Feedback.tsx";
+import { LoadingMark, QueryError } from "../src/components/Feedback.tsx";
 import { ApiRequestError } from "../src/lib/api.ts";
 
 /**
@@ -128,6 +128,21 @@ test("a student without a team is sent to the step that creates one", () => {
   assert.match(html, /TEAM REQUIRED/);
   assert.match(html, /href="\/connect"/);
   assert.doesNotMatch(html, /<button/);
+});
+
+test("a loading mark says nothing about elapsed time before the wait is long", () => {
+  // renderToStaticMarkup runs no effects, so this is the mark exactly as a
+  // student sees it for the first three seconds: the label and an ellipsis,
+  // unchanged. The ticking counter needs fake timers and a DOM, neither of
+  // which this suite has; what is pinned here is that a fast load never shows
+  // a number.
+  const html = renderToStaticMarkup(
+    React.createElement(LoadingMark, { label: "Reading commits and runs" }),
+  );
+
+  assert.match(html, /Reading commits and runs…/);
+  assert.doesNotMatch(html, / s</);
+  assert.doesNotMatch(html, /·/);
 });
 
 test("no rendered state uses an em dash", () => {

@@ -173,6 +173,54 @@ test("every state a student reads follows the portal voice", () => {
   }
 });
 
+test("no two kinds put the same words on the screen", () => {
+  // The grouping only pays for itself if a student can tell the groups apart.
+  // Every code that lands on "fault" shares a label by design, and the sentence
+  // that separates those is the server's, so the claim is about kinds: pick one
+  // representative code per kind and compare everything the student actually
+  // reads. Merging any two of these back together would show up here.
+  const byKind = new Map<string, string>();
+  const samples = [
+    new ApiRequestError("network", "unused", 0),
+    new ApiRequestError("not_found", "unused", 404),
+    new ApiRequestError("unauthorized", "unused", 401),
+    new ApiRequestError("no_team", "unused", 403),
+    new ApiRequestError("provider_unconfigured", "The backend is unconfigured.", 500),
+  ];
+
+  for (const error of samples) {
+    const state = queryErrorState(error);
+    const read = [
+      state.presentation,
+      state.tone,
+      state.label ?? "",
+      state.message,
+      state.nextStep ?? "",
+      state.retry ? "retry" : "",
+      state.link ? `${state.link.text} -> ${state.link.to}` : "",
+    ].join(" | ");
+    for (const [kind, other] of byKind) {
+      assert.notEqual(read, other, `${state.kind} reads exactly like ${kind}`);
+    }
+    byKind.set(state.kind, read);
+  }
+
+  assert.equal(byKind.size, 5);
+});
+
+test("the three onboarding states each name their own missing step", () => {
+  // no_cohort, no_team, and forbidden all map to "elsewhere", which is the one
+  // place two states could collapse into the same screen without the kind
+  // check above noticing.
+  const states = ["no_cohort", "no_team", "forbidden"].map((code) =>
+    queryErrorState(new ApiRequestError(code as "no_team", "unused", 403)),
+  );
+
+  assert.equal(new Set(states.map((s) => s.label)).size, 3);
+  assert.equal(new Set(states.map((s) => s.message)).size, 3);
+  assert.equal(new Set(states.map((s) => s.link?.to)).size, 3);
+});
+
 test("a label names the situation instead of repeating COULD NOT LOAD", () => {
   const labels = new Set(
     [

@@ -15,6 +15,7 @@ export function FailureCard({
   mode,
   benchmarkId,
   module,
+  collapsed = false,
 }: {
   failure: RunFailure;
   mode: RunMode;
@@ -22,8 +23,23 @@ export function FailureCard({
   /** Undefined until the benchmark list resolves; the base copy is true for
    *  every module, so rendering without it is correct, just less specific. */
   module?: Module;
+  /** A run that carries a refusal has a card of its own that says how far the
+   *  search got, in the team's own function names. Beside it this card's title,
+   *  explanation, and corrective action are the generic form of the same
+   *  event, so it collapses to the three facts the refusal does not carry:
+   *  which failure this is, which mode the run was in, and what it cost. */
+  collapsed?: boolean;
 }) {
   const copy = resolveFailureCopy(failure.category, { benchmarkId, module });
+
+  if (collapsed) {
+    return (
+      <span className="font-mono text-[12.5px] text-ink-secondary">
+        {copy.code} · {mode} · attempt{" "}
+        {failure.consumedAttempt ? "consumed" : "not consumed"}
+      </span>
+    );
+  }
 
   return (
     <Panel

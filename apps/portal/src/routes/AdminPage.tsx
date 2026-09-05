@@ -8,7 +8,11 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useRef, useState } from "react";
-import type { AdminTeamSummary } from "@cogworks/contracts/schema";
+import {
+  OFFICIAL_LIMIT,
+  PRACTICE_LIMIT,
+  type AdminTeamSummary,
+} from "@cogworks/contracts/schema";
 import { Button } from "@/components/Button";
 import { ConfirmButton } from "@/components/ConfirmButton";
 import { EmptyState } from "@/components/EmptyState";
@@ -30,8 +34,11 @@ import {
 } from "@/lib/queries";
 
 /**
- * Staff console — deliberately small (plan): join code, enrollment toggle,
- * teams with members and quota, unassigned students. Nothing else.
+ * The triage console. Ten TAs cannot read forty repositories, so this page
+ * answers one question per row: has the platform run anything for this team
+ * yet, and how much. TEAMS comes first because that is the question; the join
+ * code, the roster, and the unassigned list are the owner's housekeeping and
+ * sit below it.
  */
 export function AdminPage() {
   const overview = useAdminOverview();
@@ -46,21 +53,16 @@ export function AdminPage() {
   }
 
   const { cohort, teams, unassigned } = overview.data;
+  const isOwner = overview.data.scope === "owner";
 
   return (
     <div className="anim-rise mx-auto w-full max-w-2xl py-12">
-      <p className="u-kicker">{overview.data.scope === "owner" ? "Admin" : "TA workspace"}</p>
+      <p className="u-kicker">{isOwner ? "Admin" : "TA workspace"}</p>
       <h1 className="mt-1 text-3xl">{cohort.name}</h1>
-
-      {overview.data.scope === "owner" && cohort.joinCode ? (
-        <CohortPanel cohort={{ ...cohort, joinCode: cohort.joinCode }} />
-      ) : null}
-
-      {overview.data.scope === "owner" ? <StaffPanel /> : null}
 
       <Panel
         label="TEAMS"
-        className="mt-4"
+        className="mt-8"
         aside={
           <span className="u-tnum font-mono text-[11px] text-ink-faint">
             {teams.length}
@@ -71,45 +73,115 @@ export function AdminPage() {
           <EmptyState message="No teams yet." />
         ) : (
           <ul className="divide-y divide-rule-soft">
-            {teams.map((team) => (
-              <TeamRow key={team.id} team={team} canAssignTas={overview.data.scope === "owner"} />
+            {triageOrder(teams).map((team) => (
+              <TeamRow key={team.id} team={team} canAssignTas={isOwner} />
             ))}
           </ul>
         )}
       </Panel>
 
-      {overview.data.scope === "owner" ? (
-        <Panel
-          label="UNASSIGNED STUDENTS"
-          className="mt-4"
-          aside={
-            <span className="u-tnum font-mono text-[11px] text-ink-faint">
-              {unassigned.length}
-            </span>
-          }
-        >
-          {unassigned.length === 0 ? (
-            <EmptyState message="Everyone in the cohort has a team." />
-          ) : (
-            <>
-              <ul className="divide-y divide-rule-soft">
-                {unassigned.map((student) => (
-                  <UnassignedRow
-                    key={student.login}
-                    student={student}
-                    teams={teams.map((team) => ({ id: team.id, name: team.name }))}
-                  />
-                ))}
-              </ul>
-              <p className="mt-3 text-[12px] text-ink-faint">
-                Assigning here places the student on the team's roster. They
-                still need collaborator access to the team's fork to push.
-              </p>
-            </>
-          )}
-        </Panel>
+      {isOwner ? <UnassignedPanel unassigned={unassigned} teams={teams} /> : null}
+
+      {isOwner && cohort.joinCode ? (
+        <CohortPanel cohort={{ ...cohort, joinCode: cohort.joinCode }} />
       ) : null}
+
+      {isOwner ? <StaffPanel /> : null}
     </div>
+  );
+}
+
+/* ── What a row says about a team ──────────────────────────────────────── */
+
+function hostedRuns(team: AdminTeamSummary): number {
+  return team.practiceUsed + team.officialUsed;
+}
+
+/**
+ * The state phrase, which is the column a TA sweeps down.
+ *
+ * AdminTeamSummary (packages/contracts/src/schema.ts:1067) carries run counts
+ * and no run timestamps, so the phrase can say how much has happened but not
+ * when. "last run 2 h ago · failed at score" needs a last-run field on that
+ * contract, and this lane may not add one; until it exists the honest phrase
+ * is the count.
+ */
+function runState(team: AdminTeamSummary): string {
+  const total = hostedRuns(team);
+  if (total === 0) return "no hosted runs";
+  return `${total} run${total === 1 ? "" : "s"}`;
+}
+
+/**
+ * A team the platform has never run for is the row a TA has to act on, so it
+ * sorts first. Aging the rest by their last run needs the field the contract
+ * does not carry, so they stay alphabetical, which is at least an order a TA
+ * can predict between visits.
+ */
+function triageOrder(teams: AdminTeamSummary[]): AdminTeamSummary[] {
+  return [...teams].sort((left, right) => {
+    const leftIdle = hostedRuns(left) === 0;
+    const rightIdle = hostedRuns(right) === 0;
+    if (leftIdle !== rightIdle) return leftIdle ? -1 : 1;
+    return left.name.localeCompare(right.name);
+  });
+}
+
+/* ── Unassigned students ───────────────────────────────────────────────── */
+
+/**
+ * The panel holds the result of an assignment rather than the row, because a
+ * successful add takes the student out of this list: the row that made the
+ * request is unmounted before it could report anything.
+ */
+function UnassignedPanel({
+  unassigned,
+  teams,
+}: {
+  unassigned: { login: string; name: string | null; joinedAt: number | null }[];
+  teams: AdminTeamSummary[];
+}) {
+  // seq remounts the line on every success, so a second assignment to the same
+  // team is acknowledged rather than looking like the first one is still up.
+  const [assigned, setAssigned] = useState<{ team: string; seq: number } | null>(null);
+  const options = teams.map((team) => ({ id: team.id, name: team.name }));
+
+  return (
+    <Panel
+      label="UNASSIGNED STUDENTS"
+      className="mt-4"
+      aside={
+        <span className="u-tnum font-mono text-[11px] text-ink-faint">
+          {unassigned.length}
+        </span>
+      }
+    >
+      {unassigned.length === 0 ? (
+        <EmptyState message="Everyone in the cohort has a team." />
+      ) : (
+        <ul className="divide-y divide-rule-soft">
+          {unassigned.map((student) => (
+            <UnassignedRow
+              key={student.login}
+              student={student}
+              teams={options}
+              onAssigned={(team) =>
+                setAssigned((prev) => ({ team, seq: (prev?.seq ?? 0) + 1 }))
+              }
+            />
+          ))}
+        </ul>
+      )}
+      {assigned ? (
+        // The portal only claims what it can see, and the add response
+        // (worker/routes/admin.ts:379) is the portal's own roster: it says
+        // nothing about collaborator access on the fork, so this line does
+        // not either.
+        <p key={assigned.seq} role="status" className="anim-rise mt-3 text-[12.5px] text-ink-secondary">
+          Added to {assigned.team}.
+        </p>
+      ) : null}
+    </Panel>
   );
 }
 
@@ -148,12 +220,6 @@ function StaffPanel() {
         ) : null
       }
     >
-      <p className="mb-3 text-[12px] leading-relaxed text-ink-faint">
-        Staff see every team's runs and the TA workspace. Logins are matched
-        without regard to capitalization, and a login can be added before that
-        person has ever signed in.
-      </p>
-
       {roster.isPending ? (
         <LoadingMark label="Loading roster" />
       ) : roster.isError ? (
@@ -179,7 +245,7 @@ function StaffPanel() {
           )}
 
           {roster.data.entries.length === 0 ? (
-            <EmptyState message="No staff added yet. Owners already have access; add a GitHub login below to give someone else the same view." />
+            <EmptyState message="No staff added yet. Add a GitHub login below." />
           ) : (
             <ul className="divide-y divide-rule-soft">
               {roster.data.entries.map((entry) => (
@@ -259,9 +325,11 @@ function StaffPanel() {
 function UnassignedRow({
   student,
   teams,
+  onAssigned,
 }: {
   student: { login: string; name: string | null; joinedAt: number | null };
   teams: { id: string; name: string }[];
+  onAssigned: (teamName: string) => void;
 }) {
   const add = useAdminAddMember();
 
@@ -287,7 +355,12 @@ function UnassignedRow({
           value=""
           disabled={add.isPending || teams.length === 0}
           onChange={(e) => {
-            if (e.target.value) add.mutate({ teamId: e.target.value, login: student.login });
+            const team = teams.find((option) => option.id === e.target.value);
+            if (!team) return;
+            add.mutate(
+              { teamId: team.id, login: student.login },
+              { onSuccess: () => onAssigned(team.name) },
+            );
           }}
           className="h-8 cursor-pointer border border-rule bg-paper-sunken px-2 font-mono text-[11px] tracking-[0.04em] text-ink-secondary uppercase transition-colors duration-150 hover:border-ink-secondary hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
         >
@@ -433,8 +506,18 @@ function TeamRow({ team, canAssignTas }: { team: AdminTeamSummary; canAssignTas:
             {team.repoFullName}
           </span>
         </span>
+        {/* The column a TA sweeps. Full ink on a team the platform has never
+            run for, faint on the rest, so forty rows resolve to the handful
+            worth opening without reading a single number. */}
+        <span
+          className={`font-mono text-[11px] ${
+            hostedRuns(team) === 0 ? "text-ink" : "text-ink-faint"
+          }`}
+        >
+          {runState(team)}
+        </span>
         <span className="u-tnum font-mono text-[11px] text-ink-secondary">
-          {team.practiceUsed}/10 · {team.officialUsed}/3
+          {team.practiceUsed}/{PRACTICE_LIMIT} · {team.officialUsed}/{OFFICIAL_LIMIT}
           {/* Only when there are any. A team that keeps hitting real
               infrastructure trouble and a team whose submission provokes the
               same platform-side failure both show up here, and both are worth
@@ -445,9 +528,6 @@ function TeamRow({ team, canAssignTas }: { team: AdminTeamSummary; canAssignTas:
               {team.refundsGiven} refunded
             </span>
           ) : null}
-        </span>
-        <span className="u-tnum font-mono text-[13px] font-medium text-ink">
-          {team.publishedScore != null ? team.publishedScore.toFixed(3) : "—"}
         </span>
         <motion.span
           aria-hidden="true"
@@ -584,6 +664,16 @@ function TeamRow({ team, canAssignTas }: { team: AdminTeamSummary; canAssignTas:
                     .join(" ") || "Member update failed."}
                 </p>
               )}
+
+              {/* The score is the leaderboard's business, not triage's: it
+                  told a TA nothing about which team to open, and it took the
+                  row's widest column to say it. Down here it is a footnote on
+                  the team already being read. */}
+              <p className="u-tnum mt-3 border-t border-rule-soft pt-2 font-mono text-[11px] text-ink-faint">
+                {team.publishedScore != null
+                  ? `Published score ${team.publishedScore.toFixed(3)}`
+                  : "Nothing published yet"}
+              </p>
             </div>
           </motion.div>
         )}

@@ -32,10 +32,10 @@ import {
   useSession,
   useStartPractice,
 } from "@/lib/queries";
-import { STATUS_LABELS } from "@/lib/run-meta";
+import { PHASE_LABELS, STATUS_LABELS } from "@/lib/run-meta";
 
 /**
- * Run detail (plan §8): the phase rail, then exactly one of — live progress,
+ * Run detail (plan §8): the phase rail, then exactly one of: live progress,
  * a failure with its corrective action, or results with the next meaningful
  * action (promote / publish). Practice runs show capped logs; official runs
  * show aggregate metrics and safe diagnostics only.
@@ -165,17 +165,35 @@ export function RunDetailPage() {
       {/* ── Failure ── */}
       {run.failure && failureCopy && (
         <div className="mt-4 space-y-4">
-          <FailureCard
-            failure={run.failure}
-            mode={run.mode}
-            benchmarkId={run.benchmarkId}
-            module={runModule}
-          />
-          {/* Under the failure card, because the card says which phase
-              stopped and this says why. Only for a run that failed for want
-              of code to score; every other failure has a traceback, and the
-              log is where that belongs. */}
-          {run.refusal && <RefusalCard refusal={run.refusal} />}
+          {/* A refusal is written in the team's own function names and module
+              names, and the failure card beside it is the same event in the
+              generic. So the refusal leads and the card collapses to the three
+              things it alone carries: which failure, which mode, what it cost.
+              Every other failure has a traceback, keeps its full card, and
+              sends the reader to the log. */}
+          {run.refusal ? (
+            <RefusalCard
+              refusal={run.refusal}
+              benchmarkId={run.benchmarkId}
+              stage={PHASE_LABELS[run.failure.phase]}
+              aside={
+                <FailureCard
+                  failure={run.failure}
+                  mode={run.mode}
+                  benchmarkId={run.benchmarkId}
+                  module={runModule}
+                  collapsed
+                />
+              }
+            />
+          ) : (
+            <FailureCard
+              failure={run.failure}
+              mode={run.mode}
+              benchmarkId={run.benchmarkId}
+              module={runModule}
+            />
+          )}
           {run.mode === "practice" && failureCopy.retryable && (
             <Button
               variant="ghost"
@@ -342,8 +360,8 @@ export function RunDetailPage() {
           ) : (
             <>
               <p className="max-w-prose text-[14px] text-ink-secondary">
-                Publishes this run as your team's public result. You can switch
-                to another successful official run at any time, at no cost.
+                You can switch to another successful official run at any time,
+                at no cost.
               </p>
               <ConfirmButton
                 variant="primary"

@@ -15,7 +15,6 @@ import { LoadingMark, QueryError } from "@/components/Feedback";
 import { GrantAccess } from "@/components/GrantAccess";
 import { RepoPicker } from "@/components/RepoPicker";
 import { Veil } from "@/components/Veil";
-import { WalkthroughVideo } from "@/components/WalkthroughVideo";
 import { ApiRequestError } from "@/lib/api";
 import { EASE_OUT } from "@/lib/motion";
 import {
@@ -27,9 +26,6 @@ import {
 } from "@/lib/queries";
 
 const JOIN_TEAMS_VISIBLE = 5;
-
-// TODO: Set the versioned asset base after the onboarding-media exports land.
-const GITHUB_TEAM_VIDEO: string | null = null;
 
 type WizardStep = "choice" | "join" | "start";
 
@@ -99,11 +95,7 @@ export function ConnectPage() {
         {step === "choice" ? (
           <>
             <h1 className="text-3xl">Set up your team</h1>
-            <p className="mt-2 text-[14px] text-ink-secondary">
-              You do this once. The repository is the team; everyone with
-              write access shares its attempts.
-            </p>
-            <div className="mt-8 space-y-3">
+            <div className="mt-7 space-y-3">
               <ChoiceCard
                 onSelect={() => setChosen("join")}
                 label="Join a team"
@@ -120,10 +112,6 @@ export function ConnectPage() {
           <>
             {back}
             <h1 className="text-3xl">Join your team</h1>
-            <p className="mt-2 text-[14px] text-ink-secondary">
-              Joining checks your GitHub access to the team's fork;
-              collaborators get in instantly.
-            </p>
             <div className="mt-7">
               <JoinPath teams={teams} join={join} />
             </div>
@@ -133,13 +121,13 @@ export function ConnectPage() {
             {back}
             <h1 className="text-3xl">Start a team</h1>
             <p className="mt-2 text-[14px] text-ink-secondary">
-              Your team runs from a public fork of{" "}
+              Fork{" "}
               {session?.auth.templateRepo ? (
                 <code className="text-[12.5px] text-ink">{session.auth.templateRepo}</code>
               ) : (
                 "the course template"
               )}
-              . Fork it, connect it, and the team exists.
+              , keep it public, connect it here.
             </p>
             {teamsUnknown && (
               <div className="mt-6">
@@ -215,8 +203,7 @@ function JoinPath({
     if (join.isPending) return;
     setJoiningId(team.id);
     join.mutate(team.id, {
-      onSuccess: () =>
-        navigate("/setup", { replace: true, state: { entry: "joined" } }),
+      onSuccess: () => navigate("/setup", { replace: true }),
     });
   };
 
@@ -249,10 +236,6 @@ function JoinPath({
           {folded.map(card)}
         </Veil>
       )}
-      <p className="mt-4 text-[12.5px] text-ink-faint">
-        Not a collaborator on the fork yet? Ask a teammate to add you on
-        GitHub, or the team's creator can add you from Team settings.
-      </p>
     </div>
   );
 }
@@ -372,19 +355,12 @@ function StartPath({ connect }: { connect: ReturnType<typeof useConnectRepo> }) 
     if (creating && !teamName.trim()) return;
     connect.mutate(
       { fullName: selected.fullName, teamName: creating ? teamName.trim() : undefined },
-      {
-        onSuccess: () =>
-          navigate("/setup", {
-            replace: true,
-            state: { entry: creating ? "created" : "joined" },
-          }),
-      },
+      { onSuccess: () => navigate("/setup", { replace: true }) },
     );
   };
 
   return (
     <form onSubmit={submit}>
-      <OrganizationPrimer />
       {repos.isPending ? (
         <LoadingMark label="Listing repositories" />
       ) : repos.isError ? (
@@ -448,55 +424,6 @@ function StartPath({ connect }: { connect: ReturnType<typeof useConnectRepo> }) 
   );
 }
 
-function OrganizationPrimer() {
-  return (
-    <aside className="mb-6 border border-rule bg-paper-sunken px-4 py-4" aria-labelledby="org-primer-title">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <div>
-          <p className="u-kicker">Recommended team home</p>
-          <h2 id="org-primer-title" className="mt-1 font-serif text-[17px] font-semibold text-ink">
-            Use a free GitHub organization
-          </h2>
-        </div>
-        <a
-          href="https://github.com/organizations/plan"
-          target="_blank"
-          rel="noreferrer"
-          className="u-pressable inline-flex min-h-9 items-center gap-1.5 font-mono text-[11px] tracking-[0.07em] text-ink-secondary uppercase underline decoration-rule underline-offset-4 hover:text-ink hover:decoration-ink"
-        >
-          Create organization
-          <HugeiconsIcon icon={ArrowUpRight01Icon} size={13} strokeWidth={1.8} aria-hidden="true" />
-        </a>
-      </div>
-      {/* Collapsed on purpose. This used to be a numbered 01/02/03 list sitting
-          directly above the required fork protocol, which also starts at 01 and
-          also says "fork". Two numbered sequences on one screen, sharing a verb
-          and disagreeing about the destination, read as one broken sequence. */}
-      <details className="mt-3 text-[12.5px] leading-relaxed text-ink-secondary">
-        <summary className="u-pressable cursor-pointer text-ink-secondary hover:text-ink">
-          Teams of two or more: fork into a free GitHub organization so no one's
-          personal account owns the team.
-        </summary>
-        <ol className="mt-3 grid gap-2 sm:grid-cols-3">
-          <li><span className="font-mono text-[10px] text-ink-faint">01</span><br />Create the organization and keep the free plan.</li>
-          <li><span className="font-mono text-[10px] text-ink-faint">02</span><br />Invite teammates; keep two owners for recovery.</li>
-          <li><span className="font-mono text-[10px] text-ink-faint">03</span><br />Fork the starter into that organization.</li>
-        </ol>
-      </details>
-      {GITHUB_TEAM_VIDEO && (
-        <WalkthroughVideo
-          base={GITHUB_TEAM_VIDEO}
-          title="Create the team organization and fork the starter on GitHub"
-          caption="The same three steps, recorded."
-        />
-      )}
-      <p className="mt-3 text-[11.5px] text-ink-faint">
-        Working alone? A personal fork is supported. The organization is a recommendation, not a gate.
-      </p>
-    </aside>
-  );
-}
-
 /** Empty state as protocol, not apology: three short steps to a fork, with
  *  the fork itself one click away. */
 function ForkSteps({
@@ -518,8 +445,7 @@ function ForkSteps({
         <li className="flex flex-wrap items-center gap-4 px-5 py-3.5">
           <span className="font-mono text-[11px] text-ink-faint">01</span>
           <span className="flex-1 text-[13.5px] text-ink-secondary">
-            Fork the template on GitHub. Keep the fork public; the benchmark
-            runs from it.
+            Fork {template ?? "the course template"}. Keep it public.
           </span>
           {template && (
             <Button
@@ -546,8 +472,7 @@ function ForkSteps({
         <li className="flex items-baseline gap-4 px-5 py-3">
           <span className="font-mono text-[11px] text-ink-faint">02</span>
           <span className="text-[13.5px] text-ink-secondary">
-            Let the app see your fork. Install it on the account your fork
-            lives in, which is the organization if you forked there.
+            Install the app on the account that owns the fork.
             <GrantAccess hasRepos={false} />
           </span>
         </li>
