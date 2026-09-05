@@ -1341,8 +1341,15 @@ def _call(
         inspect.signature(candidate.call).bind(*args, **keywords)
     except (TypeError, ValueError):
         return False, None
-    previous = signal.signal(signal.SIGALRM, _raise_timeout)
-    signal.alarm(CALL_TIMEOUT_SECONDS)
+    # Windows has no SIGALRM. There the per-call clock is not enforced and
+    # a probe that hangs is caught only by the whole-of-discovery wall clock
+    # in `run_isolated`, which Windows also lacks; the CLI already says
+    # discovery is not isolated there. Guarding here keeps the module
+    # importable and the search running on the platforms it can run on.
+    alarm = hasattr(signal, "SIGALRM")
+    previous = signal.signal(signal.SIGALRM, _raise_timeout) if alarm else None
+    if alarm:
+        signal.alarm(CALL_TIMEOUT_SECONDS)
     try:
         # The alarm is cancelled inside the guarded block, not in the outer
         # `finally`. A call that returns just as the clock runs out has the
@@ -1354,13 +1361,15 @@ def _call(
             with _muted():
                 result = candidate.call(*args, **keywords)
         finally:
-            signal.alarm(0)
+            if alarm:
+                signal.alarm(0)
     except BaseException as error:  # noqa: BLE001 - student code raises anything
         _record_raise(candidate, error)
         return False, None
     finally:
-        signal.alarm(0)
-        signal.signal(signal.SIGALRM, previous)
+        if alarm:
+            signal.alarm(0)
+            signal.signal(signal.SIGALRM, previous)
     return True, result
 
 
