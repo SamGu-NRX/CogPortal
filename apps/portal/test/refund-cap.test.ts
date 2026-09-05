@@ -412,6 +412,33 @@ function maintenanceEnv(binding: unknown) {
 }
 
 const STALE_AFTER_MS = 900 * 1_000;
+const QUEUED_STALE_AFTER_MS = 600 * 1_000;
+
+test("a run still queued after ten minutes is failed before the general threshold", async () => {
+  const { db, binding } = freshDb();
+  await seedTeams(db, ["team_a", "team_b"]);
+  await claimedRun(db, {
+    id: "run_11",
+    teamId: "team_a",
+    provider: "modal",
+    status: "queued",
+    createdAt: NOW - QUEUED_STALE_AFTER_MS - 1,
+  });
+  // One active run per team and benchmark, so the alive run is another team's.
+  await claimedRun(db, {
+    id: "run_12",
+    teamId: "team_b",
+    provider: "modal",
+    status: "preparing",
+    createdAt: NOW - QUEUED_STALE_AFTER_MS - 1,
+  });
+
+  await maintainPlatform(maintenanceEnv(binding), NOW);
+
+  assert.equal((await runRow(db, "run_11")).status, "failed");
+  // Past "queued" the sandbox is alive and talking; it keeps the long budget.
+  assert.equal((await runRow(db, "run_12")).status, "preparing");
+});
 
 test("the reaper refunds a stalled official run below the cap", async () => {
   const { db, binding } = freshDb();

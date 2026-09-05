@@ -1,4 +1,4 @@
-import { and, eq, inArray, lt } from "drizzle-orm";
+import { and, eq, inArray, lt, or } from "drizzle-orm";
 import type { RunPhase } from "@cogworks/contracts/schema";
 import type { Env } from "../env";
 import { getDb } from "../db/client";
@@ -20,6 +20,17 @@ const ACTIVE_PHASES: RunPhase[] = [
   "scoring",
 ];
 const DEFAULT_STALE_AFTER_SECONDS = 60 * 60;
+/**
+ * How long a run may sit in "queued" before it is declared dead. Shorter
+ * than the general threshold because a queued run has done nothing yet: the
+ * sandbox's first callback is "preparing", and on 2026-09-04 it arrived 11 s
+ * after dispatch on a run that then took 133 s end to end. A run that has
+ * not said "preparing" after ten minutes lost its dispatch or cannot reach
+ * the portal (both happened that day: a bad User-Agent and a rotated secret),
+ * and an hour of "queued" on the dashboard is an hour a student cannot tell
+ * from a slow run.
+ */
+const QUEUED_STALE_AFTER_SECONDS = 10 * 60;
 
 /**
  * What a stale run says between the terminal update below and the side effects
@@ -62,8 +73,10 @@ export async function maintainPlatform(env: Env, now = Date.now()): Promise<void
     .where(
       and(
         eq(runs.provider, "modal"),
-        inArray(runs.status, ACTIVE_PHASES),
-        lt(runs.createdAt, now - staleAfterMs(env)),
+        or(
+          and(inArray(runs.status, ACTIVE_PHASES), lt(runs.createdAt, now - staleAfterMs(env))),
+          and(eq(runs.status, "queued"), lt(runs.createdAt, now - QUEUED_STALE_AFTER_SECONDS * 1_000)),
+        ),
       ),
     )
     .limit(100);
