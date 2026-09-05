@@ -1061,30 +1061,6 @@ def check_deployed_agrees(origin: str) -> List[Check]:
             )
         ]
 
-    try:
-        from cogbench.plugins import load_benchmark, plugin_names
-    except Exception as error:  # noqa: BLE001
-        return [
-            unknown(
-                "deployed benchmarks",
-                "cogbench could not be imported: {}".format(str(error)[:120]),
-                "Use an interpreter with the benchmark packages; "
-                "scripts/make_test_env.py builds one.",
-            )
-        ]
-
-    installed_plugins = set(plugin_names("cogworks.benchmarks.v1"))
-    installed_plugins.update(plugin_names("cogworks.benchmarks.v2"))
-    if not installed_plugins:
-        return [
-            unknown(
-                "deployed benchmarks",
-                "no benchmark plugins are installed in this interpreter",
-                "Use scripts/make_test_env.py to install the benchmark packages "
-                "before comparing deployed rows with local plugins.",
-            )
-        ]
-
     # The five fields the runner compares at contract_check, in the shape the
     # public API reports them.
     wire = {
@@ -1107,6 +1083,35 @@ def check_deployed_agrees(origin: str) -> List[Check]:
         for identifier, row in deployed.items()
         if row.get("active", True)
     }
+    if not live:
+        return []
+
+    try:
+        from cogbench.plugins import load_benchmark, plugin_names
+
+        installed_plugins = set(plugin_names("cogworks.benchmarks.v1"))
+        installed_plugins.update(plugin_names("cogworks.benchmarks.v2"))
+    except Exception as error:  # noqa: BLE001
+        return [
+            unknown(
+                "deployed benchmarks",
+                "cogbench could not inspect local plugins: {}".format(
+                    str(error)[:120]
+                ),
+                "Use an interpreter with the benchmark packages; "
+                "scripts/make_test_env.py builds one.",
+            )
+        ]
+
+    if not installed_plugins:
+        return [
+            unknown(
+                "deployed benchmarks",
+                "no benchmark plugins are installed in this interpreter",
+                "Use scripts/make_test_env.py to install the benchmark packages "
+                "before comparing deployed rows with local plugins.",
+            )
+        ]
 
     checks: List[Check] = []
     for identifier in sorted(live):

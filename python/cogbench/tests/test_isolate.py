@@ -14,6 +14,7 @@ from cogbench.isolate import (  # noqa: E402
     CRASHED,
     RAISED,
     TIMED_OUT,
+    _original_command,
     run_isolated,
 )
 
@@ -202,6 +203,19 @@ class DiscoveryRunsUnderASeedSomebodyChose(unittest.TestCase):
             self.assertIsNone(seed)
         else:
             self.assertEqual(seed, os.environ.get("PYTHONHASHSEED", "0"))
+
+    def test_python_38_rebuilds_a_module_invocation(self):
+        from unittest.mock import patch
+
+        main = str(
+            ROOT / "python" / "cogbench" / "src" / "cogbench" / "__main__.py"
+        )
+        with patch.object(sys, "orig_argv", None, create=True), patch.object(
+            sys, "argv", [main, "--version"]
+        ), patch.object(sys, "executable", "/python3.8"):
+            command = _original_command()
+
+        self.assertEqual(command, ["/python3.8", "-m", "cogbench", "--version"])
 
     def test_pinning_is_a_no_op_once_the_seed_is_already_fixed(self):
         """A run that is already reproducible must not restart itself.

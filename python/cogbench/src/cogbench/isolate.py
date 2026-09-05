@@ -131,18 +131,25 @@ def _original_command() -> Optional[list]:
     tried, and both produced a re-execution that failed rather than a run
     with a pinned seed.
 
-    ``sys.orig_argv`` is the real thing and exists from Python 3.10. Below
-    that there is no way to reconstruct a ``-m`` or ``-c`` invocation, so
-    this returns None for anything but a plain script and the run stays
-    unpinned, which the record then says.
+    ``sys.orig_argv`` is the real thing and exists from Python 3.10. On
+    Python 3.8, a ``-m`` invocation can still be identified by its
+    ``__main__.py`` path and rebuilt from this module's package. A ``-c``
+    invocation remains unknowable, so it returns None and stays unpinned.
     """
 
     original = getattr(sys, "orig_argv", None)
     if original:
         return list(original)
-    if sys.argv and sys.argv[0] and not sys.argv[0].startswith("-"):
-        return [sys.executable] + list(sys.argv)
-    return None
+    if not sys.argv or not sys.argv[0] or sys.argv[0].startswith("-"):
+        return None
+    if Path(sys.argv[0]).name == "__main__.py":
+        package = getattr(globals().get("__spec__"), "parent", None)
+        if not package:
+            package = Path(sys.argv[0]).parent.name
+        if not package:
+            return None
+        return [sys.executable, "-m", package] + list(sys.argv[1:])
+    return [sys.executable] + list(sys.argv)
 
 
 def ensure_pinned_hash_seed(command: Optional[list] = None) -> bool:

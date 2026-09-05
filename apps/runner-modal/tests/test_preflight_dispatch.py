@@ -468,8 +468,7 @@ class DeployedDriftIsCaught(unittest.TestCase):
         # No check at all for a retired row, whether or not the plugins are
         # importable here: a row nobody can start a run against is not part
         # of the comparison.
-        self.assertEqual([c for c in checks if c.status == FAIL], [])
-        self.assertNotIn("audio-recognition", " ".join(c.name for c in checks))
+        self.assertEqual(checks, [])
 
     def test_without_the_plugins_it_says_unknown_rather_than_guessing(self):
         """A comparison needs both sides. Missing the local one is a fact
@@ -490,6 +489,28 @@ class DeployedDriftIsCaught(unittest.TestCase):
         finally:
             plugins._entry_points = original
         self.assertEqual(checks[0].status, UNKNOWN)
+
+    def test_plugin_discovery_failure_is_unknown(self):
+        import cogbench.plugins as plugins
+
+        original = plugins._entry_points
+
+        def fail(_group):
+            raise RuntimeError("broken metadata")
+
+        plugins._entry_points = fail
+        try:
+            checks = self._deployed(
+                '[{"id":"vision-clustering","version":1,"active":true, '
+                '"contractVersion":"v1","pluginVersion":"0.1.0",'
+                '"datasetVersion":"practice-v1","scorerVersion":"1"}]',
+                None,
+            )
+        finally:
+            plugins._entry_points = original
+
+        self.assertEqual(checks[0].status, UNKNOWN)
+        self.assertIn("broken metadata", checks[0].reason)
 
     def test_an_unreachable_origin_is_unknown_rather_than_failed(self):
         """Reachability is not the dispatch path. Reporting it as a failure

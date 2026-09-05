@@ -237,8 +237,12 @@ def run_prepare(url: str, benchmark_id: str = "language-search", weights=None) -
     root = Path(directory)
     # Rewrite /tmp first. Linux creates this fixture under /tmp, so doing it
     # second also rewrites the workspace path inserted by the first replacement.
-    body = SCRIPT.replace('"/tmp/', '"{}/'.format(root)).replace(
-        'pathlib.Path("/workspace")', 'pathlib.Path("{}/workspace")'.format(root)
+    # Forward slashes keep a Windows path from adding Python escape sequences
+    # such as \U to the generated source.
+    source_root = root.as_posix()
+    body = SCRIPT.replace('"/tmp/', '"{}/'.format(source_root)).replace(
+        'pathlib.Path("/workspace")',
+        'pathlib.Path("{}/workspace")'.format(source_root),
     )
     script = root / "prepare.py"
     script.write_text(body, encoding="utf-8")

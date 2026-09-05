@@ -770,6 +770,9 @@ class SurveyIsolationTests(unittest.TestCase):
         self.assertTrue(result.looked)
         self.assertEqual(result.module_names, [])
 
+    @unittest.skipUnless(
+        hasattr(os, "fork"), "requires os.fork process isolation"
+    )
     def test_a_repository_whose_reader_dies_says_so_rather_than_saying_empty(self):
         """os.abort() stands in for the real case: one repository's audio
         helper loads a second copy of a native backend and the interpreter
@@ -785,6 +788,9 @@ class SurveyIsolationTests(unittest.TestCase):
         self.assertTrue(result.record.get("unread"))
         self.assertNotEqual(result.status, "ok")
 
+    @unittest.skipUnless(
+        hasattr(os, "fork"), "requires os.fork process isolation"
+    )
     def test_what_was_read_before_the_death_survives_the_process_boundary(self):
         """Twenty files read successfully must not cost nothing because the
         twenty-first ended the process."""
@@ -803,6 +809,9 @@ class SurveyIsolationTests(unittest.TestCase):
         self.assertEqual(reasons.get("b_missing"), "missing_dependency")
         self.assertIn("z_fatal", str(result.record.get("endedWhileReading", "")))
 
+    @unittest.skipUnless(
+        hasattr(os, "fork"), "requires os.fork process isolation"
+    )
     def test_the_two_outcomes_do_not_render_as_the_same_sentence(self):
         from cogbench.report import render_survey
 
