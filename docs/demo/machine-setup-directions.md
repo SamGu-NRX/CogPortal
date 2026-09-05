@@ -56,6 +56,16 @@ tab 2 as well.
 **Tab 2, the spare.** Same directory, same virtualenv, for anything that goes
 wrong. Keep it behind tab 1.
 
+Then, still in tab 2, point the tool at the site:
+
+    cogworks link --portal https://cogportal-dev.sillion.app
+
+It prints a URL and a code and opens a browser page headed "Approve device".
+Stop there and tell Sam to press Approve himself; it needs his signed-in
+session. Once he has, `cogworks status` prints
+`Portal   https://cogportal-dev.sillion.app`. Without this, `cogworks sync`
+in the demo posts to a local portal that is not running.
+
 ## 2. Editor
 
 Open the demo clone in Sam's usual editor:
@@ -105,13 +115,19 @@ contributor and the page will say so.
 
 **An audio run must be the most recent run.** The team page reads its stage
 names from the team's latest run, not from the repository. With a vision run
-last, it looks for vision stages in an audio repository and finds nothing. So
-on the dashboard, select the Audio track and click Run practice benchmark, and
-let it finish before the meeting.
+last, it looks for vision stages in an audio repository and finds nothing.
 
-That run is real, not scripted: the site is pointed at the hosted runner on
-Modal. It takes minutes rather than seconds. If it fails, tell Sam immediately
-and say the fallback is one configuration change plus a one-minute deploy.
+This was done on 2026-09-04: run 4131 on Song Identification succeeded on the
+hosted runner at 0.5375 in 133 seconds. Open the dashboard and confirm it is
+the top row of the run log. Only if it is missing or failed, select the Audio
+track, click Run practice benchmark, and wait; expect about two and a half
+minutes. If that fails, tell Sam immediately.
+
+**The team page must show people on the stages.** Open the Team page and read
+"Where the work went". It must list the five stages with the eight
+contributors on them. If it instead says the commit history could not be read
+from GitHub, tell Sam to sign out and sign in with GitHub again, then reload
+the page. Do not sign him in or out yourself.
 
 ## 5. Deck
 
@@ -126,8 +142,11 @@ Tell him, in this order:
 1. Whether the demo clone was clean and on `7125804`.
 2. The wall-clock time of the warm-up `check`.
 3. Which repository the team page is connected to.
-4. Whether the audio practice run finished, and its score.
-5. Anything you could not do.
+4. Whether run 4131 is the top row of the run log with score 0.5375, or what
+   the new run did.
+5. Whether "Where the work went" shows people on the stages.
+6. Whether `cogworks status` names the site as the portal.
+7. Anything you could not do.
 
 ## Do not
 

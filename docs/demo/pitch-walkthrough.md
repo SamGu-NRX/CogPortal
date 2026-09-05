@@ -15,11 +15,13 @@ Do these in order. The order matters and the reason is given.
    contributor, which is why the team page said "only one person has touched"
    every stage.
 
-2. **Start one audio run.** The team page reads the stage names from your
-   team's most recent run, not from the repository, so with a vision run last
-   the page looks for vision stages in an audio repository and finds nothing.
-   One practice run on Song Identification fixes it. Do this before the pitch,
-   not during.
+2. **Check that the audio run is there.** The team page reads the stage names
+   from your team's most recent run, not from the repository, so with a vision
+   run last the page looks for vision stages in an audio repository and finds
+   nothing. Done on 2026-09-04: run 4131 on Song Identification succeeded on
+   the hosted runner at 0.5375, the same number the terminal gives, in 133
+   seconds. If the dashboard no longer shows it as the latest run, start one
+   practice run before the pitch, not during.
 
 3. **Open the terminal in the demo clone** and warm the caches:
 
@@ -30,6 +32,21 @@ Do these in order. The order matters and the reason is given.
 
    The second run of `check` is faster than the first because the resolution is
    memoized per commit. Run it once now so the demo is the fast one.
+
+4. **Link the terminal to the site.** The demo virtualenv is linked to a local
+   portal, so `cogworks sync` would post to the wrong place. Run
+
+   ```sh
+   cogworks link --portal https://cogportal-dev.sillion.app
+   ```
+
+   and approve the device in the browser where you are signed in. Afterwards
+   `cogworks status` prints `Portal   https://cogportal-dev.sillion.app`.
+
+5. **Open the team page once.** If "Where the work went" says the commit
+   history could not be read from GitHub, sign out, sign in with GitHub again,
+   and reload. The cached answer was cleared tonight, so the first visit
+   computes a fresh one.
 
 ## Act 1: the claim, in a terminal
 
@@ -56,8 +73,8 @@ decided.
 cogworks run --benchmark audio-identification
 ```
 
-Forty seconds to a real score with diagnostics that name which half of the
-pipeline lost the points.
+About twenty-five seconds to a real score with diagnostics that name which
+half of the pipeline lost the points.
 
 ## Act 2: what it says when it cannot
 
@@ -100,9 +117,9 @@ it into a verified one.
 
 ## What to say if asked
 
-- **Is the scoring real?** The terminal scoring is real and is the same code
-  the sandbox runs. Hosted runs on this deployment are scripted unless the
-  Modal provider is switched on.
+- **Is the scoring real?** Yes, on both surfaces, and it is the same code.
+  The demo repository scored 0.5375 in the terminal and 0.5375 on the hosted
+  runner on 2026-09-04; the hosted run took 133 seconds from click to score.
 - **What about cheating?** The official set is hidden, it never enters the
   sandbox that runs student code, and every team gets three official attempts.
 - **What does it cost the course?** No lecture time. Connect a repository and
