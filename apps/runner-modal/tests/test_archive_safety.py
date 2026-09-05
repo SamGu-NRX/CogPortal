@@ -235,9 +235,11 @@ def run_prepare(url: str, benchmark_id: str = "language-search", weights=None) -
 
     directory = tempfile.mkdtemp(prefix="cogworks-archive-")
     root = Path(directory)
-    body = SCRIPT.replace(
+    # Rewrite /tmp first. Linux creates this fixture under /tmp, so doing it
+    # second also rewrites the workspace path inserted by the first replacement.
+    body = SCRIPT.replace('"/tmp/', '"{}/'.format(root)).replace(
         'pathlib.Path("/workspace")', 'pathlib.Path("{}/workspace")'.format(root)
-    ).replace('"/tmp/', '"{}/'.format(root))
+    )
     script = root / "prepare.py"
     script.write_text(body, encoding="utf-8")
     finished = subprocess.run(

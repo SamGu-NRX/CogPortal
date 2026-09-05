@@ -1373,12 +1373,14 @@ class APlatformWithoutForkStillReadsTheRepository(unittest.TestCase):
         self.addCleanup(shutil.rmtree, root, ignore_errors=True)
         (root / "theirs.py").write_text("def solve(x):\n    return x\n")
 
-        real_fork = os.fork
-        del os.fork
+        real_fork = getattr(os, "fork", None)
+        if real_fork is not None:
+            del os.fork
         try:
             found = discover_module.survey(root)
         finally:
-            os.fork = real_fork
+            if real_fork is not None:
+                os.fork = real_fork
 
         self.assertTrue(found.looked)
         self.assertEqual(found.module_names, ["theirs"])

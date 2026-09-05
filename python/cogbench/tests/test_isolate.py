@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -49,6 +50,7 @@ def _leak_a_child():
     return "spawned"
 
 
+@unittest.skipUnless(hasattr(os, "fork"), "requires os.fork process isolation")
 class IsolationTests(unittest.TestCase):
     """Discovery calls functions nobody vetted. It must fail like a CI job."""
 
@@ -165,6 +167,10 @@ class DiscoveryRunsUnderASeedSomebodyChose(unittest.TestCase):
         source = _PROBE_BODY + _SEED_PROBE.format(
             src=str(ROOT / "python" / "cogbench" / "src")
         )
+        directory = tempfile.TemporaryDirectory(prefix="cogbench-seed-probe-")
+        self.addCleanup(directory.cleanup)
+        script = Path(directory.name) / "probe.py"
+        script.write_text(source, encoding="utf-8")
         environment = dict(os.environ)
         # The state a student's machine is in: no seed chosen, so the
         # interpreter picks one. Anything that pins the run has to do it
@@ -172,7 +178,7 @@ class DiscoveryRunsUnderASeedSomebodyChose(unittest.TestCase):
         environment["PYTHONHASHSEED"] = "random"
         environment.pop("COGBENCH_HASH_SEED_PINNED", None)
         done = subprocess.run(
-            [sys.executable, "-c", source],
+            [sys.executable, str(script)],
             capture_output=True,
             text=True,
             env=environment,
@@ -180,6 +186,7 @@ class DiscoveryRunsUnderASeedSomebodyChose(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stderr)
         return done.stdout.strip()
 
+    @unittest.skipUnless(hasattr(os, "fork"), "requires os.fork process isolation")
     def test_four_independent_runs_hash_a_string_the_same_way(self):
         answers = {self._hash_from_a_fresh_process() for _ in range(4)}
 

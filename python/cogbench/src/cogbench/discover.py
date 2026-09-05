@@ -1390,6 +1390,14 @@ def _annotation_only(
         return False
     missing = getattr(error, "name", None)
     if not missing:
+        # NameError.name was added after Python 3.8. The 3.8 runners still
+        # carry the missing identifier in this stable interpreter message.
+        message = str(error)
+        prefix = "name '"
+        suffix = "' is not defined"
+        if message.startswith(prefix) and message.endswith(suffix):
+            missing = message[len(prefix) : -len(suffix)]
+    if not missing:
         return False
     trace = error.__traceback__
     if trace is None:

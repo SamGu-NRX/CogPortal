@@ -68,11 +68,15 @@ DEFAULT_MEMORY_BYTES = 3 * 1024 * 1024 * 1024
 
 #: Signals that mean the interpreter died rather than the code failed.
 _FATAL = {
-    signal.SIGABRT: "aborted",
-    signal.SIGSEGV: "segfaulted",
-    signal.SIGBUS: "hit a bus error",
-    signal.SIGILL: "executed an illegal instruction",
-    signal.SIGFPE: "hit a floating point error",
+    getattr(signal, name): description
+    for name, description in (
+        ("SIGABRT", "aborted"),
+        ("SIGSEGV", "segfaulted"),
+        ("SIGBUS", "hit a bus error"),
+        ("SIGILL", "executed an illegal instruction"),
+        ("SIGFPE", "hit a floating point error"),
+    )
+    if hasattr(signal, name)
 }
 
 

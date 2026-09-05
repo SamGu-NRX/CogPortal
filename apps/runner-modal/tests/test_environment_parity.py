@@ -223,15 +223,20 @@ class EveryImageDrawsToMemory(unittest.TestCase):
                 continue
             name = getattr(node.targets[0], "id", "")
             if name.endswith("_image"):
-                images[name] = ast.unparse(node.value)
+                images[name] = node.value
 
         # The three that run student code. controller_image scores and never
         # imports a submission, so it is out of scope here.
         for name in ("week1_image", "benchmark_image", "week3_image"):
             self.assertIn(name, images, "image {} not found".format(name))
+            strings = {
+                inner.value
+                for inner in ast.walk(images[name])
+                if isinstance(inner, ast.Constant) and isinstance(inner.value, str)
+            }
             self.assertIn(
                 "MPLBACKEND",
-                images[name],
+                strings,
                 "{} runs student code and must pin matplotlib to a backend "
                 "that draws to memory".format(name),
             )

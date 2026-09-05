@@ -537,6 +537,7 @@ class TheChildRunsWithHashingPinned(unittest.TestCase):
     """`cogbench.isolate` is where discovery actually runs, and everything it
     starts inherits the seed it sets."""
 
+    @unittest.skipUnless(hasattr(os, "fork"), "requires os.fork process isolation")
     def test_the_child_environment_pins_the_hash_seed(self):
         from cogbench.isolate import COMPLETED, run_isolated
 

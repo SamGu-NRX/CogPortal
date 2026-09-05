@@ -476,14 +476,19 @@ class DeployedDriftIsCaught(unittest.TestCase):
         about this interpreter, not about the deployed environment, and
         reporting it as drift would send someone to redeploy for no reason."""
 
-        if _plugins_importable():
-            self.skipTest("plugins are importable here")
-        checks = self._deployed(
-            '[{"id":"vision-clustering","version":1,"active":true,'
-            '"contractVersion":"v1","pluginVersion":"0.1.0",'
-            '"datasetVersion":"practice-v1","scorerVersion":"1"}]',
-            None,
-        )
+        import cogbench.plugins as plugins
+
+        original = plugins._entry_points
+        plugins._entry_points = lambda group: []
+        try:
+            checks = self._deployed(
+                '[{"id":"vision-clustering","version":1,"active":true,'
+                '"contractVersion":"v1","pluginVersion":"0.1.0",'
+                '"datasetVersion":"practice-v1","scorerVersion":"1"}]',
+                None,
+            )
+        finally:
+            plugins._entry_points = original
         self.assertEqual(checks[0].status, UNKNOWN)
 
     def test_an_unreachable_origin_is_unknown_rather_than_failed(self):

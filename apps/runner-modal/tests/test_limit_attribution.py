@@ -95,7 +95,10 @@ def classifiers(function_name: str):
                         if len(inner.args) >= 4 and isinstance(inner.args[3], ast.Constant):
                             infrastructure = inner.args[3].value
                         break
-                found.append((category, ast.unparse(statement.test), infrastructure))
+                expression = compile(
+                    ast.Expression(statement.test), "<modal_app classifier>", "eval"
+                )
+                found.append((category, expression, infrastructure))
         return found
     raise AssertionError("{} not found".format(function_name))
 
