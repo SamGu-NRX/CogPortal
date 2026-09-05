@@ -378,8 +378,14 @@ def run_isolated(
 
         os.close(write_fd)
         outcome: Optional[Outcome] = None
-        previous = signal.signal(signal.SIGALRM, _on_alarm)
-        signal.alarm(timeout_seconds)
+        # Windows has neither SIGALRM nor alarm(). Without them the parent
+        # cannot interrupt this pipe read, so it waits until the child exits
+        # or the child's CPU rlimit fires. The no-fork branch above is what
+        # Windows takes; this guard also keeps other limited platforms usable.
+        alarm = hasattr(signal, "SIGALRM") and hasattr(signal, "alarm")
+        previous = signal.signal(signal.SIGALRM, _on_alarm) if alarm else None
+        if alarm:
+            signal.alarm(timeout_seconds)
         try:
             outcome = _read_payload(read_fd)
         except _Alarm:
@@ -387,8 +393,9 @@ def run_isolated(
         except OSError:
             outcome = None
         finally:
-            signal.alarm(0)
-            signal.signal(signal.SIGALRM, previous)
+            if alarm:
+                signal.alarm(0)
+                signal.signal(signal.SIGALRM, previous)
             try:
                 os.close(read_fd)
             except OSError:

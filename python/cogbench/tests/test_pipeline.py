@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shutil
+import signal
 import sys
 import tempfile
 import unittest
@@ -2099,8 +2100,14 @@ class AStudentCallThatReturnsAsTheClockRunsOutIsStillJustANo(unittest.TestCase):
     the cancel left `_call` and ended the whole search. One 2026 repository's
     constructor probe took exactly the ten seconds and did that."""
 
+    @unittest.skipUnless(
+        all(
+            hasattr(signal, name)
+            for name in ("SIGALRM", "ITIMER_REAL", "setitimer", "getitimer")
+        ),
+        "requires SIGALRM and POSIX interval timers",
+    )
     def test_the_timeout_never_leaves_the_call(self):
-        import signal
         from cogbench import pipeline
         from cogbench.pipeline import Candidate, _call
 
