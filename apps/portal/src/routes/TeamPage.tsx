@@ -278,8 +278,11 @@ function MembersPanel({ team }: { team: TeamDetail }) {
       }
     >
       <ul className="divide-y divide-rule-soft">
-        {team.members.map((m) => (
-          <li key={m.login} className="flex items-center gap-3 py-2.5">
+        {team.members.map((m, i) => (
+          // The login is the display name, and two development accounts can
+          // share one (demo@dev.local beside a GitHub "demo"); GitHub logins
+          // are unique, so the index only ever breaks a tie the server made.
+          <li key={`${m.login}:${i}`} className="flex items-center gap-3 py-2.5">
             <MemberAvatar login={m.login} avatarUrl={m.avatarUrl} />
             <span className="min-w-0 flex-1 truncate font-mono text-[13px] text-ink">
               {m.login}
