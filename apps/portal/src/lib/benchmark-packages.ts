@@ -35,7 +35,7 @@ export interface BenchmarkPackage {
  * Reachable on `feat/automatic-discovery`, the branch PR #1 is open from.
  */
 export const COGBENCH_SOURCE =
-  "git+https://github.com/SamGu-NRX/CogPortal.git@097a74409e0f93ecaa6c4dea58229a965dd502a3#subdirectory=python/cogbench";
+  "git+https://github.com/SamGu-NRX/CogPortal.git@7a743f4547d302190557ec674c6d0e8504350700#subdirectory=python/cogbench";
 
 const WEEK1_AUDIO: BenchmarkPackage = {
   distribution: "cogworks-week1-audio-benchmark",
