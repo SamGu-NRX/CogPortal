@@ -20,6 +20,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -39,6 +40,13 @@ class _NoDiscovery:
     """
 
     contract_version = "cogworks.submissions.v2"
+
+
+class _Installed(_NoDiscovery):
+    """The little of a benchmark `_check` reads before it reads a repository."""
+
+    def cache_status(self, tier):
+        return SimpleNamespace(ready=True, path=Path("/tmp"), message="")
 
 
 class _Discoverable:
@@ -155,7 +163,12 @@ class ReadingCannotTakeTheCommandDown(unittest.TestCase):
         def _abort(*_args, **_kwargs):
             os.kill(os.getpid(), signal.SIGSEGV)
 
+        # The benchmark has to load, or `_check` reports that instead and
+        # never reaches the repository. It is installed on a machine set up
+        # for a week and not in the plain CI job, so this stands one in.
         cli._check_view = _abort
+        self.addCleanup(setattr, cli, "load_benchmark", cli.load_benchmark)
+        cli.load_benchmark = lambda *a, **k: _Installed()
         stdout = io.StringIO()
         with redirect_stdout(stdout):
             code = cli._check("audio-identification", False, self.tmp)
