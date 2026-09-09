@@ -178,6 +178,15 @@ def ensure_pinned_hash_seed(command: Optional[list] = None) -> bool:
 
     if not sys.flags.hash_randomization:
         return False
+    if os.name == "nt":
+        # Windows has no exec: `os.execve` starts a second process and ends
+        # this one, so the caller sees an exit code from a process that did
+        # no work. Measured in CI, where `cogworks --version` printed nothing
+        # and exited 1 the first time the job got far enough to run it.
+        # Staying unpinned is a state this function already allows, and a
+        # hosted run is unaffected because its image sets the variable for
+        # every process in the sandbox.
+        return False
     if os.environ.get(_REEXEC_MARK):
         # Already tried and the seed still did not take. Re-executing again
         # would be a loop, and the binding records that it is not pinned.

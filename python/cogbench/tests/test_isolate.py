@@ -310,3 +310,20 @@ class NoBudgetIsAllowed(unittest.TestCase):
         outcome = run_isolated(_segfault, timeout_seconds=None, memory_bytes=None)
         self.assertEqual(outcome.status, CRASHED)
         self.assertIn("segfault", outcome.detail.lower())
+
+
+class WindowsDoesNotReplaceItself(unittest.TestCase):
+    """`os.execve` on Windows starts a second process and ends this one, so
+    the caller reads an exit code from a process that did no work. Measured:
+    `cogworks --version` printed nothing and exited 1."""
+
+    def test_the_entry_point_stays_unpinned_rather_than_re_executing(self):
+        from unittest.mock import patch
+
+        from cogbench.isolate import ensure_pinned_hash_seed
+
+        calls = []
+        with patch.object(os, "name", "nt"), \
+                patch.object(os, "execve", lambda *a: calls.append(a)):
+            self.assertFalse(ensure_pinned_hash_seed(["python", "-m", "cogbench"]))
+        self.assertEqual(calls, [], "nothing was re-executed")
