@@ -377,16 +377,6 @@ class RetryIsSafe(unittest.TestCase):
         )
 
 
-def _execute_job_source() -> str:
-    """`execute_job`'s body as source, without importing modal."""
-
-    module = ast.parse(MODAL_APP.read_text(encoding="utf-8"))
-    for node in module.body:
-        if isinstance(node, ast.FunctionDef) and node.name == "execute_job":
-            return ast.get_source_segment(MODAL_APP.read_text(encoding="utf-8"), node) or ""
-    raise AssertionError("execute_job not found")
-
-
 class ADeliveryFailureIsNotAScoringFailure(unittest.TestCase):
     """Producing a result and delivering it are different problems.
 
@@ -414,23 +404,10 @@ class ADeliveryFailureIsNotAScoringFailure(unittest.TestCase):
             self.assertIn(b'"type":"completed"', body)
             self.assertNotIn(b'"scorer"', body)
 
-    def test_the_completed_callback_is_sent_after_the_scoring_boundary(self):
-        """The behavioral proof needs Modal and a sandbox, so this reads the
-        one structural fact behind it: the handler that writes a `failed`
-        event can no longer see the completed callback raise."""
-
-        source = _execute_job_source()
-        boundary = source.index("except Exception as error:")
-        sends = [
-            index
-            for index in range(len(source))
-            if source.startswith("reporter.event(", index)
-        ]
-        after = [index for index in sends if index > boundary]
-        self.assertTrue(after, "no callback is sent after the scoring boundary")
-        # The one after the boundary is the completed event; the one inside it
-        # is the failed event the handler writes.
-        self.assertIn('"completed"', source[after[-1] : after[-1] + 200])
+    # Where the completed callback sits relative to the scoring handler used
+    # to be asserted here by reading the source. `test_result_durability.py`
+    # runs the real `execute_job` against sentinels instead, which observes
+    # the same guarantee rather than describing it.
 
 
 if __name__ == "__main__":

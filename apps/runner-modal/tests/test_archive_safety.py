@@ -31,6 +31,7 @@ import socketserver
 import subprocess
 import sys
 import tarfile
+import shutil
 import tempfile
 import threading
 import unittest
@@ -222,6 +223,19 @@ class ArchiveServer:
         return "http://127.0.0.1:{}/{}".format(self.server.server_address[1], path)
 
 
+#: Every scratch directory this module makes, emptied when it finishes. A
+#: caller reads the workspace after `run_prepare` returns, so the directory
+#: cannot be removed inside it. Each run left one behind holding a
+#: multi-megabyte zero-filled tarball, and a few full-suite runs were enough to
+#: fill the volume and stop the next one from starting.
+_SCRATCH: list = []
+
+
+def tearDownModule():  # noqa: N802 - unittest's name
+    while _SCRATCH:
+        shutil.rmtree(_SCRATCH.pop(), ignore_errors=True)
+
+
 def run_prepare(url: str, benchmark_id: str = "language-search", weights=None) -> tuple:
     """Run the real prepare script against one URL, in its own directory.
 
@@ -234,6 +248,7 @@ def run_prepare(url: str, benchmark_id: str = "language-search", weights=None) -
     """
 
     directory = tempfile.mkdtemp(prefix="cogworks-archive-")
+    _SCRATCH.append(directory)
     root = Path(directory)
     # Rewrite /tmp first. Linux creates this fixture under /tmp, so doing it
     # second also rewrites the workspace path inserted by the first replacement.

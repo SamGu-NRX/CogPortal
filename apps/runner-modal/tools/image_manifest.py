@@ -105,6 +105,10 @@ def _stub_modules():
     modal.Volume = types.SimpleNamespace(from_name=lambda *_a, **_k: object())
     modal.Dict = types.SimpleNamespace(from_name=lambda *_a, **_k: object())
     modal.Sandbox = types.SimpleNamespace(create=lambda *_a, **_k: object())
+    # Recorded rather than ignored: `execute_job` declares its retry policy as
+    # a `modal.Retries`, and the manifest is where the shape of a function's
+    # configuration is read back.
+    modal.Retries = lambda **kwargs: types.SimpleNamespace(**kwargs)
     modal.is_local = lambda: True
     modal.enter = lambda *_a, **_k: (lambda f: f)
     modal.method = lambda *_a, **_k: (lambda f: f)

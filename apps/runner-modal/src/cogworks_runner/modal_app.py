@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import sys
 import threading
 import time
 import urllib.error
@@ -928,6 +929,48 @@ def _post_event(job: Dict[str, Any], event: Dict[str, Any]) -> None:
         time.sleep(max(retry_after, 0.25 * (2**attempt)))
 
 
+def _job_state(stored: Any) -> Dict[str, Any]:
+    """What `job_store` holds for one job, whatever shape it was written in.
+
+    Earlier deploys wrote a bare status word, and those entries outlive a
+    deploy, so a word is read as a status with nothing else known about it.
+    """
+
+    if isinstance(stored, dict):
+        return stored
+    if isinstance(stored, str):
+        return {"status": stored}
+    return {}
+
+
+def _finish(job: Dict[str, Any], entry: Dict[str, Any]) -> None:
+    """Store a terminal event, send it, and raise only if it did not land.
+
+    Raising is the signal to this function's retry policy, so the rule has to
+    be exact: a job raises when the portal has not heard its outcome, and
+    returns in every other case. A job that reported a student's failure has
+    done its work, and raising there would spend a container start on a retry
+    that can only replay what already arrived.
+    """
+
+    job_store[job["jobId"]] = entry
+    if entry.get("delivered"):
+        return
+    _deliver_terminal(job, entry)
+
+
+def _deliver_terminal(job: Dict[str, Any], entry: Dict[str, Any]) -> None:
+    """Send a stored terminal event, and record that it landed.
+
+    The same event every time. It carries one eventId and one sequence number
+    for its whole life, so the portal collapses a replay through the primary
+    key on run_events rather than applying the result twice.
+    """
+
+    _post_event(job, entry["event"])
+    job_store[job["jobId"]] = {**entry, "delivered": True}
+
+
 class LiveReporter:
     """Serializes idempotent runner callbacks and supplies real elapsed time."""
 
@@ -942,6 +985,18 @@ class LiveReporter:
             sequence = self.sequence
             self.sequence += 1
             _post_event(self.job, _event(self.job, sequence, event_type, **fields))
+
+    def build(self, event_type: str, **fields: Any) -> Dict[str, Any]:
+        """Claim this event's place in the sequence without sending it.
+
+        For a terminal event, which is stored before it is sent so that a
+        delivery which never lands can be replayed instead of lost.
+        """
+
+        with self.lock:
+            sequence = self.sequence
+            self.sequence += 1
+            return _event(self.job, sequence, event_type, **fields)
 
     def status(
         self,
@@ -2338,12 +2393,35 @@ def _sweep_wire(benchmark):
     secrets=[runner_secret],
     volumes={"/hidden": hidden_datasets},
     timeout=3_600,
+    # Modal's own retry policy is the mechanism that replays an outcome the
+    # portal never heard. `_finish` raises when, and only when, a terminal
+    # event failed to land, so a retry is always a redelivery and never a
+    # second scoring run: the guard below returns before any work. Storing the
+    # result made it recoverable; this is what recovers it.
+    #
+    # Five attempts at 10s doubling to a 120s ceiling is about four and a half
+    # minutes. The bound that matters is the portal's stale sweep, which fails
+    # a run that stops reporting after RUN_STALE_AFTER_SECONDS (3600 by
+    # default, maintenance.ts); past that the run is terminal and `applyEvent`
+    # ignores the replay, so the schedule has to finish well inside it.
+    retries=modal.Retries(max_retries=5, initial_delay=10.0, max_delay=120.0),
 )
 def execute_job(job_value: Dict[str, Any]) -> None:
     job = validate_job(job_value)
-    if job_store.get(job["jobId"]) in ("running", "completed"):
+    state = _job_state(job_store.get(job["jobId"]))
+    if state.get("status") == "running":
+        # Another invocation holds this job. A Modal retry never lands here,
+        # because an attempt that reached a terminal event replaced this
+        # status before it raised.
         return
-    job_store[job["jobId"]] = "running"
+    if state.get("event"):
+        # This job already produced its outcome, completed or failed alike.
+        # Send it again if it never landed, and never score a second time: the
+        # result exists, and a second measurement presented as the first is a
+        # claim about the team's code that nothing observed.
+        _finish(job, state)
+        return
+    job_store[job["jobId"]] = {"status": "running"}
     reporter = LiveReporter(job)
     phase = "queued"
     try:
@@ -2427,7 +2505,6 @@ def execute_job(job_value: Dict[str, Any]) -> None:
         if _WIRING:
             result["wiring"] = _WIRING
     except Exception as error:
-        job_store[job["jobId"]] = "failed"
         detail = str(error)[:240]
         refusal = None
         if isinstance(error, RunnerFailure):
@@ -2443,20 +2520,21 @@ def execute_job(job_value: Dict[str, Any]) -> None:
             category = "provider"
             failure_phase = phase
             infrastructure = True
-        try:
-            reporter.event(
-                "failed",
-                failure={
-                    "category": category,
-                    "phase": failure_phase,
-                    "detail": detail,
-                    "infrastructure": infrastructure,
-                    **({"refusal": refusal} if refusal else {}),
-                },
-            )
-        except Exception:
-            pass
-        raise
+        failed = reporter.build(
+            "failed",
+            failure={
+                "category": category,
+                "phase": failure_phase,
+                "detail": detail,
+                "infrastructure": infrastructure,
+                **({"refusal": refusal} if refusal else {}),
+            },
+        )
+        print("run failed: {}".format(detail), file=sys.stderr)
+        _finish(job, {"status": "failed", "event": failed, "delivered": False})
+        # This job is over. Without the return, control left the handler and
+        # ran the completion block below on a `result` that was never built.
+        return
 
     # Outside the boundary on purpose. Producing the result and delivering it
     # are different problems, and they shared that `except`, whose handler maps
@@ -2464,17 +2542,23 @@ def execute_job(job_value: Dict[str, Any]) -> None:
     # portal that would not answer turned a run that scored into a scorer
     # failure: the team's real number was replaced by a claim that our scorer
     # broke, and in official mode that refunds an attempt against a result that
-    # exists. `_post_event` already retries; if it still cannot land, this
-    # raises and the run keeps its last reported phase until the stale reaper
-    # fails it, which is at least true.
-    job_store[job["jobId"]] = "completed"
-    reporter.event(
+    # exists.
+    #
+    # The result is written down before it is sent. `_post_event` retries three
+    # times; when those are exhausted the numbers used to exist only in this
+    # frame, so the run was unrecoverable even though it had scored. Stored,
+    # a later dispatch of the same job replays this exact event. The window is
+    # the portal's stale-run sweep: once that marks the run failed the run is
+    # terminal and `applyEvent` ignores the replay, so recovery has to happen
+    # inside it.
+    completed = reporter.build(
         "completed",
         result=result,
         preparedArtifactId=snapshot_id,
         environmentDigest=environment_digest,
         sanitizedLog=student_log if job["mode"] == "practice" else None,
     )
+    _finish(job, {"status": "completed", "event": completed, "delivered": False})
 
 
 @app.function(image=controller_image, secrets=[runner_secret], timeout=30)
@@ -2493,6 +2577,12 @@ async def submit_job(request: Request) -> Response:
         job = validate_job(json.loads(body))
     except (ValueError, json.JSONDecodeError):
         return Response(status_code=400)
-    if job_store.get(job["jobId"]) not in ("running", "completed"):
+    state = _job_state(job_store.get(job["jobId"]))
+    running = state.get("status") == "running"
+    reported = state.get("status") == "completed" and state.get("delivered")
+    # A completed job whose result never reached the portal is the one case
+    # worth re-entering: `execute_job` replays the stored event and scores
+    # nothing. A delivered one is still deduped exactly as before.
+    if not running and not reported:
         execute_job.spawn(job)
     return Response(status_code=202)
