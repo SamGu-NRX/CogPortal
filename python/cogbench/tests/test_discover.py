@@ -13,7 +13,9 @@ sys.path.insert(0, str(ROOT / "python" / "cogbench" / "src"))
 
 from cogbench import discover as discover_module  # noqa: E402
 from cogbench.discover import (  # noqa: E402
+    ROOT_HINTED,
     STUBBED_MODULES,
+    WEEK_SCOPED_ROOTS,
     candidate_roots,
     choose_root,
     discover,
@@ -55,6 +57,41 @@ class RootChoiceTests(unittest.TestCase):
             (self.tmp / week).mkdir()
             (self.tmp / week / "code.py").write_text("x = 1\n")
         self.assertEqual(choose_root(self.tmp, hints=("week2",)).path.name, "Week2")
+
+    def test_the_named_week_beats_a_word_every_week_shares(self):
+        """Reproduced: a week 3 search landed in ``week1_capstone``.
+
+        Every week's hints end in ``capstone``, and the old match took the
+        first folder containing any hint. ``week1_capstone`` sorts before
+        ``week3``, so the generic word won and the week 3 folder was then
+        dropped from the search as a sibling.
+        """
+
+        for folder in ("week1_capstone", "week3"):
+            (self.tmp / folder).mkdir()
+            (self.tmp / folder / "code.py").write_text("x = 1\n")
+        week3 = ("week3", "week 3", "language", "search", "capstone")
+        self.assertEqual(choose_root(self.tmp, hints=week3).path.name, "week3")
+
+    def test_the_shared_word_still_matches_when_no_week_is_named(self):
+        (self.tmp / "capstone").mkdir()
+        (self.tmp / "capstone" / "code.py").write_text("x = 1\n")
+        week3 = ("week3", "week 3", "language", "search", "capstone")
+        self.assertEqual(choose_root(self.tmp, hints=week3).path.name, "capstone")
+
+    def test_reading_only_one_week_is_decided_by_kind_not_by_wording(self):
+        """The sentence is for the report. Rewording it must not change which
+        folders are read, which is what searching it for "matches this week"
+        did."""
+
+        for folder in ("week1_capstone", "week3"):
+            (self.tmp / folder).mkdir()
+            (self.tmp / folder / "code.py").write_text("x = 1\n")
+        chosen = choose_root(self.tmp, hints=("week3",))
+        self.assertEqual(chosen.kind, ROOT_HINTED)
+        self.assertIn(chosen.kind, WEEK_SCOPED_ROOTS)
+        flat = choose_root(self.tmp)
+        self.assertNotIn(flat.kind, WEEK_SCOPED_ROOTS)
 
     def test_declared_root_beats_every_heuristic(self):
         (self.tmp / "code").mkdir()

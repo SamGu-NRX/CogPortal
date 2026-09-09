@@ -52,7 +52,14 @@ from .verdict import (
     wired_but_wrong,
 )
 
-__all__ = ["Submission", "Attempt", "resolve", "from_spec"]
+__all__ = [
+    "Submission",
+    "SubmissionReport",
+    "ChainStep",
+    "Attempt",
+    "resolve",
+    "from_spec",
+]
 
 #: How many attempts to make before giving up. An attempt is one run of the
 #: week's acceptance test, and `_pair` makes two kinds: a probe asking whether
@@ -81,6 +88,38 @@ class Attempt:
     enroll: str
     query: str
     arrangement: int
+
+
+@dataclass(frozen=True)
+class ChainStep:
+    """One bound step, by name only.
+
+    ``Candidate`` carries the student's live callable. This carries the label
+    a report prints, and nothing that has to stay in the process that built it.
+    """
+
+    label: str
+
+
+@dataclass(frozen=True)
+class SubmissionReport:
+    """What a report needs from a ``Submission``, with no live callables in it.
+
+    Reading a repository runs the student's own import statements, and one of
+    those can end the interpreter outright rather than raise (see
+    ``tests/test_isolate.py``), so the reading happens in a child process. A
+    ``Submission`` holds functions bound out of their modules and cannot leave
+    that child. This is the part that comes back: the verdict, the step names,
+    and the record. ``report.render_check`` reads the same attribute names off
+    either one.
+    """
+
+    ready: bool
+    verdict: Verdict
+    chain: Tuple[ChainStep, ...] = ()
+    attempt: Optional[Attempt] = None
+    #: ``Submission.to_dict()``, for ``check --json`` and the portal.
+    record: Optional[Dict[str, object]] = None
 
 
 @dataclass
@@ -252,6 +291,21 @@ class Submission:
             return answer
 
         return replace(self, enroll=_enroll, query=_query)
+
+    def report(self) -> SubmissionReport:
+        """This submission with the live callables left behind.
+
+        The one value that may cross a process boundary. See
+        ``SubmissionReport`` for why there is a boundary at all.
+        """
+
+        return SubmissionReport(
+            ready=self.ready,
+            verdict=self.verdict,
+            chain=tuple(ChainStep(step.label) for step in self.chain),
+            attempt=self.attempt,
+            record=self.to_dict(),
+        )
 
     def to_dict(self) -> Dict[str, object]:
         """What the run records, and what every surface renders from."""

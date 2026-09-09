@@ -180,7 +180,16 @@ class CheckTests(unittest.TestCase):
         self.assertIn("does not yet describe its task", text)
         self.assertIn("benchmark_adapter.py", text)
 
-    def test_an_installed_entry_point_is_still_reported_as_used(self):
+    def test_an_installed_entry_point_is_named_but_not_claimed_as_theirs(self):
+        """This report used to say an installed package "was used as is".
+
+        It is not used: `run` scores a file in this repository or what
+        discovery bound, never an entry point, because an entry point belongs
+        to whatever was pip-installed. Saying it was used sent a
+        vision-recognition repository through a passing check and into a run
+        that refused it.
+        """
+
         text = "\n".join(
             render_check(
                 benchmark="language-search",
@@ -189,10 +198,59 @@ class CheckTests(unittest.TestCase):
                 benchmark_ready=True,
                 repository="team/repo",
                 submission=None,
-                submission_source="entry_point",
+                submission_source=None,
+                installed_reference=True,
             )
         )
-        self.assertIn("used as is", text)
+        self.assertNotIn("used as is", text)
+        self.assertIn("is installed here", text)
+        self.assertIn("not scored as your work", text)
+        self.assertIn("does not yet describe its task", text)
+
+    def test_a_benchmark_that_could_not_describe_its_task_says_why(self):
+        """Measured on a machine that had not fetched the week 3 data: the
+        spec build raised, the reason was swallowed, and the report told the
+        student to write an adapter instead of downloading the dataset."""
+
+        text = "\n".join(
+            render_check(
+                benchmark="language-search",
+                python_version="3.11.15",
+                hosted_python=None,
+                benchmark_ready=True,
+                repository="team/repo",
+                submission=None,
+                submission_source=None,
+                search_unavailable=(
+                    "captions_train2014.json is not cached. Run `cogworks test` to fetch it."
+                ),
+            )
+        )
+        # `_wrapped` breaks the paragraph, so match on the unwrapped text.
+        flat = " ".join(text.split())
+        self.assertIn("could not describe its task just now", flat)
+        self.assertIn("cogworks test", flat)
+        self.assertNotIn("a submission must be declared", text)
+        self.assertNotIn("benchmark_adapter.py", text)
+
+    def test_a_repository_that_ended_the_process_gets_a_report_not_silence(self):
+        """The command whose job is to explain a repository printed nothing at
+        all when reading it aborted the interpreter."""
+
+        text = "\n".join(
+            render_check(
+                benchmark="audio-identification",
+                python_version="3.11.15",
+                hosted_python=None,
+                benchmark_ready=True,
+                repository="team/repo",
+                submission=None,
+                unread_detail="segfaulted",
+            )
+        )
+        self.assertIn("ended the process before it finished", text)
+        self.assertIn("segfaulted", text)
+        self.assertIn("one at a time", text)
 
     def test_a_missing_benchmark_says_so_rather_than_reporting_nothing(self):
         text = "\n".join(

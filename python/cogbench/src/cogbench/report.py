@@ -165,6 +165,9 @@ def render_check(
     survey: Optional[Dict[str, object]] = None,
     local_gap_note: str = "",
     submission_source: Optional[str] = None,
+    installed_reference: bool = False,
+    unread_detail: str = "",
+    search_unavailable: str = "",
 ) -> List[str]:
     """The whole report, in the order a person asks about it.
 
@@ -172,11 +175,25 @@ def render_check(
     Passing ``None`` means it did not, which is itself worth saying rather
     than leaving the reader to infer it from a missing section.
 
-    ``submission_source`` is how the CLI found a declared submission, when it
-    found one: ``"file"`` or ``"entry_point"``. It decides which sentence
-    explains a report with no search in it, because "your package was used
-    as is" and "this benchmark cannot be searched for" are different facts
-    and the reader acts differently on each.
+    ``submission_source`` is what would actually be scored, when anything
+    would: ``"file"`` or ``"discovery"``. It decides which sentence explains a
+    report with no search in it, because "your package was used as is" and
+    "this benchmark cannot be searched for" are different facts and the reader
+    acts differently on each.
+
+    ``installed_reference`` says a package registering this benchmark is
+    installed on this machine. It is worth one sentence and never counts as
+    readiness: an entry point belongs to whatever was pip-installed, so
+    scoring it while standing in a student's repository reports somebody
+    else's number as theirs.
+
+    ``unread_detail`` is filled when the process reading the repository ended
+    before it reported. Then there is no verdict to print, and saying that is
+    the report.
+
+    ``search_unavailable`` is why the search could not run at all, when the
+    benchmark could not describe its task right now. It is a different fact
+    from "this benchmark has no search", and it carries its own next step.
 
     ``local_gap_note`` is one paragraph naming the graded run's packages this
     machine cannot import. It goes directly under the list of files that were
@@ -213,6 +230,23 @@ def render_check(
         lines.append("")
         lines.extend(_wrapped(local_gap_note))
 
+    if unread_detail:
+        lines.append("")
+        lines.extend(
+            _wrapped(
+                "Reading your repository ended the process before it finished: "
+                "{}.".format(unread_detail)
+            )
+        )
+        lines.extend(
+            _wrapped(
+                "That is an import taking the interpreter down rather than "
+                "raising, so import your modules one at a time to find which "
+                "one does it."
+            )
+        )
+        return lines
+
     if submission is None:
         lines.append("")
         if not benchmark_ready:
@@ -224,10 +258,6 @@ def render_check(
                 )
             else:
                 lines.append("Install it, then run this again.")
-        elif submission_source == "entry_point":
-            # An installed submission package already answers for this
-            # benchmark, so there was nothing to search for.
-            lines.append("Your submission is registered as an installed package, so it was used as is.")
         elif submission_source == "file":
             lines.append("Your submission.py at the repository root was used, so nothing was searched for.")
         else:
@@ -235,13 +265,29 @@ def render_check(
             # describe its task to the search. Before this branch existed the
             # sentence above printed here, and a Week 3 repository with no
             # package and no adapter was told its package "was used as is".
+            if search_unavailable:
+                lines.extend(
+                    _wrapped(
+                        "Nothing was searched for, because {} could not describe "
+                        "its task just now: {}".format(benchmark, search_unavailable)
+                    )
+                )
+                return lines
             lines.append(
                 "Nothing was searched for: {} does not yet describe its task to "
                 "the search, so a submission must be declared.".format(benchmark)
             )
+            if installed_reference:
+                lines.extend(
+                    _wrapped(
+                        "A package registering {} is installed here, but it is "
+                        "not this repository, so it is not scored as your "
+                        "work.".format(benchmark)
+                    )
+                )
             lines.append(
                 "Add a benchmark_adapter.py at the repository root that defines "
-                "create_search_adapter(resources), then run this again."
+                "create_submission(resources), then run this again."
             )
         return lines
 

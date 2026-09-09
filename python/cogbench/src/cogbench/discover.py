@@ -323,6 +323,22 @@ def owner_of_skip(entry: "SkippedModule", benchmark: str = "") -> str:
     return "theirs"
 
 
+#: How a root was chosen. `kind` is what code branches on; `reason` is the
+#: sentence the report prints. They were one field, and a caller downstream
+#: decided whether to read sibling folders by searching the sentence for
+#: "matches this week", so rewording the report changed which files were
+#: imported. They are separate now.
+ROOT_DECLARED = "declared"
+ROOT_HINTED = "hinted"
+ROOT_REPOSITORY = "repository"
+ROOT_IMPORTED_FROM = "imported_from"
+ROOT_MOST_FILES = "most_files"
+
+#: The kinds that mean "the student pointed at one week's folder", so the other
+#: weeks in the same repository are not this week's code.
+WEEK_SCOPED_ROOTS = frozenset({ROOT_DECLARED, ROOT_HINTED})
+
+
 @dataclass(frozen=True)
 class RootChoice:
     """Which directory was searched, and why that one."""
@@ -330,6 +346,7 @@ class RootChoice:
     path: Path
     reason: str
     considered: Tuple[Path, ...]
+    kind: str = ROOT_REPOSITORY
 
 
 @dataclass
@@ -467,30 +484,42 @@ def choose_root(
     ``Week1`` is a statement of intent. Failing that, the directory holding the
     most importable files wins, ties going to the shallower one, because the
     alternative is guessing between two equally plausible roots.
+
+    Hints are tried in the order the benchmark listed them, which is most
+    specific first: week 3 supplies ``("week3", "week 3", "language",
+    "search", "capstone")``. Any hint used to match any folder, so in a
+    repository holding ``week1_capstone`` and ``week3``, a week 3 search took
+    ``week1_capstone`` on the generic ``capstone`` hint because that folder
+    sorts first. A named week now beats a shared word.
     """
 
     considered = tuple(candidate_roots(repository))
 
     if declared:
         path = (repository / declared).resolve()
-        return RootChoice(path, "declared in cogworks.toml", considered)
+        return RootChoice(path, "declared in cogworks.toml", considered, ROOT_DECLARED)
 
-    lowered = tuple(hint.lower() for hint in hints)
-    if lowered:
+    for hint in (hint.lower() for hint in hints):
         for path in considered:
             if path == repository:
                 continue
             name = path.name.lower().replace(" ", "").replace("-", "").replace("_", "")
-            if any(hint in name for hint in lowered):
-                return RootChoice(path, "directory name matches this week", considered)
+            if hint in name:
+                return RootChoice(
+                    path, "directory name matches this week", considered, ROOT_HINTED
+                )
 
     scored = [(path, _root_score(path)) for path in considered]
     best, score = min(scored, key=lambda pair: (-pair[1], len(pair[0].parts)))
     if best == repository:
-        return RootChoice(repository, "code sits at the repository root", considered)
+        return RootChoice(
+            repository, "code sits at the repository root", considered, ROOT_REPOSITORY
+        )
     if score > 0:
-        return RootChoice(best, "the rest of the code imports from here", considered)
-    return RootChoice(best, "holds the most importable files", considered)
+        return RootChoice(
+            best, "the rest of the code imports from here", considered, ROOT_IMPORTED_FROM
+        )
+    return RootChoice(best, "holds the most importable files", considered, ROOT_MOST_FILES)
 
 
 def _module_names(directory: Path) -> set:
@@ -2196,9 +2225,7 @@ def discover(
     # week 2 `facerecognizer.cosine_threshold` was read alongside and bound
     # as the week 3 store, a function from another assignment on a week 3
     # run page.
-    inside_a_week = root.path != repository and (
-        "matches this week" in root.reason or "declared" in root.reason
-    )
+    inside_a_week = root.path != repository and root.kind in WEEK_SCOPED_ROOTS
     if inside_a_week:
         extra = [
             path

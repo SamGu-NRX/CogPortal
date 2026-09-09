@@ -13,11 +13,12 @@ import uuid
 import webbrowser
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional, Sequence
+from typing import Any, Callable, List, NamedTuple, Optional, Sequence, Tuple
 from urllib.parse import urlparse
 
 from . import __version__
 from .environment import gap_note, local_gap
+from .isolate import COMPLETED, run_isolated
 from .client import (
     PortalError,
     device_status,
@@ -257,9 +258,11 @@ def _installed_benchmark_hint() -> str:
 def _discover(benchmark: str, project_root: Path, as_json: bool):
     """Search the repository for the code this benchmark needs.
 
-    Returns ``(submission, survey)``, either of which may be None. A benchmark
-    that does not describe its own task cannot be searched for, and saying so
-    is better than an empty report that looks like a failure to find anything.
+    Returns ``(submission, survey, unavailable)``, any of which may be None.
+    ``unavailable`` is why the search could not run at all, which is not the
+    same as searching and finding nothing: a benchmark that cannot describe
+    its task right now sends the reader somewhere different than one whose
+    repository holds nothing to bind.
 
     Nothing here may fail the command. Discovery imports and runs a team's own
     code, and the whole point of the report is to be readable when that code
@@ -269,12 +272,17 @@ def _discover(benchmark: str, project_root: Path, as_json: bool):
     plugin = load_benchmark(benchmark)
     describes = getattr(plugin, "discovery", None)
     if not callable(describes):
-        return None, None
+        return None, None, None
 
     try:
         spec = describes()
-    except Exception:  # noqa: BLE001 - a broken benchmark is ours, not theirs
-        return None, None
+    except Exception as error:  # noqa: BLE001 - a broken benchmark is ours, not theirs
+        # Measured: week 3 asks for its caption file when it builds the spec,
+        # so on a machine that has not fetched the data yet this raised and
+        # the report said the benchmark "does not yet describe its task",
+        # which sent the student to write an adapter instead of running
+        # `cogworks test`. The reason carries its own next step; print it.
+        return None, None, str(error)
 
     watcher = None if as_json else TerminalProgress()
     try:
@@ -289,43 +297,96 @@ def _discover(benchmark: str, project_root: Path, as_json: bool):
         if watcher is not None:
             watcher.done()
         print("Could not read your repository: {}".format(error), file=sys.stderr)
-        return None, None
+        return None, None, None
 
     found = submission.discovery
-    return submission, found.to_dict() if found is not None else None
+    return submission, (found.to_dict() if found is not None else None), None
 
 
-def _submission_for(name: str, benchmark, project_root: Path, *, as_json: bool):
-    """What to score: their declared submission, or what discovery found.
+class _Scoreable(NamedTuple):
+    """The one answer `check` reports and `run` acts on.
 
-    Returns the adapter and the weight paths recorded by discovery. Declared
-    submissions have no discovery record, so their list is empty.
+    `factory` is None exactly when there is nothing to score. Every other
+    field is the evidence behind that, for the report.
+    """
+
+    factory: Optional[Callable[..., Any]]
+    weights: List[str]
+    #: What would actually be scored: "file", "discovery", or None.
+    source: Optional[str]
+    #: The live resolution, for a caller in the same process. None when
+    #: discovery did not run or could not read the repository.
+    submission: Optional[Any]
+    survey: Optional[dict]
+    #: How `resolve_submission` answered, whether or not that is what runs.
+    #: An installed entry point is reported and not scored, so a student can
+    #: see the reference package is on their machine without being told it is
+    #: their submission.
+    declared_source: Optional[str] = None
+    declared_detail: Optional[str] = None
+    declared_error: Optional[str] = None
+    #: Why the search could not run at all, when it could not.
+    discovery_unavailable: Optional[str] = None
+
+
+def _scoreable(name: str, benchmark, project_root: Path, *, as_json: bool) -> _Scoreable:
+    """Decide, once, what this repository would be scored on.
 
     `check` and `run` have to agree. A student told their code is wired up and
     ready to score, who then runs the command that report ends with and is met
-    with "no submission found", has been lied to by one of the two.
+    with "no submission found", has been lied to by one of the two. They used
+    to answer separately: `check` accepted an installed entry point, `run`
+    refused it, and a vision-recognition repository passed the check and then
+    raised on the run. There is one decision now and both call it.
 
     A declaration always wins. Discovery is what happens when there is none,
     which for every repository in the 2026 corpus is always.
     """
 
+    declared_source = None
+    declared_detail = None
+    declared_error = None
     # A file in THIS repository, never an installed entry point. An entry
     # point belongs to whatever package was pip-installed, and scoring that
     # while standing in a student's repository produces a number for somebody
     # else's code that looks exactly like a number for theirs. Measured: an
     # empty repository scored 52% against the reference submission.
     try:
-        factory, source, _detail = resolve_submission(
+        factory, declared_source, declared_detail = resolve_submission(
             name, str(benchmark.contract_version), project_root
         )
-        if source == "file":
-            return factory, []
-    except PluginError:
-        pass
+        if declared_source == "file":
+            return _Scoreable(
+                factory, [], "file", None, None, declared_source, declared_detail
+            )
+    except PluginError as error:
+        declared_error = str(error)
 
-    submission, _survey = _discover(name, project_root, as_json)
+    submission, survey, unavailable = _discover(name, project_root, as_json)
     build = getattr(benchmark, "submission_from_discovery", None)
     if submission is None or not submission.ready or not callable(build):
+        return _Scoreable(
+            None, [], None, submission, survey,
+            declared_source, declared_detail, declared_error, unavailable,
+        )
+    weights = [str(path) for path in submission.weights_used]
+    return _Scoreable(
+        (lambda *args, **kwargs: build(submission)),
+        weights,
+        "discovery",
+        submission,
+        survey,
+        declared_source,
+        declared_detail,
+        declared_error,
+    )
+
+
+def _submission_for(name: str, benchmark, project_root: Path, *, as_json: bool):
+    """What to score, or a refusal. Returns the adapter and its weight paths."""
+
+    scoreable = _scoreable(name, benchmark, project_root, as_json=as_json)
+    if scoreable.factory is None:
         # The report already said why in full. Repeating it here would print
         # the same paragraphs twice, so this points at the command that
         # explains it.
@@ -333,8 +394,66 @@ def _submission_for(name: str, benchmark, project_root: Path, *, as_json: bool):
             "Nothing in this repository could be scored yet. Run "
             "`cogworks check --benchmark {}` to see what was found.".format(name)
         )
-    weights = [str(path) for path in submission.weights_used]
-    return (lambda *args, **kwargs: build(submission)), weights
+    return scoreable.factory, scoreable.weights
+
+
+def _check_view(name: str, project_root: Path, as_json: bool) -> dict:
+    """Read the repository and answer the readiness question, as plain data.
+
+    This is the whole of `check` that touches student code, and it is the unit
+    that runs in the child process. Everything it returns has to survive a
+    pickle, so the live `Submission` is projected to its report.
+    """
+
+    benchmark = load_benchmark(name)
+    scoreable = _scoreable(name, benchmark, project_root, as_json=as_json)
+    return {
+        "ready": scoreable.factory is not None,
+        "source": scoreable.source,
+        "report": None if scoreable.submission is None else scoreable.submission.report(),
+        "survey": scoreable.survey,
+        "declaredSource": scoreable.declared_source,
+        "declaredDetail": scoreable.declared_detail,
+        "declaredError": scoreable.declared_error,
+        "discoveryUnavailable": scoreable.discovery_unavailable,
+    }
+
+
+def _read_repository(
+    name: str, project_root: Path, as_json: bool
+) -> Tuple[Optional[dict], str, str]:
+    """Run `_check_view` where it cannot take this command down with it.
+
+    A student module can end the interpreter rather than raise: one 2026
+    repository's audio helper loads a second copy of a native backend and dies
+    with a nanobind error no `except` clause can see (`tests/test_isolate.py`).
+    Reading happened in this process, so the command whose whole job is to
+    explain a repository printed nothing at all about that one.
+
+    Returns `(view, status, detail)`. `view` is None when the child did not
+    report, and the status and detail are then what there is to say.
+    """
+
+    if not hasattr(os, "fork"):
+        # Windows has no fork, so there is no isolation to offer. Running it
+        # here is what the platform can do; refusing instead would tell every
+        # Windows student their repository could not be read, which is a
+        # sentence about their code that nothing observed. `discover.survey`
+        # made the same call for the same reason.
+        return _check_view(name, project_root, as_json), COMPLETED, ""
+
+    # The child runs from the repository, which is where `cogworks run`
+    # imports a declared submission from. Left on the default scratch
+    # directory, a `submission.py` that reads a relative file at import time
+    # failed the check and then worked on the run, which is the disagreement
+    # this whole path exists to remove. Discovery still imports their modules
+    # from a scratch directory of its own; that is `discover`'s business.
+    outcome = run_isolated(
+        lambda: _check_view(name, project_root, as_json), scratch=project_root
+    )
+    if outcome.status == COMPLETED and isinstance(outcome.value, dict):
+        return outcome.value, outcome.status, outcome.detail
+    return None, outcome.status, outcome.detail
 
 
 def _check(benchmark: str, as_json: bool, project_root: Path) -> int:
@@ -362,9 +481,9 @@ def _check(benchmark: str, as_json: bool, project_root: Path) -> int:
     }
     checks["benchmarkLoadable"] = False
     checks["submissionLoadable"] = False
-    #: Which discovery path found the submission: an installed entry point, or
-    #: a file at the repository root. Reported because the two fail for
-    #: different reasons and a student who cannot see which one ran is guessing.
+    #: What would actually be scored: a file in this repository, or what
+    #: discovery bound. Never an installed entry point, because `run` will not
+    #: score one either, and the two commands answer from the same decision.
     checks["submissionSource"] = None
     checks["submissionDetail"] = None
     if checks["benchmarkInstalled"] and benchmark_group.endswith(".v2"):
@@ -384,28 +503,32 @@ def _check(benchmark: str, as_json: bool, project_root: Path) -> int:
     elif checks["benchmarkInstalled"]:
         load_benchmark(benchmark)
         checks["benchmarkLoadable"] = True
-    try:
-        _, source, detail = resolve_submission(benchmark, contract_group, project_root)
-    except PluginError as error:
-        checks["submissionError"] = str(error)
-    else:
-        checks["submissionLoadable"] = True
-        checks["submissionSource"] = source
-        checks["submissionDetail"] = detail
-    # Discovery runs unless the repository standing here declares its own
-    # submission. An entry point does not count: it belongs to whatever
-    # package was pip-installed, which on a machine that has done more than
-    # one week is quite possibly a different repository than this one, and
-    # reporting that as "your code is wired up" would be false.
+    # Everything that reads the repository happens in one call, in a child
+    # process, and answers the same question `run` asks.
     submission = None
     survey = None
-    declared = checks["submissionSource"] == "file"
-    if checks["benchmarkLoadable"] and not declared:
-        submission, survey = _discover(benchmark, project_root, as_json)
-        if submission is not None:
-            checks["discovery"] = submission.to_dict()
-            checks["submissionLoadable"] = bool(submission.ready)
-            checks["submissionSource"] = "discovery" if submission.ready else None
+    installed_reference = False
+    unread_detail = ""
+    search_unavailable = ""
+    if checks["benchmarkLoadable"]:
+        view, status, detail = _read_repository(benchmark, project_root, as_json)
+        if view is None:
+            unread_detail = detail or "the process reading it ended without saying why"
+            checks["submissionError"] = (
+                "Reading this repository ended the process ({}).".format(status)
+            )
+        else:
+            submission = view["report"]
+            survey = view["survey"]
+            checks["submissionLoadable"] = bool(view["ready"])
+            checks["submissionSource"] = view["source"]
+            checks["submissionDetail"] = view["declaredDetail"]
+            installed_reference = view["declaredSource"] == "entry_point"
+            search_unavailable = view["discoveryUnavailable"] or ""
+            if view["declaredError"]:
+                checks["submissionError"] = view["declaredError"]
+            if submission is not None and submission.record is not None:
+                checks["discovery"] = submission.record
 
     # Which of the graded run's packages this machine cannot import. Reported
     # whether or not discovery ran, because it explains a difference between
@@ -427,6 +550,9 @@ def _check(benchmark: str, as_json: bool, project_root: Path) -> int:
             survey=survey,
             local_gap_note=gap_note(benchmark, checks["localGap"]),
             submission_source=checks["submissionSource"],
+            installed_reference=installed_reference,
+            unread_detail=unread_detail,
+            search_unavailable=search_unavailable,
         ):
             print(line)
     # `submissionInstalled` is deliberately not required: it only reports the

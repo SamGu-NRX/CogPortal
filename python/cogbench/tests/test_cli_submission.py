@@ -39,7 +39,7 @@ class WhichCodeIsScored(unittest.TestCase):
 
     def test_a_submission_file_in_this_repository_wins(self):
         cli.resolve_submission = lambda *a, **k: ("theirs", "file", "submission.py")
-        cli._discover = lambda *a, **k: (_ready(), None)
+        cli._discover = lambda *a, **k: (_ready(), None, None)
 
         adapter, weights = cli._submission_for("b", _Benchmark(), self.tmp, as_json=False)
 
@@ -55,7 +55,7 @@ class WhichCodeIsScored(unittest.TestCase):
             "entry_point",
             "cogworks.submissions.v2",
         )
-        cli._discover = lambda *a, **k: (_ready(), None)
+        cli._discover = lambda *a, **k: (_ready(), None, None)
 
         adapter, weights = cli._submission_for("b", _Benchmark(), self.tmp, as_json=False)
 
@@ -70,7 +70,7 @@ class WhichCodeIsScored(unittest.TestCase):
             ready = True
             weights_used = ("models/search.pkl",)
 
-        cli._discover = lambda *a, **k: (_Found(), None)
+        cli._discover = lambda *a, **k: (_Found(), None, None)
 
         adapter, weights = cli._submission_for("b", _Benchmark(), self.tmp, as_json=False)
 
@@ -79,7 +79,7 @@ class WhichCodeIsScored(unittest.TestCase):
 
     def test_an_empty_repository_refuses_rather_than_scoring_something(self):
         cli.resolve_submission = lambda *a, **k: (None, "entry_point", "")
-        cli._discover = lambda *a, **k: (None, None)
+        cli._discover = lambda *a, **k: (None, None, None)
 
         with self.assertRaises(PluginError) as caught:
             cli._submission_for("audio-identification", _Benchmark(), self.tmp, as_json=False)
@@ -88,7 +88,7 @@ class WhichCodeIsScored(unittest.TestCase):
 
     def test_a_repository_that_did_not_resolve_refuses(self):
         cli.resolve_submission = lambda *a, **k: (None, "entry_point", "")
-        cli._discover = lambda *a, **k: (_unready(), None)
+        cli._discover = lambda *a, **k: (_unready(), None, None)
 
         with self.assertRaises(PluginError):
             cli._submission_for("b", _Benchmark(), self.tmp, as_json=False)
@@ -101,7 +101,7 @@ class WhichCodeIsScored(unittest.TestCase):
             contract_version = "cogworks.submissions.v2"
 
         cli.resolve_submission = lambda *a, **k: (None, "entry_point", "")
-        cli._discover = lambda *a, **k: (_ready(), None)
+        cli._discover = lambda *a, **k: (_ready(), None, None)
 
         with self.assertRaises(PluginError):
             cli._submission_for("b", _Old(), self.tmp, as_json=False)
