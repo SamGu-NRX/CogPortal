@@ -43,10 +43,18 @@ class _NoDiscovery:
 
 
 class _Installed(_NoDiscovery):
-    """The little of a benchmark `_check` reads before it reads a repository."""
+    """The little of a benchmark `_check` reads before it reads a repository.
+
+    Both cache probes, because the module-level fallback for the model probe
+    reads package data from a benchmark distribution, and this test is about
+    what the report says when a repository cannot be read.
+    """
 
     def cache_status(self, tier):
         return SimpleNamespace(ready=True, path=Path("/tmp"), message="")
+
+    def model_cache_status(self):
+        return {"ready": True, "message": ""}
 
 
 class _Discoverable:
@@ -163,12 +171,17 @@ class ReadingCannotTakeTheCommandDown(unittest.TestCase):
         def _abort(*_args, **_kwargs):
             os.kill(os.getpid(), signal.SIGSEGV)
 
-        # The benchmark has to load, or `_check` reports that instead and
-        # never reaches the repository. It is installed on a machine set up
-        # for a week and not in the plain CI job, so this stands one in.
+        # The benchmark has to be installed and loadable, or `_check` reports
+        # that instead and never reaches the repository. It is present on a
+        # machine set up for a week and absent from the plain CI job, so both
+        # the entry-point listing and the loader stand one in.
         cli._check_view = _abort
         self.addCleanup(setattr, cli, "load_benchmark", cli.load_benchmark)
+        self.addCleanup(setattr, cli, "plugin_names", cli.plugin_names)
         cli.load_benchmark = lambda *a, **k: _Installed()
+        cli.plugin_names = lambda group: (
+            ["audio-identification"] if group.endswith(".v2") else []
+        )
         stdout = io.StringIO()
         with redirect_stdout(stdout):
             code = cli._check("audio-identification", False, self.tmp)
