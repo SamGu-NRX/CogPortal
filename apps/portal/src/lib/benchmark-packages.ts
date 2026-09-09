@@ -19,16 +19,23 @@ export interface BenchmarkPackage {
 /**
  * Where pip gets the CogWorks CLI itself.
  *
- * The branch PR #1 is open from. Becomes @main when it merges; until then main
- * holds cogbench 0.1.0, which has no resolver.
+ * A commit, not a branch. This line used to name
+ * `fix/product-description-triage`, which is 22 commits behind the reviewed
+ * CLI: installing from it gives a `cogworks check` that shares no readiness
+ * decision with `cogworks run`, reads the repository in this process, and
+ * picks a week folder by a word every week shares. A student following the
+ * setup page would have been demonstrating none of the corrections.
  *
- * This is the one source here pinned to a moving ref rather than a commit, and
- * that is deliberate: the tool reads a student's repository and reports what it
- * found, so it has to move with the branch. The install line keeps `--upgrade`
- * so re-running it picks the branch's current head up.
+ * A moving ref also makes what a student installed depend on when they ran
+ * the command, so two people on the same page get different tools. Move this
+ * deliberately when a reviewed CLI lands, the way any other pin moves. The
+ * install line keeps `--upgrade` so a student who ran the old one is not left
+ * holding it.
+ *
+ * Reachable on `feat/automatic-discovery`, the branch PR #1 is open from.
  */
 export const COGBENCH_SOURCE =
-  "git+https://github.com/SamGu-NRX/CogPortal.git@fix/product-description-triage#subdirectory=python/cogbench";
+  "git+https://github.com/SamGu-NRX/CogPortal.git@097a74409e0f93ecaa6c4dea58229a965dd502a3#subdirectory=python/cogbench";
 
 const WEEK1_AUDIO: BenchmarkPackage = {
   distribution: "cogworks-week1-audio-benchmark",
