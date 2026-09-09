@@ -23,9 +23,12 @@ export function Landing() {
         The Cog<span className="text-detect">*</span>Works benchmark.
       </h1>
 
-      {/* The whole path, in the words the terminal uses for it. */}
+      {/* The whole path, in the words the terminal uses for it. "fork" was a
+          step here while a fork was required. It is one way to get a
+          repository now, not the way, so the step is what every path has in
+          common. */}
       <p className="mt-4 font-mono text-[12.5px] tracking-[0.08em] text-ink-secondary">
-        sign in · fork · clone · check · run
+        sign in · connect · clone · check · run
       </p>
 
       <div className="mt-7 flex flex-wrap items-center gap-4">

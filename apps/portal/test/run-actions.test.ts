@@ -18,7 +18,6 @@ import {
   users,
 } from "../worker/db/schema.ts";
 import type { Env } from "../worker/env.ts";
-import { DispatchUnacknowledged } from "../worker/execution/runner.ts";
 import { ApiHttpError } from "../worker/http/errors.ts";
 import {
   promotePracticeRun,
@@ -310,33 +309,81 @@ test("an official dispatch failure releases its unconsumed claim", async () => {
   assert.equal(official.failureCategory, "provider");
 });
 
-test("a dispatch nobody answered leaves the run queued for the reaper", async () => {
-  // The 15-second POST can time out on a job Modal already spawned, and a
-  // cold start can push the first callback past that. So there is a window
-  // with no evidence either way, and this used to resolve it as "rejected":
-  // the run was failed and an official attempt handed back while it ran.
-  // Silence is not refusal. The run stays queued, and the stale-run reaper
-  // owns it if nothing ever reports.
-  const { db, binding } = freshDb();
-  const actor = await seedPromotion(db);
-  const queue = {
-    async send() {
-      throw new DispatchUnacknowledged(new Error("The operation was aborted due to timeout"));
-    },
-  };
+for (const status of [400, 401, 502, 503, 200, 302, 202]) {
+  test(`direct Modal dispatch returning ${status} ${status >= 400 && status < 500 ? "fails the run and releases its claim" : "keeps the queued run and its claim"}`, async () => {
+    const { db, binding } = freshDb();
+    const actor = await seedPromotion(db);
+    const originalFetch = globalThis.fetch;
+    let requests = 0;
+    globalThis.fetch = async (input) => {
+      assert.equal(input, "https://runner.example");
+      requests += 1;
+      return new Response(null, { status });
+    };
+    try {
+      const promotion = promotePracticeRun(env(binding, "modal"), actor, PRACTICE_RUN_ID);
+      const rejected = status >= 400 && status < 500;
+      if (rejected) {
+        await assert.rejects(promotion, (error: unknown) => {
+          assert.ok(error instanceof ApiHttpError);
+          assert.equal(error.status, 502);
+          assert.equal(error.code, "provider_unconfigured");
+          return true;
+        });
+      } else {
+        assert.equal((await promotion).surfaceId, SURFACE_ID);
+      }
+      assert.equal(requests, 1);
+      const [official] = await db.select().from(runs)
+        .where(and(eq(runs.parentRunId, PRACTICE_RUN_ID), eq(runs.mode, "official")));
+      assert.ok(official);
+      assert.equal(official.status, rejected ? "failed" : "queued");
+      assert.equal(official.dispatchAttempts, status === 202 ? 1 : 0);
+      assert.equal(official.failureCategory, rejected ? "provider" : null);
+      const claims = await db.select().from(officialAttempts);
+      assert.equal(claims.length, rejected ? 0 : 1);
+      if (!rejected) assert.equal(claims[0].runId, official.id);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+}
 
-  const promoted = await promotePracticeRun(env(binding, "modal", queue), actor, PRACTICE_RUN_ID);
-  assert.equal(promoted.surfaceId, SURFACE_ID);
-
-  const [official] = await db
-    .select()
-    .from(runs)
-    .where(and(eq(runs.parentRunId, PRACTICE_RUN_ID), eq(runs.mode, "official")));
-  assert.equal(official?.status, "queued", "still waiting, not declared failed");
-  assert.equal(official?.failureCategory, null);
-  const claims = await db.select().from(officialAttempts);
-  assert.equal(claims.length, 1, "the claim is not released on an unknown outcome");
-});
+for (const callbackLanded of [false, true]) {
+  test(`a direct Modal network error keeps the ${callbackLanded ? "callback's preparing" : "queued"} run and its claim`, async () => {
+    const { db, binding } = freshDb();
+    const actor = await seedPromotion(db);
+    const originalFetch = globalThis.fetch;
+    let requests = 0;
+    globalThis.fetch = async (input, init) => {
+      assert.equal(input, "https://runner.example");
+      requests += 1;
+      if (callbackLanded) {
+        const job = JSON.parse(String(init?.body)) as { runId: string };
+        await db.update(runs)
+          .set({ status: "preparing", lastEventSequence: 0 })
+          .where(eq(runs.id, job.runId));
+      }
+      throw new Error("dispatch acknowledgement lost");
+    };
+    try {
+      const promoted = await promotePracticeRun(env(binding, "modal"), actor, PRACTICE_RUN_ID);
+      assert.equal(promoted.surfaceId, SURFACE_ID);
+      assert.equal(requests, 1);
+      const [official] = await db.select().from(runs).where(eq(runs.id, promoted.runId));
+      assert.ok(official);
+      assert.equal(official.status, callbackLanded ? "preparing" : "queued");
+      if (callbackLanded) assert.equal(official.lastEventSequence, 0);
+      assert.equal(official.failureCategory, null);
+      assert.equal(official.failureDetail, null);
+      const claims = await db.select().from(officialAttempts);
+      assert.equal(claims.length, 1);
+      assert.equal(claims[0].runId, official.id);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+}
 
 test("a callback that lands before the dispatch rejects leaves the live run alone", async () => {
   // Modal spawns the job before its endpoint answers, and the portal's POST

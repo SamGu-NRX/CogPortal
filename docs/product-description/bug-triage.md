@@ -352,7 +352,7 @@ Four entries describe work that landed during the drafting pass and may already 
 - **What happens / what was expected:** A pre-acceptance dispatch failure deletes the official attempt row directly, without stamping `refundedAt`, so it is invisible both to the cap calculation and to the staff view. Expected: every refund goes through the one function that counts them.
 - **Why (from the code):** `apps/portal/worker/services/run-actions.ts:172` against `apps/portal/worker/execution/refunds.ts:122`.
 - **Severity:** `medium`. It favours the student, so nobody is harmed, but the cap exists for a reason and this path ignores it.
-- **Decision needed:** `fix`.
+- **Decision needed:** ~~`fix`~~. **Not a defect; the premise is wrong.** REFUND_CAP limits how many times a team may be given back an attempt that a real run consumed. A dispatch the provider refused before any sandbox existed consumed nothing, so there is no refund to count and charging one against the cap would let five refused dispatches cost a team the ability to be refunded a genuine infrastructure failure. The direct delete is correct for this path and now says so at the site (`apps/portal/worker/services/run-actions.ts`). Unknown acceptance is a different case and is not released at all: the run stays queued for the stale sweep, which refunds through the counted path.
 - **Raised by:** [`cross-cutting/credit-and-quota.md`](cross-cutting/credit-and-quota.md#open-questions-and-verification)
 
 ### B-25: The Week 3 timeout message is Week 1's copy, about songs

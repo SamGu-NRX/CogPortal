@@ -156,21 +156,43 @@ export function LeaderboardPage() {
           <QueryError error={benchmarks.error} retry={() => void benchmarks.refetch()} />
         ) : module === "vision" && visionView === "overall" ? (
           <OverallStandings />
-        ) : !benchmark || !benchmark.active ? (
+        ) : !benchmark ? (
           <div className="border border-rule bg-paper-raised">
             <EmptyState
-              message={`${benchmark?.title ?? TRACKS.find((t) => t.module === module)?.label} is in progress. Standings open when the track is calibrated.`}
+              message={`${TRACKS.find((t) => t.module === module)?.label} is in progress. Standings open when the track is calibrated.`}
             />
           </div>
         ) : (
-          <Standings key={benchmark.id} benchmarkId={benchmark.id} />
+          <Standings
+            key={benchmark.id}
+            benchmarkId={benchmark.id}
+            active={benchmark.active}
+            title={benchmark.title}
+          />
         )}
       </div>
     </div>
   );
 }
 
-function Standings({ benchmarkId }: { benchmarkId: string }) {
+/**
+ * One track's standings.
+ *
+ * `active` is about the current cohort, not about whether there is anything to
+ * read. An uncalibrated track used to render its empty state over the top of
+ * real archive rows, so Audio showed "Standings open when the track is
+ * calibrated" while four dated results sat behind it. The track status belongs
+ * on the tab, which already carries it, and the rows belong here.
+ */
+function Standings({
+  benchmarkId,
+  active,
+  title,
+}: {
+  benchmarkId: string;
+  active: boolean;
+  title: string;
+}) {
   const board = useLeaderboard(benchmarkId);
 
   if (board.isPending) return <LoadingMark />;
@@ -180,10 +202,23 @@ function Standings({ benchmarkId }: { benchmarkId: string }) {
 
   const { benchmark, entries } = board.data;
   return (
-    <StandingsTable
-      entries={entries}
-      footer={`${benchmark.id} / v${benchmark.version}. One selected official result per team.`}
-    />
+    <>
+      {!active && entries.length > 0 && (
+        <p className="mb-4 px-4 text-[12.5px] leading-relaxed text-ink-secondary">
+          {title} isn't calibrated for this cohort yet, so nothing new is being scored on
+          it. What the archive holds is below.
+        </p>
+      )}
+      <StandingsTable
+        entries={entries}
+        footer={`${benchmark.id} / v${benchmark.version}. One selected official result per team.`}
+        empty={
+          active
+            ? undefined
+            : `${title} is in progress. Standings open when the track is calibrated.`
+        }
+      />
+    </>
   );
 }
 

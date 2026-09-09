@@ -151,9 +151,8 @@ export function buildRunJob(
  * The queue gives retry with backoff and a dead-letter path, so it stays the
  * production shape. Without it -- `wrangler dev`, or a deployment before
  * Queues is enabled on the account -- this posts directly instead of
- * refusing. The direct path has no retry: a failed dispatch surfaces
- * immediately as a failed run rather than being retried for thirty seconds,
- * which is the honest trade for being able to run the real path at all.
+ * refusing. The direct path has no retry: definite rejections fail the run
+ * immediately; unknown acceptance waits for a callback or the stale-run reaper.
  */
 export async function enqueueRun(
   env: Env,
@@ -194,12 +193,11 @@ export async function hmacSignature(secret: string, timestamp: string, body: str
 }
 
 /**
- * The provider never answered, so whether it took the job is unknown.
+ * The provider did not acknowledge acceptance or refusal of the job.
  *
  * `submit_job` spawns the run before it replies (see the Modal runner), so a
  * request that times out or fails in transit may well have started a run.
- * Every other failure here happens before anything is sent, or carries
- * Modal's own refusal, and those are known rejections.
+ * An infrastructure response can also hide that acknowledgement.
  */
 export class DispatchUnacknowledged extends Error {
   constructor(cause: unknown) {
@@ -213,6 +211,8 @@ async function dispatchToModal(env: Env, job: RunJobV1): Promise<void> {
   assertModalConfigured(env);
   const body = JSON.stringify(job);
   const timestamp = Math.floor(Date.now() / 1_000).toString();
+  const signature = await hmacSignature(env.RUNNER_SIGNING_SECRET, timestamp, body);
+  const signal = AbortSignal.timeout(15_000);
   let response: Response;
   try {
     response = await fetch(env.MODAL_RUNNER_URL, {
@@ -221,16 +221,24 @@ async function dispatchToModal(env: Env, job: RunJobV1): Promise<void> {
         "Content-Type": "application/json",
         "X-Cogworks-Timestamp": timestamp,
         "X-Cogworks-Key-Id": env.RUNNER_SIGNING_KEY_ID ?? "runner-v1",
-        "X-Cogworks-Signature": `v1=${await hmacSignature(env.RUNNER_SIGNING_SECRET, timestamp, body)}`,
+        "X-Cogworks-Signature": `v1=${signature}`,
       },
       body,
-      signal: AbortSignal.timeout(15_000),
+      signal,
     });
   } catch (error) {
     throw new DispatchUnacknowledged(error);
   }
-  if (response.status !== 202) {
+  // modal_app.py submit_job returns 400/401 before spawning, then 202.
+  // A 4xx is refusal; other unexpected statuses may come from a gateway
+  // that lost the 202 after the job started, so acceptance is unknown.
+  if (response.status >= 400 && response.status < 500) {
     throw new Error(`Modal runner rejected job with status ${response.status}.`);
+  }
+  if (response.status !== 202) {
+    throw new DispatchUnacknowledged(
+      new Error(`Modal dispatch returned unexpected status ${response.status}.`),
+    );
   }
   // Modal holds the job from here on. The attempt counter is bookkeeping; a
   // failed write must not read as a failed dispatch, or the caller would

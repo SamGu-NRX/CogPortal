@@ -10,19 +10,23 @@ took the report down with it and printed nothing about the repository at all.
 from __future__ import annotations
 
 import io
+import json
 import os
 import shutil
 import signal
+import subprocess
 import sys
 import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "python" / "cogbench" / "src"))
 
 from cogbench import cli  # noqa: E402
+from cogbench.isolate import CRASHED, Outcome  # noqa: E402
 from cogbench.plugins import PluginError  # noqa: E402
 
 
@@ -113,7 +117,6 @@ class CheckAndRunAgree(unittest.TestCase):
         self.assertEqual(scoreable.source, "file")
         self.assertEqual(scoreable.factory, "theirs")
 
-
 @unittest.skipUnless(hasattr(os, "fork"), "no fork, so nothing to isolate")
 class ReadingCannotTakeTheCommandDown(unittest.TestCase):
     """The boundary `discover.survey` documents, around the whole of check."""
@@ -159,6 +162,187 @@ class ReadingCannotTakeTheCommandDown(unittest.TestCase):
 
         self.assertEqual(code, 2)
         self.assertIn("ended the process before it finished", stdout.getvalue())
+
+
+@unittest.skipUnless(hasattr(os, "fork"), "no fork, so nothing to isolate")
+class ScoredRunIsolation(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def _main(self, command="run", *flags):
+        stdout = io.StringIO()
+        with patch.object(cli.Path, "cwd", return_value=self.tmp), redirect_stdout(stdout):
+            code = cli.main([command, "--benchmark", "fixture", *flags])
+        return code, stdout.getvalue()
+
+    def _report(self, **kwargs):
+        from cogbench.models import LocalReport, RepositoryState
+
+        return LocalReport.create(
+            benchmark_id="fixture", benchmark_version=1,
+            contract_version="cogworks.submissions.v2", sdk_version="0.2.0",
+            plugin_version="0.2.0", repository=RepositoryState(None, None, None, False),
+            started_at=1, finished_at=2, metrics=[], predictions=[],
+            diagnostics=["child pid: {}".format(os.getpid())], **kwargs,
+        )
+
+    def test_resolve_and_execute_stay_in_child_and_parent_saves_the_report(self):
+        parent = os.getpid()
+
+        def resolve(*args, **kwargs):
+            self.assertNotEqual(os.getpid(), parent)
+            self.assertEqual(args[2], self.tmp)
+            return lambda: "unpicklable adapter", ["weights.pkl"]
+
+        def execute(benchmark, adapter, root, **kwargs):
+            self.assertNotEqual(os.getpid(), parent)
+            self.assertEqual(adapter(), "unpicklable adapter")
+            self.assertEqual(root, self.tmp)
+            self.assertEqual(kwargs["smoke"], command == "test")
+            return self._report(weights_used=kwargs["weights"])
+
+        def save(report, root):
+            self.assertEqual(os.getpid(), parent)
+            self.assertEqual(root, self.tmp)
+            self.assertEqual(report.weights_used, ["weights.pkl"])
+            self.assertNotEqual(report.diagnostics, ["child pid: {}".format(parent)])
+            return self.tmp / "report.json"
+
+        for command in ("run", "test"):
+            with self.subTest(command=command), patch.object(cli, "load_benchmark", return_value=object()), \
+                    patch.object(cli, "_submission_for", side_effect=resolve), \
+                    patch.object(cli, "execute", side_effect=execute), \
+                    patch.object(cli, "save_report", side_effect=save) as saved:
+                code, text = self._main(command, "--json")
+                self.assertEqual(code, 0, text)
+                self.assertEqual(json.loads(text)["weightsUsed"], ["weights.pkl"])
+                saved.assert_called_once()
+
+    def test_a_crash_in_resolution_or_execution_reports_no_result(self):
+        def abort(*args, **kwargs):
+            os.kill(os.getpid(), signal.SIGSEGV)
+
+        for command in ("run", "test"):
+            for stage in ("_submission_for", "execute"):
+                with self.subTest(command=command, stage=stage), \
+                        patch.object(cli, "load_benchmark", return_value=object()), \
+                        patch.object(cli, "_submission_for", return_value=(lambda: None, [])), \
+                        patch.object(cli, stage, side_effect=abort), \
+                        patch.object(cli, "save_report") as saved:
+                    code, text = self._main(command, "--json")
+                    value = json.loads(text)
+                    self.assertEqual(code, 2)
+                    self.assertEqual(value["status"], "crashed")
+                    self.assertIn("segfault", value["detail"])
+                    self.assertNotIn("metrics", value)
+                    saved.assert_not_called()
+
+    def test_the_scored_run_is_given_no_budget_of_its_own(self):
+        """The boundary is here to contain a crash, not to time the benchmark.
+
+        Its defaults are discovery's: 300 seconds of CPU and 3 GiB, sized for
+        reading a repository. The hosted runner allows a scored run 900 seconds
+        and 4 GiB, and two hosted runs of one 2026 week 1 repository took 875
+        and 898 seconds, so inheriting the default would have ended a working
+        submission at 300 and called it a timeout.
+        """
+
+        seen = {}
+
+        def record(work, **kwargs):
+            # Captured, then stopped. What this pins is the budget the caller
+            # asks for, not what a completed run would print.
+            seen.update(kwargs)
+            return Outcome(CRASHED, detail="stopped by the test")
+
+        with patch.object(cli, "_run_view", return_value="{}"), \
+                patch.object(cli, "run_isolated", side_effect=record), \
+                patch.object(cli, "save_report"):
+            self._main()
+
+        self.assertIsNone(seen["timeout_seconds"], "no wall clock on a scored run")
+        self.assertIsNone(seen["memory_bytes"], "no ceiling on a scored run")
+
+    def test_live_worker_sends_progress_and_a_terminal_event_from_the_child(self):
+        parent = os.getpid()
+        events = self.tmp / "live-events.json"
+
+        def deliver_batch(portal, token, session_id, history):
+            events.write_text(json.dumps({"pid": os.getpid(), "events": history}))
+
+        def execute(*args, **kwargs):
+            kwargs["progress"]("evaluating", 1, 1)
+            if fail:
+                raise cli.ContractError("adapter returned the wrong shape")
+            return self._report()
+
+        for fail in (False, True):
+            with self.subTest(fail=fail), \
+                    patch.object(cli, "load_benchmark", return_value=object()), \
+                    patch.object(cli, "_submission_for", return_value=(lambda: None, [])), \
+                    patch.object(cli, "_start_live_run", side_effect=lambda *args:
+                                 cli._LiveRun("https://fixture.invalid", "token", "session")), \
+                    patch.object(cli, "send_local_run_event"), \
+                    patch.object(cli, "send_local_run_event_batch", side_effect=deliver_batch), \
+                    patch.object(cli, "execute", side_effect=execute):
+                code, text = self._main("run", "--live", "--json")
+                self.assertEqual(code, 2 if fail else 0, text)
+                sent = json.loads(events.read_text())
+                self.assertNotEqual(sent["pid"], parent)
+                self.assertEqual([event["type"] for event in sent["events"]],
+                                 ["progress", "progress", "failed" if fail else "completed"])
+                self.assertEqual(sent["events"][1]["progress"]["current"], 1)
+                if fail:
+                    self.assertEqual(sent["events"][-1]["code"], "run.failed.contract")
+                else:
+                    self.assertEqual(sent["events"][-1]["report"]["benchmarkId"], "fixture")
+
+    def test_json_redirects_python_and_native_output_through_execution(self):
+        script = r'''
+import os
+import sys
+from pathlib import Path
+from cogbench import cli
+from cogbench.models import LocalReport, RepositoryState
+
+def resolve(*args, **kwargs):
+    for i in range(1000):
+        print("student import", i)
+    os.write(1, b"native import\n")
+    return lambda: None, []
+
+def execute(*args, **kwargs):
+    print("student execution")
+    os.write(1, b"native execution\n")
+    return LocalReport.create(
+        benchmark_id="fixture", benchmark_version=1,
+        contract_version="cogworks.submissions.v2", sdk_version="0.2.0",
+        plugin_version="0.2.0", repository=RepositoryState(None, None, None, False),
+        started_at=1, finished_at=2, metrics=[], diagnostics=[], predictions=[],
+    )
+cli.load_benchmark = lambda *args: object()
+cli._submission_for = resolve
+cli.execute = execute
+raise SystemExit(cli.main(["run", "--benchmark", "fixture"] + sys.argv[1:]))
+'''
+        environment = dict(os.environ, PYTHONDONTWRITEBYTECODE="1",
+                           PYTHONPATH=str(ROOT / "python/cogbench/src"))
+        for flags in (["--json"], []):
+            with self.subTest(flags=flags):
+                result = subprocess.run([sys.executable, "-c", script, *flags], cwd=self.tmp,
+                                        env=environment, capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                student_output = result.stderr if flags else result.stdout
+                if flags:
+                    self.assertEqual(json.loads(result.stdout)["benchmarkId"], "fixture")
+                    self.assertNotIn("student import", result.stdout)
+                else:
+                    self.assertIn("saved:", result.stdout)
+                self.assertEqual(student_output.count("student import"), 1000)
+                for line in ("native import", "student execution", "native execution"):
+                    self.assertIn(line, student_output)
+
 
 
 if __name__ == "__main__":

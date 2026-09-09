@@ -243,3 +243,28 @@ class DiscoveryRunsUnderASeedSomebodyChose(unittest.TestCase):
 
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(done.stdout.strip(), "False")
+
+
+class NoBudgetIsAllowed(unittest.TestCase):
+    """A caller can decline the limits rather than inherit discovery's.
+
+    `run` puts the whole scored benchmark behind this boundary, and the hosted
+    runner gives that work 900 seconds where discovery's default is 300. Two
+    hosted runs of one 2026 week 1 repository took 875 and 898 seconds, so the
+    default would have ended a working submission early and called it a
+    timeout.
+    """
+
+    @unittest.skipUnless(hasattr(os, "fork"), "needs fork")
+    def test_work_runs_with_neither_a_clock_nor_a_ceiling(self):
+        outcome = run_isolated(
+            lambda: "finished", timeout_seconds=None, memory_bytes=None
+        )
+        self.assertEqual(outcome.status, COMPLETED)
+        self.assertEqual(outcome.value, "finished")
+
+    @unittest.skipUnless(hasattr(os, "fork"), "needs fork")
+    def test_a_crash_is_still_contained_without_limits(self):
+        outcome = run_isolated(_segfault, timeout_seconds=None, memory_bytes=None)
+        self.assertEqual(outcome.status, CRASHED)
+        self.assertIn("segfault", outcome.detail.lower())

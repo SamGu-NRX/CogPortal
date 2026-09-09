@@ -5,9 +5,14 @@ import { DatabaseSync } from "node:sqlite";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { eq } from "drizzle-orm";
+import { Hono } from "hono";
+import { symmetricEncrypt } from "better-auth/crypto";
+import { createAuth } from "../worker/auth/better-auth.ts";
+import type { AppEnv, Env } from "../worker/env.ts";
+import { handleError } from "../worker/http/errors.ts";
 import { drizzle } from "drizzle-orm/d1";
 import type { Database } from "../worker/db/client.ts";
-import { cohorts, runs, teams } from "../worker/db/schema.ts";
+import { accounts, cohorts, runs, teamMembers, teamProcessSignals, teams, users } from "../worker/db/schema.ts";
 import {
   HISTORY_BULK_UPLOAD,
   HISTORY_EMPTY,
@@ -31,7 +36,7 @@ import type {
 import { fetchCommitHistory, parseCoAuthorTrailers } from "../worker/github/commits.ts";
 import type { CommitRecord, FetchCommitsResult } from "../worker/github/commits.ts";
 import {
-  cacheProcessSignals,
+  registerTeamRoutes,
   hasRunsElsewhere,
   resolveWeekLabel,
   scoredRunRecords,
@@ -129,7 +134,7 @@ test("first light ignores commit history entirely, including a fetch failure", (
   assert.equal(signals.firstLight.scoredRunCount, 1);
 });
 
-test("a GitHub 401 threads through the signals and is not cacheable", async () => {
+test("a GitHub 401 threads through the signals", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => new Response(null, { status: 401 });
   try {
@@ -148,11 +153,6 @@ test("a GitHub 401 threads through the signals and is not cacheable", async () =
     for (const activity of Object.values(signals.stageFootprint)) {
       assert.equal(activity.unavailableReason, UNAUTHORIZED_HISTORY_REASON);
     }
-    let cacheWrites = 0;
-    await cacheProcessSignals(commitsResult, async () => {
-      cacheWrites += 1;
-    });
-    assert.equal(cacheWrites, 0);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -577,4 +577,79 @@ test("a run for another repository never speaks for the connected one", async ()
 
   assert.equal(await resolveWeekLabel(db, "team_test", 222), null);
   assert.deepEqual(await scoredRunRecords(db, "team_test", 222), []);
+});
+
+
+test("the process route does not cache a GitHub 401 and reads history again after sign-in", async () => {
+  const binding = freshBinding();
+  const db = drizzle(binding as never) as unknown as Database;
+  const env = {
+    DB: binding,
+    ENVIRONMENT: "development",
+    DEV_AUTH: "enabled",
+    EXECUTION_PROVIDER: "fixture",
+    BETTER_AUTH_SECRET: "a-secure-development-secret-32-chars",
+    BETTER_AUTH_URL: "http://localhost:5173",
+  } as unknown as Env;
+  await db.insert(cohorts).values({
+    id: "cohort_test", slug: "test", name: "Test", joinCode: "TEST", active: true,
+  });
+  await db.insert(teams).values({
+    id: "team_test", cohortId: "cohort_test", name: "Test team",
+    repoOwner: "course", repoName: "project", repoFullName: "course/project",
+    repoUrl: "https://github.com/course/project", defaultBranch: "main", repoId: 111,
+  });
+  const signIn = await createAuth(env).api.signUpEmail({
+    body: { email: "ada@example.test", password: "cogportal-local-dev-password", name: "Ada" },
+    returnHeaders: true,
+  });
+  const userId = signIn.response.user.id;
+  await db.update(users).set({ githubLogin: "ada", cohortId: "cohort_test" })
+    .where(eq(users.id, userId));
+  await db.insert(teamMembers).values({ teamId: "team_test", userId, role: "write" });
+  await db.insert(accounts).values({
+    id: "github_account", accountId: "github_ada", providerId: "github", userId,
+    accessToken: await symmetricEncrypt({ key: env.BETTER_AUTH_SECRET!, data: "expired-token" }),
+  });
+  env.GITHUB_CLIENT_ID = "test-client";
+  env.GITHUB_CLIENT_SECRET = "test-secret";
+  const cookie = signIn.headers.getSetCookie().map((value) => value.split(";")[0]).join("; ");
+  const app = new Hono<AppEnv>();
+  registerTeamRoutes(app);
+  app.onError(handleError);
+  const request = () => app.fetch(new Request("http://localhost:5173/v1/team/process", {
+    headers: { cookie },
+  }), env);
+  const originalFetch = globalThis.fetch;
+  const tokens: Array<string | null> = [];
+  globalThis.fetch = async (input, init) => {
+    assert.equal(String(input), "https://api.github.com/repos/course/project/commits?sha=main&per_page=100&page=1");
+    const token = new Headers(init?.headers).get("authorization");
+    tokens.push(token);
+    return token === "Bearer renewed-token"
+      ? Response.json([])
+      : new Response(null, { status: 401 });
+  };
+  try {
+    const rejected = await request();
+    assert.equal(rejected.status, 200);
+    const payload = await rejected.json() as { historyQuality: string; findingSentences: string[] };
+    assert.equal(payload.historyQuality, HISTORY_FETCH_FAILED);
+    assert.equal(payload.findingSentences[0], UNAUTHORIZED_HISTORY_REASON);
+    assert.deepEqual(await db.select().from(teamProcessSignals), []);
+
+    // A successful new GitHub sign-in replaces the account's stored token.
+    await db.update(accounts).set({
+      accessToken: await symmetricEncrypt({ key: env.BETTER_AUTH_SECRET!, data: "renewed-token" }),
+    }).where(eq(accounts.id, "github_account"));
+    const renewed = await request();
+    assert.equal(renewed.status, 200);
+    assert.equal((await renewed.json() as { historyQuality: string }).historyQuality, HISTORY_EMPTY);
+    assert.deepEqual(tokens, ["Bearer expired-token", "Bearer renewed-token"]);
+    const cached = await db.select().from(teamProcessSignals);
+    assert.equal(cached.length, 1);
+    assert.equal(cached[0].historyQuality, HISTORY_EMPTY);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

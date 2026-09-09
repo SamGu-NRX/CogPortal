@@ -55,7 +55,6 @@ from .verdict import (
 __all__ = [
     "Submission",
     "SubmissionReport",
-    "ChainStep",
     "Attempt",
     "resolve",
     "from_spec",
@@ -91,17 +90,6 @@ class Attempt:
 
 
 @dataclass(frozen=True)
-class ChainStep:
-    """One bound step, by name only.
-
-    ``Candidate`` carries the student's live callable. This carries the label
-    a report prints, and nothing that has to stay in the process that built it.
-    """
-
-    label: str
-
-
-@dataclass(frozen=True)
 class SubmissionReport:
     """What a report needs from a ``Submission``, with no live callables in it.
 
@@ -110,13 +98,12 @@ class SubmissionReport:
     ``tests/test_isolate.py``), so the reading happens in a child process. A
     ``Submission`` holds functions bound out of their modules and cannot leave
     that child. This is the part that comes back: the verdict, the step names,
-    and the record. ``report.render_check`` reads the same attribute names off
-    either one.
+    and the record. ``report.render_check`` consumes this report.
     """
 
     ready: bool
     verdict: Verdict
-    chain: Tuple[ChainStep, ...] = ()
+    chain: Tuple[str, ...] = ()
     attempt: Optional[Attempt] = None
     #: ``Submission.to_dict()``, for ``check --json`` and the portal.
     record: Optional[Dict[str, object]] = None
@@ -302,7 +289,7 @@ class Submission:
         return SubmissionReport(
             ready=self.ready,
             verdict=self.verdict,
-            chain=tuple(ChainStep(step.label) for step in self.chain),
+            chain=tuple(step.label for step in self.chain),
             attempt=self.attempt,
             record=self.to_dict(),
         )

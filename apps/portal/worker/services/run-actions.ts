@@ -193,6 +193,15 @@ async function dispatch(env: Env, runId: string, team: TeamRow, benchmark: Bench
       .where(unstarted);
     let changed: number;
     if (run.mode === "official") {
+      // Deleted outright rather than routed through `refundOfficialAttempt`,
+      // and deliberately so. That helper counts against REFUND_CAP and stamps
+      // `refundedAt`, which is the right accounting for a run that started and
+      // then died on us. This run never started: the provider refused it
+      // before any sandbox existed, so there is nothing to refund and no
+      // reason the team's fifth failed dispatch should cost them the ability
+      // to be refunded a real infrastructure failure later. Triage item B-24
+      // reads this as a cap bypass; the premise is what is wrong, not this.
+      //
       // Released first, so it reads the run before the update rewrites it.
       const [, failed] = await db.batch([
         db.delete(officialAttempts).where(

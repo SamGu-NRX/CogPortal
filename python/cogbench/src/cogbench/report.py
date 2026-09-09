@@ -20,6 +20,7 @@ from __future__ import annotations
 from typing import Dict, List, Optional, Sequence
 
 from .plugins import benchmark_install_command
+from .resolve import SubmissionReport
 
 __all__ = ["render_check", "render_survey"]
 
@@ -161,7 +162,7 @@ def render_check(
     hosted_python: Optional[str],
     benchmark_ready: bool,
     repository: Optional[str],
-    submission: Optional[object] = None,
+    submission: Optional[SubmissionReport] = None,
     survey: Optional[Dict[str, object]] = None,
     local_gap_note: str = "",
     submission_source: Optional[str] = None,
@@ -171,7 +172,7 @@ def render_check(
 ) -> List[str]:
     """The whole report, in the order a person asks about it.
 
-    ``submission`` is a ``cogbench.resolve.Submission`` when discovery ran.
+    ``submission`` is a ``cogbench.resolve.SubmissionReport`` when discovery ran.
     Passing ``None`` means it did not, which is itself worth saying rather
     than leaving the reader to infer it from a missing section.
 
@@ -224,7 +225,7 @@ def render_check(
     # that two paragraphs are one fact. The verdict wins, because it is
     # specific about which modules and this is general.
     verdict_covers_the_gap = (
-        getattr(getattr(submission, "verdict", None), "status", "") == "could_not_look"
+        submission is not None and submission.verdict.status == "could_not_look"
     )
     if local_gap_note and not verdict_covers_the_gap:
         lines.append("")
@@ -291,17 +292,17 @@ def render_check(
             )
         return lines
 
-    chain = getattr(submission, "chain", ())
-    attempt = getattr(submission, "attempt", None)
-    verdict = getattr(submission, "verdict", None)
+    chain = submission.chain
+    attempt = submission.attempt
+    verdict = submission.verdict
 
     # The trace names each step by the stage it filled; the chain is the
     # fallback for a resolution that produced no trace. Either is enough to
     # show the section, and so is a store and query pair on its own.
     steps = [
         (step.stage, step.function)
-        for step in (getattr(verdict, "trace", ()) or ())
-    ] or [("", step.label) for step in chain]
+        for step in verdict.trace
+    ] or [("", step) for step in chain]
     if steps or attempt is not None:
         lines.append("")
         lines.append("Wired up:")
@@ -319,20 +320,19 @@ def render_check(
             lines.append("  {:<{}} {}".format("query", width, attempt.query))
 
     lines.append("")
-    if verdict is not None:
-        lines.append(verdict.headline)
-        for note in getattr(verdict, "notes", ()):
-            lines.append(note)
-        # The files that could not be read and the lines their code raised
-        # on. Taken from the verdict rather than formatted here, so `cogworks
-        # check` and a run page cannot come to print two different reports
-        # out of one record.
-        lines.extend(verdict.problems())
-        if getattr(verdict, "next_step", ""):
-            lines.append("")
-            lines.append(verdict.next_step)
+    lines.append(verdict.headline)
+    for note in verdict.notes:
+        lines.append(note)
+    # The files that could not be read and the lines their code raised
+    # on. Taken from the verdict rather than formatted here, so `cogworks
+    # check` and a run page cannot come to print two different reports
+    # out of one record.
+    lines.extend(verdict.problems())
+    if verdict.next_step:
+        lines.append("")
+        lines.append(verdict.next_step)
 
-    if getattr(submission, "ready", False):
+    if submission.ready:
         lines.append("")
         lines.append(
             "Run `cogworks run --benchmark {}` to score it on your machine.".format(benchmark)

@@ -18,7 +18,7 @@ from urllib.parse import urlparse
 
 from . import __version__
 from .environment import gap_note, local_gap
-from .isolate import COMPLETED, run_isolated
+from .isolate import COMPLETED, Outcome, run_isolated
 from .client import (
     PortalError,
     device_status,
@@ -748,6 +748,51 @@ def _start_live_run(
     return _LiveRun(portal, token, str(result["sessionId"]))
 
 
+def _run_view(args: argparse.Namespace, project_root: Path) -> str:
+    """Resolve and score here; only the serialized report leaves this process."""
+
+    live: Optional[_LiveRun] = None
+    stdout_fd = None
+    try:
+        if args.json:
+            # Imports can print through Python or native code. Redirect the
+            # descriptor so neither can corrupt the parent's JSON report.
+            sys.stdout.flush()
+            stdout_fd = os.dup(1)
+            os.dup2(2, 1)
+        benchmark = load_benchmark(args.benchmark)
+        adapter, weights = _submission_for(
+            args.benchmark, benchmark, project_root, as_json=args.json
+        )
+        if args.command == "run" and args.live:
+            # Live delivery owns worker threads. Start it beside execute in
+            # the child; threads started before fork would not survive there.
+            live = _start_live_run(args, benchmark, project_root)
+            live.progress("preparing")
+        report = execute(
+            benchmark,
+            adapter,
+            project_root,
+            smoke=args.command == "test",
+            progress=live.progress if live else None,
+            weights=weights,
+        )
+        if live:
+            live.completed(report)
+        return report.to_json()
+    except BaseException as error:
+        if live:
+            live.failed(error)
+        raise
+    finally:
+        # run_isolated uses _exit, which does not flush buffered student output.
+        sys.stdout.flush()
+        sys.stderr.flush()
+        if stdout_fd is not None:
+            os.dup2(stdout_fd, 1)
+            os.close(stdout_fd)
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     # Before anything reads a repository. Discovery runs student code whose
     # answer can depend on string hashing -- one 2026 repository builds its
@@ -778,7 +823,6 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     # git state from a directory that is not a worktree, so `cogworks report`
     # after a successful run said "No local reports found".
     project_root = Path.cwd()
-    live: Optional[_LiveRun] = None
     try:
         if args.command in ("check", "doctor"):
             if args.command == "doctor":
@@ -791,24 +835,47 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 _update_setup(None, ("clone", "environment", "project", "wiring"), project_root)
             return result
         if args.command in ("test", "run"):
-            benchmark = load_benchmark(args.benchmark)
-            adapter, weights = _submission_for(
-                args.benchmark, benchmark, project_root, as_json=args.json
-            )
-            if args.command == "run" and args.live:
-                live = _start_live_run(args, benchmark, project_root)
-                live.progress("preparing")
-            report = execute(
-                benchmark,
-                adapter,
-                project_root,
-                smoke=args.command == "test",
-                progress=live.progress if live else None,
-                weights=weights,
-            )
+            if not hasattr(os, "fork"):
+                # Windows runs in-process, as _read_repository and survey do;
+                # without fork this platform cannot offer crash containment.
+                outcome = Outcome(COMPLETED, value=_run_view(args, project_root))
+            else:
+                # The native import crash in test_isolate also affects run/test.
+                # Keep the adapter and the whole scored run inside this boundary.
+                #
+                # No budget. The boundary is here to contain a crash, and its
+                # defaults are discovery's: 300 seconds of CPU and 3 GiB, sized
+                # for reading a repository. A whole scored run is a different
+                # shape of work, and the hosted runner allows it 900 seconds and
+                # 4 GiB. Two hosted runs of one 2026 week 1 repository took 875
+                # and 898 seconds (see the measurements in
+                # worker/execution/runner.ts), so discovery's budget would have
+                # ended that run at 300 and called a working submission timed
+                # out. Local runs had no limit before this boundary existed and
+                # they still have none; a student who wants to stop one presses
+                # Ctrl+C.
+                sys.stdout.flush()
+                sys.stderr.flush()
+                outcome = run_isolated(
+                    lambda: _run_view(args, project_root),
+                    scratch=project_root,
+                    timeout_seconds=None,
+                    memory_bytes=None,
+                )
+            if outcome.status != COMPLETED:
+                if args.json:
+                    print(json.dumps({
+                        "benchmarkId": args.benchmark,
+                        "status": outcome.status,
+                        "detail": outcome.detail,
+                    }, indent=2))
+                else:
+                    print("{} · LOCAL · NO RESULT".format(args.benchmark))
+                    print("The run did not finish: {}.".format(outcome.detail))
+                    print("No score was produced.")
+                return 2
+            report = LocalReport.from_json(outcome.value)
             path = save_report(report, project_root)
-            if live:
-                live.completed(report)
             _print_report(report, args.json)
             if not args.json:
                 print("saved: {}".format(path))
@@ -965,13 +1032,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             print("Portal   {}".format(portal))
             return 0
     except KeyboardInterrupt:
-        if live:
-            live.failed(KeyboardInterrupt())
         print("\ncogworks: interrupted", file=sys.stderr)
         return 130
     except (ContractError, PluginError, PortalError, OSError, ValueError) as error:
-        if live:
-            live.failed(error)
         print("cogworks: {}".format(error), file=sys.stderr)
         return 2
     return 2

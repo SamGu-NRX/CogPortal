@@ -224,11 +224,19 @@ def _pin_hash_seed() -> None:
     os.environ["PYTHONHASHSEED"] = "0"
 
 
-def _apply_limits(memory_bytes: int, timeout_seconds: int) -> None:
-    """Bound the child before it runs a line of student code."""
+def _apply_limits(
+    memory_bytes: Optional[int], timeout_seconds: Optional[int]
+) -> None:
+    """Bound the child before it runs a line of student code.
+
+    ``None`` for either means the caller is not imposing that limit. Reading a
+    repository has a budget; running the whole benchmark does not, and giving
+    it discovery's budget would end a legitimate run early.
+    """
 
     try:
-        resource.setrlimit(resource.RLIMIT_AS, (memory_bytes, memory_bytes))
+        if memory_bytes is not None:
+            resource.setrlimit(resource.RLIMIT_AS, (memory_bytes, memory_bytes))
     except (ValueError, OSError):
         # Some platforms refuse an address-space limit. The wall clock and the
         # process boundary still hold, so this is a weaker child, not an
@@ -241,9 +249,10 @@ def _apply_limits(memory_bytes: int, timeout_seconds: int) -> None:
     # A CPU limit catches a spin that the wall clock would also catch, but it
     # arrives as a signal the parent can name precisely.
     try:
-        resource.setrlimit(
-            resource.RLIMIT_CPU, (timeout_seconds, timeout_seconds + 5)
-        )
+        if timeout_seconds is not None:
+            resource.setrlimit(
+                resource.RLIMIT_CPU, (timeout_seconds, timeout_seconds + 5)
+            )
     except (ValueError, OSError):
         pass
 
@@ -346,8 +355,8 @@ def _describe_death(status: int) -> Outcome:
 def run_isolated(
     work: Callable[[], Any],
     *,
-    timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
-    memory_bytes: int = DEFAULT_MEMORY_BYTES,
+    timeout_seconds: Optional[int] = DEFAULT_TIMEOUT_SECONDS,
+    memory_bytes: Optional[int] = DEFAULT_MEMORY_BYTES,
     scratch: Optional[Path] = None,
 ) -> Outcome:
     """Run ``work`` in a child process and report what became of it.
@@ -382,7 +391,11 @@ def run_isolated(
         # cannot interrupt this pipe read, so it waits until the child exits
         # or the child's CPU rlimit fires. The no-fork branch above is what
         # Windows takes; this guard also keeps other limited platforms usable.
-        alarm = hasattr(signal, "SIGALRM") and hasattr(signal, "alarm")
+        alarm = (
+            timeout_seconds is not None
+            and hasattr(signal, "SIGALRM")
+            and hasattr(signal, "alarm")
+        )
         previous = signal.signal(signal.SIGALRM, _on_alarm) if alarm else None
         if alarm:
             signal.alarm(timeout_seconds)

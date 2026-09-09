@@ -85,6 +85,28 @@ class CheckTests(unittest.TestCase):
             query=lambda *a: None,
         )
 
+    def test_chain_labels_are_plain_strings_and_render_without_a_trace(self):
+        import pickle
+        from cogbench.pipeline import Candidate
+
+        submission = Submission(
+            scored("ready", 1.0),
+            chain=(Candidate("audio.fingerprint", lambda value: value, "audio"),),
+        )
+        report = pickle.loads(pickle.dumps(submission.report()))
+        self.assertEqual(report.chain, ("audio.fingerprint",))
+        self.assertIs(type(report.chain[0]), str)
+        text = "\n".join(render_check(
+            benchmark="audio-identification",
+            python_version="3.11.15",
+            hosted_python=None,
+            benchmark_ready=True,
+            repository="team/audio",
+            submission=report,
+        ))
+        self.assertIn("audio.fingerprint", text)
+        self.assertIn("Wired up:", text)
+
     def test_a_ready_repository_ends_with_the_command_to_run(self):
         lines = render_check(
             benchmark="audio-identification",
@@ -92,7 +114,7 @@ class CheckTests(unittest.TestCase):
             hosted_python="3.8",
             benchmark_ready=True,
             repository="team/capstone",
-            submission=self._ready(),
+            submission=self._ready().report(),
             survey=SURVEY,
         )
         text = "\n".join(lines)
@@ -112,7 +134,7 @@ class CheckTests(unittest.TestCase):
                 hosted_python="3.8",
                 benchmark_ready=True,
                 repository="team/capstone",
-                submission=self._ready(),
+                submission=self._ready().report(),
             )
         )
         self.assertIn("hosted python", text)
@@ -126,7 +148,7 @@ class CheckTests(unittest.TestCase):
                 hosted_python="3.8.20",
                 benchmark_ready=True,
                 repository="team/capstone",
-                submission=self._ready(),
+                submission=self._ready().report(),
             )
         )
         self.assertNotIn("hosted python", text)
@@ -149,7 +171,7 @@ class CheckTests(unittest.TestCase):
                 hosted_python="3.8",
                 benchmark_ready=True,
                 repository="team/capstone",
-                submission=submission,
+                submission=submission.report(),
                 survey=SURVEY,
             )
         )
@@ -340,7 +362,7 @@ class WhenTheCheckCouldNotLook(unittest.TestCase):
                 hosted_python="3.11",
                 benchmark_ready=True,
                 repository="team/vision",
-                submission=self._stopped(),
+                submission=self._stopped().report(),
                 local_gap_note="12 packages the graded run installs are missing here.",
             )
         )
@@ -358,7 +380,7 @@ class WhenTheCheckCouldNotLook(unittest.TestCase):
                 hosted_python="3.11",
                 benchmark_ready=True,
                 repository="team/vision",
-                submission=self._ready_submission(),
+                submission=self._ready_submission().report(),
                 local_gap_note="12 packages the graded run installs are missing here.",
             )
         )

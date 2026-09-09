@@ -104,7 +104,11 @@ export function ConnectPage() {
               <ChoiceCard
                 onSelect={() => setChosen("start")}
                 label="Start a team"
-                hint="Fork the course template and connect your fork. You'll be the team's creator."
+                hint={
+                  session?.auth.templateRepo
+                    ? "Fork the course template and connect your fork. You'll be the team's creator."
+                    : "Connect a public repository you can push to. You'll be the team's creator."
+                }
               />
             </div>
           </>
@@ -121,13 +125,15 @@ export function ConnectPage() {
             {back}
             <h1 className="text-3xl">Start a team</h1>
             <p className="mt-2 text-[14px] text-ink-secondary">
-              Fork{" "}
               {session?.auth.templateRepo ? (
-                <code className="text-[12.5px] text-ink">{session.auth.templateRepo}</code>
+                <>
+                  Fork{" "}
+                  <code className="text-[12.5px] text-ink">{session.auth.templateRepo}</code>
+                  , keep it public, connect it here.
+                </>
               ) : (
-                "the course template"
+                "Connect a repository you can push to. It has to be public, because the benchmark reads it from GitHub."
               )}
-              , keep it public, connect it here.
             </p>
             {teamsUnknown && (
               <div className="mt-6">
@@ -445,7 +451,9 @@ function ForkSteps({
         <li className="flex flex-wrap items-center gap-4 px-5 py-3.5">
           <span className="font-mono text-[11px] text-ink-faint">01</span>
           <span className="flex-1 text-[13.5px] text-ink-secondary">
-            Fork {template ?? "the course template"}. Keep it public.
+            {template
+              ? `Fork ${template}. Keep it public.`
+              : "Use a public repository you already have, or create one."}
           </span>
           {template && (
             <Button

@@ -199,18 +199,6 @@ const MODULE_WEEK_LABELS: Record<string, WeekLabel> = {
 /** How long a cached `team_process_signals` row is served before recomputing. */
 const PROCESS_SIGNALS_CACHE_MS = 30 * 60 * 1000;
 
-export async function cacheProcessSignals(
-  commitsResult: Awaited<ReturnType<typeof fetchCommitHistory>>,
-  write: () => Promise<void>,
-): Promise<void> {
-  if (!commitsResult.ok && commitsResult.reason === "unauthorized") {
-    // A GitHub 401 tells the student to sign in again. Caching that result
-    // would keep showing the instruction after the new sign-in succeeds.
-    return;
-  }
-  await write();
-}
-
 /**
  * Runs that stand as evidence for the repository the team has connected.
  *
@@ -391,7 +379,9 @@ export function registerTeamRoutes(app: Hono<AppEnv>): void {
       findingSentences: findingSentences(signals),
     };
 
-    await cacheProcessSignals(commitsResult, async () => {
+    // Caching a GitHub 401 would keep asking the student to sign in again
+    // after their new sign-in succeeds.
+    if (commitsResult.ok || commitsResult.reason !== "unauthorized") {
       const signalsJson = JSON.stringify(payload);
       await db
         .insert(teamProcessSignals)
@@ -400,7 +390,7 @@ export function registerTeamRoutes(app: Hono<AppEnv>): void {
           target: teamProcessSignals.teamId,
           set: { computedAt: now, signalsJson, historyQuality: signals.historyQuality },
         });
-    });
+    }
 
     return respond(c, TeamProcessSignalsSchema, { ...payload, computedAt: now });
   });
