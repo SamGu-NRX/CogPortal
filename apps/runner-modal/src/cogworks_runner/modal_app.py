@@ -2402,8 +2402,9 @@ def _sweep_wire(benchmark):
     # second scoring run: the guard below returns before any work. Storing the
     # result made it recoverable; this is what recovers it.
     #
-    # Five attempts at 10s doubling to a 120s ceiling is about four and a half
-    # minutes of delay, plus each attempt's own callback timeouts.
+    # Five attempts at 10s doubling to the 60s ceiling (modal validates
+    # max_delay to 1-60; a 120 here failed the deploy) is about three minutes
+    # of delay, plus each attempt's own callback timeouts.
     #
     # What bounds the useful window is the portal's stale sweep, and it
     # measures from `runs.createdAt` rather than from the last callback
@@ -2414,7 +2415,7 @@ def _sweep_wire(benchmark):
     # `applyEvent` ignores the replay, and the runner still records the event
     # as delivered because the route answers 200. Retrying for longer would
     # not fix that; moving the sweep to the last callback would.
-    retries=modal.Retries(max_retries=5, initial_delay=10.0, max_delay=120.0),
+    retries=modal.Retries(max_retries=5, initial_delay=10.0, max_delay=60.0),
 )
 def execute_job(job_value: Dict[str, Any]) -> None:
     job = validate_job(job_value)
