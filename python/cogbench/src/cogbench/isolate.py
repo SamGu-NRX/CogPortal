@@ -234,6 +234,11 @@ def _apply_limits(
     it discovery's budget would end a legitimate run early.
     """
 
+    if resource is None:
+        # A platform can have fork and no resource module. Reaching for it
+        # anyway raises AttributeError, which is not in the tuples below, so
+        # the child exited 70 and reported "exited with status 70".
+        return
     try:
         if memory_bytes is not None:
             resource.setrlimit(resource.RLIMIT_AS, (memory_bytes, memory_bytes))
@@ -327,12 +332,27 @@ def _read_payload(read_fd: int) -> Optional[Outcome]:
         return None
 
 
-def _describe_death(status: int) -> Outcome:
-    """Turn a wait status into something worth showing a student."""
+def _describe_death(status: int, timed: bool = True) -> Outcome:
+    """Turn a wait status into something worth showing a student.
+
+    ``timed`` is whether this process was holding a clock over the child. With
+    no clock there is nothing to time out, so a SIGKILL came from outside: the
+    Linux OOM killer, macOS jetsam, or someone typing kill. Reporting that as
+    "took longer than the time allowed" is a claim about elapsed time that
+    nothing here measured.
+    """
 
     if os.WIFSIGNALED(status):
         number = os.WTERMSIG(status)
         if number == signal.SIGKILL:
+            if not timed:
+                return Outcome(
+                    CRASHED,
+                    detail=(
+                        "the operating system stopped this process, most often "
+                        "for using too much memory"
+                    ),
+                )
             return Outcome(
                 TIMED_OUT,
                 detail="stopped after taking longer than the time allowed",
@@ -413,13 +433,19 @@ def run_isolated(
                 os.close(read_fd)
             except OSError:
                 pass
-
-        _terminate(pid)
-        _, status = _reap(pid)
+            # Inside the finally, because Ctrl+C raises KeyboardInterrupt out
+            # of the read above and used to leave the child running. The child
+            # called setsid, so the terminal's own SIGINT never reaches it:
+            # measured, the parent printed "interrupted" and the child was
+            # still going a second later, reparented to init. On a scored run
+            # that orphan finishes the benchmark and, with --live, reports a
+            # completed run minutes after the student stopped the command.
+            _terminate(pid)
+            status = _reap(pid)[1]
 
         if outcome is not None:
             return outcome
-        return _describe_death(status)
+        return _describe_death(status, timed=alarm)
 
 
 class _Alarm(Exception):

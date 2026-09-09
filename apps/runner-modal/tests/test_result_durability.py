@@ -79,6 +79,22 @@ class Scored(AssertionError):
     """Raised by a sentinel, so scoring a second time fails loudly."""
 
 
+class FakeDict(dict):
+    """A stand-in for `modal.Dict`, with the one method that is not a dict's.
+
+    `put(key, value, skip_if_exists=True)` returns False when the key is
+    already there, which is how a job is claimed without a read and a write
+    that another invocation can slip between. Signature checked against the
+    installed modal 1.5.4.
+    """
+
+    def put(self, key, value, *, skip_if_exists: bool = False) -> bool:
+        if skip_if_exists and key in self:
+            return False
+        self[key] = value
+        return True
+
+
 def _execute_job(store: dict) -> tuple:
     """The shipped `execute_job`, with its scoring dependencies replaced.
 
@@ -89,7 +105,7 @@ def _execute_job(store: dict) -> tuple:
 
     text = MODAL_APP.read_text(encoding="utf-8")
     module = ast.parse(text)
-    wanted = ("_job_state", "_finish", "_deliver_terminal", "_event", "LiveReporter", "execute_job")
+    wanted = ("_outcome_key", "_finish", "_deliver_terminal", "_event", "LiveReporter", "execute_job")
     nodes = []
     for node in module.body:
         if isinstance(node, (ast.FunctionDef, ast.ClassDef)) and node.name in wanted:
@@ -133,23 +149,27 @@ def _execute_job(store: dict) -> tuple:
     return namespace, calls
 
 
-def _terminal(namespace, job, kind="completed", delivered=False):
+def _store_outcome(namespace, store, job, kind="completed", delivered=False):
+    """Put a finished job in the store the way `_finish` leaves it."""
+
     reporter = namespace["LiveReporter"](job)
     event = reporter.build(kind, result={"metrics": []})
-    return {"status": kind, "event": event, "delivered": delivered}
+    outcome = {"status": kind, "event": event, "delivered": delivered}
+    store[namespace["_outcome_key"](job["jobId"])] = outcome
+    store[job["jobId"]] = kind
+    return outcome
 
 
 class AFinishedJobIsNeverScoredAgain(unittest.TestCase):
     def setUp(self):
         os.environ["RUNNER_SIGNING_SECRET"] = SECRET
-        self.store = {}
+        self.store = FakeDict()
 
     def test_a_result_that_never_landed_is_sent_again_by_the_next_attempt(self):
         with RecordingPortal([200]) as portal:
             space, scored = _execute_job(self.store)
             job = durable_job(portal.url)
-            entry = _terminal(space, job)
-            self.store[job["jobId"]] = entry
+            _store_outcome(space, self.store, job)
 
             space["execute_job"](job)
 
@@ -158,20 +178,20 @@ class AFinishedJobIsNeverScoredAgain(unittest.TestCase):
         self.assertEqual(scored, [], "the replay scored nothing")
         self.assertEqual(len(bodies), 1, "the stored result was sent once")
         self.assertIn(b'"type":"completed"', bodies[0])
-        self.assertTrue(space["_job_state"](self.store[job["jobId"]])["delivered"])
+        self.assertTrue(self.store[space["_outcome_key"](job["jobId"])]["delivered"])
 
     def test_the_replay_carries_the_same_event_the_first_attempt_built(self):
         with RecordingPortal([500, 500, 500, 200]) as portal:
             space, scored = _execute_job(self.store)
             job = durable_job(portal.url)
-            entry = _terminal(space, job)
-            self.store[job["jobId"]] = entry
+            _store_outcome(space, self.store, job)
+            key = space["_outcome_key"](job["jobId"])
 
             # Delivery exhausts, so this attempt raises. That raise is what
             # asks Modal for another attempt.
             with self.assertRaises(urllib.error.HTTPError):
                 space["execute_job"](job)
-            self.assertFalse(space["_job_state"](self.store[job["jobId"]])["delivered"])
+            self.assertFalse(self.store[key]["delivered"])
 
             space["execute_job"](job)
             bodies = [request["body"] for request in portal.requests]
@@ -184,7 +204,7 @@ class AFinishedJobIsNeverScoredAgain(unittest.TestCase):
         with RecordingPortal([200]) as portal:
             space, scored = _execute_job(self.store)
             job = durable_job(portal.url)
-            self.store[job["jobId"]] = _terminal(space, job, delivered=True)
+            _store_outcome(space, self.store, job, delivered=True)
 
             space["execute_job"](job)
 
@@ -198,7 +218,7 @@ class AFinishedJobIsNeverScoredAgain(unittest.TestCase):
         with RecordingPortal([200]) as portal:
             space, scored = _execute_job(self.store)
             job = durable_job(portal.url)
-            self.store[job["jobId"]] = _terminal(space, job, kind="failed")
+            _store_outcome(space, self.store, job, kind="failed")
 
             space["execute_job"](job)
             bodies = [request["body"] for request in portal.requests]
@@ -235,11 +255,39 @@ class AFinishedJobIsNeverScoredAgain(unittest.TestCase):
             self.assertEqual(portal.requests, [])
         self.assertEqual(scored, [])
 
-    def test_a_status_word_from_an_older_deploy_still_reads(self):
-        space, _ = _execute_job(self.store)
-        self.assertEqual(space["_job_state"]("running"), {"status": "running"})
-        self.assertEqual(space["_job_state"]("completed").get("event"), None)
-        self.assertEqual(space["_job_state"](None), {})
+    def test_a_job_finished_by_an_older_deploy_is_not_scored_again(self):
+        """The regression this shape exists to avoid.
+
+        An older build wrote the bare word and kept no event, so there is
+        nothing to replay. Reading the status out of a dict would have found
+        no event, fallen through, and scored a completed job a second time.
+        """
+
+        with RecordingPortal([200]) as portal:
+            space, scored = _execute_job(self.store)
+            job = durable_job(portal.url)
+            self.store[job["jobId"]] = "completed"
+
+            space["execute_job"](job)
+
+            self.assertEqual(portal.requests, [], "nothing to send")
+        self.assertEqual(scored, [], "and nothing to score")
+
+    def test_two_invocations_cannot_both_claim_one_job(self):
+        """The claim is one operation. A read and then a write let two
+        invocations both see nothing and both do the work."""
+
+        with RecordingPortal([200]) as portal:
+            space, scored = _execute_job(self.store)
+            job = durable_job(portal.url)
+            self.assertTrue(
+                self.store.put(job["jobId"], "running", skip_if_exists=True)
+            )
+
+            space["execute_job"](job)
+
+            self.assertEqual(portal.requests, [])
+        self.assertEqual(scored, [], "the second invocation stood down")
 
 
 class TheRetryPolicyIsBoundedAndDeclared(unittest.TestCase):

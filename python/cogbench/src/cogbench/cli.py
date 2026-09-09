@@ -845,15 +845,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 #
                 # No budget. The boundary is here to contain a crash, and its
                 # defaults are discovery's: 300 seconds of CPU and 3 GiB, sized
-                # for reading a repository. A whole scored run is a different
-                # shape of work, and the hosted runner allows it 900 seconds and
-                # 4 GiB. Two hosted runs of one 2026 week 1 repository took 875
-                # and 898 seconds (see the measurements in
-                # worker/execution/runner.ts), so discovery's budget would have
-                # ended that run at 300 and called a working submission timed
-                # out. Local runs had no limit before this boundary existed and
-                # they still have none; a student who wants to stop one presses
-                # Ctrl+C.
+                # for reading a repository rather than for scoring one. The
+                # measurement that bears on a local run is a local one:
+                # carti4ce/week1_capstone took 381 seconds of evaluation on a
+                # laptop (worker/execution/runner.ts records it beside the
+                # hosted timings), so discovery's 300 would have cut a working
+                # submission short and called it a timeout. Local runs had no
+                # limit before this boundary existed and they still have none.
                 sys.stdout.flush()
                 sys.stderr.flush()
                 outcome = run_isolated(

@@ -256,12 +256,54 @@ class NoBudgetIsAllowed(unittest.TestCase):
     """
 
     @unittest.skipUnless(hasattr(os, "fork"), "needs fork")
-    def test_work_runs_with_neither_a_clock_nor_a_ceiling(self):
+    def test_the_child_really_has_no_cpu_limit(self):
+        """Read from inside the child, not from the arguments it was given.
+
+        Asserting the keyword would still pass if `_apply_limits` started
+        ignoring None, which is the thing that would actually break this.
+        """
+
+        import resource
+
+        def limits():
+            return resource.getrlimit(resource.RLIMIT_CPU)
+
+        with_none = run_isolated(limits, timeout_seconds=None, memory_bytes=None)
+        with_seven = run_isolated(limits, timeout_seconds=7)
+
+        self.assertEqual(with_none.status, COMPLETED)
+        self.assertEqual(with_none.value, (resource.RLIM_INFINITY, resource.RLIM_INFINITY))
+        self.assertEqual(with_seven.value, (7, 12))
+
+    @unittest.skipUnless(hasattr(os, "fork"), "needs fork")
+    def test_a_core_file_is_refused_either_way(self):
+        """Not a budget on the work: it refuses a multi-gigabyte core file
+        when the crash this boundary exists for happens."""
+
+        import resource
+
         outcome = run_isolated(
-            lambda: "finished", timeout_seconds=None, memory_bytes=None
+            lambda: resource.getrlimit(resource.RLIMIT_CORE),
+            timeout_seconds=None,
+            memory_bytes=None,
         )
-        self.assertEqual(outcome.status, COMPLETED)
-        self.assertEqual(outcome.value, "finished")
+        self.assertEqual(outcome.value, (0, 0))
+
+    @unittest.skipUnless(hasattr(os, "fork"), "needs fork")
+    def test_an_outside_kill_is_not_called_a_timeout(self):
+        """With no clock there is nothing to time out, so a SIGKILL came from
+        the OOM killer or from someone typing kill. Calling that "longer than
+        the time allowed" is a claim about elapsed time nothing measured."""
+
+        def _killed():
+            import signal as s
+
+            os.kill(os.getpid(), s.SIGKILL)
+
+        outcome = run_isolated(_killed, timeout_seconds=None, memory_bytes=None)
+        self.assertEqual(outcome.status, CRASHED)
+        self.assertNotIn("time allowed", outcome.detail)
+        self.assertIn("too much memory", outcome.detail)
 
     @unittest.skipUnless(hasattr(os, "fork"), "needs fork")
     def test_a_crash_is_still_contained_without_limits(self):
