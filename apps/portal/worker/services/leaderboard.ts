@@ -76,9 +76,13 @@ export async function getLeaderboardReadModel(
       rank: 0,
       teamName: row.team.name,
       teamDescription: row.team.description,
-      repoUrl: row.team.repoUrl,
-      sha: row.run.sha,
-      shortSha: row.run.sha.slice(0, 7),
+      provenance: row.team.provenance,
+      // An archive row is labeled anonymized on the page. The repository link
+      // names a GitHub account and a commit SHA resolves to its repository
+      // through GitHub search, so neither leaves the server for those rows.
+      repoUrl: row.team.provenance === "archive" ? null : row.team.repoUrl,
+      sha: row.team.provenance === "archive" ? "" : row.run.sha,
+      shortSha: row.team.provenance === "archive" ? "" : row.run.sha.slice(0, 7),
       primaryMetric: serializeMetric(primary),
       supportingMetrics: runMetricsForRow
         .filter((metric) => !metric.isPrimary)
@@ -192,9 +196,13 @@ export async function getFamilyLeaderboardReadModel(
       rank: 0,
       teamName: row.team.name,
       teamDescription: row.team.description,
-      repoUrl: row.team.repoUrl,
-      sha: row.run.sha,
-      shortSha: row.run.sha.slice(0, 7),
+      provenance: row.team.provenance,
+      // An archive row is labeled anonymized on the page. The repository link
+      // names a GitHub account and a commit SHA resolves to its repository
+      // through GitHub search, so neither leaves the server for those rows.
+      repoUrl: row.team.provenance === "archive" ? null : row.team.repoUrl,
+      sha: row.team.provenance === "archive" ? "" : row.run.sha,
+      shortSha: row.team.provenance === "archive" ? "" : row.run.sha.slice(0, 7),
       primaryMetric: {
         key: "overall",
         label: "Overall",

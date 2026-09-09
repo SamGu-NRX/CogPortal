@@ -77,7 +77,8 @@ export function registerTeamMembershipRoutes(app: Hono<AppEnv>): void {
     const cohortTeams = await db
       .select()
       .from(teams)
-      .where(eq(teams.cohortId, auth.cohort.id))
+      // Archive rows are past-course demonstrations, so they have no team to join.
+      .where(and(eq(teams.cohortId, auth.cohort.id), eq(teams.provenance, "live")))
       .orderBy(asc(teams.name));
     const memberships = cohortTeams.length === 0
       ? []
@@ -108,6 +109,7 @@ export function registerTeamMembershipRoutes(app: Hono<AppEnv>): void {
         id: team.id,
         name: team.name,
         description: team.description,
+        provenance: team.provenance,
         repo: { fullName: team.repoFullName, url: team.repoUrl },
         members,
         adminLogin: members.find((member) => member.role === "admin")?.login ?? null,
@@ -135,6 +137,14 @@ export function registerTeamMembershipRoutes(app: Hono<AppEnv>): void {
       .where(and(eq(teams.id, body.teamId), eq(teams.cohortId, auth.cohort.id)))
       .limit(1);
     if (!team) throw new ApiHttpError(404, "not_found", "Team not found.");
+    // Direct requests must obey the same archive exclusion as the cohort list.
+    if (team.provenance === "archive") {
+      throw new ApiHttpError(
+        403,
+        "forbidden",
+        "This is a past-course demonstration with names replaced, so there's nothing to join. Choose a current team.",
+      );
+    }
 
     const [admin] = await db
       .select({ login: users.githubLogin })

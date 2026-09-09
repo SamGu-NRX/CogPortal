@@ -61,8 +61,9 @@ export function parseCoAuthorTrailers(message: string): CoAuthorTrailer[] {
 
 /**
  * Result of fetching a repository's commit history. `ok: false` carries a
- * `reason` that keeps three genuinely different situations apart:
+ * `reason` that keeps four genuinely different situations apart:
  *
+ * - `unauthorized`: GitHub rejected the user's sign-in token.
  * - `not_found`: the repo is gone or the token no longer has access to it.
  * - `rate_limited`: GitHub throttled the request; retry later.
  * - `fetch_failed`: anything else that stopped the fetch (network error,
@@ -78,7 +79,7 @@ export function parseCoAuthorTrailers(message: string): CoAuthorTrailer[] {
  */
 export type FetchCommitsResult =
   | { ok: true; commits: CommitRecord[] }
-  | { ok: false; reason: "not_found" | "rate_limited" | "fetch_failed" };
+  | { ok: false; reason: "unauthorized" | "not_found" | "rate_limited" | "fetch_failed" };
 
 const MAX_COMMITS = 300;
 const DETAIL_CONCURRENCY = 8;
@@ -190,6 +191,7 @@ export async function fetchCommitHistory(
       // type exists to prevent.
       return { ok: true, commits: [] };
     }
+    if (response.status === 401) return { ok: false, reason: "unauthorized" };
     if (response.status === 404) return { ok: false, reason: "not_found" };
     if (isRateLimited(response)) return { ok: false, reason: "rate_limited" };
     if (!response.ok) {
@@ -226,12 +228,13 @@ export async function fetchCommitHistory(
   if (shas.length === 0) return { ok: true, commits: [] };
 
   const commits: (CommitRecord | null)[] = new Array(shas.length).fill(null);
+  let unauthorized = false;
   let rateLimited = false;
   let failed = false;
   let cursor = 0;
 
   async function worker(): Promise<void> {
-    while (cursor < shas.length && !rateLimited && !failed) {
+    while (cursor < shas.length && !unauthorized && !rateLimited && !failed) {
       const index = cursor;
       cursor += 1;
       const sha = shas[index];
@@ -244,6 +247,10 @@ export async function fetchCommitHistory(
       } catch {
         console.warn(JSON.stringify({ evt: "commit_detail_fetch_failed", repo: fullName, sha }));
         failed = true;
+        return;
+      }
+      if (response.status === 401) {
+        unauthorized = true;
         return;
       }
       if (isRateLimited(response)) {
@@ -287,6 +294,7 @@ export async function fetchCommitHistory(
   // across *every* commit, so silently dropping the commits that failed to
   // fetch would let a real bulk-upload repo misclassify as `usable`, or vice
   // versa. Any failure mid-fetch fails the whole result instead.
+  if (unauthorized) return { ok: false, reason: "unauthorized" };
   if (rateLimited) return { ok: false, reason: "rate_limited" };
   if (failed) return { ok: false, reason: "fetch_failed" };
 

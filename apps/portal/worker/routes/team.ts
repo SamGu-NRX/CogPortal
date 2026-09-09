@@ -1,5 +1,5 @@
 import type { Context, Hono } from "hono";
-import { and, asc, desc, eq, inArray, ne } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { FIXTURE_REPO } from "@cogworks/contracts/fixtures";
 import {
   ChangeTeamRepoRequestSchema,
@@ -98,6 +98,7 @@ export async function getTeamDetail(
     id: team.id,
     name: team.name,
     description: team.description,
+    provenance: team.provenance,
     repo: {
       owner: team.repoOwner,
       name: team.repoName,
@@ -198,15 +199,78 @@ const MODULE_WEEK_LABELS: Record<string, WeekLabel> = {
 /** How long a cached `team_process_signals` row is served before recomputing. */
 const PROCESS_SIGNALS_CACHE_MS = 30 * 60 * 1000;
 
+export async function cacheProcessSignals(
+  commitsResult: Awaited<ReturnType<typeof fetchCommitHistory>>,
+  write: () => Promise<void>,
+): Promise<void> {
+  if (!commitsResult.ok && commitsResult.reason === "unauthorized") {
+    // A GitHub 401 tells the student to sign in again. Caching that result
+    // would keep showing the instruction after the new sign-in succeeds.
+    return;
+  }
+  await write();
+}
+
+/**
+ * Runs that stand as evidence for the repository the team has connected.
+ *
+ * Only runs recorded against that repository. A run with another repository's
+ * id is another repository's evidence, and `runs.repository_id` arrived in
+ * migration 0013 with no backfill, so an older run has NULL here and cannot
+ * be tied to this one either.
+ *
+ * Dropping them is right and is not the whole answer: with nothing left,
+ * `firstLight` says "No run has scored end to end yet", which a team with five
+ * scored runs reads as the portal losing their work. `hasRunsElsewhere` below
+ * is what lets the panel say the true thing instead.
+ */
+function forConnectedRepository(repositoryId: number | null) {
+  // No repository id means no repository for a run to be evidence for.
+  if (repositoryId === null) return sql`0 = 1`;
+  return eq(runs.repositoryId, repositoryId);
+}
+
+/**
+ * Whether the team has scored runs that the scoping above set aside.
+ *
+ * The difference between "you have not scored yet" and "your scored runs are
+ * not from this repository" is the whole of what the panel gets wrong without
+ * it, and the portal can see which is true.
+ */
+export async function hasRunsElsewhere(
+  db: Database,
+  teamId: string,
+  repositoryId: number | null,
+): Promise<boolean> {
+  const [other] = await db
+    .select({ id: runs.id })
+    .from(runs)
+    .where(
+      and(
+        eq(runs.teamId, teamId),
+        eq(runs.status, "succeeded"),
+        repositoryId === null
+          ? undefined
+          : or(isNull(runs.repositoryId), ne(runs.repositoryId, repositoryId)),
+      ),
+    )
+    .limit(1);
+  return Boolean(other);
+}
+
 /**
  * A team's week is inferred from the benchmark module of its single most
- * recent run (any status -- an in-progress or failed run still tells you
- * which week the team is working in). `null` when the team has no runs yet;
- * `buildProcessSignals` treats that as "no stage map is knowable" rather
- * than guessing one, matching the "never interpolate" rule from
- * `docs/design/the-instrument-not-the-judge.md`.
+ * recent run for its connected repository (any status -- an in-progress or
+ * failed run still tells you which week the team is working in). `null` when
+ * no run can speak for that repository; `buildProcessSignals` treats that as
+ * "no stage map is knowable" rather than guessing one, matching the "never
+ * interpolate" rule from `docs/design/the-instrument-not-the-judge.md`.
  */
-async function resolveWeekLabel(db: Database, teamId: string): Promise<WeekLabel | null> {
+export async function resolveWeekLabel(
+  db: Database,
+  teamId: string,
+  repositoryId: number | null,
+): Promise<WeekLabel | null> {
   const [latest] = await db
     .select({ module: benchmarks.module })
     .from(runs)
@@ -214,7 +278,7 @@ async function resolveWeekLabel(db: Database, teamId: string): Promise<WeekLabel
       benchmarks,
       and(eq(benchmarks.id, runs.benchmarkId), eq(benchmarks.version, runs.benchmarkVersion)),
     )
-    .where(eq(runs.teamId, teamId))
+    .where(and(eq(runs.teamId, teamId), forConnectedRepository(repositoryId)))
     .orderBy(desc(runs.createdAt))
     .limit(1);
   return latest ? (MODULE_WEEK_LABELS[latest.module] ?? null) : null;
@@ -222,16 +286,25 @@ async function resolveWeekLabel(db: Database, teamId: string): Promise<WeekLabel
 
 /**
  * Runs that count toward `firstLight`: only ones that made it all the way
- * through scoring. Mirrors `team-nudges.ts`'s established "scored run"
- * convention (`status = 'succeeded'` and keyed off `finishedAt`, not
+ * through scoring, and only for the connected repository (see
+ * `forConnectedRepository`). Mirrors `team-nudges.ts`'s established "scored
+ * run" convention (`status = 'succeeded'` and keyed off `finishedAt`, not
  * `createdAt`) rather than re-deriving it -- see the divergence note on
  * `RunRecord` in `../services/process-signals.ts`.
  */
-async function scoredRunRecords(db: Database, teamId: string): Promise<RunRecord[]> {
+export async function scoredRunRecords(
+  db: Database,
+  teamId: string,
+  repositoryId: number | null,
+): Promise<RunRecord[]> {
   const scored = await db
     .select({ id: runs.id, finishedAt: runs.finishedAt })
     .from(runs)
-    .where(and(eq(runs.teamId, teamId), eq(runs.status, "succeeded")));
+    .where(and(
+      eq(runs.teamId, teamId),
+      forConnectedRepository(repositoryId),
+      eq(runs.status, "succeeded"),
+    ));
   return scored
     .filter((run): run is { id: string; finishedAt: number } => run.finishedAt !== null)
     .map((run) => ({ runId: run.id, createdAt: run.finishedAt, scored: true }));
@@ -278,10 +351,11 @@ export function registerTeamRoutes(app: Hono<AppEnv>): void {
       return respond(c, TeamProcessSignalsSchema, { ...signals, computedAt: cached.computedAt });
     }
 
-    const [weekLabel, runRecords, roster] = await Promise.all([
-      resolveWeekLabel(db, teamId),
-      scoredRunRecords(db, teamId),
+    const [weekLabel, runRecords, roster, runsElsewhere] = await Promise.all([
+      resolveWeekLabel(db, teamId, auth.team.repoId),
+      scoredRunRecords(db, teamId, auth.team.repoId),
       teamRoster(db, teamId),
+      hasRunsElsewhere(db, teamId, auth.team.repoId),
     ]);
 
     let commitsResult: Awaited<ReturnType<typeof fetchCommitHistory>>;
@@ -300,20 +374,33 @@ export function registerTeamRoutes(app: Hono<AppEnv>): void {
         : { ok: false, reason: "fetch_failed" };
     }
 
-    const signals = buildProcessSignals({ commitsResult, runs: runRecords, weekLabel, roster });
+    const signals = buildProcessSignals({
+      commitsResult,
+      runs: runRecords,
+      weekLabel,
+      roster,
+      runsElsewhere,
+    });
     const payload: Omit<TeamProcessSignals, "computedAt"> = {
-      ...signals,
+      historyQuality: signals.historyQuality,
+      weekLabel: signals.weekLabel,
+      stageFootprint: signals.stageFootprint,
+      firstLight: signals.firstLight,
+      boundaryChurn: signals.boundaryChurn,
+      ownershipBreadth: signals.ownershipBreadth,
       findingSentences: findingSentences(signals),
     };
-    const signalsJson = JSON.stringify(payload);
 
-    await db
-      .insert(teamProcessSignals)
-      .values({ teamId, computedAt: now, signalsJson, historyQuality: signals.historyQuality })
-      .onConflictDoUpdate({
-        target: teamProcessSignals.teamId,
-        set: { computedAt: now, signalsJson, historyQuality: signals.historyQuality },
-      });
+    await cacheProcessSignals(commitsResult, async () => {
+      const signalsJson = JSON.stringify(payload);
+      await db
+        .insert(teamProcessSignals)
+        .values({ teamId, computedAt: now, signalsJson, historyQuality: signals.historyQuality })
+        .onConflictDoUpdate({
+          target: teamProcessSignals.teamId,
+          set: { computedAt: now, signalsJson, historyQuality: signals.historyQuality },
+        });
+    });
 
     return respond(c, TeamProcessSignalsSchema, { ...payload, computedAt: now });
   });

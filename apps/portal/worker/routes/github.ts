@@ -21,7 +21,7 @@ import {
 } from "../auth/session";
 import { getDb } from "../db/client";
 import { teams } from "../db/schema";
-import { FixtureGitHubClient, RealGitHubClient } from "../github/client";
+import { FixtureGitHubClient, RealGitHubClient, isGitHubUnauthorized } from "../github/client";
 import type { GitHubRepositoryListing } from "../github/client";
 import { teamRole } from "../github/permissions";
 import type { TeamRole } from "../github/permissions";
@@ -114,7 +114,9 @@ export function registerGithubRoutes(app: Hono<AppEnv>): void {
     if (githubToken) {
       try {
         repositories.push(...(await new RealGitHubClient().listRepositories(githubToken)));
-      } catch {
+      } catch (error) {
+        // handleError owns this sentence; a second copy here drifted from it.
+        if (isGitHubUnauthorized(error)) throw error;
         console.warn(JSON.stringify({ evt: "github_api_failure", operation: "list_repositories" }));
         // Swallowing this returned an empty success, and ConnectPage then
         // told the student their fork was missing during a GitHub outage.

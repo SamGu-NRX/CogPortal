@@ -25,12 +25,19 @@ const TRACKS: Array<{ module: Module; label: string }> = COURSE_ORDER.map((modul
 /** Row grid shared by the header and every entry. */
 const ROW_GRID = "grid grid-cols-[3rem_minmax(0,1fr)_auto_2rem] items-baseline gap-x-4";
 
+type VisionView = "overall" | "recognition" | "clustering";
+
 export function LeaderboardPage() {
   const benchmarks = useBenchmarks();
   const [module, setModule] = useState<Module>(TRACKS[0]!.module);
-  const [visionView, setVisionView] = useState<
-    "overall" | "recognition" | "clustering"
-  >("overall");
+  // Vision opens on Overall, which is the summary of the other two. Overall
+  // is empty until a team publishes a Recognition and a Clustering result
+  // from one commit, and that used to read as "no results published yet"
+  // while Clustering had standings. What fixes it is the empty state saying
+  // what Overall needs and where the rest is, not choosing the tab for the
+  // reader: which board has rows is a fact about this week that would move
+  // the tab under them on a refetch.
+  const [visionView, setVisionView] = useState<VisionView>("overall");
   const reduce = useReducedMotion();
 
   const forModule = (m: Module): Benchmark | undefined => {
@@ -175,7 +182,7 @@ function Standings({ benchmarkId }: { benchmarkId: string }) {
   return (
     <StandingsTable
       entries={entries}
-      footer={`${benchmark.id} / v${benchmark.version}. Each team publishes one selected official result.`}
+      footer={`${benchmark.id} / v${benchmark.version}. One selected official result per team.`}
     />
   );
 }
@@ -190,6 +197,9 @@ function OverallStandings() {
     <StandingsTable
       entries={board.data.entries}
       footer="vision-overall / v1. All three components must come from selected official runs at the same repository and commit."
+      // "No results published yet" was true of Overall and told the reader
+      // nothing, because Clustering had standings the whole time.
+      empty="Overall needs a Recognition result and a Clustering result from the same commit, and no team has published both yet. Recognition and Clustering have their own standings in the tabs above."
     />
   );
 }
@@ -197,16 +207,19 @@ function OverallStandings() {
 function StandingsTable({
   entries,
   footer,
+  empty = "No official results are published yet. Check again after teams publish their results.",
 }: {
   entries: LeaderboardEntry[];
   footer: string;
+  empty?: string;
 }) {
   const primaryLabel = entries[0]?.primaryMetric.label ?? "Score";
+  const hasArchiveRows = entries.some((entry) => entry.provenance === "archive");
 
   if (entries.length === 0) {
     return (
       <div className="border border-rule bg-paper-raised">
-        <EmptyState message="No official results are published yet. Check again after teams publish their results." />
+        <EmptyState message={empty} />
       </div>
     );
   }
@@ -223,11 +236,24 @@ function StandingsTable({
 
       <ol aria-label="Standings">
         {entries.map((entry, index) => (
-          <EntryRow key={entry.rank} entry={entry} index={index} />
+          <EntryRow
+            key={`${entry.teamName}:${entry.sha}:${entry.completedAt}`}
+            entry={entry}
+            index={index}
+          />
         ))}
       </ol>
 
-      <p className="mt-6 px-4 font-mono text-[11px] text-ink-faint">
+      {hasArchiveRows && (
+        <p className="mt-5 px-4 text-[12.5px] leading-relaxed text-ink-secondary">
+          Archive rows are 2026 teams scored after the course from their repositories as
+          they left them, with names replaced.
+        </p>
+      )}
+
+      <p
+        className={`${hasArchiveRows ? "mt-3" : "mt-6"} px-4 font-mono text-[11px] text-ink-faint`}
+      >
         {footer}
       </p>
     </>
@@ -263,10 +289,13 @@ function EntryRow({ entry, index }: { entry: LeaderboardEntry; index: number }) 
         >
           {String(entry.rank).padStart(2, "0")}
         </span>
-        <span className="flex min-w-0 items-baseline gap-2">
+        <span className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
           <span className="truncate text-[14.5px] font-medium text-ink" title={entry.teamName}>
             {entry.teamName}
           </span>
+          {entry.provenance === "archive" && (
+            <span className="u-kicker leading-tight">2026 cohort, anonymized</span>
+          )}
           {entry.isYou && (
             <span className="shrink-0 bg-detect px-1 py-px font-mono text-[9.5px] font-medium tracking-[0.09em] text-paper-raised">
               YOU
@@ -312,7 +341,9 @@ function EntryRow({ entry, index }: { entry: LeaderboardEntry; index: number }) 
               {entry.supportingMetrics.map((m) => (
                 <DetailRow key={m.key} label={m.label} value={formatMetricValue(m)} />
               ))}
-              <DetailRow label="Commit" value={entry.shortSha} title={entry.sha} />
+              {entry.sha && (
+                <DetailRow label="Commit" value={entry.shortSha} title={entry.sha} />
+              )}
               <DetailRow label="Completed" value={formatDateTime(entry.completedAt)} />
               {entry.repoUrl && (
                 <div className="flex items-baseline justify-between gap-3 sm:col-span-2 sm:justify-start sm:gap-8">

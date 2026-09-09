@@ -7,12 +7,16 @@ import { fileURLToPath } from "node:url";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { Hono } from "hono";
+import { symmetricEncrypt } from "better-auth/crypto";
 import { FIXTURE_REPO } from "@cogworks/contracts/fixtures";
 import { createAuth } from "../worker/auth/better-auth.ts";
 import type { Database } from "../worker/db/client.ts";
-import { cohorts, teamMembers, teams, users } from "../worker/db/schema.ts";
+import { accounts, cohorts, teamMembers, teams, users } from "../worker/db/schema.ts";
 import type { AppEnv, Env } from "../worker/env.ts";
-import { handleError } from "../worker/http/errors.ts";
+import { validateTemplateRepository } from "../worker/github/template.ts";
+import { GitHubApiError } from "../worker/github/client.ts";
+import type { GitHubRepository } from "../worker/github/client.ts";
+import { ApiHttpError, handleError } from "../worker/http/errors.ts";
 import { registerGithubRoutes } from "../worker/routes/github.ts";
 
 /**
@@ -192,4 +196,103 @@ test("a first connect still creates the team and membership", async () => {
     .from(teamMembers)
     .where(eq(teamMembers.userId, userId));
   assert.ok(membership, "connect created a membership");
+});
+
+test("a GitHub 401 tells the user to sign in again", async () => {
+  const app = new Hono<AppEnv>();
+  app.get("/probe", () => {
+    throw new GitHubApiError(401);
+  });
+  app.onError(handleError);
+
+  const response = await app.fetch(
+    new Request("http://localhost/probe"),
+    { ENVIRONMENT: "development" } as unknown as Env,
+  );
+  const body = await response.json() as { error: { code: string; message: string } };
+
+  assert.equal(response.status, 401);
+  assert.equal(body.error.code, "unauthorized");
+  assert.equal(
+    body.error.message,
+    "GitHub no longer accepts this portal's sign-in for you. Sign out, sign in with GitHub again, and retry this action.",
+  );
+});
+
+for (const [providerStatus, expectedStatus, expectedCode] of [
+  [401, 401, "unauthorized"],
+  [500, 502, "provider_unconfigured"],
+] as const) {
+  test(`installation repositories returning ${providerStatus} reaches the repository route error`, async () => {
+    const { env, db, signIn, call } = harness();
+    await seedCohort(db);
+    const { cookie, userId } = await signIn("Lin");
+    await db.insert(accounts).values({
+      id: "github_account",
+      accountId: "github_lin",
+      providerId: "github",
+      userId,
+      accessToken: await symmetricEncrypt({ key: env.BETTER_AUTH_SECRET!, data: "test-github-token" }),
+    });
+    env.GITHUB_CLIENT_ID = "test-client";
+    env.GITHUB_CLIENT_SECRET = "test-secret";
+    const originalFetch = globalThis.fetch;
+    const requests: string[] = [];
+    globalThis.fetch = async (input) => {
+      const url = input instanceof Request ? input.url : String(input);
+      requests.push(url);
+      if (url === "https://api.github.com/user/installations") {
+        return Response.json({ installations: [{
+          id: 123,
+          account: { login: "course", type: "Organization", avatar_url: null },
+        }] });
+      }
+      assert.equal(url, "https://api.github.com/user/installations/123/repositories?per_page=100");
+      return new Response(null, { status: providerStatus });
+    };
+    try {
+      const result = await call("GET", "/github/repositories", { cookie });
+      assert.equal(result.status, expectedStatus);
+      assert.equal(result.body.error.code, expectedCode);
+      assert.deepEqual(requests, [
+        "https://api.github.com/user/installations",
+        "https://api.github.com/user/installations/123/repositories?per_page=100",
+      ]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+}
+
+const independentRepository: GitHubRepository = {
+  id: 222,
+  private: false,
+  description: null,
+  fork: false,
+  pushedAt: null,
+  url: "https://github.com/course/creative-project",
+  defaultBranch: "main",
+  owner: { login: "course", type: "Organization" },
+  name: "creative-project",
+  parentFullName: null,
+  sourceRepositoryId: null,
+};
+
+test("a template name alone accepts an independent repository", () => {
+  assert.doesNotThrow(() => validateTemplateRepository(
+    { GITHUB_TEMPLATE_REPO: "course/template" } as Env,
+    independentRepository,
+  ));
+});
+
+test("a template ID still restricts ancestry even without a display name", () => {
+  const env = { GITHUB_TEMPLATE_REPO_ID: "1339633157" } as Env;
+  assert.throws(
+    () => validateTemplateRepository(env, { ...independentRepository, sourceRepositoryId: 111 }),
+    (error: unknown) => error instanceof ApiHttpError && error.status === 403 &&
+      error.code === "forbidden" && !error.message.includes("undefined"),
+  );
+  assert.doesNotThrow(() => validateTemplateRepository(env, {
+    ...independentRepository, sourceRepositoryId: 1339633157,
+  }));
 });

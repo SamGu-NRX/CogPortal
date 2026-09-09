@@ -73,6 +73,7 @@ function teamPayload(team: TeamRow | null): Team | null {
     id: team.id,
     name: team.name,
     description: team.description,
+    provenance: team.provenance,
     repo: {
       owner: team.repoOwner,
       name: team.repoName,

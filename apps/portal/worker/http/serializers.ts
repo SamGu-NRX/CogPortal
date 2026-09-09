@@ -40,6 +40,7 @@ export function serializeTeam(row: TeamRow): Team {
     id: row.id,
     name: row.name,
     description: row.description,
+    provenance: row.provenance,
     repo: {
       owner: row.repoOwner,
       name: row.repoName,

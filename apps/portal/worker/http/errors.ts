@@ -2,6 +2,7 @@ import type { Context, ErrorHandler } from "hono";
 import { ApiErrorSchema } from "@cogworks/contracts/schema";
 import type { ApiErrorCode } from "@cogworks/contracts/schema";
 import type { AppEnv } from "../env";
+import { isGitHubUnauthorized } from "../github/client";
 
 type ApiStatus = 400 | 401 | 403 | 404 | 409 | 410 | 413 | 500 | 501 | 502;
 
@@ -30,6 +31,14 @@ export function errorResponse(
 export const handleError: ErrorHandler<AppEnv> = (error, c) => {
   if (error instanceof ApiHttpError) {
     return errorResponse(c, error.status, error.code, error.message);
+  }
+  if (isGitHubUnauthorized(error)) {
+    return errorResponse(
+      c,
+      401,
+      "unauthorized",
+      "GitHub no longer accepts this portal's sign-in for you. Sign out, sign in with GitHub again, and retry this action.",
+    );
   }
 
   console.error("Unhandled API error", error instanceof Error ? error.message : "unknown error");

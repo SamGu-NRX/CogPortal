@@ -12,12 +12,14 @@ import {
   UpdateTeamRequestSchema,
 } from "@cogworks/contracts/schema";
 import type { AdminStaffRoster, AdminTeamSummary, TeamMember } from "@cogworks/contracts/schema";
+import { getGithubToken } from "../auth/better-auth";
 import { isPlatformOwner, normalizeLogin, requireStaff } from "../auth/roles";
-import { authorizationLogin } from "../auth/session";
+import { authFor, authorizationLogin } from "../auth/session";
 import type { AuthState } from "../auth/session";
 import type { Database } from "../db/client";
 import { getDb } from "../db/client";
 import type { AppEnv, Env } from "../env";
+import { githubConfigured, onboardingDevToolsAvailable } from "../env";
 import {
   cohorts,
   leaderboardSelections,
@@ -30,6 +32,7 @@ import {
   teams,
   users,
 } from "../db/schema";
+import { githubApiRequest } from "../github/client";
 import { ApiHttpError } from "../http/errors";
 import { parseBody, respond } from "../http/respond";
 import { isUniqueConstraintError } from "./team";
@@ -39,6 +42,11 @@ const AdminCohortSchema = z.object({
   name: z.string(),
   joinCode: z.string(),
   active: z.boolean(),
+});
+
+const GithubHistoryDiagnosticSchema = z.object({
+  status: z.number().int(),
+  rateLimitRemaining: z.string().nullable(),
 });
 
 function memberRole(role: string): TeamMember["role"] {
@@ -121,6 +129,7 @@ async function getAdminTeamSummary(
   return {
     id: team.id,
     name: team.name,
+    provenance: team.provenance,
     repoFullName: team.repoFullName,
     members: serializedMembers,
     tas: tas.map((ta) => ({
@@ -244,6 +253,49 @@ function newJoinCode(): string {
 }
 
 export function registerAdminRoutes(app: Hono<AppEnv>): void {
+  app.get("/admin/github-history-diagnostic/:teamId", async (c) => {
+    if (!onboardingDevToolsAvailable(c.env)) {
+      throw new ApiHttpError(404, "not_found", "GitHub history diagnostics are not enabled.");
+    }
+    const auth = await requireOwner(c);
+    const [team] = await getDb(c.env)
+      .select({ owner: teams.repoOwner, name: teams.repoName })
+      .from(teams)
+      .where(eq(teams.id, c.req.param("teamId")))
+      .limit(1);
+    if (!team) throw new ApiHttpError(404, "not_found", "Team not found.");
+
+    const token = githubConfigured(c.env)
+      ? await getGithubToken(authFor(c), auth.user.id, c.req.raw.headers)
+      : null;
+    if (!token) {
+      throw new ApiHttpError(
+        401,
+        "unauthorized",
+        "This account has no usable GitHub sign-in. Sign out, sign in with GitHub again, and retry the diagnostic.",
+      );
+    }
+
+    let response: Response;
+    try {
+      response = await githubApiRequest(
+        `/repos/${encodeURIComponent(team.owner)}/${encodeURIComponent(team.name)}/commits?per_page=1`,
+        token,
+      );
+    } catch {
+      throw new ApiHttpError(
+        502,
+        "provider_unconfigured",
+        "GitHub did not answer the diagnostic request. Retry the diagnostic shortly.",
+      );
+    }
+    c.header("Cache-Control", "private, no-store");
+    return respond(c, GithubHistoryDiagnosticSchema, {
+      status: response.status,
+      rateLimitRemaining: response.headers.get("x-ratelimit-remaining"),
+    });
+  });
+
   app.get("/admin/overview", async (c) => {
     const scope = await getAdminScope(c);
     const db = getDb(c.env);
@@ -251,10 +303,14 @@ export function registerAdminRoutes(app: Hono<AppEnv>): void {
     // Owner responses contain the active enrollment credential. They must
     // always reflect D1 and must never be retained by a browser or intermediary.
     c.header("Cache-Control", "private, no-store");
+    // Archive teams are last year's scores under replaced names. They have no
+    // members and will never run, so on a triage list they would all read
+    // "no hosted runs" and sit above every live team. Staff manage live teams.
+    const live = and(eq(teams.cohortId, cohort.id), eq(teams.provenance, "live"));
     const teamRows = scope.isOwner
-      ? await db.select({ id: teams.id }).from(teams).where(eq(teams.cohortId, cohort.id)).orderBy(asc(teams.name))
+      ? await db.select({ id: teams.id }).from(teams).where(live).orderBy(asc(teams.name))
       : scope.teamIds.length > 0
-        ? await db.select({ id: teams.id }).from(teams).where(and(eq(teams.cohortId, cohort.id), inArray(teams.id, scope.teamIds))).orderBy(asc(teams.name))
+        ? await db.select({ id: teams.id }).from(teams).where(and(live, inArray(teams.id, scope.teamIds))).orderBy(asc(teams.name))
         : [];
     const unassigned = scope.isOwner
       ? await db

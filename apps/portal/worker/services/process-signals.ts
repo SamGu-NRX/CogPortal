@@ -125,8 +125,16 @@ function unavailableReason(commits: CommitRecord[], quality: CommitHistoryQualit
   return null;
 }
 
-/** The reason paired with `HISTORY_FETCH_FAILED`. TS-only; see module docstring. */
+/** The reasons paired with `HISTORY_FETCH_FAILED`. TS-only; see module docstring. */
 const FETCH_FAILED_REASON = "the commit history could not be read from GitHub just now";
+export const UNAUTHORIZED_HISTORY_REASON =
+  "GitHub no longer accepts this portal's sign-in for you, so the stages below are blank. Sign out, sign in with GitHub again, and reopen this page.";
+
+type HistoryFetchFailureReason = Extract<FetchCommitsResult, { ok: false }>["reason"];
+
+function historyUnavailableReason(reason: HistoryFetchFailureReason): string {
+  return reason === "unauthorized" ? UNAUTHORIZED_HISTORY_REASON : FETCH_FAILED_REASON;
+}
 
 // ---------------------------------------------------------------------------
 // Path matching shared by stageFootprint, ownershipBreadth, and boundaryChurn
@@ -475,6 +483,13 @@ export type WeekLabel = "week1" | "week2" | "week3";
 /** The four signals bundled together, for handing to `findingSentences`. */
 export interface ProcessSignals {
   historyQuality: HistoryQuality;
+  /**
+   * The team has scored runs, and none of them is evidence for the repository
+   * connected now. TS-only; not persisted, and not in the contract.
+   */
+  runsElsewhere: boolean;
+  /** Internal fetch detail. The contracts schema keeps `historyQuality` at `fetch_failed`. */
+  historyFetchFailureReason: HistoryFetchFailureReason | null;
   stageFootprint: Record<string, StageActivity>;
   firstLight: FirstLightSignal;
   boundaryChurn: ChurnEvent[];
@@ -530,13 +545,26 @@ function pipelineSentences(signals: ProcessSignals): string[] {
     );
   } else if (signals.historyQuality === HISTORY_FETCH_FAILED) {
     sentences.push(
-      "The commit history could not be read from GitHub just now, so the stages below are blank; the runs are the portal's own record and still hold.",
+      signals.historyFetchFailureReason === "unauthorized"
+        ? UNAUTHORIZED_HISTORY_REASON
+        : "The commit history could not be read from GitHub just now, so the stages below are blank; the runs are the portal's own record and still hold.",
     );
+    // Two branches on one fact. `historyUnavailableReason` above picks the
+    // per-stage wording from the same reason; keep them together if either
+    // sentence changes.
   }
 
   if (signals.firstLight.firstScoredAt === null) {
+    // Two different states, and they used to read as one. A team that scored
+    // five times on the repository they just disconnected was told "No run has
+    // scored end to end yet", which reads as the portal losing their work. The
+    // runs are still there; they are evidence for a different repository, or
+    // (before migration 0013) for one nothing recorded. Either way they cannot
+    // speak for this one, and saying that is both true and useful.
     sentences.push(
-      "No run has scored end to end yet, so there is no working pipeline to read anything else against. Integration is the part the course says is hardest, and it usually takes longer than teams expect.",
+      signals.runsElsewhere
+        ? "Your earlier scored runs aren't tied to the repository that's connected now, so the stage map starts again with your next run."
+        : "No run has scored end to end yet, so there is no working pipeline to read anything else against. Integration is the part the course says is hardest, and it usually takes longer than teams expect.",
     );
   } else {
     const date = formatDate(signals.firstLight.firstScoredAt);
@@ -691,6 +719,8 @@ export const BOUNDARY_FILES = ["submission.py", "benchmark_adapter.py"];
 export interface BuildProcessSignalsInput {
   commitsResult: FetchCommitsResult;
   runs: RunRecord[];
+  /** See `ProcessSignals.runsElsewhere`. Defaults to false. */
+  runsElsewhere?: boolean;
   weekLabel: WeekLabel | null;
   /** The team, for resolving `Co-authored-by:` trailers. An empty roster
    *  resolves nothing, which is the honest reading of "we don't know who
@@ -718,7 +748,11 @@ export function buildProcessSignals(input: BuildProcessSignalsInput): ProcessSig
   if (!input.commitsResult.ok) {
     return {
       historyQuality: HISTORY_FETCH_FAILED,
-      stageFootprint: stageMap ? degradedStageMap(stageMap, FETCH_FAILED_REASON) : {},
+      runsElsewhere: input.runsElsewhere ?? false,
+      historyFetchFailureReason: input.commitsResult.reason,
+      stageFootprint: stageMap
+        ? degradedStageMap(stageMap, historyUnavailableReason(input.commitsResult.reason))
+        : {},
       firstLight: light,
       boundaryChurn: [],
       ownershipBreadth: {},
@@ -729,6 +763,8 @@ export function buildProcessSignals(input: BuildProcessSignalsInput): ProcessSig
   const commits = input.commitsResult.commits;
   return {
     historyQuality: classifyHistoryQuality(commits),
+    runsElsewhere: input.runsElsewhere ?? false,
+    historyFetchFailureReason: null,
     stageFootprint: stageMap ? stageFootprint(commits, stageMap, input.roster) : {},
     firstLight: light,
     boundaryChurn: boundaryChurn(commits, BOUNDARY_FILES, light.firstScoredAt),

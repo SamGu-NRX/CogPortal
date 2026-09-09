@@ -1,10 +1,19 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { readdirSync, readFileSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { eq } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/d1";
+import type { Database } from "../worker/db/client.ts";
+import { cohorts, runs, teams } from "../worker/db/schema.ts";
 import {
   HISTORY_BULK_UPLOAD,
   HISTORY_EMPTY,
   HISTORY_FETCH_FAILED,
   HISTORY_USABLE,
+  UNAUTHORIZED_HISTORY_REASON,
   WEEK1_STAGE_MAP,
   boundaryChurn,
   buildProcessSignals,
@@ -19,8 +28,14 @@ import type {
   RosterMember,
   RunRecord,
 } from "../worker/services/process-signals.ts";
-import { parseCoAuthorTrailers } from "../worker/github/commits.ts";
+import { fetchCommitHistory, parseCoAuthorTrailers } from "../worker/github/commits.ts";
 import type { CommitRecord, FetchCommitsResult } from "../worker/github/commits.ts";
+import {
+  cacheProcessSignals,
+  hasRunsElsewhere,
+  resolveWeekLabel,
+  scoredRunRecords,
+} from "../worker/routes/team.ts";
 
 const DAY = 24 * 60 * 60 * 1_000;
 const T0 = Date.parse("2026-06-01T00:00:00Z");
@@ -112,6 +127,35 @@ test("first light ignores commit history entirely, including a fetch failure", (
   assert.equal(signals.historyQuality, HISTORY_FETCH_FAILED);
   assert.equal(signals.firstLight.firstScoredAt, T0);
   assert.equal(signals.firstLight.scoredRunCount, 1);
+});
+
+test("a GitHub 401 threads through the signals and is not cacheable", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(null, { status: 401 });
+  try {
+    const commitsResult = await fetchCommitHistory("cogworks/team", "main", "decrypted-token");
+    assert.deepEqual(commitsResult, { ok: false, reason: "unauthorized" });
+
+    const signals = buildProcessSignals({
+      commitsResult,
+      runs: [],
+      weekLabel: "week1",
+      roster: NO_ROSTER,
+    });
+    assert.equal(signals.historyQuality, HISTORY_FETCH_FAILED);
+    assert.equal(signals.historyFetchFailureReason, "unauthorized");
+    assert.equal(findingSentences(signals)[0], UNAUTHORIZED_HISTORY_REASON);
+    for (const activity of Object.values(signals.stageFootprint)) {
+      assert.equal(activity.unavailableReason, UNAUTHORIZED_HISTORY_REASON);
+    }
+    let cacheWrites = 0;
+    await cacheProcessSignals(commitsResult, async () => {
+      cacheWrites += 1;
+    });
+    assert.equal(cacheWrites, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -408,4 +452,129 @@ test("classifyHistoryQuality never returns fetch_failed -- only buildProcessSign
     ]),
     HISTORY_USABLE,
   );
+});
+
+const MIGRATIONS = join(dirname(fileURLToPath(import.meta.url)), "..", "migrations");
+
+function freshBinding(): unknown {
+  const sqlite = new DatabaseSync(":memory:");
+  const files = readdirSync(MIGRATIONS)
+    .filter((file) => file.endsWith(".sql"))
+    .sort()
+    .filter((file) => !/^(0002_seed|0016_backfill)/.test(file));
+  for (const file of files) sqlite.exec(readFileSync(join(MIGRATIONS, file), "utf8"));
+
+  function prepare(query: string) {
+    const statement = sqlite.prepare(query);
+    let bound: never[] = [];
+    const prepared = {
+      bind(...params: unknown[]) {
+        bound = params as never[];
+        return prepared;
+      },
+      async run() {
+        return { success: true, meta: statement.run(...bound) };
+      },
+      async all() {
+        return { success: true, results: statement.all(...bound) };
+      },
+      async raw() {
+        statement.setReturnArrays(true);
+        const rows = statement.all(...bound);
+        statement.setReturnArrays(false);
+        return rows;
+      },
+    };
+    return prepared;
+  }
+  return { prepare };
+}
+
+
+test("a repository switch drops the old repository's runs, and says so", async () => {
+  const db = drizzle(freshBinding() as never) as unknown as Database;
+  await db.insert(cohorts).values({
+    id: "cohort_test", slug: "test", name: "Test", joinCode: "TEST", active: true,
+  });
+  await db.insert(teams).values({
+    id: "team_test", cohortId: "cohort_test", name: "Test team",
+    repoOwner: "course", repoName: "project", repoFullName: "course/project",
+    repoUrl: "https://github.com/course/project", defaultBranch: "main", repoId: 111,
+  });
+  for (const [id, repositoryId, createdAt] of [
+    ["old", 111, 20], ["untracked", null, 10],
+  ] as const) {
+    await db.insert(runs).values({
+      id, teamId: "team_test", repositoryId,
+      benchmarkId: "audio-identification", benchmarkVersion: 1,
+      contractVersion: "cogworks.submissions.v2", mode: "practice", status: "succeeded",
+      branch: "main", sha: "a".repeat(40), attemptNumber: 1,
+      createdAt, finishedAt: createdAt + 1, provider: "fixture",
+    });
+  }
+  assert.equal(await resolveWeekLabel(db, "team_test", 111), "week1");
+  assert.deepEqual(await scoredRunRecords(db, "team_test", 111), [
+    { runId: "old", createdAt: 21, scored: true },
+  ]);
+
+  await db.update(teams).set({ repoId: 222 }).where(eq(teams.id, "team_test"));
+  const [team] = await db.select().from(teams).where(eq(teams.id, "team_test"));
+  const weekLabel = await resolveWeekLabel(db, team.id, team.repoId);
+  const runRecords = await scoredRunRecords(db, team.id, team.repoId);
+  const runsElsewhere = await hasRunsElsewhere(db, team.id, team.repoId);
+  assert.equal(weekLabel, null, "no run speaks for the repository connected now");
+  assert.deepEqual(runRecords, []);
+  assert.equal(runsElsewhere, true);
+
+  // The whole point: not "you have never scored", which reads as the portal
+  // losing their work. Both the run on 111 and the untracked one are real
+  // scored runs; neither is evidence for 222.
+  const signals = buildProcessSignals({
+    commitsResult: { ok: true, commits: [] }, runs: runRecords, weekLabel,
+    roster: [], runsElsewhere,
+  });
+  const said = findingSentences(signals).join(" ");
+  assert.match(said, /aren't tied to the repository that's connected now/);
+  assert.doesNotMatch(said, /No run has scored end to end yet/);
+});
+
+test("a team that really has never scored still hears the integration sentence", async () => {
+  const db = drizzle(freshBinding() as never) as unknown as Database;
+  await db.insert(cohorts).values({
+    id: "cohort_test", slug: "test", name: "Test", joinCode: "TEST", active: true,
+  });
+  await db.insert(teams).values({
+    id: "team_test", cohortId: "cohort_test", name: "Test team",
+    repoOwner: "course", repoName: "project", repoFullName: "course/project",
+    repoUrl: "https://github.com/course/project", defaultBranch: "main", repoId: 111,
+  });
+  assert.equal(await hasRunsElsewhere(db, "team_test", 111), false);
+  const signals = buildProcessSignals({
+    commitsResult: { ok: true, commits: [] }, runs: [], weekLabel: null,
+    roster: [], runsElsewhere: false,
+  });
+  assert.match(findingSentences(signals).join(" "), /No run has scored end to end yet/);
+});
+
+test("a run for another repository never speaks for the connected one", async () => {
+  const db = drizzle(freshBinding() as never) as unknown as Database;
+  await db.insert(cohorts).values({
+    id: "cohort_test", slug: "test", name: "Test", joinCode: "TEST", active: true,
+  });
+  await db.insert(teams).values({
+    id: "team_test", cohortId: "cohort_test", name: "Test team",
+    repoOwner: "course", repoName: "project", repoFullName: "course/project",
+    repoUrl: "https://github.com/course/project", defaultBranch: "main", repoId: 222,
+  });
+  // One week1 run, and it belongs to the repository the team left.
+  await db.insert(runs).values({
+    id: "on_the_old_repo", teamId: "team_test", repositoryId: 111,
+    benchmarkId: "audio-identification", benchmarkVersion: 1,
+    contractVersion: "cogworks.submissions.v2", mode: "practice", status: "succeeded",
+    branch: "main", sha: "a".repeat(40), attemptNumber: 1,
+    createdAt: 20, finishedAt: 21, provider: "fixture",
+  });
+
+  assert.equal(await resolveWeekLabel(db, "team_test", 222), null);
+  assert.deepEqual(await scoredRunRecords(db, "team_test", 222), []);
 });
