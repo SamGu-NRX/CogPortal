@@ -41,15 +41,21 @@ function commandFor(fragment: string): string {
   return found.command;
 }
 
-test("the tool is installed from the branch that actually carries the resolver", () => {
+test("the tool is installed from a commit, like every other package here", () => {
   // Neither TestPyPI nor main serves a usable tool: both hold cogbench 0.1.0,
   // and main is 112 commits back with no resolve.py, so `check` there cannot
-  // search a student's repository. --upgrade is what moves a re-run onto the
-  // branch's current head.
+  // search a student's repository.
+  //
+  // This line used to name a branch, and the branch it named fell 22 commits
+  // behind the reviewed CLI, so the setup page demonstrated a tool without any
+  // of the accepted corrections. A commit also means two people on this page
+  // install the same thing. --upgrade is what moves a re-run off an older one.
   const tool = commandFor("cogworks-benchmark");
 
-  assert.match(tool, /git\+https:\/\/github\.com\/SamGu-NRX\/CogPortal\.git@/);
-  assert.match(tool, /@fix\/product-description-triage#subdirectory=python\/cogbench/);
+  assert.match(
+    tool,
+    /git\+https:\/\/github\.com\/SamGu-NRX\/CogPortal\.git@[0-9a-f]{40}#subdirectory=python\/cogbench/,
+  );
   assert.doesNotMatch(tool, /CogPortal\.git@main/);
   assert.doesNotMatch(tool, /test\.pypi\.org/);
   assert.match(tool, /--upgrade/);
