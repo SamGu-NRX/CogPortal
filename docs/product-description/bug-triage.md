@@ -89,6 +89,7 @@ Four entries describe work that landed during the drafting pass and may already 
 - **Why (from the code):** `apps/portal/worker/github/client.ts:207` swallows the per-installation error; the loud path it contradicts is `apps/portal/worker/routes/github.ts:120`.
 - **Severity:** `high`. It sends a student to re-fork a repository they already have, and the codebase already decided this exact question the other way.
 - **Decision needed:** `fix`.
+- **Fixed on `fix/demo-readiness`:** the per-installation catch is gone, so the failure reaches the loud path it contradicted (`apps/portal/worker/github/client.ts:209`). Covered by two route-level tests that drive the real client against a stubbed 401 and 500 (`apps/portal/test/github-connect.test.ts`).
 - **Raised by:** [`portal/connect-a-repository.md`](portal/connect-a-repository.md#open-questions-and-verification)
 
 ### B-01: Week 1 scores student code under a randomized hash seed, and the guard test cannot see it
@@ -209,6 +210,7 @@ Four entries describe work that landed during the drafting pass and may already 
 - **Why (from the code):** `python/cogbench/src/cogbench/cli.py:351` never runs in that branch; `:281` raises. The docstring naming this as the thing that must not happen is at `:253`.
 - **Severity:** `high`. It is the specific lie the code was restructured to prevent, and a student who hits it has been told two contradictory things by one tool.
 - **Decision needed:** `fix`. Make `_check` apply the same file-wins rule `_submission_for` uses.
+- **Fixed on `fix/demo-readiness`:** both commands read one decision, `_scoreable` (`python/cogbench/src/cogbench/cli.py:323`), and an installed entry point is reported without being counted as readiness. Covered by `python/cogbench/tests/test_cli_readiness.py`.
 - **Raised by:** [`terminal/check.md`](terminal/check.md#open-questions-and-verification)
 
 ### B-11: Week 2 never attributes a timeout, so a killed run spends an attempt under the wrong category

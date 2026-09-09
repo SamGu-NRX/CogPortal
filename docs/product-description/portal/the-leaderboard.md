@@ -4,6 +4,8 @@
 
 The leaderboard is the only page in Cog\*Portal that shows one team's work to another team. It lists every team that has published an official result for a benchmark, ranked, with the primary metric on each row and everything else folded away behind a disclosure. Opening a row reveals the supporting metrics, the commit, the completion time, and a link to the team's repository.
 
+Two kinds of team sit on the board. A *live* team is one whose members signed in and published. An *archive* team is a 2026 team scored after the course from its repository as it was left, under a replaced name; it exists so that a board is populated from day one of a cohort and so a live team has something to stand next to. The distinction is a column on the team (`teams.provenance`, `apps/portal/migrations/0034_team_provenance.sql`), it travels with every leaderboard entry (`packages/contracts/src/schema.ts`, `LeaderboardEntrySchema.provenance`), and it decides what the row may disclose.
+
 It lives at `/leaderboard` and is public. No gate wraps it in `App.tsx` (`apps/portal/src/App.tsx:96`), and both of its endpoints read the session with `getAuth`, which returns null rather than throwing when nobody is signed in (`apps/portal/worker/routes/leaderboard.ts:28`, `:38`). A signed-out visitor sees the same standings a student does, minus the `YOU` marker on their own row.
 
 The page is organized by module rather than by benchmark: three top tabs, Vision, Language, and Audio, and for Vision a second row of tabs choosing Overall, Recognition, or Clustering. Overall is not a benchmark. It is a family: a weighted combination of three metrics drawn from two separate published runs, admitted only when both came from the same commit.
@@ -15,6 +17,8 @@ A student opens `/leaderboard` and lands on Vision, Overall, because those are t
 Each row is one button: a two-digit rank, the team name, the primary metric formatted to its declared precision, and a chevron (`:250`). Rank 01 is drawn in the detector accent; every other rank is plain ink (`:258`). The student's own team, if they have one, is tinted and carries a small `YOU` tag (`:248`, `:270`).
 
 Pressing a row unfolds it. The team description appears first if there is one, then the supporting metrics as label and value pairs, then `Commit` with the seven-character short SHA (full SHA in the title attribute), `Completed` as a local date and time, and `Repository` as a link with the `https://github.com/` prefix stripped (`:302`, `:313`, `:325`).
+
+An archive row reads differently. Beside its name sits the kicker `2026 cohort, anonymized`, and its disclosure has no `Commit` and no `Repository`: the read model blanks both before the entry leaves the server (`apps/portal/worker/services/leaderboard.ts`, the two `provenance === "archive"` branches), because the link names a GitHub account and a commit SHA resolves to its repository through GitHub's commit search, and either would make the kicker false. When at least one archive row is on the board, one sentence under the list says what they are: "Archive rows are 2026 teams scored after the course from their repositories as they left them, with names replaced." A test pins the blanking on both fields and on the whole serialized entry (`apps/portal/test/leaderboard-archive.test.ts`).
 
 Under the list, one line of small type states what the board is and its one rule. For a single benchmark: "{benchmark id} / v{version}. Each team publishes one selected official result." (`:176`). For Overall: "vision-overall / v1. All three components must come from selected official runs at the same repository and commit." (`:190`).
 
@@ -152,7 +156,9 @@ The weights are also invisible. All three are one third today, so the Overall nu
 
 ## Edge cases
 
-- **An open row is bound to a rank, not to a team.** The disclosure's `open` flag lives in `EntryRow`, and the list keys rows by `entry.rank` (`LeaderboardPage.tsx:224`). If a refetch reorders the standings, React reuses the component at that rank and the expanded panel now describes a different team. With no polling this needs a remount or a stale-time expiry to happen, but it needs no user action.
+- **An open row follows its team, not its rank.** Rows are keyed by team name, commit, and completion time (`LeaderboardPage.tsx`, the `EntryRow` key), so a refetch that reorders the standings carries an open disclosure with the team it describes. It used to be keyed by rank, which moved the open panel to whichever team took that position.
+- **Archive rows are not stored anonymized; they are served anonymized.** The repository columns on `teams` are `NOT NULL` and a run needs a `sha`, so the staging seed stores a placeholder repository (`archive/<slug>`, an empty URL) and a digest in place of the commit (`apps/portal/scripts/seed-staging-archive.sql`). The read model then blanks both fields anyway. Two layers, and the second is the one the test pins, because the first is a property of one seed file and the second is a property of the product.
+- **Archive teams are off the staff triage list.** The admin overview selects live teams only (`apps/portal/worker/routes/admin.ts`, `/admin/overview`). Eight memberless teams that will never run would otherwise sort to the top as "no hosted runs".
 - **The `aria-controls` id is the rank too.** Two boards never render at once, so the ids do not collide today (`:253`).
 - **A published run with no primary metric vanishes.** The read model skips any selection whose run has no primary metric or no finish time (`leaderboard.ts:74`). The team is not told, and the board does not say a row was dropped.
 - **Ties break by who finished first.** Sorting is by the primary metric in its declared direction, then by ascending completion time (`leaderboard.ts:90`). The family board hardcodes descending score with the same tiebreak (`:217`).
@@ -181,10 +187,9 @@ The weights are also invisible. All three are one third today, so the Overall nu
 - Whether the row stagger and the height animation feel right at twenty rows was not observed. **Unverified**: no browser was opened for this pass.
 - Whether a student reads the Overall number as measured rather than computed was not tested. Nothing on the page distinguishes it from a benchmark's own primary metric, and the footer's phrasing describes the admission rule rather than the arithmetic.
 - Whether two active versions of one benchmark id can exist at once was not established from the migrations. If they can, the client's `find` picks by list order while the server picks by version, and the two could name different rows.
-- An open disclosure is keyed on rank rather than on team (`LeaderboardPage.tsx:224`), so a reorder between refetches moves the open panel to a different team. Whether that is reachable in a 30 second window during a live cohort was not measured. **Unverified**, and cheap to fix by keying on the team name.
 - Nothing on the page distinguishes a board that is empty because nobody published from a board that emptied because the benchmark version moved. Both render the same sentence. A version bump is the more alarming of the two and gets no acknowledgement.
 - The leaderboard does not poll, on a page whose entire content is other people's actions. Whether a student leaves it open expecting it to move was not observed. **Unverified.**
 - Whether a signed-out visitor should see team names and repository links at all is a course decision the code has already made. It is recorded here because the page is the only unauthenticated read in the product.
 - The three module tabs are a literal in the page rather than derived from the modules present in the benchmark list (`LeaderboardPage.tsx:17`). A cohort running a subset still sees all three, annotated. Whether that is a feature (the shape of the course, visible from week one) or an oversight is a product call.
 
-Verified against Cog\*Portal commit `f74e087`.
+Verified against Cog\*Portal commit `5059e1f` plus the archive provenance change in flight on 2026-09-05.

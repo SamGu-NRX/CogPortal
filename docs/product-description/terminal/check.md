@@ -6,7 +6,7 @@
 
 The report is ordered the way a person asks about it, and `report.py`'s own docstring states the order: "Where is your code. Which files did we read, and which could we not. What did we wire up. Then one line: either you are ready, or here is the single next thing." (`python/cogbench/src/cogbench/report.py:8`). The first version of this command printed nine lines of `False` and no next step, which is the failure the whole module was rewritten to avoid.
 
-It is reached by typing `cogworks check --benchmark <id>` inside a team repository. `--benchmark` is required. The other two flags are `--json` and `--update-setup`. There is no `--portal`, because the loop that builds the subparsers adds that flag only for `run` (`python/cogbench/src/cogbench/cli.py:83`). `cogworks doctor` is a hidden deprecated alias that prints "cogworks: `doctor` is deprecated; use `cogworks check`." to stderr and then does exactly the same work (`python/cogbench/src/cogbench/cli.py:607`).
+It is reached by typing `cogworks check --benchmark <id>` inside a team repository. `cogworks --help` describes it as "check the local project and benchmark environment" (`python/cogbench/src/cogbench/cli.py:66`). `--benchmark` is required. The other two flags are `--json` and `--update-setup`, and only the last of them carries a help line, "after local success, update your linked CogPortal setup guide" (`python/cogbench/src/cogbench/cli.py:77`); `--benchmark` and `--json` are described nowhere in `--help` (`python/cogbench/src/cogbench/cli.py:72`). There is no `--portal`, because the loop that builds the subparsers adds that flag only for `run` (`python/cogbench/src/cogbench/cli.py:79`). `cogworks doctor` is a hidden deprecated alias that prints "cogworks: `doctor` is deprecated; use `cogworks check`." to stderr and then does exactly the same work (`python/cogbench/src/cogbench/cli.py:658`).
 
 Nothing is sent anywhere unless `--update-setup` is passed. Nothing is written by the command itself, though the team's own code runs and may write whatever it likes.
 
@@ -77,15 +77,15 @@ Neither the headline nor the next step is wrapped. Both are appended as single l
 
 ### The gap note
 
-When the verdict does not already cover it, one paragraph goes directly under the list of files that were read, because that list is the thing it qualifies. It has two forms. With one package missing (`python/cogbench/src/cogbench/environment.py:299`):
+When the verdict does not already cover it, one paragraph goes directly under the list of files that were read, because that list is the thing it qualifies. It points the student at the `could not read` lines above it rather than describing a module in the abstract, so the caveat and the evidence for it are on one screen. It has two forms. With one package missing (`python/cogbench/src/cogbench/environment.py:299`):
 
-> "One package the graded run installs is missing here, so this report may have read less of your repository than the graded run will. A module that imports {names} is skipped on this machine and read there. It is part of the environment the course has you set up, so installing it here makes this check match the graded run more closely."
+> "One package the graded run installs is missing here, so this report may have read less of your repository than the graded run will. If a module is listed above under 'could not read' because it needs {names}, this machine skipped it. The hosted run has the package and will read that module. It is part of the environment the course has you set up, so installing it here makes this check match the graded run more closely."
 
-With more than one (`python/cogbench/src/cogbench/environment.py:307`):
+With more than one (`python/cogbench/src/cogbench/environment.py:308`):
 
-> "{count} packages the graded run installs are missing here, so this report may have read less of your repository than the graded run will. A module that imports one of them is skipped on this machine and read there. They are part of the environment the course has you set up, so installing them here makes this check match the graded run more closely. Missing: {names}."
+> "{count} packages the graded run installs are missing here, so this report may have read less of your repository than the graded run will. If a module is listed above under 'could not read' because it needs one of these packages, this machine skipped it. The hosted run has the packages and will read those modules. They are part of the environment the course has you set up, so installing them here makes this check match the graded run more closely. Missing: {names}."
 
-The list comes from comparing this interpreter against the package list for the benchmark's own track, using `find_spec`, which locates a module without importing it (`python/cogbench/src/cogbench/environment.py:317`). A package that cannot be confirmed present is reported missing rather than assumed present. Measured on a developer machine: cv2, facenet_models, torch, sklearn, matplotlib, datasets, mygrad, mynn, and noggin were absent locally and present in the image (`python/cogbench/src/cogbench/environment.py:257`). An unknown benchmark id yields an empty list rather than a guess, since a package list for the wrong week is worse than no list.
+The list comes from comparing this interpreter against the package list for the benchmark's own track, using `find_spec`, which locates a module without importing it (`python/cogbench/src/cogbench/environment.py:319`). A package that cannot be confirmed present is reported missing rather than assumed present. Measured on a developer machine: cv2, facenet_models, torch, sklearn, matplotlib, datasets, mygrad, mynn, and noggin were absent locally and present in the image (`python/cogbench/src/cogbench/environment.py:257`). An unknown benchmark id yields an empty list rather than a guess, since a package list for the wrong week is worse than no list.
 
 It is not phrased as a fix, because nothing is broken. The repository is fine and the graded run is unaffected.
 
@@ -103,16 +103,18 @@ The block between the repository line and the wiring is the survey, and it has e
 
 ### When there is no submission to describe
 
-Four different sentences, and each sends the reader somewhere different (`python/cogbench/src/cogbench/report.py:214` to `:237`).
+Four different sentences, and each sends the reader somewhere different (`python/cogbench/src/cogbench/report.py:216` to `:245`).
 
-The benchmark is not installed:
+The benchmark is not installed, and the report knows which package that is (`python/cogbench/src/cogbench/report.py:218`):
 
 > "Nothing was searched for, because {benchmark} is not installed here."
-> "Install it, then run this again."
+> "Install it with `{command}`, then run this again."
 
-An installed package answered for it:
+The command is built from a table mapping each shipped benchmark id to its distribution name and a git source pinned to the submodule commit (`python/cogbench/src/cogbench/plugins.py:20`, `:44`). For Week 1 the second line reads in full:
 
-> "Your submission is registered as an installed package, so it was used as is."
+> "Install it with `python -m pip install "cogworks-week1-audio-benchmark @ git+https://github.com/SamGu-NRX/cogworks-week1-audio-benchmark.git@b590638a4c6d7b0e840723f5d4d38b1a90070a62"`, then run this again."
+
+Four ids are mapped: `audio-identification`, `vision-recognition`, `vision-clustering`, and `language-search`, with the two Week 2 ids sharing one distribution. A benchmark id with no entry falls back to the bare "Install it, then run this again." (`python/cogbench/src/cogbench/report.py:226`), which is what a typo reaches.
 
 A file at the repository root answered for it:
 
@@ -121,9 +123,22 @@ A file at the repository root answered for it:
 Nothing was declared and nothing was searched, because the benchmark does not tell the search what its task is:
 
 > "Nothing was searched for: {benchmark} does not yet describe its task to the search, so a submission must be declared."
-> "Add a benchmark_adapter.py at the repository root that defines create_search_adapter(resources), then run this again."
+> "Add a benchmark_adapter.py at the repository root that defines create_submission(resources), then run this again."
 
-That last branch exists because before it, a Week 3 repository with no package and no adapter was told its package "was used as is". Nothing was installed and nothing was used; the benchmark simply had no discovery spec.
+`create_submission` is the name every benchmark accepts; the per-week aliases such as `create_search_adapter` are also recognised (`python/cogbench/src/cogbench/apploader.py:110`), so naming one of them here was only correct for Week 3.
+
+When a package registering this benchmark is installed on the machine, one more line follows, and it is a statement about the machine rather than about the repository (`python/cogbench/src/cogbench/report.py:270`):
+
+> "A package registering {benchmark} is installed here, but it is not this repository, so it is not scored as your work."
+
+That line replaced "Your submission is registered as an installed package, so it was used as is.", which was false: `run` scores a file in this repository or what discovery bound, never an entry point.
+
+The reading of the repository ended before it reported:
+
+> "Reading your repository ended the process before it finished: {detail}."
+> "That is an import taking the interpreter down rather than raising, so import your modules one at a time to find which one does it."
+
+Reading happens in a child process (`python/cogbench/src/cogbench/cli.py:412`), so a module that aborts the interpreter costs this report and not the command.
 
 ## The ask, event by event
 
@@ -147,17 +162,17 @@ stateDiagram-v2
 
 Three things happen before the repository is touched.
 
-The process re-executes itself once under a pinned `PYTHONHASHSEED`, because discovery runs student code whose answer can depend on string hashing and an interpreter's seed is fixed before its first line. It is a no-op under an already pinned seed, and it only happens when the command really came from a command line (`python/cogbench/src/cogbench/cli.py:585`).
+The process re-executes itself once under a pinned `PYTHONHASHSEED`, because discovery runs student code whose answer can depend on string hashing and an interpreter's seed is fixed before its first line. It is a no-op under an already pinned seed, and it only happens when the command really came from a command line (`python/cogbench/src/cogbench/cli.py:631`).
 
-Arguments are parsed. A missing `--benchmark` is argparse's own error, so it is the one failure on this command that does not carry the `cogworks: ` prefix and does not pass through the handler at `cli.py:720`. It still exits 2.
+Arguments are parsed. A missing `--benchmark` is argparse's own error, so it is the one failure on this command that does not carry the `cogworks: ` prefix and does not pass through the handler at `cli.py:846`. It still exits 2.
 
-The working directory is read once, before any benchmark loads, because a benchmark plugin may change it: Week 1 chdirs into a private scratch directory (`python/cogbench/src/cogbench/cli.py:602`). Everything afterwards, including the git state, is resolved against that one value.
+The working directory is read once, before any benchmark loads, because a benchmark plugin may change it: Week 1 chdirs into a private scratch directory (`python/cogbench/src/cogbench/cli.py:648`). Everything afterwards, including the git state, is resolved against that one value.
 
 ### Answered without work
 
 There is almost no such path. `check` is a report, and it prints a report even when every signal is false. A benchmark that is not installed still produces four lines and the two-sentence closing above.
 
-The three ways out with no report at all are an argparse usage error, a benchmark whose plugin raises while loading (`cli.py:319`, `:333`), and a benchmark whose `cache_status` probe raises (`cli.py:326`). The last two escape `_check` entirely and surface as one `cogworks: {message}` line on stderr with exit 2, so a student sees a Python-shaped sentence where they expected the survey.
+The three ways out with no report at all are an argparse usage error, a benchmark whose plugin raises while loading (`cli.py:371`, `:385`), and a benchmark whose `cache_status` probe raises (`cli.py:378`). The last two escape `_check` entirely and surface as one `cogworks: {message}` line on stderr with exit 2, so a student sees a Python-shaped sentence where they expected the survey.
 
 Nothing is written and nothing is sent on any of the three.
 
@@ -171,7 +186,7 @@ Nothing durable belongs to `check` itself. It writes no report, no cache, and no
 
 ### While it works
 
-The search draws a spinner on stderr, and only when stderr is a terminal. Piped to a file or run in CI it goes silent, because a spinner in a log is thousands of escape codes nobody reads (`python/cogbench/src/cogbench/progress.py:100`). `--json` suppresses it too, by handing the search no watcher at all (`python/cogbench/src/cogbench/cli.py:231`).
+The search draws a spinner on stderr, and only when stderr is a terminal. Piped to a file or run in CI it goes silent, because a spinner in a log is thousands of escape codes nobody reads (`python/cogbench/src/cogbench/progress.py:100`). `--json` suppresses it too, by handing the search no watcher at all (`python/cogbench/src/cogbench/cli.py:279`).
 
 Three phase headlines print permanently as the search moves through them: "Reading your repository" (`resolve.py:553`), "Looking for the functions that do the work" (`resolve.py:622`), and "Trying your functions to find which pair stores a song and names it back" (`resolve.py:894`). Between them, a note saying how many files were read and in which directory, and one indented line per stage as it binds. What stays on screen afterwards is a record of what happened rather than the last frame of an animation.
 
@@ -183,9 +198,9 @@ An estimate is appended only after 200 attempts, and only when more than three s
 
 The report prints to stdout in a fixed order: benchmark, python, the hosted interpreter when it differs, the repository, a blank line, the survey, the gap note when it is not superseded, the wiring, the verdict with its notes and next step, and the run command when the repository is ready.
 
-The exit code is 0 only when all five of `gitRepository`, `repositoryFullName`, `benchmarkInstalled`, `benchmarkLoadable`, and `submissionLoadable` are true, and 2 otherwise (`python/cogbench/src/cogbench/cli.py:383`). `submissionInstalled` is deliberately not in that list: it reports only entry-point registration, and a repository that resolves by file has none.
+The exit code is 0 only when all five of `gitRepository`, `repositoryFullName`, `benchmarkInstalled`, `benchmarkLoadable`, and `submissionLoadable` are true, and 2 otherwise (`python/cogbench/src/cogbench/cli.py:547`). `submissionInstalled` is deliberately not in that list: it reports only entry-point registration, and a repository that resolves by file has none. `submissionLoadable` is now whether `_scoreable` found something to score, which is the same question `cogworks run` asks.
 
-With `--update-setup` and exit 0, one authenticated POST follows, carrying the four step names "clone", "environment", "project", and "wiring" (`python/cogbench/src/cogbench/cli.py:613`), and printing "setup: updated {names}" from the portal's own accepted list. That call deliberately does not retry: the student asked for one visible update, and a failure should hand back control rather than becoming background telemetry. A failure there turns a successful check into exit 2, with the whole report already on stdout.
+With `--update-setup` and exit 0, one authenticated POST follows, carrying the four step names "clone", "environment", "project", and "wiring" (`python/cogbench/src/cogbench/cli.py:665`), and printing "setup: updated {names}" from the portal's own accepted list. That call deliberately does not retry: the student asked for one visible update, and a failure should hand back control rather than becoming background telemetry. A failure there turns a successful check into exit 2, with the whole report already on stdout.
 
 ## Modifiers
 
@@ -230,24 +245,24 @@ With `--update-setup` and exit 0, one authenticated POST follows, carrying the f
 ## Edge cases
 
 - **`repository` shows the GitHub name, not whether it is a repository.** The line prints `repositoryFullName`, which is parsed out of `git remote get-url origin` with a GitHub-specific regex (`python/cogbench/src/cogbench/project.py:30`). A real git worktree with no `origin`, a non-GitHub remote, or a URL with a trailing slash prints "not a git repository", which is false. `gitRepository`, the signal that actually says whether there is a commit, is required for exit 0 and never printed at all.
-- **An installed entry point does not stop the search.** Discovery runs unless *this* repository declares a submission by file. An entry point belongs to whatever package was pip-installed, which on a machine that has done more than one week is quite possibly another repository, and the measured consequence is in the comment: an empty repository scored 52% against the reference submission (`python/cogbench/src/cogbench/cli.py:265`).
+- **An installed entry point does not stop the search.** Discovery runs unless *this* repository declares a submission by file. An entry point belongs to whatever package was pip-installed, which on a machine that has done more than one week is quite possibly another repository, and the measured consequence is in the comment: an empty repository scored 52% against the reference submission (`python/cogbench/src/cogbench/cli.py:343`).
 - **The cache probes run and are never printed.** For a Week 2 benchmark, `check` reads and SHA-256s the entire FaceNet checkpoint, 111,898,327 bytes, on every invocation (`python/cogbench/src/cogbench/runner.py:138`, size from `benchmarks/week2/facial_recognition_benchmark/model-lock.json`). The result reaches `checks["modelCache"]` and the two data cache entries, and `render_check` takes no argument for any of them, so a student who has not downloaded the dataset gets a slower command and no sentence about it.
-- **`--json` is a different report, not the same one in another shape.** It carries `localGap`, `modelCache`, `dataTestCache`, `dataEvaluationCache`, `submissionError`, `submissionDetail`, and the whole `discovery` record, serialised with `default=str` so paths become strings (`python/cogbench/src/cogbench/cli.py:366`). None of the prose is in it, and none of the cache fields are in the prose.
-- **An unknown benchmark id still gets a hosted interpreter line.** `_hosted_python` falls back to "3.11" for any id it does not know (`python/cogbench/src/cogbench/cli.py:191`), so a typo produces "hosted python 3.11 (the hidden evaluation runs on this)" about a benchmark that does not exist, on the same screen as "not installed here".
-- **`contractVersion` in the JSON is an entry-point group name.** It reads `cogworks.submissions.v1` or `cogworks.submissions.v2` (`python/cogbench/src/cogbench/cli.py:294`), not a version number, which is what the key sounds like.
-- **`submissionSource` is set to `"discovery"` and never used.** When the search succeeds, `_check` records that value (`cli.py:356`), but `render_check` consults `submission_source` only on the branches where there is no submission object at all, so the string never reaches a reader in text mode.
+- **`--json` is a different report, not the same one in another shape.** It carries `localGap`, `modelCache`, `dataTestCache`, `dataEvaluationCache`, `submissionError`, `submissionDetail`, and the whole `discovery` record, serialised with `default=str` so paths become strings (`python/cogbench/src/cogbench/cli.py:521`). None of the prose is in it, and none of the cache fields are in the prose.
+- **An unknown benchmark id still gets a hosted interpreter line.** `_hosted_python` falls back to "3.11" for any id it does not know (`python/cogbench/src/cogbench/cli.py:239`), so a typo produces "hosted python 3.11 (the hidden evaluation runs on this)" about a benchmark that does not exist, on the same screen as "not installed here".
+- **`contractVersion` in the JSON is an entry-point group name.** It reads `cogworks.submissions.v1` or `cogworks.submissions.v2` (`python/cogbench/src/cogbench/cli.py:357`), not a version number, which is what the key sounds like.
+- **`submissionSource` is set to `"discovery"` and never used.** When the search succeeds, `_check` records that value (`cli.py:506`), but `render_check` consults `submission_source` only on the branches where there is no submission object at all, so the string never reaches a reader in text mode.
 - **The wiring section can appear with no verdict under it.** `Wired up:` prints whenever there are steps or a store and query pair, and the verdict block prints only if a verdict object exists. Every path through `resolve` produces one, so this is not reachable today, but the two are independent in `render_check`.
 
 ## Open questions and verification
 
-- A repository whose module aborts the interpreter takes `cogworks check` down with it, printing nothing. `survey()` exists to prevent exactly this and is called only from `python/cogbench/tests/test_discover.py`; the `unread` branch of `render_survey` (`report.py:67`), and the three lines described under "What each line of the survey says", are therefore unreachable from the CLI. Worth treating as a bug: the isolation is written and tested and not wired in. **Unverified** against a repository that really aborts.
-- `check` can exit 0 while `cogworks run` refuses. With an installed submission entry point and a benchmark that has no discovery spec, `_check` leaves `submissionLoadable` true and prints "Your submission is registered as an installed package, so it was used as is." (`report.py:222`), while `_submission_for` ignores entry points and raises "Nothing in this repository could be scored yet." (`cli.py:281`). `_submission_for`'s own docstring names this as the thing that must not happen (`cli.py:253`). Worth treating as a bug.
+- ~~A repository whose module aborts the interpreter takes `cogworks check` down with it, printing nothing.~~ Fixed. The whole of the reading now runs through `run_isolated` (`python/cogbench/src/cogbench/cli.py:412`), and a child that dies produces the "ended the process" report above. Verified against a real `SIGSEGV` in the child, not a description of one (`python/cogbench/tests/test_cli_readiness.py`). `survey()` is still called only from tests, so the `unread` branch of `render_survey` remains unreachable from the CLI.
+- ~~`check` can exit 0 while `cogworks run` refuses.~~ Fixed. Both commands now read one decision, `_scoreable` (`python/cogbench/src/cogbench/cli.py:323`); `_submission_for` is a wrapper that raises when it finds nothing to score (`cli.py:376`). An installed entry point is reported and never counted as readiness.
 - A `not_wired` verdict on a fully provisioned machine ends with a headline and nothing else. `_next_step_for_stall` returns "" when no skipped module names a missing package (`resolve.py:1928`), so the report's promise of "either you are ready, or here is the single next thing" is not kept in the most ordinary failure. Worth treating as a bug, or the promise should be narrowed.
 - The verdict headline and the next step are not wrapped, though the gap note is. The `could_not_look` headline is about 220 characters and breaks mid-word on a narrow terminal. Worth treating as a bug; the fix is one call to the wrapper that is already in the file.
-- `--update-setup` is silently ignored when the check does not pass (`cli.py:612`). A student who copies the setup page's command and whose check fails sees no line saying the setup guide was not updated. Whether the setup page's copy block includes the flag was not read in this pass. **Unverified.**
-- `check` has no `--portal` while `run` does, so `run --update-setup` can target a portal and `check --update-setup` cannot (`cli.py:83`, `cli.py:638`). Carried to triage as an inconsistency rather than a defect.
+- `--update-setup` is silently ignored when the check does not pass (`cli.py:664`). A student who copies the setup page's command and whose check fails sees no line saying the setup guide was not updated. Whether the setup page's copy block includes the flag was not read in this pass. **Unverified.**
+- `check` has no `--portal` while `run` does, so `run --update-setup` can target a portal and `check --update-setup` cannot (`cli.py:79`, `cli.py:691`). Carried to triage as an inconsistency rather than a defect.
 - Four test classes in `python/cogbench/tests/test_report.py` sit after `if __name__ == "__main__": unittest.main()` at line 211, so they do not run when the file is executed directly. They do run under `pytest` and `python -m unittest`. `test_verdict.py` and `test_discover.py` have the same shape. Whether the project's test command uses a collector was not confirmed. **Unverified.**
 - No timing was measured. Whether the Week 2 checkpoint hash is noticeable on a laptop, and how long a 3,962 pairing search really takes, are both from comments rather than observation. **Unverified.**
 - The samples above are assembled from the format strings in `report.py` and the stage names in `benchmarks/week1/audio_identification_benchmark/roles.py:256`, not captured from a terminal. Column positions should be correct; the module names in them are illustrative. **Unverified.**
 
-Verified against Cog\*Portal commit `f74e087`.
+Verified against Cog\*Portal commit `5a74e74`.

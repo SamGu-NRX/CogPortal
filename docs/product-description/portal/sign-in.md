@@ -8,9 +8,9 @@ This document owns `/signin` and the two public places that lead to it: the head
 
 ## The simple case
 
-A student opens the portal, sees the landing page, and presses "Sign in with GitHub" (`apps/portal/src/routes/Landing.tsx:47`). They arrive at `/signin`, which offers one button, "Continue with GitHub" (`apps/portal/src/routes/SignInPage.tsx:71`). Pressing it leaves the portal entirely: the browser navigates to `/api/github/login`, which redirects to GitHub's authorization screen. GitHub asks whether they want to let Cog\*Portal read their account. They approve, GitHub returns them to the portal, and they land back on `/`.
+A student opens the portal, sees the landing page, and presses "Sign in with GitHub" (`apps/portal/src/routes/Landing.tsx:45`). They arrive at `/signin`, which offers one button, "Continue with GitHub" (`apps/portal/src/routes/SignInPage.tsx:71`). Pressing it leaves the portal entirely: the browser navigates to `/api/github/login`, which redirects to GitHub's authorization screen. GitHub asks whether they want to let Cog\*Portal read their account. They approve, GitHub returns them to the portal, and they land back on `/`.
 
-They are now signed in, and the landing page's first button reads "Open Dashboard" (`apps/portal/src/routes/Landing.tsx:39`). Pressing it takes them to whatever they still owe: `/join` if they have no cohort, `/connect` if they have a cohort but no team, `/dashboard` if they have both (`apps/portal/src/App.tsx:33`).
+They are now signed in, and the landing page's first button names the stage they are owed rather than the one they finished: "Open Dashboard" when the session carries a team, "Continue setup" when it does not (`apps/portal/src/routes/Landing.tsx:37`). Pressing it takes them to whatever they still owe: `/join` if they have no cohort, `/connect` if they have a cohort but no team, `/dashboard` if they have both (`apps/portal/src/App.tsx:33`).
 
 The last paragraph is the one worth reading twice. A successful GitHub sign-in does not carry the student forward on its own. It returns them to the landing page and waits for a second press. See [Edge cases](#edge-cases).
 
@@ -78,7 +78,7 @@ There is no timeout. If GitHub's authorization screen never loads, the student i
 
 ### How it ends
 
-On approval, GitHub returns the browser to the portal, Better Auth writes the session cookie, and the student lands on `/`. The landing page reads the session again. If a pending connection return was saved, it navigates there at once (`apps/portal/src/routes/Landing.tsx:22`). Otherwise it renders the signed-in landing page and waits.
+On approval, GitHub returns the browser to the portal, Better Auth writes the session cookie, and the student lands on `/`. The landing page reads the session again. If a pending connection return was saved, it navigates there at once (`apps/portal/src/routes/Landing.tsx:18`). Otherwise it renders the signed-in landing page and waits.
 
 On refusal or failure, the student lands on `/signin?error=<code>` and reads one of the two sentences above.
 
@@ -128,7 +128,7 @@ After any interrupt the student is either signed in or not, with nothing in betw
 
 **What the portal claims.** The page claims only what it observed: whether GitHub sign-in is configured, and whether the last attempt carried an error code. It does not claim to know why a non-"denied" error happened, which is why the second sentence is "GitHub sign-in failed. Try again." and not a diagnosis. See [`../foundations/what-the-portal-claims.md`](../foundations/what-the-portal-claims.md).
 
-**What the benchmark supplied.** Nothing. No benchmark is loaded, and the landing page's four steps ("Fork the template", "Set up your machine", "Practice locally", "Connect and run", `apps/portal/src/routes/Landing.tsx:62`) name no benchmark either. The step-two copy says why: the exact commands need a track, and a signed-out page has no track, so they live on `/setup` where the portal can also verify each one (`apps/portal/src/routes/Landing.tsx:14`).
+**What the benchmark supplied.** Nothing. No benchmark is loaded, and the landing page names none. The only thing it says about the work is one mono line under the heading, "sign in · fork · clone · check · run" (`apps/portal/src/routes/Landing.tsx:28`), which names the path in the terminal's own words and carries no track, no repository, and no commands. The file's header comment says why the commands are not there: they need a clone URL and a track, a signed-out page has neither, and a student who followed them literally reached "cogworks: command not found" (`apps/portal/src/routes/Landing.tsx:8`). They live on `/setup`, which knows both.
 
 **Live updates and reconnection.** None. The session query has a 60 second stale time and no refetch interval (`apps/portal/src/lib/queries.ts:20`), and `refetchOnWindowFocus` is off globally (`apps/portal/src/App.tsx:27`). Nothing on this page polls.
 
@@ -138,8 +138,8 @@ After any interrupt the student is either signed in or not, with nothing in betw
 
 ## Edge cases
 
-- **A successful GitHub sign-in does not advance the student.** The callback URL is `/` (`apps/portal/worker/routes/github.ts:72`), and the landing page navigates onward only when a pending connection return exists (`apps/portal/src/routes/Landing.tsx:22`). A first-time student therefore lands on the landing page, signed in, and has to press "Open Dashboard" to reach `/join`. `SignInPage` itself does the opposite: it redirects to `nextStagePath` (`apps/portal/src/routes/SignInPage.tsx:22`). The two paths into the same state disagree.
-- **The landing page has no error state.** It destructures `data` from the session query and reads nothing else (`apps/portal/src/routes/Landing.tsx:13`). A failed session read leaves `session` undefined, so `authed` is false and the page renders as though the student were signed out, offering a sign-in button to someone who may already be signed in. Every other route reads the same query and renders `QueryError`.
+- **A successful GitHub sign-in does not advance the student.** The callback URL is `/` (`apps/portal/worker/routes/github.ts:72`), and the landing page navigates onward only when a pending connection return exists (`apps/portal/src/routes/Landing.tsx:18`). A first-time student therefore lands on the landing page, signed in, and has to press "Continue setup" to reach `/join`. `SignInPage` itself does the opposite: it redirects to `nextStagePath` (`apps/portal/src/routes/SignInPage.tsx:22`). The two paths into the same state disagree.
+- **The landing page has no error state.** It destructures `data` from the session query and reads nothing else (`apps/portal/src/routes/Landing.tsx:15`). A failed session read leaves `session` undefined, so `authed` is false and the page renders as though the student were signed out, offering a sign-in button to someone who may already be signed in. Every other route reads the same query and renders `QueryError`.
 - **The development sign-in accepts a narrow login and reports a rejection in the wrong voice.** The request schema requires 1 to 39 characters matching `^[a-zA-Z0-9-]+$` (`packages/contracts/src/schema.ts:1014`). A login with a space or a dot fails `parseBody` and comes back as 400 "The request body is invalid." (`apps/portal/worker/http/respond.ts:22`), which the page renders verbatim because it is an `ApiRequestError`. The only student-voiced fallback, "Sign-in failed. Try again.", is reserved for errors that are not `ApiRequestError` at all (`apps/portal/src/routes/SignInPage.tsx:129`).
 - **A development account has no GitHub identity.** `githubLogin` is set to null immediately after the account is created (`apps/portal/worker/routes/session.ts:55`), because that column is uniquely indexed and a real row may already hold the same name. The connections page says so in words: "No GitHub identity; development sign-ins don't carry one." (`apps/portal/src/routes/ConnectionsPage.tsx:211`). Role checks fall back to the account name, and only when `devAuthAvailable` is true, so there is no real identity to impersonate (`apps/portal/worker/auth/session.ts:52`).
 - **"Enter demo mode" provisions a whole account.** It posts `demo: true`, and the server joins the active cohort and connects the fixture repository as "Demo Team" in the same request (`apps/portal/worker/routes/session.ts:57`). With no active cohort it fails with 404 "Active cohort not found.", which renders in the same paragraph as the form's own errors.
@@ -158,15 +158,14 @@ After any interrupt the student is either signed in or not, with nothing in betw
 
 ## Open questions and verification
 
-- The callback landing on `/` rather than on `nextStagePath` costs every first-time student one extra press. Whether that is deliberate (the landing page doubles as the setup guide) or an oversight is a product call. Carried to triage.
+- The callback landing on `/` rather than on `nextStagePath` costs every first-time student one extra press, and there is now nothing on the landing page to read on the way past: a heading, one mono line naming the path, and two links. Whether the extra press is deliberate or an oversight is a product call. Carried to triage.
 - What a student actually sees when `/api/github/login` returns 502 was not observed. Because the anchor is a full-page navigation, the portal's error panel cannot render it, and the browser is likely to show the raw JSON body. **Unverified.**
 - Whether Better Auth ever emits an error code containing "denied" for something that is not a cancellation was not established. The comment at `SignInPage.tsx:91` names `access_denied` and `oauth_denied`; other providers spell it differently, but GitHub is the only provider configured.
 - The landing page's missing error state is a real inconsistency with every other route, but whether a student would notice it depends on how often a cold session read fails. Not measured. **Unverified.**
 - `RequireStaff` redirecting a non-staff user to `/` with no message is a silent refusal in a codebase that otherwise always names its refusals (`apps/portal/src/App.tsx:83`). Worth treating as a bug. The sentence to use already exists in `query-error-state.ts`.
 - The demo button's hardcoded `/dashboard` is currently correct because the server provisions a cohort and a team in the same request. It is still the one place in this file that does not use `nextStagePath`, and it silently drops a pending device link. Carried to triage as an inconsistency rather than an observed failure.
 - Whether Better Auth's rate limiter ever fires during ordinary use, and what the student sees when it does, was not established. **Unverified.**
-- The landing page's "Open Dashboard" label is wrong for most students who read it: for anyone without a cohort or a team it goes to `/join` or `/connect` (`apps/portal/src/routes/Landing.tsx:36`). Whether that misnaming matters in practice was not observed. **Unverified.**
 - Whether the stale `?error=` sentence can appear next to a fresh, unrelated failure was not tested. Reading the source, it cannot: a success navigates away and a second failure rewrites the same parameter.
 - No sign-in was performed against a running portal in this pass. Every string above was read from the source. **Unverified.**
 
-Verified against Cog\*Portal commit `f74e087`.
+Verified against Cog\*Portal commit `5a74e74`.
