@@ -2426,14 +2426,6 @@ def execute_job(job_value: Dict[str, Any]) -> None:
             result["sweep"] = sweep
         if _WIRING:
             result["wiring"] = _WIRING
-        reporter.event(
-            "completed",
-            result=result,
-            preparedArtifactId=snapshot_id,
-            environmentDigest=environment_digest,
-            sanitizedLog=student_log if job["mode"] == "practice" else None,
-        )
-        job_store[job["jobId"]] = "completed"
     except Exception as error:
         job_store[job["jobId"]] = "failed"
         detail = str(error)[:240]
@@ -2465,6 +2457,24 @@ def execute_job(job_value: Dict[str, Any]) -> None:
         except Exception:
             pass
         raise
+
+    # Outside the boundary on purpose. Producing the result and delivering it
+    # are different problems, and they shared that `except`, whose handler maps
+    # anything raised while the phase is "scoring" to `category: "scorer"`. So a
+    # portal that would not answer turned a run that scored into a scorer
+    # failure: the team's real number was replaced by a claim that our scorer
+    # broke, and in official mode that refunds an attempt against a result that
+    # exists. `_post_event` already retries; if it still cannot land, this
+    # raises and the run keeps its last reported phase until the stale reaper
+    # fails it, which is at least true.
+    job_store[job["jobId"]] = "completed"
+    reporter.event(
+        "completed",
+        result=result,
+        preparedArtifactId=snapshot_id,
+        environmentDigest=environment_digest,
+        sanitizedLog=student_log if job["mode"] == "practice" else None,
+    )
 
 
 @app.function(image=controller_image, secrets=[runner_secret], timeout=30)

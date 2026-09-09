@@ -18,6 +18,7 @@ import {
   users,
 } from "../worker/db/schema.ts";
 import type { Env } from "../worker/env.ts";
+import { DispatchUnacknowledged } from "../worker/execution/runner.ts";
 import { ApiHttpError } from "../worker/http/errors.ts";
 import {
   promotePracticeRun,
@@ -28,7 +29,10 @@ const MIGRATIONS = join(dirname(fileURLToPath(import.meta.url)), "..", "migratio
 const NOW = 1_780_000_000_000;
 const BENCHMARK_ID = "vision-recognition";
 const PRACTICE_RUN_ID = "run_practice";
-const SURFACE_ID = "surface_promotion_test";
+// Shaped like a real one: publishRunSurface validates this id, and the
+// dispatch tests below now reach that publish, because a run the provider
+// accepted is no longer failed on the way past.
+const SURFACE_ID = "surface_0a1b2c3d4e5f60718293";
 
 interface Harness {
   db: Database;
@@ -97,6 +101,12 @@ function env(binding: unknown, provider: "fixture" | "modal", queue?: { send(): 
     MODAL_RUNNER_URL: "https://runner.example",
     RUNNER_SIGNING_SECRET: "test-signing-secret-that-is-long-enough",
     RUN_QUEUE: queue,
+    // A promotion that reaches the end publishes the run surface. Until a
+    // dispatch could survive its own rejection, no test here got that far.
+    RUN_SURFACES: {
+      idFromName: (name: string) => name,
+      get: () => ({ fetch: async () => new Response(null, { status: 200 }) }),
+    },
   } as unknown as Env;
 }
 
@@ -298,6 +308,69 @@ test("an official dispatch failure releases its unconsumed claim", async () => {
   assert.ok(official);
   assert.equal(official.status, "failed");
   assert.equal(official.failureCategory, "provider");
+});
+
+test("a dispatch nobody answered leaves the run queued for the reaper", async () => {
+  // The 15-second POST can time out on a job Modal already spawned, and a
+  // cold start can push the first callback past that. So there is a window
+  // with no evidence either way, and this used to resolve it as "rejected":
+  // the run was failed and an official attempt handed back while it ran.
+  // Silence is not refusal. The run stays queued, and the stale-run reaper
+  // owns it if nothing ever reports.
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  const queue = {
+    async send() {
+      throw new DispatchUnacknowledged(new Error("The operation was aborted due to timeout"));
+    },
+  };
+
+  const promoted = await promotePracticeRun(env(binding, "modal", queue), actor, PRACTICE_RUN_ID);
+  assert.equal(promoted.surfaceId, SURFACE_ID);
+
+  const [official] = await db
+    .select()
+    .from(runs)
+    .where(and(eq(runs.parentRunId, PRACTICE_RUN_ID), eq(runs.mode, "official")));
+  assert.equal(official?.status, "queued", "still waiting, not declared failed");
+  assert.equal(official?.failureCategory, null);
+  const claims = await db.select().from(officialAttempts);
+  assert.equal(claims.length, 1, "the claim is not released on an unknown outcome");
+});
+
+test("a callback that lands before the dispatch rejects leaves the live run alone", async () => {
+  // Modal spawns the job before its endpoint answers, and the portal's POST
+  // gives up after fifteen seconds. So a rejection here can belong to a run
+  // that is already executing and has already reported. Unknown acceptance is
+  // not known rejection: this used to overwrite `preparing` with "could not be
+  // queued" and hand back an official attempt mid-run.
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  const officialRun = () =>
+    db
+      .select()
+      .from(runs)
+      .where(and(eq(runs.parentRunId, PRACTICE_RUN_ID), eq(runs.mode, "official")));
+  const queue = {
+    async send() {
+      const [official] = await officialRun();
+      await db
+        .update(runs)
+        .set({ status: "preparing", lastEventSequence: 0 })
+        .where(eq(runs.id, official!.id));
+      throw new Error("dispatch acknowledgement lost");
+    },
+  };
+
+  const promoted = await promotePracticeRun(env(binding, "modal", queue), actor, PRACTICE_RUN_ID);
+  assert.equal(promoted.surfaceId, SURFACE_ID);
+
+  const [official] = await officialRun();
+  assert.equal(official?.status, "preparing", "the callback's state survived");
+  assert.equal(official?.failureCategory, null);
+  assert.equal(official?.failureDetail, null);
+  const claims = await db.select().from(officialAttempts);
+  assert.equal(claims.length, 1, "a live official run keeps its claim");
 });
 
 test("dispatch-failure cleanup commits the failed run and the claim release together", async () => {

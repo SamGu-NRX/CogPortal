@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, exists, sql } from "drizzle-orm";
 import { FIXTURE_REPO } from "@cogworks/contracts/fixtures";
 import {
   OFFICIAL_LIMIT,
@@ -27,7 +27,7 @@ import {
   type TeamRow,
 } from "../db/schema";
 import { syncRun, syncTeamRuns } from "../execution/sync";
-import { assertModalConfigured, enqueueRun } from "../execution/runner";
+import { DispatchUnacknowledged, assertModalConfigured, enqueueRun } from "../execution/runner";
 import { FixtureGitHubClient, RealGitHubClient } from "../github/client";
 import { ApiHttpError } from "../http/errors";
 import { newId, randomHex } from "../util/id";
@@ -151,13 +151,36 @@ async function dispatch(env: Env, runId: string, team: TeamRow, benchmark: Bench
   if (!run) throw new ApiHttpError(500, "provider_unconfigured", "Run could not be loaded.");
   try {
     await enqueueRun(env, run, team, benchmark);
-  } catch {
-    // The provider never accepted the job (enqueueRun only rejects before
-    // acceptance). The failed-run update and the claim release commit as one
-    // D1 batch, because either half alone is a lie: a failed run keeping its
-    // claim silently spends an attempt, and a released claim on a still-queued
-    // run leaves a claimless run holding the active-run index.
+  } catch (error) {
+    if (error instanceof DispatchUnacknowledged) {
+      // Nobody knows whether this run started. `submit_job` spawns before it
+      // replies, so a request that timed out may be executing right now, and
+      // failing the row would overwrite a live run and hand back an official
+      // attempt that is being spent. Leave it queued: the stale-run reaper
+      // owns a run that never reports, and it refunds through the counted
+      // path. The cost is that a genuine outage looks like a slow start for
+      // up to ten minutes, which is the honest way round.
+      console.warn(JSON.stringify({ evt: "dispatch_unacknowledged", runId }));
+      return;
+    }
+    // Everything else happened before anything was sent, or carries Modal's
+    // own refusal, so the run never started and saying so at once is right.
+    //
+    // Callback progress is the evidence that the job was accepted: the first
+    // runner event moves the status off `queued` and raises lastEventSequence
+    // above its -1 default. So the repair carries that condition, and how many
+    // rows it changed is the answer to whether the run had started.
+    //
+    // Both statements carry it, and they commit together, because either half
+    // alone is a lie: a failed run keeping its claim silently spends an
+    // attempt, and a released claim on a live run leaves a claimless run
+    // holding the active-run index.
     const db = getDb(env);
+    const unstarted = and(
+      eq(runs.id, runId),
+      eq(runs.status, "queued"),
+      eq(runs.lastEventSequence, -1),
+    );
     const failRun = db
       .update(runs)
       .set({
@@ -167,12 +190,27 @@ async function dispatch(env: Env, runId: string, team: TeamRow, benchmark: Bench
         failurePhase: "queued",
         failureDetail: "The run could not be queued for Modal.",
       })
-      .where(eq(runs.id, runId));
+      .where(unstarted);
+    let changed: number;
     if (run.mode === "official") {
-      await db.batch([failRun, db.delete(officialAttempts).where(eq(officialAttempts.runId, runId))]);
+      // Released first, so it reads the run before the update rewrites it.
+      const [, failed] = await db.batch([
+        db.delete(officialAttempts).where(
+          and(
+            eq(officialAttempts.runId, runId),
+            exists(db.select({ unstarted: sql`1` }).from(runs).where(unstarted)),
+          ),
+        ),
+        failRun,
+      ]);
+      changed = failed.meta.changes ?? 0;
     } else {
-      await failRun;
+      changed = (await failRun).meta.changes ?? 0;
     }
+    // Nothing was still waiting to start, so a callback got here first and
+    // Modal has the job. Nothing above matched, so nothing was changed; leave
+    // the run alone and let the run page follow it.
+    if (changed === 0) return;
     throw new ApiHttpError(502, "provider_unconfigured", "The run could not be queued. Try again.");
   }
 }

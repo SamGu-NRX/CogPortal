@@ -377,5 +377,61 @@ class RetryIsSafe(unittest.TestCase):
         )
 
 
+def _execute_job_source() -> str:
+    """`execute_job`'s body as source, without importing modal."""
+
+    module = ast.parse(MODAL_APP.read_text(encoding="utf-8"))
+    for node in module.body:
+        if isinstance(node, ast.FunctionDef) and node.name == "execute_job":
+            return ast.get_source_segment(MODAL_APP.read_text(encoding="utf-8"), node) or ""
+    raise AssertionError("execute_job not found")
+
+
+class ADeliveryFailureIsNotAScoringFailure(unittest.TestCase):
+    """Producing a result and delivering it are different problems.
+
+    They shared one `except`, whose handler maps anything raised while the
+    phase is `scoring` to `category: "scorer"`. So a portal that would not
+    answer turned a run that scored into a scorer failure: the team's real
+    number was replaced by a claim that our scorer broke, and in official mode
+    that refunds an attempt against a result that exists.
+    """
+
+    def setUp(self):
+        os.environ["RUNNER_SIGNING_SECRET"] = SECRET
+
+    def test_a_completed_event_that_cannot_land_raises_rather_than_reporting_a_scorer(self):
+        # Three 500s exhaust `_post_event`. The caller has to see the failure
+        # as a delivery failure, which means it leaves the try that would have
+        # relabelled it, so nothing about the score is rewritten on the way out.
+        with RecordingPortal([500, 500, 500]) as portal:
+            with self.assertRaises(urllib.error.HTTPError):
+                POST_EVENT(job_for(portal.url), completed_event())
+            bodies = [request["body"] for request in portal.requests]
+
+        self.assertEqual(len(bodies), 3)
+        for body in bodies:
+            self.assertIn(b'"type":"completed"', body)
+            self.assertNotIn(b'"scorer"', body)
+
+    def test_the_completed_callback_is_sent_after_the_scoring_boundary(self):
+        """The behavioral proof needs Modal and a sandbox, so this reads the
+        one structural fact behind it: the handler that writes a `failed`
+        event can no longer see the completed callback raise."""
+
+        source = _execute_job_source()
+        boundary = source.index("except Exception as error:")
+        sends = [
+            index
+            for index in range(len(source))
+            if source.startswith("reporter.event(", index)
+        ]
+        after = [index for index in sends if index > boundary]
+        self.assertTrue(after, "no callback is sent after the scoring boundary")
+        # The one after the boundary is the completed event; the one inside it
+        # is the failed event the handler writes.
+        self.assertIn('"completed"', source[after[-1] : after[-1] + 200])
+
+
 if __name__ == "__main__":
     unittest.main()

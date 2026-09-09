@@ -193,21 +193,42 @@ export async function hmacSignature(secret: string, timestamp: string, body: str
     .join("");
 }
 
+/**
+ * The provider never answered, so whether it took the job is unknown.
+ *
+ * `submit_job` spawns the run before it replies (see the Modal runner), so a
+ * request that times out or fails in transit may well have started a run.
+ * Every other failure here happens before anything is sent, or carries
+ * Modal's own refusal, and those are known rejections.
+ */
+export class DispatchUnacknowledged extends Error {
+  constructor(cause: unknown) {
+    super("The Modal runner did not answer the dispatch request.");
+    this.name = "DispatchUnacknowledged";
+    this.cause = cause;
+  }
+}
+
 async function dispatchToModal(env: Env, job: RunJobV1): Promise<void> {
   assertModalConfigured(env);
   const body = JSON.stringify(job);
   const timestamp = Math.floor(Date.now() / 1_000).toString();
-  const response = await fetch(env.MODAL_RUNNER_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Cogworks-Timestamp": timestamp,
-      "X-Cogworks-Key-Id": env.RUNNER_SIGNING_KEY_ID ?? "runner-v1",
-      "X-Cogworks-Signature": `v1=${await hmacSignature(env.RUNNER_SIGNING_SECRET, timestamp, body)}`,
-    },
-    body,
-    signal: AbortSignal.timeout(15_000),
-  });
+  let response: Response;
+  try {
+    response = await fetch(env.MODAL_RUNNER_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Cogworks-Timestamp": timestamp,
+        "X-Cogworks-Key-Id": env.RUNNER_SIGNING_KEY_ID ?? "runner-v1",
+        "X-Cogworks-Signature": `v1=${await hmacSignature(env.RUNNER_SIGNING_SECRET, timestamp, body)}`,
+      },
+      body,
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch (error) {
+    throw new DispatchUnacknowledged(error);
+  }
   if (response.status !== 202) {
     throw new Error(`Modal runner rejected job with status ${response.status}.`);
   }
