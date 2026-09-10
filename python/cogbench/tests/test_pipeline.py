@@ -4,6 +4,7 @@ import shutil
 import signal
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from types import ModuleType
@@ -405,9 +406,6 @@ def _imported(name, path):
     sys.modules[name] = module
     spec.loader.exec_module(module)
     return module
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 class TuningIsPartOfTheBinding(unittest.TestCase):
@@ -2169,7 +2167,6 @@ class AStudentCallThatReturnsAsTheClockRunsOutIsStillJustANo(unittest.TestCase):
         "requires SIGALRM and POSIX interval timers",
     )
     def test_the_timeout_never_leaves_the_call(self):
-        from cogbench import pipeline
         from cogbench.pipeline import Candidate, _call
 
         def slow(value):
@@ -2698,3 +2695,7 @@ class OptionalFitStageTests(unittest.TestCase):
         found, failed = _fits_of(role, [], {}, [])
         self.assertEqual(found, [])
         self.assertEqual(failed, "idfs")
+
+
+if __name__ == "__main__":
+    unittest.main()

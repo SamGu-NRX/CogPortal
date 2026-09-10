@@ -179,10 +179,6 @@ def _key(repository: Path) -> str:
     return memo.fingerprint(memo.source_paths(discover(repository)), benchmark="mini")
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class ARememberedTuningIsReplayed(unittest.TestCase):
     """A stored binding says how to call each step, not only which one."""
 
@@ -421,3 +417,7 @@ class TheWorkspaceIgnoresItself(unittest.TestCase):
             ["git", "status", "--porcelain"], cwd=root, check=True, capture_output=True, text=True
         ).stdout
         self.assertEqual(status, "")
+
+
+if __name__ == "__main__":
+    unittest.main()
