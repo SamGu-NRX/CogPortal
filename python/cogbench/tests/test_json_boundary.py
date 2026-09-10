@@ -161,6 +161,7 @@ class ADeclaredLengthIsNotAnAllocationOrder(unittest.TestCase):
 
         self.assertGreater(isolate.MAX_PAYLOAD_BYTES, 100 * 2710)
 
+    @unittest.skipUnless(hasattr(os, 'fork'), 'requires POSIX process isolation')
     def test_a_large_but_legitimate_payload_still_arrives_whole(self):
         """The cap must not become a length limit on real results."""
 
