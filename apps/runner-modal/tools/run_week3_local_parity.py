@@ -151,14 +151,9 @@ def main() -> None:
     # sandbox built a fresh image_ids list per rung, which defeated the
     # driver's identity check and rebuilt the submission's index four times
     # where the local run built it once.
-    # Retrieval carries the same rewrite grid as search and its rewritten rungs
-    # are what `retrieval_mrr` averages, so leaving them out of this set let the
-    # sandbox rebuild only the search rungs and still pass parity.
-    expected_keys = (
-        {"overall", "text_mrr", "retrieval_mrr", "search_mrr"}
-        | {"search_mrr_{}".format(rung) for rung in perturb.RUNGS}
-        | {"retrieval_mrr_{}".format(rung) for rung in perturb.RUNGS if rung != "verbatim"}
-    )
+    expected_keys = {"overall", "text_mrr", "retrieval_mrr", "search_mrr"} | {
+        "search_mrr_{}".format(rung) for rung in perturb.RUNGS
+    }
     missing = sorted(expected_keys - set(scores))
     assert not missing, "scored metrics are missing {}".format(missing)
     emit(events, "status", status="scoring", elapsedMs=int(elapsed * 1000))
