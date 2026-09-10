@@ -18,7 +18,7 @@ from urllib.parse import urlparse
 
 from . import __version__
 from .environment import gap_note, local_gap
-from .isolate import COMPLETED, Outcome, run_isolated
+from .isolate import COMPLETED, Outcome, run_isolated, run_operation
 from .client import (
     PortalError,
     device_status,
@@ -436,7 +436,7 @@ def _check_view(name: str, project_root: Path, as_json: bool) -> dict:
 
 
 def _read_repository(
-    name: str, project_root: Path, as_json: bool
+    name: str, project_root: Path, as_json: bool, *, diagnostics: Optional[dict] = None
 ) -> Tuple[Optional[dict], str, str]:
     """Run `_check_view` where it cannot take this command down with it.
 
@@ -464,9 +464,16 @@ def _read_repository(
     # failed the check and then worked on the run, which is the disagreement
     # this whole path exists to remove. Discovery still imports their modules
     # from a scratch directory of its own; that is `discover`'s business.
-    outcome = run_isolated(
-        lambda: _check_view(name, project_root, as_json), scratch=project_root
-    )
+    if sys.platform == "darwin":
+        outcome = run_operation("check", {
+            "name": name, "repository": str(project_root.resolve()), "as_json": as_json,
+        }, scratch=project_root)
+    else:
+        outcome = run_isolated(
+            lambda: _check_view(name, project_root, as_json), scratch=project_root
+        )
+    if diagnostics is not None:
+        diagnostics.update(outcome.diagnostics())
     if outcome.status == COMPLETED and isinstance(outcome.value, dict):
         return outcome.value, outcome.status, outcome.detail
     return None, outcome.status, outcome.detail
@@ -527,12 +534,16 @@ def _check(benchmark: str, as_json: bool, project_root: Path) -> int:
     unread_detail = ""
     search_unavailable = ""
     if checks["benchmarkLoadable"]:
-        view, status, detail = _read_repository(benchmark, project_root, as_json)
+        diagnostics: dict = {}
+        view, status, detail = _read_repository(
+            benchmark, project_root, as_json, diagnostics=diagnostics
+        )
         if view is None:
             unread_detail = detail or "the process reading it ended without saying why"
             checks["submissionError"] = (
-                "Reading this repository ended the process ({}).".format(status)
+                "Reading this repository ended the process ({}): {}".format(status, unread_detail)
             )
+            checks["submissionDetail"] = diagnostics
         else:
             submission = view["report"]
             survey = view["survey"]
@@ -875,12 +886,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 # limit before this boundary existed and they still have none.
                 sys.stdout.flush()
                 sys.stderr.flush()
-                outcome = run_isolated(
-                    lambda: _run_view(args, project_root),
-                    scratch=project_root,
-                    timeout_seconds=None,
-                    memory_bytes=None,
-                )
+                if sys.platform == "darwin":
+                    outcome = run_operation("run", {
+                        "args": vars(args), "repository": str(project_root.resolve()),
+                    }, scratch=project_root, timeout_seconds=None, memory_bytes=None)
+                else:
+                    outcome = run_isolated(
+                        lambda: _run_view(args, project_root),
+                        scratch=project_root, timeout_seconds=None, memory_bytes=None,
+                    )
             if outcome.status != COMPLETED:
                 if args.json:
                     print(json.dumps({

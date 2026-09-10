@@ -31,6 +31,15 @@ from cogbench.isolate import CRASHED, Outcome  # noqa: E402
 from cogbench.plugins import PluginError  # noqa: E402
 
 
+class _ForkPlatform:
+    # These closure-based fixtures exercise Linux's inherited-state path.
+    # Fresh-interpreter tests install real plugin metadata on disk instead.
+    platform = "linux"
+
+    def __getattr__(self, name):
+        return getattr(sys, name)
+
+
 class _NoDiscovery:
     """A benchmark that does not describe its task to the search.
 
@@ -138,6 +147,9 @@ class ReadingCannotTakeTheCommandDown(unittest.TestCase):
     """The boundary `discover.survey` documents, around the whole of check."""
 
     def setUp(self):
+        platform_patch = patch.object(cli, "sys", _ForkPlatform())
+        platform_patch.start()
+        self.addCleanup(platform_patch.stop)
         self.tmp = Path(tempfile.mkdtemp()).resolve()
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
         self.addCleanup(setattr, cli, "_check_view", cli._check_view)
@@ -193,6 +205,9 @@ class ReadingCannotTakeTheCommandDown(unittest.TestCase):
 @unittest.skipUnless(hasattr(os, "fork"), "no fork, so nothing to isolate")
 class ScoredRunIsolation(unittest.TestCase):
     def setUp(self):
+        platform_patch = patch.object(cli, "sys", _ForkPlatform())
+        platform_patch.start()
+        self.addCleanup(platform_patch.stop)
         self.tmp = Path(tempfile.mkdtemp()).resolve()
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
 
@@ -350,6 +365,8 @@ def execute(*args, **kwargs):
 cli.load_benchmark = lambda *args: object()
 cli._submission_for = resolve
 cli.execute = execute
+from types import SimpleNamespace
+cli.sys = SimpleNamespace(platform="linux", stdout=sys.stdout, stderr=sys.stderr)
 raise SystemExit(cli.main(["run", "--benchmark", "fixture"] + sys.argv[1:]))
 '''
         environment = dict(os.environ, PYTHONDONTWRITEBYTECODE="1",

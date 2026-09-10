@@ -1640,17 +1640,16 @@ class _Redirects:
     already owns; the path is a machine that is not this one. Every module in
     that repository is skipped as "raised", so the week has nothing to search.
 
-    Only a basename the benchmark named, and only after a module has already
-    failed on it. Nothing is guessed: the week passes the map, the failure
-    names the file, and both have to agree before anything is patched. The
-    file is data, so supplying it is input in the same sense as supplying the
-    photos; the report says which basename was answered for.
+    The benchmark supplies the validated paths. Ordinary file opens are
+    redirected only after a failure names a mapped basename. The course's
+    loader is patched before a from-import captures its alias, because the
+    Language corpus first calls that alias later in prep_data. That loader
+    does not honor COGWORKS_LANGUAGE_DATA and otherwise fetches another copy.
 
-    ``open`` is wrapped rather than the filesystem being changed, and
-    ``gensim``'s loader is patched only when their code has already imported
-    it. ``COGWORKS_LANGUAGE_DATA`` is set from the same map, because the
-    course's own ``cogworks_data.get_data_path`` reads it and several
-    repositories go through that instead of naming a path.
+    Each captured loader closes over this repository's map, never a global
+    current map. Module attributes and import hooks are restored on leave;
+    an alias already captured by student code keeps its own validated paths.
+    The environment hint remains for student loaders that do read it.
     """
 
     def __init__(self, mapping: Mapping[str, Path]) -> None:
@@ -1661,16 +1660,45 @@ class _Redirects:
         self._course = None
         self._w2v = None
         self._previous_env = None
+        self._import = None
 
     def enter(self) -> None:
         if not self._map:
             return
+        # Patch before a from-import captures its alias, even when the first
+        # resource read happens later in a candidate call.
+        self._import = builtins.__import__
+        original_import = self._import
+
+        def importing(name, globals=None, locals=None, fromlist=(), level=0):
+            module = original_import(name, globals, locals, fromlist, level)
+            if (name == "cogworks_data" or name.startswith("cogworks_data.")
+                    or name == "gensim" or name.startswith("gensim.")):
+                self._patch_course_loader()
+            return module
+
         self._previous_env = os.environ.get("COGWORKS_LANGUAGE_DATA")
-        folders = {str(where.parent) for where in self._map.values()}
-        if len(folders) == 1:
-            os.environ["COGWORKS_LANGUAGE_DATA"] = folders.pop()
+        builtins.__import__ = importing
+        try:
+            self._patch_course_loader()
+            folders = {str(where.parent) for where in self._map.values()}
+            if len(folders) == 1:
+                os.environ["COGWORKS_LANGUAGE_DATA"] = folders.pop()
+        except BaseException:
+            self.leave()
+            raise
+
+    def __enter__(self):
+        self.enter()
+        return self
+
+    def __exit__(self, *exc):
+        self.leave()
 
     def leave(self) -> None:
+        if self._import is not None:
+            builtins.__import__ = self._import
+            self._import = None
         if self._open is not None:
             builtins.open = self._open
             self._open = None
@@ -1791,8 +1819,6 @@ class _Redirects:
         imported the loader, for the reason `_patch_gensim` gives.
         """
 
-        if self._course is not None:
-            return
         language = sys.modules.get("cogworks_data.language")
         original = getattr(language, "get_data_path", None)
         if original is None:
@@ -1806,15 +1832,20 @@ class _Redirects:
             if name in live:
                 self._live[name] = live[name]
                 return str(live[name])
-            return original(file_name, *args, **keywords)
+            # Pooch's cache is not a second authority for benchmark inputs.
+            # Unknown course files are explicit failures, not hidden downloads.
+            raise FileNotFoundError(
+                "course file {!r} has no validated benchmark input".format(str(file_name))
+            )
 
-        self._course = (language, "get_data_path", original)
-        language.get_data_path = _get_data_path
+        if self._course is None:
+            self._course = (language, "get_data_path", original)
+            language.get_data_path = _get_data_path
 
         models = sys.modules.get("gensim.models")
         owner = getattr(models, "KeyedVectors", None)
-        if owner is not None and self._w2v is None:
-            text_loader = owner.load_word2vec_format
+        text_loader = getattr(owner, "load_word2vec_format", None)
+        if callable(text_loader) and self._w2v is None:
 
             def _load_w2v(path, *args, **keywords):
                 target = str(path)
@@ -2316,6 +2347,18 @@ class Survey:
         return [str(entry["name"]) for entry in modules]  # type: ignore[index]
 
 
+def _survey_work(repository, declared_root, hints, trail) -> Dict[str, object]:
+    # A fatal signal cannot flush Python buffers, so journal each module as
+    # soon as it is observed. The parent salvages this same file after exec.
+    with trail.open("a", encoding="utf-8") as sink:
+        def record(kind, entry):
+            sink.write(json.dumps(_journal_line(kind, entry)) + "\n")
+            sink.flush()
+            os.fsync(sink.fileno())
+        return discover(repository, declared_root=declared_root, hints=hints,
+                        journal=record).to_dict()
+
+
 def survey(
     repository: Path,
     *,
@@ -2338,7 +2381,7 @@ def survey(
     which is a sentence about the repository that nobody observed.
     """
 
-    from .isolate import COMPLETED, run_isolated
+    from .isolate import COMPLETED, run_isolated, run_operation
 
     repository = Path(repository).resolve()
 
@@ -2346,23 +2389,7 @@ def survey(
         trail = Path(scratch) / "outcomes.jsonl"
 
         def _work() -> Dict[str, object]:
-            # Opened in the child. Line-buffered and flushed per record,
-            # because the process may not reach any close: a killed process
-            # loses whatever is still in a buffer, and the buffer is exactly
-            # what this exists to preserve.
-            with trail.open("a", encoding="utf-8") as sink:
-
-                def _record(kind: str, entry: object) -> None:
-                    sink.write(json.dumps(_journal_line(kind, entry)) + "\n")
-                    sink.flush()
-                    os.fsync(sink.fileno())
-
-                return discover(
-                    repository,
-                    declared_root=declared_root,
-                    hints=hints,
-                    journal=_record,
-                ).to_dict()
+            return _survey_work(repository, declared_root, hints, trail)
 
         if not hasattr(os, "fork"):
             # Windows has no fork, so there is no isolation to offer. Running
@@ -2371,7 +2398,13 @@ def survey(
             # every Windows student their repository could not be read, which
             # is a sentence about their code that nothing observed.
             return Survey("ok", _work())
-        outcome = run_isolated(_work, timeout_seconds=timeout_seconds)
+        if sys.platform == "darwin":
+            outcome = run_operation("survey", {
+                "repository": str(repository), "declared_root": declared_root,
+                "hints": list(hints), "trail": str(trail),
+            }, timeout_seconds=timeout_seconds)
+        else:
+            outcome = run_isolated(_work, timeout_seconds=timeout_seconds)
         if outcome.status == COMPLETED and isinstance(outcome.value, dict):
             return Survey("ok", outcome.value)
 

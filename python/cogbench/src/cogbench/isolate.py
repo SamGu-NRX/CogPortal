@@ -34,8 +34,7 @@ import signal
 import struct
 import sys
 import tempfile
-import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -46,6 +45,7 @@ __all__ = [
     "RAISED",
     "COMPLETED",
     "run_isolated",
+    "run_operation",
     "ensure_pinned_hash_seed",
     "hash_seed_in_effect",
 ]
@@ -64,23 +64,6 @@ DEFAULT_TIMEOUT_SECONDS = 300
 #: Address space ceiling for the child. Above the measured peak of a real
 #: hosted run (1.5 GB) and below anything that would disturb the host.
 DEFAULT_MEMORY_BYTES = 3 * 1024 * 1024 * 1024
-
-#: How long the parent waits for a child that has already reported its result
-#: to finish and exit on its own.
-#:
-#: The child writes its payload, closes the pipe, and only then flushes stdout
-#: and stderr (see `_child`). The parent used to SIGKILL unconditionally as
-#: soon as the payload arrived, which raced that flush and dropped whatever the
-#: student had printed. That is not theoretical. CI lost it once on
-#: ubuntu/3.11 while three runs of the same commit were in flight, and the
-#: race reproduces on demand: with eight busy cores and six concurrent runs,
-#: the pre-fix code failed `test_buffered_output_is_flushed_without_repeating
-#: _parent_output` 6 times in 30 with exactly CI's message, and 0 in 30 after.
-#: An idle machine wins the race every time, which is why it read as a flake.
-#:
-#: Two seconds is a flush of two streams, not a unit of work; a child that
-#: overstays it is killed exactly as before.
-FLUSH_GRACE_SECONDS = 2.0
 
 #: Signals that mean the interpreter died rather than the code failed.
 _FATAL = {
@@ -108,6 +91,22 @@ class Outcome:
     status: str
     value: Any = None
     detail: str = ""
+    signal: Optional[int] = None
+    alarm_fired: bool = False
+    timeout_seconds: Optional[int] = None
+    memory_bytes: Optional[int] = None
+    read_reason: Optional[str] = None
+
+    def diagnostics(self) -> dict:
+        """Configured budgets and observed outcome, not proof rlimits took."""
+        return {
+            "status": self.status, "detail": self.detail, "signal": self.signal,
+            "alarmFired": self.alarm_fired, "readReason": self.read_reason,
+            "limits": {"wallSeconds": self.timeout_seconds,
+                       "cpuSeconds": self.timeout_seconds,
+                       "cpuHardSeconds": None if self.timeout_seconds is None else self.timeout_seconds + 5,
+                       "memoryBytes": self.memory_bytes},
+        }
 
     @property
     def ok(self) -> bool:
@@ -261,9 +260,19 @@ def _apply_limits(
         # anyway raises AttributeError, which is not in the tuples below, so
         # the child exited 70 and reported "exited with status 70".
         return
+    # A caller may already have a stricter soft limit. Discovery must never
+    # raise it just because its own configured budget is more generous.
+    def lower(kind, soft, hard):
+        old_soft, old_hard = resource.getrlimit(kind)
+        if old_soft != resource.RLIM_INFINITY:
+            soft = min(soft, old_soft)
+        if old_hard != resource.RLIM_INFINITY:
+            hard = min(hard, old_hard)
+        resource.setrlimit(kind, (min(soft, hard), hard))
+
     try:
         if memory_bytes is not None:
-            resource.setrlimit(resource.RLIMIT_AS, (memory_bytes, memory_bytes))
+            lower(resource.RLIMIT_AS, memory_bytes, memory_bytes)
     except (ValueError, OSError):
         # Some platforms refuse an address-space limit. The wall clock and the
         # process boundary still hold, so this is a weaker child, not an
@@ -277,9 +286,7 @@ def _apply_limits(
     # arrives as a signal the parent can name precisely.
     try:
         if timeout_seconds is not None:
-            resource.setrlimit(
-                resource.RLIMIT_CPU, (timeout_seconds, timeout_seconds + 5)
-            )
+            lower(resource.RLIMIT_CPU, timeout_seconds, timeout_seconds + 5)
     except (ValueError, OSError):
         pass
 
@@ -288,10 +295,10 @@ def _child(
     work: Callable[[], Any],
     write_fd: int,
     scratch: Path,
-    memory_bytes: int,
-    timeout_seconds: int,
+    memory_bytes: Optional[int],
+    timeout_seconds: Optional[int],
 ) -> None:
-    """Everything after the fork. Never returns; always ``_exit``.
+    """Everything inside the process boundary. Never returns; always ``_exit``.
 
     ``os._exit`` rather than ``sys.exit`` on every path: a normal exit would
     run the parent's atexit handlers and flush its buffers a second time, and
@@ -310,6 +317,8 @@ def _child(
         # Student code that reads from a terminal gets EOF rather than a hang.
         devnull = os.open(os.devnull, os.O_RDONLY)
         os.dup2(devnull, 0)
+        if devnull != 0:
+            os.close(devnull)
         try:
             payload = pickle.dumps(
                 Outcome(COMPLETED, value=work()), protocol=pickle.HIGHEST_PROTOCOL
@@ -322,6 +331,10 @@ def _child(
                 ),
                 protocol=pickle.HIGHEST_PROTOCOL,
             )
+        # Publish completion only after serialization and stream flushing.
+        # Pickling may itself print. Fatal signals and asynchronous writers can
+        # still lose output; a completed payload no longer races this flush.
+        _flush_streams()
         # A signal mid-write can shorten a blocking pipe write. Send the
         # remainder so completed work is not reported as a crash when the
         # reader rejects a truncated payload.
@@ -335,74 +348,67 @@ def _child(
             os.close(write_fd)
         except OSError:
             pass
-        # _exit does not flush Python streams. Preserve output on paths
-        # that reach finally; fatal signals still bypass this cleanup.
-        for stream in (sys.stdout, sys.stderr):
-            try:
-                stream.flush()
-            except BaseException:
-                pass  # A closed or broken student stream must not prevent exit.
         os._exit(exit_code)
 
 
-def _read_payload(read_fd: int) -> Optional[Outcome]:
+def _flush_streams() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.flush()
+        except BaseException:
+            pass  # A broken student stream must not prevent reporting.
+
+
+class _PayloadError(Exception):
+    pass
+
+
+def _read_payload(read_fd: int) -> Outcome:
     header = b""
     while len(header) < 4:
         chunk = os.read(read_fd, 4 - len(header))
         if not chunk:
-            return None
+            raise _PayloadError("eof" if not header else "truncated_header")
         header += chunk
     (size,) = struct.unpack("!I", header)
     body = b""
     while len(body) < size:
         chunk = os.read(read_fd, size - len(body))
         if not chunk:
-            return None
+            raise _PayloadError("truncated_body")
         body += chunk
     try:
-        return pickle.loads(body)
-    except BaseException:  # noqa: BLE001 - a truncated payload is a dead child
-        return None
+        outcome = pickle.loads(body)
+    except _Alarm:
+        raise
+    except Exception as error:
+        raise _PayloadError("invalid_payload") from error
+    if not isinstance(outcome, Outcome):
+        raise _PayloadError("invalid_outcome")
+    return outcome
 
 
-def _describe_death(status: int, timed: bool = True) -> Outcome:
-    """Turn a wait status into something worth showing a student.
+def _describe_death(status: Optional[int], timed: bool = False) -> Outcome:
+    """Describe observed death only; cleanup's signal is not evidence."""
 
-    ``timed`` is whether this process was holding a clock over the child. With
-    no clock there is nothing to time out, so a SIGKILL came from outside: the
-    Linux OOM killer, macOS jetsam, or someone typing kill. Reporting that as
-    "took longer than the time allowed" is a claim about elapsed time that
-    nothing here measured.
-    """
-
-    if os.WIFSIGNALED(status):
-        number = os.WTERMSIG(status)
-        if number == signal.SIGKILL:
-            if not timed:
-                return Outcome(
-                    CRASHED,
-                    detail=(
-                        "the operating system stopped this process, most often "
-                        "for using too much memory"
-                    ),
-                )
-            return Outcome(
-                TIMED_OUT,
-                detail="stopped after taking longer than the time allowed",
-            )
-        if number == signal.SIGXCPU:
-            return Outcome(
-                TIMED_OUT, detail="stopped after using more CPU time than allowed"
-            )
+    number = os.WTERMSIG(status) if status is not None and os.WIFSIGNALED(status) else None
+    if timed:
+        return Outcome(TIMED_OUT, detail="stopped because the wall-clock time limit expired",
+                       signal=number, alarm_fired=True)
+    if number == getattr(signal, "SIGXCPU", None) and number is not None:
+        return Outcome(TIMED_OUT, detail="stopped by SIGXCPU, the CPU-time limit signal",
+                       signal=number)
+    if number == signal.SIGKILL:
+        return Outcome(CRASHED, detail="stopped by SIGKILL; the cause is unknown", signal=number)
+    if number is not None:
         verb = _FATAL.get(number, "was killed by signal {}".format(number))
-        return Outcome(
-            CRASHED,
-            detail="the Python interpreter {} while running this code".format(verb),
-        )
+        return Outcome(CRASHED, detail="the Python interpreter {} while running this code".format(verb),
+                       signal=number)
+    if status is None:
+        return Outcome(CRASHED, detail="the result pipe failed before a process exit was observed")
     code = os.WEXITSTATUS(status)
-    if code == 0:
-        return Outcome(CRASHED, detail="exited without returning a result")
-    return Outcome(CRASHED, detail="exited with status {}".format(code))
+    return Outcome(CRASHED, detail="exited without returning a result" if code == 0
+                   else "exited with status {}".format(code))
 
 
 def run_isolated(
@@ -443,67 +449,141 @@ def run_isolated(
             raise AssertionError("unreachable")
 
         os.close(write_fd)
-        outcome: Optional[Outcome] = None
-        # Windows has neither SIGALRM nor alarm(). Without them the parent
-        # cannot interrupt this pipe read, so it waits until the child exits
-        # or the child's CPU rlimit fires. The no-fork branch above is what
-        # Windows takes; this guard also keeps other limited platforms usable.
-        alarm = (
-            timeout_seconds is not None
-            and hasattr(signal, "SIGALRM")
-            and hasattr(signal, "alarm")
-        )
-        previous = signal.signal(signal.SIGALRM, _on_alarm) if alarm else None
-        if alarm:
+        return _collect(pid, read_fd, timeout_seconds, memory_bytes)
+
+
+def run_operation(
+    operation: str, arguments: dict, *,
+    timeout_seconds: Optional[int] = DEFAULT_TIMEOUT_SECONDS,
+    memory_bytes: Optional[int] = DEFAULT_MEMORY_BYTES,
+    scratch: Optional[Path] = None,
+) -> Outcome:
+    """Reconstruct one SDK operation after exec, without carrying live objects.
+
+    macOS high-level APIs cannot safely run in a raw fork of the CLI. Popen
+    uses no Python preexec callback; limits are installed in the interpreter
+    before importing the operation owner or any student module.
+    """
+    import json
+    import subprocess
+
+    if operation not in ("check", "run", "survey"):
+        raise ValueError("unknown isolated SDK operation: {!r}".format(operation))
+    with tempfile.TemporaryDirectory(prefix="cogworks-discovery-") as temporary:
+        workspace = Path(scratch).resolve() if scratch else Path(temporary)
+        request = Path(temporary) / "operation.json"
+        request.write_text(json.dumps({"operation": operation, "arguments": arguments,
+                                      "memory": memory_bytes, "timeout": timeout_seconds,
+                                      "workspace": str(workspace)}),
+                           encoding="utf-8")
+        read_fd, write_fd = os.pipe()
+        environment = dict(os.environ, PYTHONHASHSEED="0")
+        # Keep editable/source installs usable after moving into scratch.
+        environment["PYTHONPATH"] = os.pathsep.join(
+            [str(Path(__file__).resolve().parent.parent)] +
+            [str(Path(entry).resolve()) for entry in sys.path if entry])
+        _flush_streams()
+        try:
+            process = subprocess.Popen(
+                [sys.executable, "-c", "from cogbench.isolate import _operation_child; _operation_child()",
+                 str(request), str(write_fd)],
+                # Bootstrap outside the repository: a student json.py must
+                # not be imported before the child installs its limits.
+                cwd=temporary, env=environment, stdin=subprocess.DEVNULL,
+                pass_fds=(write_fd,), start_new_session=True,
+            )
+        except BaseException:
+            os.close(read_fd)
+            raise
+        finally:
+            os.close(write_fd)
+        try:
+            return _collect(process.pid, read_fd, timeout_seconds, memory_bytes)
+        finally:
+            # _collect owns waitpid and process-group cleanup, including SIGINT.
+            process.wait()
+
+
+def _operation_child() -> None:
+    import json
+
+    request = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+    operation = request["operation"]
+    arguments = request["arguments"]
+
+    def work():
+        if operation == "check":
+            from .cli import _check_view
+            return _check_view(arguments["name"], Path(arguments["repository"]), arguments["as_json"])
+        if operation == "run":
+            import argparse
+            from .cli import _run_view
+            return _run_view(argparse.Namespace(**arguments["args"]), Path(arguments["repository"]))
+        if operation == "survey":
+            from .discover import _survey_work
+            return _survey_work(Path(arguments["repository"]), arguments["declared_root"],
+                                arguments["hints"], Path(arguments["trail"]))
+        raise ValueError("unknown isolated SDK operation: {!r}".format(operation))
+
+    _child(work, int(sys.argv[2]), Path(request["workspace"]),
+           request["memory"], request["timeout"])
+
+
+def _collect(pid, read_fd, timeout_seconds, memory_bytes) -> Outcome:
+    outcome = None
+    fired = False
+    reason = None
+    status = None
+    reaped = False
+    armed = (timeout_seconds is not None and hasattr(signal, "SIGALRM")
+             and hasattr(signal, "alarm"))
+    previous = None
+    try:
+        if armed:
+            previous = signal.signal(signal.SIGALRM, _on_alarm)
             signal.alarm(timeout_seconds)
         try:
             outcome = _read_payload(read_fd)
         except _Alarm:
-            outcome = None
-        except OSError:
-            outcome = None
-        finally:
-            if alarm:
+            fired, reason = True, "alarm"
+        except _PayloadError as error:
+            reason = str(error)
+        except OSError as error:
+            reason = "read_error: {}".format(error)
+    finally:
+        try:
+            if armed and previous is not None:
                 signal.alarm(0)
                 signal.signal(signal.SIGALRM, previous)
-            try:
-                os.close(read_fd)
-            except OSError:
-                pass
-            # Inside the finally, because Ctrl+C raises KeyboardInterrupt out
-            # of the read above and used to leave the child running. The child
-            # called setsid, so the terminal's own SIGINT never reaches it:
-            # measured, the parent printed "interrupted" and the child was
-            # still going a second later, reparented to init. On a scored run
-            # that orphan finishes the benchmark and, with --live, reports a
-            # completed run minutes after the student stopped the command.
-            # A child that has already reported is finishing its own flush, so
-            # it gets a bounded moment to exit first. Killing it the instant
-            # the payload landed is what dropped student output; see
-            # FLUSH_GRACE_SECONDS. Every other path (timeout, read error,
-            # KeyboardInterrupt) leaves `outcome` None and skips the wait.
-            reaped, status = (False, 0)
-            try:
-                if outcome is not None:
-                    reaped, status = _wait_for_exit(pid, FLUSH_GRACE_SECONDS)
-            finally:
-                # The group is killed either way, even when the child exited
-                # cleanly: it may have started something that outlives it, and
-                # setsid means the terminal's own signals never reach that
-                # group. This needs its own finally because the wait above is
-                # itself interruptible: the poll sleeps, PEP 475 does not
-                # retry a sleep whose handler raises, and a Ctrl+C landing in
-                # that window would otherwise skip the kill and leave exactly
-                # the orphan the comment above is about. Measured before this
-                # guard existed: 26 orphans in 120 runs with SIGINT swept
-                # across the poll, 0 with it.
-                _terminate(pid)
-                if not reaped:
-                    status = _reap(pid)[1]
-
-        if outcome is not None:
-            return outcome
-        return _describe_death(status, timed=alarm)
+            os.close(read_fd)
+            # Capture an already-dead child's status before cleanup. If the
+            # pipe closed while it was alive, cleanup's SIGKILL proves no cause.
+            done, observed = os.waitpid(pid, os.WNOHANG)
+            if done:
+                reaped, status = True, observed
+        finally:
+            _terminate(pid)
+            if not reaped:
+                final_status = _reap(pid)[1]
+                # A different signal or ordinary exit could arrive between
+                # WNOHANG and cleanup. Those cannot have come from our SIGKILL.
+                if not (os.WIFSIGNALED(final_status)
+                        and os.WTERMSIG(final_status) == signal.SIGKILL):
+                    status = final_status
+    if outcome is None:
+        outcome = _describe_death(status, timed=fired)
+        if reason:
+            outcome = replace(outcome, detail=outcome.detail + " (result pipe: {})".format(reason))
+        if outcome.signal == getattr(signal, "SIGXCPU", None) and outcome.signal is not None:
+            limits = (
+                "; no CPU limit was configured by this operation"
+                if timeout_seconds is None else
+                "; configured CPU limit: {} seconds soft, {} seconds hard".format(
+                    timeout_seconds, timeout_seconds + 5)
+            )
+            outcome = replace(outcome, detail=outcome.detail + limits)
+    return replace(outcome, alarm_fired=fired, timeout_seconds=timeout_seconds,
+                   memory_bytes=memory_bytes, read_reason=reason)
 
 
 class _Alarm(Exception):
@@ -512,27 +592,6 @@ class _Alarm(Exception):
 
 def _on_alarm(signum, frame):  # noqa: ARG001 - signal handler shape
     raise _Alarm()
-
-
-def _wait_for_exit(pid: int, seconds: float):
-    """Reap `pid` if it exits within `seconds`.
-
-    Returns ``(reaped, status)``. ``reaped`` is False only when the child is
-    still alive at the deadline, which is the caller's signal to kill it.
-    """
-
-    deadline = time.monotonic() + seconds
-    while True:
-        try:
-            done, status = os.waitpid(pid, os.WNOHANG)
-        except OSError:
-            # Already gone, or never ours. Nothing left to kill.
-            return True, 0
-        if done:
-            return True, status
-        if time.monotonic() >= deadline:
-            return False, 0
-        time.sleep(0.005)
 
 
 def _terminate(pid: int) -> None:

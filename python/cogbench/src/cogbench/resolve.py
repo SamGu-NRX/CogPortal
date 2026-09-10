@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Mapping, Any, Callable, Dict, FrozenSet, List, Optional, Sequence, Tuple
 
 from . import memo
-from .discover import Discovery, discover
+from .discover import Discovery, discover, _Redirects
 from .isolate import hash_seed_in_effect as _hash_seed_in_effect
 from .progress import Progress
 from .pipeline import (
@@ -591,251 +591,298 @@ def resolve(
     student runs every few minutes.
     """
 
-    if readers > 0 and grades is None:
-        # Said here rather than discovered as an empty reader search: a week
-        # that declares readers and no way to grade one would silently bind
-        # none of them, and the repository that needed them would be refused
-        # for a reason nobody could see.
-        raise ValueError(
-            "this week allows {} function(s) after the query and gives no "
-            "`grades`; a reader is chosen by grading what it returned".format(readers)
+    # Keep deferred imports and candidate calls under the same course-file
+    # mapping as module imports. Captured aliases retain only this mapping.
+    with _Redirects(resource_files or {}):
+        if readers > 0 and grades is None:
+            # Said here rather than discovered as an empty reader search: a week
+            # that declares readers and no way to grade one would silently bind
+            # none of them, and the repository that needed them would be refused
+            # for a reason nobody could see.
+            raise ValueError(
+                "this week allows {} function(s) after the query and gives no "
+                "`grades`; a reader is chosen by grading what it returned".format(readers)
+            )
+
+        watcher = progress or Progress()
+        repository = Path(repository).resolve()
+
+        watcher.phase("Reading your repository")
+        found = discover(
+            repository,
+            hints=hints,
+            declared_root=declared_root,
+            resource_files=resource_files,
         )
+        weights_used: Tuple[str, ...] = ()
+        if prepare is not None:
+            # What this repository itself supplies to the search: week 3's
+            # trained projection, read off the chosen root. Merged under the
+            # benchmark's own extras so a week cannot be overridden by a file.
+            try:
+                # From the same throwaway directory the search probes from:
+                # the hook runs their code (a model's constructor and loader),
+                # and their code writes relative files.
+                with _scratch_cwd():
+                    from_repository = dict(prepare(found.root.path, found.namespace) or {})
+            except Exception as error:  # noqa: BLE001 - the week's hook may refuse
+                watcher.done()
+                return Submission(
+                    not_read(
+                        found.root.path.name,
+                        "{}: {}".format(type(error).__name__, str(error)[:200]),
+                    ),
+                    discovery=found,
+                    weights_used=weights_used,
+                )
+            weights_used = tuple(sorted(str(p) for p in from_repository.pop("weights_used", ())))
+            extras = dict(from_repository, **(extras or {}))
+        if found.modules:
+            watcher.note(
+                "read {} file{} in {}".format(
+                    len(found.modules),
+                    "" if len(found.modules) == 1 else "s",
+                    found.root.path.name or found.root.path,
+                )
+            )
 
-    watcher = progress or Progress()
-    repository = Path(repository).resolve()
-
-    watcher.phase("Reading your repository")
-    found = discover(
-        repository,
-        hints=hints,
-        declared_root=declared_root,
-        resource_files=resource_files,
-    )
-    weights_used: Tuple[str, ...] = ()
-    if prepare is not None:
-        # What this repository itself supplies to the search: week 3's
-        # trained projection, read off the chosen root. Merged under the
-        # benchmark's own extras so a week cannot be overridden by a file.
-        try:
-            # From the same throwaway directory the search probes from:
-            # the hook runs their code (a model's constructor and loader),
-            # and their code writes relative files.
-            with _scratch_cwd():
-                from_repository = dict(prepare(found.root.path, found.namespace) or {})
-        except Exception as error:  # noqa: BLE001 - the week's hook may refuse
+        if not found.modules:
             watcher.done()
-            return Submission(
-                not_read(
-                    found.root.path.name,
-                    "{}: {}".format(type(error).__name__, str(error)[:200]),
-                ),
-                discovery=found,
-                weights_used=weights_used,
-            )
-        weights_used = tuple(sorted(str(p) for p in from_repository.pop("weights_used", ())))
-        extras = dict(from_repository, **(extras or {}))
-    if found.modules:
-        watcher.note(
-            "read {} file{} in {}".format(
-                len(found.modules),
-                "" if len(found.modules) == 1 else "s",
-                found.root.path.name or found.root.path,
-            )
+            if found.skipped:
+                worst = found.skipped[0]
+                return Submission(
+                    not_read(
+                        worst.name,
+                        worst.detail,
+                        next_step=_next_step_for(worst.reason, worst.missing, benchmark),
+                    ),
+                    discovery=found,
+                    weights_used=weights_used,
+                )
+            return Submission(nothing_here(repository.name), discovery=found)
+
+        key = (
+            memo.fingerprint(memo.source_paths(found), benchmark=benchmark)
+            if remember
+            else ""
         )
-
-    if not found.modules:
-        watcher.done()
-        if found.skipped:
-            worst = found.skipped[0]
-            return Submission(
-                not_read(
-                    worst.name,
-                    worst.detail,
-                    next_step=_next_step_for(worst.reason, worst.missing, benchmark),
-                ),
-                discovery=found,
-                weights_used=weights_used,
+        if key:
+            recalled = _replay(
+                memo.read(repository, key),
+                found,
+                chain_role,
+                arrangements,
+                fixture=fixture,
+                extras=extras,
+                identities=identities,
             )
-        return Submission(nothing_here(repository.name), discovery=found)
+            if recalled is not None:
+                watcher.done()
+                return recalled
 
-    key = (
-        memo.fingerprint(memo.source_paths(found), benchmark=benchmark)
-        if remember
-        else ""
-    )
-    if key:
-        recalled = _replay(
-            memo.read(repository, key),
-            found,
+        watcher.phase("Looking for the functions that do the work")
+        # What the week's test said about the last chain it rejected, kept so a
+        # chain that ran end to end is reported in the week's words rather than
+        # in a sentence written for another week.
+        last_said: Dict[str, str] = {}
+        # The pairing the verifier accepted, kept so the chain it belongs to is
+        # not paired a second time on the way out.
+        paired: Dict[str, Any] = {"tried": 0, "chains": 0}
+
+        if arrangements is None:
+            # A week with no database is complete when its chain is, so the week's
+            # acceptance test is the whole verifier.
+            def verify(steps: Any) -> bool:
+                ok, detail = accepts(steps, *fixture)
+                last_said["detail"] = str(detail or "")
+                return bool(ok)
+
+        else:
+            # A week with a database is not complete when its chain is. The
+            # question that decides a chain is whether some pair of their own
+            # functions can store a song through it and name it back, so that
+            # search is the verifier and `resolve_chain` keeps offering chains
+            # until one of them pairs.
+            #
+            # Passing None here is what let names decide. The first chain the
+            # frontier produced was accepted whatever it was, and the pairing
+            # search only ever saw that one, so the stage preferences -- which
+            # exist to order the search, not to judge it -- picked the chain.
+            # Measured on the fixture repository in `test_discovered_chain`:
+            # with the preferences emptied the accepted chain became
+            # `make_spectrogram -> find_peaks -> find_peaks`, which pairs with
+            # nothing that answers, and the run scored 0.125 instead of 0.640625.
+            def verify(steps: Any) -> bool:
+                # The first complete chain, kept for the report when none of them
+                # pairs. "We found your fingerprinting and no database" has to be
+                # able to name the fingerprinting it found, and a refusal carries
+                # labels rather than the bound steps.
+                paired.setdefault("steps", tuple(steps))
+                # The ceiling is on the search, not on one chain of it. Restarting
+                # it per chain meant a repository offering twelve complete chains
+                # could try twelve times `max_attempts` pairings, so the number
+                # that exists to bound how long a student waits bounded nothing.
+                remaining = max_attempts - paired["tried"]
+                if remaining <= 0:
+                    return False
+                best, tried = _pair(
+                    steps,
+                    found,
+                    arrangements,
+                    accepts,
+                    grades,
+                    factories,
+                    readers,
+                    remaining,
+                    watcher,
+                    offset=paired["tried"],
+                )
+                paired["tried"] += tried
+                paired["chains"] += 1
+                if best is None:
+                    return False
+                paired["best"] = best
+                return True
+
+        chain, refusal = resolve_chain(
             chain_role,
-            arrangements,
-            fixture=fixture,
+            found.namespace,
+            fixture,
+            verify=verify,
             extras=extras,
             identities=identities,
         )
-        if recalled is not None:
+        if chain is None:
             watcher.done()
-            return recalled
-
-    watcher.phase("Looking for the functions that do the work")
-    # What the week's test said about the last chain it rejected, kept so a
-    # chain that ran end to end is reported in the week's words rather than
-    # in a sentence written for another week.
-    last_said: Dict[str, str] = {}
-    # The pairing the verifier accepted, kept so the chain it belongs to is
-    # not paired a second time on the way out.
-    paired: Dict[str, Any] = {"tried": 0, "chains": 0}
-
-    if arrangements is None:
-        # A week with no database is complete when its chain is, so the week's
-        # acceptance test is the whole verifier.
-        def verify(steps: Any) -> bool:
-            ok, detail = accepts(steps, *fixture)
-            last_said["detail"] = str(detail or "")
-            return bool(ok)
-
-    else:
-        # A week with a database is not complete when its chain is. The
-        # question that decides a chain is whether some pair of their own
-        # functions can store a song through it and name it back, so that
-        # search is the verifier and `resolve_chain` keeps offering chains
-        # until one of them pairs.
-        #
-        # Passing None here is what let names decide. The first chain the
-        # frontier produced was accepted whatever it was, and the pairing
-        # search only ever saw that one, so the stage preferences -- which
-        # exist to order the search, not to judge it -- picked the chain.
-        # Measured on the fixture repository in `test_discovered_chain`:
-        # with the preferences emptied the accepted chain became
-        # `make_spectrogram -> find_peaks -> find_peaks`, which pairs with
-        # nothing that answers, and the run scored 0.125 instead of 0.640625.
-        def verify(steps: Any) -> bool:
-            # The first complete chain, kept for the report when none of them
-            # pairs. "We found your fingerprinting and no database" has to be
-            # able to name the fingerprinting it found, and a refusal carries
-            # labels rather than the bound steps.
-            paired.setdefault("steps", tuple(steps))
-            # The ceiling is on the search, not on one chain of it. Restarting
-            # it per chain meant a repository offering twelve complete chains
-            # could try twelve times `max_attempts` pairings, so the number
-            # that exists to bound how long a student waits bounded nothing.
-            remaining = max_attempts - paired["tried"]
-            if remaining <= 0:
-                return False
-            best, tried = _pair(
-                steps,
-                found,
-                arrangements,
-                accepts,
-                grades,
-                factories,
-                readers,
-                remaining,
-                watcher,
-                offset=paired["tried"],
+            assert refusal is not None
+            # The refusal carries how far the search got. Reporting only the stage
+            # that stalled would say "the spectrogram step found nothing" for a
+            # repository whose spectrogram was found and whose peak finder was not.
+            reached = tuple(
+                _step_note(stage, label)
+                for stage, label in zip(
+                    (stage.name for stage in chain_role.stages), refusal.furthest
+                )
             )
-            paired["tried"] += tried
-            paired["chains"] += 1
-            if best is None:
-                return False
-            paired["best"] = best
-            return True
-
-    chain, refusal = resolve_chain(
-        chain_role,
-        found.namespace,
-        fixture,
-        verify=verify,
-        extras=extras,
-        identities=identities,
-    )
-    if chain is None:
-        watcher.done()
-        assert refusal is not None
-        # The refusal carries how far the search got. Reporting only the stage
-        # that stalled would say "the spectrogram step found nothing" for a
-        # repository whose spectrogram was found and whose peak finder was not.
-        reached = tuple(
-            _step_note(stage, label)
-            for stage, label in zip(
-                (stage.name for stage in chain_role.stages), refusal.furthest
-            )
-        )
-        # Two refusals wear one sentence otherwise. "Nothing accepted what
-        # your last function returned" is a wiring problem and often ours to
-        # explain. "Your chain ran end to end and gave the wrong answer" is
-        # their algorithm, and saying the first when the second is true sends
-        # a team to look for a missing function they already wrote.
-        #
-        # Measured on one 2026 repository: its chain runs, and hand-running
-        # their own pipeline at every threshold the search tries produces 4,
-        # 5, or 6 clusters where the fixture has 3. Nothing is unwired. Their
-        # cutoff splits a person, which is a result worth having and the
-        # opposite of what the report said.
-        if refusal.ran_to_the_end and arrangements is not None:
-            # For a week with a database, "the chain ran to the end" means
-            # every chain the frontier offered was complete and none of them
-            # could be paired with a store and a query. Saying their
-            # algorithm returned the wrong answer would be wrong twice over:
-            # nothing of theirs was asked for an answer, and the missing
-            # piece is a database rather than a better fingerprint.
+            # Two refusals wear one sentence otherwise. "Nothing accepted what
+            # your last function returned" is a wiring problem and often ours to
+            # explain. "Your chain ran end to end and gave the wrong answer" is
+            # their algorithm, and saying the first when the second is true sends
+            # a team to look for a missing function they already wrote.
+            #
+            # Measured on one 2026 repository: its chain runs, and hand-running
+            # their own pipeline at every threshold the search tries produces 4,
+            # 5, or 6 clusters where the fixture has 3. Nothing is unwired. Their
+            # cutoff splits a person, which is a result worth having and the
+            # opposite of what the report said.
+            if refusal.ran_to_the_end and arrangements is not None:
+                # For a week with a database, "the chain ran to the end" means
+                # every chain the frontier offered was complete and none of them
+                # could be paired with a store and a query. Saying their
+                # algorithm returned the wrong answer would be wrong twice over:
+                # nothing of theirs was asked for an answer, and the missing
+                # piece is a database rather than a better fingerprint.
+                return Submission(
+                    not_wired(
+                        "identification",
+                        "database",
+                        reached,
+                        next_step=(
+                            "The benchmark found your fingerprinting but no pair of "
+                            "functions that stores a song and then names it back."
+                        ),
+                        coverage=_coverage_of(found, benchmark),
+                    ),
+                    discovery=found,
+                    weights_used=weights_used,
+                    chain=paired.get("steps", ()),
+                    attempts_tried=paired["tried"],
+                )
+            if refusal.ran_to_the_end:
+                said = last_said.get("detail", "")
+                return Submission(
+                    wired_but_wrong(
+                        chain_role.name,
+                        expects or "the answer the benchmark's own case has",
+                        "a different answer ({})".format(said[:160]) if said else "a different answer",
+                        reached,
+                        notes=(
+                            "Every function above is yours, and the benchmark "
+                            "passed each one the input it asked for. What comes "
+                            "back is not the answer the benchmark's own case has, "
+                            "so the difference is in what your code computes "
+                            "rather than in how it was connected up.",
+                        ),
+                    ),
+                    discovery=found,
+                    weights_used=weights_used,
+                )
             return Submission(
                 not_wired(
-                    "identification",
-                    "database",
-                    reached,
-                    next_step=(
-                        "The benchmark found your fingerprinting but no pair of "
-                        "functions that stores a song and then names it back."
-                    ),
-                    coverage=_coverage_of(found, benchmark),
-                ),
-                discovery=found,
-                weights_used=weights_used,
-                chain=paired.get("steps", ()),
-                attempts_tried=paired["tried"],
-            )
-        if refusal.ran_to_the_end:
-            said = last_said.get("detail", "")
-            return Submission(
-                wired_but_wrong(
                     chain_role.name,
-                    expects or "the answer the benchmark's own case has",
-                    "a different answer ({})".format(said[:160]) if said else "a different answer",
+                    refusal.stage,
                     reached,
-                    notes=(
-                        "Every function above is yours, and the benchmark "
-                        "passed each one the input it asked for. What comes "
-                        "back is not the answer the benchmark's own case has, "
-                        "so the difference is in what your code computes "
-                        "rather than in how it was connected up.",
-                    ),
+                    last_returned=refusal.last_returned,
+                    next_step=_next_step_for_stall(found, benchmark),
+                    coverage=_coverage_of(found, benchmark),
+                    notes=refusal.notes,
+                    errors=refusal.errors,
                 ),
                 discovery=found,
                 weights_used=weights_used,
             )
-        return Submission(
-            not_wired(
-                chain_role.name,
-                refusal.stage,
-                reached,
-                last_returned=refusal.last_returned,
-                next_step=_next_step_for_stall(found, benchmark),
-                coverage=_coverage_of(found, benchmark),
-                notes=refusal.notes,
-                errors=refusal.errors,
-            ),
-            discovery=found,
-            weights_used=weights_used,
-        )
 
-    for step, stage in zip(chain.steps, chain_role.stages):
-        watcher.found(stage.name, step.label)
+        for step, stage in zip(chain.steps, chain_role.stages):
+            watcher.found(stage.name, step.label)
 
-    if arrangements is None:
+        if arrangements is None:
+            watcher.done()
+            if key:
+                memo.write(repository, key, dict(_remembered(chain), arrangement=-1))
+            return Submission(
+                _scored_placeholder(chain),
+                discovery=found,
+                weights_used=weights_used,
+                chain=chain.steps,
+                branches=dict(chain.branches),
+                fits=chain.fits,
+                missing=dict(chain.missing),
+                attempts_tried=0,
+                enroll=None,
+                query=None,
+            )
+
+        # The accepted pairing's ordinal within its own chain is not how much work
+        # this took: every chain before it was searched too. `paired["tried"]` is
+        # the whole search, and it is what the record and the memo carry.
+        _grade, store, ask, index, _at, shape = paired["best"]
+        held = shape.hold()
+        call = store.rebuild() if shape.state and store.rebuild else store.call
+        state = _FromTheirStore(call) if shape.state else None
+
+        def _enroll(song_id: str, item: Any, _i=index, _h=held, _c=call) -> Any:
+            if state is not None:
+                state.enrolling(song_id)
+            return arrangements(_c if _h is None else _leading(_c, _h), song_id, item)[_i]()
+
+        watcher.attempts(paired["tried"], paired["tried"])
         watcher.done()
         if key:
-            memo.write(repository, key, dict(_remembered(chain), arrangement=-1))
+            memo.write(
+                repository,
+                key,
+                dict(
+                    _remembered(chain),
+                    enroll=store.label,
+                    query=ask.label,
+                    arrangement=index,
+                    attemptsTried=paired["tried"],
+                    factory=shape.factory.label if shape.factory else None,
+                    readers=[reader.label for reader in shape.readers],
+                    state=shape.state,
+                    stateAttribute=shape.state_attribute,
+                ),
+            )
         return Submission(
             _scored_placeholder(chain),
             discovery=found,
@@ -844,64 +891,20 @@ def resolve(
             branches=dict(chain.branches),
             fits=chain.fits,
             missing=dict(chain.missing),
-            attempts_tried=0,
-            enroll=None,
-            query=None,
-        )
-
-    # The accepted pairing's ordinal within its own chain is not how much work
-    # this took: every chain before it was searched too. `paired["tried"]` is
-    # the whole search, and it is what the record and the memo carry.
-    _grade, store, ask, index, _at, shape = paired["best"]
-    held = shape.hold()
-    call = store.rebuild() if shape.state and store.rebuild else store.call
-    state = _FromTheirStore(call) if shape.state else None
-
-    def _enroll(song_id: str, item: Any, _i=index, _h=held, _c=call) -> Any:
-        if state is not None:
-            state.enrolling(song_id)
-        return arrangements(_c if _h is None else _leading(_c, _h), song_id, item)[_i]()
-
-    watcher.attempts(paired["tried"], paired["tried"])
-    watcher.done()
-    if key:
-        memo.write(
-            repository,
-            key,
-            dict(
-                _remembered(chain),
-                enroll=store.label,
-                query=ask.label,
-                arrangement=index,
-                attemptsTried=paired["tried"],
-                factory=shape.factory.label if shape.factory else None,
-                readers=[reader.label for reader in shape.readers],
-                state=shape.state,
-                stateAttribute=shape.state_attribute,
+            attempt=Attempt(store.label, ask.label, index),
+            attempts_tried=paired["tried"],
+            enroll=_enroll,
+            query=lambda item, _a=ask, _h=held, _r=shape.readers, _s=state: _read(
+                _a, _h, _r, item, _s
             ),
+            _store=store,
+            _ask=ask,
+            _arrange=arrangements,
+            _factory=shape.factory,
+            _readers=shape.readers,
+            _state=shape.state,
+            _state_attribute=shape.state_attribute,
         )
-    return Submission(
-        _scored_placeholder(chain),
-        discovery=found,
-        weights_used=weights_used,
-        chain=chain.steps,
-        branches=dict(chain.branches),
-        fits=chain.fits,
-        missing=dict(chain.missing),
-        attempt=Attempt(store.label, ask.label, index),
-        attempts_tried=paired["tried"],
-        enroll=_enroll,
-        query=lambda item, _a=ask, _h=held, _r=shape.readers, _s=state: _read(
-            _a, _h, _r, item, _s
-        ),
-        _store=store,
-        _ask=ask,
-        _arrange=arrangements,
-        _factory=shape.factory,
-        _readers=shape.readers,
-        _state=shape.state,
-        _state_attribute=shape.state_attribute,
-    )
 
 
 def _pair(
