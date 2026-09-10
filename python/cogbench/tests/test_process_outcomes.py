@@ -118,14 +118,26 @@ class ProcessOutcomes(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             marker = Path(temporary) / 'pid'
             def work():
-                marker.write_text(str(os.getpid()))
+                # Written through a temporary name and renamed. `write_text`
+                # creates the file before it has the pid in it, so a reader
+                # watching for existence can find it empty; on Linux that
+                # happened, the killer raised ValueError, nothing was killed,
+                # and the child ran to the deadline instead.
+                staging = marker.with_suffix('.writing')
+                staging.write_text(str(os.getpid()))
+                os.replace(str(staging), str(marker))
                 time.sleep(30)
             def kill_child():
                 deadline = time.monotonic() + 5
-                while not marker.exists() and time.monotonic() < deadline:
-                    time.sleep(.01)
-                if marker.exists():
-                    os.kill(int(marker.read_text()), signal.SIGKILL)
+                while time.monotonic() < deadline:
+                    try:
+                        child = int(marker.read_text())
+                    except (OSError, ValueError):
+                        time.sleep(.01)
+                        continue
+                    os.kill(child, signal.SIGKILL)
+                    return
+                raise AssertionError('the child never published its pid')
             # Start the helper only once the child exists: no student work is
             # forked from a test process containing this helper thread.
             real_read = isolate._read_payload
