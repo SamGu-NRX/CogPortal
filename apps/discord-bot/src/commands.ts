@@ -532,7 +532,7 @@ async function surfaceActionView(
       },
       rerun_hosted: {
         title: "Start a new hosted run?",
-        detail: "This starts a fresh hosted run on the same commit. The current run stays as history.",
+        detail: "This starts a fresh hosted run on the same commit, which uses another of this benchmark's hosted practice runs. The current run stays as history.",
         label: "Start hosted run",
         style: 1,
       },

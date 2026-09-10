@@ -341,6 +341,18 @@ test("quota-spending confirmations carry the consequence in the button and a rec
   // place a student reads before spending.
   assert.match(responseText(verify), /hosted practice runs/);
   assert.doesNotMatch(responseText(verify), /spends nothing/);
+
+  // A rerun goes through startPracticeRun too, so it is capped the same way
+  // and has to say so in the same place. It used to describe only what happens
+  // to the old run.
+  const rerun = await executeCommand(
+    component(`cog:surface:${latest.id}:rerun_hosted`),
+    portal,
+    guildId,
+    portalOrigin,
+  );
+  assert.match(responseText(rerun), /Start a new hosted run\?/);
+  assert.match(responseText(rerun), /another of this benchmark's hosted practice runs/);
   assert.equal(verifyConfirm?.label, "Verify bbbbbbb hosted");
   assert.equal(verifyConfirm?.style, 1);
   assert.ok(buttons(verify).every((item) => item.label !== "Not now" || item.style === 2));
