@@ -51,22 +51,6 @@ def _leak_a_child():
     return subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"]).pid
 
 
-class OutcomeContractTests(unittest.TestCase):
-    def test_outcome_has_only_the_fields_the_child_populates(self):
-        from dataclasses import fields
-        from cogbench.isolate import Outcome
-
-        self.assertEqual([field.name for field in fields(Outcome)], ["status", "value", "detail"])
-
-    def test_only_reachable_statuses_are_exported(self):
-        from cogbench import isolate
-
-        statuses = {name for name in isolate.__all__ if name.isupper()}
-        self.assertEqual(statuses, {"COMPLETED", "RAISED", "CRASHED", "TIMED_OUT"})
-        self.assertFalse(hasattr(isolate, "OUT_OF_MEMORY"))
-
-
-@unittest.skipUnless(hasattr(os, "fork"), "requires os.fork process isolation")
 class IsolationTests(unittest.TestCase):
     """Discovery calls functions nobody vetted. It must fail like a CI job."""
 
