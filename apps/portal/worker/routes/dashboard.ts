@@ -107,7 +107,15 @@ export function registerDashboardRoutes(app: Hono<AppEnv>): void {
         officialUsed: claims.length,
         officialLimit: OFFICIAL_LIMIT,
       },
-      lastResolvedSha: allRuns[0]?.sha ?? null,
+      // "last tested" sits under the connected repository's name, so it has to
+      // be a run of that repository. The newest run of any repository put the
+      // old source's commit under the new source's name after a change, which
+      // is the same misattribution the run page had. A run whose source was
+      // never recorded cannot be shown to be this repository's, so it does not
+      // fill this in; the panel then says nothing has been tested yet, which is
+      // true of the repository it is describing.
+      lastResolvedSha:
+        allRuns.find((run) => run.repositoryFullName === auth.team.repoFullName)?.sha ?? null,
       activeRun: active ? await serializeRunSummary(db, active) : null,
       latestCandidate: candidate ? await serializeRunSummary(db, candidate) : null,
       selection,
