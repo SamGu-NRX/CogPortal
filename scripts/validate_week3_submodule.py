@@ -16,13 +16,6 @@ PLUGIN_EXPECTATIONS = {
     'benchmark_id = "language-search"': "benchmark id",
     "benchmark_version = 1": "benchmark version",
     'contract_version = "cogworks.submissions.v2"': "contract version",
-    # The revision this parent pins computes `search_mrr` as the mean of the
-    # four query rewrites rather than the verbatim rung alone, and names that
-    # retrieval-v4. The portal's `benchmarks` catalog still says retrieval-v2
-    # (migration 0025 is the last one here). Local `cogworks run` reads this
-    # plugin and is unaffected; a hosted run reads the catalog, so the
-    # migration that moves the row has to land before this pin scores one.
-    'scorer_version = "retrieval-v4"': "scorer version",
     'primary_metric = "overall"': "primary metric",
 }
 
@@ -32,6 +25,14 @@ MIGRATION_EXPECTATIONS = (
     "language-search-official-v1",
     "retrieval-v2",
     "week3-cpu-v1",
+)
+
+#: The catalog row the hosted runner reads, as the migrations leave it. The
+#: last one wins, which is what applying them in order does.
+CATALOG_SCORER = re.compile(
+    r"UPDATE\s+benchmarks\s+SET\s+scorer_version\s*=\s*'([^']+)'\s*"
+    r"WHERE\s+id\s*=\s*'language-search'",
+    re.IGNORECASE,
 )
 
 
@@ -104,6 +105,23 @@ def main() -> None:
     for value in MIGRATION_EXPECTATIONS:
         if value not in migrations:
             raise SystemExit("No portal migration mentions {!r}.".format(value))
+
+    # The plugin computes the score and the catalog row names it. A hosted run
+    # reads the row, so the two disagreeing means a run is filed under a
+    # version that did not score it. Derived from the migrations rather than
+    # restated here, because a version bump is a new migration by design.
+    catalog = CATALOG_SCORER.findall(migrations)
+    if not catalog:
+        raise SystemExit("No portal migration sets language-search's scorer_version.")
+    declared = re.search(r'scorer_version\s*=\s*"([^"]+)"', plugin_source)
+    if declared is None:
+        raise SystemExit("benchmarks/week3's plugin declares no scorer_version.")
+    if declared.group(1) != catalog[-1]:
+        raise SystemExit(
+            "benchmarks/week3 scores as {} and the portal catalog says {}. A "
+            "hosted run would be filed under a version that did not score "
+            "it.".format(declared.group(1), catalog[-1])
+        )
 
 
 if __name__ == "__main__":
