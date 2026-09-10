@@ -210,6 +210,14 @@ test("a name only becomes a link when it is a name", () => {
   assert.equal(runSource("week1-capstone"), null);
   assert.equal(runSource("/week1-capstone"), null);
   assert.equal(runSource("some-student/"), null);
+  // Not two components, or not a name at all: each of these would otherwise
+  // build a URL pointing somewhere the run never used.
+  assert.equal(runSource("owner/repo/extra"), null);
+  assert.equal(runSource("owner/../other"), null);
+  assert.equal(runSource("owner/repo?tab=readme"), null);
+  assert.equal(runSource(" /repo"), null);
+  assert.equal(runSource("owner /repo"), null);
+  assert.equal(runSource("owner/.."), null, "a dot segment resolves above the repository");
   assert.deepEqual(runSource(OLD), {
     owner: "some-student",
     name: "week1-capstone",

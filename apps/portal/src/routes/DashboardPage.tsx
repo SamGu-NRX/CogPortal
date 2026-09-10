@@ -166,8 +166,12 @@ export function DashboardPage() {
                   {d.lastResolvedSha ? (
                     <ShaChip sha={d.lastResolvedSha} shortSha={d.lastResolvedSha.slice(0, 7)} />
                   ) : (
+                    // A team can have scored runs that belong to a repository
+                    // it has since left, or runs from before the source was
+                    // recorded. Neither is "nothing yet", and this panel can
+                    // only speak for the repository named above it.
                     <span className="font-mono text-[12px] text-ink-faint">
-                      nothing yet; start a practice run
+                      none recorded for this repository
                     </span>
                   )}
                 </div>

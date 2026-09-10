@@ -163,9 +163,14 @@ export type RunSource = z.infer<typeof RunSourceSchema>;
  * the behaviour this wants: the link names what the run used.
  */
 export function runSource(fullName: string | null | undefined): RunSource | null {
-  if (!fullName) return null;
+  // Stricter than the wire regex elsewhere in this file, because the result
+  // becomes a URL. GitHub owners are alphanumeric and hyphens, repositories add
+  // dots and underscores; anything else ("owner/repo/extra",
+  // "owner/repo?tab=readme") would build a link pointing somewhere the run
+  // never used. A repository named only of dots would resolve above itself.
+  if (!fullName || !/^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/.test(fullName)) return null;
   const slash = fullName.indexOf("/");
-  if (slash <= 0 || slash === fullName.length - 1) return null;
+  if (/^\.+$/.test(fullName.slice(slash + 1))) return null;
   return {
     owner: fullName.slice(0, slash),
     name: fullName.slice(slash + 1),

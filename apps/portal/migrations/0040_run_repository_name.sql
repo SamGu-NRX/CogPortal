@@ -16,15 +16,19 @@ ALTER TABLE runs ADD COLUMN repository_full_name TEXT;
 --
 -- This is not relabelling unknown history as the current repository. It fills
 -- a name only where the run's `repository_id` still equals the team's
--- `repo_id`, which is exactly the case where the current name is the run's
--- name. A run that predates `repository_id` (migration 0013 added it without a
+-- `repo_id`, which is the case where the team's current name names the run's
+-- repository. An id match proves the same repository, not the same spelling:
+-- a repository renamed on GitHub and reconnected since would be filled with
+-- its new name, which still resolves, because GitHub redirects the old one.
+--
+-- A run that predates `repository_id` (migration 0013 added it without a
 -- backfill), or one whose id differs from the team's, is left NULL and is
 -- reported as unknown rather than guessed.
 --
--- Measured on the development database before writing this: 17 runs, 12 with
--- no `repository_id` at all, 5 with one, and all 5 still matching their team.
--- So this preserves the naming of every run that has a knowable source today,
--- including the real Audio result, and invents nothing for the other 12.
+-- Measured on the deployed development database before writing this: 17 runs,
+-- 12 with no `repository_id` at all, 5 with one, and all 5 still matching
+-- their team. So this names every run there that has a knowable source, and
+-- invents nothing for the other 12.
 UPDATE runs
    SET repository_full_name = (
      SELECT teams.repo_full_name FROM teams WHERE teams.id = runs.team_id
