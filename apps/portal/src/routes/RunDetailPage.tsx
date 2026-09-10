@@ -87,7 +87,16 @@ export function RunDetailPage() {
   const live = !isTerminal(run.status);
   const failureCopy = run.failure ? FAILURE_CATALOG[run.failure.category] : null;
   const primary = run.metrics.find((m) => m.primary) ?? null;
-  const supporting = run.metrics.filter((m) => !m.primary);
+  // A floor of the primary belongs beside the primary. It cannot fold into a
+  // supporting row, because the primary is not in that list, so without this
+  // it renders at the bottom of the page as a number with nothing to compare
+  // it to. Week 1 declares two.
+  const primaryFloors = primary
+    ? run.metrics.filter((m) => m.role === "floor" && m.relatesTo === primary.key)
+    : [];
+  const supporting = run.metrics.filter(
+    (m) => !m.primary && !primaryFloors.includes(m),
+  );
   const duration =
     run.finishedAt != null ? formatDurationMs(run.finishedAt - run.createdAt) : null;
 
@@ -273,7 +282,7 @@ export function RunDetailPage() {
           )}
           <Panel label="RESULTS" className="mt-4">
             <div className="grid items-start gap-6 sm:grid-cols-2">
-              <PrimaryMetric metric={primary} />
+              <PrimaryMetric metric={primary} floors={primaryFloors} />
               <SupportingMetrics metrics={supporting} />
             </div>
             {/* Kept for a run whose scorer had nothing to say, which is rare

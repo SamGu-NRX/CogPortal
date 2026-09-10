@@ -4,13 +4,11 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
   BenchmarkResultV1Schema,
-  ProtocolMetricSchema,
   RefusalSchema,
   RunEventV1Schema,
   RunJobV1Schema,
 } from "../src/protocol.ts";
 import {
-  METRIC_ROLES,
   collapseRepeatedRunEvents,
   LocalRunEventBatchSchema,
   LocalRunEventSchema,
@@ -228,16 +226,4 @@ test("realtime projections coalesce unchanged heartbeats without losing transiti
     event(4, 40),
   ]);
   assert.deepEqual(collapsed.map((item) => item.sourceSequence), [2, 3, 4]);
-});
-
-test("the two role lists stay in step", () => {
-  // ProtocolMetricSchema decides what the runner callback may send and what
-  // the portal stores; MetricSchema decides what the browser accepts back.
-  // They are separate literals because protocol.ts cannot import schema.ts
-  // under both Node's type stripping and the portal's tsconfig. A role added
-  // to one and not the other is accepted, written to run_metrics, and then
-  // rejected on read, which fails the whole run-detail request rather than
-  // one metric.
-  const wire = ProtocolMetricSchema.shape.role.unwrap().options;
-  assert.deepEqual([...wire].sort(), [...METRIC_ROLES].sort());
 });

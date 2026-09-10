@@ -67,9 +67,9 @@ export type TeamProvenance = z.infer<typeof TeamProvenanceSchema>;
 
 /* ── Metrics (data-driven, §6) ────────────────────────────────────────── */
 
-/** The kinds of number a benchmark can publish. ProtocolMetricSchema restates
- *  this list for the reason given there, and test/protocol.test.ts asserts the
- *  two match. */
+/** The kinds of number a benchmark can publish. The wire schema and the
+ *  browser schema both build their enum from this list, so a role the runner
+ *  may send is by construction one the browser accepts. */
 export const METRIC_ROLES = ["scored", "floor", "reported", "diagnostic", "plotted"] as const;
 
 export const MetricSchema = z.object({

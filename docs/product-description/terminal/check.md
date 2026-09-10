@@ -112,7 +112,7 @@ The benchmark is not installed, and the report knows which package that is (`pyt
 
 The command is built from a table mapping each shipped benchmark id to its distribution name and a git source pinned to the submodule commit (`python/cogbench/src/cogbench/plugins.py:20`, `:44`). For Week 1 the second line reads in full:
 
-> "Install it with `python -m pip install "cogworks-week1-audio-benchmark @ git+https://github.com/SamGu-NRX/cogworks-week1-audio-benchmark.git@b590638a4c6d7b0e840723f5d4d38b1a90070a62"`, then run this again."
+> "Install it with `python -m pip install "cogworks-week1-audio-benchmark @ git+https://github.com/SamGu-NRX/cogworks-week1-audio-benchmark.git@b156644aecc810e0b93535e320098f96c39ae04e"`, then run this again."
 
 Four ids are mapped: `audio-identification`, `vision-recognition`, `vision-clustering`, and `language-search`, with the two Week 2 ids sharing one distribution. A benchmark id with no entry falls back to the bare "Install it, then run this again." (`python/cogbench/src/cogbench/report.py:226`), which is what a typo reaches.
 

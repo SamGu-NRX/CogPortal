@@ -12,7 +12,23 @@ function DirectionMark({ metric }: { metric: Metric }) {
   );
 }
 
-export function PrimaryMetric({ metric }: { metric: Metric }) {
+export function PrimaryMetric({
+  metric,
+  floors = [],
+}: {
+  metric: Metric;
+  /**
+   * The floors this number should be read against, drawn as its scale.
+   *
+   * The primary is lifted out of the supporting list before that list renders
+   * (RunDetailPage), so a floor pointing at it has no row to fold into and
+   * would otherwise sit at the bottom of the page as a bare number. Week 1
+   * declares two of them, and its own help text says reading them together is
+   * the point: chance is what guessing scores, and the trivial baseline is
+   * what a pipeline that does none of the capstone scores.
+   */
+  floors?: Metric[];
+}) {
   return (
     <figure className="relative inline-block px-4 py-3">
       <CornerBrackets size={12} thickness={1.5} inset={0} className="text-detect" />
@@ -26,6 +42,23 @@ export function PrimaryMetric({ metric }: { metric: Metric }) {
       <figcaption className="mt-1">
         <DirectionMark metric={metric} />
       </figcaption>
+      {floors.length > 0 && (
+        /* Printed at the primary's precision, because the comparison is the
+           reason they are here. No arrow on any of them: a floor is a property
+           of the dataset, so there is no direction the submission controls. */
+        <dl className="mt-2 flex flex-wrap items-baseline gap-x-4 gap-y-1">
+          {floors.map((floor) => (
+            <div key={floor.key} className="flex items-baseline gap-1.5">
+              <dt className="font-mono text-[10px] tracking-[0.06em] text-ink-faint uppercase">
+                {floor.label}
+              </dt>
+              <dd className="u-tnum font-mono text-[11px] text-ink-secondary">
+                {formatMetricValue({ ...floor, precision: metric.precision })}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )}
       {/* The leaderboard number is the one a team will argue about, so its
           explanation is never behind a disclosure. Set in the body serif at
           reading size: this is prose to be read, not a label to be scanned. */}

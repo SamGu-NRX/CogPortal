@@ -57,7 +57,7 @@ class PluginDiscoveryTests(unittest.TestCase):
             "audio-identification": (
                 'python -m pip install "cogworks-week1-audio-benchmark @ '
                 'git+https://github.com/SamGu-NRX/cogworks-week1-audio-benchmark.git'
-                '@b590638a4c6d7b0e840723f5d4d38b1a90070a62"'
+                '@b156644aecc810e0b93535e320098f96c39ae04e"'
             ),
             "vision-recognition": (
                 'python -m pip install "cogworks-week2-vision-benchmark @ '

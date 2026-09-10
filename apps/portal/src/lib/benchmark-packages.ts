@@ -39,7 +39,7 @@ export const COGBENCH_SOURCE =
 const WEEK1_AUDIO: BenchmarkPackage = {
   distribution: "cogworks-week1-audio-benchmark",
   source:
-    "git+https://github.com/SamGu-NRX/cogworks-week1-audio-benchmark.git@b590638a4c6d7b0e840723f5d4d38b1a90070a62",
+    "git+https://github.com/SamGu-NRX/cogworks-week1-audio-benchmark.git@b156644aecc810e0b93535e320098f96c39ae04e",
 };
 
 // Recognition and clustering are two tracks out of one distribution, so a

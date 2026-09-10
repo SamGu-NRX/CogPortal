@@ -164,6 +164,8 @@ def _metric(
     labels: Optional[dict] = None,
     lower_is_better: Any = (),
     help_text: Optional[str] = None,
+    role: Optional[str] = None,
+    relates_to: Optional[str] = None,
 ) -> Metric:
     label_map = _V2_LABELS if labels is None else labels
     return Metric(
@@ -178,6 +180,14 @@ def _metric(
         # keeps four; the rest are read for shape, not rank.
         precision=4 if key == primary_key else 3,
         help=help_text,
+        # Same story as `help` above: the model and `to_wire` have carried
+        # these since roles existed and the hosted path sends them, but this
+        # local builder never set them, so `cogworks run` reported a floor as
+        # an ordinary scored number with an arrow on it. A local report and a
+        # hosted one describe the same run and have to say the same thing
+        # about it.
+        role=role,
+        relates_to=relates_to,
     )
 
 
@@ -205,6 +215,8 @@ def _execute_v2(
     # numbers while the portal explained them. Absent on plugins that predate
     # metric_help, which is why it reads as a plain dict lookup.
     help_text = getattr(benchmark, "metric_help", None) or {}
+    roles = getattr(benchmark, "metric_roles", None) or {}
+    relations = getattr(benchmark, "metric_relations", None) or {}
     if progress:
         _progress(progress, "contract_check")
     try:
@@ -243,7 +255,16 @@ def _execute_v2(
     # names `text_mrr` instead; the class attribute stays the general answer.
     primary_key = str(getattr(benchmark, "primary_metric_for_run", None) or benchmark.primary_metric)
     metrics = [
-        _metric(key, value, primary_key, labels, lower_is_better, help_text.get(key))
+        _metric(
+            key,
+            value,
+            primary_key,
+            labels,
+            lower_is_better,
+            help_text.get(key),
+            roles.get(key),
+            relations.get(key),
+        )
         for key, value in scores.items()
     ]
     if not any(metric.primary for metric in metrics):

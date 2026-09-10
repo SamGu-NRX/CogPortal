@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import signal
 import sys
 import tempfile
 import time
@@ -187,6 +188,64 @@ class IsolationTests(unittest.TestCase):
             outcome = run_isolated(lambda: "finished" * 100)
         self.assertEqual(outcome.status, COMPLETED)
         self.assertEqual(outcome.value, "finished" * 100)
+
+    def test_a_child_that_reported_is_reaped_before_the_group_is_killed(self):
+        """The success path must let the child exit, and still clean up after it.
+
+        `_child` writes the payload, closes the pipe, and flushes stdout and
+        stderr after that. The parent used to SIGKILL the process group the
+        moment the payload arrived, so the flush was a race the child usually
+        but not always won: one of three CI runs of the same commit lost the
+        child's buffered output entirely. Asserting on that output is flaky by
+        construction; asserting the ordering is not.
+
+        The group kill still has to happen, because the child may have started
+        something that outlives it. This pins both halves: wait, then kill.
+        """
+
+        from unittest.mock import patch
+        from cogbench import isolate
+
+        order = []
+        real_wait = isolate._wait_for_exit
+
+        def wait(pid, seconds):
+            result = real_wait(pid, seconds)
+            order.append(("waited", result[0]))
+            return result
+
+        with patch.object(isolate, "_wait_for_exit", side_effect=wait), patch.object(
+            isolate, "_terminate", side_effect=lambda pid: order.append(("terminated", True))
+        ):
+            outcome = run_isolated(lambda: 7)
+
+        self.assertEqual(outcome.status, COMPLETED)
+        self.assertEqual(outcome.value, 7)
+        self.assertEqual(
+            order,
+            [("waited", True), ("terminated", True)],
+            "the child must exit and flush before the group is killed",
+        )
+
+    @unittest.skipUnless(hasattr(signal, "SIGALRM"), "needs alarm() to time out")
+    def test_a_child_that_never_reported_is_killed_without_waiting(self):
+        """The grace period is only for children that finished.
+
+        Without this, the wait could quietly be added to every timeout, turning
+        a one-second budget into three.
+        """
+
+        from unittest.mock import patch
+        from cogbench import isolate
+
+        waited = []
+        with patch.object(
+            isolate, "_wait_for_exit", side_effect=lambda pid, seconds: waited.append(pid)
+        ):
+            outcome = run_isolated(lambda: time.sleep(30), timeout_seconds=1)
+
+        self.assertEqual(outcome.status, TIMED_OUT)
+        self.assertEqual(waited, [], "a child that never reported was waited on")
 
     def test_buffered_output_is_flushed_without_repeating_parent_output(self):
         import subprocess

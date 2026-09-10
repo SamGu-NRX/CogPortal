@@ -34,6 +34,7 @@ import signal
 import struct
 import sys
 import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -63,6 +64,23 @@ DEFAULT_TIMEOUT_SECONDS = 300
 #: Address space ceiling for the child. Above the measured peak of a real
 #: hosted run (1.5 GB) and below anything that would disturb the host.
 DEFAULT_MEMORY_BYTES = 3 * 1024 * 1024 * 1024
+
+#: How long the parent waits for a child that has already reported its result
+#: to finish and exit on its own.
+#:
+#: The child writes its payload, closes the pipe, and only then flushes stdout
+#: and stderr (see `_child`). The parent used to SIGKILL unconditionally as
+#: soon as the payload arrived, which raced that flush and dropped whatever the
+#: student had printed. That is not theoretical. CI lost it once on
+#: ubuntu/3.11 while three runs of the same commit were in flight, and the
+#: race reproduces on demand: with eight busy cores and six concurrent runs,
+#: the pre-fix code failed `test_buffered_output_is_flushed_without_repeating
+#: _parent_output` 6 times in 30 with exactly CI's message, and 0 in 30 after.
+#: An idle machine wins the race every time, which is why it read as a flake.
+#:
+#: Two seconds is a flush of two streams, not a unit of work; a child that
+#: overstays it is killed exactly as before.
+FLUSH_GRACE_SECONDS = 2.0
 
 #: Signals that mean the interpreter died rather than the code failed.
 _FATAL = {
@@ -459,8 +477,21 @@ def run_isolated(
             # still going a second later, reparented to init. On a scored run
             # that orphan finishes the benchmark and, with --live, reports a
             # completed run minutes after the student stopped the command.
+            # A child that has already reported is finishing its own flush, so
+            # it gets a bounded moment to exit first. Killing it the instant
+            # the payload landed is what dropped student output; see
+            # FLUSH_GRACE_SECONDS. Every other path (timeout, read error,
+            # KeyboardInterrupt) leaves `outcome` None and skips the wait.
+            reaped, status = (False, 0)
+            if outcome is not None:
+                reaped, status = _wait_for_exit(pid, FLUSH_GRACE_SECONDS)
+            # The group is killed either way, even when the child exited
+            # cleanly: it may have started something that outlives it, and
+            # setsid means the terminal's own signals never reach that group.
+            # Waiting first changes when this runs, never whether it runs.
             _terminate(pid)
-            status = _reap(pid)[1]
+            if not reaped:
+                status = _reap(pid)[1]
 
         if outcome is not None:
             return outcome
@@ -473,6 +504,27 @@ class _Alarm(Exception):
 
 def _on_alarm(signum, frame):  # noqa: ARG001 - signal handler shape
     raise _Alarm()
+
+
+def _wait_for_exit(pid: int, seconds: float):
+    """Reap `pid` if it exits within `seconds`.
+
+    Returns ``(reaped, status)``. ``reaped`` is False only when the child is
+    still alive at the deadline, which is the caller's signal to kill it.
+    """
+
+    deadline = time.monotonic() + seconds
+    while True:
+        try:
+            done, status = os.waitpid(pid, os.WNOHANG)
+        except OSError:
+            # Already gone, or never ours. Nothing left to kill.
+            return True, 0
+        if done:
+            return True, status
+        if time.monotonic() >= deadline:
+            return False, 0
+        time.sleep(0.005)
 
 
 def _terminate(pid: int) -> None:
