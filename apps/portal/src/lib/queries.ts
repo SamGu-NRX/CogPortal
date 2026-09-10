@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import {
   useMutation,
   useQuery,
@@ -24,6 +25,44 @@ export function useSession() {
     queryFn: api.session,
     staleTime: 60_000,
   });
+}
+
+/**
+ * Whether a restored document has to throw away what it is holding.
+ *
+ * Signing out invalidates the cache of the document that signed out. The back
+ * button can hand back a *different* document from the browser's back/forward
+ * cache, complete with the account that was signed in when it was put away,
+ * and nothing invalidates that one: `refetchOnWindowFocus` is off and the
+ * session is fresh for 60 seconds by its own clock, which did not run while
+ * the page was frozen. Measured twice in Helium: sign out, sign in as someone
+ * else, press Back, and the previous account's name is on the page. A reload
+ * corrects it, which is the tell that only the cache is stale.
+ *
+ * `persisted` is the whole condition. An ordinary load already fetches on
+ * mount, so invalidating there would only duplicate that request.
+ *
+ * Split out from the listener so it can be tested without a DOM.
+ */
+export function shouldRevalidateRestoredDocument(event: { persisted: boolean }): boolean {
+  return event.persisted;
+}
+
+/**
+ * Drop everything a restored document is holding, so the page it shows belongs
+ * to whoever is signed in now. Session-gated data is all of it: the account,
+ * the team, the cohort and every route guard that reads them.
+ */
+export function useRevalidateOnRestore(): void {
+  const qc = useQueryClient();
+  useEffect(() => {
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (!shouldRevalidateRestoredDocument(event)) return;
+      void qc.invalidateQueries();
+    };
+    window.addEventListener("pageshow", onPageShow);
+    return () => window.removeEventListener("pageshow", onPageShow);
+  }, [qc]);
 }
 
 export function useBenchmarks() {

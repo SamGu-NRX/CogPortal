@@ -5,7 +5,7 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-route
 import type { Session } from "@cogworks/contracts/schema";
 import { LoadingMark, QueryError } from "@/components/Feedback";
 import { Shell } from "@/components/Shell";
-import { useSession } from "@/lib/queries";
+import { useRevalidateOnRestore, useSession } from "@/lib/queries";
 import { AdminPage } from "@/routes/AdminPage";
 import { ConnectPage } from "@/routes/ConnectPage";
 import { ConnectionsPage } from "@/routes/ConnectionsPage";
@@ -85,98 +85,106 @@ export function RequireStaff({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
+/** Inside the provider, because it needs the client the routes share. */
+function RestoredDocumentGuard({ children }: { children: ReactNode }) {
+  useRevalidateOnRestore();
+  return <>{children}</>;
+}
+
 export function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <MotionConfig reducedMotion="user">
-      <BrowserRouter>
-        <Routes>
-          <Route element={<Shell />}>
-            <Route index element={<Landing />} />
-            <Route path="leaderboard" element={<LeaderboardPage />} />
-            <Route path="signin" element={<SignInPage />} />
-            <Route
-              path="join"
-              element={
-                <RequireStage stage="user">
-                  <JoinPage />
-                </RequireStage>
-              }
-            />
-            <Route
-              path="connect"
-              element={
-                <RequireStage stage="cohort">
-                  <ConnectPage />
-                </RequireStage>
-              }
-            />
-            <Route
-              path="connections"
-              element={
-                <RequireStage stage="team">
-                  <ConnectionsPage />
-                </RequireStage>
-              }
-            />
-            <Route
-              path="setup"
-              element={
-                <RequireStage stage="team">
-                  <SetupPage />
-                </RequireStage>
-              }
-            />
-            <Route
-              path="dashboard"
-              element={
-                <RequireStage stage="team">
-                  <DashboardPage />
-                </RequireStage>
-              }
-            />
-            <Route
-              path="team"
-              element={
-                <RequireStage stage="team">
-                  <TeamPage />
-                </RequireStage>
-              }
-            />
-            <Route
-              path="runs/:runId"
-              element={
-                <RequireStage stage="team">
-                  <RunDetailPage />
-                </RequireStage>
-              }
-            />
-            <Route
-              path="run-surfaces/:surfaceId"
-              element={
-                <RequireStage stage="team">
-                  <RunSurfacePage />
-                </RequireStage>
-              }
-            />
-            <Route
-              path="admin"
-              element={
-                <RequireStaff>
-                  <AdminPage />
-                </RequireStaff>
-              }
-            />
-            {/* Surfaces whose interesting states need a specific run to
-                reach. Stripped from a production bundle by the condition. */}
-            {import.meta.env.DEV && (
-              <Route path="__gallery" element={<GalleryPage />} />
-            )}
-            <Route path="*" element={<NotFound />} />
-          </Route>
-        </Routes>
-      </BrowserRouter>
-      </MotionConfig>
+      <RestoredDocumentGuard>
+        <MotionConfig reducedMotion="user">
+        <BrowserRouter>
+          <Routes>
+            <Route element={<Shell />}>
+              <Route index element={<Landing />} />
+              <Route path="leaderboard" element={<LeaderboardPage />} />
+              <Route path="signin" element={<SignInPage />} />
+              <Route
+                path="join"
+                element={
+                  <RequireStage stage="user">
+                    <JoinPage />
+                  </RequireStage>
+                }
+              />
+              <Route
+                path="connect"
+                element={
+                  <RequireStage stage="cohort">
+                    <ConnectPage />
+                  </RequireStage>
+                }
+              />
+              <Route
+                path="connections"
+                element={
+                  <RequireStage stage="team">
+                    <ConnectionsPage />
+                  </RequireStage>
+                }
+              />
+              <Route
+                path="setup"
+                element={
+                  <RequireStage stage="team">
+                    <SetupPage />
+                  </RequireStage>
+                }
+              />
+              <Route
+                path="dashboard"
+                element={
+                  <RequireStage stage="team">
+                    <DashboardPage />
+                  </RequireStage>
+                }
+              />
+              <Route
+                path="team"
+                element={
+                  <RequireStage stage="team">
+                    <TeamPage />
+                  </RequireStage>
+                }
+              />
+              <Route
+                path="runs/:runId"
+                element={
+                  <RequireStage stage="team">
+                    <RunDetailPage />
+                  </RequireStage>
+                }
+              />
+              <Route
+                path="run-surfaces/:surfaceId"
+                element={
+                  <RequireStage stage="team">
+                    <RunSurfacePage />
+                  </RequireStage>
+                }
+              />
+              <Route
+                path="admin"
+                element={
+                  <RequireStaff>
+                    <AdminPage />
+                  </RequireStaff>
+                }
+              />
+              {/* Surfaces whose interesting states need a specific run to
+                  reach. Stripped from a production bundle by the condition. */}
+              {import.meta.env.DEV && (
+                <Route path="__gallery" element={<GalleryPage />} />
+              )}
+              <Route path="*" element={<NotFound />} />
+            </Route>
+          </Routes>
+        </BrowserRouter>
+        </MotionConfig>
+      </RestoredDocumentGuard>
     </QueryClientProvider>
   );
 }
