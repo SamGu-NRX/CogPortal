@@ -16,7 +16,9 @@ export function StepRail({ children }: { children: ReactNode }) {
       {/* the protocol rail. A sibling of the list rather than a child of it,
           because `ol` takes only `li`. */}
       <div aria-hidden="true" className="absolute top-4 bottom-4 left-[13px] w-px bg-rule-soft" />
-      <ol>{children}</ol>
+      {/* Preflight strips list-style, and an unstyled list stops being announced
+          as a list in VoiceOver, so the role puts the structure back. */}
+      <ol role="list">{children}</ol>
     </div>
   );
 }
