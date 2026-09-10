@@ -6,7 +6,7 @@ import type { Metric } from "@cogworks/contracts/schema";
 
 (globalThis as typeof globalThis & { React: typeof React }).React = React;
 
-import { PrimaryMetric, SupportingMetrics } from "../src/components/MetricBlock.tsx";
+import { claimsDirection, PrimaryMetric, SupportingMetrics } from "../src/components/MetricBlock.tsx";
 
 /**
  * A floor is drawn inside the row of the metric it is the scale of, which
@@ -43,8 +43,10 @@ const FLOOR = metric({
 
 const PARENT = metric({ key: "retrieval_mrr", label: "Retrieval MRR", value: 0.2586, role: "scored" });
 
-function render(metrics: Metric[]): string {
-  return renderToStaticMarkup(React.createElement(SupportingMetrics, { metrics }));
+function render(metrics: Metric[], rolesRecorded = true): string {
+  return renderToStaticMarkup(
+    React.createElement(SupportingMetrics, { metrics, rolesRecorded }),
+  );
 }
 
 test("a floor beside its parent is drawn as that parent's scale, not a row", () => {
@@ -177,4 +179,66 @@ test("a benchmark that sends no floor help renders exactly as before", () => {
   );
   assert.ok(html.includes("F"), "the floor is missing");
   assert.ok(!html.includes("border-l border-rule-soft pl-3"), "an empty note block was drawn");
+});
+
+test("a reported metric keeps a direction the benchmark actually declared", () => {
+  // Not scored and which way is better are separate facts. Week 1's median
+  // identify time is deliberately outside the score and genuinely faster-is-
+  // better, and it is in the plugin's lower_is_better set, so the producer
+  // states the direction rather than defaulting to it.
+  const timing = metric({
+    key: "median_identify_seconds",
+    label: "Median identify time",
+    value: 0.42,
+    higherIsBetter: false,
+    role: "reported",
+  });
+  assert.equal(claimsDirection(timing, true), true);
+
+  const html = render([timing]);
+  assert.ok(html.includes("not scored"), "a reported metric must say it is not scored");
+  assert.ok(html.includes("▼"), "it lost the direction its benchmark declared");
+});
+
+test("a reported probe with no declared direction still claims none", () => {
+  // Week 3's verbatim probes are reported and NOT in lower_is_better, so their
+  // higherIsBetter is the default every unclassified key gets, not a claim.
+  // Higher on these is actually worse, which is the reason the arrow went.
+  const probe = metric({
+    key: "retrieval_mrr_verbatim",
+    label: "Retrieval MRR, caption unchanged",
+    value: 0.99,
+    higherIsBetter: true,
+    role: "reported",
+  });
+  assert.equal(claimsDirection(probe, true), false);
+
+  const html = render([probe]);
+  assert.ok(html.includes("not scored"));
+  assert.ok(!html.includes("▲"), "a probe with no declared direction drew one");
+});
+
+test("a run that recorded no roles claims no direction, and keeps every value", () => {
+  // Every result stored before the portal kept `role` looks like this. Week 3
+  // publishes three chance baselines that arrive identical to scored metrics,
+  // so an arrow on any of them is a coin flip. The numbers stay; the claim goes.
+  const historical = [
+    metric({ key: "text_mrr", label: "Text MRR", value: 0.7888, higherIsBetter: true }),
+    metric({ key: "chance_mrr", label: "Chance MRR", value: 0.0102, higherIsBetter: true }),
+    metric({ key: "retrieval_median_rank", label: "Median rank", value: 12, higherIsBetter: false }),
+  ];
+  for (const m of historical) assert.equal(claimsDirection(m, false), false);
+
+  const html = render(historical, false);
+  assert.ok(html.includes("0.789"), "a value was lost");
+  assert.ok(html.includes("0.010"), "a value was lost");
+  assert.equal((html.match(/▲|▼/g) || []).length, 0, "a direction was claimed without evidence");
+});
+
+test("the same metrics claim their direction once the run records roles", () => {
+  // The rule is about evidence, not about the metric. A run that carried role
+  // metadata is trusted exactly as before.
+  const scored = metric({ key: "text_mrr", label: "Text MRR", value: 0.7888, role: "scored" });
+  assert.equal(claimsDirection(scored, true), true);
+  assert.ok(render([scored]).includes("▲"));
 });

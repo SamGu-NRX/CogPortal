@@ -3,6 +3,34 @@ import type { Metric } from "@cogworks/contracts/schema";
 import { formatMetricValue } from "@/lib/format";
 import { CornerBrackets } from "./Brackets";
 
+/**
+ * Whether this metric may claim a direction at all.
+ *
+ * Three reasons it may not, and they are different reasons:
+ *
+ * - A floor is a property of the dataset. The submission cannot move it, so
+ *   "higher is better" on one is advice to change the corpus.
+ * - The run recorded no roles at all. Before the portal stored `role`, a floor
+ *   and a scored metric arrived identical, so a stored week 3 result draws
+ *   "higher is better" on its three chance baselines. We cannot tell which is
+ *   which without guessing, so nothing claims a direction for that run. The
+ *   values are untouched; only the claim is withheld. A benchmark that has
+ *   never declared roles pays the same price, and declaring them removes it.
+ * - A reported metric is deliberately outside the score. That is a separate
+ *   fact from which way is better, so it keeps its direction when the
+ *   benchmark actually stated one. Only "lower is better" is a statement:
+ *   producers compute `higher_is_better = key not in lower_is_better`, so
+ *   `true` is what an unclassified key gets by default rather than a claim
+ *   about it. That is why week 1's median identify time keeps its ▼ while
+ *   week 3's verbatim probes, whose higher really is worse, still show none.
+ */
+export function claimsDirection(metric: Metric, rolesRecorded: boolean): boolean {
+  if (metric.role === "floor") return false;
+  if (metric.role == null && !rolesRecorded) return false;
+  if (metric.role === "reported") return metric.higherIsBetter === false;
+  return true;
+}
+
 /** Direction is always explicit — the portal never assumes higher-is-better. */
 function DirectionMark({ metric }: { metric: Metric }) {
   return (
@@ -15,6 +43,7 @@ function DirectionMark({ metric }: { metric: Metric }) {
 export function PrimaryMetric({
   metric,
   floors = [],
+  rolesRecorded = true,
 }: {
   metric: Metric;
   /**
@@ -28,6 +57,8 @@ export function PrimaryMetric({
    * what a pipeline that does none of the capstone scores.
    */
   floors?: Metric[];
+  /** Whether this run recorded any metric roles. See `claimsDirection`. */
+  rolesRecorded?: boolean;
 }) {
   return (
     <figure className="relative inline-block px-4 py-3">
@@ -39,9 +70,11 @@ export function PrimaryMetric({
           <span className="ml-1 text-lg font-normal text-ink-secondary">{metric.unit}</span>
         )}
       </div>
-      <figcaption className="mt-1">
-        <DirectionMark metric={metric} />
-      </figcaption>
+      {claimsDirection(metric, rolesRecorded) && (
+        <figcaption className="mt-1">
+          <DirectionMark metric={metric} />
+        </figcaption>
+      )}
       {floors.length > 0 && (
         /* Printed at the primary's precision, because the comparison is the
            reason they are here. No arrow on any of them: a floor is a property
@@ -113,6 +146,7 @@ function SupportingMetricRow({
   metric,
   floors = [],
   subordinate = false,
+  rolesRecorded,
 }: {
   metric: Metric;
   /** Rendered as this metric's scale rather than as rows of their own. A
@@ -122,6 +156,8 @@ function SupportingMetricRow({
   floors?: Metric[];
   /** A probe reported beside the score it shadows, indented under it. */
   subordinate?: boolean;
+  /** Whether this run recorded any metric roles. See `claimsDirection`. */
+  rolesRecorded: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const panelId = useId();
@@ -144,14 +180,14 @@ function SupportingMetricRow({
           {formatMetricValue({ ...floor, precision: metric.precision })}
         </span>
       ))}
-      {metric.role === "reported" ? (
-        /* No arrow. This one is run and deliberately not scored, so there is
-           no direction of better: high means the query text was matched
-           rather than its meaning, which is the opposite of good. */
+      {/* Not scored and which way is better are separate facts, so they are
+          separate marks rather than two branches of one choice. */}
+      {metric.role === "reported" && (
         <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint">
           not scored
         </span>
-      ) : metric.role === "floor" ? null : (
+      )}
+      {claimsDirection(metric, rolesRecorded) && (
         <>
           <span className="font-mono text-[10px] text-ink-faint" aria-hidden="true">
             {metric.higherIsBetter ? "▲" : "▼"}
@@ -245,7 +281,14 @@ function SupportingMetricRow({
  * name, so a benchmark that grows a floor gets this for free and one that
  * declares nothing renders exactly as it did before.
  */
-export function SupportingMetrics({ metrics }: { metrics: Metric[] }) {
+export function SupportingMetrics({
+  metrics,
+  rolesRecorded = true,
+}: {
+  metrics: Metric[];
+  /** Whether this run recorded any metric roles. See `claimsDirection`. */
+  rolesRecorded?: boolean;
+}) {
   if (metrics.length === 0) return null;
 
   const floors = new Map<string, Metric[]>();
@@ -310,9 +353,18 @@ export function SupportingMetrics({ metrics }: { metrics: Metric[] }) {
             index === firstDiagnostic && index > 0 ? "mt-3 border-t border-rule pt-1" : undefined
           }
         >
-          <SupportingMetricRow metric={metric} floors={floors.get(metric.key)} />
+          <SupportingMetricRow
+            metric={metric}
+            floors={floors.get(metric.key)}
+            rolesRecorded={rolesRecorded}
+          />
           {(reported.get(metric.key) ?? []).map((probe) => (
-            <SupportingMetricRow key={probe.key} metric={probe} subordinate />
+            <SupportingMetricRow
+              key={probe.key}
+              metric={probe}
+              subordinate
+              rolesRecorded={rolesRecorded}
+            />
           ))}
         </div>
       ))}

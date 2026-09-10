@@ -91,6 +91,10 @@ export function RunDetailPage() {
   // supporting row, because the primary is not in that list, so without this
   // it renders at the bottom of the page as a number with nothing to compare
   // it to. Week 1 declares two.
+  // Whether this result carried role metadata at all. A run stored before the
+  // portal kept `role` has none, and a floor is then indistinguishable from a
+  // scored metric, so nothing on the page claims a direction for it.
+  const rolesRecorded = run.metrics.some((m) => m.role != null);
   const primaryFloors = primary
     ? run.metrics.filter((m) => m.role === "floor" && m.relatesTo === primary.key)
     : [];
@@ -246,7 +250,15 @@ export function RunDetailPage() {
       )}
 
       {/* ── Results ── */}
-      {run.status === "succeeded" && primary && (
+      {/* Gated on the run succeeding, NOT on there being an overall score. A
+          benchmark can withhold the primary and still have measured plenty:
+          week 3 withholds `overall` when the image side is unmeasured and
+          still reports the text metrics, their floors, and a diagnostic
+          saying why. Gating this block on `primary` hid the finding, the
+          sweep, the wiring and every supporting number behind an absence,
+          which is the one case where a student most needs to see what the
+          scorer did manage to do. */}
+      {run.status === "succeeded" && (
         <>
           {/* The finding leads. A team reading 0.53 with nothing else has to
               guess which half of their pipeline produced it, and the scorer
@@ -280,24 +292,44 @@ export function RunDetailPage() {
               <WiringTrace steps={run.wiring} />
             </Panel>
           )}
-          <Panel label="RESULTS" className="mt-4">
-            <div className="grid items-start gap-6 sm:grid-cols-2">
-              <PrimaryMetric metric={primary} floors={primaryFloors} />
-              <SupportingMetrics metrics={supporting} />
-            </div>
-            {/* Kept for a run whose scorer had nothing to say, which is rare
-                and would otherwise lose its notes entirely. */}
-            {run.diagnostics.length === 0 && (
-              <p className="mt-4 max-w-prose text-[13.5px] leading-relaxed text-ink-secondary">
-                The scorer had no notes on this run.
+          {(primary || supporting.length > 0) && (
+            <Panel label="RESULTS" className="mt-4">
+              {primary ? (
+                <div className="grid items-start gap-6 sm:grid-cols-2">
+                  <PrimaryMetric
+                    metric={primary}
+                    floors={primaryFloors}
+                    rolesRecorded={rolesRecorded}
+                  />
+                  <SupportingMetrics metrics={supporting} rolesRecorded={rolesRecorded} />
+                </div>
+              ) : (
+                <>
+                  {/* Named, not manufactured. A zero or an invented overall
+                      would be a score the scorer refused to give. */}
+                  <p className="max-w-prose text-[14px] leading-[1.6] text-ink">
+                    This run has no overall score. Everything the scorer could
+                    measure is below.
+                  </p>
+                  <div className="mt-4">
+                    <SupportingMetrics metrics={supporting} rolesRecorded={rolesRecorded} />
+                  </div>
+                </>
+              )}
+              {/* Kept for a run whose scorer had nothing to say, which is rare
+                  and would otherwise lose its notes entirely. */}
+              {run.diagnostics.length === 0 && (
+                <p className="mt-4 max-w-prose text-[13.5px] leading-relaxed text-ink-secondary">
+                  The scorer had no notes on this run.
+                </p>
+              )}
+              <p className="mt-4 border-t border-rule-soft pt-3 font-mono text-[11px] text-ink-faint">
+                {run.mode === "practice"
+                  ? "Public practice split."
+                  : "Hidden official split."}
               </p>
-            )}
-            <p className="mt-4 border-t border-rule-soft pt-3 font-mono text-[11px] text-ink-faint">
-              {run.mode === "practice"
-                ? "Public practice split."
-                : "Hidden official split."}
-            </p>
-          </Panel>
+            </Panel>
+          )}
         </>
       )}
 
