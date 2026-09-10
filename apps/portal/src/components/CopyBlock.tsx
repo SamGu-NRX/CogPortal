@@ -8,10 +8,13 @@ export function CopyBlock({
 }: {
   text: string;
   className?: string;
-  /** Let a long command wrap instead of scrolling out of view. The pinned
-   *  install is 189 characters and the part that identifies the commit is at
-   *  the end, so in a narrow column scrolling hides exactly the load-bearing
-   *  part. Off by default: a short command reads better on one line. */
+  /** Let a long command wrap instead of scrolling out of view.
+   *
+   *  Turn it on when the tail is worth reading: the pinned install is 189
+   *  characters and ends in the commit it pins, so scrolling would hide the
+   *  load-bearing part. Leave it off when the tail is opaque, like a signed
+   *  token, where wrapping only trades a line nobody reads for a block that
+   *  crowds out the page. Off by default. */
   wrap?: boolean;
 }) {
   const [copied, setCopied] = useState(false);

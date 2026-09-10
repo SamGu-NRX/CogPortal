@@ -379,9 +379,12 @@ function TerminalCheckoff({
       <p className="text-[12px] text-ink-faint">
         Done here? Run this in the same terminal and the box ticks itself.
       </p>
+      {/* One line that scrolls, unlike the install above it. The install ends
+          in the commit it pins, which a student may want to read; this ends in
+          a signed token nobody reads. Wrapped, it stood 205px tall and three
+          of them buried the guide on first load. */}
       <CopyBlock
         className="mt-1.5"
-        wrap
         text={
           `python -c "import http.client as h; c = h.${connection}('${window.location.host}'); ` +
           `c.request('POST', '${path}'); print(c.getresponse().read().decode())"`
