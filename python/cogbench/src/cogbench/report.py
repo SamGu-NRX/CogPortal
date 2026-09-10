@@ -121,7 +121,7 @@ def render_survey(record: Dict[str, object]) -> List[str]:
     # read audio from a data/ directory this machine does not have. Listing
     # fifteen of those buries the one skip that matters, so they are counted
     # and the ones that could have held pipeline code are named.
-    notable = [entry for entry in skipped if not _is_their_own_script(entry)]
+    notable = [entry for entry in skipped if not _is_a_routine_skip(entry)]
     routine = len(skipped) - len(notable)
 
     for entry in notable:
@@ -139,24 +139,24 @@ def render_survey(record: Dict[str, object]) -> List[str]:
     return lines
 
 
-def _is_their_own_script(entry: Dict[str, object]) -> bool:
-    """Whether a skipped file is a runner rather than part of the pipeline.
+def _is_a_routine_skip(entry: Dict[str, object]) -> bool:
+    """Whether a skipped file can be counted rather than named.
 
-    A module that could not open an audio file it expects beside itself is a
-    script the team runs by hand, not a stage. Naming every one of those
-    drowns the skip that matters, which is a module the benchmark might have
-    needed.
+    The reason decides, not the filename. `FileNotFoundError` and `EOFError`
+    say what happened and say it about the machine: a data file that is not
+    here, or a script waiting on stdin. There are usually many of those and
+    naming them all drowns the skip that matters.
+
+    Nothing else qualifies. This used to return True for any module called
+    `test*`, `run*` or `*demo*` whatever went wrong, so `demo_features`
+    failing on `OSError: cannot load library libsndfile` was counted as a
+    script that reads a file this machine does not have, and a `SyntaxError`
+    in `run_embeddings` went the same way. A name says a file is a runner
+    rather than a stage. It does not say the failure is uninteresting, and a
+    native library that will not load breaks the real modules too.
     """
 
-    name = str(entry.get("name", "")).lower()
     detail = str(entry.get("detail", ""))
-    if name.startswith("test") or name.startswith("run") or "demo" in name:
-        return True
-    # FileNotFoundError and EOFError say what happened: a data file that is
-    # not here, or a script waiting on stdin. A bare OSError does not. It is
-    # raised for a full disk, too many open files, and an audio backend that
-    # failed to load, and counting those as "scripts that read files this
-    # machine does not have" states a reason nobody observed.
     return detail.startswith(("FileNotFoundError", "EOFError"))
 
 

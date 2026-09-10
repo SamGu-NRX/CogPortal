@@ -81,6 +81,26 @@ class ASkipIsCountedAsRoutineOnlyWhenItsReasonSaysSo(unittest.TestCase):
         self.assertNotIn("loader", text)
         self.assertIn("script", text)
 
+    def test_a_runner_filename_does_not_hide_a_real_failure(self):
+        # `demo_features` and `run_embeddings` were counted as scripts that
+        # read a missing file, whatever actually went wrong in them.
+        for name, detail in (
+            ("demo_features", "OSError: cannot load library libsndfile"),
+            ("run_embeddings", "SyntaxError: invalid syntax"),
+            ("test_pipeline", "AttributeError: module has no attribute 'peaks'"),
+        ):
+            with self.subTest(name=name):
+                text = "\n".join(render_survey(self._survey(name, detail)))
+                self.assertIn(name, text)
+                self.assertIn(detail.split(":")[0], text)
+
+    def test_a_runner_filename_with_a_routine_reason_is_still_counted(self):
+        text = "\n".join(
+            render_survey(self._survey("run_demo", "FileNotFoundError: data/clips"))
+        )
+        self.assertNotIn("run_demo", text)
+        self.assertIn("script", text)
+
     def test_a_bare_oserror_is_named_instead_of_counted(self):
         # OSError is raised for a full disk, too many open files, and an audio
         # backend that failed to load. Folding those into the routine count
