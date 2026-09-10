@@ -6,9 +6,12 @@ import { takeDroppedDeviceLink } from "@/lib/pending-return";
  *
  * `cogworks link` is the first command in the CLI's own workflow, so students
  * run it before they have a team. The stage guard sends them to the step they
- * still owe and the device code dies on the way: the browser said nothing and
- * the terminal polled in silence until the code expired ten minutes later.
- * Naming the loss is most of the fix, because the recovery is one command.
+ * still owe, and what is lost on the way is the browser's route back to the
+ * approval page: it said nothing, so the terminal appeared to poll for no
+ * reason. The authorization itself survives. Measured on 2026-09-10: a fresh
+ * account was bounced to /join, joined a team, reopened the original approval
+ * URL, and the waiting CLI completed. Naming the loss is most of the fix,
+ * because the recovery is reopening that link or running one command.
  */
 export function DroppedLinkNotice() {
   const [kind] = useState(takeDroppedDeviceLink);
