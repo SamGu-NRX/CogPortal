@@ -10,8 +10,10 @@ import { FIXTURE_REPO } from "@cogworks/contracts/fixtures";
 import type { Database } from "../worker/db/client.ts";
 import {
   benchmarks,
+  cliDevices,
   cohorts,
   leaderboardSelections,
+  localRunSessions,
   officialAttempts,
   runs,
   runSurfaces,
@@ -20,7 +22,9 @@ import {
 } from "../worker/db/schema.ts";
 import type { Env } from "../worker/env.ts";
 import { ApiHttpError } from "../worker/http/errors.ts";
+import { runSourceRefusal } from "../worker/services/run-source.ts";
 import {
+  performRunSurfaceMutation,
   promotePracticeRun,
   publishOfficialRun,
   rerunHostedSurface,
@@ -94,6 +98,10 @@ function freshDb(): Harness {
   return { db: drizzle(binding as never), binding };
 }
 
+/** Counts snapshot publications, so a refusal can be shown to have had no
+ *  observable effect rather than only to have thrown. */
+let hubPublications = 0;
+
 function env(binding: unknown, provider: "fixture" | "modal", queue?: { send(): Promise<void> }): Env {
   return {
     DB: binding,
@@ -108,7 +116,12 @@ function env(binding: unknown, provider: "fixture" | "modal", queue?: { send(): 
     // dispatch could survive its own rejection, no test here got that far.
     RUN_SURFACES: {
       idFromName: (name: string) => name,
-      get: () => ({ fetch: async () => new Response(null, { status: 200 }) }),
+      get: () => ({
+        fetch: async () => {
+          hubPublications += 1;
+          return new Response(null, { status: 200 });
+        },
+      }),
     },
   } as unknown as Env;
 }
@@ -597,4 +610,81 @@ test("rerunning a run from a repository the team has left is refused, with no ne
     (error: unknown) => error instanceof ApiHttpError && error.code === "source_changed",
   );
   assert.equal((await db.select().from(runs)).length, before, "a refused rerun still created a run");
+});
+
+test("the shared boundary refuses before it publishes anything", async () => {
+  // Every client arrives here: Portal HTTP, the Activity and CogBot RPC. A
+  // refusal must not reach the realtime hub, which broadcasts a snapshot and
+  // can wake a Discord update.
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  await runCameFromElsewhere(db, PRACTICE_RUN_ID);
+  hubPublications = 0;
+
+  for (const action of ["promote_official", "rerun_hosted"] as const) {
+    await assert.rejects(
+      performRunSurfaceMutation(env(binding, "fixture"), actor, SURFACE_ID, action),
+      (error: unknown) => error instanceof ApiHttpError && error.code === "source_changed",
+      action,
+    );
+  }
+
+  assert.equal(hubPublications, 0, "a refused mutation published a snapshot");
+  assert.equal((await db.select().from(officialAttempts)).length, 0);
+});
+
+test("hosted verification of a local run from another repository is refused", async () => {
+  // verify_hosted resolves the local session's commit against the connected
+  // repository, so it is a rerun by another name and takes the same rule.
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  await db.insert(cliDevices).values({
+    id: "device_1",
+    userId: actor.userId,
+    name: "laptop",
+    tokenHash: "hash",
+    createdAt: 1,
+    expiresAt: Date.now() + 86_400_000,
+    lastUsedAt: null,
+    revokedAt: null,
+  } as never);
+  await db.insert(localRunSessions).values({
+    id: "local_1",
+    teamId: "team_test",
+    userId: actor.userId,
+    deviceId: "device_1",
+    benchmarkId: BENCHMARK_ID,
+    benchmarkVersion: 1,
+    repositoryId: FIXTURE_REPO.repositoryId + 1,
+    repositoryFullName: "some-student/week3-capstone",
+    sha: "c".repeat(40),
+    branch: "main",
+    dirty: false,
+    status: "succeeded",
+    phase: "complete",
+    createdAt: 1,
+    updatedAt: 2,
+    lastEventSequence: 0,
+  } as never);
+  await db
+    .update(runSurfaces)
+    .set({ localRunId: "local_1" })
+    .where(eq(runSurfaces.id, SURFACE_ID));
+
+  await assert.rejects(
+    performRunSurfaceMutation(env(binding, "fixture"), actor, SURFACE_ID, "verify_hosted"),
+    (error: unknown) => error instanceof ApiHttpError && error.code === "source_changed",
+  );
+});
+
+test("the rule answers every combination of missing and differing ids", () => {
+  const team = { repoId: 7, repoFullName: "owner/connected" };
+  assert.equal(runSourceRefusal(team, { repositoryId: 7 }, "act"), null);
+  assert.match(runSourceRefusal(team, { repositoryId: 8 }, "act") ?? "", /no longer connected/);
+  assert.match(runSourceRefusal(team, { repositoryId: null }, "act") ?? "", /predates/);
+  assert.match(runSourceRefusal(team, null, "act") ?? "", /predates/);
+  // A team with no recorded repository cannot authorise anything against one.
+  const unknownTeam = { repoId: null, repoFullName: "owner/connected" };
+  assert.match(runSourceRefusal(unknownTeam, { repositoryId: 7 }, "act") ?? "", /no longer connected/);
+  assert.match(runSourceRefusal(unknownTeam, { repositoryId: null }, "act") ?? "", /predates/);
 });

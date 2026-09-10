@@ -30,6 +30,7 @@ import { syncRun, syncTeamRuns } from "../execution/sync";
 import { DispatchUnacknowledged, assertModalConfigured, enqueueRun } from "../execution/runner";
 import { FixtureGitHubClient, RealGitHubClient } from "../github/client";
 import { ApiHttpError } from "../http/errors";
+import { runSourceRefusal } from "./run-source";
 import { newId, randomHex } from "../util/id";
 import { sha256Hex } from "../util/crypto";
 import { publishRunSurface } from "./run-surfaces";
@@ -76,36 +77,12 @@ export async function discordRunActor(env: Env, discordUserId: string): Promise<
   };
 }
 
-/**
- * Whether a run is still about the repository the team is connected to.
- *
- * A team has one repository and every write is authorised against it, so a new
- * promotion, rerun or publication has to be about that repository. Matched on
- * the id: GitHub keeps it through a rename, so a renamed repository keeps
- * working, while a repository the team has since left, or a run from before
- * the id was recorded, cannot be authorised by the permission we can check.
- *
- * Reading history is untouched, and so is a result already published. This
- * only refuses new mutations.
- */
-export function runSourceRefusal(
-  team: { repoId: number | null; repoFullName: string },
-  run: { repositoryId: number | null },
-  action: string,
-): string | null {
-  if (run.repositoryId !== null && run.repositoryId === team.repoId) return null;
-  const connected = team.repoFullName;
-  return run.repositoryId === null
-    ? `This run predates the repository CogPortal records, so it cannot tell whether it came from ${connected}. Start a fresh run there to ${action}.`
-    : `This run came from a repository your team is no longer connected to. Start a fresh run on ${connected} to ${action}.`;
-}
-
 function requireRunSource(
   actor: RunActor,
-  run: { repositoryId: number | null },
+  source: { repositoryId: number | null } | null | undefined,
   action: string,
 ): void {
-  const refusal = runSourceRefusal(actor.team, run, action);
+  const refusal = runSourceRefusal(actor.team, source, action);
   if (refusal) throw new ApiHttpError(409, "source_changed", refusal);
 }
 
@@ -601,6 +578,10 @@ export async function performRunSurfaceMutation(
     if (local.dirty) {
       throw new ApiHttpError(409, "not_promotable", "Commit your changes before hosted verification.");
     }
+    // Hosted verification resolves this session's commit against the connected
+    // repository, so it is a rerun by another name and needs the same rule. A
+    // session recorded before the team moved is about the old repository.
+    requireRunSource(actor, local, "verify it here");
     await startPracticeRun(env, actor, {
       benchmarkId: local.benchmarkId,
       branch: local.branch,
@@ -608,6 +589,25 @@ export async function performRunSurfaceMutation(
       surfaceId,
     });
     return publishRunSurface(env, surfaceId);
+  }
+
+  // Eligibility before publication. `publishRunSurface` writes a snapshot to
+  // the realtime hub and can wake a Discord update, so refusing after it means
+  // a rejected request still had an observable effect.
+  const [surfacePractice] = await getDb(env)
+    .select({ repositoryId: runs.repositoryId })
+    .from(runs)
+    .where(and(eq(runs.surfaceId, surfaceId), eq(runs.mode, "practice")))
+    .limit(1);
+  const [surfaceOfficial] = await getDb(env)
+    .select({ repositoryId: runs.repositoryId })
+    .from(runs)
+    .where(and(eq(runs.surfaceId, surfaceId), eq(runs.mode, "official")))
+    .limit(1);
+  if (action === "promote_official" || action === "rerun_hosted") {
+    if (surfacePractice) requireRunSource(actor, surfacePractice, "act on it");
+  } else if (action === "publish_result") {
+    if (surfaceOfficial) requireRunSource(actor, surfaceOfficial, "publish a result");
   }
 
   const snapshot = await publishRunSurface(env, surfaceId);

@@ -9,7 +9,7 @@ import {
   type RunSummary,
   type Team,
 } from "@cogworks/contracts/schema";
-import { runSourceRefusal } from "../services/run-actions";
+import { runSourceRefusal } from "../services/run-source";
 import type { Database } from "../db/client";
 import {
   leaderboardSelections,
