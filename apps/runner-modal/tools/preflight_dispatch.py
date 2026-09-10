@@ -343,9 +343,10 @@ def check_image_digest(values: Dict[str, str]) -> Check:
     fix = (
         "Run `python apps/runner-modal/tools/deploy.py` and copy an id it "
         "prints (`published cogworks-runner-week3 -> im-...`). Set "
-        "RUNNER_IMAGE_DIGEST to `<name>@<id>` so the record names the one "
-        "image it can. Pick the track you most want recorded; one string "
-        "cannot name all three."
+        "RUNNER_IMAGE_DIGEST to `<name>@<id>` so the input carries a real id "
+        "instead of a placeholder word. The event stores a hash, not the "
+        "name, and one string cannot cover three images, so pick the track "
+        "you most want recorded and treat the rest as unresolved."
     )
     if not value:
         return bad(

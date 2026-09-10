@@ -41,6 +41,7 @@ import modal  # noqa: E402
 import modal.runner  # noqa: E402
 
 from cogworks_runner import modal_app  # noqa: E402
+from cogworks_runner.protocol import validate_job  # noqa: E402
 
 #: Benchmarks this can drive, and the evaluate function each one needs. Week 2
 #: is absent because its payload needs a CelebA manifest this does not build.
@@ -102,6 +103,10 @@ def build_job(benchmark_id: str, repo: str, sha: str, mode: str) -> dict:
             "maxOutputBytes": 8 * 1024,
         },
         "callback": {"url": "https://example.invalid/never-called", "keyId": "runner-v1"},
+        # Required whenever preparedArtifactId is None, which it always is
+        # here. The empty list is the honest value: no trained weights, rather
+        # than no weights field.
+        "weights": [],
     }
 
 
@@ -136,7 +141,12 @@ def main() -> int:
             sha = json.load(response)[0]["sha"]
         print("resolved {} -> {}".format(args.repo, sha[:12]), flush=True)
 
-    job = build_job(args.benchmark, args.repo, sha, args.mode)
+    # `submit_job` validates before it spawns anything, so a job this tool
+    # builds by hand has to clear the same gate or the tool is exercising a
+    # shape the endpoint would have refused. Skipping it is how a missing
+    # `weights` key reached `_prepare` and surfaced as a provider fault
+    # instead of the protocol error that names the field.
+    job = validate_job(build_job(args.benchmark, args.repo, sha, args.mode))
     reporter = PrintReporter()
     started = time.time()
 
