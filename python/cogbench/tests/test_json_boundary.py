@@ -25,6 +25,8 @@ class JsonEnvelope(unittest.TestCase):
     def test_completed_and_raised_have_only_their_allowed_fields(self):
         completed = {'status': 'completed', 'detail': '', 'value': {'unicode': 'λ', 'items': [None, True, 3, 2.5]}}
         result = self.read(json.dumps(completed).encode('utf-8'))
+        # Returning RAISED while keeping the value used to pass this.
+        self.assertEqual(result.status, isolate.COMPLETED)
         self.assertEqual(result.value, completed['value'])
         self.assertIsNone(result.signal)
         self.assertFalse(result.alarm_fired)
@@ -128,3 +130,55 @@ class JsonEnvelope(unittest.TestCase):
         self.assertIn('status 23', result.detail)
         self.assertEqual(result.status, isolate.CRASHED)
         self.assertIsNone(result.signal)
+
+
+class ADeclaredLengthIsNotAnAllocationOrder(unittest.TestCase):
+    """The four-byte prefix is the child's word about how much to allocate.
+
+    `0xffffffff` asks the parent for 4 GiB before a byte of the body has been
+    seen, and the MemoryError escapes `_read_payload` and `_collect` as an
+    exception rather than as a categorized failure. Only the header is written
+    here; nothing large is allocated and nothing is exhausted.
+    """
+
+    def _declare(self, size):
+        read_fd, write_fd = os.pipe()
+        try:
+            os.write(write_fd, struct.pack('!I', size))
+            os.close(write_fd)
+            return isolate._read_payload(read_fd)
+        finally:
+            os.close(read_fd)
+
+    def test_a_length_no_payload_could_have_is_refused_before_the_read(self):
+        for size in (0xffffffff, isolate.MAX_PAYLOAD_BYTES + 1):
+            with self.subTest(size=size):
+                with self.assertRaisesRegex(isolate._PayloadError, 'payload_too_large'):
+                    self._declare(size)
+
+    def test_the_cap_is_far_above_what_this_sdk_sends(self):
+        """Measured: a check that resolves through discovery is 2,710 bytes."""
+
+        self.assertGreater(isolate.MAX_PAYLOAD_BYTES, 100 * 2710)
+
+    def test_a_large_but_legitimate_payload_still_arrives_whole(self):
+        """The cap must not become a length limit on real results."""
+
+        value = 'x' * (256 * 1024)
+        body = json.dumps({'status': 'completed', 'detail': '', 'value': value}).encode('utf-8')
+        read_fd, write_fd = os.pipe()
+        child = os.fork()
+        if child == 0:  # pragma: no cover - child
+            os.close(read_fd)
+            frame = struct.pack('!I', len(body)) + body
+            while frame:
+                frame = frame[os.write(write_fd, frame):]
+            os._exit(0)
+        os.close(write_fd)
+        try:
+            result = isolate._read_payload(read_fd)
+        finally:
+            os.close(read_fd)
+            os.waitpid(child, 0)
+        self.assertEqual(result.status, isolate.COMPLETED)
+        self.assertEqual(result.value, value)

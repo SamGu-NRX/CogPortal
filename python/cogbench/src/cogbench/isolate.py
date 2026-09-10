@@ -394,6 +394,25 @@ class _PayloadError(Exception):
     pass
 
 
+#: The most the parent will allocate for one child result.
+#:
+#: The length prefix is four bytes the child controls, and it went straight to
+#: `os.read`. `0xffffffff` asks the parent to allocate 4 GiB before a single
+#: byte of the body is validated, and the MemoryError escapes the conversion
+#: block below as an exception rather than a categorized failure.
+#:
+#: Measured against the real payloads this SDK produces: a `check` on a
+#: repository that resolves through discovery is 2,710 bytes, and on one with
+#: a declared submission 249. A `run` report is bounded by the protocol's own
+#: caps, 32 metrics and 32 diagnostics of 240 characters. 8 MiB is three
+#: orders of magnitude of headroom over the largest of those and small enough
+#: that the parent can always allocate it.
+MAX_PAYLOAD_BYTES = 8 * 1024 * 1024
+
+#: One read, so a legitimate large payload arrives in pieces the parent sizes.
+_READ_CHUNK = 64 * 1024
+
+
 def _read_payload(read_fd: int, exited: Optional[Callable[[], bool]] = None) -> Outcome:
     child_exited = False
 
@@ -420,9 +439,11 @@ def _read_payload(read_fd: int, exited: Optional[Callable[[], bool]] = None) -> 
             raise _PayloadError("eof" if not header else "truncated_header")
         header += chunk
     (size,) = struct.unpack("!I", header)
+    if size > MAX_PAYLOAD_BYTES:
+        raise _PayloadError("payload_too_large: declared {} bytes".format(size))
     body = b""
     while len(body) < size:
-        chunk = read(size - len(body))
+        chunk = read(min(size - len(body), _READ_CHUNK))
         if not chunk:
             raise _PayloadError("truncated_body")
         body += chunk
@@ -584,10 +605,18 @@ def run_operation(
                            encoding="utf-8")
         read_fd, write_fd = os.pipe()
         environment = dict(os.environ, PYTHONHASHSEED="0")
-        # Site processing precedes our bootstrap. Keep student paths out of
-        # its search path so their sitecustomize cannot run before limits.
-        # Environment-owned .pth files remain trusted setup; disabling site
-        # would also disable the editable installs used by the course.
+        # Site processing precedes our bootstrap and cannot be moved after it:
+        # disabling site would also disable the editable installs the course
+        # uses. What this can do is keep the repository under test out of the
+        # search path site uses, so a `sitecustomize.py` a student wrote is
+        # not what runs. The machine's own .pth files and sitecustomize still
+        # run first, and they are the setup this check was installed into.
+        #
+        # So the guarantee is not "nothing runs before limits". It is that
+        # nothing from the repository does, and that a hook which quietly
+        # neuters `setrlimit` is caught: `_apply_limits` reads every limit
+        # back and the operation refuses if one did not take
+        # (test_ancestor_startup_hook_cannot_silently_disable_limits).
         repository = Path(arguments["repository"]).resolve()
         startup_paths = [str(Path(__file__).resolve().parent.parent)]
         for entry in sys.path:
@@ -738,6 +767,23 @@ def _collect(pid, read_fd, timeout_seconds, memory_bytes) -> Outcome:
     # forged success. For `check` the forged value can have the right shape, so
     # `--update-setup` would record setup evidence for a run we killed. The
     # payload is a claim; the exit is the evidence for it.
+    # And an exit the parent saw fail is evidence against it. A child that
+    # writes a valid `completed` envelope and then exits 23, or kills itself,
+    # did not complete: something went wrong after it produced the value, and
+    # reporting the value is the lie. `_terminate` always fires, so a cleanup
+    # SIGKILL is ours and is not counted here; `status` at this point is the
+    # child's own exit, because the cleanup path above discards a SIGKILL it
+    # cannot attribute.
+    if outcome is not None and reaped and status is not None and not fired:
+        if os.WIFSIGNALED(status):
+            died = "signal_{}".format(os.WTERMSIG(status))
+        elif os.WIFEXITED(status) and os.WEXITSTATUS(status) != 0:
+            died = "exit_{}".format(os.WEXITSTATUS(status))
+        else:
+            died = ""
+        if died:
+            outcome = None
+            reason = "result_published_then_" + died
     if outcome is not None and (fired or not reaped):
         outcome = None
         reason = reason or ("alarm" if fired else "killed_before_exit")

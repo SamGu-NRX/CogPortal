@@ -1,4 +1,5 @@
 """Real on-disk plugins cross the exec boundary without inherited test mocks."""
+import hashlib
 import io
 import json
 import os
@@ -184,16 +185,35 @@ Path(%r).write_text(json.dumps(list(resource.getrlimit(resource.RLIMIT_CPU))))
 """ % str(marker)
         (self.repo / 'sitecustomize.py').write_text(hook)
         (nested / 'sitecustomize.py').write_text(hook)
-        # Explicitly import the same hook from student code. This must work,
-        # but only after _child has installed the CPU limit.
+        # The same hook under a name the interpreter cannot already have
+        # imported. `sitecustomize` is the name site processing uses, and some
+        # builds ship one: on Homebrew's 3.13 it is already in sys.modules, so
+        # a student file of that name is shadowed and `import sitecustomize`
+        # does nothing. That is a fact about the host, not about this
+        # boundary, and asserting through it made the test read as a boundary
+        # failure on those machines. The ordering claim is what this test is
+        # for, so it uses a name only the repository provides.
+        after_limits = self.root / 'after-limits.json'
+        (self.repo / 'student_startup_probe.py').write_text(
+            hook.replace(str(marker), str(after_limits))
+        )
         submission = self.repo / 'submission.py'
-        submission.write_text('import sitecustomize\n' + submission.read_text())
+        submission.write_text('import student_startup_probe\n' + submission.read_text())
         for entry in (self.repo, nested, alias):
             with self.subTest(entry=str(entry)), patch.object(sys, 'path', [str(entry)] + sys.path):
+                if after_limits.exists():
+                    after_limits.unlink()
                 view, status, detail = cli._read_repository('boundary-fixture', self.repo, True)
             self.assertEqual(status, isolate.COMPLETED, detail)
             self.assertTrue(view['ready'])
-            self.assertEqual(json.loads(marker.read_text()), [300, 305])
+            # The repository's own sitecustomize never ran at startup.
+            self.assertFalse(
+                marker.exists(),
+                'a sitecustomize in the repository ran during interpreter startup',
+            )
+            # And a module the repository provides, imported after limits, sees
+            # them installed.
+            self.assertEqual(json.loads(after_limits.read_text()), [300, 305])
             observed = json.loads(self.record.read_text())
             wait_gone(self, observed['descendant'])
 
@@ -258,7 +278,18 @@ resource.setrlimit = lambda *args: None
                  redirect_stdout(io.StringIO()) as output:
                 code = cli.main([command, '--benchmark', 'boundary-fixture', '--json'])
             self.assertEqual(code, 0, output.getvalue())
-            self.assertEqual(json.loads(output.getvalue())['benchmarkId'], 'boundary-fixture')
+            report = json.loads(output.getvalue())
+            self.assertEqual(report['benchmarkId'], 'boundary-fixture')
+            # The identity is not the result: skipping prediction and scoring
+            # entirely left this green. The fixture benchmark reports no
+            # metrics, so the digest is what says predictions were made. An
+            # empty prediction list has a fixed one.
+            empty = hashlib.sha256(
+                json.dumps([], sort_keys=True, separators=(',', ':')).encode('utf-8')
+            ).hexdigest()
+            self.assertRegex(report['outputDigest'], r'^[0-9a-f]{64}$')
+            self.assertNotEqual(report['outputDigest'], empty,
+                                'the run predicted nothing')
             observed = json.loads(self.record.read_text())
             self.assertEqual(observed['cpu'], [resource.RLIM_INFINITY, resource.RLIM_INFINITY], 'scored runs retain their unbounded CPU budget')
             wait_gone(self, observed['descendant'])

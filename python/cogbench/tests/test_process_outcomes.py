@@ -281,7 +281,22 @@ class ProcessOutcomes(unittest.TestCase):
         record = json.loads(output.getvalue())
         self.assertEqual(code, 2)
         self.assertIn(result.detail, record['submissionError'])
-        self.assertEqual(record['isolationDetail'], result.diagnostics())
+        # Named, not compared against the same `diagnostics()` that produced
+        # them: dropping an observed-death field from that method left this
+        # green, which is the one thing it exists to catch.
+        self.assertEqual(record['isolationDetail'], {
+            'status': 'crashed',
+            'detail': 'stopped by SIGKILL; the cause is unknown',
+            'signal': 9,
+            'alarmFired': False,
+            'readReason': 'eof',
+            'limits': {
+                'wallSeconds': 300,
+                'cpuSeconds': 300,
+                'cpuHardSeconds': 305,
+                'memoryBytes': 1234,
+            },
+        })
         self.assertIsNone(record['submissionDetail'])
 
 
@@ -373,3 +388,56 @@ class ReapFailureModes(unittest.TestCase):
         self.assertFalse(result.alarm_fired)
         self.assertEqual([call.args for call in alarm.call_args_list], [(5,), (0,)])
         handler.assert_called_once_with(signal.SIGALRM, isolate._on_alarm)
+
+
+@unittest.skipUnless(hasattr(os, 'fork'), 'requires POSIX isolation')
+class APublishedResultDoesNotOutrankAnObservedDeath(unittest.TestCase):
+    """A child can write a valid envelope and then fail anyway.
+
+    Both endings below used to come back `completed`, value 42, signal None.
+    Acceptance checked that an exit had been observed, never that it
+    succeeded. The payload is the child's claim about its work; the exit is
+    the evidence for it, and here the parent watched the evidence fail.
+    """
+
+    def _publish_then(self, ending):
+        read_fd, write_fd = os.pipe()
+        pid = os.fork()
+        if pid == 0:  # pragma: no cover - child
+            os.setsid()
+            os.close(read_fd)
+            body = json.dumps({'status': 'completed', 'detail': '', 'value': 42}).encode('utf-8')
+            frame = struct.pack('!I', len(body)) + body
+            while frame:
+                frame = frame[os.write(write_fd, frame):]
+            os.close(write_fd)
+            ending()
+        os.close(write_fd)
+        return isolate._collect(pid, read_fd, None, None)
+
+    def test_a_nonzero_exit_after_publishing_is_a_crash(self):
+        result = self._publish_then(lambda: os._exit(23))
+        self.assertEqual(result.status, isolate.CRASHED)
+        self.assertIsNone(result.value)
+        self.assertEqual(result.read_reason, 'result_published_then_exit_23')
+        self.assertIn('status 23', result.detail)
+
+    def test_a_signal_after_publishing_is_a_crash(self):
+        result = self._publish_then(
+            lambda: os.kill(os.getpid(), signal.SIGKILL)
+        )
+        self.assertEqual(result.status, isolate.CRASHED)
+        self.assertIsNone(result.value)
+        self.assertEqual(
+            result.read_reason,
+            'result_published_then_signal_{}'.format(int(signal.SIGKILL)),
+        )
+
+    def test_a_clean_exit_after_publishing_still_returns_the_result(self):
+        """The rule is about failure, not about publishing."""
+
+        result = self._publish_then(lambda: os._exit(0))
+        self.assertEqual(result.status, isolate.COMPLETED)
+        self.assertEqual(result.value, 42)
+        self.assertIsNone(result.read_reason)
+

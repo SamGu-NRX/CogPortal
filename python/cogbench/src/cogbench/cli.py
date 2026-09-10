@@ -442,6 +442,15 @@ def _check_view(name: str, project_root: Path, as_json: bool) -> dict:
     }
 
 
+#: What `_check` reads off a check view. The child builds it in `_check_view`
+#: and the parent indexes it; naming the contract in one place is what lets
+#: the boundary reject a malformed one instead of the parent raising on it.
+_CHECK_VIEW_KEYS = (
+    "report", "survey", "ready", "source", "declaredDetail",
+    "declaredSource", "declaredError", "discoveryUnavailable",
+)
+
+
 def _read_repository(
     name: str, project_root: Path, as_json: bool, *, diagnostics: Optional[dict] = None
 ) -> Tuple[Optional[dict], str, str]:
@@ -482,10 +491,17 @@ def _read_repository(
         )
     view = None
     if outcome.status == COMPLETED:
-        # One rehydration site for exec, fork, and in-process Windows.
+        # One rehydration site for exec, fork, and in-process Windows. The
+        # envelope says the child finished; it says nothing about the shape of
+        # what it returned, and `_check` indexes every one of these keys. A
+        # child that publishes `{"report": null}` used to pass here and raise
+        # KeyError three frames later, in the parent, outside the boundary.
         try:
             if not isinstance(outcome.value, dict):
                 raise TypeError("expected a check report object")
+            missing = [key for key in _CHECK_VIEW_KEYS if key not in outcome.value]
+            if missing:
+                raise KeyError("check report is missing {}".format(", ".join(missing)))
             view = dict(outcome.value)
             if view["report"] is not None:
                 view["report"] = SubmissionReport.from_dict(view["report"])
@@ -941,7 +957,27 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     print("The run did not finish: {}.".format(outcome.detail))
                     print("No score was produced.")
                 return 2
-            report = LocalReport.from_json(outcome.value)
+            # `_run_view` returns the report as JSON text. A completed
+            # envelope carrying None, "{}" or "[]" reached `from_json` and
+            # raised TypeError or KeyError in the parent, which is the one
+            # place this boundary exists to keep failures out of.
+            try:
+                report = LocalReport.from_json(outcome.value)
+            except (AttributeError, KeyError, TypeError, ValueError) as error:
+                message = "invalid run report: {}: {}".format(
+                    type(error).__name__, error
+                )
+                if args.json:
+                    print(json.dumps({
+                        "benchmarkId": args.benchmark,
+                        "status": CRASHED,
+                        "detail": message,
+                    }, indent=2))
+                else:
+                    print("{} · LOCAL · NO RESULT".format(args.benchmark))
+                    print("The run did not finish: {}.".format(message))
+                    print("No score was produced.")
+                return 2
             path = save_report(report, project_root)
             _print_report(report, args.json)
             if not args.json:
