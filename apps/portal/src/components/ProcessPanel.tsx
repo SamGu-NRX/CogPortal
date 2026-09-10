@@ -248,7 +248,12 @@ function Stages({
           Stages aren't shown here because {reason}.
         </p>
       ) : (
-        <StageRail stages={stages} ownership={signals.ownershipBreadth} members={members} />
+        <StageRail
+          stages={stages}
+          ownership={signals.ownershipBreadth}
+          members={members}
+          windowed={signals.historyWindow?.truncated === true}
+        />
       )}
     </section>
   );
@@ -258,10 +263,14 @@ function StageRail({
   stages,
   ownership,
   members,
+  windowed,
 }: {
   stages: [string, StageActivity][];
   ownership: Record<string, string[]>;
   members: TeamDetail["members"];
+  /** Older commits exist and were not read, so an absence here is an absence
+   *  in what was read rather than in the project. */
+  windowed: boolean;
 }) {
   const reduced = useReducedMotion();
 
@@ -302,11 +311,19 @@ function StageRail({
           // else". Not a count, not a badge, not a comparison between people:
           // "one person" is the stage's bus factor, the same reading
           // `distinctAuthorCount` is allowed to be.
+          // "yet" and "so far" both mean "in the whole history", which is not
+          // what was read when older commits were left unrequested. Over a
+          // window the same two states are true of the window and nothing
+          // else, so the words say which.
           const flag =
             owners.length === 0
-              ? "no commits yet"
+              ? windowed
+                ? "no commits in these"
+                : "no commits yet"
               : owners.length === 1
-                ? "only one person so far"
+                ? windowed
+                  ? "one person in these"
+                  : "only one person so far"
                 : null;
           // Asymmetric padding on purpose: a bar has to read as belonging to
           // the label above it, not to the one below.

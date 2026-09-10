@@ -587,11 +587,29 @@ function pipelineSentences(signals: ProcessSignals): string[] {
   const churned = signals.boundaryChurn.length;
   if (churned > 0) {
     sentences.push(
-      `${churned} commit${churned === 1 ? " has" : "s have"} changed the files the benchmark calls since that run, so a run that passed before can stop passing.`,
+      // Names the files rather than calling them "the files the benchmark
+      // calls". The benchmark calls whichever functions discovery bound, which
+      // for most repositories are not these two.
+      `${churned} commit${churned === 1 ? " has" : "s have"} changed ${BOUNDARY_FILES.join(" or ")} since that run, so a run that passed before can stop passing.`,
     );
   }
 
   return sentences;
+}
+
+/**
+ * How to say "we did not see one" when we only looked at part of the history.
+ *
+ * Every sentence built from commits is a statement about the window that was
+ * read. When older commits exist and were not requested, an absence is an
+ * absence in the window and nowhere else, and a page that says "no commit has
+ * touched this yet" about 40 of 75 commits is telling the team something
+ * untrue about their own project.
+ */
+function windowPhrase(signals: ProcessSignals): string {
+  const window = signals.historyWindow;
+  if (!window || !window.truncated) return "";
+  return ` in your most recent ${window.commits} commits`;
 }
 
 /** Who has worked where, as two whole-team readings rather than one line per
@@ -607,8 +625,11 @@ function coverageSentences(signals: ProcessSignals): string[] {
     })
     .sort();
   if (untouched.length > 0) {
+    const window = windowPhrase(signals);
     sentences.push(
-      `No commit has touched ${stagePhrase(untouched, "or")} yet, so that work either hasn't started or lives in files the portal doesn't read as that stage.`,
+      window
+        ? `No commit${window} has touched ${stagePhrase(untouched, "or")}, so that work either hasn't started, lives in files the portal doesn't read as that stage, or happened before the commits this page read.`
+        : `No commit has touched ${stagePhrase(untouched, "or")} yet, so that work either hasn't started or lives in files the portal doesn't read as that stage.`,
     );
   }
 
@@ -618,8 +639,14 @@ function coverageSentences(signals: ProcessSignals): string[] {
     .filter((stage) => signals.ownershipBreadth[stage].length === 1)
     .sort();
   if (solo.length > 0) {
+    const window = windowPhrase(signals);
+    // The "nobody else has been inside that code" reading needs the whole
+    // history. Over a window, one author is one author in that window, and
+    // somebody else may well have written the stage before it.
     sentences.push(
-      `Only one person has committed to ${stagePhrase(solo, "and")}, so if they get stuck, nobody else has been inside that code.`,
+      window
+        ? `Only one person has committed to ${stagePhrase(solo, "and")}${window}.`
+        : `Only one person has committed to ${stagePhrase(solo, "and")}, so if they get stuck, nobody else has been inside that code.`,
     );
   }
 

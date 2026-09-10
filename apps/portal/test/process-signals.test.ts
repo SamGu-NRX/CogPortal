@@ -427,16 +427,19 @@ test("every group of findings is one sentence, however many stages or files it c
   const [firstRun, churn, untouched, solo] = sentences;
   assert.match(firstRun, /first scored end to end on 2026-06-04/);
   // Two commits touched four boundary paths between them; one sentence.
-  assert.match(churn, /^2 commits have changed the files the benchmark calls/);
+  assert.match(churn, /^2 commits have changed submission\.py or benchmark_adapter\.py/);
   // Three stages have no commits; one sentence naming all three.
   assert.match(untouched, /the fanout, query, or spectrogram stages/);
   // One stage has a single author; still one sentence.
   assert.match(solo, /Only one person has committed to the database stage/);
 
-  // And no sentence anywhere names a person or counts their work.
+  // And no sentence anywhere names a person or counts their work. Matched on
+  // word boundaries: a bare substring search reports "ada" inside
+  // "benchmark_adapter.py", which is a filename and not a person.
   for (const sentence of sentences) {
     for (const login of ["grace", "ada", "hedy"]) {
-      assert.ok(!sentence.includes(login), `finding named a person: ${sentence}`);
+      const named = new RegExp(`\\b${login}\\b`, "i").test(sentence);
+      assert.ok(!named, `finding named a person: ${sentence}`);
     }
   }
 });
@@ -791,4 +794,56 @@ test("a signals payload cached before the window existed still parses", () => {
 
   const parsed = TeamProcessSignalsSchema.parse(cached);
   assert.equal(parsed.historyWindow, null, "absent reads as unknown, not as zero commits");
+});
+
+test("a truncated window does not let a sentence claim the whole project", () => {
+  // 40 read of a longer history. Every absence below is an absence in what was
+  // read, and saying "yet" or "nobody else has been inside that code" would be
+  // telling the team something untrue about work this page never looked at.
+  const windowed = buildProcessSignals({
+    commitsResult: {
+      ok: true,
+      truncated: true,
+      commits: Array.from({ length: 40 }, (_, index) =>
+        commit({
+          sha: String(index).padStart(40, "0"),
+          authoredAt: T0 + index * DAY,
+          authorLogin: "alice",
+          filesChanged: ["find_peaks.py"],
+        }),
+      ),
+    },
+    runs: [run({ runId: "run_1", createdAt: T0, scored: true })],
+    weekLabel: "week1",
+    roster: NO_ROSTER,
+  });
+
+  const sentences = findingSentences(windowed).join(" ");
+  assert.match(sentences, /in your most recent 40 commits/);
+  assert.doesNotMatch(sentences, /nobody else has been inside that code/);
+  assert.doesNotMatch(sentences, /has touched .* yet/);
+});
+
+test("a complete history still speaks plainly", () => {
+  const whole = buildProcessSignals({
+    commitsResult: {
+      ok: true,
+      truncated: false,
+      commits: Array.from({ length: 6 }, (_, index) =>
+        commit({
+          sha: String(index).padStart(40, "0"),
+          authoredAt: T0 + index * DAY,
+          authorLogin: "alice",
+          filesChanged: ["find_peaks.py"],
+        }),
+      ),
+    },
+    runs: [run({ runId: "run_1", createdAt: T0, scored: true })],
+    weekLabel: "week1",
+    roster: NO_ROSTER,
+  });
+
+  const sentences = findingSentences(whole).join(" ");
+  assert.doesNotMatch(sentences, /in your most recent/);
+  assert.match(sentences, /nobody else has been inside that code|has touched .* yet/);
 });

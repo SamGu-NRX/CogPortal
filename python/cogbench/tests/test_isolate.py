@@ -51,6 +51,7 @@ def _leak_a_child():
     return subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"]).pid
 
 
+@unittest.skipUnless(hasattr(os, "fork"), "requires os.fork process isolation")
 class IsolationTests(unittest.TestCase):
     """Discovery calls functions nobody vetted. It must fail like a CI job."""
 

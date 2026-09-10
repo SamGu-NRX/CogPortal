@@ -199,6 +199,14 @@ export async function fetchCommitHistory(
 
   const shas: string[] = [];
   let truncated = false;
+  // Where the detail requests go. A repository that has been renamed answers
+  // its old name with a redirect, and Cloudflare counts every hop against the
+  // same 50, so paying one per commit would cost 82 requests for a 40-commit
+  // window and fail before finishing. The list response below has already
+  // followed the redirect, so its final URL names the repository once and the
+  // detail requests go straight there.
+  let detailOwner = owner;
+  let detailName = name;
   for (let page = 1; shas.length < MAX_COMMITS; page += 1) {
     let response: Response;
     try {
@@ -210,6 +218,22 @@ export async function fetchCommitHistory(
     } catch {
       console.warn(JSON.stringify({ evt: "commit_list_fetch_failed", repo: fullName, page }));
       return { ok: false, reason: "fetch_failed" };
+    }
+
+    // Only from the first page, and only when it actually moved.
+    if (page === 1 && response.url) {
+      const moved = /\/repos\/([^/]+)\/([^/?]+)\/commits/.exec(response.url);
+      if (moved && (moved[1] !== owner || moved[2] !== name)) {
+        detailOwner = decodeURIComponent(moved[1]);
+        detailName = decodeURIComponent(moved[2]);
+        console.warn(
+          JSON.stringify({
+            evt: "commit_repo_redirected",
+            from: fullName,
+            to: `${detailOwner}/${detailName}`,
+          }),
+        );
+      }
     }
 
     if (response.status === 409) {
@@ -277,7 +301,7 @@ export async function fetchCommitHistory(
       let response: Response;
       try {
         response = await githubApiRequest(
-          `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/commits/${sha}`,
+          `/repos/${encodeURIComponent(detailOwner)}/${encodeURIComponent(detailName)}/commits/${sha}`,
           token,
         );
       } catch (error) {
