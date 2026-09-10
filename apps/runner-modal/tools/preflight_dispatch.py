@@ -318,23 +318,34 @@ OCI_DIGEST = re.compile(r"\bsha256:[a-f0-9]{64}\b")
 
 
 def check_image_digest(values: Dict[str, str]) -> Check:
-    """What the digest is for, and why the placeholder is not merely untidy.
+    """What the digest is for, and what the placeholder actually costs.
 
     It selects nothing. `_sandbox_image` picks an image by name, not by digest.
-    The digest's only consumer is the SHA-256 `environmentDigest` reported on
-    the completed event, alongside the snapshot id and the plugin version. So a
-    placeholder cannot fail a dispatch. What it does is make every run's
-    reproducibility record a hash of the same constant word, which means two
-    runs on genuinely different images are recorded as identical. That is a
-    plausible wrong number, and it is worse than no number.
+    Its only consumer is the SHA-256 `environmentDigest` on the completed
+    event, which the runner builds from three inputs: the prepared snapshot id,
+    this value, and the plugin version (`environment_digest` in modal_app).
+
+    So the placeholder does not collapse that record. The snapshot id is the
+    first input and already differs whenever the image differs, so two runs on
+    different images hash differently today. The cost is narrower: one of the
+    three inputs carries no information, so the record adds nothing to what the
+    snapshot id already says.
+
+    A real value is only ever partly true. The Worker sends one string for
+    every benchmark while the runner picks one of three published images from
+    the benchmark id, so whatever is set here names at most one track's image.
+    Setting it beats a placeholder, but the field cannot become a provenance
+    record while it lives on the Worker, because the Worker chooses before the
+    runner does and can be bypassed entirely by snapshot reuse.
     """
 
     value = values.get("RUNNER_IMAGE_DIGEST", "").strip()
     fix = (
-        "Run `python apps/runner-modal/tools/deploy.py` and copy the id it "
-        "prints for the image this benchmark uses (`published "
-        "cogworks-runner-week3 -> im-...`). Set RUNNER_IMAGE_DIGEST to "
-        "`<name>@<id>` so the record names both."
+        "Run `python apps/runner-modal/tools/deploy.py` and copy an id it "
+        "prints (`published cogworks-runner-week3 -> im-...`). Set "
+        "RUNNER_IMAGE_DIGEST to `<name>@<id>` so the record names the one "
+        "image it can. Pick the track you most want recorded; one string "
+        "cannot name all three."
     )
     if not value:
         return bad(
@@ -346,7 +357,8 @@ def check_image_digest(values: Dict[str, str]) -> Check:
     if "unpublished" in value.lower():
         return bad(
             "image digest",
-            "{} is the placeholder, so every environmentDigest is a hash of the same word".format(value),
+            "{} is the placeholder, so this input tells the record nothing "
+            "the snapshot id did not already say".format(value),
             fix,
         )
     if IMAGE_ID.search(value) or OCI_DIGEST.search(value):
