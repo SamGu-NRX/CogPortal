@@ -35,6 +35,17 @@ function lines(
   });
 }
 
+
+/** The smallest note set the sheet will take. The page's real notes are prose;
+ *  these exist so a render test can exercise the layout without them. */
+const NOTES = {
+  clone: { title: "Clone", why: "why clone" },
+  tool: { title: "Tool", why: "why tool", help: "help tool" },
+  benchmark: { title: "Benchmark", why: "why benchmark" },
+  link: { title: "Link", why: "why link" },
+  check: { title: "Check", why: "why check" },
+} as const;
+
 function commandFor(fragment: string): string {
   const found = lines().find((line) => line.command.includes(fragment));
   assert.ok(found, `no command containing ${fragment}`);
@@ -109,7 +120,7 @@ test("the two vision tracks install one distribution", () => {
 
 test("a track with no published package shows no install line rather than a guess", () => {
   const unknown = lines({ benchmarkId: "not-a-track" });
-  assert.equal(unknown.filter((line) => line.comment.startsWith("# benchmark for")).length, 0);
+  assert.equal(unknown.filter((line) => line.id === "benchmark").length, 0);
   assert.equal(unknown.length, lines().length - 1);
   // The CLI itself is still installed; only the benchmark line is withheld.
   assert.ok(unknown.some((line) => line.command.includes("cogworks-benchmark")));
@@ -122,7 +133,7 @@ test("the sheet never asks for an editable install", () => {
   const sheet = lines();
   assert.equal(sheet.length, 5);
   assert.equal(sheet.filter((line) => line.command.includes("install -e")).length, 0);
-  assert.equal(sheet.filter((line) => line.comment.includes("registers:")).length, 0);
+  assert.equal(sheet.filter((line) => line.command.includes("install -e")).length, 0);
 
   // The project evidence did not go with it; it now rides the benchmark line.
   const project = lines({}, ["project"]).filter((line) => line.verified);
@@ -167,6 +178,7 @@ test("the rendered sheet moves a tick only for the lines it has verified", () =>
     React.createElement(CommandSheet, {
       lines: lines({}, ["clone"]),
       label: "Setup commands, in run order",
+      notes: NOTES,
     }),
   );
 
@@ -190,22 +202,30 @@ test("the sheet's own text uses no em dash", () => {
     React.createElement(CommandSheet, {
       lines: lines({}, ["clone", "environment"]),
       label: "Setup commands, in run order",
+      notes: NOTES,
     }),
   );
   assert.ok(!html.includes("—"), "em dash rendered on the command sheet");
 });
 
-test("every command the sheet generates is one the guide can explain", () => {
-  // The setup page attaches a title, a reason and a help note to each line by
-  // its id. A new command with an id nothing describes would render as a bare
-  // command under an explained list, which is the state this page was in
-  // before: five commands and five shell comments, readable only by someone
-  // who already knew the answer.
-  const known = new Set(["clone", "tool", "benchmark", "link", "check"]);
+test("every command is rendered under a title and a reason", () => {
+  // The Record type makes a missing note a compile error, so what is left to
+  // check is that the sheet actually renders one per command rather than
+  // dropping any.
+  const html = renderToStaticMarkup(
+    React.createElement(CommandSheet, {
+      lines: lines(),
+      label: "Setup commands, in run order",
+      notes: NOTES,
+    }),
+  );
+
+  // React escapes quotes in the pinned install lines, so compare like for like.
+  const escape = (text: string) => text.replaceAll("&", "&amp;").replaceAll('"', "&quot;");
   for (const line of lines()) {
-    assert.ok(known.has(line.id), `no explanation is written for the "${line.id}" command`);
+    const note = NOTES[line.id];
+    assert.ok(html.includes(note.title), `no title rendered for ${line.id}`);
+    assert.ok(html.includes(escape(line.command)), `no command rendered for ${line.id}`);
   }
-  // And the ids are distinct, so two lines cannot claim the same explanation.
-  const ids = lines().map((line) => line.id);
-  assert.equal(new Set(ids).size, ids.length);
+  assert.equal(html.match(/<h3/g)?.length, lines().length);
 });

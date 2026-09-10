@@ -196,14 +196,17 @@ export function DashboardPage() {
                   label="Official attempts"
                   tone="detect"
                 />
-                {/* The two facts a team cannot read off the cells. An official
-                    attempt is marked consumed when its run reaches
-                    `evaluating` (routes/runner-events.ts), so a refusal before
-                    that does not cost one. */}
-                <p className="border-t border-rule-soft pt-3 text-[12px] leading-[1.55] text-ink-faint">
+                {/* What the cells do, which is not what the `consumed` flag
+                    does. `officialUsed` is the number of claim rows
+                    (routes/dashboard.ts), and a claim row is written when the
+                    run starts (services/run-actions.ts), so a cell fills on
+                    promotion. `consumed` is written and never read. An attempt
+                    returns when execution/refunds.ts deletes the claim, which
+                    it does for a platform-side failure up to a cap. */}
+                <p className="border-t border-rule-soft pt-3 text-[12px] leading-[1.55] text-ink-secondary">
                   Local runs are unlimited and are not counted here. An official
-                  attempt is spent once its run reaches the hidden evaluation,
-                  so a run refused before then does not cost you one.
+                  cell fills the moment you start that attempt, and it comes back
+                  if the run fails for a reason on our side.
                 </p>
               </div>
             </Panel>

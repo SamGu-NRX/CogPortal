@@ -98,8 +98,7 @@ export function Landing() {
             ) : (
               <p className="mt-2">
                 A repository your team already has is fine. If your instructor
-                shares a template, forking it is one way to start, not a
-                requirement.
+                shares a template, forking it is the easy start.
               </p>
             )}
           </Step>
@@ -108,8 +107,8 @@ export function Landing() {
             <p>
               Clone the repository, activate the course environment for your
               week, and install the CogWorks tool. Sign in and the setup page
-              gives you the exact commands for your track, and marks each one off
-              once it has seen it work.
+              gives you the exact commands for your track, and records what the
+              last one reports back.
             </p>
           </Step>
 
@@ -125,9 +124,9 @@ export function Landing() {
           <Step n={4} title="Run it here when it's ready">
             <p>
               A hosted run repeats that scoring on our machines, from the commit
-              you pushed, so the number belongs to code anyone can check out.
-              Your team gets {PRACTICE_LIMIT} hosted practice runs and{" "}
-              {OFFICIAL_LIMIT} official attempts, and you choose which result
+              you pushed, so the number belongs to code anyone can check out. On
+              each benchmark your team gets {PRACTICE_LIMIT} hosted practice runs
+              and {OFFICIAL_LIMIT} official attempts, and you choose which result
               goes on the board.
             </p>
             {!authed && (
