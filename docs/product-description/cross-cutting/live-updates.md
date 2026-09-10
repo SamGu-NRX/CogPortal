@@ -54,6 +54,23 @@ Backoff is `Math.min(8_000, 500 * 2 ** Math.min(retry, 4))` (`run-surface-stream
 
 A frame that does not parse against the snapshot schema is dropped without comment, because "the next authoritative snapshot wins" (`run-surface-stream.ts:47`). A socket error closes the socket, which routes into the same reconnect path (`run-surface-stream.ts:56`). The Durable Object answers Discord-style keepalives itself through `setWebSocketAutoResponse`, so a `ping` gets a `pong` without waking the object (`run-surface-hub.ts:13`).
 
+## The loading mark names its own wait
+
+Every page that waits on a query shows the same mark: a pulsing square, a
+label in mono capitals, and an ellipsis. Past three seconds it appends the
+whole seconds it has been waiting, so "Loading your team…" becomes "Loading
+your team · 4 s" and keeps counting (`apps/portal/src/components/Feedback.tsx`,
+`LoadingMark` and `useWaitedSeconds(3)`).
+
+The three seconds are the point. A counter from the first frame turns every
+ordinary fast load into a stopwatch; a counter that appears only once a wait
+is unusual tells a student that this one is, without saying anything while it
+is not.
+
+The seconds are hidden from assistive technology. The mark is a live region,
+so a number changing every second would be one interruption per second; the
+label alone stays announced.
+
 ## What a reconnection replays
 
 One frame. On `/connect` the Durable Object accepts the socket and immediately sends whatever it last stored under `latest`, if anything (`run-surface-hub.ts:43`). It does not replay a sequence of events.

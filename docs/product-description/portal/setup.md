@@ -2,7 +2,9 @@
 
 ## Summary
 
-The setup guide takes a student from "the portal knows my team" to "my machine can run the benchmark". It is a command sheet: five shell commands in run order, in one code frame, each with a short comment above it and a small box in the left gutter that fills when CogPortal has seen that command's result. Nothing on it is ticked by hand. Every filled box is evidence the `cogworks` CLI sent from inside the team's own worktree, or a device the student linked.
+The setup guide takes a student from "the portal knows my team" to "my machine can run the benchmark". Five shell commands in run order, each under a title and a sentence saying why it matters, each with a small box in the left gutter that fills when CogPortal has seen that command's result. Nothing on it is ticked by hand. Every filled box is evidence the `cogworks` CLI sent from inside the team's own worktree, or a device the student linked.
+
+For one revision the page carried the five commands and nothing else, under five shell comments. It read to a person who already knew what each line did and to nobody else, and the titles and reasons were restored.
 
 It lives at `/setup` behind `RequireStage stage="team"`, so a visitor with no session goes to `/signin`, one with no cohort to `/join`, and one with no team to `/connect`, all with `replace` (`apps/portal/src/App.tsx:125`, `:59`, `:69`, `:70`). It is the last stop of the onboarding chain and the only page whose main content is text meant to be typed somewhere else.
 
@@ -21,7 +23,7 @@ Then the sheet, labelled for assistive technology as "Setup commands, in run ord
 git clone {repo url}.git && cd {repo name}
 
 # tool  (if "command not found": activate the course environment, then rerun)
-python -m pip install --upgrade "cogworks-benchmark @ git+https://github.com/SamGu-NRX/CogPortal.git@fix/product-description-triage#subdirectory=python/cogbench"
+python -m pip install --upgrade --force-reinstall "cogworks-benchmark @ git+https://github.com/SamGu-NRX/CogPortal.git@{40-character commit}#subdirectory=python/cogbench"
 
 # benchmark for {track title}
 python -m pip install "{distribution} @ {pinned git source}"
@@ -35,7 +37,7 @@ cogworks check --benchmark {benchmark id} --update-setup
 
 They paste them in order. Nothing on the page changes while they work. When the check passes and its portal call lands, the page repaints within two and a half seconds: the boxes for clone, tool, benchmark, and check fill with ticks at once, the four commands drop to faint ink, and the masthead reaches SETUP · 5 OF 5 VERIFIED. The terminal, meanwhile, has printed one line naming what it sent: `setup: updated clone, environment, project, wiring` (`python/cogbench/src/cogbench/cli.py:158`).
 
-At five of five, the quiet "Open dashboard" link at the foot of the page becomes a filled button (`SetupPage.tsx:149-165`). That is the whole difference completion makes. There is no completion panel and no congratulation.
+At five of five a SETUP COMPLETE panel replaces the quiet foot of the page, saying that this machine can find the repository and call the code, pointing at a local run first, and carrying "Open dashboard" as a filled button (`SetupPage.tsx`, the `complete` branch). It states what setup proves and what it does not: not a grade, and no claim that the code is good yet.
 
 If they stop halfway and close the tab, nothing is lost, because nothing on this page was holding the progress. The four machine steps live in the portal's database, written by the CLI, and the link cell reads the device list.
 
@@ -45,7 +47,9 @@ The five lines are the product, so they are quoted in full order. Each is built 
 
 **Clone.** Comment `# clone`. Command `git clone {repo url}.git && cd {repo name}`, built from the team record (`setup-progress.ts:86-89`, `:153-154`). Its cell fills on the `clone` step.
 
-**Tool.** Comment `# tool  (if "command not found": activate the course environment, then rerun)`. Command `python -m pip install --upgrade "cogworks-benchmark @ {COGBENCH_SOURCE}"` (`setup-progress.ts:95-99`). Its cell fills on the `environment` step. The source is a PEP 508 direct reference to a branch of the CogPortal repository itself, `git+https://github.com/SamGu-NRX/CogPortal.git@fix/product-description-triage#subdirectory=python/cogbench` (`apps/portal/src/lib/benchmark-packages.ts:30-31`). It is the one source on the page pinned to a moving ref rather than a commit, deliberately: the tool reads a student's repository and reports what it found, so it has to move with the branch, and `--upgrade` is what makes a second run pick up the branch head (`benchmark-packages.ts:19-29`).
+**Tool.** Title "Install the CogWorks tool", above a sentence saying that `cogworks` is what reads the repository, works out which of the student's functions the benchmark should call, and scores them. Command `python -m pip install --upgrade --force-reinstall "cogworks-benchmark @ {COGBENCH_SOURCE}"` (`setup-progress.ts`, the `tool` line). Its cell fills on the `environment` step. The source is a PEP 508 direct reference to a forty character commit of the CogPortal repository itself (`apps/portal/src/lib/benchmark-packages.ts:25-26`), pinned like every other package on the page so that two students reading it install the same tool.
+
+`--force-reinstall` is there because the version does not change between pins. The package is 0.2.0 at every commit, pip treats an equal version as already satisfied, and `--upgrade` alone therefore exits zero and leaves the previous commit installed. Measured: an upgrade between two pins left the installed `direct_url.json` naming the old commit, and forcing it replaced the package. The tool declares no dependencies, so forcing it reinstalls nothing else. A test asserts the flag is present and that exactly one command in the sheet carries it, since a benchmark brings the course stack and must never be forced (`apps/portal/test/command-sheet.test.ts`).
 
 **Benchmark.** Comment `# benchmark for {track title}`. Command `python -m pip install "{distribution} @ {source}"` (`setup-progress.ts:109-112`). Its cell fills on the `project` step. Each source is pinned to a forty character commit, which is the submodule commit recorded in `.gitmodules`; a submodule bump is also an edit to `benchmark-packages.ts` (`benchmark-packages.ts:1-11`). The two vision tracks share one distribution, so switching between recognition and clustering installs nothing new (`benchmark-packages.ts:39-45`). This line is present only when the selected track has a mapped package; a track with none shows no install line rather than a guessed one (`benchmark-packages.ts:60-64`), and the sheet is then four lines long and the masthead says "of 4".
 
@@ -197,7 +201,7 @@ The CLI's write path uses a different actor entirely. `POST /api/v1/cli/setup/ch
 - **Resetting reloads the page into a rehearsal.** "Reset guide" arms a `ConfirmButton` that changes its own label to "Confirm reset" (`SetupPage.tsx:229-235`), then deletes the server rows, clears the local keys, and does a full page assignment to `/setup?replay=creator` (`:94-101`). A failed reset renders nothing at all: the mutation has an `onSuccess` and no error path.
 - **The dead checkbox key is still cleared.** Nothing writes `cog-setup:{teamId}:{login}` any more, but the reset still removes it so a student who used the old checkbox guide is not left with an orphan entry (`setup-progress.ts:23-27`, `:31`).
 - **Nothing on the page tells a student what `--update-setup` sends.** `cogworks link` prints that sentence before the handshake (`cli.py:660`). The sheet's own comment on the check line says only that it "updates this page".
-- **The install source is a branch, and the page does not say so.** The tool line pins a branch rather than a commit, on purpose, and `--upgrade` re-resolves it every time (`benchmark-packages.ts:19-31`). A student who ran the line last week and runs it again today can get a different tool, and nothing in the comment above the command mentions that.
+- ~~**The install source is a branch, and the page does not say so.**~~ Resolved. The tool line pins a forty character commit like every other package on the page, and carries `--force-reinstall` because an equal version would otherwise leave the old commit installed. The step's own text says the tool is pinned to one commit so that everyone reading the page installs the same one.
 - **The commands name a benchmark even before the benchmark list resolves.** `useTrack()` returns the constant `vision-recognition` as `benchmarkId` until the query lands (`apps/portal/src/lib/queries.ts:18`, `track.ts:100`). The check command therefore renders a real, possibly wrong, command for one paint. The dashboard nudge avoids this by returning null while the track is pending, with a comment saying it is avoiding a count that renumbers itself (`SetupNudge.tsx:39-41`); the page itself does not wait.
 - **One active benchmark means no switcher.** `TrackSwitcher` renders plain text with no trigger when there is a single track, on the stated ground that "One track is not a choice." (`apps/portal/src/components/TrackSwitcher.tsx:118`). A cohort running one module sees a label where a control would otherwise be, and the label still carries the version, as `{title} · v{version}` (`:116`).
 - **The 409 for a wrong directory compares normalized names.** The server strips a trailing `.git` and lowercases both sides before comparing (`setup.ts:23`), so a remote written with different capitalization or with the `.git` suffix still matches. What does not match is a fork under a personal account, which is the case the sentence at `setup.ts:81` exists to name.
