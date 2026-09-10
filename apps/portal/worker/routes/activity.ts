@@ -42,6 +42,60 @@ const ActivityMutationSchema = z.enum([
   "rerun_hosted",
 ]);
 
+/**
+ * Discord's reason for refusing the token exchange. Only `error` is read, and
+ * only up to a bounded length: the rest of the response can echo the request
+ * that was refused, and that request carries the client secret and the code.
+ *
+ * The value is deliberately not a closed enum. Discord's rate-limit body has no
+ * `error` key at all, an edge failure returns HTML, and the provider can ship
+ * an identifier we have not seen. Recording only what we recognised would drop
+ * exactly the responses that are hardest to diagnose.
+ */
+const DiscordOAuthErrorSchema = z.object({ error: z.string().min(1).max(64) });
+
+/** Refusals that say our own credentials or our own request are wrong. */
+const PORTAL_SIDE_OAUTH_ERRORS = new Set([
+  "invalid_client",
+  "unauthorized_client",
+  "invalid_request",
+  "unsupported_grant_type",
+  "invalid_scope",
+]);
+
+/**
+ * What to record and what to say when Discord refuses to exchange the code.
+ *
+ * This branch collapsed every non-OK response into one sentence and kept
+ * neither the status nor the reason. A student hit it on the hosted Activity,
+ * and afterwards nothing distinguished a stale client secret from a code that
+ * had already expired, because the evidence was discarded at the moment it
+ * existed.
+ *
+ * Three sentences, because the student's next move genuinely differs and the
+ * portal should not claim more than the response shows. A refused grant is
+ * fixed by a fresh one. A refusal that names our credentials will refuse again,
+ * so sending them back costs them time. Anything else, including a rate limit
+ * or an edge failure, is a refusal we cannot explain, and saying it is ours to
+ * fix would be a guess.
+ */
+export function activityTokenRejection(
+  status: number,
+  body: unknown,
+): { logged: { evt: string; status: number; error: string }; message: string } {
+  const parsed = DiscordOAuthErrorSchema.safeParse(body);
+  const error = parsed.success ? parsed.data.error : "none";
+  return {
+    logged: { evt: "activity_token_exchange_rejected", status, error },
+    message:
+      error === "invalid_grant"
+        ? "Discord would not accept that authorization. Close the Activity and open it again for a fresh one."
+        : PORTAL_SIDE_OAUTH_ERRORS.has(error)
+          ? "Discord turned down this Activity's sign-in, and reopening won't change that. Tell an instructor; the fix is on our side."
+          : "Discord did not answer this sign-in. Open the Activity again, and tell an instructor if it keeps happening.",
+  };
+}
+
 function configured(c: Context<AppEnv>): { clientId: string; clientSecret: string; sessionSecret: string } {
   if (!c.env.DISCORD_CLIENT_ID || !c.env.DISCORD_CLIENT_SECRET || !c.env.ACTIVITY_SESSION_SECRET) {
     throw new ApiHttpError(501, "provider_unconfigured", "Discord Activity authentication is not configured.");
@@ -139,13 +193,23 @@ export function registerActivityRoutes(app: Hono<AppEnv>): void {
       }),
     });
     if (!tokenResponse.ok) {
-      throw new ApiHttpError(401, "unauthorized", "Discord could not authorize the Activity.");
+      const rejection = activityTokenRejection(
+        tokenResponse.status,
+        await tokenResponse.json().catch(() => null),
+      );
+      console.warn(JSON.stringify(rejection.logged));
+      throw new ApiHttpError(401, "unauthorized", rejection.message);
     }
     const token = z.object({ access_token: z.string().min(1) }).parse(await tokenResponse.json());
     const userResponse = await fetch("https://discord.com/api/v10/users/@me", {
       headers: { Authorization: `Bearer ${token.access_token}` },
     });
-    if (!userResponse.ok) throw new ApiHttpError(401, "unauthorized", "Discord identity could not be loaded.");
+    if (!userResponse.ok) {
+      // Discord rate-limits /users/@me, so this is reachable with a token that
+      // is perfectly good.
+      console.warn(JSON.stringify({ evt: "activity_identity_fetch_failed", status: userResponse.status }));
+      throw new ApiHttpError(401, "unauthorized", "Discord identity could not be loaded.");
+    }
     const user = z
       .object({ id: z.string(), username: z.string(), global_name: z.string().nullable().optional() })
       .parse(await userResponse.json());
