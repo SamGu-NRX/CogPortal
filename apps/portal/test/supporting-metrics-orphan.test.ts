@@ -242,3 +242,24 @@ test("the same metrics claim their direction once the run records roles", () => 
   assert.equal(claimsDirection(scored, true), true);
   assert.ok(render([scored]).includes("▲"));
 });
+
+test("an unclassified metric in a run that did record roles keeps its arrow", () => {
+  // Week 1 declares roles for four keys and deliberately leaves the other
+  // eight alone, because its own text does not settle them. Those eight are
+  // ordinary scored metrics and must read exactly as they always have. The
+  // neutral rule is about a run with no roles at all, not about a metric the
+  // producer chose not to classify.
+  const classified = metric({
+    key: "chance_top1",
+    label: "Chance",
+    value: 0.0333,
+    role: "floor",
+    relatesTo: "identification_score",
+  });
+  const unclassified = metric({ key: "clean_top1", label: "Clean top-1", value: 1.0 });
+
+  assert.equal(claimsDirection(unclassified, true), true);
+  const html = render([classified, unclassified], true);
+  assert.ok(html.includes("Clean top-1"));
+  assert.equal((html.match(/▲|▼/g) || []).length, 1, "the unclassified metric lost its arrow");
+});
