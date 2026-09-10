@@ -91,16 +91,16 @@ export function RunDetailPage() {
   // supporting row, because the primary is not in that list, so without this
   // it renders at the bottom of the page as a number with nothing to compare
   // it to. Week 1 declares two.
-  // Whether this result carried role metadata at all. A run stored before the
-  // portal kept `role` has none, and a floor is then indistinguishable from a
-  // scored metric, so nothing on the page claims a direction for it.
-  const rolesRecorded = run.metrics.some((m) => m.role != null);
   const primaryFloors = primary
     ? run.metrics.filter((m) => m.role === "floor" && m.relatesTo === primary.key)
     : [];
   const supporting = run.metrics.filter(
     (m) => !m.primary && !primaryFloors.includes(m),
   );
+  // Whether this result carried role metadata at all. A run stored before the
+  // portal kept `role` has none, and a floor is then indistinguishable from a
+  // scored metric, so nothing on the page claims a direction for it.
+  const rolesRecorded = run.metrics.some((m) => m.role != null);
   const duration =
     run.finishedAt != null ? formatDurationMs(run.finishedAt - run.createdAt) : null;
 

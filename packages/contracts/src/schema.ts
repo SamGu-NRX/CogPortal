@@ -93,7 +93,11 @@ export const MetricSchema = z.object({
    * protocol.ts for why: an arrow saying which direction is better is an
    * assertion about the submission, and it is false on a floor.
    *
-   * Nullish means scored, which is what everything was before this existed.
+   * Nullish means the producer did not say. That used to be read as "scored",
+   * which is what everything was before this field existed; a run whose
+   * metrics carry no roles at all is now presented without direction claims
+   * instead, because a floor and a scored metric are indistinguishable in
+   * that state. See `claimsDirection` in the portal's MetricBlock.
    */
   role: z.enum(METRIC_ROLES).nullish(),
   /** The metric this one is the floor of, or is reported alongside. */

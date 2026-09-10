@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { shouldRevalidateRestoredDocument } from "../src/lib/queries.ts";
+import {
+  restoredDocumentListener,
+  shouldRevalidateRestoredDocument,
+} from "../src/lib/queries.ts";
 
 /**
  * Which page loads have to throw away what they are holding.
@@ -22,4 +25,24 @@ test("a page restored from the back/forward cache is revalidated", () => {
 
 test("an ordinary load is not, because mounting already fetched", () => {
   assert.equal(shouldRevalidateRestoredDocument({ persisted: false }), false);
+});
+
+test("the listener invalidates only on a restore", () => {
+  // The predicate alone is an identity function, so asserting it in isolation
+  // proves nothing about the behaviour. This exercises the decision and the
+  // call together. What is still uncovered is the registration itself, in
+  // `useRevalidateOnRestore`, which needs a DOM.
+  let invalidated = 0;
+  const listen = restoredDocumentListener(() => {
+    invalidated += 1;
+  });
+
+  listen({ persisted: false });
+  assert.equal(invalidated, 0, "an ordinary load refetched a second time");
+
+  listen({ persisted: true });
+  assert.equal(invalidated, 1, "a restored page kept the previous account");
+
+  listen({ persisted: true });
+  assert.equal(invalidated, 2);
 });

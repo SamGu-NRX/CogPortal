@@ -83,8 +83,16 @@ class JsonEnvelope(unittest.TestCase):
 
     @unittest.skipUnless(hasattr(os, 'fork'), 'POSIX isolation')
     def test_live_python_objects_and_numpy_scalars_are_refused(self):
-        import numpy as np
-        values = [lambda: None, ValueError('bad'), Path('/tmp'), np.int64(1), np.float64(1), np.bool_(True)]
+        # numpy is not installed in every CI job, and the Python objects are
+        # the part that must hold everywhere. Add the scalars when the
+        # interpreter has them rather than skipping the whole case.
+        values = [lambda: None, ValueError('bad'), Path('/tmp')]
+        try:
+            import numpy as np
+        except ImportError:
+            pass
+        else:
+            values += [np.int64(1), np.float64(1), np.bool_(True)]
         for value in values:
             with self.subTest(kind=type(value).__name__):
                 result = isolate.run_isolated(lambda: value)

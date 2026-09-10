@@ -48,6 +48,17 @@ export function shouldRevalidateRestoredDocument(event: { persisted: boolean }):
   return event.persisted;
 }
 
+/** The listener itself, so a test can exercise the decision and the call
+ *  together rather than asserting that a boolean equals itself. */
+export function restoredDocumentListener(
+  invalidate: () => void,
+): (event: { persisted: boolean }) => void {
+  return (event) => {
+    if (!shouldRevalidateRestoredDocument(event)) return;
+    invalidate();
+  };
+}
+
 /**
  * Drop everything a restored document is holding, so the page it shows belongs
  * to whoever is signed in now. Session-gated data is all of it: the account,
@@ -56,10 +67,9 @@ export function shouldRevalidateRestoredDocument(event: { persisted: boolean }):
 export function useRevalidateOnRestore(): void {
   const qc = useQueryClient();
   useEffect(() => {
-    const onPageShow = (event: PageTransitionEvent) => {
-      if (!shouldRevalidateRestoredDocument(event)) return;
+    const onPageShow = restoredDocumentListener(() => {
       void qc.invalidateQueries();
-    };
+    });
     window.addEventListener("pageshow", onPageShow);
     return () => window.removeEventListener("pageshow", onPageShow);
   }, [qc]);

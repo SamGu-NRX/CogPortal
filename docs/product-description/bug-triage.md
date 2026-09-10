@@ -531,7 +531,7 @@ Three classes of thing were left out on purpose.
 - **Severity:** `high`. It defeats the supporting-metric work entirely and it fails on the least legible result a student can get.
 - **Decision needed:** `fix`.
 - **Raised by:** Astra lifecycle pass at `49f6a98`, `verification-roles/lifecycle/report.md` (P1, RUNPAGE-02/05, SCORE-01/09), with `withheld-missing-evidence.jpg` and `withheld.dom.txt`.
-- **Status:** *confirmed at `49f6a98` with an injected record; repaired at `0d53687`+.* The gate is now on the run succeeding alone. With no primary the page states "This run has no overall score. Everything the scorer could measure is below." and renders the supporting metrics. Verified locally on the real page with an equivalent injected record: the diagnostic, `text_mrr` 0.789, `text_chance` folded as its parent's floor, the orphan `chance_mrr` standalone, and exactly one direction arrow, on the one scored metric. This was an injected record on both passes, not a real scorer result.
+- **Status:** *confirmed at `49f6a98` with an injected record; repaired in `e76a75b`.* The gate is now on the run succeeding alone. With no primary the page states "This run has no overall score. Everything the scorer could measure is below." and renders the supporting metrics. Verified locally on the real page with an equivalent injected record: the diagnostic, `text_mrr` 0.789, `text_chance` folded as its parent's floor, the orphan `chance_mrr` standalone, and exactly one direction arrow, on the one scored metric. This was an injected record on both passes, not a real scorer result.
 
 ### B-43: The back button restores a previous account's page
 
@@ -542,4 +542,4 @@ Three classes of thing were left out on purpose.
 - **Severity:** `high`. It is a shared-machine identity display, and the course runs on shared machines.
 - **Decision needed:** `fix`.
 - **Raised by:** Astra role and lifecycle passes at `49f6a98`, `verification-roles/lifecycle/report.md` (P2, SIGNIN-02/JOIN-02), with `history-before-back.jpg`, `history-repeat.jpg`, `history-repeat-refreshed.jpg`.
-- **Status:** *confirmed twice at `49f6a98`; repaired at `0d53687`+.* A `pageshow` listener now invalidates every session-gated query when `persisted` is true, which is exactly the back/forward-cache restore and nothing else. No second auth store and no polling timer. **The observation never demonstrated old-account server access**, and this repair does not claim to have fixed one; it corrects what the restored page displays.
+- **Status:** *confirmed twice at `49f6a98`; repaired in `f463000`.* A `pageshow` listener now invalidates every session-gated query when `persisted` is true, which is exactly the back/forward-cache restore and nothing else. No second auth store and no polling timer. **The observation never demonstrated old-account server access**, and this repair does not claim to have fixed one; it corrects what the restored page displays.

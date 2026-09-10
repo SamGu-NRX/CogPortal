@@ -65,9 +65,9 @@ It does not settle everything, and the checklist marks the difference. These ite
 
 ## Results so far
 
-The drafting pass ran nothing, and most Result columns still read `not run`.
-That is no longer the whole story, and the blanket statement it used to make
-here was stale.
+The drafting pass ran nothing, and **all 244 Result columns still read
+`not run`**. No row has moved. What was stale here was the reason given: the
+old wording implied no evidence existed anywhere, and that is no longer true.
 
 Dated evidence now exists from three separate passes, each against a **named
 earlier revision**, not against the current candidate:
@@ -77,11 +77,13 @@ earlier revision**, not against the current candidate:
 - role, lifecycle and device passes at `49f6a98`, plus a frozen process
   diagnosis of the same source.
 
-`/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-restoration/id-evidence-handoff-49f6a98.md`
-maps that evidence to these tables ID by ID, and states the limit on each one.
-Read it before marking anything: several IDs have a partial observation that
-does **not** close the item, and a static read of a settled run is not
-evidence of a live transition.
+An evidence handoff maps that evidence to these tables ID by ID and states the
+limit on each one. It currently lives outside this repository, in the
+verification worktree that produced it, which means this instruction is only
+followable on the machine that has it — copying it in is the obvious next
+step and has not been done. What it says, and what matters here: several IDs
+have a partial observation that does **not** close the item, and a static read
+of a settled run is not evidence of a live transition.
 
 Two rules follow, and they are the reason this section is not a pass list:
 

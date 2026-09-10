@@ -233,6 +233,40 @@ const PAIRED_FLOOR: Metric[] = [
   ...ORPHAN_FLOOR,
 ];
 
+/** What week 3 publishes when the image side is unmeasured: a scored text
+ *  metric, its floor, and a floor whose parent is not here at all. */
+const WITHHELD: Metric[] = [
+  metric({
+    key: "text_mrr",
+    label: "Text MRR",
+    value: 0.7888,
+    precision: 3,
+    primary: false,
+    role: "scored",
+    help: null,
+  }),
+  metric({
+    key: "text_chance",
+    label: "Text chance MRR",
+    value: 0.04,
+    precision: 3,
+    primary: false,
+    role: "floor",
+    relatesTo: "text_mrr",
+    help: "What ranking at random scores on the caption pool.",
+  }),
+  metric({
+    key: "chance_mrr",
+    label: "Chance MRR",
+    value: 0.0102,
+    precision: 3,
+    primary: false,
+    role: "floor",
+    relatesTo: "retrieval_mrr",
+    help: "What ranking at random scores on the image pool.",
+  }),
+];
+
 const SETUP_LINES = setupCommandLines({
   cloneUrl: "https://github.com/cogworks-demo/face-finder.git",
   repoName: "face-finder",
@@ -296,6 +330,34 @@ export function GalleryPage() {
         </Panel>
         <Panel label="FLOOR WHOSE PARENT IS WITHHELD">
           <SupportingMetrics metrics={ORPHAN_FLOOR} />
+        </Panel>
+      </div>
+
+      <h2 className="mt-12 font-serif text-xl font-semibold text-ink">
+        Results with no overall score
+      </h2>
+      <p className="mb-2 mt-2 text-[13px] text-ink-faint">
+        A benchmark can withhold the primary and still have measured plenty.
+        The page used to gate the whole results block on having one, so this
+        state showed a pipeline, a Promote button and a log and nothing else.
+        Left: what a withheld run has to say for itself. Right: the same
+        metrics in a run that recorded no roles at all, which is every result
+        stored before the portal kept them — the values stay, the direction
+        claims go, because a floor and a scored metric are indistinguishable
+        in that state.
+      </p>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Panel label="NO OVERALL SCORE">
+          <p className="max-w-prose text-[14px] leading-[1.6] text-ink">
+            This run has no overall score. Everything the scorer could measure
+            is below.
+          </p>
+          <div className="mt-4">
+            <SupportingMetrics metrics={WITHHELD} rolesRecorded />
+          </div>
+        </Panel>
+        <Panel label="NO ROLES RECORDED">
+          <SupportingMetrics metrics={WITHHELD} rolesRecorded={false} />
         </Panel>
       </div>
 

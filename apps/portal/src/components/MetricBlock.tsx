@@ -18,11 +18,20 @@ import { CornerBrackets } from "./Brackets";
  *   never declared roles pays the same price, and declaring them removes it.
  * - A reported metric is deliberately outside the score. That is a separate
  *   fact from which way is better, so it keeps its direction when the
- *   benchmark actually stated one. Only "lower is better" is a statement:
- *   producers compute `higher_is_better = key not in lower_is_better`, so
- *   `true` is what an unclassified key gets by default rather than a claim
- *   about it. That is why week 1's median identify time keeps its ▼ while
- *   week 3's verbatim probes, whose higher really is worse, still show none.
+ *   benchmark actually stated one. Only "lower is better" is treated as a
+ *   statement: producers compute `higher_is_better = key not in
+ *   lower_is_better`, so `true` is what an unclassified key gets by default.
+ *   Week 1's median identify time keeps its ▼; week 3's verbatim probes,
+ *   whose higher really is worse, show none.
+ *
+ *   This is deliberately conservative and it is wrong about one real metric.
+ *   Week 1's `margin_separation` is reported, is absent from
+ *   `lower_is_better`, and its own help says a high value is a usable
+ *   confidence signal, so higher genuinely is better and this rule denies it
+ *   an arrow. Nothing regressed — a reported metric never had one — but the
+ *   rule under-claims there, and the honest fix is for a benchmark to say
+ *   "no direction" itself rather than for the portal to infer it from a
+ *   producer's default. That needs a contract field and is not this change.
  */
 export function claimsDirection(metric: Metric, rolesRecorded: boolean): boolean {
   if (metric.role === "floor") return false;
