@@ -1743,7 +1743,7 @@ def _replay(
         arrangement = int(stored.get("arrangement", 0))
         attempts_tried = int(stored.get("attemptsTried", 0))
         form = forms[int(stored.get("form") or 0)] if forms else ()
-    except (TypeError, ValueError, IndexError):
+    except (TypeError, ValueError, IndexError, OverflowError):
         return None
     names = identities_for(identities, form)
 
@@ -1971,8 +1971,8 @@ def _store_candidates(found: Discovery, steps: Sequence[Candidate]) -> List[Cand
 def _graded_packages(benchmark: str) -> FrozenSet[str]:
     """Import names the graded run installs for this benchmark.
 
-    Read from `cogbench.environment`, which is generated from the same data
-    the images are built from, rather than kept as a second list here. It used
+    Read from `cogbench.environment`, which restates the versions the
+    images install rather than keeping a second list here. It used
     to be a hand-maintained global frozenset named COURSE_PACKAGES, and being
     global was the bug: it drove the message "the graded run has it", which
     cannot be true of all three tracks at once. Checked against the images,
