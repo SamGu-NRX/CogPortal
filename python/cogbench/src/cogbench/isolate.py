@@ -624,9 +624,16 @@ def _collect(pid, read_fd, timeout_seconds, memory_bytes) -> Outcome:
                 # EOF can precede a waitable exit on Linux. Reap before any
                 # cleanup signal so a self/external SIGKILL keeps its identity.
                 # Keep the existing deadline armed: code holding the descriptor
-                # can close it and remain alive, despite _child's normal ordering.
-                status = _reap(pid)[1]
-                reaped = True
+                # can close it and remain alive, despite _child's normal
+                # ordering. The alarm can therefore land inside this wait, and
+                # that is a real timeout rather than a lost status, so it falls
+                # through to the cleanup path with `fired` set.
+                try:
+                    observed = _reap_exact(pid)
+                except _Alarm:
+                    fired, observed = True, None
+                if observed is not None:
+                    status, reaped = observed, True
         except _Alarm:
             fired, outcome = True, None
             reason = reason or "alarm"
@@ -690,3 +697,20 @@ def _reap(pid: int):
         return os.waitpid(pid, 0)
     except OSError:
         return pid, 0
+
+
+def _reap_exact(pid: int):
+    """Wait for `pid` and return its status, or None if it could not be waited for.
+
+    `_reap` reports a failed wait as status 0, which reads as "exited normally,
+    no signal". That is a harmless fallback where the result only fills a gap,
+    and a silent falsehood where it is the authoritative record of how a child
+    died: a self-SIGKILL came back with no signal at all, intermittently and
+    only on Linux, because a transient failure here was indistinguishable from
+    a clean exit.
+    """
+
+    try:
+        return os.waitpid(pid, 0)[1]
+    except OSError:
+        return None

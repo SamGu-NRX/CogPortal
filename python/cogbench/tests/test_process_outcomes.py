@@ -177,3 +177,49 @@ class ProcessOutcomes(unittest.TestCase):
         checks = record.get('checks', record)
         self.assertIn(result.detail, checks['submissionError'])
         self.assertEqual(checks['submissionDetail'], result.diagnostics())
+
+
+@unittest.skipUnless(hasattr(os, 'fork'), 'requires POSIX isolation')
+class ReapFailureModes(unittest.TestCase):
+    """The two ways the authoritative reap lost a child's real death.
+
+    Both were found by Linux CI and neither reproduces on macOS, where the
+    timing is friendlier. Forcing them here is what makes them regressions
+    rather than weather.
+    """
+
+    def test_a_wait_that_fails_does_not_become_a_clean_exit(self):
+        # `_reap` reports a failed wait as status 0, which reads as "exited
+        # normally, no signal". Used as the authoritative record that turned a
+        # self-SIGKILL into a child that apparently exited fine.
+        calls = []
+        real = isolate.os.waitpid
+
+        def flaky(pid, flags=0):
+            if flags == 0 and not calls:
+                calls.append(pid)
+                raise OSError(4, 'Interrupted system call')
+            return real(pid, flags)
+
+        with patch.object(isolate.os, 'waitpid', flaky):
+            result = isolate.run_isolated(lambda: os.kill(os.getpid(), signal.SIGKILL))
+
+        self.assertEqual(calls, [calls[0]], 'the failing wait was never exercised')
+        self.assertEqual(result.status, isolate.CRASHED)
+        self.assertEqual(result.signal, 9, 'a failed wait was reported as a clean exit')
+        self.assertFalse(result.alarm_fired)
+
+    def test_an_alarm_inside_the_reap_is_a_timeout_not_a_lost_status(self):
+        # The deadline stays armed across the reap on purpose, because code
+        # holding the descriptor can close it and stay alive. An alarm landing
+        # there must report the timeout, not fall through with no status.
+        real = isolate._reap_exact
+
+        def alarming(pid):
+            raise isolate._Alarm()
+
+        with patch.object(isolate, '_reap_exact', alarming):
+            result = isolate.run_isolated(lambda: 1, timeout_seconds=5)
+
+        self.assertTrue(result.alarm_fired, 'the alarm that fired was not recorded')
+        self.assertIsNot(real, alarming)

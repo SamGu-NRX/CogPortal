@@ -69,7 +69,12 @@ class ReportRoundTrips(unittest.TestCase):
                 self.assertIsInstance(view['report'], dict, 'rehydration must not mutate the source')
 
     def test_invalid_check_report_keeps_status_and_diagnostics_consistent(self):
+        # `_read_repository` tests `hasattr(os, 'fork')` before it looks at the
+        # platform, so on Windows this takes the in-process branch whatever
+        # `sys.platform` says. Stubbing the view as well makes all three paths
+        # hand the same invalid payload to the one rehydration site.
         with patch.object(cli, 'sys', SimpleNamespace(platform='darwin')), \
+             patch.object(cli, '_check_view', return_value={'report': {}}), \
              patch.object(cli, 'run_operation', return_value=Outcome(COMPLETED, value={'report': {}})):
             diagnostics = {}
             view, status, detail = cli._read_repository('fixture', Path('/tmp'), True,
