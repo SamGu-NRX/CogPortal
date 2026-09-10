@@ -10,13 +10,19 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 BENCHMARK = ROOT / "benchmarks" / "week3"
-REVIEWED_COMMIT = "abdce758b85c347bc7ac0c15e31c5bc015ca5803"
+REVIEWED_COMMIT = "b166f5c15e950baccc3785839cdcc660ffe01bb4"
 
 PLUGIN_EXPECTATIONS = {
     'benchmark_id = "language-search"': "benchmark id",
     "benchmark_version = 1": "benchmark version",
     'contract_version = "cogworks.submissions.v2"': "contract version",
-    'scorer_version = "retrieval-v2"': "scorer version",
+    # The revision this parent pins computes `search_mrr` as the mean of the
+    # four query rewrites rather than the verbatim rung alone, and names that
+    # retrieval-v4. The portal's `benchmarks` catalog still says retrieval-v2
+    # (migration 0025 is the last one here). Local `cogworks run` reads this
+    # plugin and is unaffected; a hosted run reads the catalog, so the
+    # migration that moves the row has to land before this pin scores one.
+    'scorer_version = "retrieval-v4"': "scorer version",
     'primary_metric = "overall"': "primary metric",
 }
 

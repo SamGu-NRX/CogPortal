@@ -573,7 +573,7 @@ def run_operation(
     import json
     import subprocess
 
-    if operation not in ("survey",):
+    if operation not in ("check", "run", "survey"):
         raise ValueError("unknown isolated SDK operation: {!r}".format(operation))
     with tempfile.TemporaryDirectory(prefix="cogworks-discovery-") as temporary:
         workspace = Path(scratch).resolve() if scratch else Path(temporary)
@@ -630,6 +630,15 @@ def _operation_child() -> None:
         # _child has installed limits before invoking this function. Student
         # imports can now use their root without exposing it to site startup.
         sys.path.insert(0, str(Path(arguments["repository"]).resolve()))
+        if operation == "check":
+            from .cli import _check_view
+            return _check_view(arguments["name"], Path(arguments["repository"]), arguments["as_json"])
+        if operation == "run":
+            import argparse
+            from .cli import _run_view
+            # The whole parser namespace is intentional: worker behavior
+            # follows whatever flags the CLI parser defines, not a second schema.
+            return _run_view(argparse.Namespace(**arguments["args"]), Path(arguments["repository"]))
         if operation == "survey":
             from .discover import _survey_work
             return _survey_work(Path(arguments["repository"]), arguments["declared_root"],
