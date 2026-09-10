@@ -1,5 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { readdirSync, readFileSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
+import { drizzle } from "drizzle-orm/d1";
+import { benchmarks, cohorts, runs, runSurfaces, teams, users } from "../worker/db/schema.ts";
+import type { Env } from "../worker/env.ts";
+import { buildRunSurfaceSnapshot } from "../worker/services/run-surfaces.ts";
+import { WiringTrace } from "../src/components/WiringTrace.tsx";
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { FAILURE_CATALOG } from "@cogworks/contracts/failures";
@@ -82,8 +89,9 @@ test("a run detail without a refusal reads as null rather than absent", () => {
 test("the headline is allowed to be longer than a log line", () => {
   // The old cap was 240 characters, which cut a refusal mid-sentence right
   // where it started naming the modules that could not be read.
-  assert.ok(refusal.headline.length > 140);
-  assert.equal(RunDetailSchema.shape.refusal.safeParse(refusal).success, true);
+  const schema = RunDetailSchema.shape.refusal;
+  assert.equal(schema.safeParse({ ...refusal, headline: "h".repeat(600) }).success, true);
+  assert.equal(schema.safeParse({ ...refusal, headline: "h".repeat(601) }).success, false);
 });
 
 test("a refusal stored before the error report existed still renders", () => {
@@ -327,4 +335,85 @@ test("collapsed failure copy reports attempt use only for official runs", () => 
   assert.match(practice, /E-ADAPTER · practice/);
   assert.doesNotMatch(practice, /attempt/);
   assert.match(official, /E-ADAPTER · official · attempt not consumed/);
+});
+
+
+test("a 601-character persisted refusal still produces a snapshot", async (t) => {
+  // Use the migrated database so this checks the persisted JSON through the
+  // snapshot builder and its strict schema, not just a string helper.
+  const sqlite = new DatabaseSync(":memory:");
+  t.after(() => sqlite.close());
+  const migrations = new URL("../migrations/", import.meta.url);
+  for (const file of readdirSync(migrations).filter((file) =>
+    file.endsWith(".sql") && !/^(0002_seed|0016_backfill)/.test(file)
+  ).sort()) {
+    sqlite.exec(readFileSync(new URL(file, migrations), "utf8"));
+  }
+  const binding = {
+    prepare(query: string) {
+      const statement = sqlite.prepare(query);
+      let bound: never[] = [];
+      const prepared = {
+        bind(...params: unknown[]) {
+          bound = params as never[];
+          return prepared;
+        },
+        async run() {
+          return { success: true, meta: statement.run(...bound) };
+        },
+        async raw() {
+          statement.setReturnArrays(true);
+          return statement.all(...bound);
+        },
+      };
+      return prepared;
+    },
+  };
+  const db = drizzle(binding as never);
+  await db.insert(cohorts).values({
+    id: "cohort_test", slug: "test", name: "Test cohort", joinCode: "TESTCODE", active: true,
+  });
+  await db.insert(users).values({
+    id: "user_test", name: "Ada", email: "ada@example.test", githubLogin: "ada", cohortId: "cohort_test",
+  });
+  await db.insert(teams).values({
+    id: "team_test", cohortId: "cohort_test", name: "Test team",
+    repoOwner: "test", repoName: "test", repoFullName: "test/test",
+    repoUrl: "https://github.com/test/test", defaultBranch: "main", repoId: 1,
+  });
+  await db.insert(benchmarks).values({
+    id: "vision-recognition", version: 1, contractVersion: "cogworks.submissions.v1",
+    entryPointName: "submission", title: "Vision Recognition", module: "vision",
+    summary: "Test benchmark", active: true, primaryMetricKey: "accuracy", pluginVersion: "1",
+    datasetVersion: "official-v1", scorerVersion: "1", runtimeVersion: "python-3.11",
+  });
+  const surfaceId = "surface_0a1b2c3d4e5f60718293";
+  const createdAt = 1_780_000_000_000;
+  await db.insert(runSurfaces).values({
+    id: surfaceId, teamId: "team_test", createdByUserId: "user_test",
+    benchmarkId: "vision-recognition", benchmarkVersion: 1, createdAt, updatedAt: createdAt,
+  });
+  const headline = "h".repeat(601);
+  await db.insert(runs).values({
+    id: "run_refusal", teamId: "team_test", benchmarkId: "vision-recognition", benchmarkVersion: 1,
+    contractVersion: "cogworks.submissions.v1", mode: "practice", status: "failed",
+    branch: "main", sha: "a".repeat(40), repositoryId: 1, provider: "modal",
+    createdAt, finishedAt: createdAt + 1_000, surfaceId,
+    refusalJson: JSON.stringify({ ...refusal, headline }),
+  });
+
+  const snapshot = await buildRunSurfaceSnapshot({ DB: binding, EXECUTION_PROVIDER: "modal" } as unknown as Env, surfaceId);
+  assert.equal(snapshot.id, surfaceId);
+  assert.equal(snapshot.status, "failed");
+  assert.equal(snapshot.refusalHeadline, headline.slice(0, 600));
+});
+
+test("wiring keeps all 200 identifier characters and uses wrapping rather than ellipsis", () => {
+  const identifier = "module." + "f".repeat(193);
+  const markup = renderToStaticMarkup(React.createElement(WiringTrace, {
+    steps: [{ stage: "peaks", function: identifier }],
+  }));
+  assert.ok(markup.includes(identifier));
+  assert.match(markup, /class="break-all font-mono/);
+  assert.doesNotMatch(markup, /truncate|text-ellipsis/);
 });

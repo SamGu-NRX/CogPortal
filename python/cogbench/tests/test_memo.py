@@ -150,7 +150,7 @@ class ReuseTests(unittest.TestCase):
         self._resolve()
         memo.write(
             self.tmp,
-            memo.read.__module__ and _key(self.tmp),
+            _key(self.tmp),
             {"chain": ["theirs.gone"], "enroll": "theirs.remember", "query": "theirs.whose", "arrangement": 0},
         )
         again = self._resolve()

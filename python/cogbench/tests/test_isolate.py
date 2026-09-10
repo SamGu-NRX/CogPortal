@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -47,8 +48,22 @@ def _read_stdin():
 def _leak_a_child():
     import subprocess
 
-    subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
-    return "spawned"
+    return subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"]).pid
+
+
+class OutcomeContractTests(unittest.TestCase):
+    def test_outcome_has_only_the_fields_the_child_populates(self):
+        from dataclasses import fields
+        from cogbench.isolate import Outcome
+
+        self.assertEqual([field.name for field in fields(Outcome)], ["status", "value", "detail"])
+
+    def test_only_reachable_statuses_are_exported(self):
+        from cogbench import isolate
+
+        statuses = {name for name in isolate.__all__ if name.isupper()}
+        self.assertEqual(statuses, {"COMPLETED", "RAISED", "CRASHED", "TIMED_OUT"})
+        self.assertFalse(hasattr(isolate, "OUT_OF_MEMORY"))
 
 
 @unittest.skipUnless(hasattr(os, "fork"), "requires os.fork process isolation")
@@ -108,6 +123,63 @@ class IsolationTests(unittest.TestCase):
     def test_a_process_the_child_started_does_not_outlive_it(self):
         outcome = run_isolated(_leak_a_child, timeout_seconds=10)
         self.assertEqual(outcome.status, COMPLETED)
+        pid = outcome.value
+        try:
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline:
+                try:
+                    os.kill(pid, 0)
+                except ProcessLookupError:
+                    break
+                time.sleep(0.01)
+            else:
+                self.fail("grandchild {} survived process-group cleanup".format(pid))
+        finally:
+            # A failing regression must not leave its sleeping process behind.
+            import signal
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+    def test_short_pipe_writes_still_deliver_the_completed_result(self):
+        from unittest.mock import patch
+        from cogbench import isolate
+
+        write = os.write
+        # Deterministically reproduce a signal-shortened write, including
+        # a split length prefix, without depending on signal timing.
+        with patch.object(isolate.os, "write", side_effect=lambda fd, data: write(fd, data[:3])):
+            outcome = run_isolated(lambda: "finished" * 100)
+        self.assertEqual(outcome.status, COMPLETED)
+        self.assertEqual(outcome.value, "finished" * 100)
+
+    def test_buffered_output_is_flushed_without_repeating_parent_output(self):
+        import subprocess
+
+        for raises in (False, True):
+            with self.subTest(raises=raises):
+                source = """
+import sys
+sys.path.insert(0, {src!r})
+from cogbench.isolate import run_isolated
+sys.stderr.reconfigure(line_buffering=False)
+sys.stdout.write("parent-out|")
+sys.stderr.write("parent-err|")
+def work():
+    sys.stdout.write("child-out|")
+    sys.stderr.write("child-err|")
+    if {raises!r}:
+        raise ValueError("student error")
+    return 42
+outcome = run_isolated(work)
+assert outcome.status == {status!r}, outcome
+""".format(src=str(ROOT / "python" / "cogbench" / "src"), raises=raises,
+           status=RAISED if raises else COMPLETED)
+                done = subprocess.run([sys.executable, "-c", source], capture_output=True, text=True, timeout=15)
+                self.assertEqual(done.returncode, 0, done.stderr)
+                self.assertEqual(done.stdout, "parent-out|child-out|")
+                self.assertEqual(done.stderr, "parent-err|child-err|")
 
     def test_an_unpicklable_result_is_reported_not_lost(self):
         outcome = run_isolated(lambda: (lambda: None))

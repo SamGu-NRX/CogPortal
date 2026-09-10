@@ -1578,7 +1578,10 @@ def _bind_one(
             ok, produced = _mapped(shape, positional)
             if ok and produced:
                 element, offered = _pick_element(stage, produced)
-                return replace(shape, per_item=True, element=element), offered
+                # A failed whole call can also map to the wrong output.
+                # Keep trying shapes so a declared side input can supply it.
+                if _safe_produces(stage, offered):
+                    return replace(shape, per_item=True, element=element), offered
     for shape in shapes:
         for tuning in stage.tunings:
             trial = _tuned(shape, tuning)

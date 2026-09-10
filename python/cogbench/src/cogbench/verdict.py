@@ -425,12 +425,17 @@ def could_not_look(
     # lists to discover they were the same list. The count stays, because
     # "5 of your files" is the part that says how much was not looked at.
     count = len(coverage.ours)
+    # One unreadable file needs a singular package and pronoun in the headline.
+    missing = (
+        "one of your files, because this machine is missing a package it imports"
+        if count == 1
+        else "{} of your files, because this machine is missing packages they import".format(count)
+    )
     return Verdict(
         COULD_NOT_LOOK,
-        "This check could not read {} of your files, because this machine is "
-        "missing packages they import. That is a limit of this check and not "
+        "This check could not read {}. That is a limit of this check and not "
         "a problem with your repository: the graded run installs those "
-        "packages and will read them.".format(count),
+        "packages and will read them.".format(missing),
         next_step=next_step,
         coverage=coverage,
         # Still true, and still theirs: a module we could not read does not

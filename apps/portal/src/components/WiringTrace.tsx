@@ -49,7 +49,7 @@ export function WiringTrace({
               {step.stage}
             </div>
             <div className="min-w-0">
-              <div className="truncate font-mono text-[13px] text-ink">{step.function}</div>
+              <div className="break-all font-mono text-[13px] text-ink">{step.function}</div>
               {(step.received || step.returned) && (
                 // The shapes are the reproduction a team debugs from. They are
                 // the platform's whole contribution to a chain that runs and

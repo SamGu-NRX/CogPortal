@@ -330,13 +330,14 @@ class ShapesTheCorpusActuallyWrote(unittest.TestCase):
         """The course tells students to write a function taking image paths,
         so an arrays-only fixture refused every team that followed it."""
 
-        module = _written("theirs", "def load(paths):\n    return [len(str(p)) for p in paths]\n")
+        module = _written("theirs", "def load(paths):\n    return [len(p.encode()) for p in paths]\n")
         stage = Stage("d", produces=lambda v: isinstance(v, list))
         fixture = Fixtures((([[1, 2]],), (["a.png", "b.png"],)))
 
         found = probe_sources(stage, callables_in([module]), fixture)
 
         self.assertEqual([c.label for c, _ in found], ["theirs.load"])
+        self.assertEqual(found[0][0].form, 1)
 
     def test_a_returned_pair_may_be_the_next_function_s_arguments(self):
         """The course's own design returns "a list of nodes and an adjacency
@@ -2587,6 +2588,29 @@ class AWrongWholeAnswerDoesNotEndTheCandidate(unittest.TestCase):
 
         self.assertEqual([c.label for c, _ in found], ["theirs.tokenize"])
         self.assertIn("extra:idfs", found[0][0].plan)
+
+
+    def test_a_failed_whole_call_still_tries_the_side_input(self):
+        for validator in (lambda v: v == [["a"], ["b"]], None):
+            with self.subTest(validator=validator):
+                module = _written(
+                    "theirs",
+                    "def tokenize(text, idfs=None):\n"
+                    "    if isinstance(text, list):\n        raise TypeError('one text at a time')\n"
+                    "    if idfs is None:\n        return []\n"
+                    "    return [text]\n",
+                )
+                stage = Stage("tokens", produces=validator, per_item=True, extras=("idfs",))
+                found = probe_sources(
+                    stage, callables_in([module]), (["a", "b"],), extras={"idfs": {"a": 1.0}}
+                )
+                self.assertEqual([c.label for c, _ in found], ["theirs.tokenize"])
+                self.assertTrue(found[0][0].per_item)
+                if validator is not None:
+                    self.assertIn("extra:idfs", found[0][0].plan)
+                    self.assertEqual(found[0][1], [["a"], ["b"]])
+                else:
+                    self.assertNotIn("extra:idfs", found[0][0].plan)
 
 
 class OptionalFitStageTests(unittest.TestCase):

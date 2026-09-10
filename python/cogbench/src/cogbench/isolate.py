@@ -42,7 +42,6 @@ __all__ = [
     "Outcome",
     "CRASHED",
     "TIMED_OUT",
-    "OUT_OF_MEMORY",
     "RAISED",
     "COMPLETED",
     "run_isolated",
@@ -54,7 +53,6 @@ COMPLETED = "completed"
 RAISED = "raised"
 CRASHED = "crashed"
 TIMED_OUT = "timed_out"
-OUT_OF_MEMORY = "out_of_memory"
 
 #: Whole-of-discovery wall clock. Generous: the slowest legitimate import in
 #: the corpus builds a FaceNet model, and a week 1 chain check enrolls two
@@ -84,7 +82,7 @@ _FATAL = {
 class Outcome:
     """What happened in the child, in terms the parent can report.
 
-    ``status`` is one of the five module constants. ``value`` is set only for
+    ``status`` is one of the four status constants. ``value`` is set only for
     ``COMPLETED``. ``detail`` is a sentence naming the cause, written for a
     student rather than for a log.
     """
@@ -92,9 +90,6 @@ class Outcome:
     status: str
     value: Any = None
     detail: str = ""
-    #: Whatever the child wrote before it died. A crash is far easier to place
-    #: when the last thing the child printed is the function it was calling.
-    trace: str = ""
 
     @property
     def ok(self) -> bool:
@@ -309,8 +304,12 @@ def _child(
                 ),
                 protocol=pickle.HIGHEST_PROTOCOL,
             )
-        os.write(write_fd, struct.pack("!I", len(payload)))
-        os.write(write_fd, payload)
+        # A signal mid-write can shorten a blocking pipe write. Send the
+        # remainder so completed work is not reported as a crash when the
+        # reader rejects a truncated payload.
+        payload = struct.pack("!I", len(payload)) + payload
+        while payload:
+            payload = payload[os.write(write_fd, payload):]
     except BaseException:  # noqa: BLE001 - a broken pipe must not raise here
         exit_code = 70
     finally:
@@ -318,6 +317,13 @@ def _child(
             os.close(write_fd)
         except OSError:
             pass
+        # _exit does not flush Python streams. Preserve output on paths
+        # that reach finally; fatal signals still bypass this cleanup.
+        for stream in (sys.stdout, sys.stderr):
+            try:
+                stream.flush()
+            except BaseException:
+                pass  # A closed or broken student stream must not prevent exit.
         os._exit(exit_code)
 
 
@@ -408,6 +414,10 @@ def run_isolated(
     with tempfile.TemporaryDirectory(prefix="cogworks-discovery-") as temporary:
         workspace = Path(scratch) if scratch else Path(temporary)
         read_fd, write_fd = os.pipe()
+        # Empty inherited buffers so the child's final flush cannot print
+        # the parent's pending output a second time.
+        sys.stdout.flush()
+        sys.stderr.flush()
         pid = os.fork()
         if pid == 0:
             os.close(read_fd)

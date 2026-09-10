@@ -366,8 +366,17 @@ class WhenTheCheckCouldNotLook(unittest.TestCase):
                 local_gap_note="12 packages the graded run installs are missing here.",
             )
         )
-        self.assertIn("could not read 1 of your files", text)
+        self.assertIn("could not read one of your files", text)
+        self.assertIn("missing a package it imports", text)
         self.assertNotIn("12 packages", text)
+
+    def test_multiple_unreadable_files_keep_the_plural_headline(self):
+        from cogbench.verdict import Coverage, could_not_look
+
+        coverage = Coverage(skipped=(("one", "missing cv2", "ours"), ("two", "missing scipy", "ours")))
+        verdict = could_not_look(coverage)
+        self.assertIn("could not read 2 of your files", verdict.headline)
+        self.assertIn("missing packages they import", verdict.headline)
 
     def test_the_caveat_still_prints_when_the_run_was_not_stopped_by_it(self):
         """A repository that resolved anyway still deserves the warning: the

@@ -377,7 +377,10 @@ function refusalHeadlineOf(run: { refusalJson?: string | null } | null | undefin
   if (!run?.refusalJson) return null;
   try {
     const parsed = JSON.parse(run.refusalJson) as { headline?: unknown };
-    return typeof parsed.headline === "string" && parsed.headline ? parsed.headline : null;
+    // Drift insurance between the independently capped refusal and snapshot schemas:
+    // preserve the sentence up to this boundary rather than reject the whole snapshot.
+    // Discord applies its own 300-character cap in discord-messages.ts.
+    return typeof parsed.headline === "string" && parsed.headline ? parsed.headline.slice(0, 600) : null;
   } catch {
     return null;
   }
