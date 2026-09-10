@@ -131,7 +131,14 @@ class TheNoteSaysWhatTheStudentNeedsToKnow(unittest.TestCase):
         note = environment.gap_note("vision-recognition", ("torch", "cv2"))
         self.assertIn("listed above under 'could not read'", note)
         self.assertIn("this machine skipped it", note)
-        self.assertIn("The hosted run has the packages and will read those modules.", note)
+        # Not "will read those modules": having the package does not
+        # establish that the import succeeds.
+        self.assertIn(
+            "The hosted run has the packages, so it will not skip them for "
+            "that reason.",
+            note,
+        )
+        self.assertNotIn("will read those modules", note)
         self.assertNotIn("imports one of them", note)
 
     def test_nothing_missing_says_nothing(self):
@@ -211,12 +218,14 @@ class TheManifestMatchesTheImagesItDescribes(unittest.TestCase):
     The images still carry their versions as literal builder arguments, so
     nothing but this test holds the two copies together. It checks containment
     rather than parsing the builder calls: a requirement string that appears
-    nowhere in modal_app.py is not installed, whatever the call shape is. The
+    nowhere in modal_app.py is installed by no image at all, whatever the
+    call shape is. It does not establish that the right image installs it,
+    which would mean parsing three chained builders. The
     case that prompted it was ipython, listed for Week 1 against an image
     whose venv command ends at platformdirs.
     """
 
-    def test_every_requirement_appears_in_the_image_that_installs_it(self):
+    def test_no_requirement_is_absent_from_every_image(self):
         source = (
             ROOT / "apps" / "runner-modal" / "src" / "cogworks_runner"
             / "modal_app.py"
@@ -227,8 +236,8 @@ class TheManifestMatchesTheImagesItDescribes(unittest.TestCase):
                 # runner module, and unittest would print all of it.
                 self.assertTrue(
                     requirement in source,
-                    "environment.py lists {} for {}, and modal_app.py never "
-                    "installs it".format(requirement, track),
+                    "environment.py lists {} for {}, and no image in "
+                    "modal_app.py installs it".format(requirement, track),
                 )
 
 
