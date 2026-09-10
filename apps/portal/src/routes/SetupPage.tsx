@@ -176,8 +176,9 @@ function SetupGuide({
       title: "Link this device",
       body: (
         <p>
-          Lets a command report back to your team. It only sends what you ask it
-          to, never your source, and you can revoke it from{" "}
+          Lets a command report back to your team. What reaches CogPortal is
+          check names, package versions and your repository, and you can revoke
+          this device from{" "}
           <Link
             to="/connections"
             className="text-ink underline decoration-rule underline-offset-4 hover:decoration-ink"
