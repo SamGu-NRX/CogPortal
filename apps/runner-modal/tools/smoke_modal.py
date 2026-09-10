@@ -41,7 +41,7 @@ import modal  # noqa: E402
 import modal.runner  # noqa: E402
 
 from cogworks_runner import modal_app  # noqa: E402
-from cogworks_runner.protocol import validate_job  # noqa: E402
+from cogworks_runner.protocol import ProtocolError, validate_job  # noqa: E402
 
 #: Benchmarks this can drive, and the evaluate function each one needs. Week 2
 #: is absent because its payload needs a CelebA manifest this does not build.
@@ -157,7 +157,15 @@ def main() -> int:
     # shape the endpoint would have refused. Skipping it is how a missing
     # `weights` key reached `_prepare` and surfaced as a provider fault
     # instead of the protocol error that names the field.
-    job = validate_job(build_job(args.benchmark, args.repo, sha, args.mode))
+    try:
+        job = validate_job(build_job(args.benchmark, args.repo, sha, args.mode))
+    except ProtocolError as error:
+        # A mistyped --sha is bad input, not a failed run, so it ends here
+        # rather than in the failure handler. `--keep-going` exists to sweep
+        # many repositories past real failures; reporting a malformed argument
+        # through it would put a fabricated outcome in that sweep.
+        parser.error("{} Check --repo and --sha.".format(error))
+
     reporter = PrintReporter()
     started = time.time()
 
