@@ -2,13 +2,52 @@ from __future__ import annotations
 
 from importlib import metadata
 from pathlib import Path
-from typing import Any, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, NamedTuple, Optional, Tuple
 
 from .apploader import SubmissionFileError, SubmissionFileMissing, resolve_submission_file
 
 
 class PluginError(RuntimeError):
     pass
+
+
+class BenchmarkInstall(NamedTuple):
+    distribution: str
+    source: str
+
+
+# These pins are the submodule commits in .gitmodules and must move with them.
+BENCHMARK_INSTALLS: Dict[str, BenchmarkInstall] = {
+    "audio-identification": BenchmarkInstall(
+        "cogworks-week1-audio-benchmark",
+        "git+https://github.com/SamGu-NRX/cogworks-week1-audio-benchmark.git"
+        "@b156644aecc810e0b93535e320098f96c39ae04e",
+    ),
+    "vision-recognition": BenchmarkInstall(
+        "cogworks-week2-vision-benchmark",
+        "git+https://github.com/iReynaldo/ComputerVisionBenchmark.git"
+        "@c177cf23cdd4f8dbe55401a2eb4bada4c64d37c2",
+    ),
+    "vision-clustering": BenchmarkInstall(
+        "cogworks-week2-vision-benchmark",
+        "git+https://github.com/iReynaldo/ComputerVisionBenchmark.git"
+        "@c177cf23cdd4f8dbe55401a2eb4bada4c64d37c2",
+    ),
+    "language-search": BenchmarkInstall(
+        "cogworks-week3-language-benchmark",
+        "git+https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git"
+        "@b166f5c15e950baccc3785839cdcc660ffe01bb4",
+    ),
+}
+
+
+def benchmark_install_command(name: str) -> Optional[str]:
+    install = BENCHMARK_INSTALLS.get(name)
+    if install is None:
+        return None
+    return 'python -m pip install "{} @ {}"'.format(
+        install.distribution, install.source
+    )
 
 
 def _entry_points(group: str) -> Iterable[Any]:
@@ -41,10 +80,35 @@ def plugin_names(group: str) -> List[str]:
 def load_plugin(group: str, name: str, instantiate_classes: bool = True) -> Any:
     matches = [point for point in _unique_entry_points(group) if point.name == name]
     if not matches:
-        available = ", ".join(plugin_names(group)) or "none"
+        installed = plugin_names(group)
+        # Two readers, two sentences. A benchmark that is simply not
+        # installed is the ordinary case and the student's next step is one
+        # command, so say that and nothing else. `cogworks check` has always
+        # said it plainly ("Nothing was searched for, because X is not
+        # installed here"), and `cogworks run` answered the same situation
+        # with 'Entry-point group "cogworks.benchmarks.v1" has no
+        # "audio-identification" registration (available: none)', which names
+        # a Python packaging concept and no next step. Same cause, and the
+        # worse sentence was the one a student reaches after doing more work.
+        #
+        # The group and what is installed still matter when something IS
+        # installed, because then the likely fault is a name or a version
+        # rather than an absence, and the reader is more often us.
+        if not installed:
+            command = benchmark_install_command(name)
+            if command:
+                raise PluginError(
+                    "{} is not installed here, so there is nothing to run. "
+                    "Install it with `{}`, then run this again.".format(name, command)
+                )
+            raise PluginError(
+                "{} is not installed here, so there is nothing to run. Install "
+                "the benchmark package for this week and run this again.".format(name)
+            )
         raise PluginError(
-            'Entry-point group "{}" has no "{}" registration (available: {}).'.format(
-                group, name, available
+            '"{}" is not among the benchmarks installed here ({}). Check the '
+            "spelling, or install the package that provides it.".format(
+                name, ", ".join(installed)
             )
         )
     if len(matches) > 1:
