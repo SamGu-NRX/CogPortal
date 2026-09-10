@@ -1,52 +1,20 @@
 # Pitch walkthrough
 
-Deck, terminal, website, in that order. The site is
-https://cogportal-dev.sillion.app, deployed from this branch.
+What Sam says and shows, in order: deck, terminal, website. The site is
+https://cogportal-dev.sillion.app. It is deployed by hand, so redeploy from
+this branch before rehearsing, or write down which commit is live.
 
 ## Before anyone is watching
 
-Do these in order. The order matters and the reason is given.
+Everything that has to be true first, and the order to do it in, is in
+[machine-setup-directions.md](machine-setup-directions.md). It is the one
+current copy of those directions; this file used to repeat them and the two
+drifted apart.
 
-1. **Connect the demo repository.** Sign in on the site, go to Team, Change
-   repository, and pick `SamGu-NRX/cogportal-demo-week1`. Grant the GitHub App
-   access to it when prompted. That repository is a fork of a real 2026 week 1
-   capstone and carries the original team's history: eight contributors across
-   the five stages of the assignment. Your own CogPortal repository has one
-   contributor, which is why the team page said "only one person has touched"
-   every stage.
-
-2. **Check that the audio run is there.** The team page reads the stage names
-   from your team's most recent run, not from the repository, so with a vision
-   run last the page looks for vision stages in an audio repository and finds
-   nothing. Done on 2026-09-04: run 4131 on Song Identification succeeded on
-   the hosted runner at 0.5375, the same number the terminal gives, in 133
-   seconds. If the dashboard no longer shows it as the latest run, start one
-   practice run before the pitch, not during.
-
-3. **Open the terminal in the demo clone** and warm the caches:
-
-   ```sh
-   cd ~/BWSI/2026/CogPortal/.cache/demo/cogportal-demo-week1
-   cogworks check --benchmark audio-identification
-   ```
-
-   The second run of `check` is faster than the first because the resolution is
-   memoized per commit. Run it once now so the demo is the fast one.
-
-4. **Link the terminal to the site.** The demo virtualenv is linked to a local
-   portal, so `cogworks sync` would post to the wrong place. Run
-
-   ```sh
-   cogworks link --portal https://cogportal-dev.sillion.app
-   ```
-
-   and approve the device in the browser where you are signed in. Afterwards
-   `cogworks status` prints `Portal   https://cogportal-dev.sillion.app`.
-
-5. **Open the team page once.** If "Where the work went" says the commit
-   history could not be read from GitHub, sign out, sign in with GitHub again,
-   and reload. The cached answer was cleared tonight, so the first visit
-   computes a fresh one.
+The short version, so you know what the walkthrough assumes: the team page is
+connected to `SamGu-NRX/cogportal-demo-week1`, that repository has a succeeded
+Song Identification run, the discovery cache in the demo clone is warm, and
+`cogworks status` names the dev site as the portal.
 
 ## Act 1: the claim, in a terminal
 
@@ -54,7 +22,8 @@ Do these in order. The order matters and the reason is given.
 cogworks check --benchmark audio-identification
 ```
 
-Under two seconds, and it prints the five functions it will call:
+A couple of seconds once the cache is warm, and it prints the five functions
+it will call:
 
 ```
 Wired up:
@@ -73,7 +42,7 @@ decided.
 cogworks run --benchmark audio-identification
 ```
 
-About twenty-five seconds to a real score with diagnostics that name which
+Under a minute to a real score with diagnostics that name which
 half of the pipeline lost the points.
 
 ## Act 2: what it says when it cannot
@@ -100,9 +69,11 @@ refusal is the product.
 
 Make a one-line change in the demo clone, commit it, push it.
 
-Say: the score belongs to a commit. An uncommitted change is refused for the
-official run on purpose, because a leaderboard row is a claim about code
-somebody can go read. Then `cogworks sync` puts the local result on the
+Say: the score belongs to a commit. An uncommitted worktree is refused before
+anything reaches the hosted runner at all, on purpose, because a leaderboard
+row is a claim about code somebody can go read. (The refusal is "Commit your
+changes before hosted verification.", and it fires on Verify hosted, which
+starts a practice run.) Then `cogworks sync` puts the local result on the
 dashboard, marked as local and self-reported, and the hosted run is what turns
 it into a verified one.
 
@@ -110,7 +81,9 @@ it into a verified one.
 
 1. **Dashboard**, the runs and the two counters.
 2. **A run page**: the finding sentence, the metrics, the diagnostics.
-3. **Team**: the stages of the capstone with the eight people who touched them.
+3. **Team**: the five stages of the capstone with the people who committed to
+   them. Do not promise a headcount from the stage: a teammate who committed
+   under two identities appears twice, so read what is on screen.
    This is the multi-person answer. The team is the repository: anyone with
    push access who signs in is a member, so there is no roster to maintain.
 4. **Leaderboard**, Song Identification.
@@ -119,7 +92,8 @@ it into a verified one.
 
 - **Is the scoring real?** Yes, on both surfaces, and it is the same code.
   The demo repository scored 0.5375 in the terminal and 0.5375 on the hosted
-  runner on 2026-09-04; the hosted run took 133 seconds from click to score.
+  runner. Two hosted runs of it have finished: 133 seconds on 2026-09-04 and
+  2 minutes 11 seconds on 2026-09-09.
 - **What about cheating?** The official set is hidden, it never enters the
   sandbox that runs student code, and every team gets three official attempts.
 - **What does it cost the course?** No lecture time. Connect a repository and

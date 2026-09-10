@@ -1,10 +1,19 @@
 # Directions for the agent that sets up the demo machine
 
-Hand this to a computer-use agent on Sam's Mac before the meeting. Everything
-here has been run once already; the times are measured, not estimated.
+Hand this to a computer-use agent on Sam's Mac before the meeting. This is the
+one rehearsal guide; `pitch-walkthrough.md` covers what Sam says and points
+here for everything that has to be true first.
 
 Do not improvise. If a step does not produce what it says, stop and report the
 step number and what you saw instead.
+
+**Leave Sam's state alone.** He works with many windows, tabs, and editor
+buffers open, and you cannot put them back. Open new windows for the demo.
+Never close, quit, or sign out of anything you did not open.
+
+Timings below are dated. Each one was measured once, on the date given, and the
+CLI and portal have both moved since. Treat them as the last known good number
+and re-time the warm-up on the day rather than promising a figure on stage.
 
 ## What you are setting up
 
@@ -21,19 +30,31 @@ site. Nothing here needs the network except the browser and one device link.
   `/Users/samgu/BWSI/2026/CogPortal/.cache/demo/student-venv-final-proof`.
 - The site is `https://cogportal-dev.sillion.app`.
 
-Confirm the demo clone is clean and on the right commit before touching
-anything:
+Confirm the demo clone is on the right commit:
 
     cd /Users/samgu/BWSI/2026/CogPortal/.cache/demo/cogportal-demo-week1
     git status --porcelain
     git log --oneline -1
 
-Expect empty output, then `7125804 Merge pull request #7 from SP02028/topo-rerank`.
-If the tree is dirty, stop and report what changed. Do not discard anything.
+Expect two untracked Cursor paths, `.cogbench/` if the cache has been warmed,
+and nothing else, then
+`7125804 Merge pull request #7 from SP02028/topo-rerank`. Stop and report if a
+tracked file is modified or HEAD is different. Do not discard anything.
+
+Then confirm which CLI that virtualenv actually resolves to. It holds an
+editable install, so it points at a working tree rather than a fixed copy, and
+that tree moves:
+
+    source /Users/samgu/BWSI/2026/CogPortal/.cache/demo/student-venv-final-proof/bin/activate
+    python -c "import cogbench; print(cogbench.__file__)"
+    git -C /Users/samgu/BWSI/2026/CogPortal log --oneline -1
+
+Report both. If the printed path is inside a repository whose HEAD you cannot
+identify, say so rather than rehearsing against an unknown version.
 
 ## 1. Terminal
 
-Open Sam's terminal application. Make one window with two tabs.
+Open a new terminal window with two tabs.
 
 **Tab 1, the demo tab.** Font large enough to read from a projector, at least
 18 point. Then:
@@ -45,35 +66,42 @@ Open Sam's terminal application. Make one window with two tabs.
 Leave it there, with nothing typed. The first command he runs must be visible
 from a clean screen.
 
-Warm the caches first, in tab 2, not tab 1:
+Warm the discovery cache in tab 2, not tab 1:
 
     cogworks check --benchmark audio-identification
 
-The first run in a fresh shell takes about 18 seconds; the second takes about
-2. Run it once in tab 2 so the one he runs live is the fast one. Then `clear`
-tab 2 as well.
+On 2026-09-04 the first run in a fresh shell took about 18 seconds and the
+second about 2. The answer is cached under `.cogbench/` in the demo clone,
+keyed on the contents of the files the search read, so warming it from either
+tab helps and any edit to those files clears it. Expect the first command after
+a live edit to be slow again. Then `clear` tab 2.
 
 **Tab 2, the spare.** Same directory, same virtualenv, for anything that goes
 wrong. Keep it behind tab 1.
 
 Then, still in tab 2, point the tool at the site:
 
-    cogworks link --portal https://cogportal-dev.sillion.app
+    cogworks link --portal https://cogportal-dev.sillion.app --no-browser
 
-It prints a URL and a code and opens a browser page headed "Approve device".
-Stop there and tell Sam to press Approve himself; it needs his signed-in
-session. Once he has, `cogworks status` prints
-`Portal   https://cogportal-dev.sillion.app`. Without this, `cogworks sync`
-in the demo posts to a local portal that is not running.
+Use `--no-browser`. Without it the CLI opens the operating system's default
+browser, which may not be the one holding Sam's signed-in session. Paste the
+printed URL into the Helium window from step 3 instead. It shows a page headed
+"Approve device" with the code. Stop there and tell Sam to press Approve
+himself; it needs his session. Once he has, `cogworks status` prints
+`Portal   https://cogportal-dev.sillion.app`. Without this, `cogworks sync` in
+the demo posts to a local portal that is not running.
 
 ## 2. Editor
 
-Open the demo clone in Sam's usual editor:
+Open the demo clone in a **new** Cursor window:
 
-    code /Users/samgu/BWSI/2026/CogPortal/.cache/demo/cogportal-demo-week1
+    cursor /Users/samgu/BWSI/2026/CogPortal/.cache/demo/cogportal-demo-week1
 
-If `code` is not on the PATH, open the editor from Applications and open that
-folder. Then open exactly one file and leave it on screen:
+`code` is not on this machine. If `cursor` is not on the PATH, open Cursor from
+Applications and open that folder in a new window. Do not close anything
+already open, in this window or any other.
+
+Open exactly one file in the new window and leave it on screen:
 
     create_fingerprints.py
 
@@ -81,53 +109,60 @@ That file holds the one-line change he may demonstrate: the `fanout` default on
 `peaks_to_fingerprints`, currently 15. Changing it to 5 raises the score from
 0.5375 to 0.5500. Do not make the change. He makes it live if he chooses to.
 
-Close every other editor tab, including anything from the CogPortal repository
-itself. A file from the platform's own source on screen during a demo about
-student code is confusing.
-
 ## 3. Browser
 
-Open Chrome with exactly four tabs, in this order, and leave tab 1 focused:
+Open a **new Helium window** with exactly four tabs, in this order, and leave
+tab 1 focused. Helium is the browser Sam uses and the one holding his signed-in
+session; Chrome is also installed on this machine and is not the one to use.
 
 1. `https://cogportal-dev.sillion.app/dashboard`
 2. `https://cogportal-dev.sillion.app/team`
 3. `https://cogportal-dev.sillion.app/leaderboard`
 4. `https://github.com/SamGu-NRX/cogportal-demo-week1`
 
-Sam must already be signed in on the first three. If any of them shows the
-sign-in page, stop and tell him to sign in with GitHub; do not attempt to sign
-in for him.
+Sam must already be signed in on the first three. If any shows the sign-in
+page, stop and tell him; do not attempt to sign in for him.
 
-Close every other window and tab. Hide the bookmarks bar. Turn off any
-extension that draws over the page, since one of them has been highlighting
-text in red on the team page and it reads as an error.
+Leave every other window, tab, and extension exactly as it is. If an extension
+draws over the page, that is a problem for this new window only, and worth
+reporting rather than fixing in his working profile.
 
-## 4. The two things that must be true before he starts
+## 4. What must be true before he starts
 
-These are ordering traps, not preferences. Check both.
+Two preconditions. The order no longer matters: runs are scoped to the
+connected repository, so a run against a different repository is set aside and
+the panel says so rather than showing the wrong week.
 
 **The connected repository.** On the team page, the repository must be
 `SamGu-NRX/cogportal-demo-week1`. If it is anything else, use Change repository
 on that page and pick it. That fork carries the original student team's
-history, eight contributors across the five stages of the assignment, which is
-what makes the team page worth showing. Sam's own CogPortal repository has one
-contributor and the page will say so.
+history across the five stages of the assignment, which is what makes the team
+page worth showing. Sam's own CogPortal repository has one contributor and the
+page will say so.
 
-**An audio run must be the most recent run.** The team page reads its stage
-names from the team's latest run, not from the repository. With a vision run
-last, it looks for vision stages in an audio repository and finds nothing.
+**A succeeded run against that repository.** Set the track to Song
+Identification first: the dashboard's run log is scoped to the selected
+benchmark, and the default selection is not necessarily audio. The top row
+should then read `RUN 5436`, score 0.5375, from 2026-09-09.
 
-This was done on 2026-09-04: run 4131 on Song Identification succeeded on the
-hosted runner at 0.5375 in 133 seconds. Open the dashboard and confirm it is
-the top row of the run log. Only if it is missing or failed, select the Audio
-track, click Run practice benchmark, and wait; expect about two and a half
-minutes. If that fails, tell Sam immediately.
+If it is missing or failed, click Run practice benchmark on the Audio track and
+wait. Two hosted runs of this repository have finished, at 133 seconds on
+2026-09-04 and 2 minutes 11 seconds on 2026-09-09. The sandbox ceiling is 900
+seconds and a run still reading `queued` is failed automatically after ten
+minutes. Tell Sam if it is still queued at ten minutes, or still running past
+twelve.
 
 **The team page must show people on the stages.** Open the Team page and read
-"Where the work went". It must list the five stages with the eight
-contributors on them. If it instead says the commit history could not be read
-from GitHub, tell Sam to sign out and sign in with GitHub again, then reload
-the page. Do not sign him in or out yourself.
+"Where the work went". It lists five stages, with the people who committed to
+each. Report how many names it shows; a teammate who committed under two
+identities appears twice, which is not a fault.
+
+If instead it says the history could not be read, read which sentence it is.
+One names the sign-in and already carries its own instruction; reload once
+first, because the answer is no longer cached, and only then tell Sam to sign
+out and back in. The other says the history could not be read just now: wait a
+minute and reload, and do not sign him out. Do not sign him in or out yourself
+in either case.
 
 ## 5. Deck
 
@@ -139,14 +174,17 @@ Check that advancing works before he needs it.
 
 Tell him, in this order:
 
-1. Whether the demo clone was clean and on `7125804`.
-2. The wall-clock time of the warm-up `check`.
-3. Which repository the team page is connected to.
-4. Whether run 4131 is the top row of the run log with score 0.5375, or what
-   the new run did.
-5. Whether "Where the work went" shows people on the stages.
-6. Whether `cogworks status` names the site as the portal.
-7. Anything you could not do.
+1. Whether the demo clone is on `7125804`, and anything untracked beyond the
+   two Cursor paths.
+2. What `cogbench.__file__` printed, and the HEAD of the repository it points
+   into.
+3. The wall-clock time of the warm-up `check`, both runs.
+4. Which repository the team page is connected to.
+5. Whether `RUN 5436` is the top row of the Song Identification run log at
+   0.5375, or what a new run did.
+6. How many names "Where the work went" shows across the five stages.
+7. Whether `cogworks status` names the site as the portal.
+8. Anything you could not do.
 
 ## Do not
 
@@ -154,3 +192,5 @@ Tell him, in this order:
 - Do not edit `create_fingerprints.py` or any file in the demo clone.
 - Do not touch `apps/portal/.dev.vars` or any file with a credential in it.
 - Do not sign in to anything on Sam's behalf.
+- Do not close windows, tabs, or editor buffers you did not open, and do not
+  quit an application that was already running.
