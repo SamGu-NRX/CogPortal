@@ -17,12 +17,17 @@ discovery replaced a working package with a stand-in, and a team whose
 clustering module imported networkx at module scope had that module turned
 into a failure and were told it was theirs.
 
-So the requirement strings live here, the image builders are built from them,
-and a test compares this list against the stub list. Two rules follow from
-that arrangement:
+So the requirement strings live here, and discovery reads them to decide
+whether a package a repository could not import is one the graded run already
+has. The images are not built from this list yet: `modal_app.py` still passes
+the same versions as literal builder arguments and does not import this
+module. Until it does, this is a second copy of that truth and has to be moved
+by hand when the images move. Two rules follow:
 
-**This file is the source, and the images are derived.** Editing a version
-here changes what the graded run installs. There is no second place to update.
+**The images are what is actually true, and this list has to match them.** A
+version here that the image does not install makes discovery tell a team the
+graded run has a package it does not, and send them to install something that
+will not be there when it counts.
 
 **Only direct installs are listed.** A pip install pulls in dependencies of
 its own (``sklearn`` brings ``scipy`` and ``joblib``, ``skimage`` brings
@@ -103,7 +108,6 @@ WEEK1_TRACK: Tuple[Package, ...] = (
     Package("soundfile==0.12.1", "soundfile"),
     Package("librosa==0.11.0", "librosa"),
     Package("platformdirs>=4,<5", "platformdirs"),
-    Package("ipython==8.12.3", "IPython"),
 )
 
 #: Week 2, vision. Installed into the 3.11 interpreter directly: this track has
