@@ -62,6 +62,11 @@ class Raised:
             "message": self.message,
         }
 
+    @classmethod
+    def from_dict(cls, record: Dict[str, object]) -> "Raised":
+        return cls(file=record["file"], line=record["line"],
+                   function=record["function"], message=record["message"])
+
     def line_text(self) -> str:
         """The compiler-style line: where, what, and in whose function."""
 

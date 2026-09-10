@@ -12,13 +12,14 @@ import time
 import uuid
 import webbrowser
 from datetime import datetime, timezone
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable, List, NamedTuple, Optional, Sequence, Tuple
 from urllib.parse import urlparse
 
 from . import __version__
 from .environment import gap_note, local_gap
-from .isolate import COMPLETED, Outcome, run_isolated, run_operation
+from .isolate import COMPLETED, CRASHED, Outcome, run_isolated, run_operation
 from .client import (
     PortalError,
     device_status,
@@ -32,7 +33,8 @@ from .client import (
     upload_weight,
 )
 from .models import LocalReport
-from .resolve import from_spec, resolve
+from .resolve import SubmissionReport, from_spec, resolve
+from .discover import _Redirects
 from .plugins import (
     PluginError,
     load_benchmark,
@@ -271,7 +273,7 @@ def _installed_benchmark_hint() -> str:
     return installed[0] if len(installed) == 1 else "<benchmark>"
 
 
-def _discover(benchmark: str, project_root: Path, as_json: bool):
+def _discover(benchmark: str, project_root: Path, as_json: bool, *, spec=None):
     """Search the repository for the code this benchmark needs.
 
     Returns ``(submission, survey, unavailable)``, any of which may be None.
@@ -285,20 +287,23 @@ def _discover(benchmark: str, project_root: Path, as_json: bool):
     misbehaves.
     """
 
-    plugin = load_benchmark(benchmark)
-    describes = getattr(plugin, "discovery", None)
-    if not callable(describes):
-        return None, None, None
+    # _run_view already built this spec to hold its course mapping through
+    # scoring. Reuse that child-local object rather than load its data twice.
+    if spec is None:
+        plugin = load_benchmark(benchmark)
+        describes = getattr(plugin, "discovery", None)
+        if not callable(describes):
+            return None, None, None
 
-    try:
-        spec = describes()
-    except Exception as error:  # noqa: BLE001 - a broken benchmark is ours, not theirs
-        # Measured: week 3 asks for its caption file when it builds the spec,
-        # so on a machine that has not fetched the data yet this raised and
-        # the report said the benchmark "does not yet describe its task",
-        # which sent the student to write an adapter instead of running
-        # `cogworks test`. The reason carries its own next step; print it.
-        return None, None, str(error)
+        try:
+            spec = describes()
+        except Exception as error:  # noqa: BLE001 - a broken benchmark is ours, not theirs
+            # Measured: week 3 asks for its caption file when it builds the spec,
+            # so on a machine that has not fetched the data yet this raised and
+            # the report said the benchmark "does not yet describe its task",
+            # which sent the student to write an adapter instead of running
+            # `cogworks test`. The reason carries its own next step; print it.
+            return None, None, str(error)
 
     watcher = None if as_json else TerminalProgress()
     try:
@@ -345,7 +350,7 @@ class _Scoreable(NamedTuple):
     discovery_unavailable: Optional[str] = None
 
 
-def _scoreable(name: str, benchmark, project_root: Path, *, as_json: bool) -> _Scoreable:
+def _scoreable(name: str, benchmark, project_root: Path, *, as_json: bool, spec=None) -> _Scoreable:
     """Decide, once, what this repository would be scored on.
 
     `check` and `run` have to agree. A student told their code is wired up and
@@ -378,7 +383,7 @@ def _scoreable(name: str, benchmark, project_root: Path, *, as_json: bool) -> _S
     except PluginError as error:
         declared_error = str(error)
 
-    submission, survey, unavailable = _discover(name, project_root, as_json)
+    submission, survey, unavailable = _discover(name, project_root, as_json, spec=spec)
     build = getattr(benchmark, "submission_from_discovery", None)
     if submission is None or not submission.ready or not callable(build):
         return _Scoreable(
@@ -398,10 +403,10 @@ def _scoreable(name: str, benchmark, project_root: Path, *, as_json: bool) -> _S
     )
 
 
-def _submission_for(name: str, benchmark, project_root: Path, *, as_json: bool):
+def _submission_for(name: str, benchmark, project_root: Path, *, as_json: bool, spec=None):
     """What to score, or a refusal. Returns the adapter and its weight paths."""
 
-    scoreable = _scoreable(name, benchmark, project_root, as_json=as_json)
+    scoreable = _scoreable(name, benchmark, project_root, as_json=as_json, spec=spec)
     if scoreable.factory is None:
         # The report already said why in full. Repeating it here would print
         # the same paragraphs twice, so this points at the command that
@@ -417,8 +422,8 @@ def _check_view(name: str, project_root: Path, as_json: bool) -> dict:
     """Read the repository and answer the readiness question, as plain data.
 
     This is the whole of `check` that touches student code, and it is the unit
-    that runs in the child process. Everything it returns has to survive a
-    pickle, so the live `Submission` is projected to its report.
+    that runs in the child process. Its report is JSON data; only the parent
+    reconstructs the dataclasses that render_check reads.
     """
 
     benchmark = load_benchmark(name)
@@ -426,7 +431,7 @@ def _check_view(name: str, project_root: Path, as_json: bool) -> dict:
     return {
         "ready": scoreable.factory is not None,
         "source": scoreable.source,
-        "report": None if scoreable.submission is None else scoreable.submission.report(),
+        "report": None if scoreable.submission is None else scoreable.submission.report().to_dict(),
         "survey": scoreable.survey,
         "declaredSource": scoreable.declared_source,
         "declaredDetail": scoreable.declared_detail,
@@ -456,7 +461,7 @@ def _read_repository(
         # Windows student their repository could not be read, which is a
         # sentence about their code that nothing observed. `discover.survey`
         # made the same call for the same reason.
-        return _check_view(name, project_root, as_json), COMPLETED, ""
+        outcome = Outcome(COMPLETED, value=_check_view(name, project_root, as_json))
 
     # The child runs from the repository, which is where `cogworks run`
     # imports a declared submission from. Left on the default scratch
@@ -464,7 +469,7 @@ def _read_repository(
     # failed the check and then worked on the run, which is the disagreement
     # this whole path exists to remove. Discovery still imports their modules
     # from a scratch directory of its own; that is `discover`'s business.
-    if sys.platform == "darwin":
+    elif sys.platform == "darwin":
         outcome = run_operation("check", {
             "name": name, "repository": str(project_root.resolve()), "as_json": as_json,
         }, scratch=project_root)
@@ -472,11 +477,22 @@ def _read_repository(
         outcome = run_isolated(
             lambda: _check_view(name, project_root, as_json), scratch=project_root
         )
+    view = None
+    if outcome.status == COMPLETED:
+        # One rehydration site for exec, fork, and in-process Windows.
+        try:
+            if not isinstance(outcome.value, dict):
+                raise TypeError("expected a check report object")
+            view = dict(outcome.value)
+            if view["report"] is not None:
+                view["report"] = SubmissionReport.from_dict(view["report"])
+        except (KeyError, TypeError, ValueError) as error:
+            view = None
+            outcome = replace(outcome, status=CRASHED, value=None,
+                              detail="invalid check report: {}".format(error))
     if diagnostics is not None:
         diagnostics.update(outcome.diagnostics())
-    if outcome.status == COMPLETED and isinstance(outcome.value, dict):
-        return outcome.value, outcome.status, outcome.detail
-    return None, outcome.status, outcome.detail
+    return view, outcome.status, outcome.detail
 
 
 def _check(benchmark: str, as_json: bool, project_root: Path) -> int:
@@ -788,25 +804,31 @@ def _run_view(args: argparse.Namespace, project_root: Path) -> str:
             stdout_fd = os.dup(1)
             os.dup2(2, 1)
         benchmark = load_benchmark(args.benchmark)
-        adapter, weights = _submission_for(
-            args.benchmark, benchmark, project_root, as_json=args.json
-        )
-        if args.command == "run" and args.live:
-            # Live delivery owns worker threads. Start it beside execute in
-            # the child; threads started before fork would not survive there.
-            live = _start_live_run(args, benchmark, project_root)
-            live.progress("preparing")
-        report = execute(
-            benchmark,
-            adapter,
-            project_root,
-            smoke=args.command == "test",
-            progress=live.progress if live else None,
-            weights=weights,
-        )
-        if live:
-            live.completed(report)
-        return report.to_json()
+        describes = getattr(benchmark, "discovery", None)
+        spec = describes() if callable(describes) else None
+        # For as long as student code can run, a course artifact the benchmark
+        # owns resolves to its validated copy, including attribute reads while
+        # scoring. The spec and mapping are built here, never sent across exec.
+        with _Redirects(dict(getattr(spec, "resource_files", {}) or {})):
+            adapter, weights = _submission_for(
+                args.benchmark, benchmark, project_root, as_json=args.json, spec=spec
+            )
+            if args.command == "run" and args.live:
+                # Live delivery owns worker threads. Start it beside execute in
+                # the child; threads started before fork would not survive there.
+                live = _start_live_run(args, benchmark, project_root)
+                live.progress("preparing")
+            report = execute(
+                benchmark,
+                adapter,
+                project_root,
+                smoke=args.command == "test",
+                progress=live.progress if live else None,
+                weights=weights,
+            )
+            if live:
+                live.completed(report)
+            return report.to_json()
     except BaseException as error:
         if live:
             live.failed(error)
@@ -887,6 +909,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 sys.stdout.flush()
                 sys.stderr.flush()
                 if sys.platform == "darwin":
+                    # Send the parser namespace wholesale so flags have one
+                    # owner; this deliberately couples worker behavior to it.
                     outcome = run_operation("run", {
                         "args": vars(args), "repository": str(project_root.resolve()),
                     }, scratch=project_root, timeout_seconds=None, memory_bytes=None)

@@ -25,7 +25,8 @@ parent from names it reports, and re-verified there.
 from __future__ import annotations
 
 import os
-import pickle
+import json
+import math
 try:
     import resource
 except ImportError:  # Windows has no rlimits; `run_isolated` refuses there
@@ -99,6 +100,9 @@ class Outcome:
 
     def diagnostics(self) -> dict:
         """Configured budgets and observed outcome, not proof rlimits took."""
+        # Exec pays plugin-import CPU inside RLIMIT_CPU; fork inherited those
+        # imports for free. Heavy imports leave less CPU for a native fit.
+        # Check also loads the plugin in the parent for benchmarkLoadable.
         return {
             "status": self.status, "detail": self.detail, "signal": self.signal,
             "alarmFired": self.alarm_fired, "readReason": self.read_reason,
@@ -320,19 +324,18 @@ def _child(
         if devnull != 0:
             os.close(devnull)
         try:
-            payload = pickle.dumps(
-                Outcome(COMPLETED, value=work()), protocol=pickle.HIGHEST_PROTOCOL
-            )
+            value = work()
+            _json_value(value)
+            payload = json.dumps(
+                {"status": COMPLETED, "detail": "", "value": value}, allow_nan=False
+            ).encode("utf-8")
         except BaseException as error:  # noqa: BLE001 - the child owns every failure
-            payload = pickle.dumps(
-                Outcome(
-                    RAISED,
-                    detail="{}: {}".format(type(error).__name__, str(error)[:300]),
-                ),
-                protocol=pickle.HIGHEST_PROTOCOL,
-            )
+            payload = json.dumps({
+                "status": RAISED,
+                "detail": "{}: {}".format(type(error).__name__, str(error)[:300]),
+            }).encode("utf-8")
         # Publish completion only after serialization and stream flushing.
-        # Pickling may itself print. Fatal signals and asynchronous writers can
+        # Serialization may itself print. Fatal signals and asynchronous writers can
         # still lose output; a completed payload no longer races this flush.
         _flush_streams()
         # A signal mid-write can shorten a blocking pipe write. Send the
@@ -348,6 +351,10 @@ def _child(
             os.close(write_fd)
         except OSError:
             pass
+        # The pre-publication flush orders output before completion. This
+        # final flush preserves output when formatting an error or writing the
+        # pipe fails, including diagnostics produced after the first flush.
+        _flush_streams()
         os._exit(exit_code)
 
 
@@ -377,15 +384,65 @@ def _read_payload(read_fd: int) -> Outcome:
         if not chunk:
             raise _PayloadError("truncated_body")
         body += chunk
+    # JSON stops child bytes becoming code in the parent, and this envelope
+    # stops the child claiming a death the parent did not observe. It cannot
+    # stop a child lying about its result; the parent re-verifies elsewhere.
     try:
-        outcome = pickle.loads(body)
+        record = json.loads(body.decode("utf-8"), object_pairs_hook=_unique_keys,
+                            parse_constant=_invalid_constant)
+        if type(record) is not dict or type(record.get("detail")) is not str:
+            raise ValueError("expected an outcome object with string detail")
+        status = record.get("status")
+        keys = {"status", "detail", "value"} if status == COMPLETED else {"status", "detail"}
+        if status not in (COMPLETED, RAISED) or set(record) != keys:
+            raise ValueError("unexpected outcome status or fields")
+        if status == COMPLETED:
+            _json_value(record["value"])
+        return Outcome(status, value=record.get("value"), detail=record["detail"])
     except _Alarm:
         raise
-    except Exception as error:
-        raise _PayloadError("invalid_payload") from error
-    if not isinstance(outcome, Outcome):
-        raise _PayloadError("invalid_outcome")
-    return outcome
+    except BaseException as error:
+        raise _PayloadError("invalid_outcome") from error
+
+
+def _json_value(value) -> None:
+    """Reject Python objects and scalar subclasses instead of coercing them.
+
+    json.dumps accepts numpy.float64 as a float on some versions. Requiring
+    built-in scalar types makes that refusal independent of numpy's version.
+    Tuples use json.dumps' normal conversion to JSON arrays.
+    """
+    kind = type(value)
+    if value is None or kind in (str, bool, int):
+        return
+    if kind is float:
+        if not math.isfinite(value):
+            raise ValueError("non-finite floats are not JSON values")
+        return
+    if kind in (list, tuple):
+        for item in value:
+            _json_value(item)
+        return
+    if kind is dict:
+        for key, item in value.items():
+            if type(key) is not str:
+                raise TypeError("JSON object keys must be strings")
+            _json_value(item)
+        return
+    raise TypeError("Object of type {} is not JSON serializable".format(kind.__name__))
+
+
+def _unique_keys(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate JSON key: {}".format(key))
+        result[key] = value
+    return result
+
+
+def _invalid_constant(value):
+    raise ValueError("not a JSON number: {}".format(value))
 
 
 def _describe_death(status: Optional[int], timed: bool = False) -> Outcome:
@@ -420,7 +477,7 @@ def run_isolated(
 ) -> Outcome:
     """Run ``work`` in a child process and report what became of it.
 
-    ``work`` must return something picklable. It runs with a scratch directory
+    ``work`` must return JSON-serializable data, not live Python objects. It runs with a scratch directory
     as its working directory, so a module that writes ``db.pkl`` beside itself
     writes into a temporary directory that is deleted afterwards, and with
     stdin at EOF.
@@ -478,10 +535,19 @@ def run_operation(
                            encoding="utf-8")
         read_fd, write_fd = os.pipe()
         environment = dict(os.environ, PYTHONHASHSEED="0")
-        # Keep editable/source installs usable after moving into scratch.
-        environment["PYTHONPATH"] = os.pathsep.join(
-            [str(Path(__file__).resolve().parent.parent)] +
-            [str(Path(entry).resolve()) for entry in sys.path if entry])
+        # Site processing precedes our bootstrap. Keep student paths out of
+        # its search path so their sitecustomize cannot run before limits.
+        # Environment-owned .pth files remain trusted setup; disabling site
+        # would also disable the editable installs used by the course.
+        repository = Path(arguments["repository"]).resolve()
+        startup_paths = [str(Path(__file__).resolve().parent.parent)]
+        for entry in sys.path:
+            if not entry:
+                continue
+            path = Path(entry).resolve()
+            if path != repository and repository not in path.parents:
+                startup_paths.append(str(path))
+        environment["PYTHONPATH"] = os.pathsep.join(startup_paths)
         _flush_streams()
         try:
             process = subprocess.Popen(
@@ -512,12 +578,17 @@ def _operation_child() -> None:
     arguments = request["arguments"]
 
     def work():
+        # _child has installed limits before invoking this function. Student
+        # imports can now use their root without exposing it to site startup.
+        sys.path.insert(0, str(Path(arguments["repository"]).resolve()))
         if operation == "check":
             from .cli import _check_view
             return _check_view(arguments["name"], Path(arguments["repository"]), arguments["as_json"])
         if operation == "run":
             import argparse
             from .cli import _run_view
+            # The whole parser namespace is intentional: worker behavior
+            # follows whatever flags the CLI parser defines, not a second schema.
             return _run_view(argparse.Namespace(**arguments["args"]), Path(arguments["repository"]))
         if operation == "survey":
             from .discover import _survey_work
@@ -543,13 +614,22 @@ def _collect(pid, read_fd, timeout_seconds, memory_bytes) -> Outcome:
             previous = signal.signal(signal.SIGALRM, _on_alarm)
             signal.alarm(timeout_seconds)
         try:
-            outcome = _read_payload(read_fd)
+            try:
+                outcome = _read_payload(read_fd)
+            except _PayloadError as error:
+                reason = str(error)
+            except OSError as error:
+                reason = "read_error: {}".format(error)
+            if outcome is not None or reason in ("eof", "truncated_header", "truncated_body"):
+                # EOF can precede a waitable exit on Linux. Reap before any
+                # cleanup signal so a self/external SIGKILL keeps its identity.
+                # Keep the existing deadline armed: code holding the descriptor
+                # can close it and remain alive, despite _child's normal ordering.
+                status = _reap(pid)[1]
+                reaped = True
         except _Alarm:
-            fired, reason = True, "alarm"
-        except _PayloadError as error:
-            reason = str(error)
-        except OSError as error:
-            reason = "read_error: {}".format(error)
+            fired, outcome = True, None
+            reason = reason or "alarm"
     finally:
         try:
             if armed and previous is not None:
@@ -558,9 +638,10 @@ def _collect(pid, read_fd, timeout_seconds, memory_bytes) -> Outcome:
             os.close(read_fd)
             # Capture an already-dead child's status before cleanup. If the
             # pipe closed while it was alive, cleanup's SIGKILL proves no cause.
-            done, observed = os.waitpid(pid, os.WNOHANG)
-            if done:
-                reaped, status = True, observed
+            if not reaped:
+                done, observed = os.waitpid(pid, os.WNOHANG)
+                if done:
+                    reaped, status = True, observed
         finally:
             _terminate(pid)
             if not reaped:

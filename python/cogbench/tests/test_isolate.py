@@ -216,7 +216,7 @@ assert outcome.status == {status!r}, outcome
                 self.assertEqual(done.stdout, "parent-out|child-out|")
                 self.assertEqual(done.stderr, "parent-err|child-err|")
 
-    def test_an_unpicklable_result_is_reported_not_lost(self):
+    def test_a_non_json_result_is_reported_not_lost(self):
         outcome = run_isolated(lambda: (lambda: None))
         self.assertNotEqual(outcome.status, COMPLETED)
         self.assertTrue(outcome.detail)
@@ -379,8 +379,8 @@ class NoBudgetIsAllowed(unittest.TestCase):
         with_seven = run_isolated(limits, timeout_seconds=7)
 
         self.assertEqual(with_none.status, COMPLETED)
-        self.assertEqual(with_none.value, (resource.RLIM_INFINITY, resource.RLIM_INFINITY))
-        self.assertEqual(with_seven.value, (7, 12))
+        self.assertEqual(with_none.value, [resource.RLIM_INFINITY, resource.RLIM_INFINITY])
+        self.assertEqual(with_seven.value, [7, 12])
 
     @unittest.skipUnless(hasattr(os, "fork"), "needs fork")
     def test_a_core_file_is_refused_either_way(self):
@@ -394,7 +394,7 @@ class NoBudgetIsAllowed(unittest.TestCase):
             timeout_seconds=None,
             memory_bytes=None,
         )
-        self.assertEqual(outcome.value, (0, 0))
+        self.assertEqual(outcome.value, [0, 0])
 
     @unittest.skipUnless(hasattr(os, "fork"), "needs fork")
     def test_an_outside_kill_is_not_called_a_timeout(self):

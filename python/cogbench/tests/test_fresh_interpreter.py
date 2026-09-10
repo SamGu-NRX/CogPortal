@@ -129,6 +129,33 @@ assert result.ok, result
         self.assertEqual(observed['cpu'], [10, 20])
         wait_gone(self, observed['descendant'])
 
+    def test_student_sitecustomize_cannot_run_during_interpreter_startup(self):
+        self.submission()
+        nested = self.repo / 'nested'
+        nested.mkdir()
+        alias = self.root / 'repo-alias'
+        alias.symlink_to(self.repo, target_is_directory=True)
+        marker = self.root / 'startup.json'
+        hook = """
+import json, resource
+from pathlib import Path
+Path(%r).write_text(json.dumps(list(resource.getrlimit(resource.RLIMIT_CPU))))
+""" % str(marker)
+        (self.repo / 'sitecustomize.py').write_text(hook)
+        (nested / 'sitecustomize.py').write_text(hook)
+        # Explicitly import the same hook from student code. This must work,
+        # but only after _child has installed the CPU limit.
+        submission = self.repo / 'submission.py'
+        submission.write_text('import sitecustomize\n' + submission.read_text())
+        for entry in (self.repo, nested, alias):
+            with self.subTest(entry=str(entry)), patch.object(sys, 'path', [str(entry)] + sys.path):
+                view, status, detail = cli._read_repository('boundary-fixture', self.repo, True)
+            self.assertEqual(status, isolate.COMPLETED, detail)
+            self.assertTrue(view['ready'])
+            self.assertEqual(json.loads(marker.read_text()), [300, 305])
+            observed = json.loads(self.record.read_text())
+            wait_gone(self, observed['descendant'])
+
     def test_bootstrap_does_not_import_repository_code_before_limits(self):
         self.submission()
         (self.repo / 'json.py').write_text("raise AssertionError('repository json imported during bootstrap')")
@@ -150,6 +177,58 @@ assert result.ok, result
             observed = json.loads(self.record.read_text())
             self.assertEqual(observed['cpu'], [resource.RLIM_INFINITY, resource.RLIM_INFINITY], 'scored runs retain their unbounded CPU budget')
             wait_gone(self, observed['descendant'])
+
+    def test_score_time_attribute_lookup_uses_validated_course_file(self):
+        owned = self.root / 'validated.pkl'
+        owned.write_bytes(b'validated course input')
+        package = self.root / 'cogworks_data'
+        package.mkdir()
+        (package / '__init__.py').write_text('')
+        (package / 'language.py').write_text("""
+def get_data_path(name):
+    raise AssertionError('original course loader reached at score time')
+""")
+        benchmark_file = self.root / 'boundary_fixture.py'
+        benchmark_file.write_text(benchmark_file.read_text() + """
+    def discovery(self):
+        from pathlib import Path
+        from types import SimpleNamespace
+        return SimpleNamespace(resource_files={'resnet18_features.pkl': Path(%r)})
+""" % str(owned))
+        (self.repo / 'submission.py').write_text("""
+from pathlib import Path
+import cogworks_data.language as language
+
+def create_submission(inputs):
+    # Attribute lookup occurs during execute(), after resolution has returned.
+    path = language.get_data_path('resnet18_features.pkl')
+    assert Path(path).read_bytes() == b'validated course input'
+    return inputs
+""")
+        with patch.object(cli.Path, 'cwd', return_value=self.repo), redirect_stdout(io.StringIO()) as output:
+            code = cli.main(['test', '--benchmark', 'boundary-fixture', '--json'])
+        self.assertEqual(code, 0, output.getvalue())
+        self.assertEqual(json.loads(output.getvalue())['diagnostics'], ['fixture scored'])
+
+    def test_discovered_check_report_crosses_json_and_rehydrates_for_rendering(self):
+        from test_resolve import REPO
+        from cogbench.resolve import SubmissionReport
+        (self.repo / 'theirs.py').write_text(REPO)
+        benchmark_file = self.root / 'boundary_fixture.py'
+        benchmark_file.write_text(benchmark_file.read_text() + """
+    def discovery(self):
+        from cogbench.discovery_spec import DiscoverySpec
+        from test_resolve import ROLE, FIXTURE, _accepts, _arrangements
+        return DiscoverySpec(ROLE, FIXTURE, _accepts, _arrangements)
+    def submission_from_discovery(self, submission):
+        return submission
+""")
+        view, status, detail = cli._read_repository('boundary-fixture', self.repo, True)
+        self.assertEqual(status, isolate.COMPLETED, detail)
+        self.assertTrue(view['ready'])
+        self.assertIsInstance(view['report'], SubmissionReport)
+        self.assertEqual(view['report'].attempt.query, 'theirs.whose')
+        self.assertIsInstance(view['survey'], dict)
 
     def test_survey_executes_import_and_keeps_journal_after_death(self):
         (self.repo / 'a_good.py').write_text('def identity(x):\n    return x\n')

@@ -88,6 +88,13 @@ class Attempt:
     query: str
     arrangement: int
 
+    def to_dict(self) -> Dict[str, object]:
+        return {"enroll": self.enroll, "query": self.query, "arrangement": self.arrangement}
+
+    @classmethod
+    def from_dict(cls, record: Dict[str, object]) -> "Attempt":
+        return cls(enroll=record["enroll"], query=record["query"], arrangement=record["arrangement"])
+
 
 @dataclass(frozen=True)
 class SubmissionReport:
@@ -107,6 +114,19 @@ class SubmissionReport:
     attempt: Optional[Attempt] = None
     #: ``Submission.to_dict()``, for ``check --json`` and the portal.
     record: Optional[Dict[str, object]] = None
+
+    def to_dict(self) -> Dict[str, object]:
+        return {"ready": self.ready, "verdict": self.verdict.to_dict(),
+                "chain": list(self.chain),
+                "attempt": None if self.attempt is None else self.attempt.to_dict(),
+                "record": self.record}
+
+    @classmethod
+    def from_dict(cls, record: Dict[str, object]) -> "SubmissionReport":
+        return cls(ready=record["ready"], verdict=Verdict.from_dict(record["verdict"]),
+                   chain=tuple(record["chain"]),
+                   attempt=None if record["attempt"] is None else Attempt.from_dict(record["attempt"]),
+                   record=record["record"])
 
 
 @dataclass

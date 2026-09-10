@@ -172,7 +172,7 @@ class ReadingCannotTakeTheCommandDown(unittest.TestCase):
 
     def test_the_reading_happens_somewhere_else(self):
         parent = os.getpid()
-        cli._check_view = lambda *a, **k: {"pid": os.getpid()}
+        cli._check_view = lambda *a, **k: {"pid": os.getpid(), "report": None}
 
         view, status, _detail = cli._read_repository("b", self.tmp, True)
 

@@ -142,6 +142,15 @@ class Observation:
     received: str
     returned: str
 
+    def to_dict(self) -> Dict[str, object]:
+        return {"stage": self.stage, "function": self.function,
+                "received": self.received, "returned": self.returned}
+
+    @classmethod
+    def from_dict(cls, record: Dict[str, object]) -> "Observation":
+        return cls(stage=record["stage"], function=record["function"],
+                   received=record["received"], returned=record["returned"])
+
     def line(self) -> str:
         return "{}: {} received {} and returned {}".format(
             self.stage, self.function, self.received, self.returned
@@ -203,6 +212,12 @@ class Coverage:
             "readEnoughToJudge": self.read_enough_to_judge,
         }
 
+    @classmethod
+    def from_dict(cls, record: Dict[str, object]) -> "Coverage":
+        return cls(read=tuple(record["read"]), skipped=tuple(
+            (item["module"], item["reason"], item["owner"]) for item in record["skipped"]
+        ))
+
 
 @dataclass(frozen=True)
 class Verdict:
@@ -248,20 +263,22 @@ class Verdict:
         return {
             "status": self.status,
             "headline": self.headline,
-            "trace": [
-                {
-                    "stage": step.stage,
-                    "function": step.function,
-                    "received": step.received,
-                    "returned": step.returned,
-                }
-                for step in self.trace
-            ],
+            "trace": [step.to_dict() for step in self.trace],
             "nextStep": self.next_step,
             "notes": list(self.notes),
             "coverage": self.coverage.to_dict(),
             "errors": [error.to_dict() for error in self.errors],
         }
+
+    @classmethod
+    def from_dict(cls, record: Dict[str, object]) -> "Verdict":
+        return cls(
+            status=record["status"], headline=record["headline"],
+            trace=tuple(Observation.from_dict(item) for item in record["trace"]),
+            next_step=record["nextStep"], notes=tuple(record["notes"]),
+            coverage=Coverage.from_dict(record["coverage"]),
+            errors=tuple(Raised.from_dict(item) for item in record["errors"]),
+        )
 
     def problems(self) -> List[str]:
         """The two blocks a student reads the way they read a compiler.
