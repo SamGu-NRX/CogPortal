@@ -68,6 +68,7 @@ must use a real checkout:
 
 ```bash
 git clone --recurse-submodules https://github.com/CogWorksBWSI/CogPortal.git
+git submodule sync --recursive
 git submodule update --init --recursive
 ```
 
