@@ -282,10 +282,6 @@ class TheManifestDescribesTheImages(unittest.TestCase):
             environment.venv_install_command("week2")
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class AdviceIsWrittenAgainstTheRightImage(unittest.TestCase):
     """A missing package is either ours to install or theirs to declare, and
     which one depends on the track.
@@ -320,3 +316,7 @@ class AdviceIsWrittenAgainstTheRightImage(unittest.TestCase):
         self.assertNotIn("cv2", week1)
         self.assertIn("librosa", week1)
         self.assertNotIn("librosa", week2)
+
+
+if __name__ == "__main__":
+    unittest.main()

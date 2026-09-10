@@ -135,10 +135,6 @@ class PluginDiscoveryTests(unittest.TestCase):
         )
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class AMissingBenchmarkReadsLikeAnAnswer(unittest.TestCase):
     """`run` and `check` meet the same situation and used to disagree.
 
@@ -180,3 +176,7 @@ class AMissingBenchmarkReadsLikeAnAnswer(unittest.TestCase):
         # installed; both must name the thing asked for and neither may leak
         # the packaging vocabulary.
         self.assertNotIn("Entry-point", message)
+
+
+if __name__ == "__main__":
+    unittest.main()

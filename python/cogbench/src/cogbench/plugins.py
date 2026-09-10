@@ -29,12 +29,12 @@ BENCHMARK_INSTALLS: Dict[str, BenchmarkInstall] = {
     ),
     "vision-recognition": BenchmarkInstall(
         "cogworks-week2-vision-benchmark",
-        "git+https://github.com/iReynaldo/ComputerVisionBenchmark.git"
+        "git+https://github.com/SamGu-NRX/cogworks-week2-vision-benchmark.git"
         "@65200e909264414761a55c670a3c323b5122c7fb",
     ),
     "vision-clustering": BenchmarkInstall(
         "cogworks-week2-vision-benchmark",
-        "git+https://github.com/iReynaldo/ComputerVisionBenchmark.git"
+        "git+https://github.com/SamGu-NRX/cogworks-week2-vision-benchmark.git"
         "@65200e909264414761a55c670a3c323b5122c7fb",
     ),
     "language-search": BenchmarkInstall(
