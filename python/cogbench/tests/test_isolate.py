@@ -105,6 +105,55 @@ class IsolationTests(unittest.TestCase):
         self.assertEqual(outcome.status, COMPLETED)
         self.assertEqual(outcome.value, "")
 
+    def test_a_caller_supplied_scratch_directory_is_used_and_kept(self):
+        """`scratch=` is the contract `cogworks check` and `cogworks run` use.
+
+        Both pass the project root (cli.py:452 and :859), which is the
+        student's own repository, so three things have to hold at once: the
+        child really works there, the directory is still there afterwards
+        with whatever their code wrote in it, and the parent's own working
+        directory never moves. Without the third, a command that isolates one
+        step would silently relocate every later step.
+
+        The default path is different and is not what this covers: with no
+        `scratch=`, the child works in a temporary directory that is removed.
+        """
+
+        import shutil
+
+        before = Path.cwd()
+        scratch = Path(tempfile.mkdtemp(prefix="cogworks-scratch-test-")).resolve()
+        self.addCleanup(shutil.rmtree, str(scratch), ignore_errors=True)
+
+        def _work():
+            Path("their-state.txt").write_text("student state", encoding="utf-8")
+            return os.getcwd()
+
+        outcome = run_isolated(_work, scratch=scratch)
+
+        self.assertEqual(outcome.status, COMPLETED)
+        self.assertEqual(
+            Path(outcome.value).resolve(), scratch, "the child worked somewhere else"
+        )
+        kept = scratch / "their-state.txt"
+        self.assertTrue(kept.exists(), "the caller's directory did not survive the run")
+        self.assertEqual(kept.read_text(encoding="utf-8"), "student state")
+        self.assertEqual(Path.cwd(), before, "the parent's working directory moved")
+
+    def test_without_a_scratch_directory_the_child_works_somewhere_temporary(self):
+        """The other half of the same contract, so the test above is about the
+        explicit argument rather than about `os.getcwd` in general."""
+
+        before = Path.cwd()
+        outcome = run_isolated(os.getcwd)
+
+        self.assertEqual(outcome.status, COMPLETED)
+        self.assertNotEqual(Path(outcome.value).resolve(), before)
+        self.assertFalse(
+            Path(outcome.value).exists(), "the temporary directory outlived the run"
+        )
+        self.assertEqual(Path.cwd(), before)
+
     def test_a_process_the_child_started_does_not_outlive_it(self):
         outcome = run_isolated(_leak_a_child, timeout_seconds=10)
         self.assertEqual(outcome.status, COMPLETED)

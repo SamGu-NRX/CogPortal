@@ -1748,3 +1748,88 @@ class AWeekThatAllowsReadersMustSayHowToGradeOne(unittest.TestCase):
             )
 
         self.assertIn("grades", str(raised.exception))
+
+
+class AMethodAlreadyBoundIsNotOfferedAsAStore(unittest.TestCase):
+    """A team whose peak finder and whose database are methods of one class.
+
+    `_store_candidates` filtered the module-level functions by the steps the
+    chain had already bound, and then extended the list with every method of
+    every constructible class without filtering those. So a class method that
+    was already serving a pipeline stage came back as a database candidate,
+    and the pairing loop spent attempts proving that a fingerprinter cannot
+    store a song.
+
+    Attempts are the scarce resource in this search. KrazeeCoder resolves at
+    3962 of them, so a handful of impossible pairings per class is not free.
+    """
+
+    def _repository(self):
+        """One module holding a class with a stage method and a store."""
+
+        from types import ModuleType
+
+        module = ModuleType("audio")
+        source = '''
+class Engine:
+    """Their whole pipeline and their database, on one object."""
+
+    def __init__(self):
+        self.kept = {}
+
+    def find_peaks(self, spectrogram):
+        return [(1, 2)]
+
+    def store_fingerprints(self, item_id, prints):
+        self.kept[tuple(prints)] = item_id
+
+    def query(self, prints):
+        return self.kept.get(tuple(prints), "")
+'''
+        exec(compile(source, "audio.py", "exec"), module.__dict__)
+        module.__dict__["__name__"] = "audio"
+        for value in module.__dict__.values():
+            if isinstance(value, type):
+                value.__module__ = "audio"
+
+        class _Found:
+            namespace = [module]
+
+        return _Found()
+
+    def test_the_bound_method_is_gone_and_the_store_and_query_remain(self):
+        from cogbench.pipeline import Candidate, instances_in, methods_of
+        from cogbench.resolve import _store_candidates
+
+        found = self._repository()
+        label, instance = instances_in(found.namespace)[0]
+        by_name = {c.label: c for c in methods_of(label, instance)}
+        peaks = by_name["{}.find_peaks".format(label)]
+        self.assertIn("{}.store_fingerprints".format(label), by_name)
+
+        # The chain bound their peak finder, which is a method on this class.
+        bound = Candidate(peaks.label, peaks.call, peaks.module)
+        labels = {c.label for c in _store_candidates(found, [bound])}
+
+        self.assertNotIn(
+            peaks.label,
+            labels,
+            "a method already serving a stage was offered back as a database",
+        )
+        # And the two that really could be a store are still there, so the
+        # filter removed the bound method and nothing else.
+        self.assertIn("{}.store_fingerprints".format(label), labels)
+        self.assertIn("{}.query".format(label), labels)
+
+    def test_nothing_is_removed_when_the_chain_bound_no_method(self):
+        from cogbench.pipeline import instances_in, methods_of
+        from cogbench.resolve import _store_candidates
+
+        found = self._repository()
+        label, instance = instances_in(found.namespace)[0]
+        every = {c.label for c in methods_of(label, instance)}
+
+        labels = {c.label for c in _store_candidates(found, [])}
+
+        self.assertTrue(every)
+        self.assertTrue(every <= labels, "an unbound chain must offer every method")

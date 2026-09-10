@@ -1911,7 +1911,13 @@ def _store_candidates(found: Discovery, steps: Sequence[Candidate]) -> List[Cand
     used = {step.label for step in steps}
     candidates = [c for c in callables_in(found.namespace) if c.label not in used]
     for label, instance in instances_in(found.namespace):
-        candidates.extend(methods_of(label, instance))
+        # Methods are filtered by `used` exactly as the module functions above
+        # are. They were not, and a team whose peak finder is a method on the
+        # same class as their store had that method offered back as a
+        # database, so the pairing loop spent attempts proving a fingerprinter
+        # cannot store a song. The attempts are the scarce thing here:
+        # KrazeeCoder resolves at 3962 of them.
+        candidates.extend(c for c in methods_of(label, instance) if c.label not in used)
     return candidates
 
 
