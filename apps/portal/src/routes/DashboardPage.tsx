@@ -431,9 +431,8 @@ function CurrentRunPanel({
             they should be using today. The counts come from the dashboard
             payload, so they are this team's real remaining budget. */}
         <p className="max-w-[58ch] text-[13.5px] leading-[1.6] text-ink-secondary">
-          There are two ways to run {d.benchmark.title}, and they score the
-          same way. Local runs are unlimited, so that's usually where the work
-          happens.
+          Two ways to run {d.benchmark.title}, scored the same way. Local runs
+          are unlimited, so that's usually where the work happens.
         </p>
 
         <div className="mt-5 grid gap-6 sm:grid-cols-2">
@@ -444,15 +443,14 @@ function CurrentRunPanel({
                 It names the prerequisite and links to it; it does not gate the
                 hosted column beside it, which needs nothing local. */}
             <p className="mt-2 text-[13px] leading-[1.55] text-ink-secondary">
-              The commands below need the CogWorks tool installed first, which
-              is what{" "}
+              These need the tool from{" "}
               <Link
                 to="/setup"
                 className="text-ink underline decoration-rule underline-offset-4 hover:decoration-ink"
               >
                 Setup
               </Link>{" "}
-              walks through.
+              first.
             </p>
             {/* The commands carry this benchmark's id, so they are the ones to
                 run rather than an example of the shape. */}

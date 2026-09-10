@@ -21,9 +21,14 @@ export function StepRail({ children }: { children: ReactNode }) {
   );
 }
 
-/** Verified is observed. Unknown is a read that failed, which is not the same
- *  as work nobody did: both produce an empty verified set. */
-export type StepState = "verified" | "pending" | "unknown";
+/**
+ * Verified is observed: a linked device reported it. Checked is the student
+ * telling us, from their own terminal, that they did it. Both are ticks and
+ * they do not look the same, because only one of them is something CogPortal
+ * saw. Unknown is a read that failed, which is not the same as work nobody
+ * did: both produce an empty verified set.
+ */
+export type StepState = "verified" | "checked" | "pending" | "unknown";
 
 export function Step({
   index,
@@ -45,7 +50,9 @@ export function Step({
   const mark =
     state === "verified"
       ? "border-verify/50 bg-verify-wash text-verify-deep"
-      : "border-rule bg-paper-raised text-ink-faint";
+      : state === "checked"
+        ? "border-ink bg-ink text-paper-raised"
+        : "border-rule bg-paper-raised text-ink-faint";
 
   return (
     <li className={`relative flex gap-4 ${last ? "" : "pb-8"}`}>
@@ -53,7 +60,7 @@ export function Step({
         aria-hidden="true"
         className={`relative z-10 flex size-7 shrink-0 items-center justify-center border font-mono text-[11px] transition-colors duration-150 ${mark}`}
       >
-        {state === "verified" ? (
+        {state === "verified" || state === "checked" ? (
           <HugeiconsIcon icon={Tick02Icon} size={14} strokeWidth={2.2} />
         ) : state === "unknown" ? (
           "?"
@@ -69,14 +76,21 @@ export function Step({
           <span className="sr-only">
             {state === "verified"
               ? "Verified. "
-              : state === "unknown"
-                ? "Progress unknown. "
-                : "Not verified yet. "}
+              : state === "checked"
+                ? "Checked off from your terminal. "
+                : state === "unknown"
+                  ? "Progress unknown. "
+                  : "Not verified yet. "}
           </span>
           <h2 className="font-serif text-[16.5px] font-semibold text-ink">{title}</h2>
           {state === "verified" && (
             <span className="anim-rise font-mono text-[10px] tracking-[0.08em] text-verify-deep uppercase">
               verified
+            </span>
+          )}
+          {state === "checked" && (
+            <span className="anim-rise font-mono text-[10px] tracking-[0.08em] text-ink-faint uppercase">
+              done here
             </span>
           )}
           {state === "pending" && chip && (

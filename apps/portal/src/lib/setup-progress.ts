@@ -64,9 +64,18 @@ export type SetupCommandId = "clone" | "tool" | "benchmark" | "link" | "check";
 
 export interface SetupCommand {
   id: SetupCommandId;
+  /** The evidence step this line carries, or null for the device link, whose
+   *  evidence is the device list rather than a recorded step. Kept beside the
+   *  command so nothing has to map an id back to a step by hand. */
+  step: SetupStep | null;
   command: string;
-  /** True once CogPortal has observed what this command does. */
+  /** True once CogPortal has observed what this command does, through a
+   *  linked device reporting it. */
   verified: boolean;
+  /** True when the student checked this step off from their own terminal.
+   *  It ticks the box and it is not an observation, so it is kept separate
+   *  rather than folded into `verified`. */
+  selfChecked: boolean;
   /** Whether its evidence is about this benchmark rather than the machine.
    *  Derived from the step it carries, so nothing keeps a second list of
    *  which commands are per-track. */
@@ -91,19 +100,23 @@ export function setupCommandLines(input: {
   benchmarkTitle: string;
   portalOrigin: string;
   verified: (step: SetupStep) => boolean;
+  selfChecked?: (step: SetupStep) => boolean;
   deviceLinked: boolean;
 }): SetupCommand[] {
   const pkg = benchmarkPackage(input.benchmarkId);
   const lines: SetupCommand[] = [
     {
       id: "clone",
+      step: "clone",
       command: `git clone ${input.cloneUrl} && cd ${input.repoName}`,
       verified: input.verified("clone"),
+      selfChecked: input.selfChecked?.("clone") ?? false,
       benchmarkScoped: isBenchmarkScopedStep("clone"),
       evidenceSource: "setup-state",
     },
     {
       id: "tool",
+      step: "environment",
       // `--force-reinstall`, not just `--upgrade`. The version stays 0.2.0
       // across pins, and pip treats an equal version as already satisfied:
       // measured, `--upgrade` from one commit to another exited zero and left
@@ -111,6 +124,7 @@ export function setupCommandLines(input: {
       // declares no dependencies, so forcing it reinstalls nothing else.
       command: `python -m pip install --upgrade --force-reinstall "cogworks-benchmark @ ${COGBENCH_SOURCE}"`,
       verified: input.verified("environment"),
+      selfChecked: input.selfChecked?.("environment") ?? false,
       benchmarkScoped: isBenchmarkScopedStep("environment"),
       evidenceSource: "setup-state",
     },
@@ -125,8 +139,10 @@ export function setupCommandLines(input: {
       // failed for everyone who ran it, and the resolver reads the repository
       // directly instead.
       id: "benchmark",
+      step: "project",
       command: `python -m pip install "${pkg.distribution} @ ${pkg.source}"`,
       verified: input.verified("project"),
+      selfChecked: input.selfChecked?.("project") ?? false,
       benchmarkScoped: isBenchmarkScopedStep("project"),
       evidenceSource: "setup-state",
     });
@@ -135,8 +151,10 @@ export function setupCommandLines(input: {
   lines.push(
     {
       id: "link",
+      step: null,
       command: `cogworks link --portal ${input.portalOrigin}`,
       verified: input.deviceLinked,
+      selfChecked: false,
       benchmarkScoped: false,
       evidenceSource: "devices",
     },
@@ -145,8 +163,10 @@ export function setupCommandLines(input: {
       // request when the flag is absent, so dropping it would make the comment
       // above false and leave the sheet grey forever.
       id: "check",
+      step: "wiring",
       command: `cogworks check --benchmark ${input.benchmarkId} --update-setup`,
       verified: input.verified("wiring"),
+      selfChecked: input.selfChecked?.("wiring") ?? false,
       benchmarkScoped: isBenchmarkScopedStep("wiring"),
       evidenceSource: "setup-state",
     },
@@ -174,11 +194,17 @@ export function setupCommandsForTeam(input: {
    *  benchmark the student did install cannot tick a box for one they did
    *  not. Undefined while loading, and empty for a track never checked. */
   verifiedStepsForBenchmark?: readonly SetupStep[] | undefined;
+  /** The same two sets for steps the student checked off rather than the CLI
+   *  reporting them. */
+  checkedSteps?: readonly SetupStep[] | undefined;
+  checkedStepsForBenchmark?: readonly SetupStep[] | undefined;
   cliDeviceCount: number;
   portalOrigin: string;
 }): SetupCommand[] {
   const machine = new Set<SetupStep>(input.verifiedSteps ?? []);
   const thisBenchmark = new Set<SetupStep>(input.verifiedStepsForBenchmark ?? []);
+  const machineChecked = new Set<SetupStep>(input.checkedSteps ?? []);
+  const benchmarkChecked = new Set<SetupStep>(input.checkedStepsForBenchmark ?? []);
 
   return setupCommandLines({
     cloneUrl: `${input.repo.url}.git`,
@@ -188,6 +214,8 @@ export function setupCommandsForTeam(input: {
     portalOrigin: input.portalOrigin,
     verified: (step) =>
       isBenchmarkScopedStep(step) ? thisBenchmark.has(step) : machine.has(step),
+    selfChecked: (step) =>
+      isBenchmarkScopedStep(step) ? benchmarkChecked.has(step) : machineChecked.has(step),
     deviceLinked: input.cliDeviceCount > 0,
   });
 }
@@ -206,15 +234,20 @@ export type EvidenceOutage = Partial<Record<SetupCommand["evidenceSource"], bool
 export function stepState(
   line: SetupCommand,
   outage: EvidenceOutage = {},
-): "verified" | "pending" | "unknown" {
+): "verified" | "checked" | "pending" | "unknown" {
   if (outage[line.evidenceSource]) return "unknown";
-  return line.verified ? "verified" : "pending";
+  if (line.verified) return "verified";
+  return line.selfChecked ? "checked" : "pending";
 }
 
+/** Done is a ticked box, however it was ticked; verified is the subset
+ *  CogPortal observed. The masthead counts the first, because that is what a
+ *  student can literally count down the rail. */
 export function setupCommandProgress(
   lines: readonly SetupCommand[],
-): { verified: number; total: number } {
+): { done: number; verified: number; total: number } {
   return {
+    done: lines.filter((line) => line.verified || line.selfChecked).length,
     verified: lines.filter((line) => line.verified).length,
     total: lines.length,
   };

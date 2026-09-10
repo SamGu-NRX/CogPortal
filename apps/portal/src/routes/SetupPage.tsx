@@ -2,7 +2,12 @@ import { ArrowRight01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { ReactNode } from "react";
 import { Link, useSearchParams } from "react-router";
-import type { TeamDetail, TeamMember } from "@cogworks/contracts/schema";
+import {
+  isSelfCheckableStep,
+  type SetupStep,
+  type TeamDetail,
+  type TeamMember,
+} from "@cogworks/contracts/schema";
 import { Button } from "@/components/Button";
 import { Code } from "@/components/Code";
 import { ConfirmButton } from "@/components/ConfirmButton";
@@ -112,14 +117,21 @@ function SetupGuide({
     verifiedStepsForBenchmark: replay
       ? []
       : setupState.data?.verifiedByBenchmark[track.benchmarkId],
+    checkedSteps: replay ? [] : setupState.data?.checked,
+    checkedStepsForBenchmark: replay
+      ? []
+      : setupState.data?.checkedByBenchmark[track.benchmarkId],
     cliDeviceCount: replay ? 0 : (connections.data?.cliDevices.length ?? 0),
     portalOrigin: window.location.origin,
   });
 
   // The count and the rail read the same array, so the masthead can never
   // claim a number the steps do not show.
-  const { verified, total } = setupCommandProgress(lines);
-  const complete = !evidenceFailed && verified === total;
+  const { done, total } = setupCommandProgress(lines);
+  // Signed for the track above, so switching tracks fetches a fresh set and a
+  // command copied for one benchmark cannot tick another's box.
+  const tokens = replay ? undefined : setupState.data?.tokens;
+  const complete = !evidenceFailed && done === total;
   const benchmarkTitle = track.benchmark?.title ?? track.benchmarkId;
   const environment = benchmarkEnvironment(track.benchmarkId);
 
@@ -203,10 +215,6 @@ function SetupGuide({
     },
   };
 
-  // The check line is last and is the one that reports the machine steps, so
-  // the rows waiting on it can point at it by its own number.
-  const checkIndex = String(lines.length).padStart(2, "0");
-
   return (
     <div className="anim-rise mx-auto w-full max-w-lg py-14">
       {devTools && (
@@ -232,7 +240,7 @@ function SetupGuide({
         <div className="min-w-0">
           <p className="u-kicker" aria-live="polite">
             Setup ·{" "}
-            {evidenceFailed ? "progress unavailable" : `${verified} of ${total} verified`}
+            {evidenceFailed ? "progress unavailable" : `${done} of ${total} done`}
             {replay ? ` · replaying ${replay}` : ""}
           </p>
           <h1 className="mt-1 truncate text-3xl">{team.name}</h1>
@@ -288,17 +296,11 @@ function SetupGuide({
                 index={String(index + 1).padStart(2, "0")}
                 state={state}
                 title={said[line.id].title}
-                // Nothing this student can run reports before `check` does, so
-                // a row that waits on it says so where the eye already is.
-                chip={
-                  line.evidenceSource === "setup-state" && line.id !== "check"
-                    ? `ticks on ${checkIndex}`
-                    : undefined
-                }
                 last={index === lines.length - 1}
               >
                 {said[line.id].body}
                 <CopyBlock className="mt-2.5" text={line.command} wrap />
+                <TerminalCheckoff step={line.step} state={state} tokens={tokens} />
               </Step>
             );
           })}
@@ -334,6 +336,49 @@ function SetupGuide({
           </Link>
         </div>
       )}
+    </div>
+  );
+}
+
+/* ── Terminal check-off ───────────────────────────────────────────────── */
+
+/**
+ * One line, pasted in the same terminal, and the box ticks itself.
+ *
+ * The three steps this appears under are the ones nothing reports until
+ * `check` runs at the end, so without it a student clones and installs against
+ * silent boxes. It marks this step and sends nothing else, and the box it
+ * ticks says "done here" rather than "verified", because a command reaching us
+ * is the student telling us they did it and not CogPortal watching them do it.
+ *
+ * A python one-liner rather than curl: PowerShell aliases curl to something
+ * with different arguments, and the course environment guarantees python
+ * everywhere. It posts rather than gets, so a link prefetcher or a scanner
+ * that follows the address cannot tick anybody's box.
+ */
+function TerminalCheckoff({
+  step,
+  state,
+  tokens,
+}: {
+  step: SetupStep | null;
+  state: "verified" | "checked" | "pending" | "unknown";
+  tokens: Record<string, string> | undefined;
+}) {
+  if (!step || !isSelfCheckableStep(step) || state !== "pending") return null;
+  const token = tokens?.[step];
+  if (!token) return null;
+  const url = `${window.location.origin}/api/v1/setup/check-off?t=${token}`;
+  return (
+    <div className="mt-2.5">
+      <p className="text-[12px] text-ink-faint">
+        Done here? Run this in the same terminal and the box ticks itself.
+      </p>
+      <CopyBlock
+        className="mt-1.5"
+        wrap
+        text={`python -c "import urllib.request as u; print(u.urlopen('${url}', data=b'').read().decode())"`}
+      />
     </div>
   );
 }
