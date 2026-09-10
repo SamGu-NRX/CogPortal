@@ -5,6 +5,7 @@ import json
 import os
 import sys
 import threading
+import textwrap
 import time
 import urllib.error
 import urllib.request
@@ -52,6 +53,53 @@ def _repo_root() -> Path:
 
 
 REPO_ROOT = _repo_root()
+
+
+#: How long one scorer note may be on the wire.
+#:
+#: It was 240, and the scorers write longer than that. The week 1 notes run to
+#: 315 characters and week 2's abstention note to 392, so five of the fixed
+#: templates arrived on the run page cut mid-word: three of them ended "and",
+#: "not hid", and "give you on". A note is one instruction about what to change
+#: next, so the half that survived was the half that described the problem and
+#: the half that was lost was the advice.
+#:
+#: 600 is not a new number here. It is what packages/contracts already allows
+#: for every prose field of a refusal (headline, nextStep, notes), which is the
+#: same kind of text written for the same reader. Thirty-two notes at 600 is
+#: 19 KB in the worst case, against the 8 KiB the sanitized log gets on its own
+#: separate allowance.
+#:
+#: Raising this needs the portal deployed before the runner. The worker
+#: validates the inbound event and answers 400 for a longer string, and
+#: `_post_event` does not retry a 400, so a runner that ran ahead of the portal
+#: would lose whole completed events rather than a few characters.
+DIAGNOSTIC_LIMIT = 600
+
+
+def _diagnostic_lines(item: Any) -> List[str]:
+    """One note, in pieces no longer than the wire allows, split between words.
+
+    Nothing in the current scorers reaches the limit, so this is what happens
+    the day one does. Splitting keeps the whole instruction, where slicing kept
+    a prefix and threw away the sentence the student was meant to act on.
+
+    Two notes on the shape. The run page reads the first entry as the headline
+    and the rest as supporting lines, so a note long enough to split puts its
+    second half in a bullet, which is worse than one paragraph and much better
+    than losing it. And a split note spends more of the 32-entry budget, which
+    is why the caller still caps the list afterwards.
+    """
+
+    text = str(item).strip()
+    if len(text) <= DIAGNOSTIC_LIMIT:
+        return [text]
+    return textwrap.wrap(
+        text,
+        width=DIAGNOSTIC_LIMIT,
+        break_long_words=True,
+        break_on_hyphens=False,
+    ) or [text[:DIAGNOSTIC_LIMIT]]
 
 
 def _cogbench_environment():
@@ -2514,7 +2562,11 @@ def execute_job(job_value: Dict[str, Any]) -> None:
             "benchmarkId": job["benchmark"]["id"],
             "benchmarkVersion": job["benchmark"]["version"],
             "metrics": [metric.to_wire() for metric in metrics],
-            "diagnostics": [str(item)[:240] for item in diagnostics[:32]],
+            "diagnostics": [
+                line
+                for item in diagnostics[:32]
+                for line in _diagnostic_lines(item)
+            ][:32],
             "outputDigest": output_digest,
         }
         if prepared_this_run:

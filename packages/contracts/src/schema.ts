@@ -150,7 +150,18 @@ export const RunDetailSchema = RunSummarySchema.extend({
   metrics: z.array(MetricSchema),
   /** The scorer's own notes on this run: which component scored zero and why.
    *  Safe for official runs; they describe the submission, never the data. */
-  diagnostics: z.array(z.string().max(240)).max(32),
+  /**
+   * One note is one instruction about what to change next, so it has to arrive
+   * whole. At 240 the scorers were cut mid-word: week 1's notes run to 315
+   * characters and week 2's abstention note to 392, and what the cut removed
+   * was the advice at the end rather than the description at the start.
+   *
+   * 600 matches what a refusal's prose fields already allow in this file. Both
+   * ends of the wire have to agree, so the portal is deployed before the
+   * runner: the worker answers 400 for a longer string and the runner does not
+   * retry a 400, which would lose the whole completed event.
+   */
+  diagnostics: z.array(z.string().max(600)).max(32),
   /**
    * How the score moved as the benchmark's difficulty knob turned. Null when
    * the benchmark has no such knob, or when the run predates the sweep.
@@ -455,6 +466,13 @@ export const LocalReportInputSchema = z.object({
   startedAt: z.number().int(),
   finishedAt: z.number().int(),
   metrics: z.array(MetricSchema).max(32),
+  /**
+   * Left at 240 on purpose. The local report never cut a note in half:
+   * `_diagnostic_lines` in cogbench/models.py splits at sentence and word
+   * boundaries before it fills this field, so the defect the hosted path
+   * had does not exist here and raising it would only churn a shipped
+   * client's contract.
+   */
   diagnostics: z.array(z.string().max(240)).max(32),
   weightsUsed: z.array(z.string().min(1).max(500)).max(32),
 });

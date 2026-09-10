@@ -154,7 +154,18 @@ export const BenchmarkResultV1Schema = z.object({
   benchmarkId: z.string().min(1).max(120),
   benchmarkVersion: z.number().int().positive(),
   metrics: z.array(ProtocolMetricSchema).min(1).max(32),
-  diagnostics: z.array(z.string().max(240)).max(32),
+  /**
+   * One note is one instruction about what to change next, so it has to arrive
+   * whole. At 240 the scorers were cut mid-word: week 1's notes run to 315
+   * characters and week 2's abstention note to 392, and what the cut removed
+   * was the advice at the end rather than the description at the start.
+   *
+   * 600 matches what a refusal's prose fields already allow in this file. Both
+   * ends of the wire have to agree, so the portal is deployed before the
+   * runner: the worker answers 400 for a longer string and the runner does not
+   * retry a 400, which would lose the whole completed event.
+   */
+  diagnostics: z.array(z.string().max(600)).max(32),
   weightsSupplied: z.array(z.string().min(1).max(500)).max(32).optional(),
   /**
    * Optional: a benchmark whose difficulty has no natural knob omits it, and
