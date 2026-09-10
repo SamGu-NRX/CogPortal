@@ -16,6 +16,7 @@ from cogbench.pipeline import (
     Fixtures,
     Role,
     Stage,
+    _named_for_something_else,
     callables_in,
     extend,
     probe_sources,
@@ -1220,6 +1221,65 @@ class TheirPipelineOverAFolder(unittest.TestCase):
 
         self.assertEqual(set(here.iterdir()), before)
         self.assertEqual(set(self.tmp.iterdir()), set(self.files))
+
+
+class TheNameFilterSkipsWordsAndNotSubstrings(unittest.TestCase):
+    """`domain` contains `main`, and a substring match dropped it.
+
+    The filter exists to skip functions that draw, print, demo or test. It
+    matched `_NEVER` anywhere in the name, so a team whose descriptor step was
+    called `domain_features` had it removed from the candidate pool before it
+    was ever called, and the repository was reported as having no pipeline for
+    that stage. `latest_*`, `fastest_*` and `contest*` went the same way
+    through `test`.
+    """
+
+    def test_a_word_that_merely_contains_one_is_still_a_candidate(self):
+        for name in (
+            "domain_features",
+            "domain_transform",
+            "remain_index",
+            "latest_match",
+            "fastest_lookup",
+            "contest_entries",
+        ):
+            with self.subTest(name=name):
+                self.assertFalse(_named_for_something_else(name))
+
+    def test_the_functions_it_exists_to_skip_are_still_skipped(self):
+        # Prefix rather than whole word, so `unit_tests` and `plotting` go
+        # with `test` and `plot`. Camel case splits the same way as
+        # underscores, because a repository writes both.
+        for name in (
+            "test_helper",
+            "unit_tests",
+            "plot_peaks",
+            "plotting",
+            "plotPeaks",
+            "show_matches",
+            "showcase_pairs",
+            "display_results",
+            "demo_run",
+            "demonstrate_it",
+            "main",
+            "main_loop",
+            "mainland_ids",
+            "visualize_graph",
+            "visualise_graph",
+        ):
+            with self.subTest(name=name):
+                self.assertTrue(_named_for_something_else(name))
+
+    def test_a_module_exporting_both_offers_the_one_that_is_not_a_helper(self):
+        module = _module(
+            "theirs",
+            domain_features=lambda x: x,
+            plot_peaks=lambda x: x,
+        )
+        self.assertEqual(
+            [candidate.label for candidate in callables_in([module])],
+            ["theirs.domain_features"],
+        )
 
 
 class NamesNeverDecideWhetherARepositoryResolves(unittest.TestCase):
