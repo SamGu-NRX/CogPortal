@@ -23,7 +23,7 @@ export interface BenchmarkPackage {
  * version does not change between pins.
  */
 export const COGBENCH_SOURCE =
-  "git+https://github.com/SamGu-NRX/CogPortal.git@37970dab7329f6954f59837120b36401ea6b091c#subdirectory=python/cogbench";
+  "git+https://github.com/SamGu-NRX/CogPortal.git@8e09a07c6e0cce75c70845d4566fd756f390c83b#subdirectory=python/cogbench";
 
 const WEEK1_AUDIO: BenchmarkPackage = {
   distribution: "cogworks-week1-audio-benchmark",
