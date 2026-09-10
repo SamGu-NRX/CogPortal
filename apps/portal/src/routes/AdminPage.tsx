@@ -8,11 +8,7 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useRef, useState } from "react";
-import {
-  OFFICIAL_LIMIT,
-  PRACTICE_LIMIT,
-  type AdminTeamSummary,
-} from "@cogworks/contracts/schema";
+import type { AdminTeamSummary } from "@cogworks/contracts/schema";
 import { Button } from "@/components/Button";
 import { ConfirmButton } from "@/components/ConfirmButton";
 import { EmptyState } from "@/components/EmptyState";
@@ -517,7 +513,8 @@ function TeamRow({ team, canAssignTas }: { team: AdminTeamSummary; canAssignTas:
           {runState(team)}
         </span>
         <span className="u-tnum font-mono text-[11px] text-ink-secondary">
-          {team.practiceUsed}/{PRACTICE_LIMIT} · {team.officialUsed}/{OFFICIAL_LIMIT}
+          {/* Totals span benchmark versions, so a single version's quota is not a denominator. */}
+          {team.practiceUsed} practice runs · {team.officialUsed} official attempts
           {/* Only when there are any. A team that keeps hitting real
               infrastructure trouble and a team whose submission provokes the
               same platform-side failure both show up here, and both are worth
@@ -670,8 +667,8 @@ function TeamRow({ team, canAssignTas }: { team: AdminTeamSummary; canAssignTas:
                   row's widest column to say it. Down here it is a footnote on
                   the team already being read. */}
               <p className="u-tnum mt-3 border-t border-rule-soft pt-2 font-mono text-[11px] text-ink-faint">
-                {team.publishedScore != null
-                  ? `Published score ${team.publishedScore.toFixed(3)}`
+                {team.published
+                  ? `Latest published score ${team.published.score.toFixed(3)} · ${team.published.benchmarkName ?? "benchmark not in the catalog"} v${team.published.benchmarkVersion}`
                   : "Nothing published yet"}
               </p>
             </div>

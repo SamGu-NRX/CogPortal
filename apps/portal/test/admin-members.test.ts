@@ -9,10 +9,17 @@ import { drizzle } from "drizzle-orm/d1";
 import { Hono } from "hono";
 import { createAuth } from "../worker/auth/better-auth.ts";
 import type { Database } from "../worker/db/client.ts";
-import { cohorts, teamMembers, teams, users } from "../worker/db/schema.ts";
+import { benchmarks, leaderboardSelections, officialAttempts, runMetrics, runs, cohorts, teamMembers, teams, users } from "../worker/db/schema.ts";
 import type { AppEnv, Env } from "../worker/env.ts";
 import { handleError } from "../worker/http/errors.ts";
 import { registerAdminRoutes } from "../worker/routes/admin.ts";
+import { PRACTICE_LIMIT, OFFICIAL_LIMIT } from "@cogworks/contracts/schema";
+import * as React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { AdminPage } from "../src/routes/AdminPage.tsx";
+
+(globalThis as typeof globalThis & { React: typeof React }).React = React;
 
 /**
  * The admin console's member routes used to enforce less than the student
@@ -272,4 +279,66 @@ test("adding a new member from the cohort still works", async () => {
   });
   assert.equal(added.status, 200);
   assert.equal(await h.roleOf("team_a", await h.userId("newcomer")), "write");
+});
+
+
+test("admin totals span benchmarks and versions without per-version quota denominators", async () => {
+  const h = harness();
+  await h.seedCohorts();
+  await h.seedTeam("team_totals");
+  const owner = await h.signIn(OWNER, null);
+  const scopes = [
+    { id: "test_audio", version: 1, title: "Audio identification" },
+    { id: "test_vision", version: 1, title: "Old recognition" },
+    { id: "test_vision", version: 2, title: "Face recognition" },
+  ];
+  for (const [index, scope] of scopes.entries()) {
+    await h.db.insert(benchmarks).values({
+      ...scope, contractVersion: "test-v1", entryPointName: scope.id,
+      module: "vision", summary: "Test", active: true, primaryMetricKey: "accuracy",
+    });
+    const base = {
+      teamId: "team_totals", benchmarkId: scope.id, benchmarkVersion: scope.version,
+      contractVersion: "test-v1", status: "succeeded" as const, branch: "main",
+      sha: "a".repeat(40), createdAt: 1,
+    };
+    for (let i = 0; i < PRACTICE_LIMIT; i++) {
+      await h.db.insert(runs).values({ ...base, id: `practice_${index}_${i}`, mode: "practice" });
+    }
+    for (let i = 1; i <= OFFICIAL_LIMIT; i++) {
+      const id = `official_${index}_${i}`;
+      await h.db.insert(runs).values({ ...base, id, mode: "official", attemptNumber: i });
+      await h.db.insert(officialAttempts).values({
+        id: `attempt_${index}_${i}`, teamId: base.teamId, benchmarkId: scope.id,
+        benchmarkVersion: scope.version, runId: id, attemptNumber: i, claimedAt: 1,
+      });
+    }
+    const runId = `official_${index}_1`;
+    await h.db.insert(runMetrics).values({
+      runId, key: "accuracy", label: "Accuracy", value: 0.5 + index / 10,
+      higherIsBetter: true, isPrimary: true, precision: 3,
+    });
+    await h.db.insert(leaderboardSelections).values({
+      teamId: base.teamId, benchmarkId: scope.id, benchmarkVersion: scope.version,
+      runId, selectedAt: index + 1,
+    });
+  }
+  const result = await h.call("GET", "/admin/overview", { cookie: owner });
+  assert.equal(result.status, 200);
+  const overview = result.body;
+  const team = overview.teams[0];
+  assert.equal(team.practiceUsed, PRACTICE_LIMIT * scopes.length);
+  assert.equal(team.officialUsed, OFFICIAL_LIMIT * scopes.length);
+  assert.equal(team.published?.score, 0.7);
+
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  client.setQueryData(["admin", "overview"], { ...overview, scope: "ta" });
+  const html = renderToStaticMarkup(React.createElement(
+    QueryClientProvider, { client }, React.createElement(AdminPage),
+  ));
+  assert.match(html, /30 practice runs · 9 official attempts/);
+  assert.doesNotMatch(html, /30\/10|9\/3/);
+  client.clear();
+  assert.equal(team.published?.benchmarkName, "Face recognition");
+  assert.equal(team.published?.benchmarkVersion, 2);
 });

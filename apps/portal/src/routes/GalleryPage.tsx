@@ -1,8 +1,10 @@
+import { CommandSheet } from "@/components/CommandSheet";
 import { Finding } from "@/components/Finding";
 import { Panel } from "@/components/Panel";
 import { PrimaryMetric, SupportingMetrics } from "@/components/MetricBlock";
 import { SweepTrace } from "@/components/SweepTrace";
 import { WiringTrace, type WiredStep } from "@/components/WiringTrace";
+import { setupCommandLines } from "@/lib/setup-progress";
 import type { Metric, RunDetail as RunDetailType } from "@cogworks/contracts/schema";
 
 /**
@@ -201,6 +203,54 @@ const LONG_WIRING: WiredStep[] = [
   },
 ];
 
+/** A floor whose parent is not in the list beside it. Week 3 publishes this
+ *  shape whenever the image side is unmeasured, and the run page also lifts
+ *  the primary metric out before rendering the rest, so a floor attached to
+ *  the primary arrives here with nothing to attach to. */
+const ORPHAN_FLOOR: Metric[] = [
+  metric({
+    key: "chance_mrr",
+    label: "Chance MRR",
+    value: 0.0102,
+    precision: 3,
+    primary: false,
+    role: "floor",
+    relatesTo: "retrieval_mrr",
+    help: "What ranking at random scores on this pool.",
+  }),
+];
+
+const PAIRED_FLOOR: Metric[] = [
+  metric({
+    key: "retrieval_mrr",
+    label: "Retrieval MRR",
+    value: 0.2586,
+    precision: 3,
+    primary: false,
+    role: "scored",
+    help: null,
+  }),
+  ...ORPHAN_FLOOR,
+];
+
+const SETUP_LINES = setupCommandLines({
+  cloneUrl: "https://github.com/cogworks-demo/face-finder.git",
+  repoName: "face-finder",
+  benchmarkId: "audio-identification",
+  benchmarkTitle: "Audio",
+  portalOrigin: "https://cogportal.example",
+  verified: () => true,
+  deviceLinked: true,
+});
+
+const SETUP_NOTES = {
+  clone: { title: "Clone your team's repository", why: "Every hosted attempt runs from it." },
+  tool: { title: "Install the CogWorks tool", why: "It works out which functions to call." },
+  benchmark: { title: "Install the Audio benchmark", why: "The scorer lives in its own package." },
+  link: { title: "Link this machine", why: "This is what lets a command report back." },
+  check: { title: "Check it, and tell this page", why: "The last command is the one that reports." },
+} as const;
+
 export function GalleryPage() {
   return (
     <div className="mx-auto w-full max-w-4xl py-10">
@@ -230,6 +280,48 @@ export function GalleryPage() {
           </Panel>
         </section>
       ))}
+
+      <h2 className="mt-12 font-serif text-xl font-semibold text-ink">
+        Supporting metrics, floors
+      </h2>
+      <p className="mb-2 mt-2 text-[13px] text-ink-faint">
+        Left: a floor beside the metric it is the scale of, drawn inside that
+        row. Right: the same floor with its parent withheld. It used to be
+        filtered out of the table with nowhere else to go, so the number
+        vanished. Neither draws a direction arrow.
+      </p>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Panel label="FLOOR WITH ITS PARENT">
+          <SupportingMetrics metrics={PAIRED_FLOOR} />
+        </Panel>
+        <Panel label="FLOOR WHOSE PARENT IS WITHHELD">
+          <SupportingMetrics metrics={ORPHAN_FLOOR} />
+        </Panel>
+      </div>
+
+      <h2 className="mt-12 font-serif text-xl font-semibold text-ink">
+        Setup sheet, when the progress read fails
+      </h2>
+      <p className="mb-2 mt-2 text-[13px] text-ink-faint">
+        Both sheets hold identical commands, all of them finished. On the left
+        CogPortal read its evidence. On the right that request failed, which
+        produces the same empty verified set as a student who has run nothing:
+        empty boxes would report finished work as work nobody did, so the
+        gutter shows dashes and no command is dimmed as complete.
+      </p>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Panel label="EVIDENCE READ">
+          <CommandSheet lines={SETUP_LINES} label="Observed" notes={SETUP_NOTES} />
+        </Panel>
+        <Panel label="EVIDENCE UNREADABLE">
+          <CommandSheet
+            lines={SETUP_LINES}
+            label="Unavailable"
+            notes={SETUP_NOTES}
+            unreadable={{ "setup-state": true, devices: true }}
+          />
+        </Panel>
+      </div>
 
       <h2 className="mt-12 font-serif text-xl font-semibold text-ink">Wiring trace</h2>
       <p className="mb-2 mt-2 text-[13px] text-ink-faint">

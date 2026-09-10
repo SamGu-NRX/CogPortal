@@ -67,6 +67,11 @@ export type TeamProvenance = z.infer<typeof TeamProvenanceSchema>;
 
 /* ── Metrics (data-driven, §6) ────────────────────────────────────────── */
 
+/** The kinds of number a benchmark can publish. ProtocolMetricSchema restates
+ *  this list for the reason given there, and test/protocol.test.ts asserts the
+ *  two match. */
+export const METRIC_ROLES = ["scored", "floor", "reported", "diagnostic", "plotted"] as const;
+
 export const MetricSchema = z.object({
   key: z.string(),
   label: z.string(),
@@ -90,11 +95,12 @@ export const MetricSchema = z.object({
    *
    * Nullish means scored, which is what everything was before this existed.
    */
-  role: z.enum(["scored", "floor", "reported", "diagnostic", "plotted"]).nullish(),
+  role: z.enum(METRIC_ROLES).nullish(),
   /** The metric this one is the floor of, or is reported alongside. */
   relatesTo: z.string().nullish(),
 });
 export type Metric = z.infer<typeof MetricSchema>;
+export type MetricRole = (typeof METRIC_ROLES)[number];
 
 /* ── Runs ─────────────────────────────────────────────────────────────── */
 
@@ -1013,6 +1019,31 @@ export const SETUP_STEPS = [
 export const SetupStepSchema = z.enum(SETUP_STEPS);
 export type SetupStep = z.infer<typeof SetupStepSchema>;
 
+/**
+ * The steps whose evidence is about one environment rather than the machine.
+ *
+ * `clone` is the repository, and a repository is the same clone on every
+ * track. The other three all describe the environment that happens to be
+ * active: `environment` installs the CLI into it, `project` installs one
+ * benchmark distribution into it, and `check --benchmark X` resolves that
+ * benchmark's entry points from it. CogWeb gives each week its own conda
+ * environment (see the portal's BENCHMARK_ENVIRONMENTS), so a CLI installed
+ * for week 1 is genuinely absent from week 3, and marking it verified there
+ * is the same overclaim as marking the benchmark installed.
+ *
+ * The id stored is a benchmark only because a benchmark stands in for a week.
+ * That is imprecise in one direction and only in one direction: the two vision
+ * tracks share week 2, so switching between them unticks lines that really are
+ * done. Under-claiming costs a command that exits almost immediately;
+ * over-claiming sends a student past the line whose absence produces
+ * `cogworks: command not found` at the next one.
+ */
+export const BENCHMARK_SCOPED_SETUP_STEPS = ["environment", "project", "wiring"] as const;
+export type BenchmarkScopedSetupStep = (typeof BENCHMARK_SCOPED_SETUP_STEPS)[number];
+export function isBenchmarkScopedStep(step: SetupStep): step is BenchmarkScopedSetupStep {
+  return (BENCHMARK_SCOPED_SETUP_STEPS as readonly SetupStep[]).includes(step);
+}
+
 /** POST /api/v1/cli/setup/checks. A linked CLI sends only coarse pass
  *  evidence: no paths, source, logs, predictions, metrics, or reports. */
 export const SetupEvidenceRequestSchema = z
@@ -1024,6 +1055,13 @@ export const SetupEvidenceRequestSchema = z
     pythonVersion: z.string().min(1).max(40),
     benchmarkIds: z.array(z.string().min(1).max(100)).max(12),
     submissionIds: z.array(z.string().min(1).max(100)).max(12),
+    /**
+     * The benchmark `check` was run against, when it was run against one.
+     * Optional because a CLI pinned before this field existed cannot send it,
+     * and its evidence is then recorded without a benchmark rather than
+     * credited to whichever track the page happens to be showing.
+     */
+    checkedBenchmarkId: z.string().min(1).max(100).optional(),
   })
   .strict();
 export type SetupEvidenceRequest = z.infer<typeof SetupEvidenceRequestSchema>;
@@ -1039,7 +1077,13 @@ export type SetupEvidenceResponse = z.infer<typeof SetupEvidenceResponseSchema>;
  *  current team. */
 export const SetupStateSchema = z
   .object({
+    /** Steps recorded with no benchmark attached: `clone` and `environment`,
+     *  plus anything an older CLI reported before scope existed. */
     verified: z.array(SetupStepSchema),
+    /** Steps recorded against a named benchmark, keyed by its id. A track
+     *  reads its own entry and nothing else, which is what stops one
+     *  benchmark's setup from marking another's as done. */
+    verifiedByBenchmark: z.record(z.string(), z.array(SetupStepSchema)),
   })
   .strict();
 export type SetupState = z.infer<typeof SetupStateSchema>;
@@ -1122,6 +1166,13 @@ export const AdminTeamSummarySchema = z.object({
       avatarUrl: z.string().nullable(),
     }),
   ),
+  /**
+   * Totals across every benchmark and version, not one track's usage. The
+   * limits in this file are per benchmark, so these two numbers have no
+   * denominator here and must not be rendered as a fraction of one: a team
+   * working through three tracks can legitimately exceed any single track's
+   * limit (worker/routes/admin.ts).
+   */
   practiceUsed: z.number().int(),
   officialUsed: z.number().int(),
   /**
@@ -1134,8 +1185,19 @@ export const AdminTeamSummarySchema = z.object({
    * go look, not the cap itself.
    */
   refundsGiven: z.number().int(),
-  /** Currently published primary metric value, when a selection exists. */
-  publishedScore: z.number().nullable(),
+  /**
+   * The team's latest published selection across all benchmarks, or null. The
+   * score is inseparable from what it scored: a Vision number and a Language
+   * number are not the same quantity and do not compare, so they travel in one
+   * object rather than as three fields that can disagree.
+   */
+  published: z
+    .object({
+      score: z.number(),
+      benchmarkName: z.string().nullable(),
+      benchmarkVersion: z.number().int(),
+    })
+    .nullable(),
 });
 export type AdminTeamSummary = z.infer<typeof AdminTeamSummarySchema>;
 

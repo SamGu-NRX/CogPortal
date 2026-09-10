@@ -56,12 +56,15 @@ export function PrimaryMetric({ metric }: { metric: Metric }) {
  */
 function SupportingMetricRow({
   metric,
-  floor,
+  floors = [],
   subordinate = false,
 }: {
   metric: Metric;
-  /** Rendered as this metric's scale rather than as a row of its own. */
-  floor?: Metric;
+  /** Rendered as this metric's scale rather than as rows of their own. A
+   *  metric can declare more than one: week 1 publishes a chance baseline and
+   *  a trivial baseline against the same score, and reading them together is
+   *  the point of having both. */
+  floors?: Metric[];
   /** A probe reported beside the score it shadows, indented under it. */
   subordinate?: boolean;
 }) {
@@ -74,15 +77,18 @@ function SupportingMetricRow({
       <span className="u-tnum font-mono text-[13px] font-medium text-ink">
         {formatMetricValue(metric)}
       </span>
-      {floor && (
-        /* The scale the number sits on, not a reading of its own. A floor was
-           its own row with an arrow saying "higher is better", which is
-           advice to raise a number the submission does not control, and it
-           left the comparison the floor exists for as manual work. */
-        <span className="u-tnum font-mono text-[11px] text-ink-faint">
-          floor {formatMetricValue({ ...floor, precision: metric.precision })}
+      {/* The scale the number sits on, not a reading of its own. A floor was
+          its own row with an arrow saying "higher is better", which is advice
+          to raise a number the submission does not control, and it left the
+          comparison the floor exists for as manual work. One floor is just
+          "floor"; two need their own names, because "floor" cannot tell them
+          apart. */}
+      {floors.map((floor) => (
+        <span key={floor.key} className="u-tnum font-mono text-[11px] text-ink-faint">
+          {floors.length === 1 ? "floor" : floor.label.toLowerCase()}{" "}
+          {formatMetricValue({ ...floor, precision: metric.precision })}
         </span>
-      )}
+      ))}
       {metric.role === "reported" ? (
         /* No arrow. This one is run and deliberately not scored, so there is
            no direction of better: high means the query text was matched
@@ -187,11 +193,13 @@ function SupportingMetricRow({
 export function SupportingMetrics({ metrics }: { metrics: Metric[] }) {
   if (metrics.length === 0) return null;
 
-  const floors = new Map<string, Metric>();
+  const floors = new Map<string, Metric[]>();
   const reported = new Map<string, Metric[]>();
   for (const metric of metrics) {
     if (!metric.relatesTo) continue;
-    if (metric.role === "floor") floors.set(metric.relatesTo, metric);
+    if (metric.role === "floor") {
+      floors.set(metric.relatesTo, [...(floors.get(metric.relatesTo) ?? []), metric]);
+    }
     if (metric.role === "reported") {
       reported.set(metric.relatesTo, [...(reported.get(metric.relatesTo) ?? []), metric]);
     }
@@ -200,10 +208,33 @@ export function SupportingMetrics({ metrics }: { metrics: Metric[] }) {
   // Anything paired to another metric has moved into that metric's row, and
   // anything plotted is read off the curve above, where its exact value is
   // printed beside its point. A row for it would be the same number twice.
+  //
+  // "Moved into" is checked, not assumed, because the parent can be absent:
+  // week 3 withholds `retrieval_mrr` when the image side is unmeasured and
+  // still sends `chance_mrr`, and a parent that is the run's primary metric
+  // renders above this component (RunDetailPage separates them). Dropping the
+  // child in either case deletes the number from the page entirely.
+  const byKey = new Map(metrics.map((metric) => [metric.key, metric]));
+  // A child can only move into a parent that is itself drawn as a row. Two
+  // passes, because "drawn" depends on absorption: with `floor_b → floor_a →
+  // score`, floor_a moves into score's row, so floor_b has nowhere to go and
+  // keeps its own. A metric pointing at itself is nobody's child.
+  const children = new Set(
+    metrics
+      .filter((metric) => {
+        if (!metric.relatesTo || metric.relatesTo === metric.key) return false;
+        if (metric.role !== "floor" && metric.role !== "reported") return false;
+        const parent = byKey.get(metric.relatesTo);
+        return Boolean(parent) && parent?.role !== "plotted";
+      })
+      .map((metric) => metric.key),
+  );
+  const absorbed = new Set(
+    [...children].filter((key) => !children.has(byKey.get(key)!.relatesTo!)),
+  );
+
   const rows = metrics.filter(
-    (metric) =>
-      metric.role !== "plotted" &&
-      !(metric.relatesTo && (metric.role === "floor" || metric.role === "reported")),
+    (metric) => metric.role !== "plotted" && !absorbed.has(metric.key),
   );
   // Diagnostics last, and separated, because they describe one component in
   // more detail rather than answering "how did I do". A benchmark that
@@ -224,7 +255,7 @@ export function SupportingMetrics({ metrics }: { metrics: Metric[] }) {
             index === firstDiagnostic && index > 0 ? "mt-3 border-t border-rule pt-1" : undefined
           }
         >
-          <SupportingMetricRow metric={metric} floor={floors.get(metric.key)} />
+          <SupportingMetricRow metric={metric} floors={floors.get(metric.key)} />
           {(reported.get(metric.key) ?? []).map((probe) => (
             <SupportingMetricRow key={probe.key} metric={probe} subordinate />
           ))}

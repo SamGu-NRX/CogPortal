@@ -38,6 +38,12 @@ export const ProtocolMetricSchema = z.object({
    * Absent means "scored", which is what every metric was before this
    * existed, so a benchmark that declares nothing renders exactly as it did.
    */
+  // Restated rather than imported from schema.ts: this package's own tests run
+  // under Node's type stripping, which needs a ".ts" extension the portal's
+  // tsconfig rejects. "the two role lists stay in step" in test/protocol.test.ts
+  // is what keeps this honest. This is the copy the runner callback validates
+  // against, so a role here that schema.ts lacks would be stored and then
+  // rejected by the browser, failing the whole run-detail request.
   role: z.enum(["scored", "floor", "reported", "diagnostic", "plotted"]).optional(),
   /** The metric this one is the floor of, or is reported alongside. */
   relatesTo: z.string().max(80).optional(),

@@ -303,6 +303,15 @@ test("quota-spending confirmations carry the consequence in the button and a rec
     portalOrigin,
   );
   assert.match(responseText(promote), /Use an official attempt\?/);
+  // The three facts, not one sentence's wording. Promotion inserts a new run
+  // and dispatches it (portal services/run-actions.ts), and the runner reuses
+  // only `preparedArtifactId` as its snapshot (modal_app.py), so the scoring
+  // does run again. "Nothing reruns" was the claim that made a student think
+  // confirming was free of risk as well as of time.
+  assert.match(responseText(promote), /reuses the environment this run already built/);
+  assert.match(responseText(promote), /scores the same commit on the hidden set/);
+  assert.match(responseText(promote), /one official attempt/);
+  assert.doesNotMatch(responseText(promote), /nothing reruns/);
   assert.match(responseText(promote), /attempt 2 of 3/);
   assert.match(responseText(promote), /> .*\*\*Face Recognition\*\*/);
   const promoteConfirm = buttons(promote).find((item) => item.custom_id?.endsWith(":promote_official:confirm"));
@@ -327,6 +336,11 @@ test("quota-spending confirmations carry the consequence in the button and a rec
     portalOrigin,
   );
   const verifyConfirm = buttons(verify).find((item) => item.custom_id?.endsWith(":verify_hosted:confirm"));
+  // Hosted practice is capped per benchmark and version and enforced against
+  // PRACTICE_LIMIT before dispatch, so "spends nothing" was false in the one
+  // place a student reads before spending.
+  assert.match(responseText(verify), /hosted practice runs/);
+  assert.doesNotMatch(responseText(verify), /spends nothing/);
   assert.equal(verifyConfirm?.label, "Verify bbbbbbb hosted");
   assert.equal(verifyConfirm?.style, 1);
   assert.ok(buttons(verify).every((item) => item.label !== "Not now" || item.style === 2));

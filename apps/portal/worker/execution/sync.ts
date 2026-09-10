@@ -117,6 +117,11 @@ export async function syncRun(db: Database, row: RunRow, now = Date.now()): Prom
           higherIsBetter: metric.higherIsBetter,
           isPrimary: metric.primary,
           precision: metric.precision,
+          // The fixture path dropped help as well, so a fixture run could not
+          // reproduce what a real one renders.
+          help: metric.help ?? null,
+          role: metric.role ?? null,
+          relatesTo: metric.relatesTo ?? null,
         })
         .onConflictDoUpdate({
           target: [runMetrics.runId, runMetrics.key],
@@ -127,6 +132,9 @@ export async function syncRun(db: Database, row: RunRow, now = Date.now()): Prom
             higherIsBetter: metric.higherIsBetter,
             isPrimary: metric.primary,
             precision: metric.precision,
+            help: metric.help ?? null,
+            role: metric.role ?? null,
+            relatesTo: metric.relatesTo ?? null,
           },
         });
     }

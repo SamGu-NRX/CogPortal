@@ -5,6 +5,7 @@ import {
 } from "@tanstack/react-query";
 import {
   ACTIVE_RUN_POLL_MS,
+  isBenchmarkScopedStep,
   isTerminal,
   type AdminOverview,
   type AdminStaffRoster,
@@ -254,21 +255,32 @@ export function useChangeTeamRepo() {
   });
 }
 
-/** TanStack Query pauses this polling when the page is unmounted or backgrounded. */
-export function useSetupState(enabled = true) {
+/**
+ * TanStack Query pauses this polling when the page is unmounted or backgrounded.
+ *
+ * `benchmarkId` is the selected track, and it is what the stop condition is
+ * about. Two of the four checklist steps are recorded per benchmark, so the
+ * raw `verified` array is the wrong thing to wait on in both directions: an
+ * older CLI's unscoped rows would stop the poll while the selected track is
+ * still incomplete, and a current CLI's scoped rows would never stop it at
+ * all. Undefined while the track loads, which keeps polling.
+ */
+export function useSetupState(benchmarkId?: string) {
   return useQuery({
     queryKey: ["setup-state"],
     queryFn: api.setupState,
-    enabled,
     staleTime: 3_000,
     refetchInterval: (query) => {
-      // Stop on the visible checklist's own completion set. SETUP_STEPS also
-      // carries test/run milestones the checklist never shows, so waiting on
-      // every step kept a finished page polling forever.
-      const verified = query.state.data?.verified;
-      return verified && CHECKLIST_MACHINE_STEPS.every((step) => verified.includes(step))
-        ? false
-        : 2_500;
+      const data = query.state.data;
+      if (!data) return 2_500;
+      // The visible checklist's own completion set. SETUP_STEPS also carries
+      // test/run milestones the checklist never shows, so waiting on every
+      // step kept a finished page polling forever.
+      const scoped = (benchmarkId && data.verifiedByBenchmark[benchmarkId]) || [];
+      const complete = CHECKLIST_MACHINE_STEPS.every((step) =>
+        isBenchmarkScopedStep(step) ? scoped.includes(step) : data.verified.includes(step),
+      );
+      return complete ? false : 2_500;
     },
   });
 }

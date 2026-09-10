@@ -1,4 +1,4 @@
-import type { Benchmark, SetupStep } from "@cogworks/contracts/schema";
+import { isBenchmarkScopedStep, type Benchmark, type SetupStep } from "@cogworks/contracts/schema";
 import { COGBENCH_SOURCE, benchmarkPackage } from "./benchmark-packages";
 
 /**
@@ -67,6 +67,14 @@ export interface SetupCommand {
   command: string;
   /** True once CogPortal has observed what this command does. */
   verified: boolean;
+  /** Whether its evidence is about this benchmark rather than the machine.
+   *  Derived from the step it carries, so nothing keeps a second list of
+   *  which commands are per-track. */
+  benchmarkScoped: boolean;
+  /** Which request would have to fail for this line's state to be unknown.
+   *  The link line is the only one that reads the device list, so a failed
+   *  connections request must not blank the four the setup state answered. */
+  evidenceSource: "setup-state" | "devices";
 }
 
 /**
@@ -91,6 +99,8 @@ export function setupCommandLines(input: {
       id: "clone",
       command: `git clone ${input.cloneUrl} && cd ${input.repoName}`,
       verified: input.verified("clone"),
+      benchmarkScoped: isBenchmarkScopedStep("clone"),
+      evidenceSource: "setup-state",
     },
     {
       id: "tool",
@@ -101,6 +111,8 @@ export function setupCommandLines(input: {
       // declares no dependencies, so forcing it reinstalls nothing else.
       command: `python -m pip install --upgrade --force-reinstall "cogworks-benchmark @ ${COGBENCH_SOURCE}"`,
       verified: input.verified("environment"),
+      benchmarkScoped: isBenchmarkScopedStep("environment"),
+      evidenceSource: "setup-state",
     },
   ];
 
@@ -115,6 +127,8 @@ export function setupCommandLines(input: {
       id: "benchmark",
       command: `python -m pip install "${pkg.distribution} @ ${pkg.source}"`,
       verified: input.verified("project"),
+      benchmarkScoped: isBenchmarkScopedStep("project"),
+      evidenceSource: "setup-state",
     });
   }
 
@@ -123,6 +137,8 @@ export function setupCommandLines(input: {
       id: "link",
       command: `cogworks link --portal ${input.portalOrigin}`,
       verified: input.deviceLinked,
+      benchmarkScoped: false,
+      evidenceSource: "devices",
     },
     {
       // --update-setup is what sends the evidence; cli.py returns without a
@@ -131,6 +147,8 @@ export function setupCommandLines(input: {
       id: "check",
       command: `cogworks check --benchmark ${input.benchmarkId} --update-setup`,
       verified: input.verified("wiring"),
+      benchmarkScoped: isBenchmarkScopedStep("wiring"),
+      evidenceSource: "setup-state",
     },
   );
 
@@ -148,12 +166,19 @@ export function setupCommandsForTeam(input: {
   repo: { url: string; name: string };
   benchmark: Benchmark | undefined;
   benchmarkId: string;
-  /** Steps CogPortal holds CLI evidence for; undefined while loading. */
+  /** Steps CogPortal holds CLI evidence for that are not about a benchmark;
+   *  undefined while loading. */
   verifiedSteps: readonly SetupStep[] | undefined;
+  /** Steps CogPortal holds evidence for against this track's benchmark. The
+   *  install and wiring lines read this and nothing else, so evidence from a
+   *  benchmark the student did install cannot tick a box for one they did
+   *  not. Undefined while loading, and empty for a track never checked. */
+  verifiedStepsForBenchmark?: readonly SetupStep[] | undefined;
   cliDeviceCount: number;
   portalOrigin: string;
 }): SetupCommand[] {
-  const seen = new Set<SetupStep>(input.verifiedSteps ?? []);
+  const machine = new Set<SetupStep>(input.verifiedSteps ?? []);
+  const thisBenchmark = new Set<SetupStep>(input.verifiedStepsForBenchmark ?? []);
 
   return setupCommandLines({
     cloneUrl: `${input.repo.url}.git`,
@@ -161,7 +186,8 @@ export function setupCommandsForTeam(input: {
     benchmarkId: input.benchmarkId,
     benchmarkTitle: input.benchmark?.title ?? input.benchmarkId,
     portalOrigin: input.portalOrigin,
-    verified: (step) => seen.has(step),
+    verified: (step) =>
+      isBenchmarkScopedStep(step) ? thisBenchmark.has(step) : machine.has(step),
     deviceLinked: input.cliDeviceCount > 0,
   });
 }

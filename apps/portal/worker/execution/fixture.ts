@@ -90,6 +90,30 @@ export function fixtureMetrics(
     const retrievalScored = round4(
       Math.max(0, (retrieval * (1.063 + 0.649 + 0.877)) / 3),
     );
+    // The plugin's own pairs (benchmarks/week3, metric_roles and
+    // metric_relations), not ours. Without them the fixture drew three chance
+    // floors with "higher is better" arrows, so no local run could show the
+    // floor rendering. The rung metrics are "plotted" in the plugin because
+    // the sweep curve prints each value beside its point; this fixture emits
+    // no curve, so they stay ordinary rows rather than vanish.
+    const floorOf: Record<string, string> = {
+      chance_mrr: "retrieval_mrr",
+      text_chance: "text_mrr",
+      search_chance: "search_mrr",
+    };
+    const reportedOf: Record<string, string> = {
+      retrieval_mrr_verbatim: "retrieval_mrr",
+      search_mrr_verbatim: "search_mrr",
+    };
+    // Also the plugin's. Without these the preview drew four diagnostics among
+    // the scored results, so the surface built to show the separation did not
+    // show it.
+    const diagnostics = new Set([
+      "retrieval_recall_at_1",
+      "retrieval_recall_at_5",
+      "retrieval_recall_at_10",
+      "retrieval_median_rank",
+    ]);
     const metric = (key: string, label: string, value: number, primary = false): Metric => ({
       key,
       label,
@@ -98,6 +122,13 @@ export function fixtureMetrics(
       higherIsBetter: key !== "retrieval_median_rank",
       primary,
       precision: 3,
+      ...(floorOf[key]
+        ? { role: "floor" as const, relatesTo: floorOf[key] }
+        : reportedOf[key]
+          ? { role: "reported" as const, relatesTo: reportedOf[key] }
+          : diagnostics.has(key)
+            ? { role: "diagnostic" as const }
+            : {}),
     });
     return [
       metric("overall", "Overall", round4((text + retrievalScored + search) / 3), true),

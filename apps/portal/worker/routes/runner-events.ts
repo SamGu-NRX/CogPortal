@@ -152,6 +152,12 @@ async function applyEvent(env: AppEnv["Bindings"], event: RunEventV1): Promise<v
           isPrimary: metric.primary,
           precision: metric.precision,
           help: metric.help ?? null,
+          // Explicit nulls on both branches, so a result declaring no role
+          // stores "none recorded" rather than inheriting an earlier write.
+          // The conflict branch only ever sees a retry of the same event
+          // today, since applyEvent returns early on a terminal run.
+          role: metric.role ?? null,
+          relatesTo: metric.relatesTo ?? null,
         })
         .onConflictDoUpdate({
           target: [runMetrics.runId, runMetrics.key],
@@ -163,6 +169,8 @@ async function applyEvent(env: AppEnv["Bindings"], event: RunEventV1): Promise<v
             isPrimary: metric.primary,
             precision: metric.precision,
             help: metric.help ?? null,
+            role: metric.role ?? null,
+            relatesTo: metric.relatesTo ?? null,
           },
         });
     }

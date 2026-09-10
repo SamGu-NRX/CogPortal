@@ -17,9 +17,10 @@ import { pendingConnectionReturn } from "@/lib/pending-return";
  * command someone types is one they understand the reason for.
  *
  * This page briefly said only "sign in · connect · clone · check · run" over
- * an empty sheet of paper. The sequence is worth keeping and is not an
- * explanation: a reader who does not already know what CogPortal does learns
- * nothing from five verbs.
+ * an empty sheet of paper. Those five verbs are not an explanation, and once
+ * the four steps below say the same thing in sentences, repeating them in mono
+ * is a third vocabulary for one sequence. The steps are the version that
+ * teaches, so they are the version that stayed.
  */
 export function Landing() {
   const { data: session } = useSession();
@@ -36,13 +37,7 @@ export function Landing() {
       <p className="mt-3 max-w-[52ch] text-[15px] leading-[1.6] text-ink-secondary">
         Run your capstone against the official evaluation of Cog*Works 2026. It
         scores the code your team already wrote, on your machine as often as you
-        like and on ours when you're ready to publish a result.
-      </p>
-
-      {/* The same five words the terminal uses, so the sequence below and the
-          prompts a student will actually see name the steps identically. */}
-      <p className="mt-5 font-mono text-[12.5px] tracking-[0.08em] text-ink-secondary">
-        sign in · connect · clone · check · run
+        like and on ours from the commit you pushed.
       </p>
 
       <div className="mt-7 flex flex-wrap items-center gap-4">
@@ -72,15 +67,14 @@ export function Landing() {
 
       <section className="mt-16">
         <h2 className="u-kicker">How it goes</h2>
-        {/* A real sequence, so it is numbered. You cannot check a repository
-            you have not connected, or spend a hosted run before a local one
-            works. */}
+        {/* A real sequence, so it is numbered: each step needs the one above
+            it to have happened. The last two are both ways to run rather than
+            a ladder, and hosted practice does not wait on a local score. */}
         <ol className="mt-2">
           <Step n={1} title="Bring a repository">
             <p>
               Your team works in one GitHub repository, and every hosted attempt
-              runs from it rather than from somebody's laptop. That is what makes
-              a result something another person can go and read.
+              runs from it rather than from somebody's laptop.
             </p>
             {template ? (
               <p className="mt-2">
@@ -106,9 +100,9 @@ export function Landing() {
           <Step n={2} title="Set up your machine">
             <p>
               Clone the repository, activate the course environment for your
-              week, and install the CogWorks tool. Sign in and the setup page
-              gives you the exact commands for your track, and records what the
-              last one reports back.
+              week, and install the CogWorks tool. Once you sign in, the setup
+              page has the exact commands for your track and records what they
+              report back.
             </p>
           </Step>
 
@@ -121,13 +115,13 @@ export function Landing() {
             </p>
           </Step>
 
-          <Step n={4} title="Run it here when it's ready">
+          <Step n={4} title="Run it on our machines">
             <p>
-              A hosted run repeats that scoring on our machines, from the commit
-              you pushed, so the number belongs to code anyone can check out. On
-              each benchmark your team gets {PRACTICE_LIMIT} hosted practice runs
-              and {OFFICIAL_LIMIT} official attempts, and you choose which result
-              goes on the board.
+              A hosted run repeats that scoring from the commit you pushed, so
+              the number belongs to code anyone can check out. Each benchmark
+              gives your team {PRACTICE_LIMIT} hosted practice runs and{" "}
+              {OFFICIAL_LIMIT} official attempts, and you choose which official
+              result goes on the board.
             </p>
             {!authed && (
               <Link

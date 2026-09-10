@@ -229,3 +229,62 @@ test("every command is rendered under a title and a reason", () => {
   }
   assert.equal(html.match(/<h3/g)?.length, lines().length);
 });
+
+test("an unreadable evidence request is not rendered as work nobody did", () => {
+  // The setup queries fall back to an empty verified set, which is exactly
+  // what a student who has run nothing produces. Rendered as empty boxes, an
+  // outage tells someone their finished setup was never seen and sends them
+  // back to a terminal where everything already worked.
+  const done = lines({ deviceLinked: true }, ["clone", "environment", "project", "wiring"]);
+  const html = renderToStaticMarkup(
+    React.createElement(CommandSheet, {
+      lines: done,
+      label: "Setup commands, in run order",
+      notes: NOTES,
+      unreadable: { "setup-state": true, devices: true },
+    }),
+  );
+
+  assert.ok(html.includes("Progress unknown."), "no unknown state announced");
+  assert.ok(!html.includes("Verified. "), "claimed verification it could not read");
+  assert.ok(!html.includes("Not verified yet."), "claimed the work was not done");
+  // Nothing is dimmed as complete either: the sheet cannot know which of these
+  // is finished, so every command stays at full contrast to be run again.
+  assert.equal(html.match(/text-ink-secondary">git clone/g), null);
+});
+
+test("a read that succeeded still ticks and still dims what it saw", () => {
+  const done = lines({ deviceLinked: true }, ["clone", "environment", "project", "wiring"]);
+  const html = renderToStaticMarkup(
+    React.createElement(CommandSheet, {
+      lines: done,
+      label: "Setup commands, in run order",
+      notes: NOTES,
+    }),
+  );
+
+  assert.ok(html.includes("Verified. "), "verified state was lost");
+  assert.ok(!html.includes("Progress unknown."), "an observed read claimed to be unknown");
+  // ink-secondary at 6.10:1 on paper-sunken, not ink-faint at 3.03:1. A
+  // finished command is still the thing a student copies on a second machine.
+  assert.ok(!html.includes("text-ink-faint\">git clone"), "completed command dropped below 4.5:1");
+});
+
+test("one failed read does not blank the lines the other read answered", () => {
+  // The device list and the setup state are separate requests. When only the
+  // device list fails, the four steps the setup state answered are still
+  // known, and showing them as unknown would withhold facts the page is
+  // holding correctly.
+  const done = lines({ deviceLinked: true }, ["clone", "environment", "project", "wiring"]);
+  const html = renderToStaticMarkup(
+    React.createElement(CommandSheet, {
+      lines: done,
+      label: "Setup commands, in run order",
+      notes: NOTES,
+      unreadable: { devices: true },
+    }),
+  );
+
+  assert.equal(html.match(/Verified\. /g)?.length, 4, "the setup state's four lines were lost");
+  assert.equal(html.match(/Progress unknown\./g)?.length, 1, "only the link line is unknown");
+});

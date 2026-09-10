@@ -57,3 +57,51 @@ export const BENCHMARK_PACKAGES: Readonly<Record<string, BenchmarkPackage>> = {
 export function benchmarkPackage(benchmarkId: string): BenchmarkPackage | undefined {
   return BENCHMARK_PACKAGES[benchmarkId];
 }
+
+/**
+ * The course environment a track's week expects, from CogWeb's own prerequisite
+ * pages rather than from anything the portal decides.
+ *
+ * Every command below the clone runs inside this environment, so a student who
+ * skips it meets `cogworks: command not found` with nothing on the page
+ * connecting the two. The names and the pages are transcribed in
+ * `docs/capstones/environment.md`; the three below answered 200 on 2026-09-10.
+ */
+export interface CourseEnvironment {
+  /** The conda environment CogWeb tells that week to create. */
+  condaEnv: string;
+  /** That week's prerequisites page, with the full install list. */
+  prereqsUrl: string;
+}
+
+const WEEK1_ENV: CourseEnvironment = {
+  condaEnv: "week1",
+  prereqsUrl: "https://rsokl.github.io/CogWeb/Audio/prereqs.html",
+};
+
+const WEEK2_ENV: CourseEnvironment = {
+  condaEnv: "week2",
+  prereqsUrl: "https://rsokl.github.io/CogWeb/Video/prereqs.html",
+};
+
+const WEEK3_ENV: CourseEnvironment = {
+  condaEnv: "week3",
+  prereqsUrl: "https://rsokl.github.io/CogWeb/Language/prereqs.html",
+};
+
+/** Keyed exactly like BENCHMARK_PACKAGES, because both are facts about the
+ *  same week: the two vision tracks share week 2's environment the same way
+ *  they share its distribution. */
+export const BENCHMARK_ENVIRONMENTS: Readonly<Record<string, CourseEnvironment>> = {
+  "audio-identification": WEEK1_ENV,
+  "vision-recognition": WEEK2_ENV,
+  "vision-clustering": WEEK2_ENV,
+  "language-search": WEEK3_ENV,
+};
+
+/** Undefined for a track whose week we have no CogWeb page for. The page then
+ *  says to activate the environment for your week without naming one, rather
+ *  than guessing a name that would fail at the prompt. */
+export function benchmarkEnvironment(benchmarkId: string): CourseEnvironment | undefined {
+  return BENCHMARK_ENVIRONMENTS[benchmarkId];
+}

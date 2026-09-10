@@ -6,6 +6,7 @@ import unittest
 from datetime import datetime, timezone
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -29,6 +30,45 @@ class CliContractTests(unittest.TestCase):
             with patch("cogbench.cli._update_setup") as update:
                 self.assertEqual(main(["check", "--benchmark", "vision-recognition"]), 0)
         update.assert_not_called()
+
+    def test_update_setup_names_the_benchmark_that_was_checked(self):
+        # Two of the four checks are about one benchmark: the install line
+        # names a distribution and wiring resolves that benchmark's entry
+        # points. Without the id the portal recorded them against the student
+        # and team only, and the setup page marked whichever track it was
+        # showing as installed and wired.
+        with patch("cogbench.cli._check", return_value=0):
+            with patch("cogbench.cli._update_setup") as update:
+                self.assertEqual(
+                    main(
+                        [
+                            "check",
+                            "--benchmark",
+                            "vision-recognition",
+                            "--update-setup",
+                        ]
+                    ),
+                    0,
+                )
+        self.assertEqual(update.call_args.args[3], "vision-recognition")
+
+    def test_setup_payload_omits_the_benchmark_when_there_is_none(self):
+        # `cogworks link` reports the clone and nothing else, so there is no
+        # benchmark to name. The key is left out rather than sent empty: a
+        # portal pinned before the field exists rejects unknown properties.
+        from cogbench import cli
+
+        repository = SimpleNamespace(full_name="demo-org/solo")
+        with patch("cogbench.cli.repository_state", return_value=repository):
+            with patch("cogbench.cli.plugin_names", return_value=[]):
+                without = cli._setup_payload(("clone",), Path("."))
+                with_benchmark = cli._setup_payload(
+                    ("clone", "environment", "project", "wiring"),
+                    Path("."),
+                    "audio-identification",
+                )
+        self.assertNotIn("checkedBenchmarkId", without)
+        self.assertEqual(with_benchmark["checkedBenchmarkId"], "audio-identification")
 
     def test_flagged_local_success_returns_two_when_portal_update_fails(self):
         stderr = io.StringIO()

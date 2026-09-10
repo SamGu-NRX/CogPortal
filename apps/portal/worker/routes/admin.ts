@@ -19,6 +19,7 @@ import type { Database } from "../db/client";
 import { getDb } from "../db/client";
 import type { AppEnv, Env } from "../env";
 import {
+  benchmarks,
   cohorts,
   leaderboardSelections,
   officialAttempts,
@@ -89,8 +90,24 @@ async function getAdminTeamSummary(
       .from(runs)
       .where(and(eq(runs.teamId, teamId), isNotNull(runs.refundedAt))),
     db
-      .select({ value: runMetrics.value })
+      .select({
+        value: runMetrics.value,
+        benchmarkName: benchmarks.title,
+        benchmarkVersion: leaderboardSelections.benchmarkVersion,
+      })
       .from(leaderboardSelections)
+      // Left, not inner. leaderboard_selections carries no foreign key to
+      // benchmarks (db/schema.ts), so an inner join would delete a real
+      // published score from this console whenever its catalog row is
+      // missing. The name is nullable for the same reason; the version comes
+      // from the selection itself and is always there.
+      .leftJoin(
+        benchmarks,
+        and(
+          eq(benchmarks.id, leaderboardSelections.benchmarkId),
+          eq(benchmarks.version, leaderboardSelections.benchmarkVersion),
+        ),
+      )
       .innerJoin(
         runMetrics,
         and(
@@ -132,7 +149,14 @@ async function getAdminTeamSummary(
     practiceUsed: practice?.value ?? 0,
     officialUsed: official?.value ?? 0,
     refundsGiven: refunds?.value ?? 0,
-    publishedScore: published?.value ?? null,
+    published:
+      published?.value == null
+        ? null
+        : {
+            score: published.value,
+            benchmarkName: published.benchmarkName ?? null,
+            benchmarkVersion: published.benchmarkVersion,
+          },
   };
 }
 

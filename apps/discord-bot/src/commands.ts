@@ -511,13 +511,13 @@ async function surfaceActionView(
     > = {
       verify_hosted: {
         title: "Verify this exact commit?",
-        detail: "The hosted bench runs this exact commit, so the score is observed, not self-reported. It's practice and spends nothing.",
+        detail: "A hosted run scores this exact commit on the course machines and records what it sees. It's practice, and it uses one of this benchmark's hosted practice runs.",
         label: `Verify ${snapshot.shortSha} hosted`,
         style: 1,
       },
       promote_official: {
         title: "Use an official attempt?",
-        detail: "This reuses the artifact that already passed hosted, so nothing reruns. Confirming spends one official attempt.",
+        detail: "This scores the same commit on the hidden set and spends one official attempt. It reuses the environment this run already built, so nothing reinstalls.",
         label: attempt ? `Use attempt ${attempt} of 3` : "Use an official attempt",
         style: 4,
         extra: attempt

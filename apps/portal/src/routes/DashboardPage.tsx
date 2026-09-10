@@ -31,7 +31,7 @@ import {
   useSession,
   useStartPractice,
 } from "@/lib/queries";
-import { STATUS_LABELS } from "@/lib/run-meta";
+import { QUEUED_WAIT_NOTE, STATUS_LABELS } from "@/lib/run-meta";
 import { useTrack } from "@/lib/track";
 
 /**
@@ -364,6 +364,11 @@ function CurrentRunPanel({
         <div className="mt-5">
           <PhaseRail status={active.status} failure={active.failure} />
         </div>
+        {active.status === "queued" && (
+          <p className="mt-5 max-w-[58ch] text-[13px] leading-[1.55] text-ink-secondary">
+            {QUEUED_WAIT_NOTE}
+          </p>
+        )}
         <p className="mt-5 border-t border-rule-soft pt-3 font-mono text-[11px] text-ink-faint">
           Updates every 2 s · started {formatTimeAgo(active.createdAt)}
         </p>
@@ -426,16 +431,28 @@ function CurrentRunPanel({
             they should be using today. The counts come from the dashboard
             payload, so they are this team's real remaining budget. */}
         <p className="max-w-[58ch] text-[13.5px] leading-[1.6] text-ink-secondary">
-          There are two ways to run {d.benchmark.title}, and they score the same
-          way. Start on your own machine, where nothing is counted, and spend a
-          hosted run once a local score looks worth publishing.
+          There are two ways to run {d.benchmark.title}, and they score the
+          same way. Local runs are unlimited, so that's usually where the work
+          happens.
         </p>
 
         <div className="mt-5 grid gap-6 sm:grid-cols-2">
           <div>
             <h3 className="u-kicker">On your machine</h3>
+            {/* These three lines assume an installed tool and a linked
+                machine, which a student who came straight here has not done.
+                It names the prerequisite and links to it; it does not gate the
+                hosted column beside it, which needs nothing local. */}
             <p className="mt-2 text-[13px] leading-[1.55] text-ink-secondary">
-              Unlimited, and the same scorer. This is where the work happens.
+              The commands below need the CogWorks tool installed first, which
+              is what{" "}
+              <Link
+                to="/setup"
+                className="text-ink underline decoration-rule underline-offset-4 hover:decoration-ink"
+              >
+                Setup
+              </Link>{" "}
+              walks through.
             </p>
             {/* The commands carry this benchmark's id, so they are the ones to
                 run rather than an example of the shape. */}

@@ -1,3 +1,4 @@
+import type { MetricRole } from "@cogworks/contracts/schema";
 import { sql } from "drizzle-orm";
 import {
   index,
@@ -233,9 +234,22 @@ export const setupVerifications = sqliteTable(
     userId: text("user_id").notNull().references(() => users.id),
     teamId: text("team_id").notNull().references(() => teams.id),
     step: text("step").notNull(),
+    /**
+     * The benchmark this evidence is about, or "" when it is not about one.
+     *
+     * `clone` and `environment` are the same fact whatever track is selected,
+     * so they are always stored unscoped. `project` and `wiring` name one
+     * distribution and one set of wired entry points, so they are stored
+     * against the benchmark the CLI checked. An older CLI sends no benchmark
+     * and its rows stay "", which no longer satisfies a per-track claim
+     * (migration 0036).
+     */
+    benchmarkId: text("benchmark_id").notNull().default(""),
     verifiedAt: integer("verified_at").notNull(),
   },
-  (table) => [primaryKey({ columns: [table.userId, table.teamId, table.step] })],
+  (table) => [
+    primaryKey({ columns: [table.userId, table.teamId, table.step, table.benchmarkId] }),
+  ],
 );
 
 export const benchmarks = sqliteTable(
@@ -588,6 +602,17 @@ export const runMetrics = sqliteTable(
      * that were true when it ran.
      */
     help: text("help"),
+    /**
+     * What kind of number this is, when the scorer says. "floor" is the one
+     * that matters today: a chance baseline is a fact about the dataset, so
+     * the run page shows it without a direction arrow. Null means the scorer
+     * did not say, which is not the same as "ordinary" and is why nothing
+     * backfills it (migration 0035).
+     */
+    role: text("role").$type<MetricRole>(),
+    /** The key of the metric this one is about, for a floor or a companion
+     *  measure that only means something beside its parent. */
+    relatesTo: text("relates_to"),
   },
   (table) => [primaryKey({ columns: [table.runId, table.key] })],
 );

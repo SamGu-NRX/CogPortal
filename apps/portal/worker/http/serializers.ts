@@ -61,6 +61,8 @@ export function serializeMetric(row: typeof runMetrics.$inferSelect): Metric {
     primary: row.isPrimary,
     precision: row.precision,
     help: row.help,
+    role: row.role,
+    relatesTo: row.relatesTo,
   };
 }
 

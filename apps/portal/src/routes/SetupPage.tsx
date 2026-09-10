@@ -16,6 +16,7 @@ import {
   useSetupState,
   useTeam,
 } from "@/lib/queries";
+import { benchmarkEnvironment } from "@/lib/benchmark-packages";
 import { useTrack } from "@/lib/track";
 import {
   clearSetupProgress,
@@ -55,12 +56,13 @@ function SetupGuide({
   login: string;
   devTools: boolean;
 }) {
-  const connections = useConnections();
-  const setupState = useSetupState();
-  const resetSetup = useResetSetupState();
   // The commands below have to name a real benchmark, and the entry points a
   // student must register are whatever this track's module actually has open.
+  // It comes first because the evidence query is scoped to it.
   const track = useTrack();
+  const connections = useConnections();
+  const setupState = useSetupState(track.benchmarkId);
+  const resetSetup = useResetSetupState();
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedReplay = searchParams.get("replay");
   const replay =
@@ -74,6 +76,17 @@ function SetupGuide({
     return <LoadingMark label="Loading your team" />;
   }
 
+  // A failed evidence read and a student who has run nothing produce the same
+  // empty verified set, so without this the page reports somebody's finished
+  // setup as work they never did. The commands come from the team and the
+  // track, which did load, so the sheet stays on screen and stays copyable;
+  // only the claim about what we have seen is withheld.
+  const evidenceFailed = setupState.isError || connections.isError;
+  const retryEvidence = () => {
+    if (setupState.isError) void setupState.refetch();
+    if (connections.isError) void connections.refetch();
+  };
+
   // Replay masks the evidence rather than the commands: a rehearsing owner
   // sees the sheet a student sees on day zero.
   const lines = setupCommandsForTeam({
@@ -81,6 +94,9 @@ function SetupGuide({
     benchmark: track.benchmark,
     benchmarkId: track.benchmarkId,
     verifiedSteps: replay ? [] : setupState.data?.verified,
+    verifiedStepsForBenchmark: replay
+      ? []
+      : setupState.data?.verifiedByBenchmark[track.benchmarkId],
     cliDeviceCount: replay ? 0 : (connections.data?.cliDevices.length ?? 0),
     portalOrigin: window.location.origin,
   });
@@ -88,8 +104,16 @@ function SetupGuide({
   // The count and the gutter read the same array, so the masthead can never
   // claim a number the sheet does not show.
   const { verified, total } = setupCommandProgress(lines);
-  const complete = verified === total;
+  // Every open box belongs to this track and at least one is ticked: the
+  // switched-track state, where the count reads as lost work rather than as
+  // two commands nobody has run for this benchmark yet.
+  const onlyTrackStepsLeft =
+    verified > 0 &&
+    lines.some((line) => !line.verified) &&
+    lines.every((line) => line.verified || line.benchmarkScoped);
+  const complete = !evidenceFailed && verified === total;
   const benchmarkTitle = track.benchmark?.title ?? track.benchmarkId;
+  const environment = benchmarkEnvironment(track.benchmarkId);
 
   /**
    * What each command is for, keyed by id. A Record rather than a function, so
@@ -100,7 +124,7 @@ function SetupGuide({
     clone: {
       title: "Clone your team's repository",
       why: "Every hosted attempt runs from this repository rather than from somebody's laptop, so a score is always about this copy. Work inside it from here on.",
-      help: "A folder with a similar name is not enough. The commands below compare this clone's GitHub remote against your team.",
+      help: "A folder with a similar name is not enough. The commands below compare this clone's GitHub remote with your team's repository.",
     },
     tool: {
       title: "Install the CogWorks tool",
@@ -116,7 +140,9 @@ function SetupGuide({
         <>
           If your terminal answers{" "}
           <code className="font-mono">cogworks: command not found</code>, the
-          course environment is not active. Activate it and run the line again.
+          install landed somewhere this shell isn't looking. An inactive course
+          environment is the usual reason, so check that first and run the line
+          again.
         </>
       ),
     },
@@ -138,10 +164,20 @@ function SetupGuide({
           >
             Connections
           </Link>
-          .
+          . Nothing reports unless you ask it to; a local score stays on your
+          machine until you send it.
         </>
       ),
-      help: "Linking tells us the repository you are standing in, which fills the first box. Nothing else reports on its own: scoring stays on your machine unless you ask for it.",
+      help: (
+        <>
+          It prints the address and the code before it opens anything, so if no
+          browser appears you can go there yourself, or add{" "}
+          <code className="font-mono">--no-browser</code> to skip the attempt. If
+          the code expires before you approve it, run the same line again for a
+          fresh one. When it returns, the clone box above should tick: linking
+          reports the repository you are standing in.
+        </>
+      ),
     },
     check: {
       title: "Check it, and tell this page",
@@ -154,7 +190,7 @@ function SetupGuide({
           part that sends the result here.
         </>
       ),
-      help: "It reports only when it passes. If boxes stay grey, the answer is in your terminal: fix what it names there and run the same line again.",
+      help: "It reports only when it passes. If boxes stay empty, the answer is in your terminal: fix what it names there and run the same line again.",
     },
   };
 
@@ -182,7 +218,8 @@ function SetupGuide({
       <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2">
         <div className="min-w-0">
           <p className="u-kicker" aria-live="polite">
-            Setup · {verified} of {total} verified
+            Setup ·{" "}
+            {evidenceFailed ? "progress unavailable" : `${verified} of ${total} verified`}
             {replay ? ` · replaying ${replay}` : ""}
           </p>
           <h1 className="mt-1 truncate text-3xl">{team.name}</h1>
@@ -226,22 +263,85 @@ function SetupGuide({
       {/* The count comes from the sheet: a track with no packaged benchmark
           has four commands, not five. */}
       <p className="mt-7 max-w-[58ch] text-[14px] leading-[1.6] text-ink-secondary">
-        {total} commands, in this order. Nothing here ticks as you type. The last
-        one is what reports back, and it fills several boxes at once, so grey
-        rows above it are normal until then.
+        {total} commands, in this order.{" "}
+        {evidenceFailed
+          ? "The commands are right and you can run them now."
+          : onlyTrackStepsLeft
+            ? `The ticked ones are about this machine and carry over between tracks. The empty ones are about ${benchmarkTitle} and haven't reported for it yet.`
+            : "Nothing ticks as you type; boxes fill when a command reports back, and most of them fill on the last one, so empty boxes above it are normal until then."}
       </p>
 
+      {/* Everything below the clone installs into whichever environment is
+          active, so this belongs above the first pip line rather than in the
+          help under it. The name is not ours: it comes from the same per-week
+          table as the benchmark distribution, transcribed from CogWeb in
+          docs/capstones/environment.md. Inline code rather than a copy block,
+          because every command in a box on this page has a gutter cell and
+          this one has no evidence behind it. */}
+      <p className="mt-4 max-w-[58ch] border-l-2 border-rule pl-4 text-[13.5px] leading-[1.6] text-ink-secondary">
+        Activate your course environment before the installs below, so the tool
+        lands beside the packages your own code already uses.{" "}
+        {environment ? (
+          <>
+            CogWeb calls {benchmarkTitle}'s{" "}
+            <code className="font-mono text-[12.5px] text-ink">
+              {environment.condaEnv}
+            </code>
+            , and{" "}
+            <a
+              href={environment.prereqsUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="text-ink underline decoration-rule underline-offset-4 hover:decoration-ink"
+            >
+              its prerequisites ↗
+            </a>{" "}
+            list what belongs in it. If you set yours up under another name, or
+            without conda, activate that one instead.
+          </>
+        ) : (
+          <>
+            Use the one your week's prerequisites describe. Without it the tool
+            installs somewhere your terminal will not find it.
+          </>
+        )}
+      </p>
+
+      {evidenceFailed && (
+        <div className="mt-6">
+          {/* Not an empty sheet and not a blocked page: the commands below are
+              still correct. What failed is the read of what we have observed,
+              which is why the gutter shows dashes instead of empty boxes. */}
+          {/* No children: the mapping's own way out is already the right one
+              here. A plain fault offers retry and no link, and the cases that
+              do carry a link (session ended, cohort or team required) send the
+              student exactly where they need to go. */}
+          <QueryError
+            error={setupState.error ?? connections.error}
+            retry={retryEvidence}
+          />
+        </div>
+      )}
+
       <div className="mt-6">
-        <CommandSheet lines={lines} label="Setup commands, in run order" notes={notes} />
+        <CommandSheet
+          lines={lines}
+          label="Setup commands, in run order"
+          notes={notes}
+          unreadable={{
+            "setup-state": setupState.isError,
+            devices: connections.isError,
+          }}
+        />
       </div>
 
       {complete ? (
         <Panel label="SETUP COMPLETE" tone="good" className="mt-6">
           <p className="max-w-[58ch] text-[14px] leading-[1.6] text-ink">
-            Every command above has reported back. Nothing here is a grade, and
-            none of it says the code is good yet: what it says is that the tool
-            can find your work and call it. A local run is the next thing, and it
-            costs nothing.
+            Every command above has reported back from a machine you linked,
+            so the tool found your functions and called them. Whether the code
+            is any good is what runs are for, and a local run is the next
+            thing; there's no limit on those.
           </p>
           <div className="mt-4">
             <Code lang="bash" code={`cogworks run --benchmark ${track.benchmarkId}`} />

@@ -32,7 +32,7 @@ import {
   useSession,
   useStartPractice,
 } from "@/lib/queries";
-import { PHASE_LABELS, STATUS_LABELS } from "@/lib/run-meta";
+import { PHASE_LABELS, QUEUED_WAIT_NOTE, STATUS_LABELS } from "@/lib/run-meta";
 
 /**
  * Run detail (plan §8): the phase rail, then exactly one of: live progress,
@@ -153,6 +153,11 @@ export function RunDetailPage() {
           phases={run.phases}
           showTimings
         />
+        {run.status === "queued" && (
+          <p className="mt-5 max-w-[58ch] text-[13px] leading-[1.55] text-ink-secondary">
+            {QUEUED_WAIT_NOTE}
+          </p>
+        )}
         {live && (
           <p className="mt-5 border-t border-rule-soft pt-3 font-mono text-[11px] text-ink-faint">
             {run.mode === "official"

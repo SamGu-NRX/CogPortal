@@ -144,14 +144,16 @@ def _portal(value: Optional[str]) -> str:
     return portal
 
 
-def _setup_payload(checks: Sequence[str], project_root: Path) -> dict:
+def _setup_payload(
+    checks: Sequence[str], project_root: Path, benchmark: Optional[str] = None
+) -> dict:
     repository = repository_state(project_root)
     if not repository.full_name:
         raise PortalError(
             "This directory is not a GitHub worktree with an `origin` remote. "
             "Change into your team project and retry."
         )
-    return {
+    payload = {
         "schemaVersion": 1,
         "repositoryFullName": repository.full_name,
         "checks": list(dict.fromkeys(checks)),
@@ -166,10 +168,22 @@ def _setup_payload(checks: Sequence[str], project_root: Path) -> dict:
             | set(plugin_names("cogworks.submissions.v2"))
         ),
     }
+    # Two of the four checks are about one benchmark: the install line names a
+    # single distribution and wiring resolves that benchmark's entry points.
+    # Without this the portal recorded them against the student and the team
+    # only, and the setup page credited whichever track it happened to be
+    # showing. Omitted rather than sent empty when there is no benchmark, so a
+    # portal that predates the field still accepts the request.
+    if benchmark:
+        payload["checkedBenchmarkId"] = benchmark
+    return payload
 
 
 def _update_setup(
-    portal_value: Optional[str], checks: Sequence[str], project_root: Path
+    portal_value: Optional[str],
+    checks: Sequence[str],
+    project_root: Path,
+    benchmark: Optional[str] = None,
 ) -> None:
     portal = _portal(portal_value)
     token = token_for(portal)
@@ -178,7 +192,9 @@ def _update_setup(
             "This CogPortal connection is missing, expired, or revoked. "
             "Run `cogworks link --portal {}` and retry.".format(portal)
         )
-    result = update_setup_checks(portal, token, _setup_payload(checks, project_root))
+    result = update_setup_checks(
+        portal, token, _setup_payload(checks, project_root, benchmark)
+    )
     accepted = result.get("accepted")
     if not isinstance(accepted, list):
         raise PortalError("CogPortal returned an invalid setup response.")
@@ -832,7 +848,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 )
             result = _check(args.benchmark, args.json, project_root)
             if result == 0 and args.update_setup:
-                _update_setup(None, ("clone", "environment", "project", "wiring"), project_root)
+                _update_setup(
+                    None,
+                    ("clone", "environment", "project", "wiring"),
+                    project_root,
+                    args.benchmark,
+                )
             return result
         if args.command in ("test", "run"):
             if not hasattr(os, "fork"):

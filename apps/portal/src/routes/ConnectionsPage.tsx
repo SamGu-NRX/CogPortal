@@ -238,7 +238,7 @@ export function ConnectionsPage() {
           )}
         </Panel>
 
-        <Panel label="COGBENCH DEVICES">
+        <Panel label="COGWORKS CLI DEVICES">
           {connections.data.cliDevices.length === 0 ? (
             <p className="text-[13px] text-ink-secondary">
               No linked devices. Run <code>cogworks link</code> in your project when you want to sync a

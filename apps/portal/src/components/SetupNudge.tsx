@@ -28,9 +28,9 @@ import { useTrack } from "@/lib/track";
 export function SetupNudge() {
   const team = useTeam();
   const { data: session } = useSession();
-  const setupState = useSetupState();
-  const connections = useConnections();
   const track = useTrack();
+  const setupState = useSetupState(track.benchmarkId);
+  const connections = useConnections();
   const [hidden, setHidden] = useState(false);
 
   if (hidden || !team.data || !session?.user) return null;
@@ -39,6 +39,11 @@ export function SetupNudge() {
   // The track decides which commands exist. Setup evidence and connections
   // decide which are verified. Waiting keeps the count from renumbering itself.
   if (track.isPending || setupState.isPending || connections.isPending) return null;
+  // A failed read produces the same empty evidence as a student who has done
+  // nothing, and this component's whole content is a progress count. It has
+  // nowhere to put an error, so it says nothing rather than something untrue;
+  // the setup page is where the failure is reported and retried.
+  if (setupState.isError || connections.isError) return null;
 
   const { verified, total } = setupCommandProgress(
     setupCommandsForTeam({
@@ -46,6 +51,7 @@ export function SetupNudge() {
       benchmark: track.benchmark,
       benchmarkId: track.benchmarkId,
       verifiedSteps: setupState.data?.verified,
+      verifiedStepsForBenchmark: setupState.data?.verifiedByBenchmark[track.benchmarkId],
       cliDeviceCount: connections.data?.cliDevices.length ?? 0,
       portalOrigin: window.location.origin,
     }),
