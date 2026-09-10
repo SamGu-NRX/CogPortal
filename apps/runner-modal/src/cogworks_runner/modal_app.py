@@ -844,8 +844,21 @@ except Exception as error:
     sys.stderr.write("{}: {}\n".format(marker, str(error)[:500]))
     raise SystemExit(2)
 encoded = json.dumps(predictions).encode("utf-8")
-if len(encoded) > 8 * 1024 * 1024:
-    raise RuntimeError("Submission predictions exceed the 8 MiB result limit.")
+# 8 MiB was sized when the Week 3 sandbox ran six cases with one retrieval
+# case. The real evaluation tier has four, and each one returns the whole
+# 700-image pool embedded again, so a correct run does not fit: measured on
+# that tier with random float32, 16,214,347 bytes at the 200-d embedding the
+# demo submission trains, and 41,318,368 bytes at 512-d. A valid submission was
+# refused for returning a bad result, a message that names the student's code
+# and spends one of their three official attempts.
+#
+# 64 MiB clears the 512-d measurement. It does not make the limit right: the
+# four retrieval rungs differ only in query text, so three of those four
+# image matrices are the same numbers sent again. Dropping them from the
+# retrieval output would fit the original 8 MiB with room over, and that
+# belongs to the benchmark's output contract, not here.
+if len(encoded) > 64 * 1024 * 1024:
+    raise RuntimeError("Submission predictions exceed the 64 MiB result limit.")
 pathlib.Path("/tmp/cog-predictions.json").write_bytes(encoded)
 pathlib.Path("/tmp/cog-student.log").write_text(buffer.value(), encoding="utf-8")
 """
