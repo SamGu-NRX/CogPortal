@@ -268,33 +268,19 @@ export function registerRunnerEventRoutes(app: Hono<AppEnv>): void {
       .where(eq(runs.id, event.runId))
       .limit(1);
     if (!known) throw new ApiHttpError(404, "not_found", "Run not found.");
-    // Apply the event, then record that we have it. This order is the whole
-    // guarantee: the record is what answers "we already applied this", so it
-    // must not exist until the work behind it is done.
+    // Apply the event, then record it. The record is what answers "we already
+    // have this", so it must not exist until the work behind it is done.
+    // Recording first and repairing in a catch covers only an error this
+    // process lives to handle: a Worker that stops mid-request leaves the
+    // record with nothing behind it, and every retry after that is told the
+    // result is in while the run sits unfinished.
     //
-    // Recording first and repairing in a catch only covers an error this
-    // process lives to handle. A Worker evicted mid-request, past its CPU
-    // limit, or gone for any other reason leaves the record with nothing
-    // behind it, and there is no later moment when the catch runs. Every
-    // retry after that reads the record, answers `duplicate: true`, and the
-    // runner marks the event delivered and stops resending it. A run that
-    // really scored is then reported as a provider failure by the stale
-    // sweep, and in official mode that spends an attempt on a result the
-    // portal was holding all along.
-    //
-    // Applying first is safe because `applyEvent` is re-enterable by
-    // construction rather than by luck. It re-reads the run, returns early
-    // once that run is terminal or the sequence is not newer, upserts metrics
-    // on (run_id, key), inserts the outbox row under a deterministic id, and
-    // guards both terminal writes on `lastEventSequence`. The refund is the
-    // one settlement that must happen exactly once, and execution/refunds.ts
-    // already owns that: it returns "not_applicable" once `refunded_at` is
-    // set, and its cap count excludes the run being decided, with a comment
-    // saying it does so because a retry can re-enter the decision.
-    //
-    // A concurrent retry is the same case as a sequential one. Both callers
-    // apply, every write they make is an upsert or a guarded update, and
-    // whichever inserts the record second reads `duplicate: true`.
+    // What this relies on is narrower than "every write is idempotent".
+    // Re-applying the same event rewrites the same values, and the two things
+    // that must not happen twice are guarded where they live: the terminal
+    // writes are conditional on `lastEventSequence`, and the refund is decided
+    // in execution/refunds.ts, which returns "not_applicable" once
+    // `refunded_at` is set.
     await applyEvent(c.env, event);
     const inserted = await db
       .insert(runEvents)

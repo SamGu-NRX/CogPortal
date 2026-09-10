@@ -33,6 +33,7 @@ import type {
   RosterMember,
   RunRecord,
 } from "../worker/services/process-signals.ts";
+import { TeamProcessSignalsSchema } from "@cogworks/contracts/schema";
 import { fetchCommitHistory, parseCoAuthorTrailers } from "../worker/github/commits.ts";
 import type { CommitRecord, FetchCommitsResult } from "../worker/github/commits.ts";
 import {
@@ -652,4 +653,142 @@ test("the process route does not cache a GitHub 401 and reads history again afte
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+// ---------------------------------------------------------------------------
+// The window the history was read through
+// ---------------------------------------------------------------------------
+
+/** Answers the commit list with `count` shas, then a detail for each. */
+function githubWithCommits(count: number): () => Promise<Response> {
+  let listed = false;
+  return async (input?: unknown) => {
+    const url = String(input);
+    if (!listed && url.includes("/commits?")) {
+      listed = true;
+      const shas = Array.from({ length: count }, (_, index) => ({
+        sha: String(index).padStart(40, "0"),
+      }));
+      return new Response(JSON.stringify(shas), { status: 200 });
+    }
+    const sha = url.slice(url.lastIndexOf("/") + 1);
+    return new Response(
+      JSON.stringify({
+        sha,
+        commit: {
+          author: { name: "Student", email: "student@example.com", date: "2026-07-01T00:00:00Z" },
+          message: "work",
+        },
+        author: { login: "student" },
+        files: [{ filename: "fingerprint.py" }],
+      }),
+      { status: 200 },
+    );
+  };
+}
+
+test("a history longer than the window is read as a window and says so", async () => {
+  const originalFetch = globalThis.fetch;
+  // 75, the size of the repository whose history stopped being readable.
+  globalThis.fetch = githubWithCommits(75) as typeof globalThis.fetch;
+  try {
+    const result = await fetchCommitHistory("cogworks/team", "main", "decrypted-token");
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+
+    // The cap exists because a Worker gets 50 external subrequests per
+    // invocation and each commit costs one. Reading all 75 threw at the 50th.
+    assert.equal(result.commits.length, 40);
+    assert.equal(result.truncated, true, "older commits exist and were not read");
+
+    const signals = buildProcessSignals({
+      commitsResult: result,
+      runs: [],
+      weekLabel: "week1",
+      roster: NO_ROSTER,
+    });
+    assert.deepEqual(signals.historyWindow, { commits: 40, truncated: true });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("a history that fits is not reported as a window", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = githubWithCommits(12) as typeof globalThis.fetch;
+  try {
+    const result = await fetchCommitHistory("cogworks/team", "main", "decrypted-token");
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+
+    assert.equal(result.commits.length, 12);
+    assert.equal(result.truncated, false, "nothing older was left unread");
+
+    const signals = buildProcessSignals({
+      commitsResult: result,
+      runs: [],
+      weekLabel: "week1",
+      roster: NO_ROSTER,
+    });
+    assert.deepEqual(signals.historyWindow, { commits: 12, truncated: false });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("the window stays within the subrequest budget the platform allows", async () => {
+  const originalFetch = globalThis.fetch;
+  let requests = 0;
+  const answer = githubWithCommits(500);
+  globalThis.fetch = (async (input?: unknown) => {
+    requests += 1;
+    return answer(input as never);
+  }) as typeof globalThis.fetch;
+  try {
+    const result = await fetchCommitHistory("cogworks/team", "main", "decrypted-token");
+    assert.equal(result.ok, true);
+    // 50 external subrequests per invocation on the Free plan, and the token
+    // refresh and any redirect hop come out of the same 50. Anything at or
+    // above the ceiling is the bug this cap was added to remove.
+    assert.ok(
+      requests <= 41,
+      `history cost ${requests} subrequests, leaving too little of the 50 for the rest of the request`,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("a fetch failure reports no window at all, rather than an empty one", () => {
+  const signals = buildProcessSignals({
+    commitsResult: { ok: false, reason: "fetch_failed" },
+    runs: [run({ runId: "run_1", createdAt: T0, scored: true })],
+    weekLabel: "week1",
+    roster: NO_ROSTER,
+  });
+  // Null, not `{commits: 0}`. Zero commits read is a fact about a history we
+  // could not reach, and the panel must not render it as one we did.
+  assert.equal(signals.historyWindow, null);
+  assert.equal(signals.historyQuality, HISTORY_FETCH_FAILED);
+  assert.deepEqual(signals.boundaryChurn, [], "and no churn is claimed from it");
+});
+
+test("a signals payload cached before the window existed still parses", () => {
+  // team_process_signals stores whatever the deployed version serialized. A
+  // row written before historyWindow has no such key, and the browser parses
+  // every response strictly, so this is what stops a deploy blanking the team
+  // page for every team with a warm cache.
+  const cached = {
+    historyQuality: "usable",
+    weekLabel: "week1",
+    stageFootprint: {},
+    firstLight: { firstScoredAt: null, scoredRunCount: 0 },
+    boundaryChurn: [],
+    ownershipBreadth: {},
+    findingSentences: [],
+    computedAt: T0,
+  };
+
+  const parsed = TeamProcessSignalsSchema.parse(cached);
+  assert.equal(parsed.historyWindow, null, "absent reads as unknown, not as zero commits");
 });

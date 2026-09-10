@@ -163,17 +163,24 @@ function Signals({
     <div>
       <Findings sentences={signals.findingSentences} />
       <Stages signals={signals} members={members} />
-      {/* Churn is defined as "after the first scored run", so with no first
-          run there is nothing to report and nothing honest to say about it
-          either. The findings above already say so. */}
-      {signals.firstLight.firstScoredAt !== null && (
+      {/* Two conditions, for two different reasons. Churn is defined as
+          "after the first scored run", so with no first run there is nothing
+          to measure against. And the list is only evidence when the history
+          it was derived from could actually be read: an empty list from a
+          failed fetch means we do not know, and this section used to render
+          "nothing has changed" for it. */}
+      {signals.firstLight.firstScoredAt !== null && signals.historyQuality === "usable" && (
         <ContractFiles
           events={signals.boundaryChurn}
           firstScoredAt={signals.firstLight.firstScoredAt}
         />
       )}
       <p className="mt-5 border-t border-rule-soft pt-2 font-mono text-[10.5px] text-ink-faint">
-        Read {formatTimeAgo(signals.computedAt)}.
+        Read {formatTimeAgo(signals.computedAt)}
+        {signals.historyWindow
+          ? `, from your ${signals.historyWindow.truncated ? "most recent " : ""}${signals.historyWindow.commits} commit${signals.historyWindow.commits === 1 ? "" : "s"}`
+          : ""}
+        .
       </p>
     </div>
   );
@@ -389,6 +396,11 @@ const MAX_CHURN_ROWS = 5;
  * lines and read as one alarming block of text rather than as four paths,
  * which is the opposite of what a list of evidence is for.
  */
+/** The two filenames the churn check looks at, mirroring BOUNDARY_FILES in
+ *  worker/services/process-signals.ts. Named here so the sentence below cannot
+ *  drift away from what was actually checked. */
+const BOUNDARY_FILES = ["submission.py", "benchmark_adapter.py"];
+
 function ContractFiles({
   events,
   firstScoredAt,
@@ -399,14 +411,18 @@ function ContractFiles({
   return (
     <section className="mt-5 border-t border-rule-soft pt-3">
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-        <h3 className="u-kicker">Files the benchmark calls</h3>
+        <h3 className="u-kicker">Adapter files</h3>
         <span className="u-tnum font-mono text-[10.5px] text-ink-faint">
           since your first scored run, {day(firstScoredAt)}
         </span>
       </div>
+      <p className="mt-2 max-w-prose text-[13px] text-ink-faint">
+        This only looks at {BOUNDARY_FILES.join(" and ")}. If your code was wired
+        up automatically, you may not have either one.
+      </p>
       {events.length === 0 ? (
         <p className="mt-2 max-w-prose text-[13px] text-ink-secondary">
-          Nothing has changed submission.py or benchmark_adapter.py since then.
+          Neither has changed since then.
         </p>
       ) : (
         <>
