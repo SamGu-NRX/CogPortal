@@ -15,8 +15,21 @@ import "@fontsource/ibm-plex-mono/400.css";
 import "@fontsource/ibm-plex-mono/500.css";
 import "./styles/app.css";
 
+import { ConnectGate } from "@/components/ConnectGate";
 import { RunConsole } from "@/components/RunConsole";
 import { useRunSurfaceStream } from "@/lib/run-surface-stream";
+import {
+  ActivityRequestError,
+  ActivitySessionSchema,
+  gateOutcome,
+  isExpiredActivitySession,
+  openedExternally,
+  phaseAfterOpen,
+  type ActivitySession,
+  type GateOutcome,
+  type GatePhase,
+  type GateVariant,
+} from "@/lib/activity-gate";
 import { clientEnv } from "./env.client";
 
 const CLIENT_ID = clientEnv.VITE_DISCORD_CLIENT_ID;
@@ -28,16 +41,6 @@ const embedded =
 const API_PREFIX = embedded ? "/.proxy/api" : "/api";
 const sdk = embedded ? new DiscordSDK(CLIENT_ID) : null;
 
-const SessionSchema = z.discriminatedUnion("linked", [
-  z.object({ linked: z.literal(false), linkUrl: z.string().url() }),
-  z.object({ linked: z.literal("no_team"), portalUrl: z.string().url() }),
-  z.object({
-    linked: z.literal(true),
-    githubLogin: z.string(),
-    team: z.object({ id: z.string(), name: z.string(), discordChannelId: z.string().nullable() }),
-  }),
-]);
-type ActivitySession = z.infer<typeof SessionSchema>;
 type ActivityLayoutMode = -1 | 0 | 1 | 2;
 
 async function jsonRequest<T>(
@@ -59,10 +62,14 @@ async function jsonRequest<T>(
     } catch {
       // Use the calm fallback above.
     }
-    throw new Error(message);
+    throw new ActivityRequestError(response.status, message);
   }
   return schema.parse(await response.json());
 }
+
+const loadSession = () => jsonRequest("/activity/session", ActivitySessionSchema);
+const loadSurfaces = () =>
+  jsonRequest("/activity/run-surfaces", z.array(RunSurfaceSnapshotSchema));
 
 function ActivityHeader({
   session,
@@ -114,6 +121,73 @@ function ActivityApp() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [mutation, setMutation] = useState<"verify_hosted" | "promote_official" | "publish_result" | "rerun_hosted" | null>(null);
   const [layoutMode, setLayoutMode] = useState<ActivityLayoutMode>(Common.LayoutModeTypeObject.FOCUSED);
+  const [gatePhase, setGatePhase] = useState<GatePhase>("idle");
+  const [checkResult, setCheckResult] = useState<GateOutcome | null>(null);
+  const [gateError, setGateError] = useState<string | null>(null);
+
+  /**
+   * Take a session and everything that depends on it. Surfaces load first, so a
+   * stored session never has nothing under it: both callers report that failure
+   * as a failure to open, rather than as a console with no runs in it.
+   */
+  const applySession = async (next: ActivitySession) => {
+    if (next.linked === true) {
+      const nextSurfaces = await loadSurfaces();
+      setSurfaces(nextSurfaces);
+      setSelectedId(nextSurfaces[0]?.id ?? null);
+    }
+    setSession(next);
+  };
+
+  const toEntryScreen = (caught: unknown) => {
+    setSession(null);
+    setStartupError(caught instanceof Error ? caught.message : null);
+  };
+
+  const openGate = (url: string) => {
+    if (!sdk) return;
+    setGateError(null);
+    void sdk.commands
+      .openExternalLink({ url })
+      .then((result) => {
+        if (openedExternally(result)) setGatePhase(phaseAfterOpen);
+      })
+      .catch(() => setGateError("Discord could not open that link. Try it again."));
+  };
+
+  const checkGate = async () => {
+    if (gatePhase === "checking" || !session) return;
+    const before = session.linked;
+    setGatePhase("checking");
+    setCheckResult(null);
+    setGateError(null);
+
+    let next: ActivitySession;
+    try {
+      next = await loadSession();
+    } catch (caught) {
+      // Reading the session again is the only part of this the card can offer
+      // a second time, so it is the only failure the card keeps.
+      if (isExpiredActivitySession(caught)) return toEntryScreen(caught);
+      setGatePhase("away");
+      setGateError(caught instanceof Error ? caught.message : "That check could not be completed.");
+      return;
+    }
+
+    const outcome = gateOutcome(before, next.linked);
+    try {
+      await applySession(next);
+    } catch (caught) {
+      // Only a linked session loads anything else, and by then the gate is
+      // finished. Reporting that failure on a card still saying "not linked
+      // yet" would be a lie, so it goes where the first look sends it.
+      toEntryScreen(caught);
+      return;
+    }
+    if (outcome === "linked") return;
+    setGatePhase(outcome === "advanced" ? "idle" : "away");
+    setCheckResult(outcome);
+  };
 
   useEffect(() => {
     if (!sdk) return;
@@ -165,20 +239,9 @@ function ActivityApp() {
           { method: "POST", body: { code: authorization.code, state: state.state } },
         );
         await sdk.commands.authenticate({ access_token: token.accessToken });
-        const nextSession = await jsonRequest("/activity/session", SessionSchema);
+        const nextSession = await loadSession();
         if (!active) return;
-        setSession(nextSession);
-        // Explicit: "no_team" is truthy, and a teamless session has no
-        // surfaces to fetch.
-        if (nextSession.linked === true) {
-          const nextSurfaces = await jsonRequest(
-            "/activity/run-surfaces",
-            z.array(RunSurfaceSnapshotSchema),
-          );
-          if (!active) return;
-          setSurfaces(nextSurfaces);
-          setSelectedId(nextSurfaces[0]?.id ?? null);
-        }
+        await applySession(nextSession);
       } catch (caught) {
         if (active) setStartupError(caught instanceof Error ? caught.message : "The Activity could not open.");
       } finally {
@@ -217,38 +280,20 @@ function ActivityApp() {
   if (startupError || !session) {
     return <main className="activity-safe grid min-h-dvh place-items-center p-5"><section className="max-w-md border-l-2 border-detect pl-5"><div className="u-kicker">Could not open</div><h1 className="mt-2 text-3xl">The bench is still here.</h1><p className="mt-3 text-[14px] text-ink-secondary">{startupError ?? "Close the Activity and open it again."}</p></section></main>;
   }
-  // Linked-without-a-team used to render the card below, which told a student
-  // who had already linked to link again. It is a different problem with a
-  // different fix, so it gets its own sentence and its own destination.
-  if (session.linked === "no_team") {
+  if (session.linked !== true) {
+    const variant: GateVariant = session.linked === "no_team" ? "team" : "link";
+    const url = session.linked === "no_team" ? session.portalUrl : session.linkUrl;
     return (
       <main className="activity-safe grid min-h-dvh place-items-center p-5">
-        <section className="w-full max-w-lg border border-rule bg-paper-raised p-7">
-          <div className="u-kicker">One step left</div>
-          <h1 className="mt-3 text-4xl">You are linked, but not on a team yet.</h1>
-          <p className="mt-4 text-[14px] text-ink-secondary">Connect your fork in the browser to join or start your team. Then close this Activity and open it again.</p>
-          <button type="button" className="mt-6 min-h-11 bg-ink px-5 text-[13px] font-medium text-paper-raised" onClick={() => {
-            if (sdk) void sdk.commands.openExternalLink({ url: session.portalUrl });
-          }}>Finish team setup ↗</button>
-        </section>
-      </main>
-    );
-  }
-  if (!session.linked) {
-    return (
-      <main className="activity-safe grid min-h-dvh place-items-center p-5">
-        <section className="w-full max-w-lg border border-rule bg-paper-raised p-7">
-          <div className="u-kicker">One connection</div>
-          <h1 className="mt-3 text-4xl">Link Cog*Portal to see your team's bench.</h1>
-          <p className="mt-4 text-[14px] text-ink-secondary">Discord is attached to your existing GitHub-first portal account. No repository access or Discord login is stored on your laptop.</p>
-          <button type="button" className="mt-6 min-h-11 bg-ink px-5 text-[13px] font-medium text-paper-raised" onClick={() => {
-            if (sdk) void sdk.commands.openExternalLink({ url: session.linkUrl });
-          }}>Link Cog*Portal ↗</button>
-          {/* The Activity does not poll for link completion, so a student who
-              links in the browser returns to this same card and reads it as a
-              failure. Naming the recovery costs one line. */}
-          <p className="mt-4 text-[12px] text-ink-faint">After linking, close this Activity and open it again.</p>
-        </section>
+        <ConnectGate
+          variant={variant}
+          phase={gatePhase}
+          outcome={checkResult}
+          error={gateError}
+          compact={compact}
+          onOpen={() => openGate(url)}
+          onCheck={() => void checkGate()}
+        />
       </main>
     );
   }
