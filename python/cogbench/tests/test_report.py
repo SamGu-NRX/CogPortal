@@ -69,6 +69,29 @@ class SurveyTests(unittest.TestCase):
         self.assertIn("nothing", text)
 
 
+class ASkipIsCountedAsRoutineOnlyWhenItsReasonSaysSo(unittest.TestCase):
+    """The count says "scripts that read files or a microphone this machine
+    does not have". A skip folded into it has to actually be one."""
+
+    def _survey(self, name, detail):
+        return {"modules": [], "skipped": [{"name": name, "detail": detail}]}
+
+    def test_a_missing_data_file_is_routine(self):
+        text = "\n".join(render_survey(self._survey("loader", "FileNotFoundError: data/clips")))
+        self.assertNotIn("loader", text)
+        self.assertIn("script", text)
+
+    def test_a_bare_oserror_is_named_instead_of_counted(self):
+        # OSError is raised for a full disk, too many open files, and an audio
+        # backend that failed to load. Folding those into the routine count
+        # tells a student a reason nobody observed.
+        text = "\n".join(
+            render_survey(self._survey("peaks", "OSError: cannot load library libsndfile"))
+        )
+        self.assertIn("peaks", text)
+        self.assertIn("libsndfile", text)
+
+
 class CheckTests(unittest.TestCase):
     def _ready(self) -> Submission:
         trace = (

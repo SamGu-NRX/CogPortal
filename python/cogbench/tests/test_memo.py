@@ -234,6 +234,29 @@ class ARememberedTuningIsReplayed(unittest.TestCase):
         self.assertEqual(second.chain[0].tuning, 2)
 
 
+    def test_an_entry_this_version_cannot_read_is_a_miss_and_not_a_crash(self):
+        """The key fingerprints their source, not this package.
+
+        A cogbench upgrade that changes what a binding holds meets an entry
+        whose key still matches and whose fields no longer parse. Raising
+        there reaches the student as "Could not read your repository", which
+        blames their code for our cache.
+        """
+
+        self._resolve()
+        path = memo.cache_path(self.tmp)
+        import json
+
+        record = json.loads(path.read_text())
+        record["binding"]["arrangement"] = []
+        path.write_text(json.dumps(record))
+
+        second = self._resolve()
+
+        self.assertFalse(second.recalled)
+        self.assertTrue(second.ready)
+
+
 class ARememberedFormIsReplayed(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp()).resolve()

@@ -13,10 +13,11 @@ The total is counted, not guessed. Every number here comes from the search
 itself: the pairings it will try, the ones it has tried. Nothing is
 extrapolated from a benchmark run on someone else's laptop.
 
-The estimate is an upper bound and says so. The search stops the moment a
-pairing works, which can happen on the next attempt or not at all, so a
-countdown that reads like a prediction would be wrong most of the time. It
-reads "at most" because that is the only claim the number supports.
+The estimate says how it was arrived at. The search stops the moment a
+pairing works, so the attempts still to try are a ceiling and not a
+prediction, and the seconds come from dividing the time spent by the
+attempts made. It reads "at this rate" because the count is bounded and the
+rate is only an average.
 
 Nothing here renders unless the output is a terminal. Piped to a file or run
 in CI, the spinner would be thousands of escape codes in a log, so it goes
@@ -27,7 +28,7 @@ from __future__ import annotations
 
 import sys
 import time
-from typing import IO, List, Optional
+from typing import IO, Optional
 
 __all__ = ["Progress", "TerminalProgress", "Silent"]
 
@@ -185,12 +186,14 @@ def _count(done: int, total: int) -> str:
 
 
 def _estimate(done: int, total: int, elapsed: float) -> str:
-    """How much longer, at most, phrased as the bound it actually is.
+    """How much longer, at the rate the search has managed so far.
 
-    The search ends at the first pairing that works, so the remaining time is
-    the most it can take and not what it will take. Saying "at most" is the
-    difference between a number a student can trust and one that is wrong
-    nine times out of ten.
+    The search ends at the first pairing that works, so the attempts left are
+    a ceiling. The seconds are not: they are the average attempt so far
+    multiplied out, and a later attempt can cost more than an earlier one.
+    Calling the number a bound would claim something this arithmetic does not
+    support, which for a student is worse than a rough number honestly
+    labelled.
     """
 
     if done < _ENOUGH_TO_EXTRAPOLATE or elapsed <= 0 or done >= total:
@@ -198,7 +201,7 @@ def _estimate(done: int, total: int, elapsed: float) -> str:
     remaining = (elapsed / done) * (total - done)
     if remaining < _WORTH_ESTIMATING_SECONDS:
         return ""
-    return "{} left at most".format(_duration(remaining))
+    return "{} left at this rate".format(_duration(remaining))
 
 
 def _duration(seconds: float) -> str:

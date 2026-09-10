@@ -17,7 +17,7 @@ function that returns the wrong thing is theirs to read.
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, Optional
 
 from .plugins import benchmark_install_command
 from .resolve import SubmissionReport
@@ -152,7 +152,12 @@ def _is_their_own_script(entry: Dict[str, object]) -> bool:
     detail = str(entry.get("detail", ""))
     if name.startswith("test") or name.startswith("run") or "demo" in name:
         return True
-    return detail.startswith(("FileNotFoundError", "EOFError", "OSError"))
+    # FileNotFoundError and EOFError say what happened: a data file that is
+    # not here, or a script waiting on stdin. A bare OSError does not. It is
+    # raised for a full disk, too many open files, and an audio backend that
+    # failed to load, and counting those as "scripts that read files this
+    # machine does not have" states a reason nobody observed.
+    return detail.startswith(("FileNotFoundError", "EOFError"))
 
 
 def render_check(

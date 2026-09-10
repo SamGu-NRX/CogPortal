@@ -1734,11 +1734,21 @@ def _replay(
 
     pool = dict(extras or {})
     forms = fixture if isinstance(fixture, Fixtures) else (fixture,)
-    form = forms[stored.get("form") or 0] if forms else ()
+    # An entry this version cannot read is a miss, the same as a name that no
+    # longer resolves. The key fingerprints their source and not this package,
+    # so a cogbench upgrade that changes what a binding holds meets an entry
+    # whose key still matches and whose fields no longer parse. Raising here
+    # would tell a student their repository could not be read, over our cache.
+    try:
+        arrangement = int(stored.get("arrangement", 0))
+        attempts_tried = int(stored.get("attemptsTried", 0))
+        form = forms[int(stored.get("form") or 0)] if forms else ()
+    except (TypeError, ValueError, IndexError):
+        return None
     names = identities_for(identities, form)
 
     # A week with no database: the chain is the whole binding.
-    if int(stored.get("arrangement", 0)) < 0:
+    if arrangement < 0:
         by_label = _by_label(found)
         try:
             steps = _retuned(by_label, stored, pool, names)
@@ -1800,7 +1810,7 @@ def _replay(
         discovery=found,
         chain=steps,
         attempt=Attempt(store.label, ask.label, index),
-        attempts_tried=int(stored.get("attemptsTried", 0)),
+        attempts_tried=attempts_tried,
         enroll=_enroll,
         query=lambda item: _read(ask, held, readers, item, state),
         recalled=True,

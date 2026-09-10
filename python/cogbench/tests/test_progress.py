@@ -128,15 +128,16 @@ class EstimateTests(unittest.TestCase):
     def _line(self) -> str:
         return self.stream.getvalue().rsplit("\x1b[2K", 1)[-1]
 
-    def test_the_estimate_is_stated_as_an_upper_bound(self):
-        """The search stops at the first pairing that works, so a countdown
-        that read like a prediction would be wrong most of the time."""
+    def test_the_estimate_says_it_is_a_rate_and_not_a_bound(self):
+        """The attempts left are a ceiling; the seconds are an average
+        multiplied out, so the line must not read like a promise."""
 
         self.clock.now = 100.0
         self.progress.attempts(1000, 10000)
 
         line = self._line()
-        self.assertIn("at most", line)
+        self.assertIn("at this rate", line)
+        self.assertNotIn("at most", line)
         self.assertIn("15m 00s", line)  # 0.1s each, 9000 to go
 
     def test_one_slow_first_attempt_does_not_become_the_estimate(self):
@@ -146,7 +147,7 @@ class EstimateTests(unittest.TestCase):
         self.clock.now = 2.0
         self.progress.attempts(1, 6320)
 
-        self.assertNotIn("at most", self._line())
+        self.assertNotIn("at this rate", self._line())
 
     def test_a_search_about_to_end_is_not_given_a_countdown(self):
         """Under a few seconds, the estimate is noise: it may well finish
@@ -155,13 +156,13 @@ class EstimateTests(unittest.TestCase):
         self.clock.now = 0.2
         self.progress.attempts(400, 500)
 
-        self.assertNotIn("at most", self._line())
+        self.assertNotIn("at this rate", self._line())
 
     def test_no_estimate_before_there_is_evidence_for_one(self):
         self.clock.now = 5.0
         self.progress.attempts(0, 100000)
 
-        self.assertNotIn("at most", self._line())
+        self.assertNotIn("at this rate", self._line())
 
 
 if __name__ == "__main__":

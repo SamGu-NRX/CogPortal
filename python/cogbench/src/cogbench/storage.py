@@ -34,7 +34,10 @@ def reports_dir(cwd: Path) -> Path:
 
 
 def save_report(report: LocalReport, cwd: Path) -> Path:
-    directory = workspace_dir(cwd) / "reports"
+    # workspace_dir for the ignore file, reports_dir for the path, so reading
+    # and writing cannot drift onto two different directories.
+    workspace_dir(cwd)
+    directory = reports_dir(cwd)
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / "{}.json".format(report.report_id)
     path.write_text(report.to_json() + "\n", encoding="utf-8")
