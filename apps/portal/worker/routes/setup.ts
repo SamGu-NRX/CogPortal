@@ -13,8 +13,13 @@ import {
   type SetupStep,
 } from "@cogworks/contracts/schema";
 import { requireDevice } from "../auth/device";
-import { hmacSignature } from "../execution/runner";
-import { constantTimeTextEqual } from "../util/crypto";
+import {
+  checkOffExpiry,
+  createCheckOffToken,
+  maybeSigningSecret,
+  readCheckOffToken,
+  STALE_TOKEN_MESSAGE,
+} from "./setup-check-off-token";
 import { isPlatformOwner } from "../auth/roles";
 import { authorizationLogin, requireTeam } from "../auth/session";
 import { getDb } from "../db/client";
@@ -27,94 +32,6 @@ const ResetResponseSchema = z.object({ ok: z.literal(true) });
 
 /* ── Check-off commands ───────────────────────────────────────────────── */
 
-const CHECK_OFF_TTL_SECONDS = 7 * 24 * 60 * 60;
-const CHECK_OFF_DOMAIN = "setup-v1";
-const STALE_TOKEN_MESSAGE =
-  "CogPortal: this check-off command is stale. Copy a fresh one from the setup page.";
-
-/** `b` is the benchmark the step was checked against, empty for a step that is
- *  about the machine. Signing it is what stops one track's check-off from
- *  ticking another's box. */
-const CheckOffPayloadSchema = z
-  .object({
-    u: z.string().min(1),
-    t: z.string().min(1),
-    s: SetupStepSchema,
-    b: z.string(),
-    exp: z.number().int(),
-  })
-  .strict();
-
-type CheckOffPayload = z.infer<typeof CheckOffPayloadSchema>;
-
-/**
- * Any long-lived deployment secret works here: the HMAC is domain-separated
- * ("setup-v1"), so reusing one from another subsystem cannot produce a
- * signature another subsystem would accept.
- *
- * `BETTER_AUTH_SECRET` is last and is the one that actually carries this. A
- * deployment can run without a runner, without Discord and without the
- * activity surface, but it cannot sign a student in without that secret, so a
- * portal that has a setup page to protect always has something to sign with.
- * The earlier entries let an operator scope the check-off to its own key
- * without touching sign-in.
- */
-function maybeSigningSecret(env: Env): string | undefined {
-  return (
-    env.ACTIVITY_SESSION_SECRET ||
-    env.RUNNER_SIGNING_SECRET ||
-    env.GITHUB_CLIENT_SECRET ||
-    env.BETTER_AUTH_SECRET ||
-    undefined
-  );
-}
-
-function base64Url(bytes: Uint8Array): string {
-  return btoa(String.fromCharCode(...bytes))
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
-}
-
-function decodeBase64Url(value: string): Uint8Array {
-  const base64 = value.replace(/-/g, "+").replace(/_/g, "/");
-  const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, "=");
-  return Uint8Array.from(atob(padded), (character) => character.charCodeAt(0));
-}
-
-async function signPayload(secret: string, payload: string): Promise<string> {
-  const hex = await hmacSignature(secret, CHECK_OFF_DOMAIN, payload);
-  const bytes = new Uint8Array(hex.length / 2);
-  for (let index = 0; index < bytes.length; index += 1) {
-    bytes[index] = Number.parseInt(hex.slice(index * 2, index * 2 + 2), 16);
-  }
-  return base64Url(bytes);
-}
-
-async function createCheckOffToken(secret: string, payload: CheckOffPayload): Promise<string> {
-  const encoded = base64Url(new TextEncoder().encode(JSON.stringify(payload)));
-  return `${encoded}.${await signPayload(secret, encoded)}`;
-}
-
-async function readCheckOffToken(
-  secret: string | undefined,
-  token: string | undefined,
-): Promise<CheckOffPayload | null> {
-  if (!secret || !token) return null;
-  try {
-    const [encoded, supplied] = token.split(".");
-    if (!encoded || !supplied || token.split(".").length !== 2) return null;
-    if (!constantTimeTextEqual(await signPayload(secret, encoded), supplied)) return null;
-    const parsed = CheckOffPayloadSchema.safeParse(
-      JSON.parse(new TextDecoder().decode(decodeBase64Url(encoded))),
-    );
-    if (!parsed.success || parsed.data.exp <= Math.floor(Date.now() / 1_000)) return null;
-    return parsed.data;
-  } catch {
-    return null;
-  }
-}
-
 /** One token per checkable step, all for the benchmark the page is showing. */
 async function checkOffTokens(
   env: Env,
@@ -124,7 +41,7 @@ async function checkOffTokens(
 ): Promise<Record<string, string> | undefined> {
   const secret = maybeSigningSecret(env);
   if (!secret) return undefined;
-  const exp = Math.floor(Date.now() / 1_000) + CHECK_OFF_TTL_SECONDS;
+  const exp = checkOffExpiry();
   const entries = await Promise.all(
     SELF_CHECKABLE_SETUP_STEPS.map(async (step) => [
       step,

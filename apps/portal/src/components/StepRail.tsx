@@ -34,24 +34,22 @@ export function Step({
   index,
   state,
   title,
-  chip,
   children,
   last = false,
 }: {
   index: string;
   state: StepState;
   title: string;
-  /** A short qualifier beside the title, in the slot the guide has always had
-   *  for one. Not a place for a sentence. */
-  chip?: string;
   children: ReactNode;
   last?: boolean;
 }) {
+  // Observed reads heavier than self-reported, not lighter. A filled mark is
+  // the portal's stamp; an outline is the student's own pen.
   const mark =
     state === "verified"
-      ? "border-verify/50 bg-verify-wash text-verify-deep"
+      ? "border-verify bg-verify text-paper-raised"
       : state === "checked"
-        ? "border-ink bg-ink text-paper-raised"
+        ? "border-ink bg-paper-raised text-ink"
         : "border-rule bg-paper-raised text-ink-faint";
 
   return (
@@ -90,12 +88,7 @@ export function Step({
           )}
           {state === "checked" && (
             <span className="anim-rise font-mono text-[10px] tracking-[0.08em] text-ink-faint uppercase">
-              done here
-            </span>
-          )}
-          {state === "pending" && chip && (
-            <span className="font-mono text-[10px] tracking-[0.08em] text-ink-faint uppercase">
-              {chip}
+              checked off
             </span>
           )}
         </div>

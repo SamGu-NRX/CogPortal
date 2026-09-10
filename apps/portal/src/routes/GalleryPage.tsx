@@ -280,18 +280,37 @@ const SETUP_LINES = setupCommandLines({
   deviceLinked: true,
 });
 
+/** The same rail with nothing observed and everything checked off by hand,
+ *  which needs a signing secret and a terminal to reach for real. */
+const SETUP_LINES_SELF_CHECKED = setupCommandLines({
+  cloneUrl: "https://github.com/cogworks-demo/face-finder.git",
+  repoName: "face-finder",
+  benchmarkId: SETUP_BENCHMARK_ID,
+  benchmarkTitle: "Audio",
+  portalOrigin: "https://cogportal.example",
+  verified: () => false,
+  selfChecked: () => true,
+  deviceLinked: false,
+});
+
 /** The page's own rail, so a layout bug here is a layout bug there. */
-function SetupRailFixture({ unreadable = false }: { unreadable?: boolean }) {
+function SetupRailFixture({
+  unreadable = false,
+  lines = SETUP_LINES,
+}: {
+  unreadable?: boolean;
+  lines?: typeof SETUP_LINES;
+}) {
   const outage = unreadable ? { "setup-state": true, devices: true } : {};
   return (
     <StepRail>
-      {SETUP_LINES.map((line, index) => (
+      {lines.map((line, index) => (
         <Step
           key={line.id}
           index={String(index + 1).padStart(2, "0")}
           state={stepState(line, outage)}
           title={line.id}
-          last={index === SETUP_LINES.length - 1}
+          last={index === lines.length - 1}
         >
           <CopyBlock text={line.command} wrap />
         </Step>
@@ -392,6 +411,9 @@ export function GalleryPage() {
         </Panel>
         <Panel label="EVIDENCE UNREADABLE">
           <SetupRailFixture unreadable />
+        </Panel>
+        <Panel label="CHECKED OFF, NOT OBSERVED">
+          <SetupRailFixture lines={SETUP_LINES_SELF_CHECKED} />
         </Panel>
       </div>
 

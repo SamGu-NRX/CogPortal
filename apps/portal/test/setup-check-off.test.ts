@@ -10,8 +10,8 @@ import { SELF_CHECKABLE_SETUP_STEPS } from "@cogworks/contracts/schema";
 import type { Database } from "../worker/db/client.ts";
 import { cliDevices, cohorts, setupVerifications, teamMembers, teams, users } from "../worker/db/schema.ts";
 import type { AppEnv, Env } from "../worker/env.ts";
-import { hmacSignature } from "../worker/execution/runner.ts";
 import { handleError } from "../worker/http/errors.ts";
+import { checkOffExpiry, createCheckOffToken } from "../worker/routes/setup-check-off-token.ts";
 import { registerSetupRoutes } from "../worker/routes/setup.ts";
 import { sha256Hex } from "../worker/util/crypto.ts";
 
@@ -24,16 +24,16 @@ import { sha256Hex } from "../worker/util/crypto.ts";
  * that overwrites what the CLI actually observed, and a GET that mutates state
  * because something followed a link.
  *
- * The token is minted here with the same primitives the route verifies with,
- * rather than by exporting the route's internals for a test. If the two ever
- * disagree about the format, these fail.
+ * Tokens are minted with the production `createCheckOffToken`, so these cover
+ * the mint and the verify together. A test that re-implemented the encoding
+ * would have pinned only half of the scheme, and the half the page depends on
+ * is the half it would have left out.
  */
 
 const MIGRATIONS = join(dirname(fileURLToPath(import.meta.url)), "..", "migrations");
 const NOW = 1_780_000_000_000;
 const SECRET = "test-signing-secret-not-a-real-one";
 const DEVICE_TOKEN = "cog_testdevicetoken";
-const DOMAIN = "setup-v1";
 
 function freshDb(): { db: Database; binding: unknown } {
   const sqlite = new DatabaseSync(":memory:");
@@ -122,25 +122,15 @@ function env(binding: unknown): Env {
     ENVIRONMENT: "development",
     DEV_AUTH: "disabled",
     PUBLIC_ORIGIN: "https://portal.example",
-    RUNNER_SIGNING_SECRET: SECRET,
+    BETTER_AUTH_SECRET: SECRET,
   } as unknown as Env;
 }
 
-function base64Url(bytes: Uint8Array): string {
-  return btoa(String.fromCharCode(...bytes))
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
-}
-
-async function mint(payload: Record<string, unknown>, secret = SECRET): Promise<string> {
-  const encoded = base64Url(new TextEncoder().encode(JSON.stringify(payload)));
-  const hex = await hmacSignature(secret, DOMAIN, encoded);
-  const bytes = new Uint8Array(hex.length / 2);
-  for (let index = 0; index < bytes.length; index += 1) {
-    bytes[index] = Number.parseInt(hex.slice(index * 2, index * 2 + 2), 16);
-  }
-  return `${encoded}.${base64Url(bytes)}`;
+async function mint(
+  payload: { u: string; t: string; s: string; b: string; exp: number },
+  secret = SECRET,
+): Promise<string> {
+  return createCheckOffToken(secret, payload as Parameters<typeof createCheckOffToken>[1]);
 }
 
 function future(): number {
@@ -289,9 +279,40 @@ test("a check-off never overwrites what the CLI observed", async () => {
     }),
   );
 
-  const stored = await rows(db);
+  const repeat = await checkOff(
+    binding,
+    await mint({
+      u: "user_1",
+      t: "team_1",
+      s: "environment",
+      b: "vision-clustering",
+      exp: future(),
+    }),
+  );
+  // It has to succeed, not merely leave the row alone: a student re-running
+  // after a flaky network should see the same friendly line, and a test that
+  // only checked the row would pass if the route had started refusing.
+  assert.equal(repeat.status, 200);
+
+  const stored = await db
+    .select({ source: setupVerifications.source, verifiedAt: setupVerifications.verifiedAt })
+    .from(setupVerifications);
   assert.equal(stored.length, 1, "the check-off should not have added a second row");
   assert.equal(stored[0]!.source, "cli", "an observation was downgraded to a self report");
+  assert.ok(stored[0]!.verifiedAt > NOW, "the repeat check-off did not touch the row");
+});
+
+test("a token is byte-identical while the page is polling", async () => {
+  // The setup page refetches every 2.5s while a step is outstanding. An expiry
+  // taken straight from the clock changed the command's text on every poll,
+  // under a student trying to select it by hand.
+  const payload = { u: "user_1", t: "team_1", s: "clone", b: "", exp: checkOffExpiry() };
+  const first = await createCheckOffToken(SECRET, payload as never);
+  const second = await createCheckOffToken(SECRET, {
+    ...payload,
+    exp: checkOffExpiry(Date.now() + 60_000),
+  } as never);
+  assert.equal(first, second);
 });
 
 test("every step the page offers a command for can actually be checked off", async () => {

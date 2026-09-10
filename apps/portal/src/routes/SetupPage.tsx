@@ -206,9 +206,8 @@ function SetupGuide({
       body: (
         <p>
           <code className="font-mono text-[12px]">check</code> reads your
-          repository and says which of your own functions it wired up. It
-          reports the whole setup when it passes, so most of the boxes above
-          fill when this one does; if it doesn't, the reason is in your
+          repository and says which of your own functions it wired up, and
+          reports what it found. If it doesn't tick, the reason is in your
           terminal.
         </p>
       ),
@@ -355,6 +354,11 @@ function SetupGuide({
  * with different arguments, and the course environment guarantees python
  * everywhere. It posts rather than gets, so a link prefetcher or a scanner
  * that follows the address cannot tick anybody's box.
+ *
+ * `http.client` rather than `urlopen`, which raises on a 4xx: a stale command
+ * would print a traceback ending in "HTTP Error 400" instead of the sentence
+ * telling the student to copy a fresh one. This prints whatever the server
+ * said, which is the point of running it.
  */
 function TerminalCheckoff({
   step,
@@ -368,7 +372,8 @@ function TerminalCheckoff({
   if (!step || !isSelfCheckableStep(step) || state !== "pending") return null;
   const token = tokens?.[step];
   if (!token) return null;
-  const url = `${window.location.origin}/api/v1/setup/check-off?t=${token}`;
+  const connection = window.location.protocol === "https:" ? "HTTPSConnection" : "HTTPConnection";
+  const path = `/api/v1/setup/check-off?t=${token}`;
   return (
     <div className="mt-2.5">
       <p className="text-[12px] text-ink-faint">
@@ -377,7 +382,10 @@ function TerminalCheckoff({
       <CopyBlock
         className="mt-1.5"
         wrap
-        text={`python -c "import urllib.request as u; print(u.urlopen('${url}', data=b'').read().decode())"`}
+        text={
+          `python -c "import http.client as h; c = h.${connection}('${window.location.host}'); ` +
+          `c.request('POST', '${path}'); print(c.getresponse().read().decode())"`
+        }
       />
     </div>
   );
