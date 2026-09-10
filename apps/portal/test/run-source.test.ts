@@ -112,6 +112,13 @@ async function insertRun(
   } as never);
 }
 
+/** The team as it is now, which is what decides whether a run is still
+ *  actionable. What the run *was* comes from the run. */
+async function currentTeam(db: Database) {
+  const [row] = await db.select().from(teams).where(eq(teams.id, "team_1"));
+  return { repoId: row!.repoId, repoFullName: row!.repoFullName };
+}
+
 /** The team moves to another repository, the way POST /team/repository does. */
 async function changeRepository(db: Database): Promise<void> {
   await db
@@ -134,7 +141,7 @@ test("a finished run still names its own repository after the team changes repos
   await changeRepository(db);
 
   const [row] = await db.select().from(runs).where(eq(runs.id, "run_old"));
-  const detail = await serializeRunDetail(db, row!);
+  const detail = await serializeRunDetail(db, row!, await currentTeam(db));
 
   assert.equal(detail.repo?.fullName, OLD, "the old run followed the team to its new repository");
   assert.equal(detail.repo?.url, `https://github.com/${OLD}`);
@@ -143,6 +150,10 @@ test("a finished run still names its own repository after the team changes repos
   // The commit was always the run's own. It has to still agree with the name
   // above it, which is the pairing the defect broke.
   assert.equal(detail.sha, SHA);
+  // Readable, and no longer promotable: the page shows this instead of a
+  // control the server would refuse.
+  assert.match(detail.sourceRefusal ?? "", /no longer connected to/);
+  assert.match(detail.sourceRefusal ?? "", new RegExp(NEW));
 });
 
 test("a run started after the change names the new repository", async () => {
@@ -155,8 +166,8 @@ test("a run started after the change names the new repository", async () => {
   const [older] = await db.select().from(runs).where(eq(runs.id, "run_old"));
   const [newer] = await db.select().from(runs).where(eq(runs.id, "run_new"));
 
-  assert.equal((await serializeRunDetail(db, older!)).repo?.fullName, OLD);
-  assert.equal((await serializeRunDetail(db, newer!)).repo?.fullName, NEW);
+  assert.equal((await serializeRunDetail(db, older!, await currentTeam(db))).repo?.fullName, OLD);
+  assert.equal((await serializeRunDetail(db, newer!, await currentTeam(db))).repo?.fullName, NEW);
 });
 
 test("a run that recorded no repository reports none, not the team's", async () => {
@@ -165,10 +176,11 @@ test("a run that recorded no repository reports none, not the team's", async () 
   await insertRun(db, "run_legacy", { repositoryId: null, repositoryFullName: null });
 
   const [row] = await db.select().from(runs).where(eq(runs.id, "run_legacy"));
-  const detail = await serializeRunDetail(db, row!);
+  const detail = await serializeRunDetail(db, row!, await currentTeam(db));
 
   assert.equal(detail.repo, null, "an unknown source was reported as the current repository");
   assert.equal(detail.sha, SHA, "the run's own commit is still reported");
+  assert.match(detail.sourceRefusal ?? "", /predates the repository/);
 });
 
 test("the backfill fills a run whose own id proves the repository, and no other", async () => {

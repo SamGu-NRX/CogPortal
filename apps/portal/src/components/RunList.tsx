@@ -13,7 +13,17 @@ import { StatusChip } from "./StatusChip";
  * withholds the whole RUN LOG panel until there is a row, and the one thing to
  * do about an empty log is the button in FIRST RUN.
  */
-export function RunList({ runs }: { runs: RunSummary[] }) {
+export function RunList({
+  runs,
+  connectedFullName,
+}: {
+  runs: RunSummary[];
+  /** The repository the team is connected to now. A row names its own only
+   *  when that differs, or is unrecorded: naming it on every row would repeat
+   *  what the panel above already says, and the rows that matter are the ones
+   *  a reader would otherwise attribute to the wrong repository. */
+  connectedFullName?: string;
+}) {
   if (runs.length === 0) return null;
 
   return (
@@ -49,6 +59,12 @@ export function RunList({ runs }: { runs: RunSummary[] }) {
                 <StatusChip status={run.status} />
                 <span className="font-mono text-[11px] text-ink-faint">
                   {run.branch} · {run.shortSha}
+                  {run.repo?.fullName !== connectedFullName && (
+                    <span className="text-detect-deep">
+                      {" "}
+                      · {run.repo ? run.repo.fullName : "source not recorded"}
+                    </span>
+                  )}
                 </span>
               </span>
               <span

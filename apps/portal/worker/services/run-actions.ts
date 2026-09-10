@@ -76,6 +76,39 @@ export async function discordRunActor(env: Env, discordUserId: string): Promise<
   };
 }
 
+/**
+ * Whether a run is still about the repository the team is connected to.
+ *
+ * A team has one repository and every write is authorised against it, so a new
+ * promotion, rerun or publication has to be about that repository. Matched on
+ * the id: GitHub keeps it through a rename, so a renamed repository keeps
+ * working, while a repository the team has since left, or a run from before
+ * the id was recorded, cannot be authorised by the permission we can check.
+ *
+ * Reading history is untouched, and so is a result already published. This
+ * only refuses new mutations.
+ */
+export function runSourceRefusal(
+  team: { repoId: number | null; repoFullName: string },
+  run: { repositoryId: number | null },
+  action: string,
+): string | null {
+  if (run.repositoryId !== null && run.repositoryId === team.repoId) return null;
+  const connected = team.repoFullName;
+  return run.repositoryId === null
+    ? `This run predates the repository CogPortal records, so it cannot tell whether it came from ${connected}. Start a fresh run there to ${action}.`
+    : `This run came from a repository your team is no longer connected to. Start a fresh run on ${connected} to ${action}.`;
+}
+
+function requireRunSource(
+  actor: RunActor,
+  run: { repositoryId: number | null },
+  action: string,
+): void {
+  const refusal = runSourceRefusal(actor.team, run, action);
+  if (refusal) throw new ApiHttpError(409, "source_changed", refusal);
+}
+
 export async function requireCurrentRepositoryPermission(
   env: Env,
   actor: RunActor,
@@ -393,6 +426,9 @@ export async function promotePracticeRun(
   if (parent.mode !== "practice" || parent.status !== "succeeded" || !parent.surfaceId) {
     throw new ApiHttpError(409, "not_promotable", "Only a succeeded hosted run can be promoted.");
   }
+  // Before any attempt is claimed: an official attempt is a claim about the
+  // connected repository, and this run may not be from it.
+  requireRunSource(actor, parent, "promote it");
   const [existing] = await db
     .select()
     .from(runs)
@@ -483,6 +519,9 @@ export async function publishOfficialRun(env: Env, actor: RunActor, runId: strin
   if (run.mode !== "official" || run.status !== "succeeded") {
     throw new ApiHttpError(409, "not_selectable", "Only a succeeded official run can be published.");
   }
+  // A published result is the team's public claim about its connected
+  // repository. An existing selection is left alone; this refuses a new one.
+  requireRunSource(actor, run, "publish a result");
   await db
     .insert(leaderboardSelections)
     .values({
@@ -512,6 +551,9 @@ export async function rerunHostedSurface(env: Env, actor: RunActor, surfaceId: s
     .where(and(eq(runs.surfaceId, surfaceId), eq(runs.mode, "practice"), eq(runs.teamId, actor.team.id)))
     .limit(1);
   if (!practice) throw new ApiHttpError(404, "not_found", "Hosted run not found.");
+  // A rerun resolves the old commit against the connected repository, which is
+  // a different repository's commit unless this run came from it.
+  requireRunSource(actor, practice, "run it again");
   return startPracticeRun(env, actor, {
     benchmarkId: practice.benchmarkId,
     branch: practice.branch === "detached" ? null : practice.branch,

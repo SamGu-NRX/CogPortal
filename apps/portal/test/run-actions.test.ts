@@ -11,6 +11,7 @@ import type { Database } from "../worker/db/client.ts";
 import {
   benchmarks,
   cohorts,
+  leaderboardSelections,
   officialAttempts,
   runs,
   runSurfaces,
@@ -21,6 +22,8 @@ import type { Env } from "../worker/env.ts";
 import { ApiHttpError } from "../worker/http/errors.ts";
 import {
   promotePracticeRun,
+  publishOfficialRun,
+  rerunHostedSurface,
   startPracticeRun,
   type RunActor,
 } from "../worker/services/run-actions.ts";
@@ -485,4 +488,113 @@ test("a practice run records the repository it is starting from", async () => {
   assert.ok(row);
   assert.equal(row.repositoryFullName, FIXTURE_REPO.fullName);
   assert.equal(row.repositoryId, FIXTURE_REPO.repositoryId, "the id and the name disagree");
+});
+
+/* ── Acting on a run after the repository changed ─────────────────────── */
+
+/**
+ * A team has one connected repository and every write is authorised against
+ * it, so a new promotion, rerun or publication has to be about that
+ * repository. History stays readable and an existing selection stays selected;
+ * only new mutations are refused. Matched on the id, so a rename keeps working.
+ */
+
+/**
+ * Leave the run recording a repository the team is not connected to.
+ *
+ * Equivalent to the team having moved on, and isolated from it on purpose: the
+ * permission check ahead of this rule short-circuits only for the fixture
+ * repository, so moving the team would fail on GitHub access first and never
+ * reach the rule under test. The real end-to-end switch is exercised through
+ * POST /team/repository in the browser.
+ */
+async function runCameFromElsewhere(db: Database, runId: string): Promise<void> {
+  await db
+    .update(runs)
+    .set({
+      repositoryId: FIXTURE_REPO.repositoryId + 1,
+      repositoryFullName: "some-student/week3-capstone",
+    })
+    .where(eq(runs.id, runId));
+}
+
+test("a run from a repository the team has left cannot be promoted", async () => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  await runCameFromElsewhere(db, PRACTICE_RUN_ID);
+
+  await assert.rejects(
+    promotePracticeRun(env(binding, "fixture"), actor, PRACTICE_RUN_ID),
+    (error: unknown) => error instanceof ApiHttpError && error.code === "source_changed",
+  );
+
+  // Nothing was written: no official row, and no attempt claimed against the
+  // team's budget for a run it refused.
+  const official = await db.select().from(runs).where(eq(runs.mode, "official"));
+  assert.equal(official.length, 0);
+  assert.equal((await db.select().from(officialAttempts)).length, 0);
+});
+
+test("a run with no recorded repository cannot be promoted either", async () => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  await db.update(runs).set({ repositoryId: null }).where(eq(runs.id, PRACTICE_RUN_ID));
+
+  await assert.rejects(
+    promotePracticeRun(env(binding, "fixture"), actor, PRACTICE_RUN_ID),
+    (error: unknown) => error instanceof ApiHttpError && error.code === "source_changed",
+  );
+  assert.equal((await db.select().from(officialAttempts)).length, 0);
+});
+
+test("a renamed repository keeps the same id, so its runs stay actionable", async () => {
+  // The seeded practice run records a different NAME from the team's, with the
+  // same id: exactly what a rename leaves behind. It has to keep working.
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  const [parent] = await db.select().from(runs).where(eq(runs.id, PRACTICE_RUN_ID));
+  assert.notEqual(parent!.repositoryFullName, actor.team.repoFullName, "fixture no longer covers a rename");
+  assert.equal(parent!.repositoryId, actor.team.repoId);
+
+  const promoted = await promotePracticeRun(env(binding, "fixture"), actor, PRACTICE_RUN_ID);
+  assert.ok(promoted.runId);
+});
+
+test("publishing a result from a repository the team has left is refused, and the selection stands", async () => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  const officialId = await seedOfficial(db, "succeeded");
+  await db.insert(leaderboardSelections).values({
+    teamId: "team_test",
+    benchmarkId: BENCHMARK_ID,
+    benchmarkVersion: 1,
+    runId: officialId,
+    selectedAt: 1,
+  });
+  await runCameFromElsewhere(db, officialId);
+
+  await assert.rejects(
+    publishOfficialRun(env(binding, "fixture"), actor, officialId),
+    (error: unknown) => error instanceof ApiHttpError && error.code === "source_changed",
+  );
+
+  // What is already published stays published. The refusal is about choosing
+  // a new one, not about withdrawing the old.
+  const [selection] = await db.select().from(leaderboardSelections);
+  assert.equal(selection!.runId, officialId);
+  assert.equal(selection!.selectedAt, 1, "the refused publication rewrote the selection");
+});
+
+test("rerunning a run from a repository the team has left is refused, with no new run", async () => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  const [parent] = await db.select().from(runs).where(eq(runs.id, PRACTICE_RUN_ID));
+  await runCameFromElsewhere(db, PRACTICE_RUN_ID);
+  const before = (await db.select().from(runs)).length;
+
+  await assert.rejects(
+    rerunHostedSurface(env(binding, "fixture"), actor, parent!.surfaceId!),
+    (error: unknown) => error instanceof ApiHttpError && error.code === "source_changed",
+  );
+  assert.equal((await db.select().from(runs)).length, before, "a refused rerun still created a run");
 });

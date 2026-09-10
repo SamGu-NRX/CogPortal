@@ -5,6 +5,7 @@ import {
   RUN_PHASES,
   RunStreamEventSchema,
   RunSurfaceSnapshotSchema,
+  runSource,
   type Metric,
   type RunStreamEvent,
   type RunStreamEventCode,
@@ -12,6 +13,7 @@ import {
   type RunSurfaceSnapshot,
 } from "@cogworks/contracts/schema";
 import { accountLogin } from "../auth/session";
+import { runSourceRefusal } from "./run-actions";
 import { getDb } from "../db/client";
 import type { Env } from "../env";
 import {
@@ -315,14 +317,25 @@ export async function buildRunSurfaceSnapshot(
     surface.id,
   );
 
+  // What this surface's hosted work ran from, and whether that still is the
+  // team's repository. The server refuses these three either way; offering a
+  // control that will be refused is the part this removes.
+  const sourceRun = official ?? practice ?? null;
+  const source = runSource(sourceRun?.repositoryFullName ?? null);
+  const sourceRefusal = sourceRun
+    ? runSourceRefusal(team, sourceRun, "act on it")
+    : null;
+
   const actions: RunSurfaceAction[] = ["open_console", "open_portal"];
   if (stage === "local" && status !== "running") {
     actions.push("run_again");
     if (status === "succeeded" && !local?.dirty) actions.splice(2, 0, "verify_hosted");
   } else if (stage === "hosted" && status !== "running") {
-    actions.push("rerun_hosted");
-    if (status === "succeeded") actions.splice(2, 0, "promote_official");
-  } else if (stage === "official" && status === "succeeded") {
+    if (!sourceRefusal) {
+      actions.push("rerun_hosted");
+      if (status === "succeeded") actions.splice(2, 0, "promote_official");
+    }
+  } else if (stage === "official" && status === "succeeded" && !sourceRefusal) {
     actions.push("publish_result");
   }
 
@@ -346,6 +359,8 @@ export async function buildRunSurfaceSnapshot(
     sha: local?.sha ?? practice?.sha ?? official?.sha,
     shortSha: (local?.sha ?? practice?.sha ?? official?.sha ?? "").slice(0, 7),
     branch: local?.branch ?? practice?.branch ?? official?.branch ?? null,
+    source,
+    sourceRefusal,
     dirty: local?.dirty ?? false,
     stage,
     status,

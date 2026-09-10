@@ -5,6 +5,7 @@ import {
   type RunJobV1,
   type WeightFile,
 } from "@cogworks/contracts/protocol";
+import { runSource } from "@cogworks/contracts/schema";
 import type { Env } from "../env";
 import { getDb } from "../db/client";
 import type { BenchmarkRow, RunRow, TeamRow } from "../db/schema";
@@ -61,7 +62,19 @@ export function buildRunJob(
   benchmark: BenchmarkRow,
   weights: WeightFile[] = [],
 ): RunJobV1 {
-  const fullName = `${encodeURIComponent(team.repoOwner)}/${encodeURIComponent(team.repoName)}`;
+  // The job names the repository the RUN recorded, not the team's current one.
+  // They are the same for anything dispatchable, because a promotion or rerun
+  // of a run from another repository is refused, and a fresh practice run
+  // records the team it started from. Reading it off the run means the job and
+  // the row cannot disagree even if that ever stops holding. The team remains
+  // the fallback for a run predating the recorded name.
+  const source = runSource(run.repositoryFullName) ?? {
+    owner: team.repoOwner,
+    name: team.repoName,
+    fullName: team.repoFullName,
+    url: team.repoUrl,
+  };
+  const path = `${encodeURIComponent(source.owner)}/${encodeURIComponent(source.name)}`;
   return RunJobV1Schema.parse({
     protocolVersion: RUNNER_PROTOCOL_VERSION,
     jobId: newId("job_"),
@@ -69,10 +82,10 @@ export function buildRunJob(
     mode: run.mode,
     preparedArtifactId: run.preparedArtifactId,
     source: {
-      repositoryId: team.repoId,
-      fullName: team.repoFullName,
+      repositoryId: run.repositoryId ?? team.repoId,
+      fullName: source.fullName,
       sha: run.sha,
-      archiveUrl: `https://api.github.com/repos/${fullName}/tarball/${run.sha}`,
+      archiveUrl: `https://api.github.com/repos/${path}/tarball/${run.sha}`,
     },
     benchmark: {
       id: benchmark.id,
@@ -163,8 +176,12 @@ export async function enqueueRun(
   assertModalConfigured(env);
   let weights: WeightFile[] = [];
   if (env.ARTIFACTS && !run.preparedArtifactId) {
-    const paths = await getLatestTeamWeightPaths(env, run.teamId, team.repoFullName, run.sha);
-    weights = await weightManifest(env.ARTIFACTS, team.repoFullName, run.sha, paths);
+    // Weights are stored under the repository and commit they were synced for,
+    // so they have to be looked up under the run's repository for the same
+    // reason the job's source does.
+    const repository = run.repositoryFullName ?? team.repoFullName;
+    const paths = await getLatestTeamWeightPaths(env, run.teamId, repository, run.sha);
+    weights = await weightManifest(env.ARTIFACTS, repository, run.sha, paths);
   }
   const job = buildRunJob(env, run, team, benchmark, weights);
   if (env.RUN_QUEUE) {

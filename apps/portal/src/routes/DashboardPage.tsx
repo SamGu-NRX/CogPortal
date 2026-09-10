@@ -142,7 +142,7 @@ export function DashboardPage() {
               </span>
             }
           >
-            <RunList runs={d.runs} />
+            <RunList runs={d.runs} connectedFullName={d.team.repo?.fullName} />
           </Panel>
         </div>
 
