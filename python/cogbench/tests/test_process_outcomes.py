@@ -190,15 +190,10 @@ class ProcessOutcomes(unittest.TestCase):
 
 @unittest.skipUnless(hasattr(os, 'fork'), 'requires POSIX isolation')
 class ReapFailureModes(unittest.TestCase):
-    """The two ways the authoritative reap lost a child's real death.
-
-    Both were found by Linux CI and neither reproduces on macOS, where the
-    timing is friendlier. Forcing them here is what makes them regressions
-    rather than weather.
-    """
+    """Force wait and cleanup failures without relying on OS scheduling."""
 
     def test_a_wait_that_fails_does_not_become_a_clean_exit(self):
-        # `_reap` reports a failed wait as status 0, which reads as "exited
+        # `_reap` used to report a failed wait as status 0, which reads as "exited
         # normally, no signal". Used as the authoritative record that turned a
         # self-SIGKILL into a child that apparently exited fine.
         calls = []
@@ -213,7 +208,7 @@ class ReapFailureModes(unittest.TestCase):
         with patch.object(isolate.os, 'waitpid', flaky):
             result = isolate.run_isolated(lambda: os.kill(os.getpid(), signal.SIGKILL))
 
-        self.assertEqual(calls, [calls[0]], 'the failing wait was never exercised')
+        self.assertEqual(len(calls), 1, 'the failing wait was never exercised')
         self.assertEqual(result.status, isolate.CRASHED)
         self.assertEqual(result.signal, 9, 'a failed wait was reported as a clean exit')
         self.assertFalse(result.alarm_fired)
