@@ -52,6 +52,35 @@ that tree moves:
 Report both. If the printed path is inside a repository whose HEAD you cannot
 identify, say so rather than rehearsing against an unknown version.
 
+## 0b. Which checkout and which environment
+
+There are two ways to rehearse and they are not interchangeable.
+
+**The demo clone**, above, is what Sam shows on stage: a real student
+repository at a fixed commit.
+
+**The rehearsal worktree** is where the CLI itself was exercised end to end on
+2026-09-09: a detached worktree of this repository at
+`/Users/samgu/Programming Projects/cogportal-demo-rehearsal`, with its tracked
+tree clean. It exists so a rehearsal cannot disturb the working tree, which
+usually carries parallel work.
+
+The environment used for that rehearsal was a fresh Python 3.11.15 virtualenv
+outside the repository, holding only what the setup page asks for plus the
+course packages. Device credentials for it live in the operator's own private
+configuration, never in this repository and never in the global CLI
+configuration. Do not copy them here.
+
+**The two install commands on the setup page are not the whole environment.**
+They install `cogworks-benchmark` and the Audio benchmark, and nothing else.
+A student's own code imports the course stack, librosa, numba, numpy and the
+rest, and those come from the CogWeb conda environment for the week. The CLI
+declares that list (`cogbench/environment.py`, `requirement_strings`) and
+`cogworks check` reports which of them this machine is missing, so run `check`
+before concluding the environment is ready. On 2026-09-09 the fresh environment
+also lacked Flask, which one file in the demo repository imports; `check` said
+so, skipped that file, and scored anyway.
+
 ## 1. Terminal
 
 Open a new terminal window with two tabs.
@@ -163,6 +192,27 @@ first, because the answer is no longer cached, and only then tell Sam to sign
 out and back in. The other says the history could not be read just now: wait a
 minute and reload, and do not sign him out. Do not sign him in or out yourself
 in either case.
+
+## 4b. What has actually been measured, and when
+
+Keep these apart from the timings in this document. These are dated results
+against the real portal and the real runner; the timings elsewhere are
+warm-up measurements, and the test suites are neither.
+
+- 2026-09-09, hosted: practice run of `SamGu-NRX/cogportal-demo-week1` at
+  `7125804` scored 0.5375 in 2 minutes 11 seconds on the Modal runner, through
+  the deployed dev portal. Observed from queued to succeeded in the browser.
+- 2026-09-09, local: `cogworks run --benchmark audio-identification` in the
+  rehearsal environment scored 0.5375 at the same commit and exited zero. The
+  report synced and appeared on the dashboard as SELF-REPORTED, NOT PROMOTABLE.
+  Hosted practice usage stayed 2/10 and official 0/3.
+- 2026-09-09, setup: `check --update-setup` moved the setup page to 5 of 5
+  verified.
+
+The two 0.5375 figures agreeing is worth saying out loud on stage, and worth
+not overstating: the hosted runner is Python 3.8.20 and the rehearsal
+environment was 3.11.15, so equal scores show this submission is stable across
+those two environments, not that the environments are identical.
 
 ## 5. Deck
 
