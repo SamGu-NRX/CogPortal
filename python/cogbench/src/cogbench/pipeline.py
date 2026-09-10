@@ -40,7 +40,6 @@ from __future__ import annotations
 import contextlib
 import inspect
 import io
-import itertools
 import os
 import random
 import re
@@ -81,8 +80,31 @@ CALL_TIMEOUT_SECONDS = 10
 #: discovery stays linear in practice.
 BEAM_WIDTH = 4
 
-#: Names that never hold a stage, whatever else they look like.
+#: Words that never hold a stage, whatever else the function looks like.
 _NEVER = ("test", "plot", "show", "display", "demo", "main", "visuali")
+
+#: One word of a name, splitting on underscores and camel-case boundaries.
+_WORD = re.compile(r"[A-Z]?[a-z0-9]+|[A-Z]+(?![a-z])")
+
+
+def _named_for_something_else(name: str) -> bool:
+    """True when one of `_NEVER` is the start of a word in `name`.
+
+    A word and not a substring, because `domain` contains `main`, `remainder`
+    contains `main`, and `latest` contains `test`. Matching those as
+    substrings dropped a team's `domain_features` from the candidate pool
+    before it was ever called, and the repository was then reported as having
+    no pipeline for that stage.
+
+    The start of a word and not the whole word, because the point is to skip
+    `unit_tests` and `plotting` as well as `test` and `plot`.
+    """
+
+    return any(
+        word.lower().startswith(never)
+        for word in _WORD.findall(name)
+        for never in _NEVER
+    )
 
 #: Words in a function's own source that mean calling it reaches outside this
 #: process. Probing is speculative -- most candidates are the wrong function --
@@ -865,7 +887,7 @@ def _is_probeable(name: str, value: Any, module_name: str) -> bool:
         return False
     if getattr(value, "__module__", None) != module_name:
         return False
-    if any(word in name.lower() for word in _NEVER):
+    if _named_for_something_else(name):
         return False
     return not _reaches_outside(value)
 
@@ -908,7 +930,7 @@ def _namespaced_in(owner: type, module_name: str, class_name: str) -> List[Candi
 
     found: List[Candidate] = []
     for name in sorted(vars(owner)):
-        if name.startswith("_") or any(word in name.lower() for word in _NEVER):
+        if name.startswith("_") or _named_for_something_else(name):
             continue
         value = vars(owner)[name]
         if isinstance(value, (staticmethod, classmethod)) or not inspect.isfunction(value):
@@ -953,7 +975,7 @@ def instances_in(modules: Sequence[Any]) -> List[Tuple[str, Any]]:
                 continue
             if getattr(value, "__module__", None) != module_name:
                 continue
-            if name.startswith("_") or any(word in name.lower() for word in _NEVER):
+            if name.startswith("_") or _named_for_something_else(name):
                 continue
             try:
                 signature = inspect.signature(value)
@@ -999,7 +1021,7 @@ def constructors_in(modules: Sequence[Any]) -> List[Candidate]:
                 continue
             if getattr(value, "__module__", None) != module_name:
                 continue
-            if name.startswith("_") or any(word in name.lower() for word in _NEVER):
+            if name.startswith("_") or _named_for_something_else(name):
                 continue
             try:
                 signature = inspect.signature(value)
@@ -1045,7 +1067,7 @@ def folder_readers_in(modules: Sequence[Any]) -> List[Candidate]:
                 continue
             if getattr(value, "__module__", None) != module_name:
                 continue
-            if name.startswith("_") or any(word in name.lower() for word in _NEVER):
+            if name.startswith("_") or _named_for_something_else(name):
                 continue
             try:
                 inspect.signature(value).bind()
@@ -1090,7 +1112,7 @@ def methods_of(
     found: List[Candidate] = []
     owner = type(instance)
     for name in sorted(dir(instance)):
-        if name.startswith("_") or any(word in name.lower() for word in _NEVER):
+        if name.startswith("_") or _named_for_something_else(name):
             continue
         if name not in vars(owner) and not any(name in vars(base) for base in owner.__mro__):
             continue
