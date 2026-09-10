@@ -6,7 +6,7 @@ import type { Metric } from "@cogworks/contracts/schema";
 
 (globalThis as typeof globalThis & { React: typeof React }).React = React;
 
-import { SupportingMetrics } from "../src/components/MetricBlock.tsx";
+import { PrimaryMetric, SupportingMetrics } from "../src/components/MetricBlock.tsx";
 
 /**
  * A floor is drawn inside the row of the metric it is the scale of, which
@@ -120,4 +120,61 @@ test("a metric that points at itself is nobody's child", () => {
     }),
   ]);
   assert.ok(html.includes("Chance MRR"), "the metric disappeared entirely");
+});
+
+test("a floor moved beside the primary keeps its explanation", () => {
+  // Week 1 declares two floors of its primary metric, so they render here
+  // rather than as supporting rows. A supporting row can unfold its note; this
+  // block cannot, so without carrying `help` the benchmark's own sentence
+  // ("1/N for a catalog of N songs...") is computed, sent, stored, and then
+  // dropped by the page. That is the exact failure CLAUDE.md names.
+  const primary = metric({
+    key: "identification_score",
+    label: "Identification score",
+    value: 0.5312,
+    precision: 4,
+    primary: true,
+    role: "scored",
+    help: "This is the leaderboard number.",
+  });
+  const chance = metric({
+    key: "chance_top1",
+    label: "Chance",
+    value: 0.0333,
+    role: "floor",
+    relatesTo: "identification_score",
+    help: "1/N for a catalog of N songs: what naming a song at random scores.",
+  });
+  const trivial = metric({
+    key: "trivial_baseline_top1",
+    label: "Trivial baseline",
+    value: 0.0812,
+    role: "floor",
+    relatesTo: "identification_score",
+    help: "Whole-clip mean log spectrum, nearest neighbour. None of the capstone.",
+  });
+
+  const html = renderToStaticMarkup(
+    React.createElement(PrimaryMetric, { metric: primary, floors: [chance, trivial] }),
+  );
+
+  assert.ok(html.includes("Chance"), "the first floor is missing");
+  assert.ok(html.includes("Trivial baseline"), "the second floor is missing");
+  // Printed at the primary's precision, because comparing them is the point.
+  assert.ok(html.includes("0.0333"), "the floor was not printed at the primary's precision");
+  assert.ok(html.includes("what naming a song at random scores"), "the floor lost its explanation");
+  assert.ok(html.includes("None of the capstone"), "the second floor lost its explanation");
+  // Still no direction claim on a property of the dataset. The primary draws
+  // exactly one arrow; neither floor adds another.
+  assert.equal((html.match(/▲|▼/g) || []).length, 1, "a floor drew a direction arrow");
+});
+
+test("a benchmark that sends no floor help renders exactly as before", () => {
+  const primary = metric({ key: "p", label: "P", value: 0.5, precision: 4, primary: true, role: "scored" });
+  const bare = metric({ key: "f", label: "F", value: 0.1, role: "floor", relatesTo: "p" });
+  const html = renderToStaticMarkup(
+    React.createElement(PrimaryMetric, { metric: primary, floors: [bare] }),
+  );
+  assert.ok(html.includes("F"), "the floor is missing");
+  assert.ok(!html.includes("border-l border-rule-soft pl-3"), "an empty note block was drawn");
 });

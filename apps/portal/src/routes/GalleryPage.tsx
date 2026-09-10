@@ -340,7 +340,33 @@ export function GalleryPage() {
       </Panel>
       <Panel label="RESULTS" className="mt-4">
         <div className="grid items-start gap-6 sm:grid-cols-2">
-          <PrimaryMetric metric={metric()} />
+          {/* With its floors, which is the shape Week 1 publishes: two of
+              them, both of the primary, each carrying its own explanation. */}
+          <PrimaryMetric
+            metric={metric()}
+            floors={[
+              metric({
+                key: "chance_top1",
+                label: "Chance",
+                value: 0.0333,
+                precision: 3,
+                primary: false,
+                role: "floor",
+                relatesTo: "identification_score",
+                help: "1/N for a catalog of N songs: what naming a song at random scores. The floor every other number on this page should be read against.",
+              }),
+              metric({
+                key: "trivial_baseline_top1",
+                label: "Trivial baseline",
+                value: 0.0812,
+                precision: 3,
+                primary: false,
+                role: "floor",
+                relatesTo: "identification_score",
+                help: "Whole-clip mean log spectrum, nearest neighbour. No peaks, no fingerprints, none of the capstone.",
+              }),
+            ]}
+          />
           <SupportingMetrics metrics={SUPPORTING} />
         </div>
         <p className="mt-4 border-t border-rule-soft pt-3 font-mono text-[11px] text-ink-faint">

@@ -59,6 +59,28 @@ export function PrimaryMetric({
           ))}
         </dl>
       )}
+      {/* The floor's own explanation, which moved here with it. A supporting
+          row could unfold its note; this block cannot, so without this the
+          benchmark computes the sentence, the runner sends it, the worker
+          stores it, and the page drops it. That is the failure shape this
+          repository has hit twice before. Open rather than behind a
+          disclosure, for the reason the primary's own help is open. */}
+      {floors.some((floor) => floor.help) && (
+        <dl className="mt-3 max-w-[46ch] border-l border-rule-soft pl-3">
+          {floors
+            .filter((floor) => floor.help)
+            .map((floor) => (
+              <div key={floor.key} className="mt-2 first:mt-0">
+                <dt className="font-mono text-[10px] tracking-[0.06em] text-ink-faint uppercase">
+                  {floor.label}
+                </dt>
+                <dd className="font-serif text-[12.5px] leading-[1.55] text-ink-secondary">
+                  {floor.help}
+                </dd>
+              </div>
+            ))}
+        </dl>
+      )}
       {/* The leaderboard number is the one a team will argue about, so its
           explanation is never behind a disclosure. Set in the body serif at
           reading size: this is prose to be read, not a label to be scanned. */}

@@ -227,6 +227,39 @@ class IsolationTests(unittest.TestCase):
             "the child must exit and flush before the group is killed",
         )
 
+    def test_an_interrupt_during_the_flush_wait_still_kills_the_group(self):
+        """Ctrl+C inside the grace period must not skip the group kill.
+
+        The wait polls with time.sleep, and PEP 475 does not retry a sleep
+        whose handler raises, so a SIGINT landing there raises straight out of
+        the cleanup block. When the wait and the kill were two plain statements
+        of one finally, that skipped `_terminate` and left the child's setsid
+        group running: the exact orphan `_terminate` was moved into the finally
+        to prevent. Raising from the wait itself makes that deterministic
+        instead of a timing race.
+        """
+
+        from unittest.mock import patch
+        from cogbench import isolate
+
+        killed = []
+        real = isolate._terminate
+
+        def record(pid):
+            killed.append(pid)
+            real(pid)
+
+        def interrupt(pid, seconds):
+            raise KeyboardInterrupt()
+
+        with patch.object(isolate, "_wait_for_exit", side_effect=interrupt), patch.object(
+            isolate, "_terminate", side_effect=record
+        ):
+            with self.assertRaises(KeyboardInterrupt):
+                run_isolated(lambda: 7)
+
+        self.assertEqual(len(killed), 1, "the process group was left running")
+
     @unittest.skipUnless(hasattr(signal, "SIGALRM"), "needs alarm() to time out")
     def test_a_child_that_never_reported_is_killed_without_waiting(self):
         """The grace period is only for children that finished.

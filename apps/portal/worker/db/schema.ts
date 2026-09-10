@@ -605,9 +605,13 @@ export const runMetrics = sqliteTable(
     /**
      * What kind of number this is, when the scorer says. "floor" is the one
      * that matters today: a chance baseline is a fact about the dataset, so
-     * the run page shows it without a direction arrow. Null means the scorer
-     * did not say, which is not the same as "ordinary" and is why nothing
-     * backfills it (migration 0035).
+     * the run page shows it without a direction arrow.
+     *
+     * Written when a result arrives, from what that scorer declared. One
+     * exception: 0037 filled it in for Week 1 Audio rows from the plugin's own
+     * declaration, which was safe there because the scorer version did not
+     * move. Null still means nothing was recorded, which is not the same as
+     * "ordinary", and 0035 backfills nothing on its own.
      */
     role: text("role").$type<MetricRole>(),
     /** The key of the metric this one is about, for a floor or a companion

@@ -295,7 +295,16 @@ class ReportTests(unittest.TestCase):
         (self.tmp / "a.py").write_text("def f():\n    return 1\n")
         record = discover(self.tmp).to_dict()
         self.assertEqual(record["rootReason"], "code sits at the repository root")
-        self.assertEqual(record["stubbed"], list(STUBBED_MODULES))
+        # A subset, not the constant. `_install_stubs` deliberately declines to
+        # stand in for a module that is genuinely importable, so the record
+        # names what was replaced on this machine rather than what the list
+        # allows. Asserting the whole tuple passes only on an interpreter that
+        # happens to have none of them installed, and fails on any student
+        # laptop carrying streamlit or pyaudio, which is the case the code
+        # under test exists to handle.
+        self.assertIn("microphone", record["stubbed"])
+        for name in record["stubbed"]:
+            self.assertIn(name, STUBBED_MODULES)
         self.assertEqual(record["modules"][0]["name"], "a")
 
 

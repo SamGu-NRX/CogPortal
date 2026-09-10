@@ -483,15 +483,23 @@ def run_isolated(
             # FLUSH_GRACE_SECONDS. Every other path (timeout, read error,
             # KeyboardInterrupt) leaves `outcome` None and skips the wait.
             reaped, status = (False, 0)
-            if outcome is not None:
-                reaped, status = _wait_for_exit(pid, FLUSH_GRACE_SECONDS)
-            # The group is killed either way, even when the child exited
-            # cleanly: it may have started something that outlives it, and
-            # setsid means the terminal's own signals never reach that group.
-            # Waiting first changes when this runs, never whether it runs.
-            _terminate(pid)
-            if not reaped:
-                status = _reap(pid)[1]
+            try:
+                if outcome is not None:
+                    reaped, status = _wait_for_exit(pid, FLUSH_GRACE_SECONDS)
+            finally:
+                # The group is killed either way, even when the child exited
+                # cleanly: it may have started something that outlives it, and
+                # setsid means the terminal's own signals never reach that
+                # group. This needs its own finally because the wait above is
+                # itself interruptible: the poll sleeps, PEP 475 does not
+                # retry a sleep whose handler raises, and a Ctrl+C landing in
+                # that window would otherwise skip the kill and leave exactly
+                # the orphan the comment above is about. Measured before this
+                # guard existed: 26 orphans in 120 runs with SIGINT swept
+                # across the poll, 0 with it.
+                _terminate(pid)
+                if not reaped:
+                    status = _reap(pid)[1]
 
         if outcome is not None:
             return outcome
