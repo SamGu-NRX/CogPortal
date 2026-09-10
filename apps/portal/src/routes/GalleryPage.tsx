@@ -2,6 +2,7 @@ import { Finding } from "@/components/Finding";
 import { Panel } from "@/components/Panel";
 import { PrimaryMetric, SupportingMetrics } from "@/components/MetricBlock";
 import { SweepTrace } from "@/components/SweepTrace";
+import { WiringTrace, type WiredStep } from "@/components/WiringTrace";
 import type { Metric, RunDetail as RunDetailType } from "@cogworks/contracts/schema";
 
 /**
@@ -163,6 +164,43 @@ const SWEEPS: { title: string; note: string; sweep: NonNullable<RunDetailType["s
   },
 ];
 
+
+/**
+ * A wiring trace at the length the contract allows.
+ *
+ * The identifier field is capped at 200 characters, and this component used to
+ * put `truncate` on it, so the end of a long one was elided with no way to see
+ * it. Identifiers are the entire payload here: a team reads this to check we
+ * ran the function they think we ran, and the half that gets cut is the
+ * function name. There is no run in any fixture database with a name this long,
+ * so this is the only way to look at it.
+ */
+const LONG_WIRING: WiredStep[] = [
+  {
+    stage: "spectrogram",
+    function: "audio.processing.spectrogram_utilities.make_spectrogram_with_hann_window_and_overlap",
+    received: "an array of shape (132300,), 44100",
+    returned: "a tuple of 3, starting with an array of shape (2049, 63)",
+  },
+  {
+    stage: "peaks",
+    // 200 characters, at or near the 200 cap in
+    // packages/contracts/src/protocol.ts. Long, and a real shape: this is what
+    // a deeply namespaced repository looks like.
+    function:
+      "fingerprinting.peak_detection.local_maxima.find_peaks_by_iterative_neighbourho" +
+      "od_comparison_over_the_log_spectrogram_with_an_amplitude_floor_and_a_minimum_time_frequency_separation_between_accepted_in",
+    received: "an array of shape (2049, 63)",
+    returned: "an array of shape (355, 2)",
+  },
+  {
+    stage: "fanout",
+    function: "fingerprinting.make_fgp",
+    received: "an array of shape (355, 2)",
+    returned: "a list of 5158, starting ((221, 468, 1), 0)",
+  },
+];
+
 export function GalleryPage() {
   return (
     <div className="mx-auto w-full max-w-4xl py-10">
@@ -192,6 +230,15 @@ export function GalleryPage() {
           </Panel>
         </section>
       ))}
+
+      <h2 className="mt-12 font-serif text-xl font-semibold text-ink">Wiring trace</h2>
+      <p className="mb-2 mt-2 text-[13px] text-ink-faint">
+        The second identifier is 200 characters, the longest the contract
+        allows. It has to wrap inside the column, not be cut off at the edge.
+      </p>
+      <Panel className="mt-4">
+        <WiringTrace steps={LONG_WIRING} />
+      </Panel>
 
       <h2 className="mt-12 font-serif text-xl font-semibold text-ink">
         Finding above results, as the run page composes them
