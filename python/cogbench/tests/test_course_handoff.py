@@ -55,7 +55,7 @@ def missing():
             module = found.modules[0].module
             callbacks.append((module.prep_data, owned))
             self.assertEqual(module.prep_data(), str(owned))
-            with self.assertRaisesRegex(FileNotFoundError, 'unmapped.pkl.*no validated benchmark input'):
+            with self.assertRaisesRegex(FileNotFoundError, 'unmapped.pkl.*no validated benchmark input.*Ask your instructor'):
                 module.missing()
             self.assertIs(self.language.get_data_path, self.original)
             self.assertIs(builtins.__import__, importer)

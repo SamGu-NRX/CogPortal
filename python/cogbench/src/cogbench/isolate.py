@@ -25,6 +25,7 @@ parent from names it reports, and re-verified there.
 from __future__ import annotations
 
 import os
+import errno
 import json
 import math
 try:
@@ -468,6 +469,13 @@ def _describe_death(status: Optional[int], timed: bool = False) -> Outcome:
                    else "exited with status {}".format(code))
 
 
+def _isolation_backend():
+    """Select execution policy once; tests can exercise either POSIX backend."""
+    if not hasattr(os, "fork"):
+        return None
+    return run_operation if sys.platform == "darwin" else run_isolated
+
+
 def run_isolated(
     work: Callable[[], Any],
     *,
@@ -639,14 +647,23 @@ def _collect(pid, read_fd, timeout_seconds, memory_bytes) -> Outcome:
             reason = reason or "alarm"
     finally:
         try:
-            if armed and previous is not None:
+            if armed:
                 signal.alarm(0)
-                signal.signal(signal.SIGALRM, previous)
-            os.close(read_fd)
+                # None denotes a handler installed outside Python. It cannot
+                # be passed to signal.signal, but our timer must still stop.
+                if previous is not None:
+                    signal.signal(signal.SIGALRM, previous)
+            try:
+                os.close(read_fd)
+            except OSError:
+                pass
             # Capture an already-dead child's status before cleanup. If the
             # pipe closed while it was alive, cleanup's SIGKILL proves no cause.
             if not reaped:
-                done, observed = os.waitpid(pid, os.WNOHANG)
+                try:
+                    done, observed = os.waitpid(pid, os.WNOHANG)
+                except OSError:
+                    done = 0
                 if done:
                     reaped, status = True, observed
         finally:
@@ -655,7 +672,7 @@ def _collect(pid, read_fd, timeout_seconds, memory_bytes) -> Outcome:
                 final_status = _reap(pid)[1]
                 # A different signal or ordinary exit could arrive between
                 # WNOHANG and cleanup. Those cannot have come from our SIGKILL.
-                if not (os.WIFSIGNALED(final_status)
+                if final_status is not None and not (os.WIFSIGNALED(final_status)
                         and os.WTERMSIG(final_status) == signal.SIGKILL):
                     status = final_status
     if outcome is None:
@@ -693,24 +710,19 @@ def _terminate(pid: int) -> None:
 
 
 def _reap(pid: int):
-    try:
-        return os.waitpid(pid, 0)
-    except OSError:
-        return pid, 0
+    return pid, _reap_exact(pid)
 
 
 def _reap_exact(pid: int):
-    """Wait for `pid` and return its status, or None if it could not be waited for.
+    """Return a real wait status, or None when no status can be obtained.
 
-    `_reap` reports a failed wait as status 0, which reads as "exited normally,
-    no signal". That is a harmless fallback where the result only fills a gap,
-    and a silent falsehood where it is the authoritative record of how a child
-    died: a self-SIGKILL came back with no signal at all, intermittently and
-    only on Linux, because a transient failure here was indistinguishable from
-    a clean exit.
+    EINTR interrupts the wait, not the child. Retry that same blocking wait
+    before cleanup so an interrupted reap cannot erase a self-SIGKILL.
+    This is syscall interruption handling, not polling or a grace period.
     """
-
-    try:
-        return os.waitpid(pid, 0)[1]
-    except OSError:
-        return None
+    while True:
+        try:
+            return os.waitpid(pid, 0)[1]
+        except OSError as error:
+            if error.errno != errno.EINTR:
+                return None

@@ -12,7 +12,7 @@ import sys
 import tempfile
 import time
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stdout, nullcontext
 from pathlib import Path
 from unittest.mock import patch
 
@@ -30,13 +30,26 @@ def wait_gone(test, pid):
             os.kill(pid, 0)
         except ProcessLookupError:
             return
+        # Linux can leave a killed grandchild as a zombie until its new
+        # parent reaps it. It is no longer executing; we do not own that wait.
+        stat = Path('/proc') / str(pid) / 'stat'
+        try:
+            if stat.read_text().rsplit(')', 1)[1].split()[0] == 'Z':
+                return
+        except (OSError, IndexError):
+            pass
         time.sleep(.01)
     test.fail('process {} survived cleanup'.format(pid))
 
 
-@unittest.skipUnless(sys.platform == 'darwin', 'macOS fresh-interpreter boundary')
-class FreshInterpreter(unittest.TestCase):
+class OperationFixtures:
+    backend_name = 'run_operation'
+
     def setUp(self):
+        selection = patch.object(isolate, '_isolation_backend',
+                                 side_effect=lambda: getattr(isolate, self.backend_name))
+        selection.start()
+        self.addCleanup(selection.stop)
         temporary = tempfile.TemporaryDirectory(prefix='cogbench-exec-test-')
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name).resolve()
@@ -91,10 +104,18 @@ def create_submission(inputs):
 ''' % (str(self.record), extra)
         (self.repo / 'submission.py').write_text(source)
 
+    def reject_raw_fork(self):
+        if self.backend_name == 'run_operation':
+            return patch.object(os, 'fork', side_effect=AssertionError('raw fork'))
+        return nullcontext()
+
     def test_cold_proxy_check_installs_limits_and_cleans_descendants(self):
+        import importlib.util
+        if importlib.util.find_spec('numpy') is None:
+            self.skipTest('the frozen proxy probe imports numpy')
         self.submission(probe=True)
         # A macOS CLI operation must not call our Python fork API at all.
-        with patch.object(os, 'fork', side_effect=AssertionError('raw fork')):
+        with self.reject_raw_fork():
             view, status, detail = cli._read_repository('boundary-fixture', self.repo, True)
         self.assertEqual(status, isolate.COMPLETED, detail)
         self.assertTrue(view['ready'])
@@ -166,10 +187,10 @@ Path(%r).write_text(json.dumps(list(resource.getrlimit(resource.RLIMIT_CPU))))
         wait_gone(self, observed['descendant'])
 
     def test_test_and_run_reconstruct_and_score_in_fresh_interpreter(self):
-        self.submission(probe=True)
+        self.submission()
         for command in ('test', 'run'):
             with self.subTest(command=command), patch.object(cli.Path, 'cwd', return_value=self.repo), \
-                 patch.object(os, 'fork', side_effect=AssertionError('raw fork')), \
+                 self.reject_raw_fork(), \
                  redirect_stdout(io.StringIO()) as output:
                 code = cli.main([command, '--benchmark', 'boundary-fixture', '--json'])
             self.assertEqual(code, 0, output.getvalue())
@@ -233,7 +254,7 @@ def create_submission(inputs):
     def test_survey_executes_import_and_keeps_journal_after_death(self):
         (self.repo / 'a_good.py').write_text('def identity(x):\n    return x\n')
         (self.repo / 'z_bad.py').write_text('import os, signal\nos.kill(os.getpid(), signal.SIGKILL)\n')
-        with patch.object(os, 'fork', side_effect=AssertionError('raw fork')):
+        with self.reject_raw_fork():
             result = survey(self.repo)
         self.assertEqual(result.status, isolate.CRASHED)
         self.assertIn('unknown', result.detail)
@@ -277,3 +298,25 @@ run_operation('check', {'name': 'boundary-fixture', 'repository': %r, 'as_json':
             if parent.poll() is None:
                 parent.kill()
                 parent.communicate()
+
+
+@unittest.skipUnless(hasattr(os, 'fork'), 'POSIX execution boundary')
+class FreshInterpreter(OperationFixtures, unittest.TestCase):
+    """Exec integration runs on Linux CI as well as macOS."""
+
+
+@unittest.skipUnless(hasattr(os, 'fork'), 'POSIX execution boundary')
+class ForkOperations(unittest.TestCase):
+    """The same on-disk operations exercise the fork backend on either OS.
+
+    The cold proxy probe belongs only to exec: raw macOS fork is the failure
+    that operation reconstruction was introduced to avoid.
+    """
+    backend_name = 'run_isolated'
+    setUp = OperationFixtures.setUp
+    submission = OperationFixtures.submission
+    reject_raw_fork = OperationFixtures.reject_raw_fork
+    test_scoring = OperationFixtures.test_test_and_run_reconstruct_and_score_in_fresh_interpreter
+    test_check = OperationFixtures.test_discovered_check_report_crosses_json_and_rehydrates_for_rendering
+    test_survey = OperationFixtures.test_survey_executes_import_and_keeps_journal_after_death
+    test_course_file_at_score_time = OperationFixtures.test_score_time_attribute_lookup_uses_validated_course_file

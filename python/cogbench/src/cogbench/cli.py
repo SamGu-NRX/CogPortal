@@ -19,7 +19,8 @@ from urllib.parse import urlparse
 
 from . import __version__
 from .environment import gap_note, local_gap
-from .isolate import COMPLETED, CRASHED, Outcome, run_isolated, run_operation
+from .isolate import COMPLETED, CRASHED, Outcome
+from . import isolate
 from .client import (
     PortalError,
     device_status,
@@ -52,6 +53,8 @@ PROGRAM = "cogworks"
 
 
 def _parser() -> argparse.ArgumentParser:
+    # run_operation sends vars(args) as JSON. Every new run flag must remain
+    # JSON-safe; type=Path or another live object would break the exec path.
     parser = argparse.ArgumentParser(
         prog=PROGRAM,
         description="Check and run CogWorks practice benchmarks locally.",
@@ -455,7 +458,8 @@ def _read_repository(
     report, and the status and detail are then what there is to say.
     """
 
-    if not hasattr(os, "fork"):
+    backend = isolate._isolation_backend()
+    if backend is None:
         # Windows has no fork, so there is no isolation to offer. Running it
         # here is what the platform can do; refusing instead would tell every
         # Windows student their repository could not be read, which is a
@@ -469,12 +473,12 @@ def _read_repository(
     # failed the check and then worked on the run, which is the disagreement
     # this whole path exists to remove. Discovery still imports their modules
     # from a scratch directory of its own; that is `discover`'s business.
-    elif sys.platform == "darwin":
-        outcome = run_operation("check", {
+    elif backend is isolate.run_operation:
+        outcome = backend("check", {
             "name": name, "repository": str(project_root.resolve()), "as_json": as_json,
         }, scratch=project_root)
     else:
-        outcome = run_isolated(
+        outcome = backend(
             lambda: _check_view(name, project_root, as_json), scratch=project_root
         )
     view = None
@@ -559,7 +563,7 @@ def _check(benchmark: str, as_json: bool, project_root: Path) -> int:
             checks["submissionError"] = (
                 "Reading this repository ended the process ({}): {}".format(status, unread_detail)
             )
-            checks["submissionDetail"] = diagnostics
+            checks["isolationDetail"] = diagnostics
         else:
             submission = view["report"]
             survey = view["survey"]
@@ -889,7 +893,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 )
             return result
         if args.command in ("test", "run"):
-            if not hasattr(os, "fork"):
+            backend = isolate._isolation_backend()
+            if backend is None:
                 # Windows runs in-process, as _read_repository and survey do;
                 # without fork this platform cannot offer crash containment.
                 outcome = Outcome(COMPLETED, value=_run_view(args, project_root))
@@ -908,14 +913,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 # limit before this boundary existed and they still have none.
                 sys.stdout.flush()
                 sys.stderr.flush()
-                if sys.platform == "darwin":
+                if backend is isolate.run_operation:
                     # Send the parser namespace wholesale so flags have one
                     # owner; this deliberately couples worker behavior to it.
-                    outcome = run_operation("run", {
+                    outcome = backend("run", {
                         "args": vars(args), "repository": str(project_root.resolve()),
                     }, scratch=project_root, timeout_seconds=None, memory_bytes=None)
                 else:
-                    outcome = run_isolated(
+                    outcome = backend(
                         lambda: _run_view(args, project_root),
                         scratch=project_root, timeout_seconds=None, memory_bytes=None,
                     )

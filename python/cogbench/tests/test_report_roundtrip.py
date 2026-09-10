@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
-from cogbench import cli
+from cogbench import cli, isolate
 from cogbench.isolate import COMPLETED, Outcome
 from cogbench.raised import Raised
 from cogbench.resolve import Attempt, SubmissionReport
@@ -54,35 +54,40 @@ class ReportRoundTrips(unittest.TestCase):
     def test_windows_fork_and_exec_use_the_same_rehydration(self):
         report = SubmissionReport(False, self.verdict(), ('train.features',))
         view = {'report': report.to_dict(), 'survey': {'modules': []}}
-        for platform, supports_fork in [('win32', False), ('linux', True), ('darwin', True)]:
-            with self.subTest(platform=platform):
-                system = SimpleNamespace(platform=platform)
-                operating = SimpleNamespace(fork=True) if supports_fork else SimpleNamespace()
-                with patch.object(cli, 'sys', system), patch.object(cli, 'os', operating), \
-                     patch.object(cli, '_check_view', return_value=view), \
-                     patch.object(cli, 'run_isolated', return_value=Outcome(COMPLETED, value=view)), \
-                     patch.object(cli, 'run_operation', return_value=Outcome(COMPLETED, value=view)):
-                    actual, status, detail = cli._read_repository('fixture', Path('/tmp'), True)
-                self.assertEqual(status, COMPLETED, detail)
-                self.assertEqual(actual['report'], report)
-                self.assertEqual(actual['survey'], view['survey'])
-                self.assertIsInstance(view['report'], dict, 'rehydration must not mutate the source')
+        for backend in ('inline', 'fork', 'exec'):
+            with self.subTest(backend=backend), \
+                 patch.object(cli, '_check_view', return_value=view), \
+                 patch.object(isolate, 'run_isolated', return_value=Outcome(COMPLETED, value=view)) as fork, \
+                 patch.object(isolate, 'run_operation', return_value=Outcome(COMPLETED, value=view)) as execute, \
+                 patch.object(isolate, '_isolation_backend', return_value={
+                     'inline': None, 'fork': fork, 'exec': execute}[backend]):
+                actual, status, detail = cli._read_repository('fixture', Path('/tmp'), True)
+            self.assertEqual(status, COMPLETED, detail)
+            self.assertEqual(actual['report'], report)
+            self.assertEqual(actual['survey'], view['survey'])
+            self.assertIsInstance(view['report'], dict)
 
     def test_invalid_check_report_keeps_status_and_diagnostics_consistent(self):
-        # `_read_repository` tests `hasattr(os, 'fork')` before it looks at the
-        # platform, so on Windows this takes the in-process branch whatever
-        # `sys.platform` says. Stubbing the view as well makes all three paths
-        # hand the same invalid payload to the one rehydration site.
-        with patch.object(cli, 'sys', SimpleNamespace(platform='darwin')), \
-             patch.object(cli, '_check_view', return_value={'report': {}}), \
-             patch.object(cli, 'run_operation', return_value=Outcome(COMPLETED, value={'report': {}})):
-            diagnostics = {}
-            view, status, detail = cli._read_repository('fixture', Path('/tmp'), True,
-                                                       diagnostics=diagnostics)
-        self.assertIsNone(view)
-        self.assertEqual(status, 'crashed')
-        self.assertEqual(diagnostics['status'], status)
-        self.assertIn('invalid check report', detail)
+        for backend in ('inline', 'fork', 'exec'):
+            with self.subTest(backend=backend), \
+                 patch.object(cli, '_check_view', return_value={'report': {}}), \
+                 patch.object(isolate, 'run_isolated', return_value=Outcome(COMPLETED, value={'report': {}})) as fork, \
+                 patch.object(isolate, 'run_operation', return_value=Outcome(COMPLETED, value={'report': {}})) as execute, \
+                 patch.object(isolate, '_isolation_backend', return_value={
+                     'inline': None, 'fork': fork, 'exec': execute}[backend]):
+                diagnostics = {}
+                view, status, detail = cli._read_repository('fixture', Path('/tmp'), True,
+                                                           diagnostics=diagnostics)
+            self.assertIsNone(view)
+            self.assertEqual(status, 'crashed')
+            self.assertEqual(diagnostics['status'], status)
+            self.assertIn('invalid check report', detail)
+
+    def test_current_run_flags_are_json_serializable(self):
+        for flags in ([], ['--json', '--update-setup', '--live', '--portal', 'https://fixture.invalid']):
+            with self.subTest(flags=flags):
+                args = cli._parser().parse_args(['run', '--benchmark', 'fixture'] + flags)
+                self.assertEqual(json.loads(json.dumps(vars(args), allow_nan=False)), vars(args))
 
     def test_run_discovery_reuses_the_child_local_spec(self):
         spec = object()

@@ -1835,7 +1835,8 @@ class _Redirects:
             # Pooch's cache is not a second authority for benchmark inputs.
             # Unknown course files are explicit failures, not hidden downloads.
             raise FileNotFoundError(
-                "course file {!r} has no validated benchmark input".format(str(file_name))
+                "course file {!r} has no validated benchmark input. "
+                "Ask your instructor to check whether this file belongs in the benchmark inputs.".format(str(file_name))
             )
 
         if self._course is None:
@@ -2381,7 +2382,8 @@ def survey(
     which is a sentence about the repository that nobody observed.
     """
 
-    from .isolate import COMPLETED, run_isolated, run_operation
+    from . import isolate
+    from .isolate import COMPLETED
 
     repository = Path(repository).resolve()
 
@@ -2391,20 +2393,21 @@ def survey(
         def _work() -> Dict[str, object]:
             return _survey_work(repository, declared_root, hints, trail)
 
-        if not hasattr(os, "fork"):
+        backend = isolate._isolation_backend()
+        if backend is None:
             # Windows has no fork, so there is no isolation to offer. Running
             # the same work here is what the platform can do: the caller loses
             # the protection above, and gains a report. Refusing instead told
             # every Windows student their repository could not be read, which
             # is a sentence about their code that nothing observed.
             return Survey("ok", _work())
-        if sys.platform == "darwin":
-            outcome = run_operation("survey", {
+        if backend is isolate.run_operation:
+            outcome = backend("survey", {
                 "repository": str(repository), "declared_root": declared_root,
                 "hints": list(hints), "trail": str(trail),
             }, timeout_seconds=timeout_seconds)
         else:
-            outcome = run_isolated(_work, timeout_seconds=timeout_seconds)
+            outcome = backend(_work, timeout_seconds=timeout_seconds)
         if outcome.status == COMPLETED and isinstance(outcome.value, dict):
             return Survey("ok", outcome.value)
 

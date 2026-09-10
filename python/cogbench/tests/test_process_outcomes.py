@@ -169,26 +169,23 @@ class ProcessOutcomes(unittest.TestCase):
     def test_cli_json_keeps_observed_death_fields(self):
         result = isolate.Outcome(isolate.CRASHED, detail='stopped by SIGKILL; the cause is unknown',
                                  signal=9, timeout_seconds=300, memory_bytes=1234, read_reason='eof')
-        class Platform:
-            platform = 'darwin'
         class Benchmark:
             def model_cache_status(self):
                 return {}
             def cache_status(self, tier):
                 from types import SimpleNamespace
                 return SimpleNamespace(ready=True, path=Path('/tmp'), message='')
-        with patch.object(cli, 'run_operation', return_value=result), \
-             patch.object(cli, 'sys', Platform()), \
+        with patch.object(isolate, 'run_operation', return_value=result), \
+             patch.object(isolate, '_isolation_backend', side_effect=lambda: isolate.run_operation), \
              patch.object(cli, 'plugin_names', return_value=['fixture']), \
              patch.object(cli, 'load_benchmark', return_value=Benchmark()), \
              patch('sys.stdout', new_callable=io.StringIO) as output:
             code = cli._check('fixture', True, Path('/tmp'))
         record = json.loads(output.getvalue())
         self.assertEqual(code, 2)
-        # The existing check object owns submissionDetail; no parallel report.
-        checks = record.get('checks', record)
-        self.assertIn(result.detail, checks['submissionError'])
-        self.assertEqual(checks['submissionDetail'], result.diagnostics())
+        self.assertIn(result.detail, record['submissionError'])
+        self.assertEqual(record['isolationDetail'], result.diagnostics())
+        self.assertIsNone(record['submissionDetail'])
 
 
 @unittest.skipUnless(hasattr(os, 'fork'), 'requires POSIX isolation')
@@ -221,17 +218,66 @@ class ReapFailureModes(unittest.TestCase):
         self.assertEqual(result.signal, 9, 'a failed wait was reported as a clean exit')
         self.assertFalse(result.alarm_fired)
 
-    def test_an_alarm_inside_the_reap_is_a_timeout_not_a_lost_status(self):
-        # The deadline stays armed across the reap on purpose, because code
-        # holding the descriptor can close it and stay alive. An alarm landing
-        # there must report the timeout, not fall through with no status.
-        real = isolate._reap_exact
+    def test_an_alarm_inside_the_reap_keeps_an_observable_signal(self):
+        read_fd, write_fd = os.pipe()
+        os.close(write_fd)
+        calls = []
+        def interrupted_wait(pid, flags):
+            calls.append(flags)
+            if flags == 0:
+                raise isolate._Alarm()
+            return pid, signal.SIGKILL
+        with patch.object(isolate.os, 'waitpid', side_effect=interrupted_wait), \
+             patch.object(isolate, '_terminate'):
+            result = isolate._collect(123, read_fd, 5, 1234)
+        self.assertEqual(calls, [0, os.WNOHANG])
+        self.assertTrue(result.alarm_fired)
+        self.assertEqual(result.status, isolate.TIMED_OUT)
+        self.assertEqual(result.signal, 9)
 
-        def alarming(pid):
-            raise isolate._Alarm()
+    def test_interrupted_authoritative_wait_retries_before_any_cleanup(self):
+        read_fd, write_fd = os.pipe()
+        os.close(write_fd)
+        calls = []
+        def interrupted_wait(pid, flags):
+            calls.append(('wait', flags))
+            if len(calls) == 1:
+                raise OSError(4, 'Interrupted system call')
+            return pid, signal.SIGKILL
+        with patch.object(isolate.os, 'waitpid', side_effect=interrupted_wait), \
+             patch.object(isolate, '_terminate', side_effect=lambda pid: calls.append(('kill', pid))):
+            result = isolate._collect(123, read_fd, 5, 1234)
+        self.assertEqual(calls, [('wait', 0), ('wait', 0), ('kill', 123)])
+        self.assertEqual(result.status, isolate.CRASHED)
+        self.assertEqual(result.signal, 9)
+        self.assertFalse(result.alarm_fired)
 
-        with patch.object(isolate, '_reap_exact', alarming):
-            result = isolate.run_isolated(lambda: 1, timeout_seconds=5)
+    def test_cleanup_close_and_nonblocking_wait_errors_do_not_escape(self):
+        read_fd, write_fd = os.pipe()
+        os.close(write_fd)
+        close = os.close
+        def closed(fd):
+            close(fd)
+            raise OSError(9, 'already closed')
+        with patch.object(isolate, '_read_payload', side_effect=isolate._PayloadError('invalid_outcome')), \
+             patch.object(isolate.os, 'close', side_effect=closed), \
+             patch.object(isolate.os, 'waitpid', side_effect=OSError(10, 'no child')), \
+             patch.object(isolate, '_terminate') as terminate:
+            result = isolate._collect(123, read_fd, 5, 1234)
+        self.assertEqual(result.status, isolate.CRASHED)
+        self.assertEqual(result.read_reason, 'invalid_outcome')
+        self.assertIsNone(result.signal)
+        self.assertNotIn('exited without', result.detail)
+        terminate.assert_called_once_with(123)
 
-        self.assertTrue(result.alarm_fired, 'the alarm that fired was not recorded')
-        self.assertIsNot(real, alarming)
+    def test_native_previous_handler_does_not_leave_our_alarm_armed(self):
+        read_fd, write_fd = os.pipe()
+        os.close(write_fd)
+        with patch.object(isolate.signal, 'signal', return_value=None) as handler, \
+             patch.object(isolate.signal, 'alarm') as alarm, \
+             patch.object(isolate.os, 'waitpid', return_value=(123, 0)), \
+             patch.object(isolate, '_terminate'):
+            result = isolate._collect(123, read_fd, 5, 1234)
+        self.assertFalse(result.alarm_fired)
+        self.assertEqual([call.args for call in alarm.call_args_list], [(5,), (0,)])
+        handler.assert_called_once_with(signal.SIGALRM, isolate._on_alarm)

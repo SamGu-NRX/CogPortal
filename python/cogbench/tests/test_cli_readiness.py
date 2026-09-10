@@ -26,18 +26,9 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "python" / "cogbench" / "src"))
 
-from cogbench import cli  # noqa: E402
+from cogbench import cli, isolate  # noqa: E402
 from cogbench.isolate import CRASHED, Outcome  # noqa: E402
 from cogbench.plugins import PluginError  # noqa: E402
-
-
-class _ForkPlatform:
-    # These closure-based fixtures exercise Linux's inherited-state path.
-    # Fresh-interpreter tests install real plugin metadata on disk instead.
-    platform = "linux"
-
-    def __getattr__(self, name):
-        return getattr(sys, name)
 
 
 class _NoDiscovery:
@@ -147,7 +138,7 @@ class ReadingCannotTakeTheCommandDown(unittest.TestCase):
     """The boundary `discover.survey` documents, around the whole of check."""
 
     def setUp(self):
-        platform_patch = patch.object(cli, "sys", _ForkPlatform())
+        platform_patch = patch.object(isolate, "_isolation_backend", side_effect=lambda: isolate.run_isolated)
         platform_patch.start()
         self.addCleanup(platform_patch.stop)
         self.tmp = Path(tempfile.mkdtemp()).resolve()
@@ -205,7 +196,7 @@ class ReadingCannotTakeTheCommandDown(unittest.TestCase):
 @unittest.skipUnless(hasattr(os, "fork"), "no fork, so nothing to isolate")
 class ScoredRunIsolation(unittest.TestCase):
     def setUp(self):
-        platform_patch = patch.object(cli, "sys", _ForkPlatform())
+        platform_patch = patch.object(isolate, "_isolation_backend", side_effect=lambda: isolate.run_isolated)
         platform_patch.start()
         self.addCleanup(platform_patch.stop)
         self.tmp = Path(tempfile.mkdtemp()).resolve()
@@ -298,7 +289,7 @@ class ScoredRunIsolation(unittest.TestCase):
             return Outcome(CRASHED, detail="stopped by the test")
 
         with patch.object(cli, "_run_view", return_value="{}"), \
-                patch.object(cli, "run_isolated", side_effect=record), \
+                patch.object(isolate, "run_isolated", side_effect=record), \
                 patch.object(cli, "save_report"):
             self._main()
 
@@ -365,8 +356,8 @@ def execute(*args, **kwargs):
 cli.load_benchmark = lambda *args: object()
 cli._submission_for = resolve
 cli.execute = execute
-from types import SimpleNamespace
-cli.sys = SimpleNamespace(platform="linux", stdout=sys.stdout, stderr=sys.stderr)
+from cogbench import isolate
+isolate._isolation_backend = lambda: isolate.run_isolated
 raise SystemExit(cli.main(["run", "--benchmark", "fixture"] + sys.argv[1:]))
 '''
         environment = dict(os.environ, PYTHONDONTWRITEBYTECODE="1",

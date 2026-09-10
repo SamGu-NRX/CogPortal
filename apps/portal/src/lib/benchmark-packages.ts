@@ -23,18 +23,23 @@ export interface BenchmarkPackage {
  * version does not change between pins.
  *
  * This pin and the portal deploy are coupled in both directions and have to
- * move together. The CLI at 8e09a07 does not send `checkedBenchmarkId`, so a
- * portal that scopes setup evidence would leave a student who ran every
- * command on this page short of complete, with nothing on the page to do
- * about it. In the other direction the evidence request is `.strict()`, so
- * this CLI against a portal that predates the field is refused outright.
- * Nobody can reach that combination through this page, which serves whichever
- * pin its own deploy carries, but pointing `--portal` at an older deployment
- * does. Installed into a clean 3.14 venv from this commit on 2026-09-10:
- * `_setup_payload` sends the id for a scoped check and omits it for `link`.
+ * move together. A CLI that predates `checkedBenchmarkId` leaves a student who
+ * ran every command on this page short of complete, with nothing on the page
+ * to do about it; and because the evidence request is `.strict()`, a current
+ * CLI pointed at a portal that predates the field is refused outright. Nobody
+ * reaches that through this page, which serves whichever pin its own deploy
+ * carries, but `--portal` at an older deployment does.
+ *
+ * This pin carries the macOS execution boundary, so a student on a Mac runs
+ * their code in a fresh interpreter rather than a fork that aborts inside
+ * system APIs, and it carries the JSON result boundary that replaced the
+ * pickle. Installed into a clean 3.8.20 venv from this exact commit on
+ * 2026-09-10: `direct_url.json` names it, `run_operation` is present, the
+ * boundary contains no pickle, and local reports carry metric roles. CI was
+ * green on all 24 check-runs at this commit before it was pinned.
  */
 export const COGBENCH_SOURCE =
-  "git+https://github.com/SamGu-NRX/CogPortal.git@99281c5260e61e1f599a299983071a5f15fe5f1e#subdirectory=python/cogbench";
+  "git+https://github.com/SamGu-NRX/CogPortal.git@a29bf8a38ef08998a83dbb74ceb09909cc536c8a#subdirectory=python/cogbench";
 
 const WEEK1_AUDIO: BenchmarkPackage = {
   distribution: "cogworks-week1-audio-benchmark",
