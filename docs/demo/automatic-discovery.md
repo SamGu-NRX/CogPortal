@@ -62,9 +62,13 @@ found the right functions, and "it produced a number" is not the same claim as
 | carti4ce/week1_capstone | 0.6562 | 0.6562 |
 | KrazeeCoder/week1-capstone-team4 | 0.5938 | 0.5938 |
 
-Every metric matches to four places, including `margin_separation` and
-`ranking_failure_rate`, not only the headline score. This comparison runs as a
-test (`benchmarks/week1/tests/test_discovered_repository_results.py`).
+Every metric matched to four places, including `margin_separation` and
+`ranking_failure_rate`, not only the headline score. That comparison was run
+by hand against the two adapters. What runs as a test is narrower:
+`benchmarks/week1/tests/test_discovered_repository_results.py` checks the
+labels discovery binds and the identification score against a stored
+constant, and it skips when the student corpus it reads is not on the
+machine.
 
 ## A repository that is refused, usefully
 
