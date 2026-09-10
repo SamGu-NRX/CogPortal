@@ -141,11 +141,11 @@ class ProcessOutcomes(unittest.TestCase):
             # Start the helper only once the child exists: no student work is
             # forked from a test process containing this helper thread.
             real_read = isolate._read_payload
-            def read(fd):
+            def read(fd, exited=None):
                 thread = threading.Thread(target=kill_child)
                 thread.start()
                 try:
-                    return real_read(fd)
+                    return real_read(fd, exited)
                 finally:
                     thread.join()
             with patch.object(isolate, '_read_payload', side_effect=read):
@@ -165,6 +165,103 @@ class ProcessOutcomes(unittest.TestCase):
         self.assertEqual(result.status, isolate.TIMED_OUT)
         self.assertTrue(result.alarm_fired)
         self.assertEqual(result.read_reason, 'eof')
+
+    def test_no_deadline_closed_pipe_bounds_reap(self):
+        def close_and_linger(work, fd, *args):
+            os.setsid()
+            os.close(fd)
+            # Finite test watchdog: old code waits all three seconds.
+            time.sleep(3)
+            os._exit(0)
+        start = time.monotonic()
+        with patch.object(isolate, '_child', close_and_linger):
+            result = isolate.run_isolated(lambda: None, timeout_seconds=None)
+        self.assertLess(time.monotonic() - start, 2)
+        self.assertEqual(result.status, isolate.CRASHED)
+        self.assertEqual(result.read_reason, 'eof')
+        self.assertIn('exit', result.detail)
+        self.assertFalse(result.alarm_fired)
+
+    def test_no_deadline_descendant_cannot_hold_an_incomplete_payload_open(self):
+        from test_fresh_interpreter import wait_gone
+        cases = [b'', b'\0', struct.pack('!I', 4) + b'x']
+        for data in cases:
+            with self.subTest(data=data), tempfile.TemporaryDirectory() as temporary:
+                marker = Path(temporary) / 'descendant'
+                def orphan_writer(work, fd, *args):
+                    os.setsid()
+                    descendant = os.fork()
+                    if descendant == 0:
+                        time.sleep(3)  # Finite watchdog for the old blocking reader.
+                        os._exit(0)
+                    marker.write_text(str(descendant))
+                    os.write(fd, data)
+                    os._exit(0)
+                start = time.monotonic()
+                with patch.object(isolate, '_child', orphan_writer):
+                    result = isolate.run_isolated(lambda: None, timeout_seconds=None)
+                self.assertLess(time.monotonic() - start, 2)
+                self.assertEqual(result.status, isolate.CRASHED)
+                self.assertEqual(result.read_reason, 'child_exited_before_payload')
+                self.assertIn('exited', result.detail)
+                self.assertFalse(result.alarm_fired)
+                wait_gone(self, int(marker.read_text()))
+
+    def test_no_deadline_still_waits_for_a_live_quiet_child(self):
+        def slow_work():
+            time.sleep(1.2)
+            return 42
+        result = isolate.run_isolated(slow_work, timeout_seconds=None)
+        self.assertEqual(result.status, isolate.COMPLETED, result)
+        self.assertEqual(result.value, 42)
+
+    def test_exit_observed_during_read_drains_bytes_without_reaping_twice(self):
+        read_fd, write_fd = os.pipe()
+        payload = json.dumps({'status': 'completed', 'detail': '', 'value': 42}).encode()
+        def waitpid(pid, flags):
+            # Publication happens between the empty select and exit observation.
+            os.write(write_fd, struct.pack('!I', len(payload)) + payload)
+            return pid, 0
+        try:
+            with patch.object(isolate.os, 'waitpid', side_effect=waitpid) as wait, \
+                 patch.object(isolate, '_terminate'):
+                result = isolate._collect(123, read_fd, None, None)
+            wait.assert_called_once_with(123, os.WNOHANG)
+            self.assertEqual(result.status, isolate.COMPLETED, result)
+            self.assertEqual(result.value, 42)
+        finally:
+            os.close(write_fd)
+
+    def test_no_deadline_forged_payload_is_rejected_after_bounded_reap(self):
+        def forge_and_linger(work, fd, *args):
+            os.setsid()
+            payload = json.dumps({'status': 'completed', 'detail': 'forged', 'value': 42}).encode()
+            os.write(fd, struct.pack('!I', len(payload)) + payload)
+            os.close(fd)
+            time.sleep(3)
+            os._exit(0)
+        with patch.object(isolate, '_child', forge_and_linger):
+            result = isolate.run_isolated(lambda: None, timeout_seconds=None)
+        self.assertEqual(result.status, isolate.CRASHED, result)
+        self.assertEqual(result.read_reason, 'killed_before_exit')
+        self.assertFalse(result.alarm_fired)
+        self.assertIsNone(result.value)
+
+    def test_forged_payload_is_rejected_when_alarm_fires_then_child_is_reaped(self):
+        read_fd, write_fd = os.pipe()
+        payload = json.dumps({'status': 'completed', 'detail': 'forged', 'value': {'ready': True}}).encode()
+        os.write(write_fd, struct.pack('!I', len(payload)) + payload)
+        os.close(write_fd)
+        def waitpid(pid, flags):
+            if flags == 0:
+                raise isolate._Alarm()
+            return pid, 0
+        with patch.object(isolate.os, 'waitpid', side_effect=waitpid), \
+             patch.object(isolate, '_terminate'):
+            result = isolate._collect(123, read_fd, 5, None)
+        self.assertEqual(result.status, isolate.TIMED_OUT)
+        self.assertTrue(result.alarm_fired)
+        self.assertIsNone(result.value)
 
     def test_cli_json_keeps_observed_death_fields(self):
         result = isolate.Outcome(isolate.CRASHED, detail='stopped by SIGKILL; the cause is unknown',

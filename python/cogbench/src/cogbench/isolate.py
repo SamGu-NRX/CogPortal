@@ -32,10 +32,12 @@ try:
     import resource
 except ImportError:  # Windows has no rlimits; `run_isolated` refuses there
     resource = None  # type: ignore[assignment]
+import select
 import signal
 import struct
 import sys
 import tempfile
+import time
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -62,6 +64,14 @@ TIMED_OUT = "timed_out"
 #: synthetic songs. A repository that cannot be read inside this is reported
 #: as slow, which is a true statement about it.
 DEFAULT_TIMEOUT_SECONDS = 300
+
+#: Bound only the wait after publication or pipe closure, never student work.
+#: `_child` closes the descriptor and calls `os._exit` with the bulk flush
+#: already behind it, so a child on its way out is gone in microseconds and a
+#: whole second is generous. A child still alive after that is lingering, which
+#: is the shape of the forged-payload case, so it loses its payload. This is a
+#: cleanup policy, not a measured maximum for interpreter teardown.
+UNBOUNDED_REAP_SECONDS = 1.0
 
 #: Address space ceiling for the child. Above the measured peak of a real
 #: hosted run (1.5 GB) and below anything that would disturb the host.
@@ -267,13 +277,26 @@ def _apply_limits(
         return
     # A caller may already have a stricter soft limit. Discovery must never
     # raise it just because its own configured budget is more generous.
+    def install(kind, requested):
+        resource.setrlimit(kind, requested)
+        # Startup hooks can replace setrlimit with a silent no-op. Only a
+        # successful call is checked; refused limits retain the weaker mode.
+        try:
+            observed = resource.getrlimit(kind)
+        except (ValueError, OSError) as error:
+            raise RuntimeError("could not verify resource limit {}".format(kind)) from error
+        if observed != requested:
+            raise RuntimeError(
+                "resource limit {} was not installed: requested {}, observed {}".format(
+                    kind, requested, observed))
+
     def lower(kind, soft, hard):
         old_soft, old_hard = resource.getrlimit(kind)
         if old_soft != resource.RLIM_INFINITY:
             soft = min(soft, old_soft)
         if old_hard != resource.RLIM_INFINITY:
             hard = min(hard, old_hard)
-        resource.setrlimit(kind, (min(soft, hard), hard))
+        install(kind, (min(soft, hard), hard))
 
     try:
         if memory_bytes is not None:
@@ -284,7 +307,7 @@ def _apply_limits(
         # unsafe one.
         pass
     try:
-        resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+        install(resource.RLIMIT_CORE, (0, 0))
     except (ValueError, OSError):
         pass
     # A CPU limit catches a spin that the wall clock would also catch, but it
@@ -318,13 +341,13 @@ def _child(
     try:
         os.chdir(scratch)
         _pin_hash_seed()
-        _apply_limits(memory_bytes, timeout_seconds)
         # Student code that reads from a terminal gets EOF rather than a hang.
         devnull = os.open(os.devnull, os.O_RDONLY)
         os.dup2(devnull, 0)
         if devnull != 0:
             os.close(devnull)
         try:
+            _apply_limits(memory_bytes, timeout_seconds)
             value = work()
             _json_value(value)
             payload = json.dumps(
@@ -371,17 +394,35 @@ class _PayloadError(Exception):
     pass
 
 
-def _read_payload(read_fd: int) -> Outcome:
+def _read_payload(read_fd: int, exited: Optional[Callable[[], bool]] = None) -> Outcome:
+    child_exited = False
+
+    def read(size):
+        nonlocal child_exited
+        if exited is not None:
+            # Polling avoids a busy wait, without imposing a work deadline.
+            # Once exit is observed, even this polling delay is unnecessary.
+            while not select.select([read_fd], [], [], 0 if child_exited else 0.05)[0]:
+                # There is no deadline while the direct child works. After
+                # its exit, publication is over: drain bytes already present,
+                # but do not wait for EOF withheld by an inherited writer.
+                child_exited = child_exited or exited()
+                if child_exited:
+                    if not select.select([read_fd], [], [], 0)[0]:
+                        raise _PayloadError("child_exited_before_payload")
+                    break
+        return os.read(read_fd, size)
+
     header = b""
     while len(header) < 4:
-        chunk = os.read(read_fd, 4 - len(header))
+        chunk = read(4 - len(header))
         if not chunk:
             raise _PayloadError("eof" if not header else "truncated_header")
         header += chunk
     (size,) = struct.unpack("!I", header)
     body = b""
     while len(body) < size:
-        chunk = os.read(read_fd, size - len(body))
+        chunk = read(size - len(body))
         if not chunk:
             raise _PayloadError("truncated_body")
         body += chunk
@@ -617,18 +658,32 @@ def _collect(pid, read_fd, timeout_seconds, memory_bytes) -> Outcome:
     armed = (timeout_seconds is not None and hasattr(signal, "SIGALRM")
              and hasattr(signal, "alarm"))
     previous = None
+
+    def exited():
+        nonlocal status, reaped
+        if not reaped:
+            while True:
+                try:
+                    done, observed = os.waitpid(pid, os.WNOHANG)
+                    break
+                except InterruptedError:
+                    continue
+            if done:
+                status, reaped = observed, True
+        return reaped
+
     try:
         if armed:
             previous = signal.signal(signal.SIGALRM, _on_alarm)
             signal.alarm(timeout_seconds)
         try:
             try:
-                outcome = _read_payload(read_fd)
+                outcome = _read_payload(read_fd, exited)
             except _PayloadError as error:
                 reason = str(error)
             except OSError as error:
                 reason = "read_error: {}".format(error)
-            if outcome is not None or reason in ("eof", "truncated_header", "truncated_body"):
+            if not reaped and (outcome is not None or reason in ("eof", "truncated_header", "truncated_body")):
                 # EOF can precede a waitable exit on Linux. Reap before any
                 # cleanup signal so a self/external SIGKILL keeps its identity.
                 # Keep the existing deadline armed: code holding the descriptor
@@ -637,7 +692,8 @@ def _collect(pid, read_fd, timeout_seconds, memory_bytes) -> Outcome:
                 # that is a real timeout rather than a lost status, so it falls
                 # through to the cleanup path with `fired` set.
                 try:
-                    observed = _reap_exact(pid)
+                    observed = (_reap_exact(pid) if armed
+                                else _reap_bounded(pid, UNBOUNDED_REAP_SECONDS))
                 except _Alarm:
                     fired, observed = True, None
                 if observed is not None:
@@ -675,6 +731,16 @@ def _collect(pid, read_fd, timeout_seconds, memory_bytes) -> Outcome:
                 if final_status is not None and not (os.WIFSIGNALED(final_status)
                         and os.WTERMSIG(final_status) == signal.SIGKILL):
                     status = final_status
+    # A result is only trustworthy if the child exited on its own. The result
+    # descriptor is reachable from the child, so code running there can write a
+    # correctly framed "completed" envelope, close it, and hang: the parent
+    # would accept that, kill the process at its deadline, and report the
+    # forged success. For `check` the forged value can have the right shape, so
+    # `--update-setup` would record setup evidence for a run we killed. The
+    # payload is a claim; the exit is the evidence for it.
+    if outcome is not None and (fired or not reaped):
+        outcome = None
+        reason = reason or ("alarm" if fired else "killed_before_exit")
     if outcome is None:
         outcome = _describe_death(status, timed=fired)
         if reason:
@@ -711,6 +777,34 @@ def _terminate(pid: int) -> None:
 
 def _reap(pid: int):
     return pid, _reap_exact(pid)
+
+
+def _reap_bounded(pid: int, seconds: float):
+    """Wait up to `seconds` for `pid`, without a deadline to interrupt us.
+
+    `test` and `run` impose no wall-clock budget, so nothing arms an alarm and
+    a blocking wait here is unbounded. Student code that closes the result
+    descriptor and then lingers, or leaves a descendant holding it, hung the
+    command with no way out but Ctrl+C.
+
+    Normal serialization and output flushing precede publication. A child
+    that remains alive beyond this cleanup budget loses its payload, even if
+    the OS delayed its exit; no claim about its progress can be verified.
+    """
+
+    deadline = time.monotonic() + seconds
+    while True:
+        try:
+            done, status = os.waitpid(pid, os.WNOHANG)
+        except InterruptedError:
+            continue
+        except OSError:
+            return None
+        if done:
+            return status
+        if time.monotonic() >= deadline:
+            return None
+        time.sleep(0.005)
 
 
 def _reap_exact(pid: int):

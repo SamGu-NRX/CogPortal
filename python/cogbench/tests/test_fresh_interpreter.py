@@ -131,6 +131,26 @@ def create_submission(inputs):
         wait_gone(self, observed['pid'])
         wait_gone(self, observed['descendant'])
 
+    def test_import_time_forged_completion_cannot_survive_deadline(self):
+        (self.repo / 'submission.py').write_text("""
+import json, os, struct, sys, time
+payload = json.dumps({'status': 'completed', 'detail': 'forged', 'value': {
+    'ready': True, 'source': 'file', 'report': None, 'survey': None,
+    'declaredSource': 'file', 'declaredDetail': 'forged',
+    'declaredError': None, 'discoveryUnavailable': None,
+}}).encode()
+fd = int(sys.argv[2])
+os.write(fd, struct.pack('!I', len(payload)) + payload)
+os.close(fd)
+time.sleep(30)
+""")
+        result = isolate.run_operation('check', {
+            'name': 'boundary-fixture', 'repository': str(self.repo), 'as_json': True,
+        }, timeout_seconds=1)
+        self.assertEqual(result.status, isolate.TIMED_OUT, result)
+        self.assertTrue(result.alarm_fired)
+        self.assertIsNone(result.value)
+
     def test_stricter_inherited_cpu_limits_are_not_raised(self):
         self.submission()
         environment = dict(os.environ, PYTHONPATH=os.pathsep.join(sys.path))
@@ -176,6 +196,50 @@ Path(%r).write_text(json.dumps(list(resource.getrlimit(resource.RLIMIT_CPU))))
             self.assertEqual(json.loads(marker.read_text()), [300, 305])
             observed = json.loads(self.record.read_text())
             wait_gone(self, observed['descendant'])
+
+    def test_ancestor_startup_hook_cannot_silently_disable_limits(self):
+        self.submission()
+        marker = self.root / 'startup-ran'
+        (self.root / 'sitecustomize.py').write_text("""
+import resource
+from pathlib import Path
+Path(%r).write_text('hook ran')
+resource.setrlimit = lambda *args: None
+""" % str(marker))
+        result = isolate.run_operation('check', {
+            'name': 'boundary-fixture', 'repository': str(self.repo), 'as_json': True,
+        })
+        self.assertTrue(marker.exists(), 'ancestor path must remain usable at startup')
+        self.assertEqual(result.status, isolate.RAISED, result)
+        self.assertIn('resource limit', result.detail)
+        self.assertIn('was not installed', result.detail)
+        self.assertFalse(self.record.exists(), 'student code ran without installed limits')
+
+    def test_explicit_submission_scores_when_discovery_cache_is_cold(self):
+        benchmark_file = self.root / 'boundary_fixture.py'
+        benchmark_file.write_text(benchmark_file.read_text() + """
+    def discovery(self):
+        raise FileNotFoundError('fixture course cache is cold; fetch course data')
+""")
+        (self.repo / 'submission.py').write_text('def create_submission(inputs):\n    return inputs\n')
+        for command in ('test', 'run'):
+            with self.subTest(command=command), patch.object(cli.Path, 'cwd', return_value=self.repo), \
+                 redirect_stdout(io.StringIO()) as output:
+                code = cli.main([command, '--benchmark', 'boundary-fixture', '--json'])
+            self.assertEqual(code, 0, output.getvalue())
+            self.assertEqual(json.loads(output.getvalue())['diagnostics'], ['fixture scored'])
+
+    def test_missing_declaration_preserves_discovery_cache_failure(self):
+        benchmark_file = self.root / 'boundary_fixture.py'
+        benchmark_file.write_text(benchmark_file.read_text() + """
+    def discovery(self):
+        raise FileNotFoundError('fixture course cache is cold; fetch course data')
+""")
+        with patch.object(cli.Path, 'cwd', return_value=self.repo), \
+             redirect_stdout(io.StringIO()) as output:
+            code = cli.main(['test', '--benchmark', 'boundary-fixture', '--json'])
+        self.assertNotEqual(code, 0)
+        self.assertIn('fixture course cache is cold; fetch course data', output.getvalue())
 
     def test_bootstrap_does_not_import_repository_code_before_limits(self):
         self.submission()
@@ -320,3 +384,37 @@ class ForkOperations(unittest.TestCase):
     test_check = OperationFixtures.test_discovered_check_report_crosses_json_and_rehydrates_for_rendering
     test_survey = OperationFixtures.test_survey_executes_import_and_keeps_journal_after_death
     test_course_file_at_score_time = OperationFixtures.test_score_time_attribute_lookup_uses_validated_course_file
+
+
+@unittest.skipUnless(resource is not None, 'requires resource limits')
+class LimitReadback(unittest.TestCase):
+    def test_each_successful_limit_installation_is_verified(self):
+        for target in (resource.RLIMIT_AS, resource.RLIMIT_CORE, resource.RLIMIT_CPU):
+            with self.subTest(target=target):
+                limits = {}
+                def get(kind):
+                    return limits.get(kind, (resource.RLIM_INFINITY, resource.RLIM_INFINITY))
+                def set_limit(kind, requested):
+                    if kind != target:
+                        limits[kind] = requested
+                with patch.object(resource, 'getrlimit', side_effect=get), \
+                     patch.object(resource, 'setrlimit', side_effect=set_limit):
+                    with self.assertRaisesRegex(RuntimeError, 'was not installed'):
+                        isolate._apply_limits(1024, 10)
+
+    def test_refused_address_space_limit_remains_a_weaker_child(self):
+        limits = {}
+        reads = []
+        def get(kind):
+            reads.append(kind)
+            return limits.get(kind, (resource.RLIM_INFINITY, resource.RLIM_INFINITY))
+        def set_limit(kind, requested):
+            if kind == resource.RLIMIT_AS:
+                raise OSError('platform refuses address-space limits')
+            limits[kind] = requested
+        with patch.object(resource, 'getrlimit', side_effect=get), \
+             patch.object(resource, 'setrlimit', side_effect=set_limit):
+            isolate._apply_limits(1024, 10)
+        self.assertEqual(reads.count(resource.RLIMIT_AS), 1, 'refused set must not be verified')
+        self.assertEqual(limits[resource.RLIMIT_CORE], (0, 0))
+        self.assertEqual(limits[resource.RLIMIT_CPU], (10, 15))

@@ -353,7 +353,7 @@ class _Scoreable(NamedTuple):
     discovery_unavailable: Optional[str] = None
 
 
-def _scoreable(name: str, benchmark, project_root: Path, *, as_json: bool, spec=None) -> _Scoreable:
+def _scoreable(name: str, benchmark, project_root: Path, *, as_json: bool, spec=None, spec_error=None) -> _Scoreable:
     """Decide, once, what this repository would be scored on.
 
     `check` and `run` have to agree. A student told their code is wired up and
@@ -386,6 +386,10 @@ def _scoreable(name: str, benchmark, project_root: Path, *, as_json: bool, spec=
     except PluginError as error:
         declared_error = str(error)
 
+    if spec_error is not None:
+        # A declaration needs no discovery data. Without one, preserve the
+        # original cold-cache failure instead of retrying or hiding its cause.
+        raise spec_error
     submission, survey, unavailable = _discover(name, project_root, as_json, spec=spec)
     build = getattr(benchmark, "submission_from_discovery", None)
     if submission is None or not submission.ready or not callable(build):
@@ -406,10 +410,10 @@ def _scoreable(name: str, benchmark, project_root: Path, *, as_json: bool, spec=
     )
 
 
-def _submission_for(name: str, benchmark, project_root: Path, *, as_json: bool, spec=None):
+def _submission_for(name: str, benchmark, project_root: Path, *, as_json: bool, spec=None, spec_error=None):
     """What to score, or a refusal. Returns the adapter and its weight paths."""
 
-    scoreable = _scoreable(name, benchmark, project_root, as_json=as_json, spec=spec)
+    scoreable = _scoreable(name, benchmark, project_root, as_json=as_json, spec=spec, spec_error=spec_error)
     if scoreable.factory is None:
         # The report already said why in full. Repeating it here would print
         # the same paragraphs twice, so this points at the command that
@@ -809,13 +813,20 @@ def _run_view(args: argparse.Namespace, project_root: Path) -> str:
             os.dup2(2, 1)
         benchmark = load_benchmark(args.benchmark)
         describes = getattr(benchmark, "discovery", None)
-        spec = describes() if callable(describes) else None
+        spec, spec_error = None, None
+        try:
+            spec = describes() if callable(describes) else None
+        except Exception as error:
+            # Week 3 builds discovery from cached course data. An explicit
+            # submission can run and fetch that data without this spec.
+            spec_error = error
         # For as long as student code can run, a course artifact the benchmark
         # owns resolves to its validated copy, including attribute reads while
         # scoring. The spec and mapping are built here, never sent across exec.
         with _Redirects(dict(getattr(spec, "resource_files", {}) or {})):
             adapter, weights = _submission_for(
-                args.benchmark, benchmark, project_root, as_json=args.json, spec=spec
+                args.benchmark, benchmark, project_root, as_json=args.json, spec=spec,
+                spec_error=spec_error
             )
             if args.command == "run" and args.live:
                 # Live delivery owns worker threads. Start it beside execute in
