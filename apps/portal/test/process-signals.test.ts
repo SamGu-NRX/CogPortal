@@ -822,6 +822,7 @@ test("a truncated window does not let a sentence claim the whole project", () =>
   assert.match(sentences, /in your most recent 40 commits/);
   assert.doesNotMatch(sentences, /nobody else has been inside that code/);
   assert.doesNotMatch(sentences, /has touched .* yet/);
+  assert.match(sentences, /Only one person has committed to .* in your most recent 40 commits\./);
 });
 
 test("a complete history still speaks plainly", () => {
@@ -845,5 +846,32 @@ test("a complete history still speaks plainly", () => {
 
   const sentences = findingSentences(whole).join(" ");
   assert.doesNotMatch(sentences, /in your most recent/);
-  assert.match(sentences, /nobody else has been inside that code|has touched .* yet/);
+  assert.match(sentences, /has touched .* yet/);
+  // Never, on either path. Commit authorship says who committed, not who has
+  // read the code, reviewed it, or paired on it.
+  assert.doesNotMatch(sentences, /nobody else has been inside that code/);
+});
+
+test("the adapter-file section is absent when nothing touched those files", () => {
+  // The check looks at two conventional adapter filenames. A repository wired
+  // up automatically has neither, so an empty list is "we looked at two files
+  // you do not have", which the panel used to render as reassurance.
+  const signals = buildProcessSignals({
+    commitsResult: {
+      ok: true,
+      truncated: false,
+      commits: [
+        commit({ sha: "a".repeat(40), authoredAt: T0 + DAY, filesChanged: ["find_peaks.py"] }),
+        commit({ sha: "b".repeat(40), authoredAt: T0 + 2 * DAY, filesChanged: ["database.py"] }),
+      ],
+    },
+    runs: [run({ runId: "run_1", createdAt: T0, scored: true })],
+    weekLabel: "week1",
+    roster: NO_ROSTER,
+  });
+
+  assert.equal(signals.historyQuality, "usable");
+  assert.deepEqual(signals.boundaryChurn, [], "nothing touched an adapter file");
+  // And no sentence invents one either.
+  assert.doesNotMatch(findingSentences(signals).join(" "), /submission\.py|benchmark_adapter\.py/);
 });

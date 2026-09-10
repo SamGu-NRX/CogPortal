@@ -71,6 +71,13 @@ course packages. Device credentials for it live in the operator's own private
 configuration, never in this repository and never in the global CLI
 configuration. Do not copy them here.
 
+The tool's install line carries `--force-reinstall`. The version does not
+change between pins, and pip treats an equal version as already satisfied, so
+`--upgrade` alone exits zero and leaves the previous commit in place. Measured
+on 2026-09-09: `--upgrade` from one pin to the next left the installed
+`direct_url.json` naming the old commit, and forcing it replaced the package.
+The tool declares no dependencies, so forcing it reinstalls nothing else.
+
 **The two install commands on the setup page are not the whole environment.**
 They install `cogworks-benchmark` and the Audio benchmark, and nothing else.
 A student's own code imports the course stack, librosa, numba, numpy and the

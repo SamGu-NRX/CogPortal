@@ -17,25 +17,13 @@ export interface BenchmarkPackage {
 }
 
 /**
- * Where pip gets the CogWorks CLI itself.
- *
- * A commit, not a branch. This line used to name
- * `fix/product-description-triage`, which is 22 commits behind the reviewed
- * CLI: installing from it gives a `cogworks check` that shares no readiness
- * decision with `cogworks run`, reads the repository in this process, and
- * picks a week folder by a word every week shares. A student following the
- * setup page would have been demonstrating none of the corrections.
- *
- * A moving ref also makes what a student installed depend on when they ran
- * the command, so two people on the same page get different tools. Move this
- * deliberately when a reviewed CLI lands, the way any other pin moves. The
- * install line keeps `--upgrade` so a student who ran the old one is not left
- * holding it.
- *
- * Reachable on `feat/automatic-discovery`, the branch PR #1 is open from.
+ * Where pip gets the CogWorks CLI itself: one commit, so two students on this
+ * page install the same tool whenever they read it. Move it deliberately when
+ * a reviewed CLI lands. The install line forces the reinstall because the
+ * version does not change between pins.
  */
 export const COGBENCH_SOURCE =
-  "git+https://github.com/SamGu-NRX/CogPortal.git@9a3fe19758104221ff2db23818a947443112bc56#subdirectory=python/cogbench";
+  "git+https://github.com/SamGu-NRX/CogPortal.git@37970dab7329f6954f59837120b36401ea6b091c#subdirectory=python/cogbench";
 
 const WEEK1_AUDIO: BenchmarkPackage = {
   distribution: "cogworks-week1-audio-benchmark",

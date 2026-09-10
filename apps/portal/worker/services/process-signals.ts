@@ -639,14 +639,12 @@ function coverageSentences(signals: ProcessSignals): string[] {
     .filter((stage) => signals.ownershipBreadth[stage].length === 1)
     .sort();
   if (solo.length > 0) {
-    const window = windowPhrase(signals);
-    // The "nobody else has been inside that code" reading needs the whole
-    // history. Over a window, one author is one author in that window, and
-    // somebody else may well have written the stage before it.
+    // Just the observation. "Nobody else has been inside that code" was an
+    // inference from commit authorship, and commits do not establish who has
+    // read a file, reviewed it, or paired on it. The count is what was
+    // measured, over the commits named by the window phrase.
     sentences.push(
-      window
-        ? `Only one person has committed to ${stagePhrase(solo, "and")}${window}.`
-        : `Only one person has committed to ${stagePhrase(solo, "and")}, so if they get stuck, nobody else has been inside that code.`,
+      `Only one person has committed to ${stagePhrase(solo, "and")}${windowPhrase(signals)}.`,
     );
   }
 

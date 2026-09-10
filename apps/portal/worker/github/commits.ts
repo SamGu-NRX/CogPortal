@@ -92,22 +92,14 @@ export type FetchCommitsResult =
 /**
  * How many commits this reads, and why that number.
  *
- * One detail request per commit, and a Worker on the Free plan may make 50
- * external subrequests per invocation (Cloudflare's documented limit; the
- * separate internal-services pool that D1 draws on is 1,000, so database
- * queries here are not what runs out). Measured on the demo repository before
- * this cap existed: the list request plus 49 detail requests succeeded and the
- * 50th detail threw, at commit 50 of 75, with no HTTP status because the
- * platform refused the subrequest rather than GitHub refusing the call.
+ * One detail request per commit. One list request plus 40 details is 41
+ * external calls, which fits the 50 per invocation Cloudflare documents for
+ * the Workers Free plan, with room for a token refresh and for the redirect
+ * hops a renamed repository adds. (D1 draws on a separate internal pool, so
+ * database queries here are not part of that 50.)
  *
- * So the budget is 50 external requests: one to list, 40 to read, and nine
- * spare. The spare is not padding. `getGithubToken` can refresh against GitHub
- * on the same invocation, and Cloudflare counts each hop of a redirect chain,
- * which a renamed repository produces.
- *
- * 300 was the old value and never fit. It was not reached on a small
- * repository, which is why this held together until a team had more than
- * about fifty commits.
+ * The old cap was 300. The demo repository has 75 commits, and reading it
+ * failed partway, at the 50th detail request, with no HTTP status.
  */
 const MAX_COMMITS = 40;
 const DETAIL_CONCURRENCY = 8;

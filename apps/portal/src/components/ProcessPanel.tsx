@@ -84,9 +84,8 @@ export function ProcessPanel({ members }: { members: TeamDetail["members"] }) {
           id={descriptionId}
           className="max-w-[64ch] px-4 pb-2.5 font-serif text-[13px] leading-[1.55] text-ink-secondary"
         >
-          We read your commit history and your runs, so you can see which parts of the pipeline your
-          team has touched and whether anyone has changed the files the benchmark depends on since
-          your pipeline started working.
+          We read your recent commits and your runs, so you can see which parts of the pipeline your
+          team has been working in and when your pipeline first scored end to end.
         </p>
       </header>
 
@@ -413,11 +412,6 @@ const MAX_CHURN_ROWS = 5;
  * lines and read as one alarming block of text rather than as four paths,
  * which is the opposite of what a list of evidence is for.
  */
-/** The two filenames the churn check looks at, mirroring BOUNDARY_FILES in
- *  worker/services/process-signals.ts. Named here so the sentence below cannot
- *  drift away from what was actually checked. */
-const BOUNDARY_FILES = ["submission.py", "benchmark_adapter.py"];
-
 function ContractFiles({
   events,
   firstScoredAt,
@@ -425,23 +419,23 @@ function ContractFiles({
   events: ChurnEvent[];
   firstScoredAt: number;
 }) {
+  // Nothing to show is not a finding. The check looks at two conventional
+  // adapter filenames, and a repository wired up automatically has neither, so
+  // an empty list meant "we looked at two files you do not have" and the page
+  // was rendering that as reassurance. The section appears when there is
+  // something in it, and the paths come from the events themselves rather than
+  // from a second copy of the list here.
+  if (events.length === 0) return null;
+
   return (
     <section className="mt-5 border-t border-rule-soft pt-3">
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-        <h3 className="u-kicker">Adapter files</h3>
+        <h3 className="u-kicker">Adapter files changed</h3>
         <span className="u-tnum font-mono text-[10.5px] text-ink-faint">
           since your first scored run, {day(firstScoredAt)}
         </span>
       </div>
-      <p className="mt-2 max-w-prose text-[13px] text-ink-faint">
-        This only looks at {BOUNDARY_FILES.join(" and ")}. If your code was wired
-        up automatically, you may not have either one.
-      </p>
-      {events.length === 0 ? (
-        <p className="mt-2 max-w-prose text-[13px] text-ink-secondary">
-          Neither has changed since then.
-        </p>
-      ) : (
+      {(
         <>
           <ul className="mt-2.5 border-l border-detect/45 pl-3">
             {events.slice(0, MAX_CHURN_ROWS).map((event) => (

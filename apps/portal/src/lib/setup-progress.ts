@@ -94,7 +94,12 @@ export function setupCommandLines(input: {
       // old line got a `check` that could not search their repository.
       comment:
         '# tool  (if "command not found": activate the course environment, then rerun)',
-      command: `python -m pip install --upgrade "cogworks-benchmark @ ${COGBENCH_SOURCE}"`,
+      // `--force-reinstall`, not just `--upgrade`. The version stays 0.2.0
+      // across pins, and pip treats an equal version as already satisfied:
+      // measured, `--upgrade` from one commit to another exited zero and left
+      // the installed `direct_url.json` naming the old commit. This package
+      // declares no dependencies, so forcing it reinstalls nothing else.
+      command: `python -m pip install --upgrade --force-reinstall "cogworks-benchmark @ ${COGBENCH_SOURCE}"`,
       verified: input.verified("environment"),
     },
   ];
