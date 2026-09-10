@@ -539,8 +539,14 @@ function pipelineSentences(signals: ProcessSignals): string[] {
   const sentences: string[] = [];
 
   if (signals.historyQuality === HISTORY_BULK_UPLOAD) {
+    // Over a window this is a statement about the commits that were read, not
+    // about how the repository arrived: a recent large refactor sitting above
+    // 39 small commits classifies the same way, and the commits that would
+    // settle it were never requested.
     sentences.push(
-      "The repository arrived as one upload, so there is no way to tell which commit touched which stage; the runs are the portal's own record and still hold.",
+      signals.historyWindow?.truncated
+        ? `One of your most recent ${signals.historyWindow.commits} commits holds most of the changed files, so within those there is no way to tell which commit touched which stage; the runs are the portal's own record and still hold.`
+        : "The repository arrived as one upload, so there is no way to tell which commit touched which stage; the runs are the portal's own record and still hold.",
     );
   } else if (signals.historyQuality === HISTORY_EMPTY) {
     sentences.push(
@@ -639,12 +645,18 @@ function coverageSentences(signals: ProcessSignals): string[] {
     .filter((stage) => signals.ownershipBreadth[stage].length === 1)
     .sort();
   if (solo.length > 0) {
-    // Just the observation. "Nobody else has been inside that code" was an
+    // "each of" when there is more than one stage. The observation is one
+    // author per stage, and the stages need not share an author: with alice on
+    // peaks and bob on the database, "only one person has committed to the
+    // database and peaks stages" says something false about two people.
+    //
+    // Just the observation, too. "Nobody else has been inside that code" was an
     // inference from commit authorship, and commits do not establish who has
-    // read a file, reviewed it, or paired on it. The count is what was
-    // measured, over the commits named by the window phrase.
+    // read a file, reviewed it, or paired on it.
     sentences.push(
-      `Only one person has committed to ${stagePhrase(solo, "and")}${windowPhrase(signals)}.`,
+      solo.length === 1
+        ? `Only one person has committed to ${stagePhrase(solo, "and")}${windowPhrase(signals)}.`
+        : `Only one person has committed to each of ${stagePhrase(solo, "and")}${windowPhrase(signals)}.`,
     );
   }
 

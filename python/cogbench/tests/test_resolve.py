@@ -1798,7 +1798,7 @@ class Engine:
         return _Found()
 
     def test_the_bound_method_is_gone_and_the_store_and_query_remain(self):
-        from cogbench.pipeline import Candidate, instances_in, methods_of
+        from cogbench.pipeline import instances_in, methods_of
         from cogbench.resolve import _store_candidates
 
         found = self._repository()
@@ -1808,8 +1808,7 @@ class Engine:
         self.assertIn("{}.store_fingerprints".format(label), by_name)
 
         # The chain bound their peak finder, which is a method on this class.
-        bound = Candidate(peaks.label, peaks.call, peaks.module)
-        labels = {c.label for c in _store_candidates(found, [bound])}
+        labels = {c.label for c in _store_candidates(found, [peaks])}
 
         self.assertNotIn(
             peaks.label,
@@ -1820,6 +1819,38 @@ class Engine:
         # filter removed the bound method and nothing else.
         self.assertIn("{}.store_fingerprints".format(label), labels)
         self.assertIn("{}.query".format(label), labels)
+
+    def test_a_method_a_constructor_stage_reached_is_excluded_too(self):
+        """The label a step carries depends on how the search reached it.
+
+        `instances_in` builds one object per exported class and names its
+        methods `audio.Engine().find_peaks`. A constructor stage instead hands
+        `_reachable` the class candidate's own label, giving
+        `audio.Engine.find_peaks` for the same method of the same class. The
+        second spelling is the one the pipeline path produces, so a filter that
+        matched strings would miss exactly the case this exists for.
+        """
+
+        from cogbench.pipeline import Candidate, _reachable, instances_in
+        from cogbench.resolve import _store_candidates
+
+        found = self._repository()
+        label, instance = instances_in(found.namespace)[0]
+        engine = type(instance)
+
+        # The class as a stage bound it, the way a constructor stage does.
+        klass = Candidate("audio.Engine", engine, "audio")
+        reached = {c.attribute: c for c in _reachable(klass, engine(), ())}
+        peaks = reached["find_peaks"]
+        self.assertEqual(peaks.label, "audio.Engine.find_peaks")
+        self.assertNotEqual(peaks.label, "{}.find_peaks".format(label))
+
+        offered = _store_candidates(found, [peaks])
+        attributes = {c.attribute for c in offered if c.owner is engine}
+
+        self.assertNotIn("find_peaks", attributes, "the bound method came back as a store")
+        self.assertIn("store_fingerprints", attributes)
+        self.assertIn("query", attributes)
 
     def test_nothing_is_removed_when_the_chain_bound_no_method(self):
         from cogbench.pipeline import instances_in, methods_of

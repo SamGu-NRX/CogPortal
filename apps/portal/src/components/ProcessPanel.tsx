@@ -283,7 +283,9 @@ function StageRail({
   if (times.length === 0) {
     return (
       <p className="mt-2 max-w-prose text-[13px] text-ink-secondary">
-        No commit has touched a stage file yet.
+        {windowed
+          ? "None of the commits we read touched a stage file."
+          : "No commit has touched a stage file yet."}
       </p>
     );
   }
@@ -387,7 +389,9 @@ function StageRail({
         {/* Two bare dates are a mystery; on a phone there is no room to
             explain them, and the bars are still readable as a shared span. */}
         <span className="hidden sm:inline">
-          each bar runs from that stage's first commit to its most recent
+          {windowed
+            ? "each bar spans the commits we read for that stage"
+            : "each bar runs from that stage's first commit to its most recent"}
         </span>
         <span className="u-tnum">{day(end)}</span>
       </div>

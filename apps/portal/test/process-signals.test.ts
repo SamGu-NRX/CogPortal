@@ -875,3 +875,28 @@ test("the adapter-file section is absent when nothing touched those files", () =
   // And no sentence invents one either.
   assert.doesNotMatch(findingSentences(signals).join(" "), /submission\.py|benchmark_adapter\.py/);
 });
+
+test("one author per stage is not reported as one author across stages", () => {
+  // alice on peaks and bob on the database is two people, one each. The
+  // sentence used to read "only one person has committed to the database and
+  // peaks stages", which says something false about both of them.
+  const signals = buildProcessSignals({
+    commitsResult: {
+      ok: true,
+      truncated: false,
+      commits: [
+        commit({ sha: "a".repeat(40), authorLogin: "alice", filesChanged: ["find_peaks.py"] }),
+        commit({ sha: "b".repeat(40), authorLogin: "bob", filesChanged: ["database.py"] }),
+        commit({ sha: "c".repeat(40), authorLogin: "cara", filesChanged: ["spectrogram.py"] }),
+        commit({ sha: "d".repeat(40), authorLogin: "dee", filesChanged: ["spectrogram.py"] }),
+      ],
+    },
+    runs: [],
+    weekLabel: "week1",
+    roster: NO_ROSTER,
+  });
+
+  const solo = findingSentences(signals).find((s) => s.startsWith("Only one person"));
+  assert.ok(solo, "expected the single-author sentence");
+  assert.match(solo, /each of/, "several stages, one author apiece");
+});

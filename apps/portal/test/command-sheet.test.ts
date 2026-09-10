@@ -49,7 +49,7 @@ test("the tool is installed from a commit, like every other package here", () =>
   // This line used to name a branch, and the branch it named fell 22 commits
   // behind the reviewed CLI, so the setup page demonstrated a tool without any
   // of the accepted corrections. A commit also means two people on this page
-  // install the same thing. --upgrade is what moves a re-run off an older one.
+  // install the same thing.
   const tool = commandFor("cogworks-benchmark");
 
   assert.match(
@@ -58,7 +58,23 @@ test("the tool is installed from a commit, like every other package here", () =>
   );
   assert.doesNotMatch(tool, /CogPortal\.git@main/);
   assert.doesNotMatch(tool, /test\.pypi\.org/);
-  assert.match(tool, /--upgrade/);
+  // --force-reinstall, not just --upgrade. The version stays 0.2.0 across
+  // pins, so pip treats an equal version as already satisfied: measured, an
+  // --upgrade between two pins exited zero and left the older commit
+  // installed. Asserted because dropping it would still pass an --upgrade
+  // check while quietly stranding every returning student.
+  assert.match(tool, /--force-reinstall/);
+});
+
+test("only the tool is force-reinstalled, never a benchmark", () => {
+  // The tool declares no dependencies, so forcing it reinstalls nothing else.
+  // A benchmark brings the course stack (librosa, numba, numpy), and forcing
+  // one of those would rebuild an environment the student spent an afternoon
+  // installing.
+  const forced = lines().filter((line) => line.command.includes("--force-reinstall"));
+
+  assert.equal(forced.length, 1, "exactly one command may force a reinstall");
+  assert.match(forced[0].command, /cogworks-benchmark @/);
 });
 
 test("the check that claims to update this page carries the flag that does it", () => {
