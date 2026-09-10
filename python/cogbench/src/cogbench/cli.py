@@ -503,6 +503,10 @@ def _read_repository(
             if missing:
                 raise KeyError("check report is missing {}".format(", ".join(missing)))
             view = dict(outcome.value)
+            # `render_survey` indexes into this, so a present-but-wrong survey
+            # raises in the parent the way a missing key used to.
+            if view["survey"] is not None and not isinstance(view["survey"], dict):
+                raise TypeError("survey must be an object")
             if view["report"] is not None:
                 view["report"] = SubmissionReport.from_dict(view["report"])
         except (KeyError, TypeError, ValueError) as error:
@@ -963,7 +967,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             # place this boundary exists to keep failures out of.
             try:
                 report = LocalReport.from_json(outcome.value)
-            except (AttributeError, KeyError, TypeError, ValueError) as error:
+            except (AttributeError, KeyError, OverflowError, TypeError, ValueError) as error:
                 message = "invalid run report: {}: {}".format(
                     type(error).__name__, error
                 )

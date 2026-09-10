@@ -394,22 +394,28 @@ class _PayloadError(Exception):
     pass
 
 
-#: The most the parent will allocate for one child result.
+#: The largest result body this transport carries.
 #:
 #: The length prefix is four bytes the child controls, and it went straight to
 #: `os.read`. `0xffffffff` asks the parent to allocate 4 GiB before a single
 #: byte of the body is validated, and the MemoryError escapes the conversion
 #: block below as an exception rather than a categorized failure.
 #:
-#: Measured against the real payloads this SDK produces: a `check` on a
-#: repository that resolves through discovery is 2,710 bytes, and on one with
-#: a declared submission 249. A `run` report is bounded by the protocol's own
-#: caps, 32 metrics and 32 diagnostics of 240 characters. 8 MiB is three
-#: orders of magnitude of headroom over the largest of those and small enough
-#: that the parent can always allocate it.
+#: The number is a transport policy, not a proven ceiling on what the parent
+#: allocates: decoding and JSON construction take more again. Measured against
+#: the results this SDK sends, a `check` on a repository that resolves through
+#: discovery is 2,710 bytes and one with a declared submission is 249, and a
+#: `run` report with 32 diagnostics at their 240-character limit is 114,728.
+#: Nothing here bounds the number of metrics or the size of a discovery
+#: record, so a repository large enough could in principle exceed this and be
+#: refused; that would be a categorized failure naming the size, which is the
+#: outcome this constant exists to produce.
 MAX_PAYLOAD_BYTES = 8 * 1024 * 1024
 
-#: One read, so a legitimate large payload arrives in pieces the parent sizes.
+#: How much of the body one `os.read` may ask for. Without it a body at the
+#: cap is requested whole, so the parent holds the accumulated bytes and an
+#: equally large read buffer at once. This halves that peak; the cap is what
+#: bounds it at all.
 _READ_CHUNK = 64 * 1024
 
 
@@ -614,9 +620,12 @@ def run_operation(
         #
         # So the guarantee is not "nothing runs before limits". It is that
         # nothing from the repository does, and that a hook which quietly
-        # neuters `setrlimit` is caught: `_apply_limits` reads every limit
-        # back and the operation refuses if one did not take
-        # (test_ancestor_startup_hook_cannot_silently_disable_limits).
+        # neuters `setrlimit` is caught: `_apply_limits` reads back every limit
+        # it set and refuses the operation when the value did not take
+        # (test_ancestor_startup_hook_cannot_silently_disable_limits). A limit
+        # the kernel refuses outright is a different case and is not a
+        # refusal: the child runs weaker, which
+        # test_refused_address_space_limit_remains_a_weaker_child pins.
         repository = Path(arguments["repository"]).resolve()
         startup_paths = [str(Path(__file__).resolve().parent.parent)]
         for entry in sys.path:
