@@ -65,7 +65,30 @@ It does not settle everything, and the checklist marks the difference. These ite
 
 ## Results so far
 
-None. This pass drafted the documents from source and did not run the product on any surface: no browser, no deployed portal, no guild, no hosted run. Every Result column reads `not run`.
+The drafting pass ran nothing, and most Result columns still read `not run`.
+That is no longer the whole story, and the blanket statement it used to make
+here was stale.
+
+Dated evidence now exists from three separate passes, each against a **named
+earlier revision**, not against the current candidate:
+
+- a browser/baseline pass at `c2af396`,
+- a restoration pass at `37b1972`,
+- role, lifecycle and device passes at `49f6a98`, plus a frozen process
+  diagnosis of the same source.
+
+`/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-restoration/id-evidence-handoff-49f6a98.md`
+maps that evidence to these tables ID by ID, and states the limit on each one.
+Read it before marking anything: several IDs have a partial observation that
+does **not** close the item, and a static read of a settled run is not
+evidence of a live transition.
+
+Two rules follow, and they are the reason this section is not a pass list:
+
+1. Evidence against an earlier revision is evidence about that revision. It
+   does not close a row for the current candidate.
+2. A partial observation stays `not run` until the whole claim was exercised.
+   Attach the observation and its limit in the note instead.
 
 That is deliberate rather than incomplete. The source was being edited by other people throughout the drafting pass, so a browser observation taken during it would have described a build that no longer exists by the time anyone reads this. A separate pass runs the checklists after today's changes land.
 

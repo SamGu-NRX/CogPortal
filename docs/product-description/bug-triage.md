@@ -2,11 +2,13 @@
 
 Every defect and inconsistency the feature documents raised, in their bodies and in their "Open questions and verification" sections, deduplicated by root cause and written up so the product team can decide each one without re-reading the documents.
 
-Each entry was read from the Cog\*Portal source and its tests at commit `f74e087`, plus the uncommitted work in flight on 2026-09-03. **None has been confirmed against the running platform.** This pass did not open a browser, did not deploy the bot, and did not start a hosted run. No entry carries a Status line yet; the checklists in [`verification/`](verification/README.md) are how they get one.
+Each entry was read from the Cog\*Portal source and its tests at commit `f74e087`, plus the uncommitted work in flight on 2026-09-03. That drafting pass opened no browser, deployed no bot and started no hosted run.
+
+**Some entries have since been confirmed, corrected or repaired**, from browser passes at `c2af396`, `37b1972` and `49f6a98` and a frozen process diagnosis. Those carry a **Status** line naming the revision the observation belongs to. An entry with no Status line is still unconfirmed, and a repair in source is not the same as an observation of the repair.
 
 ## Summary
 
-Around a hundred and twenty items were raised across the document set. After merging by root cause they come to 46 entries: 18 high, 18 medium, 10 low. The ordering inside each severity band is by how early a first-time student would meet the problem, walking the real path: sign in, join a cohort, connect a fork, work the setup guide, link a device, run `cogworks check`, run locally, sync, start a hosted run, read the run page, promote, and use Discord alongside all of it.
+Around a hundred and twenty items were raised across the document set. After merging by root cause they come to 46 entries: 18 high, 18 medium, 10 low. Two more were added later from the Helium passes at `49f6a98` (B-42, B-43), both high, both since repaired, which makes 48. The ordering inside each severity band is by how early a first-time student would meet the problem, walking the real path: sign in, join a cohort, connect a fork, work the setup guide, link a device, run `cogworks check`, run locally, sync, start a hosted run, read the run page, promote, and use Discord alongside all of it.
 
 Three clusters account for most of the high entries.
 
@@ -109,6 +111,7 @@ Four entries describe work that landed during the drafting pass and may already 
 - **Reproduce:** Sign in with a fresh account, do not join a cohort or team, run `cogworks link --portal <origin>`, open the URL, and watch both halves.
 - **Why (from the code):** `apps/portal/worker/routes/connections.ts:171` calls `requireTeam` on approve. `python/cogbench/src/cogbench/client.py:78` polls until `expiresAt` with no way to learn the code was consumed or dropped.
 - **Severity:** `high`. Ten minutes of a student's time, no information, and `link` is one of the first commands they run.
+- **Status:** *partly disproved, 2026-09-10, device pass at `49f6a98`.* The authorization is **not** destroyed. A fresh account was bounced to `/join`, joined a team, reopened the **original** approval URL and the waiting CLI completed, exit 0. What is lost is the browser's route back to that page, not the code. The silent terminal is still real and still unfixed: nothing tells it the browser went elsewhere. The title and the destroyed-code premise are wrong and the comments that repeated them in `DroppedLinkNotice.tsx` and `lib/pending-return.ts` were corrected at `0d53687`. Keep this open for the terminal half.
 - **Decision needed:** `fix`. Half of this is already fixed on the browser side; the terminal needs the other half, which is a distinguishable poll response for a dropped code.
 - **Raised by:** [`terminal/link.md`](terminal/link.md#open-questions-and-verification), [`foundations/identity-and-roles.md`](foundations/identity-and-roles.md#open-questions-and-verification)
 
@@ -189,6 +192,7 @@ Four entries describe work that landed during the drafting pass and may already 
 - **Reproduce:** Run `/cog`, choose "Verify hosted", read the confirmation, and compare the dashboard's practice counter before and after.
 - **Why (from the code):** `apps/discord-bot/src/commands.ts:514`; the quota is counted at `apps/portal/worker/services/run-actions.ts:206`.
 - **Severity:** `high`. A confirmation dialog that misstates the cost of the thing it is confirming, on the surface where the student is least able to see the counter.
+- **Status:** *repaired in source, not observed in a guild.* `apps/discord-bot/src/commands.ts` now names the practice run it spends, and the promotion confirmation says the environment is reused while the code is scored again on the hidden set. A third confirmation, `rerun_hosted`, had the same defect and was repaired with it. Covered by `apps/discord-bot/test/commands.test.ts`. No Discord client, guild or message was exercised, so this is a source repair awaiting observation.
 - **Decision needed:** `fix`.
 - **Raised by:** [`cross-cutting/credit-and-quota.md`](cross-cutting/credit-and-quota.md#open-questions-and-verification), [`discord/commands.md`](discord/commands.md#open-questions-and-verification)
 
@@ -199,6 +203,7 @@ Four entries describe work that landed during the drafting pass and may already 
 - **Reproduce:** Give one team runs on two benchmarks in the same week and open `/admin`.
 - **Why (from the code):** `apps/portal/worker/routes/admin.ts:76` and `:80` count without grouping; the limits are applied per benchmark version at `apps/portal/worker/services/run-actions.ts:206` and `:347`.
 - **Severity:** `high`. It is the first number an instructor reads about a team, it can exceed its own maximum, and an instructor acting on it would draw the wrong conclusion about who is stuck.
+- **Status:** *repaired in source, with a regression test.* The overview presents counts without a per-benchmark denominator, and a published score now names its benchmark and version. `apps/portal/test/admin-members.test.ts` builds a team across three benchmark/version scopes whose totals exceed any single limit. Observed only in tests; no instructor console pass has been run.
 - **Decision needed:** `fix`.
 - **Raised by:** [`portal/admin.md`](portal/admin.md#open-questions-and-verification)
 
@@ -516,3 +521,25 @@ Three classes of thing were left out on purpose.
 **Things the documents could not determine.** They stay in each document's open questions rather than becoming entries here. The largest are whether the `no_team` device-status branch is reachable at all, whether an outside collaborator's dropped co-author trailer would be noticed, and how long the silent retry window in `cogworks status` actually lasts.
 
 **Hardening observations with no user-visible symptom.** The unauthenticated device-start route, the unbounded token poll, the two-row team creation without a transaction, the missing unique index on a cohort join code, response validation being development-only, and the 426 that escapes the error envelope. Each is real and each belongs in a security or reliability review rather than in a list ordered by what a student meets first.
+
+### B-42: A run with no overall score shows none of the evidence it does have
+
+- **Where the user meets it:** A student opens a succeeded run whose benchmark withheld the primary metric. The page shows the pipeline, a Promote button and a log, and nothing else. Every number the scorer did produce, the floors they should be read against, and the diagnostic explaining the withholding are all absent.
+- **What happens / what was expected:** `apps/portal/src/routes/RunDetailPage.tsx:249` gated the whole succeeded-results block on `run.status === "succeeded" && primary`. The finding, the sweep, the wiring trace and every supporting metric sit inside that block. Week 3 withholds `overall` when the image side is unmeasured and still reports the text metrics and their floors, so the one case where a student most needs to see what the scorer managed to do is the case that shows least. Expected: render the available evidence and the explanation, and name the absence rather than inventing a primary or a zero.
+- **Reproduce:** Store a succeeded run with no `is_primary` metric, some supporting metrics and a diagnostic, and open its run page.
+- **Why (from the code):** the parent gate above; the supporting-metric and orphan-floor repairs at `MetricBlock.tsx` were all downstream of it and could never run.
+- **Severity:** `high`. It defeats the supporting-metric work entirely and it fails on the least legible result a student can get.
+- **Decision needed:** `fix`.
+- **Raised by:** Astra lifecycle pass at `49f6a98`, `verification-roles/lifecycle/report.md` (P1, RUNPAGE-02/05, SCORE-01/09), with `withheld-missing-evidence.jpg` and `withheld.dom.txt`.
+- **Status:** *confirmed at `49f6a98` with an injected record; repaired at `0d53687`+.* The gate is now on the run succeeding alone. With no primary the page states "This run has no overall score. Everything the scorer could measure is below." and renders the supporting metrics. Verified locally on the real page with an equivalent injected record: the diagnostic, `text_mrr` 0.789, `text_chance` folded as its parent's floor, the orphan `chance_mrr` standalone, and exactly one direction arrow, on the one scored metric. This was an injected record on both passes, not a real scorer result.
+
+### B-43: The back button restores a previous account's page
+
+- **Where the user meets it:** A student signs out on a shared machine, someone else signs in, and pressing Back shows the first account's name and pages.
+- **What happens / what was expected:** Sign in, navigate, sign out, sign in as a different account, then press Back. The restored document displays the previous account. A reload corrects it, which is the tell that only the cache is stale. Expected: a restored document revalidates who is signed in before it shows anything about them.
+- **Reproduce:** Reproduced twice, in two separate passes, in the same browser: staff sign-in → `/join` → `/admin` → sign out → sign in as an empty account → join → `/connect` → Back.
+- **Why (from the code):** signing out invalidates the cache of the document that signed out (`lib/queries.ts`), but the browser's back/forward cache can return a **different** document holding the old session. `refetchOnWindowFocus` is off (`App.tsx`) and the session is fresh for 60 seconds by a clock that did not run while the page was frozen. There was no `pageshow` hook anywhere in the source.
+- **Severity:** `high`. It is a shared-machine identity display, and the course runs on shared machines.
+- **Decision needed:** `fix`.
+- **Raised by:** Astra role and lifecycle passes at `49f6a98`, `verification-roles/lifecycle/report.md` (P2, SIGNIN-02/JOIN-02), with `history-before-back.jpg`, `history-repeat.jpg`, `history-repeat-refreshed.jpg`.
+- **Status:** *confirmed twice at `49f6a98`; repaired at `0d53687`+.* A `pageshow` listener now invalidates every session-gated query when `persisted` is true, which is exactly the back/forward-cache restore and nothing else. No second auth store and no polling timer. **The observation never demonstrated old-account server access**, and this repair does not claim to have fixed one; it corrects what the restored page displays.
