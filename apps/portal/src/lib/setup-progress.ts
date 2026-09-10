@@ -56,7 +56,14 @@ export function dismissSetup(teamId: string, login: string): void {
  *  those never stops on a page whose sheet is complete. */
 export const CHECKLIST_MACHINE_STEPS = ["clone", "environment", "project", "wiring"] as const;
 
+/**
+ * Which command a line is, so a page can attach an explanation to it without
+ * holding a second copy of the command or matching on its text.
+ */
+export type SetupCommandId = "clone" | "tool" | "benchmark" | "link" | "check";
+
 export interface SetupCommand {
+  id: SetupCommandId;
   /** Shell comment above the command: what it lights, plus any gotcha. */
   comment: string;
   command: string;
@@ -83,6 +90,7 @@ export function setupCommandLines(input: {
   const pkg = benchmarkPackage(input.benchmarkId);
   const lines: SetupCommand[] = [
     {
+      id: "clone",
       comment: "# clone",
       command: `git clone ${input.cloneUrl} && cd ${input.repoName}`,
       verified: input.verified("clone"),
@@ -92,6 +100,7 @@ export function setupCommandLines(input: {
       // name: that channel serves cogworks-benchmark 0.1.0, and so does main,
       // which is 112 commits back and has no resolver. A student running the
       // old line got a `check` that could not search their repository.
+      id: "tool",
       comment:
         '# tool  (if "command not found": activate the course environment, then rerun)',
       // `--force-reinstall`, not just `--upgrade`. The version stays 0.2.0
@@ -111,6 +120,7 @@ export function setupCommandLines(input: {
       // line under it, registering adapter entry points; the template and the
       // forks carry no pyproject.toml or setup.py, so that command failed for
       // everyone who ran it. The resolver reads the repository directly.
+      id: "benchmark",
       comment: `# benchmark for ${input.benchmarkTitle}`,
       command: `python -m pip install "${pkg.distribution} @ ${pkg.source}"`,
       verified: input.verified("project"),
@@ -119,6 +129,7 @@ export function setupCommandLines(input: {
 
   lines.push(
     {
+      id: "link",
       comment: "# link · opens the portal for approval",
       command: `cogworks link --portal ${input.portalOrigin}`,
       verified: input.deviceLinked,
@@ -127,6 +138,7 @@ export function setupCommandLines(input: {
       // --update-setup is what sends the evidence; cli.py returns without a
       // request when the flag is absent, so dropping it would make the comment
       // above false and leave the sheet grey forever.
+      id: "check",
       comment: "# check · updates this page",
       command: `cogworks check --benchmark ${input.benchmarkId} --update-setup`,
       verified: input.verified("wiring"),

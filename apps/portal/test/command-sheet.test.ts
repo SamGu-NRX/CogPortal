@@ -194,3 +194,18 @@ test("the sheet's own text uses no em dash", () => {
   );
   assert.ok(!html.includes("—"), "em dash rendered on the command sheet");
 });
+
+test("every command the sheet generates is one the guide can explain", () => {
+  // The setup page attaches a title, a reason and a help note to each line by
+  // its id. A new command with an id nothing describes would render as a bare
+  // command under an explained list, which is the state this page was in
+  // before: five commands and five shell comments, readable only by someone
+  // who already knew the answer.
+  const known = new Set(["clone", "tool", "benchmark", "link", "check"]);
+  for (const line of lines()) {
+    assert.ok(known.has(line.id), `no explanation is written for the "${line.id}" command`);
+  }
+  // And the ids are distinct, so two lines cannot claim the same explanation.
+  const ids = lines().map((line) => line.id);
+  assert.equal(new Set(ids).size, ids.length);
+});

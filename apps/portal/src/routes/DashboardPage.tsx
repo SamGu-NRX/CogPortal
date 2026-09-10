@@ -196,6 +196,15 @@ export function DashboardPage() {
                   label="Official attempts"
                   tone="detect"
                 />
+                {/* The two facts a team cannot read off the cells. An official
+                    attempt is marked consumed when its run reaches
+                    `evaluating` (routes/runner-events.ts), so a refusal before
+                    that does not cost one. */}
+                <p className="border-t border-rule-soft pt-3 text-[12px] leading-[1.55] text-ink-faint">
+                  Local runs are unlimited and are not counted here. An official
+                  attempt is spent once its run reaches the hidden evaluation,
+                  so a run refused before then does not cost you one.
+                </p>
               </div>
             </Panel>
           )}
@@ -409,25 +418,45 @@ function CurrentRunPanel({
   if (firstRun) {
     return (
       <Panel label="FIRST RUN">
-        <div className="grid gap-6 sm:grid-cols-2">
+        {/* A team that has never run has no history to read the two kinds of
+            run off, and the difference is the thing that decides which one
+            they should be using today. The counts come from the dashboard
+            payload, so they are this team's real remaining budget. */}
+        <p className="max-w-[58ch] text-[13.5px] leading-[1.6] text-ink-secondary">
+          There are two ways to run {d.benchmark.title}, and they score the same
+          way. Start on your own machine, where nothing is counted, and spend a
+          hosted run once a local score looks worth publishing.
+        </p>
+
+        <div className="mt-5 grid gap-6 sm:grid-cols-2">
           <div>
-            {launcher}
-            <p className="mt-3 font-mono text-[11px] text-ink-faint">
-              {practiceLeft} of {d.quota.practiceLimit} hosted · {officialLeft}{" "}
-              official · local unlimited
+            <h3 className="u-kicker">On your machine</h3>
+            <p className="mt-2 text-[13px] leading-[1.55] text-ink-secondary">
+              Unlimited, and the same scorer. This is where the work happens.
             </p>
+            {/* The commands carry this benchmark's id, so they are the ones to
+                run rather than an example of the shape. */}
+            <div className="mt-3">
+              <Code
+                lang="bash"
+                code={
+                  `cogworks check --benchmark ${d.benchmark.id}\n` +
+                  `cogworks run --benchmark ${d.benchmark.id}\n` +
+                  `cogworks sync`
+                }
+              />
+            </div>
           </div>
-          {/* The same benchmark, on their own machine, spending nothing. The
-              commands carry this benchmark's id, so they are the ones to run
-              rather than an example of the shape. */}
-          <Code
-            lang="bash"
-            code={
-              `cogworks check --benchmark ${d.benchmark.id}\n` +
-              `cogworks run --benchmark ${d.benchmark.id}\n` +
-              `cogworks sync`
-            }
-          />
+
+          <div>
+            <h3 className="u-kicker">Here, from your pushed commit</h3>
+            <p className="mt-2 text-[13px] leading-[1.55] text-ink-secondary">
+              {practiceLeft} of {d.quota.practiceLimit} hosted practice runs left,
+              and {officialLeft} of {d.quota.officialLimit} official attempts. An
+              official attempt is the one that uses the hidden set.
+            </p>
+            <div className="mt-3">{launcher}</div>
+          </div>
         </div>
         {startFailed}
       </Panel>
