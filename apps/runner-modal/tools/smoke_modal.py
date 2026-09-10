@@ -132,6 +132,17 @@ def main() -> int:
                         help="report the failure and exit 0; for sweeping many repositories")
     args = parser.parse_args()
 
+    # An official job has to name a prepared artifact, and this tool always
+    # prepares a fresh one, so it has none to name. Official scoring also reads
+    # the hidden dataset volume, which a smoke run has no business touching.
+    # The choice stays listed so this says why, rather than argparse rejecting
+    # it without a reason.
+    if args.mode == "official":
+        parser.error(
+            "official mode needs a prepared artifact this tool cannot supply; "
+            "smoke runs are practice only"
+        )
+
     sha = args.sha
     if not sha:
         import urllib.request
