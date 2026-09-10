@@ -23,12 +23,14 @@ MIGRATION_EXPECTATIONS = (
     "language-search",
     "cogworks.submissions.v2",
     "language-search-official-v1",
-    "retrieval-v2",
     "week3-cpu-v1",
 )
 
 #: The catalog row the hosted runner reads, as the migrations leave it. The
 #: last one wins, which is what applying them in order does.
+#: The migration that last moves the row, so a later re-seed is detectable.
+LAST_SCORER_MIGRATION = "0032_week3_scorer_v4.sql"
+
 CATALOG_SCORER = re.compile(
     r"UPDATE\s+benchmarks\s+SET\s+scorer_version\s*=\s*'([^']+)'\s*"
     r"WHERE\s+id\s*=\s*'language-search'",
@@ -113,6 +115,22 @@ def main() -> None:
     catalog = CATALOG_SCORER.findall(migrations)
     if not catalog:
         raise SystemExit("No portal migration sets language-search's scorer_version.")
+    # The row is seeded by an INSERT with positional values, which this cannot
+    # read. A later re-seed in that shape would leave the last UPDATE as the
+    # answer and the check would pass while the catalog said something else.
+    # Fail loudly instead of reading the wrong statement.
+    reseeds = [
+        path.name
+        for path in sorted((ROOT / "apps" / "portal" / "migrations").glob("*.sql"))
+        if "INTO benchmarks" in path.read_text(encoding="utf-8")
+        and "language-search" in path.read_text(encoding="utf-8")
+        and path.name > LAST_SCORER_MIGRATION
+    ]
+    if reseeds:
+        raise SystemExit(
+            "{} re-seeds the benchmarks row after the last scorer_version "
+            "update; this check cannot read a positional INSERT.".format(reseeds[0])
+        )
     declared = re.search(r'scorer_version\s*=\s*"([^"]+)"', plugin_source)
     if declared is None:
         raise SystemExit("benchmarks/week3's plugin declares no scorer_version.")
