@@ -8,6 +8,7 @@ ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "python" / "cogbench" / "src"))
 
 from cogbench.models import LocalReport, RepositoryState  # noqa: E402
+from cogbench.plugins import benchmark_install_command  # noqa: E402
 from cogbench.report import render_check, render_survey  # noqa: E402
 from cogbench.resolve import Attempt, Submission  # noqa: E402
 from cogbench.verdict import Observation, not_wired, scored  # noqa: E402
@@ -287,12 +288,10 @@ class CheckTests(unittest.TestCase):
         )
         self.assertIn("not installed", text)
         self.assertIn("not a git repository", text)
-        self.assertIn(
-            'python -m pip install "cogworks-week1-audio-benchmark @ '
-            'git+https://github.com/SamGu-NRX/cogworks-week1-audio-benchmark.git'
-            '@b156644aecc810e0b93535e320098f96c39ae04e"',
-            text,
-        )
+        # The exact command is pinned in test_plugins.py against the
+        # submodule this checkout carries. What matters here is that the
+        # report prints it rather than leaving the reader to find it.
+        self.assertIn(benchmark_install_command("audio-identification"), text)
 
     def test_an_unknown_missing_benchmark_keeps_the_current_next_step(self):
         lines = render_check(

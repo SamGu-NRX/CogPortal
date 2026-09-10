@@ -16,27 +16,31 @@ class BenchmarkInstall(NamedTuple):
     source: str
 
 
-# These pins are the submodule commits in .gitmodules and must move with them.
+# The URL is the one in .gitmodules and the commit is the gitlink beside it,
+# restated here because the CLI is installed as a package and cannot read the
+# parent checkout. test_plugins.py reads both back out of the repository, so a
+# submodule bump that misses this table breaks CI rather than a student's
+# install.
 BENCHMARK_INSTALLS: Dict[str, BenchmarkInstall] = {
     "audio-identification": BenchmarkInstall(
         "cogworks-week1-audio-benchmark",
         "git+https://github.com/SamGu-NRX/cogworks-week1-audio-benchmark.git"
-        "@b156644aecc810e0b93535e320098f96c39ae04e",
+        "@61ef56ebb14a47419ad9b27c79dfdd82aca798f2",
     ),
     "vision-recognition": BenchmarkInstall(
         "cogworks-week2-vision-benchmark",
         "git+https://github.com/iReynaldo/ComputerVisionBenchmark.git"
-        "@c177cf23cdd4f8dbe55401a2eb4bada4c64d37c2",
+        "@65200e909264414761a55c670a3c323b5122c7fb",
     ),
     "vision-clustering": BenchmarkInstall(
         "cogworks-week2-vision-benchmark",
         "git+https://github.com/iReynaldo/ComputerVisionBenchmark.git"
-        "@c177cf23cdd4f8dbe55401a2eb4bada4c64d37c2",
+        "@65200e909264414761a55c670a3c323b5122c7fb",
     ),
     "language-search": BenchmarkInstall(
         "cogworks-week3-language-benchmark",
         "git+https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git"
-        "@b166f5c15e950baccc3785839cdcc660ffe01bb4",
+        "@abdce758b85c347bc7ac0c15e31c5bc015ca5803",
     ),
 }
 

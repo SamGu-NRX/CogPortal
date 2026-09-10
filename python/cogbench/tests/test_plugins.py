@@ -52,32 +52,52 @@ class PluginDiscoveryTests(unittest.TestCase):
         with self.assertRaisesRegex(PluginError, "More than one"):
             load_plugin("cogworks.submissions.v1", "vision-recognition")
 
-    def test_every_shipped_benchmark_has_its_pinned_install_command(self):
-        expected = {
-            "audio-identification": (
-                'python -m pip install "cogworks-week1-audio-benchmark @ '
-                'git+https://github.com/SamGu-NRX/cogworks-week1-audio-benchmark.git'
-                '@b156644aecc810e0b93535e320098f96c39ae04e"'
-            ),
-            "vision-recognition": (
-                'python -m pip install "cogworks-week2-vision-benchmark @ '
-                'git+https://github.com/iReynaldo/ComputerVisionBenchmark.git'
-                '@c177cf23cdd4f8dbe55401a2eb4bada4c64d37c2"'
-            ),
-            "vision-clustering": (
-                'python -m pip install "cogworks-week2-vision-benchmark @ '
-                'git+https://github.com/iReynaldo/ComputerVisionBenchmark.git'
-                '@c177cf23cdd4f8dbe55401a2eb4bada4c64d37c2"'
-            ),
-            "language-search": (
-                'python -m pip install "cogworks-week3-language-benchmark @ '
-                'git+https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git'
-                '@b166f5c15e950baccc3785839cdcc660ffe01bb4"'
-            ),
-        }
+    def test_every_shipped_benchmark_names_the_submodule_this_checkout_pins(self):
+        """The table in plugins.py is a copy, so this reads the originals back.
+
+        The command it produces is what a stuck student pastes, and the CLI is
+        installed as a package with no parent checkout to consult, so the URL
+        and the commit have to be literals in the source. That makes them a
+        second statement of `.gitmodules` and the gitlinks beside it. A
+        submodule bump that misses the table would otherwise hand a student a
+        pip command for a different revision of the benchmark they are being
+        scored against, and the path that prints it is the one a stuck student
+        is already on.
+        """
+
+        from cogbench.environment import BENCHMARK_TRACKS
+
+        urls = {}
+        path = None
+        for line in (ROOT / ".gitmodules").read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if stripped.startswith("path ="):
+                path = stripped.split("=", 1)[1].strip()
+            elif stripped.startswith("url =") and path:
+                urls[path] = stripped.split("=", 1)[1].strip()
+
+        for benchmark, track in BENCHMARK_TRACKS.items():
+            validator = ROOT / "scripts" / "validate_{}_submodule.py".format(track)
+            reviewed = next(
+                line.split("=", 1)[1].strip().strip('"')
+                for line in validator.read_text(encoding="utf-8").splitlines()
+                if line.startswith("REVIEWED_COMMIT")
+            )
+            expected = "git+{}@{}".format(urls["benchmarks/" + track], reviewed)
+            self.assertIn(
+                expected,
+                benchmark_install_command(benchmark),
+                "{} installs a different revision than benchmarks/{} is pinned "
+                "to; move the table in plugins.py with the submodule"
+                .format(benchmark, track),
+            )
+
+    def test_the_command_is_a_pip_line_a_student_can_paste(self):
         self.assertEqual(
-            {name: benchmark_install_command(name) for name in expected},
-            expected,
+            benchmark_install_command("audio-identification"),
+            'python -m pip install "cogworks-week1-audio-benchmark @ '
+            "git+https://github.com/SamGu-NRX/cogworks-week1-audio-benchmark.git"
+            '@61ef56ebb14a47419ad9b27c79dfdd82aca798f2"',
         )
 
     @patch("cogbench.plugins._entry_points", return_value=[])

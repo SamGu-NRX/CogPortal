@@ -204,6 +204,34 @@ class TheAdviceMatchesTheTrack(unittest.TestCase):
         self.assertIn("requirements.txt", step)
 
 
+class TheManifestMatchesTheImagesItDescribes(unittest.TestCase):
+    """A version listed here that the image does not install makes discovery
+    tell a team the graded run has a package it does not.
+
+    The images still carry their versions as literal builder arguments, so
+    nothing but this test holds the two copies together. It checks containment
+    rather than parsing the builder calls: a requirement string that appears
+    nowhere in modal_app.py is not installed, whatever the call shape is. The
+    case that prompted it was ipython, listed for Week 1 against an image
+    whose venv command ends at platformdirs.
+    """
+
+    def test_every_requirement_appears_in_the_image_that_installs_it(self):
+        source = (
+            ROOT / "apps" / "runner-modal" / "src" / "cogworks_runner"
+            / "modal_app.py"
+        ).read_text(encoding="utf-8")
+        for track in environment.TRACKS:
+            for requirement in environment.requirement_strings(track):
+                # assertTrue, not assertIn: the haystack is the whole
+                # runner module, and unittest would print all of it.
+                self.assertTrue(
+                    requirement in source,
+                    "environment.py lists {} for {}, and modal_app.py never "
+                    "installs it".format(requirement, track),
+                )
+
+
 class TheManifestDescribesTheImages(unittest.TestCase):
     """These are the facts the rest of the module rests on, so they are
     pinned rather than assumed."""
