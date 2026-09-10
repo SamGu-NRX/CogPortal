@@ -21,9 +21,20 @@ export interface BenchmarkPackage {
  * page install the same tool whenever they read it. Move it deliberately when
  * a reviewed CLI lands. The install line forces the reinstall because the
  * version does not change between pins.
+ *
+ * This pin and the portal deploy are coupled in both directions and have to
+ * move together. The CLI at 8e09a07 does not send `checkedBenchmarkId`, so a
+ * portal that scopes setup evidence would leave a student who ran every
+ * command on this page short of complete, with nothing on the page to do
+ * about it. In the other direction the evidence request is `.strict()`, so
+ * this CLI against a portal that predates the field is refused outright.
+ * Nobody can reach that combination through this page, which serves whichever
+ * pin its own deploy carries, but pointing `--portal` at an older deployment
+ * does. Installed into a clean 3.14 venv from this commit on 2026-09-10:
+ * `_setup_payload` sends the id for a scoped check and omits it for `link`.
  */
 export const COGBENCH_SOURCE =
-  "git+https://github.com/SamGu-NRX/CogPortal.git@8e09a07c6e0cce75c70845d4566fd756f390c83b#subdirectory=python/cogbench";
+  "git+https://github.com/SamGu-NRX/CogPortal.git@99281c5260e61e1f599a299983071a5f15fe5f1e#subdirectory=python/cogbench";
 
 const WEEK1_AUDIO: BenchmarkPackage = {
   distribution: "cogworks-week1-audio-benchmark",
