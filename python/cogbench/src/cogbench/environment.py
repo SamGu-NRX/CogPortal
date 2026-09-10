@@ -305,8 +305,9 @@ def gap_note(benchmark: str, missing: Sequence[str]) -> str:
             "report may have read less of your repository than the graded run "
             "will. If a module is listed above under 'could not read' because "
             "it needs {}, this machine skipped it. The hosted run has the "
-            "package and will read that module. It is part of the environment "
-            "the course has you set up, so installing it here makes this check "
+            "package, so it will not skip that module for that reason. It is "
+            "part of the environment the course has you set up, so installing "
+            "it here makes this check "
             "match the graded run more closely."
         ).format(names)
     return (
@@ -314,8 +315,9 @@ def gap_note(benchmark: str, missing: Sequence[str]) -> str:
         "may have read less of your repository than the graded run will. If a "
         "module is listed above under 'could not read' because it needs one of "
         "these packages, this machine skipped it. The hosted run has the "
-        "packages and will read those modules. They are part of the environment "
-        "the course has you set up, so installing them here makes this check "
+        "packages, so it will not skip them for that reason. They are part of "
+        "the environment the course has you set up, so installing them here "
+        "makes this check "
         "match the graded run more closely. Missing: {}."
     ).format(len(missing), names)
 
