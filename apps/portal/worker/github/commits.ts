@@ -78,11 +78,41 @@ export function parseCoAuthorTrailers(message: string): CoAuthorTrailer[] {
  * `docs/design/the-instrument-not-the-judge.md` ("Never interpolate").
  */
 export type FetchCommitsResult =
-  | { ok: true; commits: CommitRecord[] }
+  | {
+      ok: true;
+      commits: CommitRecord[];
+      /**
+       * The repository has commits older than the ones returned. Callers must
+       * not present a truncated window as the repository's whole history.
+       */
+      truncated: boolean;
+    }
   | { ok: false; reason: "unauthorized" | "not_found" | "rate_limited" | "fetch_failed" };
 
-const MAX_COMMITS = 300;
+/**
+ * How many commits this reads, and why that number.
+ *
+ * One detail request per commit, and a Worker on the Free plan may make 50
+ * external subrequests per invocation (Cloudflare's documented limit; the
+ * separate internal-services pool that D1 draws on is 1,000, so database
+ * queries here are not what runs out). Measured on the demo repository before
+ * this cap existed: the list request plus 49 detail requests succeeded and the
+ * 50th detail threw, at commit 50 of 75, with no HTTP status because the
+ * platform refused the subrequest rather than GitHub refusing the call.
+ *
+ * So the budget is 50 external requests: one to list, 40 to read, and nine
+ * spare. The spare is not padding. `getGithubToken` can refresh against GitHub
+ * on the same invocation, and Cloudflare counts each hop of a redirect chain,
+ * which a renamed repository produces.
+ *
+ * 300 was the old value and never fit. It was not reached on a small
+ * repository, which is why this held together until a team had more than
+ * about fifty commits.
+ */
+const MAX_COMMITS = 40;
 const DETAIL_CONCURRENCY = 8;
+/** Larger than MAX_COMMITS on purpose: one list request answers the whole
+ *  window and still reveals whether older commits exist. */
 const PER_PAGE = 100;
 
 function isRateLimited(response: Response): boolean {
@@ -168,6 +198,7 @@ export async function fetchCommitHistory(
   if (!owner || !name) return { ok: false, reason: "fetch_failed" };
 
   const shas: string[] = [];
+  let truncated = false;
   for (let page = 1; shas.length < MAX_COMMITS; page += 1) {
     let response: Response;
     try {
@@ -189,7 +220,7 @@ export async function fetchCommitHistory(
       // it as a failure would make "hasn't started" indistinguishable from
       // "GitHub access broke," which is exactly the conflation this result
       // type exists to prevent.
-      return { ok: true, commits: [] };
+      return { ok: true, commits: [], truncated: false };
     }
     if (response.status === 401) return { ok: false, reason: "unauthorized" };
     if (response.status === 404) return { ok: false, reason: "not_found" };
@@ -215,6 +246,11 @@ export async function fetchCommitHistory(
     if (!Array.isArray(payload)) return { ok: false, reason: "fetch_failed" };
     if (payload.length === 0) break;
 
+    // More entries on this page than the window takes means older commits
+    // exist. A full page means the same, since a further page was not read.
+    if (payload.length > MAX_COMMITS - shas.length || payload.length === PER_PAGE) {
+      truncated = true;
+    }
     for (const entry of payload) {
       if (!isRecord(entry) || typeof entry.sha !== "string") {
         return { ok: false, reason: "fetch_failed" };
@@ -225,7 +261,7 @@ export async function fetchCommitHistory(
     if (payload.length < PER_PAGE) break;
   }
 
-  if (shas.length === 0) return { ok: true, commits: [] };
+  if (shas.length === 0) return { ok: true, commits: [], truncated: false };
 
   const commits: (CommitRecord | null)[] = new Array(shas.length).fill(null);
   let unauthorized = false;
@@ -244,8 +280,20 @@ export async function fetchCommitHistory(
           `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/commits/${sha}`,
           token,
         );
-      } catch {
-        console.warn(JSON.stringify({ evt: "commit_detail_fetch_failed", repo: fullName, sha }));
+      } catch (error) {
+        // Name the cause. Without it this line said only that a fetch threw,
+        // and the two candidates want opposite fixes: the platform's
+        // per-request subrequest ceiling means asking for less, while the
+        // 10-second AbortSignal in githubApiRequest means asking again.
+        // Only the message is logged; the request carries a token.
+        console.warn(
+          JSON.stringify({
+            evt: "commit_detail_fetch_failed",
+            repo: fullName,
+            sha,
+            cause: error instanceof Error ? `${error.name}: ${error.message}` : "unknown",
+          }),
+        );
         failed = true;
         return;
       }
@@ -289,14 +337,26 @@ export async function fetchCommitHistory(
     Array.from({ length: Math.min(DETAIL_CONCURRENCY, shas.length) }, () => worker()),
   );
 
-  // A partial fetch is never returned as if it were the whole history: a
-  // team's history quality (`usable` vs `bulk_upload`) depends on totals
-  // across *every* commit, so silently dropping the commits that failed to
-  // fetch would let a real bulk-upload repo misclassify as `usable`, or vice
-  // versa. Any failure mid-fetch fails the whole result instead.
+  // A fetch that broke partway is never returned as if it had finished. A
+  // team's history quality (`usable` vs `bulk_upload`) is decided from totals
+  // over the commits in hand, so quietly dropping the ones that failed would
+  // let a real bulk-upload repository read as `usable`, or the reverse. Any
+  // failure mid-fetch fails the whole result instead.
+  //
+  // A truncated window is a different thing and is not a failure: those
+  // commits were never asked for. It is reported rather than hidden, because
+  // the same classification over the newest 40 commits is a statement about
+  // recent work and not about the repository. A project that began with one
+  // bulk commit and then developed normally is `bulk_upload` over its whole
+  // history and `usable` over this window, and both are true of what they
+  // describe.
   if (unauthorized) return { ok: false, reason: "unauthorized" };
   if (rateLimited) return { ok: false, reason: "rate_limited" };
   if (failed) return { ok: false, reason: "fetch_failed" };
 
-  return { ok: true, commits: commits.filter((commit): commit is CommitRecord => commit !== null) };
+  return {
+    ok: true,
+    commits: commits.filter((commit): commit is CommitRecord => commit !== null),
+    truncated,
+  };
 }

@@ -352,7 +352,7 @@ export function registerTeamRoutes(app: Hono<AppEnv>): void {
       // commit history to fetch -- and nothing to honestly call "fetch
       // failed" either, since we never tried and failed. Confirmed-empty is
       // the accurate state here, not a fabricated one.
-      commitsResult = { ok: true, commits: [] };
+      commitsResult = { ok: true, commits: [], truncated: false };
     } else {
       const githubToken = githubConfigured(c.env)
         ? await getGithubToken(authFor(c), auth.user.id, c.req.raw.headers)
@@ -371,6 +371,7 @@ export function registerTeamRoutes(app: Hono<AppEnv>): void {
     });
     const payload: Omit<TeamProcessSignals, "computedAt"> = {
       historyQuality: signals.historyQuality,
+      historyWindow: signals.historyWindow,
       weekLabel: signals.weekLabel,
       stageFootprint: signals.stageFootprint,
       firstLight: signals.firstLight,

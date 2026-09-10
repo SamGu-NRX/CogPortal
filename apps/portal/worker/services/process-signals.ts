@@ -483,6 +483,9 @@ export type WeekLabel = "week1" | "week2" | "week3";
 /** The four signals bundled together, for handing to `findingSentences`. */
 export interface ProcessSignals {
   historyQuality: HistoryQuality;
+  /** Which commits every signal below was computed over. Null when none were
+   *  read. See HistoryWindowSchema for what `truncated` means. */
+  historyWindow: { commits: number; truncated: boolean } | null;
   /**
    * The team has scored runs, and none of them is evidence for the repository
    * connected now. TS-only; not persisted, and not in the contract.
@@ -748,6 +751,7 @@ export function buildProcessSignals(input: BuildProcessSignalsInput): ProcessSig
   if (!input.commitsResult.ok) {
     return {
       historyQuality: HISTORY_FETCH_FAILED,
+      historyWindow: null,
       runsElsewhere: input.runsElsewhere ?? false,
       historyFetchFailureReason: input.commitsResult.reason,
       stageFootprint: stageMap
@@ -762,6 +766,9 @@ export function buildProcessSignals(input: BuildProcessSignalsInput): ProcessSig
 
   const commits = input.commitsResult.commits;
   return {
+    // What was read, so nothing below is mistaken for the whole repository.
+    // Every signal here is computed over these commits and no others.
+    historyWindow: { commits: commits.length, truncated: input.commitsResult.truncated },
     historyQuality: classifyHistoryQuality(commits),
     runsElsewhere: input.runsElsewhere ?? false,
     historyFetchFailureReason: null,

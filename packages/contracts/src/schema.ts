@@ -928,8 +928,28 @@ export type ChurnEvent = z.infer<typeof ChurnEventSchema>;
  *  for a team with no runs yet, which is also when `stageFootprint` and
  *  `ownershipBreadth` are empty objects: no run means no way to know which
  *  capstone stage map applies, so there is no stage list to report against. */
+/**
+ * Which commits the panel read.
+ *
+ * Null when the history could not be read at all. `truncated` means older
+ * commits exist that were not requested, so the signals below describe recent
+ * work rather than the project. A Worker may make 50 external subrequests per
+ * invocation and each commit costs one, so the window is a platform limit made
+ * visible instead of a fetch that breaks at commit 50.
+ */
+export const HistoryWindowSchema = z.object({
+  commits: z.number().int().nonnegative(),
+  truncated: z.boolean(),
+});
+
 export const TeamProcessSignalsSchema = z.object({
   historyQuality: HistoryQualitySchema,
+  // Defaulted, not merely nullable. `team_process_signals` holds payloads
+  // serialized by whatever version wrote them, and rows written before this
+  // field existed have no key at all. The browser parses every response
+  // strictly, so a bare `.nullable()` would have blanked the team page for
+  // every team with a warm cache until it expired.
+  historyWindow: HistoryWindowSchema.nullable().default(null),
   weekLabel: z.enum(["week1", "week2", "week3"]).nullable(),
   stageFootprint: z.record(z.string(), StageActivitySchema),
   firstLight: FirstLightSchema,
