@@ -161,7 +161,12 @@ class ReadingCannotTakeTheCommandDown(unittest.TestCase):
 
     def test_the_reading_happens_somewhere_else(self):
         parent = os.getpid()
-        cli._check_view = lambda *a, **k: {"pid": os.getpid(), "report": None}
+        # A complete view plus the pid this test is about: the boundary
+        # rejects one missing the keys `_check` reads.
+        cli._check_view = lambda *a, **k: dict(
+            {key: None for key in cli._CHECK_VIEW_KEYS},
+            ready=False, pid=os.getpid(),
+        )
 
         view, status, _detail = cli._read_repository("b", self.tmp, True)
 

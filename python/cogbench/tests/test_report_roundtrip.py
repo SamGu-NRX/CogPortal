@@ -53,7 +53,14 @@ class ReportRoundTrips(unittest.TestCase):
 
     def test_windows_fork_and_exec_use_the_same_rehydration(self):
         report = SubmissionReport(False, self.verdict(), ('train.features',))
-        view = {'report': report.to_dict(), 'survey': {'modules': []}}
+        # Every key `_check` reads: the boundary rejects a partial view now,
+        # so a stub that was not one never exercised rehydration.
+        view = {
+            'report': report.to_dict(), 'survey': {'modules': []},
+            'ready': False, 'source': None, 'declaredDetail': None,
+            'declaredSource': None, 'declaredError': None,
+            'discoveryUnavailable': None,
+        }
         for backend in ('inline', 'fork', 'exec'):
             with self.subTest(backend=backend), \
                  patch.object(cli, '_check_view', return_value=view), \
@@ -98,3 +105,104 @@ class ReportRoundTrips(unittest.TestCase):
         self.assertIs(result, submission)
         self.assertIsNone(unavailable)
         self.assertIs(resolve.call_args[0][1], spec)
+
+
+class AMalformedOperationResultIsCategorizedNotRaised(unittest.TestCase):
+    """The envelope says the child finished. It says nothing about the shape.
+
+    A `completed` payload whose value is None, `"{}"` or `"[]"` used to reach
+    `LocalReport.from_json` and `_check`'s indexing, and raise TypeError or
+    KeyError in the parent, which is the one place this boundary exists to
+    keep failures out of. Each is now a categorized failure with a detail.
+    """
+
+    def _completed(self, value):
+        return isolate.Outcome(isolate.COMPLETED, value=value, detail='')
+
+    def test_a_check_view_missing_the_keys_check_reads_is_a_crash(self):
+        for value in (None, '{}', [], {}, {'report': None}):
+            with self.subTest(value=repr(value)[:24]), \
+                    patch.object(cli.isolate, '_isolation_backend',
+                                 side_effect=lambda: cli.isolate.run_operation), \
+                    patch.object(cli.isolate, 'run_operation',
+                                 return_value=self._completed(value)):
+                view, status, detail = cli._read_repository('fixture', Path('/tmp'), True)
+            self.assertIsNone(view)
+            self.assertEqual(status, isolate.CRASHED)
+            self.assertIn('invalid check report', detail)
+
+    def test_a_complete_check_view_is_still_accepted(self):
+        complete = {
+            'report': None, 'survey': None, 'ready': False, 'source': None,
+            'declaredDetail': None, 'declaredSource': None, 'declaredError': None,
+            'discoveryUnavailable': None,
+        }
+        with patch.object(cli.isolate, '_isolation_backend',
+                          side_effect=lambda: cli.isolate.run_operation), \
+                patch.object(cli.isolate, 'run_operation',
+                             return_value=self._completed(complete)):
+            view, status, detail = cli._read_repository('fixture', Path('/tmp'), True)
+        self.assertEqual(status, isolate.COMPLETED)
+        self.assertEqual(view['ready'], False)
+
+    def test_the_required_keys_are_the_ones_check_view_builds(self):
+        """The tuple is a second statement of `_check_view`'s own shape.
+
+        Nothing tied them together, so a key renamed in one place would make
+        every real view invalid and only this test would say why.
+        """
+
+        empty = SimpleNamespace(
+            factory=None, source=None, submission=None, survey=None,
+            declared_source=None, declared_detail=None, declared_error=None,
+            discovery_unavailable=None,
+        )
+        with patch.object(cli, 'load_benchmark', return_value=object()), \
+                patch.object(cli, '_scoreable', return_value=empty):
+            built = cli._check_view('fixture', Path('/tmp'), True)
+        self.assertEqual(
+            sorted(cli._CHECK_VIEW_KEYS), sorted(built),
+            'the contract and the view it describes have drifted',
+        )
+
+    def test_a_check_view_whose_survey_is_not_an_object_is_a_crash(self):
+        # `render_survey` indexes it, so key presence is not the whole shape.
+        complete = {key: None for key in cli._CHECK_VIEW_KEYS}
+        for survey in (['invalid'], 'text', 3):
+            with self.subTest(survey=repr(survey)), \
+                    patch.object(cli.isolate, '_isolation_backend',
+                                 side_effect=lambda: cli.isolate.run_operation), \
+                    patch.object(cli.isolate, 'run_operation',
+                                 return_value=self._completed(dict(complete, survey=survey))):
+                view, status, detail = cli._read_repository('fixture', Path('/tmp'), True)
+            self.assertIsNone(view)
+            self.assertEqual(status, isolate.CRASHED)
+            self.assertIn('invalid check report', detail)
+
+    def test_a_malformed_run_report_exits_two_with_a_reason(self):
+        import io
+        import json as _json
+
+        # 1e999 decodes to inf and the int conversions inside from_wire raise
+        # OverflowError, which is neither a KeyError nor a TypeError.
+        overflow = _json.dumps({
+            'reportId': 'r', 'benchmarkId': 'fixture', 'benchmarkVersion': 1,
+            'contractVersion': 'v2', 'sdkVersion': '0', 'pluginVersion': '0',
+            'repositoryId': None, 'repositoryFullName': None, 'sha': None,
+            'dirty': False, 'startedAt': 1e999, 'finishedAt': 2,
+            'metrics': [], 'diagnostics': [], 'outputDigest': 'd' * 64,
+        })
+        for value in (None, '{}', '[]', 'not json', overflow):
+            with self.subTest(value=repr(value)[:40]):
+                with patch.object(cli.isolate, '_isolation_backend',
+                                  side_effect=lambda: cli.isolate.run_operation), \
+                        patch.object(cli.isolate, 'run_operation',
+                                     return_value=self._completed(value)), \
+                        patch.object(cli, 'load_benchmark', return_value=object()), \
+                        patch('sys.stdout', new_callable=io.StringIO) as output:
+                    code = cli.main(['run', '--benchmark', 'fixture', '--json'])
+                self.assertEqual(code, 2)
+                record = _json.loads(output.getvalue())
+                self.assertEqual(record['status'], isolate.CRASHED)
+                self.assertIn('invalid run report', record['detail'])
+
