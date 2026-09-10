@@ -18,6 +18,13 @@ except ImportError:
 # (which sorts first) to have done it as an import side effect.
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "apps" / "runner-modal" / "src"))
+# And the benchmark whose payload these tests check. test_week2_payload.py
+# already did this for its own week; leaving it out here meant four tests
+# reported as ordinary failures on any interpreter without the Week 3 package
+# installed, which reads as broken code rather than a missing install. Week 3
+# is a flat-layout package (benchmarks/week3/language_search_benchmark), not
+# the src layout Week 2 uses.
+sys.path.insert(0, str(ROOT / "benchmarks" / "week3"))
 
 
 def _cases():
