@@ -39,14 +39,9 @@ const COPY: Record<
 /**
  * The card a student sits at until the portal knows who they are.
  *
- * Both steps have the same shape: read one sentence, go to the browser, come
- * back. The card follows them out and offers the check on the way back in,
- * which is why it swaps its own primary rather than showing a second one. A
- * gate with two buttons would ask a student to decide which step they are on,
- * and the card already knows.
- *
- * Discord can shrink the Activity to a tile. Compact drops to what still means
- * something at that size: the sentence and the action.
+ * The primary swaps instead of gaining a neighbour: two buttons would ask the
+ * student which step they are on, and the card already knows. Compact is
+ * Discord's tile layout, where only the sentence and the action still fit.
  */
 export function ConnectGate({
   variant,
@@ -104,7 +99,7 @@ export function ConnectGate({
         </p>
       )}
       {/* Present before it has anything to say, so a screen reader announces the
-          result of a press instead of silently gaining a paragraph. */}
+          result of a press rather than silently gaining a paragraph. */}
       <p role="status" className="mt-4 text-[13px] text-ink-secondary empty:mt-0">
         {note}
       </p>

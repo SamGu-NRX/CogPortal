@@ -43,14 +43,11 @@ const ActivityMutationSchema = z.enum([
 ]);
 
 /**
- * Discord's reason for refusing the token exchange. Only `error` is read, and
- * only up to a bounded length: the rest of the response can echo the request
- * that was refused, and that request carries the client secret and the code.
- *
- * The value is deliberately not a closed enum. Discord's rate-limit body has no
- * `error` key at all, an edge failure returns HTML, and the provider can ship
- * an identifier we have not seen. Recording only what we recognised would drop
- * exactly the responses that are hardest to diagnose.
+ * Only `error` is read, and only to a bounded length: the rest of a refused
+ * exchange can echo the request, and that request carries the client secret and
+ * the code. Not a closed enum, because Discord's rate-limit body has no `error`
+ * key, an edge failure returns HTML, and an identifier we have not seen is
+ * exactly the response worth keeping.
  */
 const DiscordOAuthErrorSchema = z.object({ error: z.string().min(1).max(64) });
 
@@ -64,20 +61,11 @@ const PORTAL_SIDE_OAUTH_ERRORS = new Set([
 ]);
 
 /**
- * What to record and what to say when Discord refuses to exchange the code.
- *
- * This branch collapsed every non-OK response into one sentence and kept
- * neither the status nor the reason. A student hit it on the hosted Activity,
- * and afterwards nothing distinguished a stale client secret from a code that
- * had already expired, because the evidence was discarded at the moment it
- * existed.
- *
- * Three sentences, because the student's next move genuinely differs and the
- * portal should not claim more than the response shows. A refused grant is
- * fixed by a fresh one. A refusal that names our credentials will refuse again,
- * so sending them back costs them time. Anything else, including a rate limit
- * or an edge failure, is a refusal we cannot explain, and saying it is ours to
- * fix would be a guess.
+ * Three sentences, because the student's next move differs and the portal
+ * should not claim more than the response shows. A refused grant is fixed by a
+ * fresh one. A refusal naming our credentials will refuse again, so sending the
+ * student back costs them time. Anything else, a rate limit or an edge failure
+ * included, is a refusal we cannot explain, and calling it ours would be a guess.
  */
 export function activityTokenRejection(
   status: number,
