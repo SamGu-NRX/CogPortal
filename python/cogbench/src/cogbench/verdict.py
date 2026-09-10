@@ -171,9 +171,9 @@ class Coverage:
     Skips have owners, and the owner decides what may be said:
 
     ``ours``
-        A package the graded run installs but this machine does not have, or
-        a loader defect. The absence is manufactured by us, so a verdict
-        that blames the repository is false. `read_enough_to_judge` is False.
+        A package the graded run installs and this machine does not have.
+        The absence is manufactured by us, so a verdict that blames the
+        repository is false. `read_enough_to_judge` is False.
     ``environment``
         A package genuinely absent from the graded run too. The verdict
         stands and the skip is worth naming, because the graded run will
@@ -368,8 +368,8 @@ def wired_but_wrong(
         next_step="",
         notes=tuple(notes)
         + (
-            "Every step above is your own function. The benchmark passed the "
-            "input each one asked for and passed its result to the next.",
+            "The benchmark passed each step above the input it asked for and "
+            "passed its result to the next.",
         ),
     )
 
@@ -404,14 +404,14 @@ def not_wired(
 
     if trace:
         headline = (
-            "Nothing in your repository took {} for the {} step, which is what "
+            "Nothing the search tried took {} for the {} step, which is what "
             "{} returned.".format(
                 last_returned or "that", stage, trace[-1].function
             )
         )
     else:
         headline = (
-            "Nothing in your repository accepted the input the {} step "
+            "Nothing the search tried accepted the input the {} step "
             "passes.".format(stage)
         )
     return Verdict(
@@ -451,8 +451,8 @@ def could_not_look(
     return Verdict(
         COULD_NOT_LOOK,
         "This check could not read {}. That is a limit of this check and not "
-        "a problem with your repository: the graded run installs those "
-        "packages and will read them.".format(missing),
+        "a problem with your repository: the graded run has those packages, "
+        "so it will not skip them for that reason.".format(missing),
         next_step=next_step,
         coverage=coverage,
         # Still true, and still theirs: a module we could not read does not
