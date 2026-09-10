@@ -353,10 +353,6 @@ class LocalReportDiagnosticTests(unittest.TestCase):
         self.assertTrue(all(len(line) <= 240 for line in report.diagnostics))
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class WhenTheCheckCouldNotLook(unittest.TestCase):
     """A run stopped by our own missing packages says so once, not twice.
 
@@ -437,3 +433,7 @@ class WhenTheCheckCouldNotLook(unittest.TestCase):
         verdict = self._stopped().verdict
         self.assertNotIn("whispers", verdict.headline)
         self.assertIn("whispers", verdict.coverage.ours)
+
+
+if __name__ == "__main__":
+    unittest.main()

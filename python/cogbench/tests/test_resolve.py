@@ -275,10 +275,6 @@ class ProgressTests(unittest.TestCase):
         self.assertEqual(with_watcher.attempts_tried, without.attempts_tried)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TheTwoRefusalsDoNotShareASentence(unittest.TestCase):
     """"Nothing accepted that" and "your chain gave the wrong answer" are
     opposite findings and were reported identically.
@@ -1864,3 +1860,7 @@ class Engine:
 
         self.assertTrue(every)
         self.assertTrue(every <= labels, "an unbound chain must offer every method")
+
+
+if __name__ == "__main__":
+    unittest.main()

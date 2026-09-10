@@ -5,7 +5,6 @@ import json
 import os
 import platform
 import queue
-import subprocess
 import sys
 import threading
 import time
@@ -14,7 +13,7 @@ import webbrowser
 from datetime import datetime, timezone
 from dataclasses import replace
 from pathlib import Path
-from typing import Any, Callable, List, NamedTuple, Optional, Sequence, Tuple
+from typing import Any, Callable, NamedTuple, Optional, Sequence, Tuple
 from urllib.parse import urlparse
 
 from . import __version__

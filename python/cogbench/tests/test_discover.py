@@ -878,10 +878,6 @@ class SurveyIsolationTests(unittest.TestCase):
         self.assertIn("nothing", empty_text)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class PlottingDoesNotStopTheSearch(unittest.TestCase):
     """Student code draws, and drawing must never open a window here.
 
@@ -1439,3 +1435,7 @@ class APlatformWithoutForkStillReadsTheRepository(unittest.TestCase):
 
         self.assertTrue(found.looked)
         self.assertEqual(found.module_names, ["theirs"])
+
+
+if __name__ == "__main__":
+    unittest.main()

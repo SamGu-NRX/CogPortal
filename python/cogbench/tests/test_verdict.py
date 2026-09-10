@@ -168,10 +168,6 @@ class OtherOutcomeTests(unittest.TestCase):
             self.assertTrue(record["headline"])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TwoRunsOfTheSameRepositoryDescribeItTheSameWay(unittest.TestCase):
     """`describe` output is recorded on the binding, and a binding record has
     to be comparable byte for byte between two cold resolves.
@@ -206,3 +202,7 @@ class TwoRunsOfTheSameRepositoryDescribeItTheSameWay(unittest.TestCase):
         second = Observation("settle", "whispers.whispers", describe([self.Node()]), "x")
 
         self.assertEqual(first.line(), second.line())
+
+
+if __name__ == "__main__":
+    unittest.main()
