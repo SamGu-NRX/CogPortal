@@ -268,6 +268,34 @@ export function registerRunnerEventRoutes(app: Hono<AppEnv>): void {
       .where(eq(runs.id, event.runId))
       .limit(1);
     if (!known) throw new ApiHttpError(404, "not_found", "Run not found.");
+    // Apply the event, then record that we have it. This order is the whole
+    // guarantee: the record is what answers "we already applied this", so it
+    // must not exist until the work behind it is done.
+    //
+    // Recording first and repairing in a catch only covers an error this
+    // process lives to handle. A Worker evicted mid-request, past its CPU
+    // limit, or gone for any other reason leaves the record with nothing
+    // behind it, and there is no later moment when the catch runs. Every
+    // retry after that reads the record, answers `duplicate: true`, and the
+    // runner marks the event delivered and stops resending it. A run that
+    // really scored is then reported as a provider failure by the stale
+    // sweep, and in official mode that spends an attempt on a result the
+    // portal was holding all along.
+    //
+    // Applying first is safe because `applyEvent` is re-enterable by
+    // construction rather than by luck. It re-reads the run, returns early
+    // once that run is terminal or the sequence is not newer, upserts metrics
+    // on (run_id, key), inserts the outbox row under a deterministic id, and
+    // guards both terminal writes on `lastEventSequence`. The refund is the
+    // one settlement that must happen exactly once, and execution/refunds.ts
+    // already owns that: it returns "not_applicable" once `refunded_at` is
+    // set, and its cap count excludes the run being decided, with a comment
+    // saying it does so because a retry can re-enter the decision.
+    //
+    // A concurrent retry is the same case as a sequential one. Both callers
+    // apply, every write they make is an upsert or a guarded update, and
+    // whichever inserts the record second reads `duplicate: true`.
+    await applyEvent(c.env, event);
     const inserted = await db
       .insert(runEvents)
       .values({
@@ -279,15 +307,10 @@ export function registerRunnerEventRoutes(app: Hono<AppEnv>): void {
       })
       .onConflictDoNothing();
     const duplicate = (inserted.meta.changes ?? 0) === 0;
-    if (duplicate) return respond(c, OkSchema, { ok: true, duplicate: true });
-    try {
-      await applyEvent(c.env, event);
-    } catch (error) {
-      await db.delete(runEvents).where(eq(runEvents.eventId, event.eventId));
-      throw error;
-    }
     const [updated] = await db.select().from(runs).where(eq(runs.id, event.runId)).limit(1);
-    if (updated?.surfaceId) {
+    // Publish once. The insert above is what decides that, so a replay that
+    // found the row does not re-announce a phase the surface already showed.
+    if (!duplicate && updated?.surfaceId) {
       const code =
         event.type === "status"
           ? runnerSurfaceStatusCode(event)
