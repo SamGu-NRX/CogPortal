@@ -61,6 +61,12 @@ interface Harness {
   interruptOn(pattern: RegExp): void;
   /** Throw on the Nth statement whose SQL matches, then disarm. */
   interruptOnNth(pattern: RegExp, nth: number): void;
+  /**
+   * Run a probe at the moment a matching statement is issued, without
+   * disturbing it. This is how a test sees the database mid-apply, which is
+   * the only way to observe the property the ordering is for.
+   */
+  observeAt(pattern: RegExp, probe: (sqlite: DatabaseSync) => void): void;
 }
 
 function freshHarness(): Harness {
@@ -73,8 +79,10 @@ function freshHarness(): Harness {
   for (const file of files) sqlite.exec(readFileSync(join(MIGRATIONS, file), "utf8"));
 
   let trap: ((sql: string) => boolean) | null = null;
+  let observer: ((sql: string) => void) | null = null;
 
   function prepare(query: string) {
+    observer?.(query);
     if (trap?.(query)) {
       trap = null;
       throw new Error("d1 interrupted");
@@ -112,6 +120,13 @@ function freshHarness(): Harness {
     interruptOnNth(pattern, nth) {
       let seen = 0;
       trap = (sql) => pattern.test(sql) && ++seen === nth;
+    },
+    observeAt(pattern, probe) {
+      observer = (sql) => {
+        if (!pattern.test(sql)) return;
+        observer = null;
+        probe(sqlite);
+      };
     },
   };
 }
@@ -288,6 +303,37 @@ function infrastructureFailureEvent() {
   };
 }
 
+/** Runs already refunded for this team on this benchmark. */
+async function priorRefunds(db: Database, howMany: number): Promise<void> {
+  for (let index = 0; index < howMany; index += 1) {
+    await db.insert(runs).values({
+      id: `run_prior_${index}`,
+      teamId: "team_1",
+      benchmarkId: AUDIO,
+      benchmarkVersion: 1,
+      contractVersion: "cogworks.submissions.v1",
+      mode: "official",
+      status: "failed",
+      branch: "main",
+      sha: "a".repeat(40),
+      repositoryId: null,
+      parentRunId: null,
+      attemptNumber: index + 2,
+      failureCategory: "provider",
+      failurePhase: "evaluating",
+      failureDetail: null,
+      failureConsumedAttempt: false,
+      refundedAt: NOW - 1_000,
+      log: null,
+      createdAt: NOW - 10_000,
+      finishedAt: NOW - 5_000,
+      provider: "modal",
+      lastEventSequence: 9,
+      surfaceId: null,
+    });
+  }
+}
+
 async function counts(db: Database) {
   const [run] = await db.select().from(runs).where(eq(runs.id, "run_1")).limit(1);
   return {
@@ -298,6 +344,35 @@ async function counts(db: Database) {
     attempts: (await db.select().from(officialAttempts).where(eq(officialAttempts.runId, "run_1"))).length,
   };
 }
+
+test("no record exists while the result is still being applied", async () => {
+  // The property the ordering exists for, and the only one a thrown error
+  // cannot demonstrate. Interrupting with an exception is handled by a catch;
+  // a Worker that is evicted is not, and no test can evict a Worker. What can
+  // be observed is whether the row that answers "we already have this" is
+  // present during the window where the answer would be a lie.
+  //
+  // Recording first put the row in before the work. Anything that stopped the
+  // process in this window left it there for good. Applying first means there
+  // is nothing to leave behind.
+  const harness = freshHarness();
+  await seedRun(harness.db);
+  const app = route();
+
+  let recordedMidApply: number | null = null;
+  harness.observeAt(/insert into "run_metrics"/i, (sqlite) => {
+    const [row] = sqlite.prepare('select count(*) as n from run_events').all() as { n: number }[];
+    recordedMidApply = row.n;
+  });
+
+  const response = await post(app, harness.binding, completedEvent());
+  assert.equal(response.status, 200);
+  assert.equal(
+    recordedMidApply,
+    0,
+    "a request arriving mid-apply would have been told the result was already in",
+  );
+});
 
 test("an interrupted apply records nothing, so the replay is not told the result is already in", async () => {
   const harness = freshHarness();
@@ -388,6 +463,11 @@ test("a result already applied is not lost when recording it fails", async () =>
 test("an interrupted refund settles the attempt exactly once across the replay", async () => {
   const harness = freshHarness();
   await seedRun(harness.db);
+  // Four refunds already given on this benchmark, one below the cap of five.
+  // At this boundary the `ne(runs.id, run.id)` exclusion in refunds.ts is
+  // load-bearing: a decision that counted the run being decided would read
+  // five and cap it, and the assertions below would see a cap notice.
+  await priorRefunds(harness.db, 4);
   const app = route();
   const event = infrastructureFailureEvent();
 

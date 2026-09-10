@@ -308,8 +308,15 @@ export function registerRunnerEventRoutes(app: Hono<AppEnv>): void {
       .onConflictDoNothing();
     const duplicate = (inserted.meta.changes ?? 0) === 0;
     const [updated] = await db.select().from(runs).where(eq(runs.id, event.runId)).limit(1);
-    // Publish once. The insert above is what decides that, so a replay that
-    // found the row does not re-announce a phase the surface already showed.
+    // Publish at most once, decided by the insert above.
+    //
+    // "At most", not "exactly": the publish below is best-effort and its own
+    // errors are logged rather than raised, and a process that stops between
+    // the insert and the publish leaves the phase unannounced with the record
+    // already written. This is the run surface, not the result, so a missed
+    // phase costs a progress line rather than a score, and it behaved this way
+    // before the ordering changed. Worth naming rather than implying the
+    // surface has seen everything the record has.
     if (!duplicate && updated?.surfaceId) {
       const code =
         event.type === "status"
