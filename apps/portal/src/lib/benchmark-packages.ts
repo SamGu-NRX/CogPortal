@@ -33,13 +33,18 @@ export interface BenchmarkPackage {
  * This pin carries the macOS execution boundary, so a student on a Mac runs
  * their code in a fresh interpreter rather than a fork that aborts inside
  * system APIs, and it carries the JSON result boundary that replaced the
- * pickle. Installed into a clean 3.8.20 venv from this exact commit on
- * 2026-09-10: `direct_url.json` names it, `run_operation` is present, the
- * boundary contains no pickle, and local reports carry metric roles. CI was
+ * pickle. It also carries the four repairs a security review blocked the
+ * boundary on: a killed run can no longer report `completed`, resource limits
+ * are confirmed installed before student code runs, `test` and `run` can no
+ * longer hang with no deadline armed, and a repository that declares its own
+ * submission no longer needs a warm course cache. Installed into a clean
+ * 3.8.20 venv from this exact commit on 2026-09-10: `direct_url.json` names
+ * it, `run_operation` is present, the boundary contains no pickle, reports
+ * carry metric roles, and all four guards are in the installed source. CI was
  * green on all 24 check-runs at this commit before it was pinned.
  */
 export const COGBENCH_SOURCE =
-  "git+https://github.com/SamGu-NRX/CogPortal.git@a29bf8a38ef08998a83dbb74ceb09909cc536c8a#subdirectory=python/cogbench";
+  "git+https://github.com/SamGu-NRX/CogPortal.git@094a6f1ac109716014492a57a81157e71b70f7ab#subdirectory=python/cogbench";
 
 const WEEK1_AUDIO: BenchmarkPackage = {
   distribution: "cogworks-week1-audio-benchmark",
