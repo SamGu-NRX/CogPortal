@@ -13,6 +13,7 @@ from cogbench.verdict import (  # noqa: E402
     NOTHING_HERE,
     SCORED,
     WIRED_BUT_WRONG,
+    Coverage,
     Observation,
     describe,
     not_read,
@@ -204,5 +205,51 @@ class TwoRunsOfTheSameRepositoryDescribeItTheSameWay(unittest.TestCase):
         self.assertEqual(first.line(), second.line())
 
 
+class ARefusalSaysWhatTheSearchDidRatherThanWhatExists(unittest.TestCase):
+    """The search is bounded: a beam of four, a name filter, an attempt cap.
+
+    "Nothing in your repository" is a proof it does not perform. A team whose
+    function the beam dropped reads that sentence as a statement about their
+    code, and the next thing they do is look for something that is already
+    there.
+    """
+
+    def _headline(self, trace):
+        return not_wired(
+            "name a song", "fingerprints", trace,
+            last_returned="an array", coverage=Coverage(read=("theirs",)),
+        ).headline
+
+    def test_it_does_not_claim_the_repository_holds_nothing(self):
+        for trace in ([], [Observation("peaks", "theirs.find_peaks", "an array", "a list")]):
+            with self.subTest(trace=bool(trace)):
+                headline = self._headline(trace)
+                self.assertNotIn("Nothing in your repository", headline)
+                self.assertIn("the search tried", headline)
+
+    def test_it_still_names_the_hand_off_that_failed(self):
+        """The specific part is what makes the sentence usable."""
+
+        headline = self._headline(
+            [Observation("peaks", "theirs.find_peaks", "an array", "a list")]
+        )
+        self.assertIn("an array", headline)
+        self.assertIn("fingerprints", headline)
+        self.assertIn("theirs.find_peaks", headline)
+
+    def test_a_scored_chain_does_not_call_every_step_their_own_function(self):
+        """A week can supply a step (`pipeline._from_pool`), so the claim was
+        not always true. What the run observed is the hand-off."""
+
+        verdict = wired_but_wrong(
+            "name a song", "the wrong song", "the right song",
+            [Observation("peaks", "theirs.find_peaks", "an array", "a list")],
+        )
+        joined = " ".join(verdict.notes)
+        self.assertNotIn("your own function", joined)
+        self.assertIn("passed its result to the next", joined)
+
+
 if __name__ == "__main__":
+
     unittest.main()
