@@ -1,10 +1,11 @@
-import { CommandSheet } from "@/components/CommandSheet";
+import { CopyBlock } from "@/components/CopyBlock";
+import { Step, StepRail } from "@/components/StepRail";
 import { Finding } from "@/components/Finding";
 import { Panel } from "@/components/Panel";
 import { PrimaryMetric, SupportingMetrics } from "@/components/MetricBlock";
 import { SweepTrace } from "@/components/SweepTrace";
 import { WiringTrace, type WiredStep } from "@/components/WiringTrace";
-import { setupCommandLines } from "@/lib/setup-progress";
+import { setupCommandLines, stepState } from "@/lib/setup-progress";
 import type { Metric, RunDetail as RunDetailType } from "@cogworks/contracts/schema";
 
 /**
@@ -267,23 +268,37 @@ const WITHHELD: Metric[] = [
   }),
 ];
 
+const SETUP_BENCHMARK_ID = "audio-identification";
+
 const SETUP_LINES = setupCommandLines({
   cloneUrl: "https://github.com/cogworks-demo/face-finder.git",
   repoName: "face-finder",
-  benchmarkId: "audio-identification",
+  benchmarkId: SETUP_BENCHMARK_ID,
   benchmarkTitle: "Audio",
   portalOrigin: "https://cogportal.example",
   verified: () => true,
   deviceLinked: true,
 });
 
-const SETUP_NOTES = {
-  clone: { title: "Clone your team's repository", why: "Every hosted attempt runs from it." },
-  tool: { title: "Install the CogWorks tool", why: "It works out which functions to call." },
-  benchmark: { title: "Install the Audio benchmark", why: "The scorer lives in its own package." },
-  link: { title: "Link this machine", why: "This is what lets a command report back." },
-  check: { title: "Check it, and tell this page", why: "The last command is the one that reports." },
-} as const;
+/** The page's own rail, so a layout bug here is a layout bug there. */
+function SetupRailFixture({ unreadable = false }: { unreadable?: boolean }) {
+  const outage = unreadable ? { "setup-state": true, devices: true } : {};
+  return (
+    <StepRail>
+      {SETUP_LINES.map((line, index) => (
+        <Step
+          key={line.id}
+          index={String(index + 1).padStart(2, "0")}
+          state={stepState(line, outage)}
+          title={line.id}
+          last={index === SETUP_LINES.length - 1}
+        >
+          <CopyBlock text={line.command} wrap />
+        </Step>
+      ))}
+    </StepRail>
+  );
+}
 
 export function GalleryPage() {
   return (
@@ -362,26 +377,21 @@ export function GalleryPage() {
       </div>
 
       <h2 className="mt-12 font-serif text-xl font-semibold text-ink">
-        Setup sheet, when the progress read fails
+        Setup rail, when the progress read fails
       </h2>
       <p className="mb-2 mt-2 text-[13px] text-ink-faint">
-        Both sheets hold identical commands, all of them finished. On the left
+        Both rails hold identical commands, all of them finished. On the left
         CogPortal read its evidence. On the right that request failed, which
         produces the same empty verified set as a student who has run nothing:
-        empty boxes would report finished work as work nobody did, so the
-        gutter shows dashes and no command is dimmed as complete.
+        numbered boxes would report finished work as work nobody did, so each
+        step shows a dash and claims nothing.
       </p>
       <div className="grid gap-4 sm:grid-cols-2">
         <Panel label="EVIDENCE READ">
-          <CommandSheet lines={SETUP_LINES} label="Observed" notes={SETUP_NOTES} />
+          <SetupRailFixture />
         </Panel>
         <Panel label="EVIDENCE UNREADABLE">
-          <CommandSheet
-            lines={SETUP_LINES}
-            label="Unavailable"
-            notes={SETUP_NOTES}
-            unreadable={{ "setup-state": true, devices: true }}
-          />
+          <SetupRailFixture unreadable />
         </Panel>
       </div>
 

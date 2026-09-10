@@ -1,12 +1,18 @@
 import { useEffect, useRef, useState } from "react";
 
-/** A copyable command line — mono, single action, 44px target. */
+/** A copyable command line: mono, single action, 44px target. */
 export function CopyBlock({
   text,
   className = "",
+  wrap = false,
 }: {
   text: string;
   className?: string;
+  /** Let a long command wrap instead of scrolling out of view. The pinned
+   *  install is 189 characters and the part that identifies the commit is at
+   *  the end, so in a narrow column scrolling hides exactly the load-bearing
+   *  part. Off by default: a short command reads better on one line. */
+  wrap?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -31,7 +37,11 @@ export function CopyBlock({
 
   return (
     <div className={`flex items-stretch gap-0 ${className}`}>
-      <code className="min-w-0 flex-1 overflow-x-auto border border-rule bg-paper-sunken px-3 py-2.5 font-mono text-[12.5px] whitespace-pre text-ink">
+      <code
+        className={`min-w-0 flex-1 border border-rule bg-paper-sunken px-3 py-2.5 font-mono text-[12.5px] text-ink ${
+          wrap ? "whitespace-pre-wrap [overflow-wrap:anywhere]" : "overflow-x-auto whitespace-pre"
+        }`}
+      >
         {text}
       </code>
       <button

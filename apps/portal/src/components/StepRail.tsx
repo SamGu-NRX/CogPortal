@@ -1,0 +1,95 @@
+import { Tick02Icon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
+import type { ReactNode } from "react";
+
+/**
+ * The numbered rail the setup guide is worked down: one row per command, its
+ * mark on the left, what it is for and the command itself on the right.
+ *
+ * A row says what it is for at the call site rather than from a table in here,
+ * so the page that knows the track writes the sentence and this file stays a
+ * layout. That is how the guide read before the sheet replaced it.
+ */
+export function StepRail({ children }: { children: ReactNode }) {
+  return (
+    <div className="relative">
+      {/* the protocol rail. A sibling of the list rather than a child of it,
+          because `ol` takes only `li`. */}
+      <div aria-hidden="true" className="absolute top-4 bottom-4 left-[13px] w-px bg-rule-soft" />
+      <ol>{children}</ol>
+    </div>
+  );
+}
+
+/** Verified is observed. Unknown is a read that failed, which is not the same
+ *  as work nobody did: both produce an empty verified set. */
+export type StepState = "verified" | "pending" | "unknown";
+
+export function Step({
+  index,
+  state,
+  title,
+  chip,
+  children,
+  last = false,
+}: {
+  index: string;
+  state: StepState;
+  title: string;
+  /** A short qualifier beside the title, in the slot the guide has always had
+   *  for one. Not a place for a sentence. */
+  chip?: string;
+  children: ReactNode;
+  last?: boolean;
+}) {
+  const mark =
+    state === "verified"
+      ? "border-verify/50 bg-verify-wash text-verify-deep"
+      : "border-rule bg-paper-raised text-ink-faint";
+
+  return (
+    <li className={`relative flex gap-4 ${last ? "" : "pb-8"}`}>
+      <span
+        aria-hidden="true"
+        className={`relative z-10 flex size-7 shrink-0 items-center justify-center border font-mono text-[11px] transition-colors duration-150 ${mark}`}
+      >
+        {state === "verified" ? (
+          <HugeiconsIcon icon={Tick02Icon} size={14} strokeWidth={2.2} />
+        ) : state === "unknown" ? (
+          "?"
+        ) : (
+          index
+        )}
+      </span>
+
+      <div className="min-w-0 flex-1 pt-0.5">
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          {/* The mark is decorative, so the state has to reach a screen reader
+              in words. */}
+          <span className="sr-only">
+            {state === "verified"
+              ? "Verified. "
+              : state === "unknown"
+                ? "Progress unknown. "
+                : "Not verified yet. "}
+          </span>
+          <h2 className="font-serif text-[16.5px] font-semibold text-ink">{title}</h2>
+          {state === "verified" && (
+            <span className="anim-rise font-mono text-[10px] tracking-[0.08em] text-verify-deep uppercase">
+              verified
+            </span>
+          )}
+          {state === "pending" && chip && (
+            <span className="font-mono text-[10px] tracking-[0.08em] text-ink-faint uppercase">
+              {chip}
+            </span>
+          )}
+        </div>
+
+        <div className="mt-1.5 space-y-2.5 text-[13.5px] leading-relaxed text-ink-secondary">
+          {children}
+        </div>
+      </div>
+    </li>
+  );
+}

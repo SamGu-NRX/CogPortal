@@ -192,6 +192,25 @@ export function setupCommandsForTeam(input: {
   });
 }
 
+/** Which read would have to fail for this line's state to be unknown. */
+export type EvidenceOutage = Partial<Record<SetupCommand["evidenceSource"], boolean>>;
+
+/**
+ * What a row may claim: observed, not yet, or unreadable.
+ *
+ * Per read, never per page. The link line is the only one that reads the
+ * device list, so a failed connections request must not blank the four the
+ * setup state answered. This lives here rather than in the rail so the page
+ * and its tests decide it the same way.
+ */
+export function stepState(
+  line: SetupCommand,
+  outage: EvidenceOutage = {},
+): "verified" | "pending" | "unknown" {
+  if (outage[line.evidenceSource]) return "unknown";
+  return line.verified ? "verified" : "pending";
+}
+
 export function setupCommandProgress(
   lines: readonly SetupCommand[],
 ): { verified: number; total: number } {
