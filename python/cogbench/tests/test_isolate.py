@@ -233,10 +233,6 @@ assert outcome.status == {status!r}, outcome
         self.assertEqual(os.getpid(), before_pid)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 #: Run in four independent parent processes: pin the seed the way a command
 #: line entry point does, then ask the isolated child what a string hashes to.
 #: `run_isolated` forks, so the child's seed is whatever the parent was given
@@ -435,3 +431,7 @@ class WindowsDoesNotReplaceItself(unittest.TestCase):
                 patch.object(os, "execve", lambda *a: calls.append(a)):
             self.assertFalse(ensure_pinned_hash_seed(["python", "-m", "cogbench"]))
         self.assertEqual(calls, [], "nothing was re-executed")
+
+
+if __name__ == "__main__":
+    unittest.main()
