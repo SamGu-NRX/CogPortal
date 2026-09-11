@@ -646,6 +646,7 @@ def resolve(
             )
             if remember else ""
         )
+        keyed_sources = set(memo.source_paths(found)) if key else set()
         stored = memo.read(repository, key) if key else None
         if stored:
             # Validation runs project code. Its namespace and mutable supplied
@@ -663,9 +664,14 @@ def resolve(
                     ))
             except BaseException:  # copying or constructing an optional replay may fail
                 validation = None
-            if validation is not None and _valid_replay(
+            valid = validation is not None and _valid_replay(
                 validation, accepts, fixture, factories=factories, readers=readers,
-            ):
+            )
+            if validation is not None and set(memo.source_paths(validation_found)) != keyed_sources:
+                # A late import was not hashed at lookup. Acceptance cannot make
+                # that incomplete key safe, including for a subsequent cold search.
+                key = ""
+            if valid and key:
                 recalled = _replay(
                     stored, found, chain_role, arrangements, fixture=fixture,
                     extras=extras, identities=identities, resource_files=resource_files,
@@ -827,6 +833,11 @@ def resolve(
                 discovery=found,
                 weights_used=weights_used,
             )
+
+        if key and set(memo.source_paths(found)) != keyed_sources:
+            # Search can discover additional project sources too. Do not persist
+            # its choice under the earlier, incomplete inventory.
+            key = ""
 
         for step, stage in zip(chain.steps, chain_role.stages):
             watcher.found(stage.name, step.label)

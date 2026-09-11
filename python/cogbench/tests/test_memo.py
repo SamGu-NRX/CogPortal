@@ -446,6 +446,62 @@ class ReuseTests(unittest.TestCase):
         self.assertFalse(memo.cache_path(self.tmp).exists())
 
 
+class LateSourcesCannotUseAnEarlierKey(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        (self.tmp / "theirs.py").write_text(REPO)
+        package = self.tmp / "a" / "b" / "c"
+        package.mkdir(parents=True)
+        self.source = package / "values.py"
+        self.source.write_text("SCALE = 2\n")
+        self.found = []
+
+    def _discover(self, *args, **kwargs):
+        found = discover(*args, **kwargs)
+        self.found.append(found)
+        return found
+
+    def _resolve(self, *, late, paired):
+        def accepts(*args):
+            if late:
+                # Exercise the retained inventory through an actual late import.
+                # This tests source accounting, not fresh trial ownership.
+                with self.found[-1].imports():
+                    values = __import__("a.b.c.values", fromlist=["SCALE"])
+                    self.assertEqual(values.SCALE, 2)
+            return _accepts(*args) if paired else (True, "accepted")
+
+        with mock.patch("cogbench.resolve.discover", side_effect=self._discover):
+            return resolve(
+                self.tmp, chain_role=ROLE, fixture=FIXTURE, accepts=accepts,
+                arrangements=_arrangements if paired else None,
+                remember=True, benchmark="late-source",
+            )
+
+    def test_cold_search_does_not_store_a_key_missing_a_late_source(self):
+        for paired in (False, True):
+            with self.subTest(paired=paired):
+                result = self._resolve(late=True, paired=paired)
+                self.assertTrue(result.ready)
+                self.assertIn(self.source, memo.source_paths(self.found[-1]))
+                self.assertFalse(memo.cache_path(self.tmp).exists())
+
+    def test_validation_cannot_recall_a_key_missing_its_late_source(self):
+        for paired in (False, True):
+            with self.subTest(paired=paired):
+                first = self._resolve(late=False, paired=paired)
+                self.assertTrue(first.ready)
+                self.assertTrue(memo.cache_path(self.tmp).exists())
+                self.assertNotIn(self.source, memo.source_paths(self.found[-1]))
+                with mock.patch("cogbench.resolve.memo.write") as write:
+                    result = self._resolve(late=True, paired=paired)
+                self.assertTrue(result.ready)
+                self.assertFalse(result.recalled)
+                write.assert_not_called()
+                memo.cache_path(self.tmp).unlink()
+
+
 def _key(repository: Path) -> str:
     return json.loads(memo.cache_path(repository).read_text())["key"]
 
