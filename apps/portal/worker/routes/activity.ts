@@ -42,6 +42,48 @@ const ActivityMutationSchema = z.enum([
   "rerun_hosted",
 ]);
 
+/**
+ * Only `error` is read, and only to a bounded length: the rest of a refused
+ * exchange can echo the request, and that request carries the client secret and
+ * the code. Not a closed enum, because Discord's rate-limit body has no `error`
+ * key, an edge failure returns HTML, and an identifier we have not seen is
+ * exactly the response worth keeping.
+ */
+const DiscordOAuthErrorSchema = z.object({ error: z.string().min(1).max(64) });
+
+/** Refusals that say our own credentials or our own request are wrong. */
+const PORTAL_SIDE_OAUTH_ERRORS = new Set([
+  "invalid_client",
+  "unauthorized_client",
+  "invalid_request",
+  "unsupported_grant_type",
+  "invalid_scope",
+]);
+
+/**
+ * Three sentences, because the student's next move differs and the portal
+ * should not claim more than the response shows. A refused grant is fixed by a
+ * fresh one. A refusal naming our credentials will refuse again, so sending the
+ * student back costs them time. Anything else, a rate limit or an edge failure
+ * included, is a refusal we cannot explain, and calling it ours would be a guess.
+ */
+export function activityTokenRejection(
+  status: number,
+  body: unknown,
+): { logged: { evt: string; status: number; error: string }; message: string } {
+  const parsed = DiscordOAuthErrorSchema.safeParse(body);
+  const error = parsed.success ? parsed.data.error : "none";
+  return {
+    logged: { evt: "activity_token_exchange_rejected", status, error },
+    message:
+      error === "invalid_grant"
+        ? "Discord would not accept that authorization. Close the Activity and open it again for a fresh one."
+        : PORTAL_SIDE_OAUTH_ERRORS.has(error)
+          ? "Discord turned down this Activity's sign-in, and reopening won't change that. Tell an instructor; the fix is on our side."
+          : "Discord did not answer this sign-in. Open the Activity again, and tell an instructor if it keeps happening.",
+  };
+}
+
 function configured(c: Context<AppEnv>): { clientId: string; clientSecret: string; sessionSecret: string } {
   if (!c.env.DISCORD_CLIENT_ID || !c.env.DISCORD_CLIENT_SECRET || !c.env.ACTIVITY_SESSION_SECRET) {
     throw new ApiHttpError(501, "provider_unconfigured", "Discord Activity authentication is not configured.");
@@ -139,13 +181,23 @@ export function registerActivityRoutes(app: Hono<AppEnv>): void {
       }),
     });
     if (!tokenResponse.ok) {
-      throw new ApiHttpError(401, "unauthorized", "Discord could not authorize the Activity.");
+      const rejection = activityTokenRejection(
+        tokenResponse.status,
+        await tokenResponse.json().catch(() => null),
+      );
+      console.warn(JSON.stringify(rejection.logged));
+      throw new ApiHttpError(401, "unauthorized", rejection.message);
     }
     const token = z.object({ access_token: z.string().min(1) }).parse(await tokenResponse.json());
     const userResponse = await fetch("https://discord.com/api/v10/users/@me", {
       headers: { Authorization: `Bearer ${token.access_token}` },
     });
-    if (!userResponse.ok) throw new ApiHttpError(401, "unauthorized", "Discord identity could not be loaded.");
+    if (!userResponse.ok) {
+      // Discord rate-limits /users/@me, so this is reachable with a token that
+      // is perfectly good.
+      console.warn(JSON.stringify({ evt: "activity_identity_fetch_failed", status: userResponse.status }));
+      throw new ApiHttpError(401, "unauthorized", "Discord identity could not be loaded.");
+    }
     const user = z
       .object({ id: z.string(), username: z.string(), global_name: z.string().nullable().optional() })
       .parse(await userResponse.json());
