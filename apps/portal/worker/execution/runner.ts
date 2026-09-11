@@ -1,4 +1,4 @@
-import { eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import {
   RUNNER_PROTOCOL_VERSION,
   RunJobV1Schema,
@@ -12,7 +12,7 @@ import { runs } from "../db/schema";
 import { ApiHttpError } from "../http/errors";
 import { newId } from "../util/id";
 import { getLatestTeamWeights } from "../services/local-reports";
-import { weightManifest } from "../services/weights";
+import { weightManifest, weightObjectKey } from "../services/weights";
 
 const DEFAULT_IMAGE_DIGEST = "cogworks-week2-cpu-v1:unpublished";
 
@@ -145,6 +145,104 @@ export function buildRunJob(
   });
 }
 
+function retryInputError(detail: string): ApiHttpError {
+  return new ApiHttpError(409, "invalid_request", detail);
+}
+
+function recordedJob(run: RunRow): RunJobV1 {
+  if (!run.dispatchJobJson) {
+    throw retryInputError("This run has no recorded dispatch inputs. Start a new candidate.");
+  }
+  let job: RunJobV1;
+  try {
+    job = RunJobV1Schema.parse(JSON.parse(run.dispatchJobJson));
+  } catch {
+    throw retryInputError("This run's recorded dispatch inputs are invalid. Start a new candidate.");
+  }
+  if (job.runId !== run.id || job.mode !== run.mode || job.source.sha !== run.sha ||
+      job.source.repositoryId !== run.repositoryId || job.benchmark.id !== run.benchmarkId ||
+      job.benchmark.version !== run.benchmarkVersion ||
+      job.benchmark.contractVersion !== run.contractVersion ||
+      job.benchmark.datasetVersion !== run.datasetVersion ||
+      job.benchmark.scorerVersion !== run.scorerVersion ||
+      job.protocolVersion !== run.protocolVersion || run.provider !== "modal") {
+    throw retryInputError("Recorded dispatch inputs do not match this run.");
+  }
+  if ((job.mode === "official" && !job.preparedArtifactId) ||
+      (!job.preparedArtifactId && !job.weights) ||
+      (job.preparedArtifactId && job.weights !== undefined)) {
+    throw retryInputError("Recorded dispatch artifact or weight inputs are inconsistent.");
+  }
+  return job;
+}
+
+async function validateRecordedWeights(env: Env, job: RunJobV1): Promise<void> {
+  const weights = job.weights ?? [];
+  if (!weights.length) return;
+  if (!env.ARTIFACTS) throw retryInputError("Recorded weight storage is unavailable.");
+  const seen = new Set<string>();
+  for (const weight of weights) {
+    if (seen.has(weight.path)) throw retryInputError("Recorded weight paths contain duplicates.");
+    seen.add(weight.path);
+    let key: string;
+    try {
+      key = weightObjectKey(job.source.fullName, job.source.sha, weight.path);
+    } catch {
+      throw retryInputError("A recorded weight path is invalid.");
+    }
+    const object = await env.ARTIFACTS.head(key);
+    if (!object) throw retryInputError(`Recorded weight ${weight.path} is unavailable.`);
+    const checksum = object.checksums.sha256;
+    const digest = checksum && [...new Uint8Array(checksum)]
+      .map((byte) => byte.toString(16).padStart(2, "0")).join("");
+    if (object.size !== weight.size || digest !== weight.sha256) {
+      throw retryInputError(`Recorded weight ${weight.path} has changed or has no matching checksum.`);
+    }
+  }
+}
+
+/** Preserve the recorded inputs; only transport and execution identifiers change.
+ * Modal has no artifact-availability preflight API here. A recorded snapshot ID
+ * remains the input, and Modal reports an unavailable snapshot as a run failure. */
+export async function prepareRetryJob(
+  env: Env,
+  failedRun: RunRow,
+  team: TeamRow,
+  benchmark: BenchmarkRow,
+  newRunId: string,
+): Promise<RunJobV1> {
+  const saved = recordedJob(failedRun);
+  if (failedRun.status !== "failed" || failedRun.teamId !== team.id ||
+      env.EXECUTION_PROVIDER !== failedRun.provider ||
+      failedRun.runtimeVersion !== benchmark.runtimeVersion) {
+    throw retryInputError("Retry status, team, provider, or runtime version does not match.");
+  }
+  assertModalConfigured(env);
+  // The row may carry an artifact from a late completion. Only the dispatch
+  // record identifies whether the original execution prepared its own inputs.
+  let current: RunJobV1;
+  try {
+    current = buildRunJob(env, {
+      ...failedRun, preparedArtifactId: saved.preparedArtifactId,
+    }, team, benchmark, saved.weights);
+  } catch {
+    throw retryInputError("Current repository or benchmark/runtime configuration is invalid for retry.");
+  }
+  if (JSON.stringify(saved.source) !== JSON.stringify(current.source) ||
+      JSON.stringify(saved.benchmark) !== JSON.stringify(current.benchmark) ||
+      JSON.stringify(saved.runtime) !== JSON.stringify(current.runtime) ||
+      saved.protocolVersion !== current.protocolVersion) {
+    throw retryInputError("Repository or benchmark/runtime configuration changed since this run.");
+  }
+  await validateRecordedWeights(env, saved);
+  if (!newRunId || newRunId === failedRun.id) {
+    throw retryInputError("Retry requires a new execution ID.");
+  }
+  return RunJobV1Schema.parse({
+    ...saved, jobId: current.jobId, runId: newRunId, callback: current.callback,
+  });
+}
+
 /**
  * Hand one run to Modal, through the queue when there is one.
  *
@@ -161,14 +259,32 @@ export async function enqueueRun(
   benchmark: BenchmarkRow,
 ): Promise<void> {
   assertModalConfigured(env);
-  let weights: WeightFile[] = [];
-  if (!run.preparedArtifactId) {
-    const report = await getLatestTeamWeights(env, run.teamId, team.repoFullName, run.sha);
-    weights = await weightManifest(
-      env.ARTIFACTS, team.repoFullName, run.sha, report.weightsUsed, report.weightsUploaded,
-    );
+  const db = getDb(env);
+  const [stored] = await db.select().from(runs).where(eq(runs.id, run.id)).limit(1);
+  if (!stored) throw retryInputError("The execution to dispatch does not exist.");
+  if (stored.provider !== env.EXECUTION_PROVIDER || stored.teamId !== team.id) {
+    throw retryInputError("Dispatch provider or team does not match the recorded execution.");
   }
-  const job = buildRunJob(env, run, team, benchmark, weights);
+  if (stored.dispatchJobJson === null) {
+    let weights: WeightFile[] = [];
+    if (!stored.preparedArtifactId) {
+      const report = await getLatestTeamWeights(env, stored.teamId, team.repoFullName, stored.sha);
+      weights = await weightManifest(
+        env.ARTIFACTS, team.repoFullName, stored.sha, report.weightsUsed, report.weightsUploaded,
+      );
+    }
+    const candidate = buildRunJob(env, stored, team, benchmark, weights);
+    const dispatchJobJson = JSON.stringify(candidate);
+    recordedJob({ ...stored, dispatchJobJson });
+    // Concurrent dispatchers may prepare different jobs. The first persisted
+    // inputs win; every sender reloads that record rather than sending its own.
+    await db.update(runs).set({ dispatchJobJson })
+      .where(and(eq(runs.id, stored.id), isNull(runs.dispatchJobJson)));
+  }
+  const [recorded] = await db.select().from(runs).where(eq(runs.id, run.id)).limit(1);
+  if (!recorded) throw retryInputError("The execution to dispatch no longer exists.");
+  const job = recordedJob(recorded);
+  await validateRecordedWeights(env, job);
   if (env.RUN_QUEUE) {
     await env.RUN_QUEUE.send(job, { contentType: "json" });
     return;

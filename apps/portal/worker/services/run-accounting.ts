@@ -1,7 +1,7 @@
-import { and, eq, exists, getTableColumns, inArray, isNotNull, isNull, or, sql, SQL } from "drizzle-orm";
+import { and, eq, getTableColumns, inArray, isNull, or, sql, SQL } from "drizzle-orm";
 import { OFFICIAL_LIMIT, PRACTICE_LIMIT, RUN_PHASES } from "@cogworks/contracts/schema";
 import type { Database } from "../db/client";
-import { officialAttempts, runs } from "../db/schema";
+import { runs } from "../db/schema";
 
 type BenchmarkScope = { teamId: string; benchmarkId: string; benchmarkVersion: number };
 type AccountingScope = BenchmarkScope | { teamId: string; allBenchmarks: true };
@@ -53,8 +53,8 @@ export function insertRunWithCapacity(db: Database, value: typeof runs.$inferIns
   // Drizzle's INSERT SELECT uses every table column in declaration order.
   // Supply column defaults explicitly and retain each column's value encoder.
   const values = sql.join(Object.entries(columns).map(([key, column]) => {
-    // Number the next completed evaluation, independent of historical claim
-    // holes. Compute inside the guarded INSERT so a concurrent completion is seen.
+    // Number by accepted evaluations inside the guarded INSERT so a concurrent
+    // completion is seen, regardless of failed or refunded history.
     if (key === "attemptNumber" && value.mode === "official") {
       return sql`(select count(*) + 1 from ${runs} where ${and(
         scopePredicate(scope), eq(runs.mode, "official"), acceptedRunPredicate(),
@@ -69,35 +69,4 @@ export function insertRunWithCapacity(db: Database, value: typeof runs.$inferIns
   )})`;
   const limit = value.mode === "practice" ? PRACTICE_LIMIT : OFFICIAL_LIMIT;
   return db.insert(runs).select(sql`select ${values} where ${occupied} < ${limit}`);
-}
-
-function claimScopePredicate(scope: BenchmarkScope) {
-  return and(
-    eq(officialAttempts.teamId, scope.teamId),
-    eq(officialAttempts.benchmarkId, scope.benchmarkId),
-    eq(officialAttempts.benchmarkVersion, scope.benchmarkVersion),
-  )!;
-}
-
-// Old failures may retain claims. Remove only this quota scope's excluded
-// executions, in the same transaction that admits the next run.
-export function releaseExcludedOfficialClaims(db: Database, scope: BenchmarkScope) {
-  return db.delete(officialAttempts).where(and(
-    claimScopePredicate(scope),
-    exists(db.select({ value: sql`1` }).from(runs).where(and(
-      scopePredicate(scope), eq(runs.id, officialAttempts.runId),
-      or(inArray(runs.status, ["failed", "cancelled"]), isNotNull(runs.refundedAt)),
-    ))),
-  ));
-}
-
-// Compatibility slots are internal. A historical success in slot 3 must not
-// force the next run's visible attempt number, or its claim slot, above 3.
-export function nextOfficialClaimSlot(scope: BenchmarkScope) {
-  const slots = sql.join(Array.from({ length: OFFICIAL_LIMIT }, (_, index) =>
-    sql`select ${index + 1} as slot`), sql` union all `);
-  return sql`(select min(slot) from (${slots}) where not exists (
-    select 1 from ${officialAttempts} where ${claimScopePredicate(scope)}
-      and ${officialAttempts.attemptNumber} = slot
-  ))`;
 }

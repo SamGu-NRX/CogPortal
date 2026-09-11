@@ -2,6 +2,7 @@ import { and, asc, desc, eq, inArray, isNull, ne, or } from "drizzle-orm";
 import {
   MetricSchema,
   OFFICIAL_LIMIT,
+  PRACTICE_LIMIT,
   RUN_PHASES,
   RunStreamEventSchema,
   RunSurfaceSnapshotSchema,
@@ -32,7 +33,7 @@ import {
 import { syncRun } from "../execution/sync";
 import { serializeMetric } from "../http/serializers";
 import { ApiHttpError } from "../http/errors";
-import { canPublishOfficialRun } from "./run-eligibility";
+import { canPublishOfficialRun, currentSurfaceRun } from "./run-eligibility";
 import { acceptedRunPredicate, readRunAccounting } from "./run-accounting";
 
 const MAX_SURFACE_EVENTS = 250;
@@ -271,8 +272,8 @@ export async function buildRunSurfaceSnapshot(
     .where(eq(runStreamEvents.surfaceId, surface.id))
     .orderBy(desc(runStreamEvents.occurredAt), desc(runStreamEvents.sourceSequence))
     .limit(MAX_SURFACE_EVENTS);
-  const practice = syncedRuns.find((row) => row.mode === "practice") ?? null;
-  const official = syncedRuns.find((row) => row.mode === "official") ?? null;
+  const practice = currentSurfaceRun(syncedRuns, "practice");
+  const official = currentSurfaceRun(syncedRuns, "official");
   const local = localRows[0] ?? null;
   const selected = official
     ? await db
@@ -334,6 +335,15 @@ export async function buildRunSurfaceSnapshot(
   });
   const occupied = accounting.officialUsed + accounting.officialReserved;
   const nextAttempt = occupied < OFFICIAL_LIMIT ? occupied + 1 : null;
+  const execution = official ?? practice;
+  const retryCapacity = execution?.mode === "official"
+    ? occupied < OFFICIAL_LIMIT
+    : accounting.practiceUsed + accounting.practiceReserved < PRACTICE_LIMIT;
+  if (execution?.status === "failed" && benchmark.active && !accounting.activeRuns
+    && retryCapacity && execution.provider === env.EXECUTION_PROVIDER
+    && (execution.dispatchJobJson !== null || execution.provider === "fixture")) {
+    actions.splice(2, 0, "retry");
+  }
 
   return RunSurfaceSnapshotSchema.parse({
     id: surface.id,
@@ -358,6 +368,15 @@ export async function buildRunSurfaceSnapshot(
     localRunId: local?.id ?? null,
     practiceRunId: practice?.id ?? null,
     officialRunId: official?.id ?? null,
+    executionGeneration: syncedRuns.length,
+    executionHistory: syncedRuns.map((run) => ({
+      id: run.id,
+      mode: run.mode,
+      status: run.status,
+      retryOfRunId: run.retryOfRunId,
+      createdAt: run.createdAt,
+      finishedAt: run.finishedAt,
+    })),
     published,
     nextOfficialAttempt: nextAttempt,
     // The run that failed, if one did. A refusal explains itself; every other
