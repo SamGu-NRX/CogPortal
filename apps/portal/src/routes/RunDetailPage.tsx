@@ -387,7 +387,17 @@ export function RunDetailPage() {
         </Panel>
       )}
 
-      {run.status === "succeeded" && run.mode === "official" && (
+      {run.status === "succeeded" && run.mode === "official" && !run.publishable && (
+        <Panel label="ATTEMPT REFUNDED" className="mt-4">
+          <p className="max-w-prose text-[14px] leading-relaxed text-ink-secondary">
+            We stopped hearing from this run and returned your attempt before
+            its results arrived. The findings are preserved above, but this
+            result can't be published.
+          </p>
+        </Panel>
+      )}
+
+      {run.publishable && (
         <Panel
           label={run.selected ? "PUBLISHED" : "PUBLISH"}
           tone={run.selected ? "good" : "default"}

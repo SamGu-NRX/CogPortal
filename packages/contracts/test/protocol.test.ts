@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import {
   BenchmarkResultV1Schema,
   RefusalSchema,
+  PreparedEnvironmentV1Schema,
   RunEventV1Schema,
   RunJobV1Schema,
 } from "../src/protocol.ts";
@@ -35,6 +36,46 @@ test("TypeScript contracts accept all valid v1 golden fixtures", async () => {
       .success,
     true,
   );
+});
+
+test("prepared environment evidence is optional on legacy wires and bounded when present", async () => {
+  const evidence = PreparedEnvironmentV1Schema.parse(await fixture("prepared-environment.valid.json"));
+  const job = RunJobV1Schema.parse(await fixture("run-job.valid.json"));
+  const event = RunEventV1Schema.parse(await fixture("run-event.valid.json"));
+  for (const preparedEnvironment of [undefined, null, evidence]) {
+    assert.equal(RunJobV1Schema.safeParse({ ...job, preparedEnvironment }).success, true);
+    assert.equal(RunEventV1Schema.safeParse({ ...event, preparedEnvironment }).success, true);
+  }
+  for (const patch of [
+    { schemaVersion: 2 }, { artifactId: "" }, { sandboxContract: 0 },
+    { sandboxContract: 1.5 }, { pythonVersion: "" }, { sdkVersion: "" },
+    { source: { ...evidence.source, sha: "a".repeat(39) } },
+    { source: { ...evidence.source, repositoryId: 0 } },
+    { source: { ...evidence.source, fullName: "owner/repo/extra" } },
+    { modules: [{ ...evidence.modules[0], sha256: "G".repeat(64) }] },
+    { modules: [] },
+    { modules: Array(33).fill(evidence.modules[0]) },
+    { weights: Array(9).fill({ path: "model.bin", sha256: "b".repeat(64) }) },
+    { studentAttestation: true },
+  ]) {
+    assert.equal(PreparedEnvironmentV1Schema.safeParse({ ...evidence, ...patch }).success, false, JSON.stringify(patch));
+  }
+  assert.equal(PreparedEnvironmentV1Schema.safeParse({ ...evidence, source: { ...evidence.source, repositoryId: null } }).success, true);
+});
+
+test("prepared environment JSON definition matches Zod fields and bounds", async () => {
+  const job = JSON.parse(await readFile(new URL("../../../protocols/v1/run-job.schema.json", import.meta.url), "utf8"));
+  const event = JSON.parse(await readFile(new URL("../../../protocols/v1/run-event.schema.json", import.meta.url), "utf8"));
+  const definition = job.$defs.preparedEnvironment;
+  const keys = Object.keys(PreparedEnvironmentV1Schema.shape).sort();
+  assert.deepEqual(Object.keys(definition.properties).sort(), keys);
+  assert.deepEqual([...definition.required].sort(), keys);
+  assert.equal(definition.additionalProperties, false);
+  assert.equal(definition.properties.modules.minItems, 1);
+  assert.equal(definition.properties.modules.maxItems, 32);
+  assert.equal(definition.properties.weights.maxItems, 8);
+  assert.equal(event.oneOf[1].properties.preparedEnvironment.anyOf[0].$ref, "run-job.schema.json#/$defs/preparedEnvironment");
+  assert.deepEqual(job.properties.benchmark.properties.sandboxContract, { type: ["integer", "null"], minimum: 1 });
 });
 
 test("weight manifests require digests and prepared jobs may omit them", async () => {

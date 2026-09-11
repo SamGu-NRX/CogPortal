@@ -41,7 +41,7 @@ import modal  # noqa: E402
 import modal.runner  # noqa: E402
 
 from cogworks_runner import modal_app  # noqa: E402
-from cogworks_runner.protocol import validate_job  # noqa: E402
+from cogworks_runner.protocol import ProtocolError, validate_job  # noqa: E402
 
 #: Benchmarks this can drive, and the evaluate function each one needs. Week 2
 #: is absent because its payload needs a CelebA manifest this does not build.
@@ -145,11 +145,19 @@ def main() -> int:
 
     sha = args.sha
     if not sha:
+        import urllib.error
         import urllib.request
+
         url = "https://api.github.com/repos/{}/commits?per_page=1".format(args.repo)
         request = urllib.request.Request(url, headers={"User-Agent": "cogworks-smoke"})
-        with urllib.request.urlopen(request, timeout=30) as response:
-            sha = json.load(response)[0]["sha"]
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                sha = json.load(response)[0]["sha"]
+        except (urllib.error.URLError, OSError) as error:
+            # A mistyped --repo is the same kind of mistake as a mistyped --sha
+            # and ends the same way. 404 is the common one and its message says
+            # nothing, so name the repository that was asked for.
+            parser.error("could not resolve a commit for {}: {}".format(args.repo, error))
         print("resolved {} -> {}".format(args.repo, sha[:12]), flush=True)
 
     # `submit_job` validates before it spawns anything, so a job this tool
@@ -157,7 +165,15 @@ def main() -> int:
     # shape the endpoint would have refused. Skipping it is how a missing
     # `weights` key reached `_prepare` and surfaced as a provider fault
     # instead of the protocol error that names the field.
-    job = validate_job(build_job(args.benchmark, args.repo, sha, args.mode))
+    try:
+        job = validate_job(build_job(args.benchmark, args.repo, sha, args.mode))
+    except ProtocolError as error:
+        # A mistyped --sha is bad input, not a failed run, so it ends here
+        # rather than in the failure handler. `--keep-going` exists to sweep
+        # many repositories past real failures; reporting a malformed argument
+        # through it would put a fabricated outcome in that sweep.
+        parser.error("{} Check --repo and --sha.".format(error))
+
     reporter = PrintReporter()
     started = time.time()
 
