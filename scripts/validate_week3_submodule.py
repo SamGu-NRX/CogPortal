@@ -21,7 +21,7 @@ BENCHMARK = ROOT / "benchmarks" / "week3"
 #
 # No version in PLUGIN_EXPECTATIONS moves: a complete grid scores identically,
 # so this is not a scorer bump and needs no migration.
-REVIEWED_COMMIT = "2e94f696d48016283ace59f1ce72339ed1b48d4f"
+REVIEWED_COMMIT = "2956f3ae9c6fbf2ad4dccc831efa4cda13aa8bf5"
 
 PLUGIN_EXPECTATIONS = {
     'benchmark_id = "language-search"': "benchmark id",
