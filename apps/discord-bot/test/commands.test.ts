@@ -86,6 +86,7 @@ function surfaceSnapshot(): RunSurfaceSnapshot {
     published: false,
     refusalHeadline: null,
     promotionRefusal: null,
+    retryRefusal: null,
     nextOfficialAttempt: 2,
     events: [],
     executionHistory: [],

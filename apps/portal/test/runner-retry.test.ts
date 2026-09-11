@@ -3,10 +3,11 @@ import { readdirSync, readFileSync } from "node:fs";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { URL } from "node:url";
 import { test } from "node:test";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
-import { buildRunJob, enqueueRun, prepareRetryJob } from "../worker/execution/runner.ts";
-import { runs, teams, cohorts, benchmarks, type RunRow, type TeamRow, type BenchmarkRow } from "../worker/db/schema.ts";
+import { buildRunJob, enqueueRun, prepareRetryJob, validateRetryInputs } from "../worker/execution/runner.ts";
+import { readRunSurfaceSnapshot } from "../worker/services/run-surfaces.ts";
+import { runs, teams, cohorts, benchmarks, users, runSurfaces, type RunRow, type TeamRow, type BenchmarkRow } from "../worker/db/schema.ts";
 import type { Env } from "../worker/env.ts";
 import { PreparedEnvironmentV1Schema, type RunJobV1 } from "@cogworks/contracts/protocol";
 import { ApiHttpError } from "../worker/http/errors.ts";
@@ -265,6 +266,113 @@ async function database(failPersistence = false) {
   await db.insert(benchmarks).values(benchmark);
   return { db, binding, queries, sqlite };
 }
+
+async function snapshotDatabase(run: RunRow, env: Env, currentBenchmark = benchmark) {
+  const harness = await database();
+  const surfaceId = `surface_${"a".repeat(20)}`;
+  await harness.db.insert(users).values({ id: "user_retry", email: "retry@example.test", name: "Retry", githubLogin: "retry" });
+  await harness.db.insert(runSurfaces).values({ id: surfaceId, teamId: team.id, createdByUserId: "user_retry",
+    benchmarkId: benchmark.id, benchmarkVersion: benchmark.version, createdAt: 1, updatedAt: 1 });
+  await harness.db.update(benchmarks).set(currentBenchmark)
+    .where(and(eq(benchmarks.id, benchmark.id), eq(benchmarks.version, benchmark.version)));
+  run.surfaceId = surfaceId;
+  await harness.db.insert(runs).values(run);
+  env.DB = harness.binding;
+  return { ...harness, snapshot: () => readRunSurfaceSnapshot(env, surfaceId) };
+}
+
+type RetryCase = { run: RunRow; job: RunJobV1; env: Env; catalog: BenchmarkRow };
+const refusedInputs: Record<string, (candidate: RetryCase) => void> = {
+  "unknown contract": ({ catalog }) => { catalog.sandboxContract = null; },
+  "changed contract": ({ catalog }) => { catalog.sandboxContract = 2; },
+  "missing dispatch": ({ run }) => { run.dispatchJobJson = null; },
+  "malformed dispatch": ({ run }) => { run.dispatchJobJson = "{"; },
+  "missing provisioning": ({ job }) => { delete job.preparedEnvironment; },
+  "changed source": ({ job }) => { job.source.sha = "c".repeat(40); },
+  "changed scorer": ({ catalog }) => { catalog.scorerVersion = "changed"; },
+  "changed plugin": ({ catalog }) => { catalog.pluginVersion = "changed"; },
+  "invalid plugin": ({ catalog }) => { catalog.pluginVersion = ""; },
+  "changed runtime": ({ catalog }) => { catalog.runtimeVersion = "changed"; },
+  "changed image configuration": ({ env }) => { env.RUNNER_IMAGE_DIGEST = "changed"; },
+  "invalid protocol": ({ run, job }) => { run.dispatchJobJson = JSON.stringify({ ...job, protocolVersion: "2" }); },
+};
+for (const [name, mutate] of Object.entries(refusedInputs)) {
+  test(`Retry snapshot and admission share the ${name} refusal without changing failure history`, async () => {
+    const candidate = { ...original("official"), catalog: { ...benchmark } };
+    const before = candidate.run.dispatchJobJson;
+    mutate(candidate);
+    if (candidate.run.dispatchJobJson === before) candidate.run.dispatchJobJson = JSON.stringify(candidate.job);
+    candidate.run.refusalJson = JSON.stringify({ headline: "Historical failure explanation" });
+    const harness = await snapshotDatabase(candidate.run, candidate.env, candidate.catalog);
+    try {
+      const snapshot = await harness.snapshot();
+      assert.equal(snapshot.actions.includes("retry"), false);
+      assert.equal(snapshot.status, "failed");
+      assert.equal(snapshot.refusalHeadline, "Historical failure explanation");
+      assert.ok(snapshot.retryRefusal);
+      await assert.rejects(prepareRetryJob(candidate.env, candidate.run, team, candidate.catalog, "run_retry"), (error) => {
+        assert.ok(error instanceof ApiHttpError);
+        assert.equal(error.status, 409);
+        assert.equal(error.message, snapshot.retryRefusal);
+        return true;
+      });
+      assert.deepEqual((await harness.db.select().from(runs))[0], candidate.run);
+    } finally { harness.sqlite.close(); }
+  });
+}
+
+for (const mode of ["practice", "official"] as const) {
+  test(`${mode} Retry render uses original inputs, ignores late row evidence and performs no external IO or ID generation`, async (t) => {
+    const { run, job, env } = original(mode, mode === "practice");
+    if (job.preparedEnvironment) {
+      job.preparedEnvironment.baseImageId = "im-older-compatible-base";
+      job.preparedEnvironment.sdkVersion = "0.1.0";
+      job.preparedEnvironment.pythonVersion = "3.11.2";
+      run.dispatchJobJson = JSON.stringify(job);
+    }
+    run.preparedArtifactId = "im-late-unrelated";
+    run.preparedEnvironmentJson = "invalid late row evidence";
+    const harness = await snapshotDatabase(run, env);
+    try {
+      for (const key of ["ARTIFACTS", "MODAL_RUNNER_URL", "RUNNER_SIGNING_SECRET", "PUBLIC_ORIGIN", "RUN_QUEUE"] as const) {
+        Object.defineProperty(env, key, { configurable: true, get() { throw new Error(`Render accessed ${key}`); } });
+      }
+      t.mock.method(globalThis, "fetch", () => { throw new Error("Render attempted network access"); });
+      t.mock.method(crypto, "getRandomValues", () => { throw new Error("Render generated an ID"); });
+      assert.deepEqual(validateRetryInputs(env, run, team, benchmark), job);
+      const snapshot = await harness.snapshot();
+      assert.equal(snapshot.actions.includes("retry"), true);
+      assert.equal(snapshot.retryRefusal, null);
+      assert.equal(snapshot.status, "failed");
+      assert.deepEqual((await harness.db.select().from(runs))[0], run);
+    } finally { harness.sqlite.close(); }
+  });
+}
+
+test("fixture Retry remains advertised without a recorded job or sandbox evidence", async () => {
+  const { run, env } = original();
+  run.provider = "fixture";
+  run.dispatchJobJson = null;
+  env.EXECUTION_PROVIDER = "fixture";
+  const harness = await snapshotDatabase(run, env, { ...benchmark, sandboxContract: null });
+  try {
+    const snapshot = await harness.snapshot();
+    assert.equal(snapshot.actions.includes("retry"), true);
+    assert.equal(snapshot.retryRefusal, null);
+    assert.equal(snapshot.status, "failed");
+  } finally { harness.sqlite.close(); }
+});
+
+test("unexpected errors in Retry reconstruction are not converted to eligibility refusals", async () => {
+  for (const failure of [new Error("unexpected runtime accessor failure"), new ApiHttpError(500, "invalid_request", "unexpected internal failure")]) {
+    const { run, env } = original("official");
+    Object.defineProperty(env, "RUNNER_IMAGE_DIGEST", { get() { throw failure; } });
+    assert.throws(() => validateRetryInputs(env, run, team, benchmark), (error) => error === failure);
+    const harness = await snapshotDatabase(run, env);
+    try { await assert.rejects(harness.snapshot(), (error) => error === failure); }
+    finally { harness.sqlite.close(); }
+  }
+});
 
 test("enqueue records inputs before sending and reuses the first saved job", async () => {
   const { db, binding, queries, sqlite } = await database();
