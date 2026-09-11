@@ -259,35 +259,34 @@ class EveryBranchHasTheSameShape(unittest.TestCase):
             "predictions is bound to an unconsumed result at line(s) {}".format(listed_outside),
         )
 
-    def test_every_benchmark_run_is_inside_the_course_file_scope(self):
-        script = evaluate_script()
-        tree = ast.parse(script)
-        guarded_calls = []
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.With):
-                continue
-            names = {
-                item.context_expr.id
-                for item in node.items
-                if isinstance(item.context_expr, ast.Name)
-            }
-            if "course_files" not in names:
-                continue
-            for inner in ast.walk(node):
-                if isinstance(inner, ast.Call) and isinstance(inner.func, ast.Attribute):
-                    if inner.func.attr == "run":
-                        guarded_calls.append(inner)
-        self.assertTrue(guarded_calls, "no benchmark.run(...) is held inside course_files")
-
-        guarded = {id(call) for call in guarded_calls}
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
-                if node.func.attr == "run" and getattr(node.func.value, "id", "") == "benchmark":
-                    self.assertIn(
-                        id(node),
-                        guarded,
-                        "a benchmark.run(...) call runs outside the course-file scope",
-                    )
+    def test_every_result_is_materialized_inside_both_scopes(self):
+        tree = ast.parse(evaluate_script())
+        parents = {
+            child: parent for parent in ast.walk(tree)
+            for child in ast.iter_child_nodes(parent)
+        }
+        assignments = [
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.Assign)
+            and getattr(node.targets[0], "id", "") == "predictions"
+        ]
+        self.assertEqual(len(assignments), 4)
+        for assignment in assignments:
+            scopes = set()
+            node = assignment
+            while node in parents:
+                node = parents[node]
+                if isinstance(node, ast.With):
+                    for item in node.items:
+                        expression = item.context_expr
+                        if isinstance(expression, ast.Name):
+                            scopes.add(expression.id)
+                        elif isinstance(expression, ast.Call):
+                            scopes.add(getattr(expression.func, "attr", ""))
+            self.assertTrue(
+                {"course_files", "redirect_stdout", "redirect_stderr"} <= scopes,
+                "result at line {} escapes a scope: {}".format(assignment.lineno, scopes),
+            )
 
     def test_every_load_student_call_takes_both_halves(self):
         """Every branch has to unpack the factory and the scope."""
