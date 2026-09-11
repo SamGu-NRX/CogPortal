@@ -1538,5 +1538,691 @@ class APlatformWithoutForkStillReadsTheRepository(unittest.TestCase):
         self.assertEqual(found.module_names, ["theirs"])
 
 
+class _Fixture(unittest.TestCase):
+    """A repository to read and somewhere outside it to leave a trace.
+
+    The trace file lives outside the repository on purpose: discovery makes a
+    scratch directory the working directory, and a student module writing
+    beside itself would be testing the write guard rather than the import.
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.outside = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.outside, ignore_errors=True)
+        self.trace = self.outside / "ran.log"
+
+    def _records(self, text: str) -> str:
+        """Source for a module that notes each time its body runs."""
+
+        return (
+            "with open({!r}, 'a') as _handle:\n"
+            "    _handle.write('ran\\n')\n"
+        ).format(str(self.trace)) + text
+
+    def _times_run(self) -> int:
+        if not self.trace.exists():
+            return 0
+        return len(self.trace.read_text().split())
+
+    def _module(self, found, name):
+        matching = [entry for entry in found.modules if entry.name == name]
+        self.assertEqual(len(matching), 1, "expected one {!r}, got {}".format(
+            name, [entry.name for entry in found.modules]
+        ))
+        return matching[0].module
+
+
+class AnInitializerRunsAsItsPackage(_Fixture):
+    """``from .core import Detector`` in an ``__init__.py`` is offering a name.
+
+    The file was run as a standalone module and its globals copied across
+    afterwards, so every relative import in it failed with "attempted relative
+    import with no known parent package" and the package was reported as a
+    skipped module a student cannot act on: their file is correct.
+    """
+
+    def _package(self):
+        core = self.tmp / "core"
+        core.mkdir()
+        (core / "detector.py").write_text(
+            "class Detector:\n    def detect(self, x):\n        return x\n"
+        )
+        (core / "__init__.py").write_text(
+            "from .detector import Detector\n"
+            "\n"
+            "THRESHOLD = 0.5\n"
+            "\n"
+            "def make_detector():\n"
+            "    return Detector()\n"
+        )
+        return core
+
+    def test_a_relative_import_in_an_initializer_resolves(self):
+        self._package()
+
+        found = discover(self.tmp)
+
+        self.assertEqual(
+            [entry.detail for entry in found.skipped if entry.name == "__init__"], []
+        )
+        body = self._module(found, "__init__")
+        self.assertEqual(type(body.make_detector()).__name__, "Detector")
+
+    def test_what_the_initializer_offers_is_in_the_namespace(self):
+        """A benchmark searches `Discovery.namespace`. A name that exists only
+        because the initializer defined it was not in it."""
+
+        self._package()
+
+        found = discover(self.tmp)
+
+        offered = [
+            module for module in found.namespace if hasattr(module, "make_detector")
+        ]
+        self.assertEqual(len(offered), 1)
+        self.assertEqual(offered[0].THRESHOLD, 0.5)
+
+    def test_a_failing_initializer_is_reported_and_the_rest_is_read(self):
+        core = self._package()
+        (core / "__init__.py").write_text("raise ValueError('the body failed')\n")
+
+        found = discover(self.tmp)
+
+        failure = [entry for entry in found.skipped if entry.name == "__init__"]
+        self.assertEqual(len(failure), 1)
+        self.assertEqual(failure[0].reason, "raised")
+        self.assertIn("the body failed", failure[0].detail)
+        self.assertIn("detector", [entry.name for entry in found.modules])
+        self.assertNotIn("__init__", [entry.name for entry in found.modules])
+
+    def test_the_initializer_gets_the_caller_s_deadline(self):
+        """The 30-second constant was hard-coded here while every other module
+        in the same directory used the timeout the caller asked for. The skip
+        detail names the number of seconds, which is how this tells the two
+        apart without waiting for either."""
+
+        core = self.tmp / "core"
+        core.mkdir()
+        (core / "__init__.py").write_text("while True:\n    pass\n")
+        (core / "member.py").write_text("def solve(x):\n    return x\n")
+
+        found = discover(self.tmp, import_timeout=1)
+
+        failure = [entry for entry in found.skipped if entry.name == "__init__"]
+        self.assertEqual(len(failure), 1)
+        self.assertEqual(failure[0].reason, "too_slow")
+        self.assertIn("after 1 seconds", failure[0].detail)
+        self.assertIn("solve", dir(self._module(found, "member")))
+
+
+class AFileIsReadOnceHoweverItIsReached(_Fixture):
+    """One module object per source file, for the whole of one discovery.
+
+    A second execution produces a second object with independent globals, and
+    the copy discovery hands to the benchmark is the one that never saw the
+    student's own setup: their registry is empty in the copy that gets
+    searched and full in the copy their script holds.
+    """
+
+    def test_a_sibling_a_root_script_imported_is_not_read_again(self):
+        (self.tmp / "helpers.py").write_text(self._records(
+            "REGISTRY = {}\n"
+            "\n"
+            "def register(name):\n"
+            "    REGISTRY[name] = True\n"
+        ))
+        (self.tmp / "aaa_main.py").write_text(
+            "import helpers\nhelpers.register('from_main')\n"
+        )
+
+        found = discover(self.tmp)
+
+        self.assertEqual(self._times_run(), 1)
+        self.assertEqual(self._module(found, "helpers").REGISTRY, {"from_main": True})
+
+    def test_a_package_member_a_root_script_imported_is_not_read_again(self):
+        core = self.tmp / "core"
+        core.mkdir()
+        (core / "__init__.py").write_text("")
+        (core / "database.py").write_text(self._records("STORE = {}\n"))
+        (self.tmp / "aaa_main.py").write_text(
+            "import core.database as database\ndatabase.STORE['seeded'] = 1\n"
+        )
+
+        found = discover(self.tmp)
+
+        self.assertEqual(self._times_run(), 1)
+        self.assertEqual(self._module(found, "database").STORE, {"seeded": 1})
+
+    def test_a_sibling_reached_by_a_relative_import_is_the_same_object(self):
+        """The member the student never imported is read under the package
+        their own import already made, so its `from .database import STORE`
+        binds the store that has their data in it."""
+
+        core = self.tmp / "core"
+        core.mkdir()
+        (core / "__init__.py").write_text("")
+        (core / "database.py").write_text(self._records("STORE = {}\n"))
+        (core / "extra.py").write_text(
+            "from .database import STORE\n"
+            "\n"
+            "def peek():\n"
+            "    return STORE\n"
+        )
+        (self.tmp / "aaa_main.py").write_text(
+            "import core.database as database\ndatabase.STORE['seeded'] = 1\n"
+        )
+
+        found = discover(self.tmp)
+
+        self.assertEqual(self._times_run(), 1)
+        self.assertIs(
+            self._module(found, "extra").peek(), self._module(found, "database").STORE
+        )
+        self.assertEqual(self._module(found, "extra").peek(), {"seeded": 1})
+
+
+class AShadowedFileInsideAPackageIsStillRead(_Fixture):
+    """A file whose stem the root already owns is read under its folder name.
+
+    Inside a package that name was handed to a lookup by stem, which went
+    looking for `core.model.py`, found nothing, and reported the student's
+    perfectly good file as "Python could not read this file as a module" --
+    a syntax error, about a file with no syntax error in it.
+    """
+
+    def test_the_package_copy_is_read_and_not_called_a_syntax_error(self):
+        (self.tmp / "model.py").write_text("def load():\n    return None\n")
+        core = self.tmp / "core"
+        core.mkdir()
+        (core / "__init__.py").write_text("")
+        (core / "model.py").write_text(
+            "WEIGHTS = 'the trained ones'\n\ndef load():\n    return WEIGHTS\n"
+        )
+
+        found = discover(self.tmp)
+
+        self.assertEqual(found.skipped, [])
+        self.assertEqual(self._module(found, "core.model").load(), "the trained ones")
+
+
+class ARetriedModuleKeepsTheIdentityItWouldHaveHad(_Fixture):
+    """A module that needed one of the three retries is the same module.
+
+    The resolver keeps a function only when its ``__module__`` equals the
+    module's ``__name__``, so a retry that changed ``__name__`` would make
+    every function in the file look imported from somewhere else and the
+    search would discard all of them.
+    """
+
+    def test_a_package_member_read_under_a_folder_name_keeps_its_stem(self):
+        (self.tmp / "model.py").write_text("def load():\n    return None\n")
+        core = self.tmp / "core"
+        core.mkdir()
+        (core / "__init__.py").write_text("")
+        (core / "model.py").write_text(
+            "WEIGHTS = 'the trained ones'\n"
+            "\n"
+            "\n"
+            "def load(key) -> DatabaseKey:\n"
+            "    return WEIGHTS\n"
+        )
+
+        found = discover(self.tmp)
+
+        entry = [item for item in found.modules if item.name == "core.model"][0]
+        self.assertTrue(entry.future_annotations)
+        self.assertEqual(entry.module.__name__, "model")
+        self.assertEqual(entry.module.load.__module__, "model")
+
+
+class ANotebookIsOneModuleHoweverItIsImported(_Fixture):
+    """``from ipynb.fs.full.metadata import SongMetadata`` and the notebook
+    pass lifted the same file twice, into two modules. A team's own
+    ``isinstance`` across the two classes was then false, and the second
+    lifting also ran without the import deadline the first one had."""
+
+    def test_the_class_a_sibling_imported_is_the_discovered_one(self):
+        (self.tmp / "metadata.ipynb").write_text(_notebook(
+            "class SongMetadata:\n    def __init__(self, title):\n        self.title = title\n"
+        ))
+        (self.tmp / "aaa_first.py").write_text(
+            "from ipynb.fs.full.metadata import SongMetadata\n"
+            "\n"
+            "def make(title):\n"
+            "    return SongMetadata(title)\n"
+        )
+
+        found = discover(self.tmp)
+
+        notebook = self._module(found, "metadata")
+        sibling = self._module(found, "aaa_first")
+        self.assertIsInstance(sibling.make("Hey"), notebook.SongMetadata)
+
+
+class LiftedDefinitionsKeepWhatWasWrittenAboveThem(_Fixture):
+    """Lifting started at the ``def`` or ``class`` line, so decorators were
+    dropped. A ``@dataclass`` came out as a plain class with annotations and
+    no ``__init__``, and the team's own ``Song("Hey")`` raised "Song() takes
+    no arguments" against a notebook that is correct."""
+
+    def test_a_decorated_class_still_behaves_as_the_decorator_makes_it(self):
+        (self.tmp / "shapes.ipynb").write_text(_notebook(
+            "from dataclasses import dataclass\n",
+            "@dataclass\nclass Song:\n    title: str\n    plays: int = 0\n",
+        ))
+
+        found = discover(self.tmp)
+
+        song = self._module(found, "shapes").Song("Hey")
+        self.assertEqual((song.title, song.plays), ("Hey", 0))
+
+    def test_a_signed_constant_is_kept(self):
+        """Python has no negative literals, so `THRESHOLD = -1` is a unary
+        minus over 1. It was dropped while the function reading it was kept,
+        and that function then failed with a NameError."""
+
+        (self.tmp / "tuning.ipynb").write_text(_notebook(
+            "THRESHOLD = -1\nSCALE = +2.5\n",
+            "def score(n):\n    return n * THRESHOLD * SCALE\n",
+        ))
+
+        found = discover(self.tmp)
+
+        module = self._module(found, "tuning")
+        self.assertEqual(module.THRESHOLD, -1)
+        self.assertEqual(module.score(2), -5.0)
+
+
+class ALiftedNotebookSaysWhetherItsAnnotationsWerePostponed(_Fixture):
+    """`compile` takes its future flags from the frame calling it unless told
+    not to, and this file declares postponed annotations. Every lifted
+    notebook silently got them while its record said it had not, which is a
+    claim about the student's module that was not true."""
+
+    def test_an_unresolved_annotation_is_retried_and_disclosed(self):
+        (self.tmp / "lifted.ipynb").write_text(_notebook(
+            "def pick(x: DatabaseKey) -> int:\n    return 1\n"
+        ))
+
+        found = discover(self.tmp)
+
+        entry = [e for e in found.modules if e.name == "lifted"][0]
+        self.assertTrue(entry.future_annotations)
+        self.assertTrue(found.to_dict()["modules"][0]["futureAnnotations"])
+
+
+class AnObjectThatClaimsToBeAPathDoesNotEndTheSearch(_Fixture):
+    """Locals on the failing frames are read for a path the benchmark can
+    answer. That is a hint, not a contract: one object whose ``__fspath__``
+    raised took the exception out of the import, out of `load_modules`, and
+    out of `discover`, so the repository reported nothing at all."""
+
+    def test_a_broken_fspath_costs_one_module_and_not_the_repository(self):
+        artifact = self.outside / "glove.6B.200d.kv"
+        artifact.write_bytes(b"the benchmark's copy")
+        (self.tmp / "loader.py").write_text(
+            "import os\n"
+            "\n"
+            "\n"
+            "class Weights(os.PathLike):\n"
+            "    def __fspath__(self):\n"
+            "        raise RuntimeError('not really a path')\n"
+            "\n"
+            "\n"
+            "HANDLE = Weights()\n"
+            "with open('glove.6B.200d.kv', 'rb') as stream:\n"
+            "    DATA = stream.read()\n"
+        )
+        (self.tmp / "other.py").write_text("def solve(x):\n    return x\n")
+
+        found = discover(
+            self.tmp, resource_files={"glove.6B.200d.kv": artifact}
+        )
+
+        self.assertIn("other", [entry.name for entry in found.modules])
+        self.assertEqual(self._module(found, "loader").DATA, b"the benchmark's copy")
+
+
+class ADirectoryThisProcessMayNotReadIsNotFatal(_Fixture):
+    """Walking for a root called `iterdir` unguarded, so one unreadable
+    folder raised out of `choose_root` and ended `discover`. The repository
+    was lost over a directory that could not have held code we could read."""
+
+    def test_the_readable_code_is_still_found(self):
+        if hasattr(os, "geteuid") and os.geteuid() == 0:
+            self.skipTest("root can read a mode-000 directory")
+        (self.tmp / "solver.py").write_text("def solve(x):\n    return x\n")
+        shut = self.tmp / "shut"
+        shut.mkdir()
+        (shut / "hidden.py").write_text("x = 1\n")
+        shut.chmod(0o000)
+        self.addCleanup(shut.chmod, 0o755)
+
+        found = discover(self.tmp)
+
+        self.assertIn("solver", [entry.name for entry in found.modules])
+
+
+class AFinderThatRaisesDoesNotEndTheSearch(_Fixture):
+    """Standing in for an absent package asks every finder on the path
+    whether it is there. One raising `OSError` ended the discovery before a
+    single module was read, and what a third-party finder raises is not ours
+    to enumerate."""
+
+    def test_a_repository_is_still_read(self):
+        class _Hostile:
+            def find_spec(self, name, path=None, target=None):
+                if name == "streamlit":
+                    raise OSError("this finder is broken")
+                return None
+
+        hostile = _Hostile()
+        sys.meta_path.insert(0, hostile)
+        self.addCleanup(
+            lambda: sys.meta_path.remove(hostile) if hostile in sys.meta_path else None
+        )
+        # A package already standing in is never asked about again, and an
+        # earlier test in this process has usually stubbed it, so the finder
+        # would never be reached and the test would pass either way.
+        held = sys.modules.pop("streamlit", None)
+        if held is not None:
+            self.addCleanup(sys.modules.__setitem__, "streamlit", held)
+        (self.tmp / "solver.py").write_text("def solve(x):\n    return x\n")
+
+        found = discover(self.tmp)
+
+        self.assertIn("solver", [entry.name for entry in found.modules])
+
+
+class EachRunRecordsItsOwnStubCalls(_Fixture):
+    """A stub is reused across discoveries in one interpreter, and its
+    callables closed over whichever list was passed first. The second
+    repository's calls were appended to the first repository's record and
+    missing from its own."""
+
+    def test_the_second_repository_reports_the_calls_it_made(self):
+        if "microphone" in sys.modules and not isinstance(
+            sys.modules["microphone"], discover_module._Stub
+        ):
+            self.skipTest("microphone is really installed here")
+        first = self.tmp / "first"
+        second = self.tmp / "second"
+        for where in (first, second):
+            where.mkdir()
+            (where / "listen.py").write_text(
+                "import microphone\nmicrophone.record(5)\n"
+            )
+
+        one = discover(first)
+        two = discover(second)
+
+        self.assertEqual(one.stub_calls, ["microphone.record"])
+        self.assertEqual(two.stub_calls, ["microphone.record"])
+
+
+class APathFromAnotherMachineIsNotRetriedHere(_Fixture):
+    """A module that fails on a relative read is retried from its own folder,
+    because it is right about where the file sits relative to itself. An
+    absolute path names a machine instead, and `C:\\Users\\...` reads as
+    relative on POSIX, so the retry ran and the record then said we imported
+    from a folder we had no reason to move to."""
+
+    def test_the_record_does_not_claim_we_moved_to_read_it(self):
+        artifact = self.outside / "glove.kv"
+        artifact.write_bytes(b"the benchmark's copy")
+        # Built rather than written out, so the file under test holds one
+        # backslash per separator the way the student's own line did.
+        backslash = chr(92)
+        named = backslash.join(["C:", "Users", "student", "glove.kv"])
+        (self.tmp / "weights.py").write_text(
+            "with open({!r}, 'rb') as stream:\n"
+            "    DATA = stream.read()\n".format(named)
+        )
+
+        found = discover(self.tmp, resource_files={"glove.kv": artifact})
+
+        entry = [item for item in found.modules if item.name == "weights"][0]
+        self.assertEqual(entry.redirected, ("glove.kv",))
+        self.assertIsNone(entry.cwd_hint)
+        self.assertNotIn("importedFrom", found.to_dict()["modules"][0])
+
+
+class ALiftedNotebookRunsOnlyWhatWasLifted(_Fixture):
+    """Lifting keeps imports, definitions and plain constants and drops the
+    rest, which is what stops a notebook's training loop from running during
+    discovery. A cell can put two statements on one line, and taking the line
+    rather than the statement carried the discarded one back in."""
+
+    def test_a_statement_sharing_a_line_with_an_import_is_left_behind(self):
+        marker = self.outside / "ran.txt"
+        cell = (
+            "import pathlib; pathlib.Path({!r}).write_text('the cell ran')\n"
+            "def solve(x):\n    return x\n".format(str(marker))
+        )
+        (self.tmp / "mixed.ipynb").write_text(_notebook(cell))
+
+        found = discover(self.tmp)
+
+        self.assertEqual(self._module(found, "mixed").solve(3), 3)
+        self.assertFalse(marker.exists())
+
+    @unittest.skipIf(sys.version_info < (3, 9), "parenthesized decorators are 3.9+")
+    def test_a_parenthesized_decorator_is_kept_whole(self):
+        """The `@` is on an earlier line than the decorator expression here,
+        and starting from the expression left a stray closing bracket."""
+
+        (self.tmp / "paren.ipynb").write_text(_notebook(
+            "from dataclasses import dataclass\n",
+            "@(\n    dataclass\n)\nclass Song:\n    title: str\n",
+        ))
+
+        found = discover(self.tmp)
+
+        self.assertEqual(self._module(found, "paren").Song("Hey").title, "Hey")
+
+    def test_a_one_line_annotated_function_is_still_recovered(self):
+        """`def pick(x: Missing): return 1` has its body on the def line, so
+        there is no line strictly between the two."""
+
+        (self.tmp / "one.ipynb").write_text(_notebook("def pick(x: Missing): return 1\n"))
+
+        found = discover(self.tmp)
+
+        entry = [item for item in found.modules if item.name == "one"][0]
+        self.assertTrue(entry.future_annotations)
+        self.assertEqual(entry.module.pick(0), 1)
+
+
+class ASlowNotebookImportIsStillATimeout(_Fixture):
+    """The deadline is a `BaseException` so a module cannot catch and ignore
+    it. Reporting it to the importing module as an `ImportError` let that
+    module's own `except Exception` swallow it and carry on with no timer
+    left, and a notebook that never finishes was recorded as loaded."""
+
+    def test_the_importing_module_cannot_swallow_it(self):
+        (self.tmp / "slow.ipynb").write_text(_notebook(
+            "def spin(f):\n    while True:\n        pass\n    return f\n",
+            "@spin\ndef thing():\n    return 1\n",
+        ))
+        (self.tmp / "aaa_main.py").write_text(
+            "try:\n"
+            "    from ipynb.fs.full.slow import thing\n"
+            "except Exception:\n"
+            "    pass\n"
+            "MARKER = 'ran past its deadline'\n"
+        )
+
+        found = discover(self.tmp, import_timeout=1)
+
+        self.assertEqual(found.modules, [])
+        self.assertEqual(
+            sorted(entry.reason for entry in found.skipped), ["too_slow", "too_slow"]
+        )
+
+
+class AFinderImportedNotebookKeepsItsRecord(_Fixture):
+    """A notebook read first through `ipynb.fs.full` is reused by the notebook
+    pass, and the pass has no notes of its own for it. The record then said
+    nothing unusual had happened while the annotations had in fact been
+    postponed, which is a claim about their module that was not true."""
+
+    def test_the_retry_it_needed_is_still_disclosed(self):
+        (self.tmp / "nine.ipynb").write_text(_notebook("def g(x: Missing):\n    return 1\n"))
+        (self.tmp / "aaa_load.py").write_text("from ipynb.fs.full.nine import g\n")
+
+        found = discover(self.tmp)
+
+        entry = [item for item in found.modules if item.name == "nine"][0]
+        self.assertTrue(entry.future_annotations)
+        record = [item for item in found.to_dict()["modules"] if item["name"] == "nine"]
+        self.assertTrue(record[0]["futureAnnotations"])
+
+
+class AnInitializerCanReadItsOwnFile(_Fixture):
+    """`Path(__file__).parent` in an `__init__.py`, to find a data file beside
+    it, is ordinary. Giving the package its file only after the body had run
+    killed the body with `NameError: name '__file__' is not defined`."""
+
+    def test_the_package_has_its_file_while_the_body_runs(self):
+        core = self.tmp / "core"
+        core.mkdir()
+        (core / "detector.py").write_text("class Detector:\n    pass\n")
+        (core / "__init__.py").write_text(
+            "from pathlib import Path\n"
+            "HERE = Path(__file__).parent\n"
+            "from .detector import Detector\n"
+            "\n"
+            "def make_detector():\n"
+            "    return Detector()\n"
+        )
+
+        found = discover(self.tmp)
+
+        self.assertEqual(found.skipped, [])
+        body = self._module(found, "__init__")
+        self.assertEqual(body.HERE, core)
+        self.assertEqual(type(body.make_detector()).__name__, "Detector")
+
+
+class ARetriedInitializerStartsWhereItStarted(_Fixture):
+    """Every other retry gets a fresh module object. A package body runs in
+    the package, so a retry that kept the failed attempt's globals applied
+    the body's own setup twice."""
+
+    def test_the_body_s_own_state_is_applied_once(self):
+        core = self.tmp / "core"
+        core.mkdir()
+        (core / "__init__.py").write_text(
+            'if "STATE" not in globals():\n'
+            "    STATE = []\n"
+            "STATE.append(1)\n"
+            "\n"
+            "\n"
+            "def f(x: Missing):\n"
+            "    return STATE\n"
+        )
+
+        found = discover(self.tmp)
+
+        entry = [item for item in found.modules if item.name == "__init__"][0]
+        self.assertTrue(entry.future_annotations)
+        self.assertEqual(entry.module.STATE, [1])
+
+
+class APackageMemberImportingItsOwnPackageIsReadOnce(_Fixture):
+    """`import core.b` written inside `core/a.py` is served by the ordinary
+    import system under the directory's own name, while a sibling's `from .
+    import b` resolves through the synthetic package. Both ran the file, and
+    the two copies then held different state."""
+
+    def test_both_spellings_reach_one_module(self):
+        core = self.tmp / "core"
+        core.mkdir()
+        (core / "__init__.py").write_text("")
+        (core / "a.py").write_text("import core.b\ncore.b.SEEN.append('from a')\n")
+        (core / "b.py").write_text("SEEN = []\n")
+        (core / "c.py").write_text(
+            "from . import b\n\n\ndef peek():\n    return b.SEEN\n"
+        )
+
+        found = discover(self.tmp)
+
+        self.assertIs(
+            self._module(found, "c").peek(), self._module(found, "b").SEEN
+        )
+        self.assertEqual(self._module(found, "b").SEEN, ["from a"])
+
+
+class AFailureThatCannotBeDescribedIsStillReported(_Fixture):
+    """Building the skip record runs the student's own `__str__`. One that
+    raises, or returns something that is not a string, carried the exception
+    back out of the import and ended the whole discovery, from inside the
+    code meant to contain it."""
+
+    def test_a_broken_str_costs_one_module_and_not_the_repository(self):
+        (self.tmp / "aaa_main.py").write_text(
+            "class StudentError(Exception):\n"
+            "    def __str__(self):\n"
+            "        return None\n"
+            "\n"
+            "\n"
+            "raise StudentError()\n"
+        )
+        (self.tmp / "helper.py").write_text("def solve(x):\n    return x\n")
+
+        found = discover(self.tmp)
+
+        self.assertIn("helper", [entry.name for entry in found.modules])
+        failure = [entry for entry in found.skipped if entry.name == "aaa_main"][0]
+        self.assertEqual(failure.reason, "raised")
+        self.assertIn("StudentError", failure.detail)
+
+
+class AnythingCanBeInSysModules(_Fixture):
+    """Finding out whether a file has already been read means looking at every
+    entry in `sys.modules`, and code elsewhere in the process puts objects
+    there that answer attribute access with whatever they like."""
+
+    def test_a_hostile_entry_does_not_end_the_search(self):
+        class Hostile:
+            __slots__ = ()
+
+            def __getattr__(self, name):
+                raise RuntimeError("this object refuses " + name)
+
+        sys.modules["cogbench_test_hostile"] = Hostile()
+        self.addCleanup(sys.modules.pop, "cogbench_test_hostile", None)
+        (self.tmp / "solver.py").write_text("def solve(x):\n    return x\n")
+
+        found = discover(self.tmp)
+
+        self.assertEqual([entry.name for entry in found.modules], ["solver"])
+
+
+class ANamespacePackageDoesNotOutliveTheRun(_Fixture):
+    """A package Python built for a directory with no `__init__.py` has no
+    `__file__`, so eviction by file location could not see it, and it stayed
+    in `sys.modules` holding a search path into a finished checkout. The next
+    repository's `import core.database` then found the last one's."""
+
+    def test_the_package_their_import_made_is_evicted(self):
+        core = self.tmp / "core"
+        core.mkdir()
+        (core / "m.py").write_text("V = 1\n")
+        (self.tmp / "aaa_main.py").write_text("import core.m\n")
+        before = set(sys.modules)
+        self.addCleanup(
+            lambda: [sys.modules.pop(n, None) for n in set(sys.modules) - before]
+        )
+
+        discover(self.tmp)
+
+        self.assertNotIn("core", sys.modules)
+        self.assertNotIn("core.m", sys.modules)
+
+
 if __name__ == "__main__":
     unittest.main()

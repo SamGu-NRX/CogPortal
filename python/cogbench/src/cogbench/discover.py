@@ -196,6 +196,15 @@ class _Stub(ModuleType):
         self.__spec__ = importlib.machinery.ModuleSpec(name, None)
         self.__path__: List[str] = []
 
+    def records_into(self, calls: List[str]) -> None:
+        """Record later calls into this run's list rather than an earlier one.
+
+        A stub outlives the discovery that made it, and the callables it hands
+        out close over whichever list they were given. See ``_install_stubs``.
+        """
+
+        self._Stub__calls = calls
+
     def __getattr__(self, attribute: str):  # noqa: D105 - see class docstring
         if attribute.startswith("__"):
             raise AttributeError(attribute)
@@ -457,7 +466,15 @@ def candidate_roots(repository: Path, *, max_depth: int = MAX_ROOT_DEPTH) -> Lis
             found.append(directory)
         if depth >= max_depth:
             return
-        for child in sorted(directory.iterdir()):
+        try:
+            children = sorted(directory.iterdir())
+        except OSError:
+            # Measured on a fixture holding one mode-000 folder: the
+            # PermissionError left `choose_root` and ended `discover`, so the
+            # whole repository was lost over a directory that could not have
+            # held code we were able to read anyway.
+            return
+        for child in children:
             if not child.is_dir():
                 continue
             if child.name in SKIPPED_DIRECTORIES or child.name.startswith("."):
@@ -672,9 +689,7 @@ def notebook_source(path: Path) -> Optional[str]:
             kept.append(node)
         elif isinstance(node, (ast.Import, ast.ImportFrom)):
             kept.append(node)
-        elif isinstance(node, ast.Assign) and isinstance(
-            node.value, (ast.Constant, ast.Dict, ast.List, ast.Tuple, ast.Set)
-        ):
+        elif isinstance(node, ast.Assign) and _is_plain_literal(node.value):
             kept.append(node)
     if not any(
         isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
@@ -686,9 +701,68 @@ def notebook_source(path: Path) -> Optional[str]:
     # 3.9+ while this package declares 3.8 and the hosted week 1 and week 3
     # venvs run CPython 3.8.20; measured on CI, every notebook test errored
     # there. Keeping the source also keeps their comments and formatting.
+    source_lines = text.splitlines(keepends=True)
     return "\n".join(
-        segment for segment in (ast.get_source_segment(text, node) for node in kept) if segment
+        segment
+        for segment in (_lifted_segment(text, source_lines, node) for node in kept)
+        if segment
     )
+
+
+def _is_plain_literal(node: ast.expr) -> bool:
+    """Whether an assigned value is one a module can hold without running code.
+
+    Python has no negative literals: ``THRESHOLD = -1`` parses as a unary
+    minus over ``1``. Rejecting that dropped the constant while keeping the
+    function that reads it, and the function then failed with ``NameError:
+    name 'THRESHOLD' is not defined`` on a line the student wrote correctly.
+    """
+
+    if isinstance(node, (ast.Constant, ast.Dict, ast.List, ast.Tuple, ast.Set)):
+        return True
+    return (
+        isinstance(node, ast.UnaryOp)
+        and isinstance(node.op, (ast.USub, ast.UAdd))
+        and isinstance(node.operand, ast.Constant)
+        and isinstance(node.operand.value, (int, float, complex))
+    )
+
+
+def _lifted_segment(
+    text: str, lines: Sequence[str], node: ast.stmt
+) -> Optional[str]:
+    """One kept statement's own text, decorators and all.
+
+    The statement comes from ``ast.get_source_segment``, which gives its exact
+    span. Taking whole lines instead was wrong: a cell can put two statements
+    on one line, and ``import math; plt.show()`` then carried the call the
+    filter had just discarded back into the lifted module, which is the one
+    thing lifting exists to prevent.
+
+    Decorators have to be put back in front, because that span starts at the
+    ``def`` or ``class`` line. A lifted ``@dataclass class Song`` came out as
+    a plain class with annotations and no ``__init__``, so the team's own
+    ``Song("Hey")`` raised ``TypeError: Song() takes no arguments`` against a
+    notebook that is correct. A decorator sits on its own line, so those lines
+    are taken whole.
+    """
+
+    segment = ast.get_source_segment(text, node)
+    if segment is None:
+        return None
+    decorators = getattr(node, "decorator_list", ())
+    if not decorators:
+        return segment
+    first = min(decorator.lineno for decorator in decorators)
+    # The ``@`` belongs to no node. It shares the decorator's line in the
+    # ordinary case; for ``@(\n    deco\n)``, which 3.9 allows, the
+    # expression starts a line later and slicing from there left a stray
+    # closing bracket that would not compile.
+    while first > 1 and not lines[first - 1].lstrip().startswith("@"):
+        first -= 1
+    if first >= node.lineno:
+        return segment
+    return "".join(lines[first - 1:node.lineno - 1]) + segment
 
 
 @contextlib.contextmanager
@@ -794,13 +868,26 @@ def _install_stubs(calls: List[str]) -> List[str]:
             continue
         try:
             present = importlib.util.find_spec(name) is not None
-        except (ImportError, ValueError, AttributeError, TypeError):
+        except Exception:  # noqa: BLE001 - any finder on the path may raise
             # A broken installation cannot be imported either, so standing in
-            # for it is still the honest answer.
+            # for it is still the honest answer. Every exception, not a list
+            # of four: a finder already on `sys.meta_path` raising `OSError`
+            # ended the whole discovery before a single module was read, and
+            # what a third-party finder raises is not ours to enumerate.
             present = False
         if present:
             continue
         sys.modules[name] = _Stub(name, calls)
+
+    # Every stub in the process records into this run's list. A stub is
+    # reused across discoveries in one interpreter, and its callables closed
+    # over whichever list was passed the first time: the second repository's
+    # stub calls were appended to the first repository's record and missing
+    # from its own. Submodule stubs are reached the same way, and they are
+    # built by the finder rather than by the loop above.
+    for module in list(sys.modules.values()):
+        if isinstance(module, _Stub):
+            module.records_into(calls)
 
     # What the finder owns is read back from the process rather than taken
     # from the loop above, and the difference is a bug that was caught here.
@@ -835,6 +922,21 @@ def stubbed_now() -> List[str]:
         for name in STUBBED_MODULES
         if isinstance(sys.modules.get(name), _Stub)
     ]
+
+
+def _said(error: BaseException) -> str:
+    """What an exception says, when asking it is safe.
+
+    Formatting the failure runs the student's own ``__str__``. One that
+    raises, or returns something that is not a string, carried the exception
+    back out of the import and ended the whole discovery, while the record
+    being built was the thing meant to contain it.
+    """
+
+    try:
+        return str(error)[:200]
+    except Exception:  # noqa: BLE001 - their exceptions format however they like
+        return "(its message could not be read)"
 
 
 def _missing_module(error: BaseException) -> Optional[str]:
@@ -948,13 +1050,32 @@ class _PackageLoader(importlib.machinery.SourceFileLoader):
     and ``SyntaxError`` line numbers all stay exactly as they were.
     """
 
+    #: The module this file had already produced, when it had. Recorded in
+    #: `create_module` because that is the last moment the two can be told
+    #: apart: by `exec_module` the import machinery has given the new module
+    #: this file's `__file__` as well.
+    _reused: Optional[ModuleType] = None
+
     def create_module(self, spec):
+        # One module object per source file, the rule `_import_one` applies.
+        # This loader is the other place a repository file is executed. A
+        # member reached first by a sibling's `import core.b`, which the
+        # ordinary import system serves under the directory's own name, is
+        # reached again as `<synthetic>.b` by a relative import, and running
+        # it twice gave the directory two copies with independent globals.
+        self._reused = _already_executed(Path(self.path))
         module = ModuleType(spec.name.rpartition(".")[2])
         # The dotted parent is what a leading dot resolves against.
         module.__package__ = spec.parent
         return module
 
     def exec_module(self, module) -> None:
+        if self._reused is not None:
+            # The import machinery re-reads `sys.modules[spec.name]` once this
+            # returns, which is how a loader hands back the object that
+            # already exists instead of a second copy of it.
+            sys.modules[self.name] = self._reused
+            return
         # self.name, not module.__name__: the base class checks the code it
         # hands back against the name the loader was built with, and the bare
         # stem fails that check with "loader cannot handle database".
@@ -1017,12 +1138,93 @@ def _register_package(directory: Path) -> str:
     module.__spec__ = spec
     module.__path__ = [str(directory)]
     module.__package__ = package
+    # Set before the body runs, because the body may read it: an
+    # ``__init__.py`` doing ``Path(__file__).parent`` to find a data file
+    # beside it is ordinary, and without this it died with ``NameError: name
+    # '__file__' is not defined``.
     initializer = directory / "__init__.py"
     if initializer.is_file():
         module.__file__ = str(initializer)
     sys.modules[package] = module
     sys.meta_path.insert(0, _PackageFinder(package, directory))
     return package
+
+
+def _already_executed(path: Path) -> Optional[ModuleType]:
+    """The module this file has already produced during this discovery.
+
+    Judged against the modules present before discovery entered, so a module
+    the interpreter already had, or a previous repository left behind, is
+    never mistaken for this run's.
+
+    Read out of ``__dict__`` rather than with ``getattr``: a module may define
+    its own ``__getattr__``, and comparing two paths is not a reason to run a
+    student's code.
+    """
+
+    wanted = os.path.realpath(str(path))
+    basename = path.name
+    for name, module in list(sys.modules.items()):
+        if name in _PREEXISTING or module is None:
+            continue
+        try:
+            namespace = getattr(module, "__dict__", None)
+            origin = namespace.get("__file__") if isinstance(namespace, dict) else None
+            # The cheap comparison first: this runs once per file against
+            # every module in the process.
+            if not origin or os.path.basename(str(origin)) != basename:
+                continue
+            if os.path.realpath(str(origin)) == wanted:
+                return module
+        except Exception:  # noqa: BLE001 - anything can be put in sys.modules
+            continue
+    return None
+
+
+def _live_package(directory: Path) -> Optional[str]:
+    """The package a student's own import already made for this directory.
+
+    A root script's ``import core.database`` loads ``core`` through the
+    ordinary import system, and that is a real package holding this directory
+    on its ``__path__``. Registering a synthetic one beside it gave every
+    member two module objects, so the file ran twice and the copy discovery
+    reported was the one that never saw their setup.
+
+    Reusing theirs is also what keeps their relative imports resolving to the
+    objects discovery reports, since the members are then looked up under one
+    package name rather than two.
+    """
+
+    wanted = os.path.realpath(str(directory))
+    for name, module in list(sys.modules.items()):
+        if name in _PREEXISTING or module is None:
+            continue
+        try:
+            namespace = getattr(module, "__dict__", None)
+            locations = namespace.get("__path__") if isinstance(namespace, dict) else None
+            if not locations:
+                continue
+            entries = [str(entry) for entry in locations]
+        except Exception:  # noqa: BLE001 - anything can be put in sys.modules
+            continue
+        # Exactly this directory, not merely among its locations. A package
+        # with no ``__init__.py`` is a namespace package, and Python merges
+        # every ``core/`` it finds across ``sys.path`` into one ``__path__``.
+        # Adopting it for each of them in turn filed two different files under
+        # one dotted name, and the second overwrote the first.
+        if len(entries) == 1 and os.path.realpath(entries[0]) == wanted:
+            return name
+    return None
+
+
+def _dotted(package: str, path: Path) -> str:
+    """The name a package member is filed under.
+
+    Always the file's stem, never the folder-qualified name the report may
+    show, so the loader, `_execute` and `_forget` agree on one key.
+    """
+
+    return "{}.{}".format(package, path.stem)
 
 
 def _safe_suffix(name: str) -> str:
@@ -1039,17 +1241,22 @@ def _safe_suffix(name: str) -> str:
     return cleaned or "dir"
 
 
-def _forget(name: str, package: Optional[str]) -> None:
+def _forget(name: str, package: Optional[str], path: Path) -> None:
     """Remove a failed module under both names it could have been filed under.
 
     A module that raised is half-executed, and leaving it in ``sys.modules``
     would let the next importer receive that half. The bare name is removed
     only when it points at this module: on a stem collision it belongs to the
     chosen root's copy, which is still good.
+
+    The dotted name is built from the file's stem, the same way ``_execute``
+    built it. ``name`` can be folder-qualified while the module inside the
+    package is filed under its stem, and popping the qualified spelling left
+    the half-executed module in place.
     """
 
     if package is not None:
-        failed = sys.modules.pop("{}.{}".format(package, name), None)
+        failed = sys.modules.pop(_dotted(package, path), None)
         if failed is not None and sys.modules.get(name) is failed:
             sys.modules.pop(name, None)
         return
@@ -1276,6 +1483,46 @@ class _Notes:
     redirected: Tuple[str, ...] = ()
 
 
+def _run_body_in(
+    module: ModuleType,
+    name: str,
+    path: Path,
+    source: Optional[str],
+    timeout: float,
+    future_annotations: bool,
+) -> ModuleType:
+    """Execute a file as the body of ``module``, in ``module``'s own namespace.
+
+    This is how CPython runs a package's ``__init__.py``: the statements land
+    in the package object, so ``__package__`` and ``__path__`` are the ones in
+    scope and ``from .core import Detector`` has a parent to resolve against.
+    Running the file as a standalone module instead, which is what this did,
+    failed every relative import in an initializer with "attempted relative
+    import with no known parent package" and lost everything the file offered.
+
+    ``SourceFileLoader`` for the ordinary case rather than a plain ``compile``,
+    so source encodings, line endings and ``SyntaxError`` line numbers stay the
+    standard ones. The recompile below is only for the postponed-annotation
+    retry, which needs its own flags.
+    """
+
+    if source is None and not future_annotations:
+        loader = importlib.machinery.SourceFileLoader(module.__name__, str(path))
+        with _quiet_import(), _deadline(timeout, name):
+            loader.exec_module(module)
+        return module
+    text = source if source is not None else path.read_text(
+        encoding="utf-8", errors="replace"
+    )
+    flags = __future__.annotations.compiler_flag if future_annotations else 0
+    with _quiet_import(), _deadline(timeout, name):
+        exec(
+            compile(text, str(path), "exec", flags=flags, dont_inherit=True),
+            module.__dict__,
+        )
+    return module
+
+
 def _execute(
     name: str,
     path: Path,
@@ -1284,19 +1531,37 @@ def _execute(
     package: Optional[str],
     *,
     future_annotations: bool = False,
+    into: Optional[ModuleType] = None,
 ) -> Tuple[Optional[ModuleType], Optional[BaseException], Optional[SkippedModule]]:
     """Run one module's body once, and hand back what happened.
 
     Three returns rather than two because the caller now has to decide
     whether the failure is one it can honestly retry, and deciding that needs
     the exception rather than a sentence about it.
+
+    ``into`` is a module to run the body in rather than one to build: a
+    package and its own ``__init__.py``. Nothing is registered or forgotten
+    for it, because the package is already in ``sys.modules`` and its members
+    still need it there when its body fails.
     """
 
     try:
+        if into is not None:
+            body = _run_body_in(into, name, path, source, timeout, future_annotations)
+            return body, None, None
         if source is None and not future_annotations:
             if package is not None:
-                spec = _PackageFinder(package, path.parent).find_spec(
-                    "{}.{}".format(package, name)
+                # Built from the file in hand rather than looked up by stem.
+                # A file read under a folder-qualified name, because the root
+                # already owns the bare one, sent that lookup after
+                # `model_tests.image_caption_model.py`, which does not exist,
+                # and their perfectly good file was reported as "Python could
+                # not read this file as a module". The dotted name keeps the
+                # stem: that is what a relative import inside the package
+                # resolves, and what `__name__` has to be.
+                dotted = _dotted(package, path)
+                spec = importlib.util.spec_from_file_location(
+                    dotted, path, loader=_PackageLoader(dotted, str(path))
                 )
             else:
                 spec = importlib.util.spec_from_file_location(name, path)
@@ -1347,18 +1612,35 @@ def _execute(
         text = source if source is not None else path.read_text(
             encoding="utf-8", errors="replace"
         )
-        module = ModuleType(name)
+        # The same identity the loader gives a package member on the first
+        # attempt: the bare stem, with the dotted name for the import
+        # machinery. A member whose stem the root already owns is read under
+        # a folder-qualified `name`, and building the retry from that gave one
+        # file two different `__name__` values depending on whether it had
+        # needed a retry, under a key `_forget` would not find.
+        member = path.stem if package is not None else name
+        module = ModuleType(member)
         module.__file__ = str(path)
         if package is not None:
             module.__package__ = package
-            sys.modules["{}.{}".format(package, name)] = module
+            sys.modules[_dotted(package, path)] = module
         sys.modules.setdefault(name, module)
         flags = __future__.annotations.compiler_flag if future_annotations else 0
+        # `dont_inherit` because this file declares `from __future__ import
+        # annotations` and `compile` otherwise takes that from the frame it is
+        # called in. Every lifted notebook was silently getting postponed
+        # annotations while its record said `futureAnnotations: false`, which
+        # is a claim about their module that was not true, and it made
+        # notebooks behave differently from the `.py` files beside them.
         with _quiet_import(), _deadline(timeout, name):
-            exec(compile(text, str(path), "exec", flags=flags), module.__dict__)
+            exec(
+                compile(text, str(path), "exec", flags=flags, dont_inherit=True),
+                module.__dict__,
+            )
         return module, None, None
     except _ImportTimeout:
-        _forget(name, package)
+        if into is None:
+            _forget(name, package, path)
         return (
             None,
             None,
@@ -1371,7 +1653,8 @@ def _execute(
             ),
         )
     except SyntaxError as error:
-        _forget(name, package)
+        if into is None:
+            _forget(name, package, path)
         return (
             None,
             error,
@@ -1380,7 +1663,8 @@ def _execute(
             ),
         )
     except BaseException as error:  # noqa: BLE001 - student code raises anything
-        _forget(name, package)
+        if into is None:
+            _forget(name, package, path)
         missing = _missing_module(error)
         if missing:
             return (
@@ -1398,10 +1682,7 @@ def _execute(
             None,
             error,
             SkippedModule(
-                name,
-                path,
-                "raised",
-                "{}: {}".format(type(error).__name__, str(error)[:200]),
+                name, path, "raised", "{}: {}".format(type(error).__name__, _said(error))
             ),
         )
 
@@ -1413,6 +1694,8 @@ def _import_one(
     timeout: float = IMPORT_TIMEOUT_SECONDS,
     package: Optional[str] = None,
     redirects: Optional["_Redirects"] = None,
+    *,
+    into: Optional[ModuleType] = None,
 ) -> Tuple[Optional[ModuleType], Optional[SkippedModule], _Notes]:
     """Import one module, retrying only where the failure is ours to answer.
 
@@ -1438,13 +1721,22 @@ def _import_one(
     """
 
     notes = _Notes()
-    # A module that already loaded under this package keeps the object it
-    # produced. `load_modules` normally prevents a second attempt, but a
-    # package member can be pulled in early by a neighbour's relative import,
-    # and re-executing the file would produce a second object with independent
-    # globals: one copy takes the stores and the other is read back empty.
-    if package is not None:
-        already = sys.modules.get("{}.{}".format(package, name))
+    # One module object per source file, for the whole of one discovery. A
+    # file is reachable more than once: a package member pulled in early by a
+    # neighbour's relative import, a root script's own `import helpers`, a
+    # notebook reached through `ipynb.fs.full` before the notebook pass gets
+    # to it. Executing it again produces a second object with independent
+    # globals, and the two then diverge. Measured on a fixture where
+    # `main.py` calls `helpers.register(...)`: the copy discovery reported
+    # had an empty registry while the copy `main.py` holds had the entry, so
+    # the search bound functions to a module that never saw their own setup.
+    # Class identity goes the same way, and an `isinstance` across the two
+    # copies is false.
+    # Not when `into` says where to run: the caller has already decided which
+    # module this file's statements belong in, and a package carries its
+    # initializer's `__file__` from the moment it is registered.
+    if into is None:
+        already = _already_executed(path)
         if already is not None:
             return already, None, notes
 
@@ -1461,7 +1753,13 @@ def _import_one(
     # retries.
     folder: Optional[Path] = None
     future = False
-    module, error, failure = _execute(name, path, source, timeout, package)
+    # A retry into an existing module starts from the namespace the first
+    # attempt started from, the way a fresh module object does for every
+    # other retry. Measured on an `__init__.py` that appends to a module
+    # global once and then fails on an annotation: the successful retry came
+    # back having appended twice.
+    pristine = dict(into.__dict__) if into is not None else None
+    module, error, failure = _execute(name, path, source, timeout, package, into=into)
     while module is None:
         found = _own_folder(error, path) if folder is None else None
         if found is not None:
@@ -1474,15 +1772,20 @@ def _import_one(
                 return None, failure, notes
             redirects.install(basename)
             notes.redirected = notes.redirected + (basename,)
+        if pristine is not None:
+            into.__dict__.clear()
+            into.__dict__.update(pristine)
         try:
             if folder is not None:
                 with _reading_from(folder):
                     module, error, failure = _execute(
-                        name, path, source, timeout, package, future_annotations=future
+                        name, path, source, timeout, package,
+                        future_annotations=future, into=into,
                     )
             else:
                 module, error, failure = _execute(
-                    name, path, source, timeout, package, future_annotations=future
+                    name, path, source, timeout, package,
+                    future_annotations=future, into=into,
                 )
         except OSError:
             return None, failure, notes
@@ -1504,11 +1807,28 @@ def _own_folder(error: Optional[BaseException], path: Path) -> Optional[Path]:
 
     if not isinstance(error, (FileNotFoundError, IsADirectoryError)):
         return None
-    named = getattr(error, "filename", None)
-    if not named or os.path.isabs(str(named)):
+    named = str(getattr(error, "filename", None) or "")
+    if not named or os.path.isabs(named) or _absolute_on_windows(named):
         return None
     folder = path.parent
     return folder if folder.is_dir() else None
+
+
+def _absolute_on_windows(named: str) -> bool:
+    """Whether a path is absolute on the machine that wrote it, not on this one.
+
+    ``os.path.isabs`` reads ``C:\\Users\\student\\glove.kv`` as relative when
+    this process runs on POSIX, so the retry above read it from the module's
+    own folder, where it also is not, and the module record then said we
+    imported from a folder we had no reason to move to.
+    """
+
+    return named.startswith("\\\\") or (
+        len(named) > 2
+        and named[0].isalpha()
+        and named[1] == ":"
+        and named[2] in "\\/"
+    )
 
 
 def _annotation_only(
@@ -1557,6 +1877,12 @@ def _annotation_only(
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.body:
             if node.lineno <= lineno < node.body[0].lineno:
+                on_a_def_line = True
+                break
+            # `def f(x: Missing): return 1` puts the body on the def line, so
+            # there is no line strictly between the two. The annotation is
+            # still evaluated there, and refusing the remedy lost the module.
+            if node.lineno == node.body[0].lineno == lineno:
                 on_a_def_line = True
                 break
     if not on_a_def_line:
@@ -1611,45 +1937,47 @@ def _note(
         pass
 
 
-def _run_package_body(package: str, path: Path) -> Optional[SkippedModule]:
+def _run_package_body(
+    package: str,
+    path: Path,
+    timeout: float,
+    redirects: Optional["_Redirects"],
+) -> Tuple[Optional[ModuleType], Optional[SkippedModule], _Notes]:
     """Execute an ``__init__.py`` as the body of its package.
 
-    The package object already exists (``_register_package`` made it, so its
-    members can be found); this runs the file's own statements into it. That
-    matters when the file is not empty: a package whose ``__init__.py`` does
-    ``from .core import Detector`` is offering that name, and skipping the
-    file would silently drop it.
+    The package object already exists, and the file's statements run in it,
+    which is what CPython does. That is the whole reason ``from .core import
+    Detector`` can resolve: the namespace being executed is the package, so
+    the relative import has a parent. Running the file as a standalone module
+    and copying its globals across afterwards, which is what this did, failed
+    every such line with "attempted relative import with no known parent
+    package", and the copy meant the package and the body disagreed about
+    what the package held.
 
-    A failure here is reported like any other module's, under the name
-    ``__init__``, and the directory's other modules are still imported.
-    Their relative imports keep working, because those resolve through the
-    package object rather than through anything the body defines. Reporting
-    it as a skip rather than swallowing it is the point: an ``__init__.py``
-    that raises is the student's file failing, and pretending otherwise would
-    hide it.
+    A failure is reported like any other module's, under the name
+    ``__init__``, and the directory's other modules are still imported. Their
+    relative imports keep working, because those resolve through the package
+    object rather than through anything the body defines. Reporting it as a
+    skip rather than swallowing it is the point: an ``__init__.py`` that
+    raises is the student's file failing, and pretending otherwise hides it.
+
+    Whatever the body defined before it failed stays in the package. It is
+    the state the file actually reached, the members may depend on it, and
+    the skip record is what says the file did not finish.
     """
 
     module = sys.modules.get(package)
+    notes = _Notes()
     if module is None:  # _register_package always registers it; belt and braces
-        return None
-    # Reuses _import_one so the whole failure vocabulary is identical: the
-    # same timeout, the same missing-dependency wording, the same syntax
-    # line numbers. `package=None` because the body is not a member of the
-    # package, it is the package.
-    body, failure, _notes = _import_one(
-        "__init__", path, None, IMPORT_TIMEOUT_SECONDS, None
+        return None, None, notes
+    # _import_one for the whole failure vocabulary: the same caller timeout,
+    # the same missing-dependency wording, the same syntax line numbers and
+    # the same three retries. `package=None` because the body is not a member
+    # of the package, it is the package; `into` is where it runs.
+    body, failure, notes = _import_one(
+        "__init__", path, None, timeout, None, redirects, into=module
     )
-    if failure is not None:
-        return failure
-    if body is not None:
-        # `__init__` is registered by _import_one under its own bare name,
-        # which would let an unrelated `import __init__` find it and would
-        # leave it behind in the caller's process. It belongs to the package.
-        sys.modules.pop("__init__", None)
-        for key, value in body.__dict__.items():
-            if key not in ("__name__", "__package__", "__spec__", "__path__", "__loader__"):
-                module.__dict__.setdefault(key, value)
-    return None
+    return body, failure, notes
 
 
 #: The two package paths the `ipynb` package exposes. ``full`` runs a
@@ -1677,10 +2005,20 @@ class _NotebookFsFinder:
     something that genuinely is not there still fails and is still named.
     """
 
-    def __init__(self, directories: Sequence[Path], import_timeout: float) -> None:
+    def __init__(
+        self,
+        directories: Sequence[Path],
+        import_timeout: float,
+        redirects: Optional["_Redirects"] = None,
+    ) -> None:
         self._directories = list(directories)
         self._timeout = import_timeout
+        self._redirects = redirects
         self._made: List[str] = []
+        #: What it took to read each notebook, by file. The notebook pass
+        #: reuses the module this finder built and would otherwise report a
+        #: module that needed a remedy as though it had needed none.
+        self._notes: Dict[str, _Notes] = {}
 
     def find_spec(self, name: str, path=None, target=None):
         if name in _NOTEBOOK_PACKAGES:
@@ -1691,21 +2029,50 @@ class _NotebookFsFinder:
         return importlib.machinery.ModuleSpec(name, self)
 
     def create_module(self, spec):
-        self._made.append(spec.name)
         if spec.name in _NOTEBOOK_PACKAGES:
+            self._made.append(spec.name)
             shell = ModuleType(spec.name)
             shell.__path__ = []
             return shell
         stem = self._stem(spec.name)
-        source = notebook_source(self._notebook(stem))
+        notebook = self._notebook(stem)
+        source = notebook_source(notebook)
         if source is None:
             raise ImportError(
                 "{}.ipynb holds no definitions to import".format(stem), name=spec.name
             )
-        module = ModuleType(spec.name)
-        module.__file__ = str(self._notebook(stem))
-        exec(compile(source, module.__file__, "exec"), module.__dict__)
+        # The same import path the notebook pass uses, so a notebook is one
+        # module however it is reached. Reached both ways it used to be two:
+        # `from ipynb.fs.full.metadata import SongMetadata` lifted one
+        # `SongMetadata` and the bare notebook lifted another, and an
+        # `isinstance` between a team's own objects was false. Going through
+        # `_import_one` is also what gives this path the import deadline this
+        # finder was handed and never used, and the same retries.
+        module, failure, notes = _import_one(
+            stem, notebook, source, self._timeout, None, self._redirects
+        )
+        if module is None:
+            if failure is not None and failure.reason == "too_slow":
+                # The deadline is a `BaseException` on purpose: a timeout a
+                # module can catch and ignore is not a timeout. Handing the
+                # importing module an `ImportError` let its own `except
+                # Exception` swallow it and run on past its deadline, with
+                # the notebook recorded as loaded and no timer left.
+                raise _ImportTimeout(failure.detail)
+            raise ImportError(
+                "{}.ipynb: {}".format(
+                    stem, failure.detail if failure is not None else "did not import"
+                ),
+                name=spec.name,
+            )
+        self._notes[os.path.realpath(str(notebook))] = notes
+        self._made.append(spec.name)
         return module
+
+    def notes_for(self, notebook: Path) -> Optional[_Notes]:
+        """What it took to read this notebook here, when this read it."""
+
+        return self._notes.get(os.path.realpath(str(notebook)))
 
     def exec_module(self, module):
         return None
@@ -1883,8 +2250,23 @@ class _Redirects:
         current = error.__traceback__
         while current is not None:
             for value in current.tb_frame.f_locals.values():
-                if isinstance(value, (str, os.PathLike)):
-                    found.append(os.fspath(value))
+                if isinstance(value, str):
+                    found.append(value)
+                    continue
+                # Reading their locals is a hint, not a contract. An object
+                # can claim to be a path and raise from `__fspath__`, or hand
+                # back something that is not one. Measured on a fixture: that
+                # exception left `_import_one`, left `load_modules`, and
+                # ended the discovery, so a repository reported nothing at
+                # all because of one object in one frame.
+                try:
+                    if not isinstance(value, os.PathLike):
+                        continue
+                    token = os.fspath(value)
+                except Exception:  # noqa: BLE001 - their objects raise anything
+                    continue
+                if isinstance(token, str):
+                    found.append(token)
             current = current.tb_next
         return [token for token in found if token]
 
@@ -2086,10 +2468,10 @@ def load_modules(
     calls: List[str] = []
     _install_stubs(calls)
     directories = [root] + [path for path in extra if path != root]
-    notebooks = _NotebookFsFinder(directories, import_timeout)
-    sys.meta_path.insert(0, notebooks)
     redirects = _Redirects(resource_files or {})
     redirects.enter()
+    notebooks = _NotebookFsFinder(directories, import_timeout, redirects)
+    sys.meta_path.insert(0, notebooks)
 
     loaded: List[LoadedModule] = []
     skipped: List[SkippedModule] = []
@@ -2100,7 +2482,17 @@ def load_modules(
         # is a property of the directory: a file with no relative import of
         # its own still belongs to the package its neighbours declared, and
         # importing it outside would give the directory two copies of it.
-        package = _register_package(directory) if is_package_directory(directory) else None
+        #
+        # Their own package when Python has already made one. A root script's
+        # `import core.database` loads `core` through the ordinary import
+        # system, and a synthetic package registered beside it gives every
+        # member a second module object.
+        package = None
+        adopted = False
+        if is_package_directory(directory):
+            live = _live_package(directory)
+            adopted = live is not None
+            package = live if adopted else _register_package(directory)
 
         files = _python_files(directory)
         if package is not None:
@@ -2111,10 +2503,34 @@ def load_modules(
             if initializer.is_file():
                 files = [path for path in files if path != initializer]
                 _note(journal, "reading", initializer)
-                failure = _run_package_body(package, initializer)
+                if adopted:
+                    # Their own import ran the body already; running it again
+                    # would repeat whatever it does on the way through.
+                    body, failure, notes = sys.modules.get(package), None, _Notes()
+                else:
+                    body, failure, notes = _run_package_body(
+                        package, initializer, import_timeout, redirects
+                    )
                 if failure is not None:
                     skipped.append(failure)
                     _note(journal, "skipped", failure)
+                elif body is not None:
+                    # Recorded like any other module, so a name the package
+                    # offers is in the namespace a benchmark searches. Not
+                    # added to `taken`: `__init__` is the name a student
+                    # reads, and a repository with two package directories
+                    # has two of them.
+                    entry = LoadedModule(
+                        "__init__",
+                        initializer,
+                        body,
+                        "file",
+                        cwd_hint=notes.cwd_hint,
+                        future_annotations=notes.future_annotations,
+                        redirected=notes.redirected,
+                    )
+                    loaded.append(entry)
+                    _note(journal, "module", entry)
 
         for path in files:
             # A file whose stem an earlier directory already owns is read
@@ -2178,6 +2594,11 @@ def load_modules(
             module, failure, notes = _import_one(
                 path.stem, path, source, import_timeout, None, redirects
             )
+            # When an earlier `from ipynb.fs.full...` already read it, that
+            # read is the one that happened and these notes are empty.
+            already = notebooks.notes_for(path)
+            if already is not None:
+                notes = already
             if module is not None:
                 entry = LoadedModule(
                     path.stem,
@@ -2218,6 +2639,29 @@ def _is_student_module(module: object, root: Path) -> bool:
     except (ValueError, OSError):
         return False
     return True
+
+
+def _searches_inside(module: object, directories: Sequence[Path]) -> bool:
+    """Whether this is a package whose search path is in the repository.
+
+    A package Python built for a directory with no ``__init__.py`` has no
+    ``__file__``, so `_is_student_module` cannot see it, and it outlived the
+    run holding a ``__path__`` into a checkout the process had finished with.
+    The next repository's ``import core.database`` then found the last one's.
+    """
+
+    locations = getattr(module, "__path__", None)
+    if not locations:
+        return False
+    try:
+        entries = [Path(os.path.realpath(str(entry))) for entry in locations]
+    except Exception:  # noqa: BLE001 - a __path__ may be anything
+        return False
+    return any(
+        entry == directory.resolve() or _inside(entry, directory)
+        for entry in entries
+        for directory in directories
+    )
 
 
 @contextlib.contextmanager
@@ -2314,7 +2758,7 @@ def _entered(
                 continue
             if any(
                 _is_student_module(module, directory) for directory in (root, *also)
-            ):
+            ) or _searches_inside(module, (root, *also)):
                 sys.modules.pop(name, None)
         sys.meta_path[:] = [
             finder
