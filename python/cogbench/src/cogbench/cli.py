@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import platform
@@ -1007,7 +1008,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 raise PortalError("This portal is not linked. Run `cogworks link` first.")
             path = _resolve_report(args.path, project_root)
             report = LocalReport.from_json(path.read_text(encoding="utf-8"))
-            sync_report(portal, token, json.loads(report.to_json()))
+            if report.weights_used and not report.repository.sha:
+                raise PortalError("The report has no repository revision for its weights; run the benchmark from a Git commit and sync again.")
+            uploads = []
             for relative_path in report.weights_used:
                 if Path(relative_path).is_absolute() or ".." in Path(relative_path).parts:
                     raise PortalError("Weight path must stay inside the repository: {}".format(relative_path))
@@ -1026,41 +1029,33 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 if not source.is_file():
                     raise PortalError("Weight file does not exist: {}".format(relative_path))
 
-                tracked = subprocess.run(
-                    ["git", "ls-files", "--error-unmatch", "--", relative_path],
-                    cwd=str(project_root),
-                    capture_output=True,
-                ).returncode == 0
-                if tracked:
-                    if not report.repository.sha:
-                        raise PortalError(
-                            "The report has no commit to compare weight {} against.".format(
-                                relative_path
-                            )
-                        )
-                    comparison = subprocess.run(
-                        ["git", "diff", "--quiet", report.repository.sha, "--", relative_path],
-                        cwd=str(project_root),
-                        capture_output=True,
+                if report.repository.sha:
+                    blob = subprocess.run(
+                        ["git", "rev-parse", "--verify", "{}:{}".format(
+                            report.repository.sha, relative_path
+                        )],
+                        cwd=str(project_root), capture_output=True,
                     )
-                    if comparison.returncode == 0:
+                    if blob.returncode == 0:
+                        # Compare raw bytes, without index state or Git clean filters.
+                        local_blob = subprocess.run(
+                            ["git", "hash-object", "--no-filters", "--", str(source)],
+                            cwd=str(project_root), capture_output=True,
+                        )
+                        if local_blob.returncode != 0:
+                            raise PortalError("Could not hash weight {}.".format(relative_path))
+                        if local_blob.stdout.strip() == blob.stdout.strip():
+                            print(
+                                "weights: {} is committed and travels with the repository".format(
+                                    relative_path
+                                )
+                            )
+                            continue
                         print(
-                            "weights: {} is committed and travels with the repository".format(
+                            "weights: {} differs from the report commit; uploading it".format(
                                 relative_path
                             )
                         )
-                        continue
-                    if comparison.returncode != 1:
-                        raise PortalError(
-                            "Could not compare weight {} with report commit {}.".format(
-                                relative_path, report.repository.sha
-                            )
-                        )
-                    print(
-                        "weights: {} differs from the report commit; uploading it".format(
-                            relative_path
-                        )
-                    )
 
                 # Workers caps request bodies at 100 MB on Free and Pro plans,
                 # and this account's plan is not established. The largest 2026
@@ -1071,9 +1066,22 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     raise PortalError(
                         "Weight files may not exceed 100 MiB: {}".format(relative_path)
                     )
+                digest = hashlib.sha256()
+                with source.open("rb") as stream:
+                    for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                        digest.update(chunk)
+                uploads.append((relative_path, source, size, digest.hexdigest()))
+
+            # Publish expected bytes first so an interrupted sync cannot reuse an older upload.
+            report = replace(report, weights_uploaded=[
+                {"path": item[0], "sha256": item[3]} for item in uploads
+            ])
+            sync_report(portal, token, json.loads(report.to_json()))
+            for relative_path, source, size, digest in uploads:
                 try:
                     destination = upload_weight(
-                        portal, token, report.report_id, relative_path, source
+                        portal, token, report.report_id, relative_path, source,
+                        expected_sha256=digest,
                     )
                 except PortalError as error:
                     raise PortalError(
