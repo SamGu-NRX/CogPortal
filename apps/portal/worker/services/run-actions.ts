@@ -32,7 +32,7 @@ import { ApiHttpError } from "../http/errors";
 import { newId, randomHex } from "../util/id";
 import { sha256Hex } from "../util/crypto";
 import { publishRunSurface } from "./run-surfaces";
-import { canPublishOfficialRun } from "./run-eligibility";
+import { canPublishOfficialRun, savedEnvironmentEligibility } from "./run-eligibility";
 import { insertRunWithCapacity, nextOfficialClaimSlot, readRunAccounting, releaseExcludedOfficialClaims } from "./run-accounting";
 
 export interface RunActor {
@@ -387,6 +387,10 @@ export async function promotePracticeRun(
     .limit(1);
   if (existing) return existingOfficialPromotion(existing, parent.surfaceId);
   const benchmark = await activeBenchmark(env, parent.benchmarkId, parent.benchmarkVersion);
+  if (env.EXECUTION_PROVIDER === "modal") {
+    const eligibility = savedEnvironmentEligibility(parent, benchmark, actor.team.repoFullName);
+    if (!eligibility.eligible) throw new ApiHttpError(409, "not_promotable", eligibility.reason);
+  }
   await syncTeamRuns(db, actor.team.id, parent.benchmarkId);
   const scope = { teamId: actor.team.id, benchmarkId: parent.benchmarkId, benchmarkVersion: parent.benchmarkVersion };
   const accounting = await readRunAccounting(db, scope);
@@ -396,9 +400,6 @@ export async function promotePracticeRun(
   }
   if (env.EXECUTION_PROVIDER === "modal") {
     assertModalConfigured(env);
-    if (!parent.preparedArtifactId) {
-      throw new ApiHttpError(409, "not_promotable", "The prepared hosted artifact is unavailable. Verify the commit again.");
-    }
   }
   const runId = `run_${randomHex(5)}`;
   const now = Date.now();

@@ -186,12 +186,41 @@ export const BenchmarkResultV1Schema = z.object({
 });
 export type BenchmarkResultV1 = z.infer<typeof BenchmarkResultV1Schema>;
 
+/** Controller observation before student installation, bound to the returned
+ * snapshot. This does not attest that installation left platform files intact. */
+export const PreparedEnvironmentV1Schema = z.object({
+  schemaVersion: z.literal(1),
+  artifactId: z.string().min(1).max(200),
+  benchmarkId: z.string().min(1).max(120),
+  source: z.object({
+    repositoryId: z.number().int().positive().nullable(),
+    fullName: z.string().regex(/^[^/\s]+\/[^/\s]+$/),
+    sha: z.string().regex(/^[a-f0-9]{40}$/),
+  }).strict(),
+  sandboxContract: z.number().int().positive(),
+  baseImageId: z.string().min(1).max(200),
+  pythonVersion: z.string().min(1).max(80),
+  sdkVersion: z.string().min(1).max(80),
+  // Bounded provisioning records, not a manifest of the student environment.
+  modules: z.array(z.object({
+    name: z.string().min(1).max(200),
+    path: z.string().min(1).max(500),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/),
+  }).strict()).min(1).max(32),
+  weights: z.array(z.object({
+    path: z.string().min(1).max(500),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/),
+  }).strict()).max(8),
+}).strict();
+export type PreparedEnvironmentV1 = z.infer<typeof PreparedEnvironmentV1Schema>;
+
 export const RunJobV1Schema = z.object({
   protocolVersion: RunnerProtocolVersionSchema,
   jobId: z.string().min(1).max(128),
   runId: z.string().min(1).max(128),
   mode: z.enum(["practice", "official"]),
   preparedArtifactId: z.string().min(1).max(200).nullable(),
+  preparedEnvironment: PreparedEnvironmentV1Schema.nullable().optional(),
   source: z.object({
     repositoryId: z.number().int().positive().nullable(),
     fullName: z.string().regex(/^[^/\s]+\/[^/\s]+$/),
@@ -205,6 +234,7 @@ export const RunJobV1Schema = z.object({
     pluginVersion: z.string().min(1).max(80),
     datasetVersion: z.string().min(1).max(80),
     scorerVersion: z.string().min(1).max(80),
+    sandboxContract: z.number().int().positive().nullable().optional(),
   }),
   runtime: z.object({
     pythonVersion: z.string().regex(/^3\.\d{1,2}$/),
@@ -256,6 +286,7 @@ export const RunEventV1Schema = z.discriminatedUnion("type", [
     type: z.literal("completed"),
     result: BenchmarkResultV1Schema,
     preparedArtifactId: z.string().min(1).max(200),
+    preparedEnvironment: PreparedEnvironmentV1Schema.nullable().optional(),
     environmentDigest: z.string().regex(/^[a-f0-9]{64}$/),
     sanitizedLog: z.string().max(8 * 1024).nullable(),
   }),

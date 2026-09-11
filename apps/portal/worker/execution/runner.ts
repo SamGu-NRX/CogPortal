@@ -13,6 +13,7 @@ import { ApiHttpError } from "../http/errors";
 import { newId } from "../util/id";
 import { getLatestTeamWeights } from "../services/local-reports";
 import { weightManifest } from "../services/weights";
+import { savedEnvironmentEligibility } from "../services/run-eligibility";
 
 const DEFAULT_IMAGE_DIGEST = "cogworks-week2-cpu-v1:unpublished";
 
@@ -62,14 +63,24 @@ export function buildRunJob(
   weights: WeightFile[] = [],
 ): RunJobV1 {
   const fullName = `${encodeURIComponent(team.repoOwner)}/${encodeURIComponent(team.repoName)}`;
+  if (benchmark.sandboxContract == null || !Number.isSafeInteger(benchmark.sandboxContract) || benchmark.sandboxContract <= 0) {
+    throw new ApiHttpError(409, "not_promotable", "The benchmark's execution contract is unknown.");
+  }
+  let preparedEnvironment = null;
+  if (run.preparedArtifactId || run.preparedEnvironmentJson) {
+    const eligibility = savedEnvironmentEligibility(run, benchmark, team.repoFullName);
+    if (!eligibility.eligible) throw new ApiHttpError(409, "not_promotable", eligibility.reason);
+    preparedEnvironment = eligibility.environment;
+  }
   return RunJobV1Schema.parse({
     protocolVersion: RUNNER_PROTOCOL_VERSION,
     jobId: newId("job_"),
     runId: run.id,
     mode: run.mode,
     preparedArtifactId: run.preparedArtifactId,
+    preparedEnvironment,
     source: {
-      repositoryId: team.repoId,
+      repositoryId: run.repositoryId,
       fullName: team.repoFullName,
       sha: run.sha,
       archiveUrl: `https://api.github.com/repos/${fullName}/tarball/${run.sha}`,
@@ -81,6 +92,7 @@ export function buildRunJob(
       pluginVersion: benchmark.pluginVersion,
       datasetVersion: run.mode === "official" ? benchmark.datasetVersion : "practice-v1",
       scorerVersion: benchmark.scorerVersion,
+      sandboxContract: benchmark.sandboxContract,
     },
     runtime: {
       // What the student's code actually runs on, which is not one number
