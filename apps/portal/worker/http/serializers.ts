@@ -93,7 +93,8 @@ export async function serializeRunSummary(db: Database, row: RunRow): Promise<Ru
             category: row.failureCategory,
             phase: row.failurePhase,
             detail: row.failureDetail,
-            consumedAttempt: row.failureConsumedAttempt,
+            // Kept on the wire for older clients; failures no longer use quota.
+            consumedAttempt: false,
           }
         : null,
   };

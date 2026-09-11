@@ -89,11 +89,13 @@ function freshHarness(): Harness {
   let readBarrier: { pattern: RegExp; reached(): void; released: Promise<void> } | null = null;
 
   function prepare(query: string) {
-    observer?.(query);
-    if (trap?.(query)) {
-      trap = null;
-      throw new Error("d1 interrupted");
-    }
+    const beforeExecute = () => {
+      observer?.(query);
+      if (trap?.(query)) {
+        trap = null;
+        throw new Error("d1 interrupted");
+      }
+    };
     const statement = sqlite.prepare(query);
     let bound: never[] = [];
     const prepared = {
@@ -102,9 +104,11 @@ function freshHarness(): Harness {
         return prepared;
       },
       async run() {
+        beforeExecute();
         return { success: true, meta: statement.run(...bound) };
       },
       execute() {
+        beforeExecute();
         const results = statement.all(...bound);
         const { changes } = sqlite.prepare("SELECT changes() AS changes").get()!;
         return { success: true, results, meta: { changes } };
@@ -113,6 +117,7 @@ function freshHarness(): Harness {
         return prepared.execute();
       },
       async raw() {
+        beforeExecute();
         statement.setReturnArrays(true);
         const rows = statement.all(...bound);
         statement.setReturnArrays(false);
@@ -342,37 +347,6 @@ function infrastructureFailureEvent() {
   };
 }
 
-/** Runs already refunded for this team on this benchmark. */
-async function priorRefunds(db: Database, howMany: number): Promise<void> {
-  for (let index = 0; index < howMany; index += 1) {
-    await db.insert(runs).values({
-      id: `run_prior_${index}`,
-      teamId: "team_1",
-      benchmarkId: AUDIO,
-      benchmarkVersion: 1,
-      contractVersion: "cogworks.submissions.v1",
-      mode: "official",
-      status: "failed",
-      branch: "main",
-      sha: "a".repeat(40),
-      repositoryId: null,
-      parentRunId: null,
-      attemptNumber: index + 2,
-      failureCategory: "provider",
-      failurePhase: "evaluating",
-      failureDetail: null,
-      failureConsumedAttempt: false,
-      refundedAt: NOW - 1_000,
-      log: null,
-      createdAt: NOW - 10_000,
-      finishedAt: NOW - 5_000,
-      provider: "modal",
-      lastEventSequence: 9,
-      surfaceId: null,
-    });
-  }
-}
-
 async function counts(db: Database) {
   const [run] = await db.select().from(runs).where(eq(runs.id, "run_1")).limit(1);
   return {
@@ -419,14 +393,13 @@ test("an interrupted apply records nothing, so the replay is not told the result
   const app = route();
   const event = completedEvent();
 
-  // Die between the two metric writes: far enough in that some of the result
-  // is on disk, not far enough to have finished.
+  // Fail during the transaction after its first metric write.
   harness.interruptOnNth(/insert into "run_metrics"/i, 2);
   const first = await post(app, harness.binding, event);
   assert.equal(first.status, 500);
 
   const midway = await counts(harness.db);
-  assert.equal(midway.metrics, 1, "the apply really was interrupted partway");
+  assert.equal(midway.metrics, 0, "the interrupted result transaction rolled back");
   assert.equal(midway.run?.status, "evaluating", "and did not reach the terminal write");
   assert.equal(
     midway.events,
@@ -499,22 +472,20 @@ test("a result already applied is not lost when recording it fails", async () =>
   assert.equal(after.events, 1, "and the event is recorded now");
 });
 
-test("an interrupted refund settles the attempt exactly once across the replay", async () => {
+test("an interrupted failure transaction releases the reservation exactly once on replay", async () => {
   const harness = freshHarness();
   await seedRun(harness.db);
-  // Retry at the cap boundary without counting this refund twice.
-  await priorRefunds(harness.db, 4);
   const app = route();
   const event = infrastructureFailureEvent();
 
-  // The refund transaction committed, but the terminal callback did not.
-  harness.interruptOn(/insert into "outbox_events"/i);
+  // Fail after deleting the claim but before the terminal write commits.
+  harness.interruptOn(/update "runs" set "status"/i);
   const first = await post(app, harness.binding, event);
   assert.equal(first.status, 500);
 
   const midway = await counts(harness.db);
-  assert.equal(midway.attempts, 0, "the claim was given back");
-  assert.notEqual(midway.run?.refundedAt, null, "the refund was recorded in the same transaction");
+  assert.equal(midway.attempts, 1, "the claim deletion rolled back");
+  assert.equal(midway.run?.status, "evaluating");
   assert.equal(midway.events, 0);
 
   const replay = await post(app, harness.binding, event);
@@ -522,13 +493,13 @@ test("an interrupted refund settles the attempt exactly once across the replay",
 
   const after = await counts(harness.db);
   assert.equal(after.attempts, 0, "still one settlement, not two");
-  assert.notEqual(after.run?.refundedAt, null, "recorded exactly once by the replay");
+  assert.equal(after.run?.refundedAt, null, "no refund ledger is written");
   assert.equal(after.run?.status, "failed");
   assert.equal(after.run?.failureConsumedAttempt, false);
   assert.equal(
     after.run?.failureDetail,
     "the sandbox went away",
-    "no cap notice: the run does not count itself toward its own cap",
+    "the failure keeps its useful diagnostic",
   );
 
   const third = await post(app, harness.binding, event);
@@ -583,10 +554,11 @@ for (const mode of ["practice", "official"] as const) {
     const response = await post(app, harness.binding, completedEvent());
     assert.equal(response.status, 200);
     const recovered = await counts(harness.db);
-    assert.equal(recovered.run.status, "succeeded");
+    assert.equal(recovered.run.status, "failed");
     assert.equal(recovered.metrics, 2);
-    assert.equal(recovered.run.failureCategory, null);
-    assert.equal(recovered.run.failureDetail, null);
+    assert.equal(recovered.run.failureCategory, reaped.run.failureCategory);
+    assert.equal(recovered.run.failureDetail, reaped.run.failureDetail);
+    assert.equal(recovered.run.finishedAt, reaped.run.finishedAt);
     assert.equal(recovered.run.refundedAt, reaped.run.refundedAt);
     assert.equal(recovered.attempts, 0);
     assert.deepEqual(JSON.parse(recovered.run.diagnosticsJson!), ["the first note", "the second note"]);
@@ -603,7 +575,7 @@ for (const mode of ["practice", "official"] as const) {
   });
 }
 
-test("a refunded late completion cannot replace a subsequently published official run or reclaim its attempt", async () => {
+test("a failed execution's late completion cannot replace a subsequently published official run or reclaim its attempt", async () => {
   const harness = freshHarness();
   await seedRun(harness.db);
   const app = route();
@@ -651,11 +623,11 @@ test("a refunded late completion cannot replace a subsequently published officia
   const selection = await harness.db.select().from(leaderboardSelections);
   const attempts = await harness.db.select().from(officialAttempts);
   assert.equal(selection[0].runId, "run_2");
-  assert.equal(attempts[0].consumed, true);
+  assert.equal(attempts[0].consumed, false, "evaluation phases do not charge attempts");
 
   assert.equal((await post(app, harness.binding, completedEvent())).status, 200);
   const recovered = await counts(harness.db);
-  assert.equal(recovered.run.status, "succeeded");
+  assert.equal(recovered.run.status, "failed");
   assert.equal(recovered.metrics, 2);
   assert.equal(recovered.run.refundedAt, reaped.run.refundedAt);
   assert.equal(recovered.attempts, 0);
@@ -688,7 +660,7 @@ test("out-of-order status callbacks cannot reopen a reaped run or block its late
   }
   assert.equal((await post(app, harness.binding, completedEvent())).status, 200);
   const recovered = await counts(harness.db);
-  assert.equal(recovered.run.status, "succeeded");
+  assert.equal(recovered.run.status, "failed");
   assert.equal(recovered.run.lastEventSequence, 5);
   assert.equal(recovered.run.refundedAt, reaped.run.refundedAt);
   assert.equal(recovered.metrics, 2);
@@ -696,8 +668,7 @@ test("out-of-order status callbacks cannot reopen a reaped run or block its late
 });
 
 for (const status of ["evaluating", "scoring"] as const) {
-  for (const capped of [false, true]) {
-    test(`${status} callback read before reaping preserves the ${capped ? "capped" : "refunded"} terminal state`, { timeout: 5_000 }, async () => {
+    test(`${status} callback read before reaping preserves the failed terminal state`, { timeout: 5_000 }, async () => {
       const harness = freshHarness();
       await seedRun(harness.db);
       await harness.db.update(runs).set({ status: "contract_check" }).where(eq(runs.id, "run_1"));
@@ -706,7 +677,6 @@ for (const status of ["evaluating", "scoring"] as const) {
         { runId: "run_1", phase: "evaluating", startedAt: null, endedAt: null },
         { runId: "run_1", phase: "scoring", startedAt: null, endedAt: null },
       ]);
-      if (capped) await priorRefunds(harness.db, 5);
       const snapshot = async () => ({
         run: (await counts(harness.db)).run,
         attempts: await harness.db.select().from(officialAttempts),
@@ -727,8 +697,8 @@ for (const status of ["evaluating", "scoring"] as const) {
         await maintainPlatform(env(harness.binding), NOW + 3_600_001);
         reaped = await snapshot();
         assert.equal(reaped.run.status, "failed");
-        assert.equal(reaped.attempts.length, capped ? 1 : 0);
-        assert.equal(reaped.run.refundedAt === null, capped);
+        assert.equal(reaped.attempts.length, 0);
+        assert.equal(reaped.run.refundedAt, null);
       } finally {
         barrier.release();
       }
@@ -738,25 +708,7 @@ for (const status of ["evaluating", "scoring"] as const) {
       assert.deepEqual(await snapshot(), reaped);
       assert.equal((await counts(harness.db)).events, 1);
     });
-  }
 }
-
-test("a capped stale run retains its spent attempt and remains publishable", async () => {
-  const harness = freshHarness();
-  await seedRun(harness.db);
-  await priorRefunds(harness.db, 5);
-  await maintainPlatform(env(harness.binding), NOW + 3_600_001);
-  const reaped = await counts(harness.db);
-  assert.equal(reaped.run.refundedAt, null);
-  assert.equal(reaped.attempts, 1);
-  assert.equal((await post(route(), harness.binding, completedEvent())).status, 200);
-  const recovered = await counts(harness.db);
-  const actor = await publicationActor(harness.db);
-  assert.equal((await serializeRunDetail(harness.db, recovered.run, actor.team)).publishable, true);
-  await publishOfficialRun(env(harness.binding), actor, "run_1");
-  assert.equal((await harness.db.select().from(leaderboardSelections))[0].runId, "run_1");
-  assert.equal((await counts(harness.db)).attempts, 1);
-});
 
 for (const status of ["cancelled", "failed"] as const) {
   test(`a late completion cannot replace a ${status} runner outcome`, async () => {
@@ -773,6 +725,98 @@ for (const status of ["cancelled", "failed"] as const) {
     assert.equal((await post(route(), harness.binding, event)).status, 200);
     const after = await counts(harness.db);
     assert.equal(after.run.status, status);
-    assert.equal(after.metrics, 0);
+    assert.equal(after.metrics, status === "failed" ? 2 : 0);
   });
 }
+
+for (const mode of ["practice", "official"] as const) {
+  for (const category of ["provider", "student_runtime", "timeout", "memory_limit", "output_invalid"] as const) {
+    test(`signed ${mode} ${category} failure releases capacity without a charge`, async () => {
+      const harness = freshHarness();
+      await seedRun(harness.db, { mode });
+      const event = infrastructureFailureEvent();
+      event.failure.category = category;
+      event.failure.infrastructure = category === "provider";
+      const app = route();
+      const responses = await Promise.all([post(app, harness.binding, event), post(app, harness.binding, event)]);
+      assert.ok(responses.every((response) => response.status === 200));
+      const after = await counts(harness.db);
+      assert.equal(after.run.status, "failed");
+      assert.equal(after.run.failureConsumedAttempt, false);
+      assert.equal(after.attempts, 0);
+      assert.equal(after.outbox, 1);
+      assert.equal(after.events, 1);
+      assert.equal(after.run.refundedAt, null);
+    });
+  }
+
+  test(`valid partial low ${mode} completion settles once without requiring an overall metric`, async () => {
+    const harness = freshHarness();
+    await seedRun(harness.db, { mode });
+    const event = completedEvent();
+    event.result.metrics = [{ ...event.result.metrics[1], value: 0, primary: false }];
+    event.result.diagnostics = ["Only one task produced usable results."];
+    await Promise.all([post(route(), harness.binding, event), post(route(), harness.binding, event)]);
+    const after = await counts(harness.db);
+    assert.equal(after.run.status, "succeeded");
+    assert.equal(after.metrics, 1);
+    assert.equal(after.outbox, 1);
+    assert.equal(after.attempts, mode === "official" ? 1 : 0);
+    assert.deepEqual(JSON.parse(after.run.diagnosticsJson!), event.result.diagnostics);
+  });
+}
+
+for (const eventType of ["completed", "failed"] as const) {
+  test(`${eventType} callback read before reaping cannot revive or resettle failure`, async () => {
+    const harness = freshHarness();
+    await seedRun(harness.db);
+    const barrier = harness.pauseAfterRead(/^select "id", "team_id", .* from "runs"/i);
+    const event = eventType === "completed" ? completedEvent() : infrastructureFailureEvent();
+    const pending = post(route(), harness.binding, event);
+    await barrier.reached;
+    let failed: Awaited<ReturnType<typeof counts>>;
+    try {
+      await maintainPlatform(env(harness.binding), NOW + 3_600_001);
+      failed = await counts(harness.db);
+      assert.equal(failed.run.status, "failed");
+    } finally {
+      barrier.release();
+    }
+    assert.equal((await pending).status, 200);
+    const after = await counts(harness.db);
+    assert.equal(after.run.status, "failed");
+    assert.equal(after.run.finishedAt, failed.run.finishedAt);
+    assert.equal(after.run.failureDetail, failed.run.failureDetail);
+    assert.equal(after.attempts, 0);
+    assert.equal(after.outbox, 1, "only the winning reaper emits a terminal notice");
+    assert.equal(after.metrics, eventType === "completed" ? 2 : 0);
+  });
+}
+
+test("a reaper snapshot taken before completion cannot fail the completed execution", async () => {
+  const harness = freshHarness();
+  await seedRun(harness.db);
+  const barrier = harness.pauseAfterRead(/^select "id", "team_id", "status" from "runs"/i);
+  const pending = maintainPlatform(env(harness.binding), NOW + 3_600_001);
+  await barrier.reached;
+  try {
+    assert.equal((await post(route(), harness.binding, completedEvent())).status, 200);
+  } finally {
+    barrier.release();
+  }
+  await pending;
+  const after = await counts(harness.db);
+  assert.equal(after.run.status, "succeeded");
+  assert.equal(after.attempts, 1);
+  assert.equal(after.outbox, 1);
+});
+
+test("historical failure charge flags do not survive as current quota claims", async () => {
+  const harness = freshHarness();
+  await seedRun(harness.db);
+  await harness.db.update(runs).set({ status: "failed", failureCategory: "timeout", failurePhase: "evaluating", failureConsumedAttempt: true }).where(eq(runs.id, "run_1"));
+  const actor = await publicationActor(harness.db);
+  const detail = await serializeRunDetail(harness.db, (await counts(harness.db)).run, actor.team);
+  assert.equal(detail.failure?.consumedAttempt, false);
+  assert.equal(detail.publishable, false);
+});
