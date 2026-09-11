@@ -37,6 +37,7 @@ later stage is reached by feeding it a real upstream result.
 
 from __future__ import annotations
 
+import ast
 import contextlib
 import inspect
 import io
@@ -46,6 +47,7 @@ import re
 import signal
 import sys
 import tempfile
+import textwrap
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Callable, Dict, FrozenSet, List, Optional, Sequence, Tuple
@@ -914,14 +916,38 @@ def _reaches_outside(value: Any) -> bool:
 
     text = ""
     try:
-        text = inspect.getsource(value)
-    except (OSError, TypeError):
+        # Syntax excludes comments and docstrings but retains executable
+        # expressions inside f-strings, including on Python 3.8.
+        tree = ast.parse(textwrap.dedent(inspect.getsource(value)))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name):
+                text += " " + node.id
+            elif isinstance(node, ast.Call):
+                if isinstance(node.func, ast.Name):
+                    text += " " + node.func.id + "("
+                elif isinstance(node.func, ast.Attribute):
+                    text += " " + node.func.attr + "("
+            elif isinstance(node, ast.Attribute):
+                parts = [node.attr]
+                parent = node.value
+                while isinstance(parent, ast.Attribute):
+                    parts.append(parent.attr)
+                    parent = parent.value
+                if isinstance(parent, ast.Name):
+                    text += " " + ".".join(reversed(parts + [parent.id]))
+    except (OSError, TypeError, SyntaxError):
         pass
     code = getattr(value, "__code__", None)
-    if code is not None:
-        text += " ".join(code.co_names) + " " + " ".join(
-            name for name in getattr(code, "co_consts", ()) if isinstance(name, str)
+    pending = [code] if code is not None else []
+    while pending:
+        block = pending.pop()
+        # Named functions reserve the first constant for their docstring.
+        # Comprehensions have no docstring slot and can start with live data.
+        constants = block.co_consts if block.co_name.startswith("<") else block.co_consts[1:]
+        text += " ".join(block.co_names) + " " + " ".join(
+            name for name in constants if isinstance(name, str)
         )
+        pending.extend(item for item in constants if isinstance(item, type(block)))
     return any(word in text for word in _SIDE_EFFECTING)
 
 
@@ -1026,6 +1052,8 @@ def instances_in(modules: Sequence[Any]) -> List[Tuple[str, Any]]:
                 signature = inspect.signature(value)
                 signature.bind()
             except (TypeError, ValueError):
+                continue
+            if _reaches_outside(getattr(value, "__init__", None)):
                 continue
             try:
                 built.append(("{}.{}()".format(module_name, name), value()))
