@@ -513,3 +513,91 @@ def _compositions(total, parts):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipIf(
+    np is None
+    or find_spec("PIL") is None
+    or not _has("facial_recognition_benchmark.drivers"),
+    "Week 2 dependency lane only",
+)
+class TheTwoLanesDealTheSameWay(unittest.TestCase):
+    """One deal, owned by the benchmark, used by both consumers.
+
+    They used to deal differently: this side pooled every known slot and split
+    the total, so one person's photos could land wholly on one side, while the
+    local driver split each person's own. The same submission could score two
+    numbers depending on where it ran, and only one of the two measured
+    whether every person survived the stranger's enrollment.
+    """
+
+    def case(self, counts=(2, 2, 2), unknown=2, post=3):
+        from facial_recognition_benchmark.drivers import (
+            RecognitionIdentity,
+            RecognitionScenario,
+        )
+
+        counter = iter(range(1, 250))
+
+        def image():
+            return np.full((2, 2, 3), next(counter), dtype=np.uint8)
+
+        return RecognitionScenario(
+            known=[
+                RecognitionIdentity(
+                    "person_{}".format(at), [image()], [image() for _ in range(count)]
+                )
+                for at, count in enumerate(counts)
+            ],
+            unknown_person_id="stranger",
+            unknown_queries=[image() for _ in range(unknown)],
+            unknown_enrollment=[image()],
+            post_enrollment_queries=[image() for _ in range(post)],
+        )
+
+    def test_the_plan_is_the_benchmarks_deal_and_not_a_second_one(self):
+        from facial_recognition_benchmark.drivers import query_phases
+
+        from cogworks_runner.week2_payload import _query_plan, _recognition_seed
+
+        case = self.case()
+        plan = _query_plan(case)
+
+        self.assertEqual(
+            (plan.before_slots, plan.after_slots),
+            query_phases(plan.known_query_counts, plan.unknown_count, plan.post_count,
+                         _recognition_seed(case)),
+        )
+
+    def test_every_person_is_asked_about_on_both_sides_of_the_enrollment(self):
+        """What the pooled split did not give, and the reason it moved."""
+
+        from cogworks_runner.week2_payload import _query_plan
+
+        plan = _query_plan(self.case(counts=(2, 2, 4)))
+
+        at = 0
+        for count in plan.known_query_counts:
+            theirs = set(range(at, at + count))
+            self.assertTrue(theirs & set(plan.before_slots), (count, at))
+            self.assertTrue(theirs & set(plan.after_slots), (count, at))
+            at += count
+
+    def test_a_case_whose_first_batch_would_hold_only_the_stranger_is_refused(self):
+        # Two people with one held-out photo each: the count is two, but with
+        # the deal splitting each person's own photos both land after the
+        # enrollment, so the old `known_count < 2` test no longer rules it out.
+        from cogworks_runner.week2_payload import _query_plan
+
+        with self.assertRaises(ValueError) as caught:
+            _query_plan(self.case(counts=(1, 1)))
+
+        self.assertIn("two or more held-out photos", str(caught.exception))
+
+    def test_a_single_person_with_two_photos_is_enough(self):
+        from cogworks_runner.week2_payload import _query_plan
+
+        plan = _query_plan(self.case(counts=(2,), unknown=1, post=1))
+
+        self.assertTrue(any(slot < 2 for slot in plan.before_slots))
+        self.assertTrue(any(slot < 2 for slot in plan.after_slots))

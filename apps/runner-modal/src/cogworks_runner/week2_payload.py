@@ -32,7 +32,6 @@ from __future__ import annotations
 import hashlib
 import io
 import json
-import random
 import zipfile
 from dataclasses import dataclass, replace
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
@@ -131,52 +130,66 @@ def _recognition_seed(case: Any) -> int:
 def _canonical_query_images(case: Any) -> List[Any]:
     """Every query image, in canonical slot order.
 
-    The order matches ``recognition_expected`` exactly, so slot ``i`` here and
-    entry ``i`` of that function's concatenated output describe the same image.
+    The benchmark's ``canonical_query_images`` is that order, because it is
+    the order ``recognition_expected`` builds its gold in: slot ``i`` here and
+    entry ``i`` there are the same image. Written out twice, the two could
+    drift, and the whole map from a shuffled batch back to a scored answer
+    hangs off them agreeing.
     """
 
-    images: List[Any] = []
-    for identity in case.known:
-        images.extend(identity.queries)
-    images.extend(case.unknown_queries)
-    images.extend(case.post_enrollment_queries)
-    return images
+    from facial_recognition_benchmark.drivers import canonical_query_images
+
+    return list(canonical_query_images(case))
 
 
 def _query_plan(case: Any) -> RecognitionQueryPlan:
-    """Deal the canonical query slots into the two sandbox batches."""
+    """Deal the canonical query slots into the two sandbox batches.
+
+    The deal itself belongs to the benchmark, which owns the lifecycle and the
+    gold, and `facial_recognition_benchmark.drivers.query_phases` is the one
+    both lanes call. This half is what the benchmark deliberately does not
+    know: which seed a hosted run deals with, and the map from a shuffled batch
+    back to a scored answer, which stays here and never enters a payload.
+
+    Before they shared it, the two dealt differently. This one pooled every
+    known slot and split the total, so one person's photos could land wholly on
+    one side; the local driver split each person's own. Same lifecycle, and the
+    same submission could score two numbers depending on where it ran.
+
+    Imported inside the function, like the other two benchmark imports in this
+    module, so the half of it that encodes still runs where the benchmark is
+    not installed.
+    """
+
+    from facial_recognition_benchmark.drivers import query_phases
 
     known_query_counts = tuple(len(identity.queries) for identity in case.known)
     known_count = sum(known_query_counts)
     unknown_count = len(case.unknown_queries)
     post_count = len(case.post_enrollment_queries)
-    if known_count < 2:
-        raise ValueError(
-            "A recognition case needs at least two known queries so both sandbox "
-            "batches contain work whose answer is a known person; got {}. A batch "
-            "holding only the stranger's photos is answerable with one constant "
-            "label and without looking at any pixels.".format(known_count)
-        )
 
-    rng = random.Random(_recognition_seed(case))
-    known_slots = list(range(known_count))
-    rng.shuffle(known_slots)
-    # Half to each batch; with an odd count the extra goes to the second. The
-    # split only has to leave both batches holding known queries, which is what
-    # makes a constant answer in either batch cost something.
-    split = known_count // 2
-    before = known_slots[:split] + list(range(known_count, known_count + unknown_count))
-    after = known_slots[split:] + list(
-        range(known_count + unknown_count, known_count + unknown_count + post_count)
+    before, after = query_phases(
+        known_query_counts, unknown_count, post_count, _recognition_seed(case)
     )
-    rng.shuffle(before)
-    rng.shuffle(after)
+    # Checked on the deal rather than on a count that used to imply it. Half of
+    # each person's own photos go to each side now, so two people with one
+    # photo each leave the first batch holding nothing but the stranger, which
+    # is answerable with one constant label and without looking at any pixels.
+    # `known_count >= 2` no longer rules that out; this does.
+    if not any(slot < known_count for slot in before):
+        raise ValueError(
+            "A recognition case needs a known person with two or more held-out "
+            "photos, so that the first sandbox batch contains work whose answer "
+            "is somebody already enrolled; got query counts {}. A batch holding "
+            "only the stranger's photos is answerable with one constant label "
+            "and without looking at any pixels.".format(list(known_query_counts))
+        )
     return RecognitionQueryPlan(
         known_query_counts=known_query_counts,
         unknown_count=unknown_count,
         post_count=post_count,
-        before_slots=tuple(before),
-        after_slots=tuple(after),
+        before_slots=before,
+        after_slots=after,
     )
 
 
