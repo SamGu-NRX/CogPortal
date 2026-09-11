@@ -325,7 +325,7 @@ export async function buildRunSurfaceSnapshot(
   // resolves that session's commit against the connected repository. The other
   // three are governed by the hosted run's.
   const sourceRun = official ?? practice ?? null;
-  const source = runSource(sourceRun?.repositoryFullName ?? null);
+  const source = runSource(current.repositoryFullName);
   const hostedRefusal = sourceRun ? runSourceRefusal(team, sourceRun, "act on it") : null;
   const localRefusal = local ? runSourceRefusal(team, local, "verify it here") : null;
   const sourceRefusal = hostedRefusal ?? localRefusal;
@@ -362,9 +362,10 @@ export async function buildRunSurfaceSnapshot(
     team: { id: team.id, name: team.name },
     benchmark: { id: benchmark.id, version: benchmark.version, title: benchmark.title },
     actor: { login: accountLogin(actor), name: actor.name },
-    sha: local?.sha ?? practice?.sha ?? official?.sha,
-    shortSha: (local?.sha ?? practice?.sha ?? official?.sha ?? "").slice(0, 7),
-    branch: local?.branch ?? practice?.branch ?? official?.branch ?? null,
+    // Source and commit identify the same stage as its status and metrics.
+    sha: current.sha,
+    shortSha: current.sha.slice(0, 7),
+    branch: current.branch,
     source,
     sourceRefusal,
     dirty: local?.dirty ?? false,

@@ -696,9 +696,8 @@ export const RunSurfaceSnapshotSchema = z.object({
    */
   refusalHeadline: z.string().max(600).nullable().default(null),
   events: z.array(RunStreamEventSchema).max(250),
-  /** The repository the hosted work ran from, or null when the run predates
-   *  the recorded name. Beside the commit the console already shows, so a
-   *  result can be identified rather than only dated. */
+  /** Repository of the current stage, paired with its commit. Null when
+   *  that run predates the recorded name. */
   source: RunSourceSchema.nullable(),
   /** Why promotion, rerun and publication are absent from `actions`, when the
    *  reason is that this run is not about the connected repository. */
@@ -822,6 +821,7 @@ export type DeviceStatus = z.infer<typeof DeviceStatusSchema>;
 
 export const SelectionSchema = z.object({
   runId: z.string(),
+  source: RunSourceSchema.nullable(),
   selectedAt: z.number(),
   primaryMetric: MetricSchema,
   shortSha: z.string(),
@@ -836,8 +836,8 @@ export const DashboardSchema = z.object({
   quota: QuotaSchema,
   lastResolvedSha: z.string().nullable(),
   activeRun: RunSummarySchema.nullable(),
-  /** Most recent succeeded practice run (the promotable candidate). */
-  latestCandidate: RunSummarySchema.nullable(),
+  /** Most recent succeeded practice run, retained even when its source prevents promotion. */
+  latestCandidate: RunSummarySchema.extend({ sourceRefusal: z.string().nullable() }).nullable(),
   selection: SelectionSchema.nullable(),
   runs: z.array(RunSummarySchema),
 });
