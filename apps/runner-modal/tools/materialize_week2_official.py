@@ -71,7 +71,9 @@ def main() -> None:
         # No key: this permutation is a carrier, not a secret. It is undone
         # by `attach_recognition_gold` and the controller reshuffles each run
         # with its own keyed seed, so an operator's machine does not need
-        # RUNNER_SIGNING_SECRET and re-materializing stays byte-stable.
+        # RUNNER_SIGNING_SECRET. Re-materializing the same manifest deals the
+        # same plan and writes the same archive members; the archive's bytes
+        # still differ, because zipfile stamps each entry with the clock.
         payload, plans = encode_cases(args.track, cases, seed_key=None)
         if args.track == "vision-recognition":
             expected = recognition_gold(plans)
