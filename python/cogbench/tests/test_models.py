@@ -48,6 +48,27 @@ class LocalReportTests(unittest.TestCase):
         self.assertNotIn("path", json.dumps(payload).lower())
         self.assertEqual(payload["sha"], "a" * 40)
 
+    def test_wrapping_reserves_a_line_for_each_retained_diagnostic(self):
+        diagnostics = ["Early detail. " * 100] + ["Cause {}".format(i) for i in range(1, 32)]
+        report = self._with_diagnostics(diagnostics + ["Outside the record limit"])
+        self.assertEqual(len(report.diagnostics), 32)
+        self.assertEqual(report.diagnostics[1:], diagnostics[1:])
+        self.assertTrue(all(len(line) <= 240 for line in report.diagnostics))
+
+    def test_spare_wire_lines_preserve_long_notes_without_displacing_later_records(self):
+        report = self._with_diagnostics(["Early detail. " * 1000, "Later cause"])
+        self.assertEqual(len(report.diagnostics), 32)
+        self.assertEqual(report.diagnostics[-1], "Later cause")
+        self.assertTrue(all(len(line) <= 240 for line in report.diagnostics))
+
+    def _with_diagnostics(self, diagnostics):
+        return LocalReport.create(
+            benchmark_id="vision-recognition", benchmark_version=1,
+            contract_version="cogworks.submissions.v1", sdk_version="0.1.0",
+            plugin_version="0.1.0", repository=RepositoryState(None, None, None, False),
+            started_at=1, finished_at=2, metrics=[], diagnostics=diagnostics, predictions=[],
+        )
+
     def test_report_round_trip(self):
         with tempfile.TemporaryDirectory() as directory:
             report = execute(
