@@ -145,11 +145,19 @@ def main() -> int:
 
     sha = args.sha
     if not sha:
+        import urllib.error
         import urllib.request
+
         url = "https://api.github.com/repos/{}/commits?per_page=1".format(args.repo)
         request = urllib.request.Request(url, headers={"User-Agent": "cogworks-smoke"})
-        with urllib.request.urlopen(request, timeout=30) as response:
-            sha = json.load(response)[0]["sha"]
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                sha = json.load(response)[0]["sha"]
+        except (urllib.error.URLError, OSError) as error:
+            # A mistyped --repo is the same kind of mistake as a mistyped --sha
+            # and ends the same way. 404 is the common one and its message says
+            # nothing, so name the repository that was asked for.
+            parser.error("could not resolve a commit for {}: {}".format(args.repo, error))
         print("resolved {} -> {}".format(args.repo, sha[:12]), flush=True)
 
     # `submit_job` validates before it spawns anything, so a job this tool
