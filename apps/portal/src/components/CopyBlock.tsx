@@ -1,3 +1,5 @@
+import { Copy01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useRef, useState } from "react";
 
 /** A copyable command line: mono, single action, 44px target. */
@@ -53,13 +55,22 @@ export function CopyBlock({
       >
         {text}
       </code>
+      {/* Same control as the code block's, so one gesture means one thing
+          across the page. */}
       <button
         type="button"
         onClick={copy}
-        className="u-pressable min-w-11 border border-l-0 border-rule bg-paper-raised px-3 font-mono text-[11px] tracking-[0.08em] text-ink-secondary uppercase transition-colors duration-150 hover:text-ink"
+        title={copied ? "Copied" : "Copy command"}
+        className="u-pressable flex min-w-11 items-center justify-center border border-l-0 border-rule bg-paper-raised px-3 transition-colors duration-150 hover:border-ink-secondary"
       >
-        {copied ? "ok" : "copy"}
-        <span className="sr-only">Copy command</span>
+        <HugeiconsIcon
+          icon={copied ? Tick02Icon : Copy01Icon}
+          size={13}
+          strokeWidth={1.8}
+          className={copied ? "text-verify" : "text-ink-faint"}
+          aria-hidden="true"
+        />
+        <span className="sr-only">{copied ? "Copied" : "Copy command"}</span>
       </button>
     </div>
   );

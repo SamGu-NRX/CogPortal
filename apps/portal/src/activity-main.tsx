@@ -1,3 +1,5 @@
+import { ArrowUpRight01Icon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import { StrictMode, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Common, DiscordSDK, Events } from "@discord/embedded-app-sdk";
@@ -229,7 +231,12 @@ function ActivityApp() {
           <p className="mt-4 text-[14px] text-ink-secondary">Connect your fork in the browser to join or start your team. Then close this Activity and open it again.</p>
           <button type="button" className="mt-6 min-h-11 bg-ink px-5 text-[13px] font-medium text-paper-raised" onClick={() => {
             if (sdk) void sdk.commands.openExternalLink({ url: session.portalUrl });
-          }}>Finish team setup ↗</button>
+          }}>
+            <span className="inline-flex items-center gap-1.5">
+              Finish team setup
+              <HugeiconsIcon icon={ArrowUpRight01Icon} size={12} strokeWidth={1.8} aria-hidden="true" />
+            </span>
+          </button>
         </section>
       </main>
     );
@@ -243,7 +250,12 @@ function ActivityApp() {
           <p className="mt-4 text-[14px] text-ink-secondary">Discord is attached to your existing GitHub-first portal account. No repository access or Discord login is stored on your laptop.</p>
           <button type="button" className="mt-6 min-h-11 bg-ink px-5 text-[13px] font-medium text-paper-raised" onClick={() => {
             if (sdk) void sdk.commands.openExternalLink({ url: session.linkUrl });
-          }}>Link Cog*Portal ↗</button>
+          }}>
+            <span className="inline-flex items-center gap-1.5">
+              Link Cog*Portal
+              <HugeiconsIcon icon={ArrowUpRight01Icon} size={12} strokeWidth={1.8} aria-hidden="true" />
+            </span>
+          </button>
           {/* The Activity does not poll for link completion, so a student who
               links in the browser returns to this same card and reads it as a
               failure. Naming the recovery costs one line. */}

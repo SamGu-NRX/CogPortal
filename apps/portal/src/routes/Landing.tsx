@@ -1,3 +1,5 @@
+import { ArrowUpRight01Icon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import type { ReactNode } from "react";
 import { Link, Navigate } from "react-router";
 import { OFFICIAL_LIMIT, PRACTICE_LIMIT } from "@cogworks/contracts/schema";
@@ -83,9 +85,10 @@ export function Landing() {
                   href={`https://github.com/${template}`}
                   target="_blank"
                   rel="noreferrer"
-                  className="font-mono text-[13px] text-ink underline decoration-rule underline-offset-4 hover:decoration-ink"
+                  className="inline-flex items-center gap-1 font-mono text-[13px] text-ink underline decoration-rule underline-offset-4 hover:decoration-ink"
                 >
-                  github.com/{template} ↗
+                  github.com/{template}
+                  <HugeiconsIcon icon={ArrowUpRight01Icon} size={12} strokeWidth={1.8} aria-hidden="true" />
                 </a>
                 , or connect a repository your team already has.
               </p>

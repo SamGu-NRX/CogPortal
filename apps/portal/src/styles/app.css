@@ -206,6 +206,16 @@
     line-height: 1.65;
     overflow-x: auto;
   }
+
+  /* A command whose tail has to stay readable, like a pinned commit. A
+     scrolling line passes under the copy button; a wrapped one would sit under
+     it, so the first line keeps clear of it. */
+  .code-block.is-wrapped pre {
+    overflow-x: visible;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    padding-right: 1.75rem;
+  }
 }
 
 @keyframes rise {
