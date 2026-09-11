@@ -10,6 +10,7 @@ import {
   type Team,
 } from "@cogworks/contracts/schema";
 import type { Database } from "../db/client";
+import { canPublishOfficialRun } from "../services/run-eligibility";
 import {
   leaderboardSelections,
   runMetrics,
@@ -93,7 +94,8 @@ export async function serializeRunSummary(db: Database, row: RunRow): Promise<Ru
             category: row.failureCategory,
             phase: row.failurePhase,
             detail: row.failureDetail,
-            consumedAttempt: row.failureConsumedAttempt,
+            // Kept on the wire for older clients; failures no longer use quota.
+            consumedAttempt: false,
           }
         : null,
   };
@@ -155,6 +157,7 @@ export async function serializeRunDetail(db: Database, row: RunRow): Promise<Run
     weightsSupplied: parseWeightsSupplied(row.weightsSuppliedJson),
     log: row.mode === "practice" ? row.log : null,
     selected: selection[0]?.runId === row.id,
+    publishable: canPublishOfficialRun(row),
   };
 }
 
