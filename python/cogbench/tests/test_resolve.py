@@ -12,10 +12,36 @@ ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "python" / "cogbench" / "src"))
 
 from cogbench import memo  # noqa: E402
-from cogbench.pipeline import Role, Stage  # noqa: E402
+from cogbench.pipeline import Candidate, Role, Stage  # noqa: E402
 from cogbench.progress import Progress  # noqa: E402
-from cogbench.resolve import resolve  # noqa: E402
+from cogbench.resolve import (  # noqa: E402
+    NoDatabase, _Shape, _Trial, _accepts_n, _read_further, _takes_one, resolve,
+)
 from cogbench.verdict import NOT_READ, NOT_WIRED, NOTHING_HERE, SCORED  # noqa: E402
+
+
+class QuerySignatureTests(unittest.TestCase):
+    def test_optional_queries_do_not_expand_the_reader_pool(self):
+        def query(first=None, second=None):
+            return first
+
+        candidate = Candidate("query", query, "test")
+        self.assertTrue(_accepts_n(candidate, 1))
+        self.assertTrue(_accepts_n(candidate, 2))
+        self.assertFalse(_accepts_n(candidate, 3))
+        self.assertFalse(_takes_one(candidate))
+
+    def test_required_keyword_only_parameters_are_not_supplied(self):
+        def query(first, *, threshold):
+            return first
+
+        self.assertFalse(_accepts_n(Candidate("query", query, "test"), 1))
+
+    def test_variadic_only_queries_remain_deferred(self):
+        def query(*values):
+            return values
+
+        self.assertFalse(_accepts_n(Candidate("query", query, "test"), 1))
 
 
 # A miniature week: an item is a number, "fingerprinting" doubles it, a store
@@ -442,7 +468,7 @@ class TheirDatabaseIsAnObjectTheirOwnFactoryMakes(unittest.TestCase):
         the factory made, and scoring from there would rank them against the
         benchmark's real catalog."""
 
-        submission = self._resolve(factories=_is_factory, readers=2).fresh()
+        submission = self._resolve(factories=_is_factory, readers=2)
         submission.enroll("gamma", [(14, 44100)])
 
         self.assertEqual(submission.query([(14, 44100)]), ["gamma"])
@@ -1185,11 +1211,11 @@ class AScoredRunReadsTheObjectItJustBuilt(unittest.TestCase):
             ["theirs.Shelf().ranked"],
         )
 
-        ready = submission.fresh()
-        ready.enroll("gamma", [(28, 44100)])
-        ready.enroll("delta", [(36, 44100)])
+        for ready in (submission, submission.fresh()):
+            ready.enroll("gamma", [(28, 44100)])
+            ready.enroll("delta", [(36, 44100)])
 
-        self.assertEqual(ready.query([(28, 44100)]), ["gamma", "delta"])
+            self.assertEqual(ready.query([(28, 44100)]), ["gamma", "delta"])
 
 
 #: The same shape again, counting constructions. Their constructor is one of
@@ -1225,6 +1251,101 @@ def _module_holding(submission, attribute):
     raise AssertionError("no loaded module has {}".format(attribute))
 
 
+class DistinctTrialOwners(unittest.TestCase):
+    def test_failed_speculative_reader_does_not_refuse_the_trial(self):
+        attempted = []
+
+        def cannot_rebuild():
+            attempted.append('bad')
+            raise ValueError('closed')
+
+        store = Candidate('store', lambda name, item: None, 'test')
+        ask = Candidate('ask', lambda item: item, 'test')
+        bad = Candidate('bad', lambda value: value, 'test', rebuild=cannot_rebuild)
+        good = Candidate('good', lambda value: ['alpha'], 'test')
+        trial = _Trial(_Shape(), store, ask, None, 0)
+        trial.enroll('alpha', 'item')
+        result = _read_further(_ranked_grades, 'item', trial, (bad, good), 1)
+        self.assertEqual(attempted, ['bad'])
+        self.assertEqual(result, (1.0, (good,)))
+        self.assertEqual(trial.query()('still usable'), 'still usable')
+
+    def test_selected_reader_rebuild_failure_remains_sticky(self):
+        attempted = []
+
+        def cannot_rebuild():
+            attempted.append('selected')
+            raise ValueError('closed')
+
+        store = Candidate('store', lambda name, item: None, 'test')
+        ask = Candidate('ask', lambda item: item, 'test')
+        reader = Candidate('selected', lambda value: value, 'test', rebuild=cannot_rebuild)
+        trial = _Trial(_Shape(readers=(reader,)), store, ask, None, 0)
+        calls = (
+            lambda: trial.enroll('alpha', 'item'),
+            lambda: trial.enroll('beta', 'item'),
+            lambda: trial.query()('item'),
+            lambda: trial.reading(ask),
+        )
+        for call in calls:
+            with self.assertRaisesRegex(NoDatabase, 'selected could not be built again: ValueError'):
+                call()
+        self.assertEqual(attempted, ['selected'])
+
+    def test_query_cache_is_rebuilt_and_shared_with_its_readers(self):
+        builds = []
+
+        class Store:
+            def __init__(self):
+                self.items = {}
+
+            def enroll(self, name, item):
+                self.items[item] = name
+
+        class Query:
+            # Equal, unhashable owners must still be rebuilt separately.
+            __hash__ = None
+
+            def __eq__(self, other):
+                return True
+
+            def __init__(self):
+                builds.append(self)
+                self.cache = {}
+
+            def query(self, item):
+                return self.cache.setdefault(item, 'new')
+
+            def read(self, value):
+                self.cache['reader'] = value
+                return value
+
+            def read_again(self, value):
+                return self.cache['reader']
+
+        store, query, other = Store(), Query(), Query()
+        query.cache['item'] = 'probe'
+        other.cache['item'] = 'other probe'
+        enroll = Candidate('Store.enroll', store.enroll, 'test', rebuild=lambda: Store().enroll)
+        ask = Candidate('Query.query', query.query, 'test', rebuild=lambda: Query().query)
+        reader = Candidate('Query.read', query.read, 'test', rebuild=lambda: Query().read)
+        again = Candidate('Query.read_again', query.read_again, 'test', rebuild=lambda: Query().read_again)
+        distinct = Candidate('Other.query', other.query, 'test', rebuild=lambda: Query().query)
+        before = len(builds)
+        for index in range(2):
+            trial = _Trial(_Shape(readers=(reader, again)), enroll, ask, None, 0)
+            self.assertEqual(len(builds), before + index * 2)
+            trial.enroll('gamma', 'item')
+            self.assertEqual(trial.query()('item'), 'new')
+            self.assertEqual(trial.reading(again)('ignored'), 'new')
+            self.assertEqual(len(builds), before + index * 2 + 1)
+            self.assertEqual(trial.reading(distinct)('item'), 'new')
+            self.assertEqual(trial.reading(distinct)('item'), 'new')
+            self.assertEqual(len(builds), before + index * 2 + 2)
+        self.assertEqual(query.cache, {'item': 'probe'})
+        self.assertEqual(other.cache, {'item': 'other probe'})
+
+
 class AScoredRunBuildsTheirClassOnce(unittest.TestCase):
     """The store and the query are two methods of one object, so making the
     store's object again is the whole job.
@@ -1250,7 +1371,10 @@ class AScoredRunBuildsTheirClassOnce(unittest.TestCase):
         theirs = _module_holding(submission, "BUILDS")
         before = len(theirs.BUILDS)
 
-        submission.fresh()
+        ready = submission.fresh()
+        self.assertEqual(len(theirs.BUILDS), before)
+        ready.enroll("gamma", [(28, 44100)])
+        self.assertEqual(ready.query([(28, 44100)]), "gamma")
 
         self.assertEqual(len(theirs.BUILDS) - before, 1)
 

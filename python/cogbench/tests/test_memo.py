@@ -12,17 +12,24 @@ sys.path.insert(0, str(ROOT / "python" / "cogbench" / "src"))
 
 from cogbench import memo  # noqa: E402
 from cogbench.pipeline import Role, Stage  # noqa: E402
-from cogbench.resolve import resolve  # noqa: E402
+from cogbench.resolve import NoDatabase, resolve  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_resolve import (  # noqa: E402
+    COUNTED_BUILD_REPO,
+    FACTORY_REPO,
     FIXTURE,
+    READING_OBJECT_REPO,
     MANY_CHAINS_REPO,
     REPO,
     ROLE,
     _Recorder,
     _accepts,
     _arrangements,
+    _is_factory,
+    _module_holding,
+    _ranked_accepts,
+    _ranked_grades,
 )
 
 
@@ -98,6 +105,107 @@ class StoreTests(unittest.TestCase):
         self.addCleanup(lambda: (self.tmp / ".cogbench").chmod(0o700))
 
         memo.write(self.tmp, "k", {"enroll": "a.b"})  # must not raise
+
+
+class UsableReplayedSubmissions(unittest.TestCase):
+    def test_lazy_constructors_and_factories_keep_resource_files(self):
+        resource_read = (
+            "from pathlib import Path\n"
+            "import os\n"
+            "def read_resource():\n"
+            "    path = Path(os.environ['COGWORKS_LANGUAGE_DATA']) / 'course.txt'\n"
+            "    assert path.read_text() == 'supplied by the benchmark'\n"
+        )
+        cases = (
+            (FACTORY_REPO.replace(
+                "def create_database():\n    return {}",
+                "def create_database():\n    read_resource()\n    return {}",
+            ), _ranked_accepts, _ranked_grades, _is_factory, 2),
+            (COUNTED_BUILD_REPO.replace(
+                "        BUILDS.append(1)",
+                "        read_resource()\n        BUILDS.append(1)",
+            ), _accepts, None, None, 0),
+        )
+        for source, accepts, grades, factories, readers in cases:
+            with tempfile.TemporaryDirectory() as directory:
+                root = Path(directory).resolve()
+                resource = root / 'course.txt'
+                resource.write_text('supplied by the benchmark')
+                (root / 'theirs.py').write_text(resource_read + source)
+                for recalled in (False, True):
+                    with self.subTest(factory=factories is not None, recalled=recalled):
+                        submission = resolve(
+                            root, chain_role=ROLE, fixture=FIXTURE, accepts=accepts,
+                            arrangements=_arrangements, grades=grades, factories=factories,
+                            readers=readers, remember=True,
+                            resource_files={'course.txt': resource},
+                        )
+                        self.assertTrue(submission.ready, submission.verdict.headline)
+                        self.assertEqual(submission.recalled, recalled)
+                        for ready in (submission, submission.fresh()):
+                            ready.enroll('gamma', [(14, 44100)])
+                            expected = ['gamma'] if factories else 'gamma'
+                            self.assertEqual(ready.query([(14, 44100)]), expected)
+
+    def test_factory_and_constructor_failures_are_reported_on_first_use(self):
+        factory = "FAIL = False\n" + FACTORY_REPO.replace(
+            "def create_database():\n    return {}",
+            "def create_database():\n    if FAIL:\n        raise ValueError('closed')\n    return {}",
+        )
+        constructor = "FAIL = False\n" + COUNTED_BUILD_REPO.replace(
+            "        BUILDS.append(1)",
+            "        if FAIL:\n            raise ValueError('closed')\n        BUILDS.append(1)",
+        )
+        cases = (
+            (factory, _ranked_accepts, _ranked_grades, _is_factory, 2),
+            (constructor, _accepts, None, None, 0),
+        )
+        for source, accepts, grades, factories, readers in cases:
+            with tempfile.TemporaryDirectory() as directory:
+                root = Path(directory).resolve()
+                (root / "theirs.py").write_text(source)
+                for recalled in (False, True):
+                    submission = resolve(
+                        root, chain_role=ROLE, fixture=FIXTURE, accepts=accepts,
+                        arrangements=_arrangements, grades=grades, factories=factories,
+                        readers=readers, remember=True,
+                    )
+                    self.assertTrue(submission.ready)
+                    self.assertEqual(submission.recalled, recalled)
+                    _module_holding(submission, "FAIL").FAIL = True
+                    for ready in (submission, submission.fresh()):
+                        with self.assertRaises(NoDatabase):
+                            ready.enroll("gamma", [(14, 44100)])
+                        with self.assertRaises(NoDatabase):
+                            ready.query([(14, 44100)])
+
+    def test_cold_and_replayed_submissions_enroll_into_their_own_empty_store(self):
+        cases = (
+            ("factory", FACTORY_REPO, _ranked_accepts, _ranked_grades, _is_factory, 2),
+            ("method-reader", READING_OBJECT_REPO, _ranked_accepts, _ranked_grades, None, 1),
+            ("state-method", READING_OBJECT_REPO.replace(
+                "def lookup(self, features):", "def lookup(self, features, hashes, names):"
+            ), _accepts, None, None, 0),
+            ("state-optional", READING_OBJECT_REPO.replace(
+                "def lookup(self, features):", "def lookup(self, features, hashes, names=None):"
+            ), _accepts, None, None, 0),
+        )
+        for name, source, accepts, grades, factories, readers in cases:
+            with self.subTest(shape=name), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory).resolve()
+                (root / "theirs.py").write_text(source)
+                submissions = [resolve(
+                    root, chain_role=ROLE, fixture=FIXTURE, accepts=accepts,
+                    arrangements=_arrangements, grades=grades, factories=factories,
+                    readers=readers, remember=True,
+                ) for _ in range(2)]
+                self.assertFalse(submissions[0].recalled)
+                self.assertTrue(submissions[1].recalled)
+                for submission in submissions:
+                    self.assertTrue(submission.ready, submission.verdict.headline)
+                    submission.enroll("gamma", [(14, 44100)])
+                    expected = "gamma" if name.startswith("state-") else ["gamma"]
+                    self.assertEqual(submission.query([(14, 44100)]), expected)
 
 
 class ReuseTests(unittest.TestCase):

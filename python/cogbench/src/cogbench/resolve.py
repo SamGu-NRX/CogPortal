@@ -20,6 +20,7 @@ that gives up says how hard it looked.
 
 from __future__ import annotations
 
+import inspect
 import sys
 from collections.abc import Mapping as _MappingABC
 from dataclasses import dataclass, field, replace
@@ -55,6 +56,7 @@ from .verdict import (
 __all__ = [
     "Submission",
     "SubmissionReport",
+    "NoDatabase",
     "Attempt",
     "resolve",
     "from_spec",
@@ -203,6 +205,8 @@ class Submission:
     #: than trusting this, because it is describing what happened during the
     #: search and the scored run is a different object.
     _state_attribute: Optional[str] = None
+    #: Lazy construction runs after resolve's resource redirects have closed.
+    _resource_files: Dict[str, Path] = field(default_factory=dict)
 
     @property
     def ready(self) -> bool:
@@ -225,91 +229,25 @@ class Submission:
         return bool(self.chain) and self.verdict.status == SCORED
 
     def fresh(self) -> "Submission":
-        """The same binding, against a database with nothing in it yet.
+        """Another run of this binding, built lazily on its first use.
 
-        Proving a binding works means enrolling two fixture songs into it, and
-        when a team's database is an object rather than a file, those songs are
-        still in it afterwards. Scoring from there put `fixture_a` in the
-        ranked results for real queries and cost one 2026 team half its score.
-
-        One object, and everything that touches it taken off that one. The
-        store is rebuilt first, and then whatever else came off the same
-        original object -- the query, and any of their readers -- is taken off
-        the rebuilt one, in the order the search recorded. Rebuilding each
-        separately is two databases and answers nothing; rebuilding the
-        query's owner and discarding it is a call to their constructor that
-        the accepted pairing never made.
-
-        When the binding is plain module functions there is nothing here to
-        rebuild: a pickle file is emptied by the driver's own scratch
-        directory, which is where their file already lands.
+        The accepted trial owns rebinding for search and scoring alike. Its
+        constructor and factory run inside the caller's working directory,
+        not while resolution is returning from its scratch directory.
+        Module-global state has no rebuild operation and is not reset here.
         """
 
         if self._store is None or self._ask is None:
             return self
-        if (
-            self._store.rebuild is None
-            and self._ask.rebuild is None
-            and self._factory is None
-        ):
-            return self
-
-        store = self._store.rebuild() if self._store.rebuild else self._store.call
-        original = _bound_to(self._store)
-        owner = getattr(store, "__self__", None)
-        shared = owner is not None and original is not None
-        if shared and _bound_to(self._ask) is original:
-            # Their query is another method of the object their store is a
-            # method of, so it is already on the database this just rebuilt.
-            # Calling `self._ask.rebuild()` here built a third object and
-            # threw it away: a constructor call the accepted pairing never
-            # made, on a repository whose constructor may read a file.
-            ask = _same_method_on(owner, self._ask) or self._ask.call
-        elif self._ask.rebuild is not None:
-            ask = self._ask.rebuild()
-        else:
-            ask = self._ask.call
-
-        index = self.attempt.arrangement if self.attempt else 0
-        arrange = self._arrange
-        # Their own empty database, made again. One 2026 team writes
-        # `create_database()` and then `add_fingerprints(db, id, fps)` and
-        # `query_database(db, fps)`, so the object is an argument rather than
-        # a module global; scoring from the one the search filled would leave
-        # the fixture songs competing with the benchmark's catalog.
-        held = self._factory.call() if self._factory is not None else None
-        # Their readers, taken off the object this rebuilt too, in the order
-        # the search bound them. A reader is one of their own functions, and a
-        # week whose store and query are methods can have one that is a method
-        # as well; such a reader was still bound to the object the search
-        # filled, so it answered about the fixture rather than about what this
-        # run enrolled. Measured in `AScoredRunReadsTheObjectItJustBuilt`.
-        readers = tuple(_rebound(reader, original, owner) for reader in self._readers)
-        # Read off the object this run just built, never off the one the
-        # search filled. The attribute name on the record says what happened
-        # during the search; a scored run enrols different songs into a
-        # different object, and asking it the same question again is what
-        # makes the two runs the same program rather than the same guess.
-        state = _FromTheirStore(store) if self._state else None
-
-        def _enroll(song_id: str, item: Any) -> Any:
-            if state is not None:
-                state.enrolling(song_id)
-            target = store if held is None else _leading(store, held)
-            if arrange is None:
-                return target(song_id, item)
-            return arrange(target, song_id, item)[index]()
-
-        def _query(item: Any) -> Any:
-            if state is not None:
-                answer = ask(item, *state.arguments())
-            else:
-                answer = ask(item) if held is None else ask(held, item)
-            for reader in readers:
-                answer = reader.call(answer)
-            return answer
-
-        return replace(self, enroll=_enroll, query=_query)
+        trial = _Trial(
+            _Shape(self._factory, self._readers, self._state, self._state_attribute),
+            self._store,
+            self._ask,
+            self._arrange,
+            self.attempt.arrangement if self.attempt else 0,
+            resource_files=self._resource_files,
+        )
+        return replace(self, enroll=trial.enroll, query=trial.query())
 
     def report(self) -> SubmissionReport:
         """This submission with the live callables left behind.
@@ -420,8 +358,8 @@ def _rebound(candidate: Candidate, original: Any, owner: Any) -> Candidate:
     at the database the search filled.
 
     A candidate bound to some other object, or to nothing, is returned
-    unchanged. Rebuilding one of those would hand back an object nothing ever
-    enrolled into, which is a worse answer than the one it has.
+    unchanged. `_Trial` rebuilds distinct owners separately and uses this
+    helper to share each rebuilt owner among its methods.
     """
 
     if original is None or owner is None or owner is original:
@@ -707,6 +645,7 @@ def resolve(
                 fixture=fixture,
                 extras=extras,
                 identities=identities,
+                resource_files=resource_files,
             )
             if recalled is not None:
                 watcher.done()
@@ -888,15 +827,6 @@ def resolve(
         # this took: every chain before it was searched too. `paired["tried"]` is
         # the whole search, and it is what the record and the memo carry.
         _grade, store, ask, index, _at, shape = paired["best"]
-        held = shape.hold()
-        call = store.rebuild() if shape.state and store.rebuild else store.call
-        state = _FromTheirStore(call) if shape.state else None
-
-        def _enroll(song_id: str, item: Any, _i=index, _h=held, _c=call) -> Any:
-            if state is not None:
-                state.enrolling(song_id)
-            return arrangements(_c if _h is None else _leading(_c, _h), song_id, item)[_i]()
-
         watcher.attempts(paired["tried"], paired["tried"])
         watcher.done()
         if key:
@@ -925,10 +855,6 @@ def resolve(
             missing=dict(chain.missing),
             attempt=Attempt(store.label, ask.label, index),
             attempts_tried=paired["tried"],
-            enroll=_enroll,
-            query=lambda item, _a=ask, _h=held, _r=shape.readers, _s=state: _read(
-                _a, _h, _r, item, _s
-            ),
             _store=store,
             _ask=ask,
             _arrange=arrangements,
@@ -936,7 +862,8 @@ def resolve(
             _readers=shape.readers,
             _state=shape.state,
             _state_attribute=shape.state_attribute,
-        )
+            _resource_files=dict(resource_files or {}),
+        ).fresh()
 
 
 def _pair(
@@ -999,7 +926,7 @@ def _pair(
     # which is the expensive part, so each is answered once here.
     holds_state = {c.label for c in candidates if _FromTheirStore.possible(c.call)}
     asking = {
-        arity: [c for c in candidates if _takes_n(c, arity)]
+        arity: [c for c in candidates if _accepts_n(c, arity)]
         for arity in {shape.query_arity for shape in shapes}
     }
     # A reader takes what the query returned and nothing else, so only a
@@ -1183,11 +1110,10 @@ class _Shape:
 class NoDatabase(Exception):
     """This pairing could not be given a database of its own.
 
-    Their factory raised, or their store's class could not be constructed a
-    second time. Raised from the enrolling call rather than reported before
-    it, because the database is now made at the moment it is first used and
-    that moment is inside the week's acceptance test, which already reads an
-    enrolling that raised as a pairing that does not work.
+    Their factory raised, or a callable's owner could not be constructed a
+    second time. Construction happens on first enrollment or query, in the
+    caller's working directory. Acceptance tests treat this as a failed
+    pairing; callers of a returned submission receive the same error.
     """
 
 
@@ -1205,7 +1131,10 @@ class _Trial:
     raised. So the store is rebuilt per trial whenever it can be, and the
     query and the readers are taken off that same new object whenever they
     came off the same old one -- rebuilding the store alone leaves the query
-    answering from the database the search filled.
+    answering from the database the search filled. Distinct query and reader
+    owners are rebuilt too when they supply a rebuild callback, because their
+    caches can otherwise retain probe answers. Methods sharing an original
+    owner share its replacement within the trial.
 
     And it has to be built where the week's acceptance test runs. A week may
     give each attempt a world of its own: week 1 changes to an empty
@@ -1228,8 +1157,9 @@ class _Trial:
         "_held",
         "_call",
         "_asking",
-        "_owner",
-        "_original",
+        "_reading",
+        "_owners",
+        "_resource_files",
         "state",
     )
 
@@ -1238,8 +1168,9 @@ class _Trial:
         shape: "_Shape",
         store: Candidate,
         ask: Optional[Candidate],
-        arrange: Callable[..., Sequence[Callable[[], Any]]],
+        arrange: Optional[Callable[..., Sequence[Callable[[], Any]]]],
         index: int,
+        resource_files: Optional[Dict[str, Path]] = None,
     ) -> None:
         #: None for the enrolment probe, which asks whether this store takes
         #: the fixture at all and so has no query to bind.
@@ -1253,8 +1184,9 @@ class _Trial:
         self._held: Any = None
         self._call: Any = store.call
         self._asking = ask
-        self._owner: Any = None
-        self._original = _bound_to(store)
+        self._reading = shape.readers
+        self._owners: List[Tuple[Any, Any]] = []
+        self._resource_files = dict(resource_files or {})
         #: Set once the database exists, so a caller that needs to know which
         #: attribute their store filled reads it after the pairing has run.
         self.state: Optional["_FromTheirStore"] = None
@@ -1267,27 +1199,42 @@ class _Trial:
                 raise NoDatabase(self._refused)
             return
         self._begun = True
-        held = self._shape.hold()
-        if held is _FAILED:
-            self._refused = "their factory raised, so this pairing has no database"
-            raise NoDatabase(self._refused)
-        call = self._store.call
-        owner = None
-        if self._store.rebuild is not None:
-            try:
-                call = self._store.rebuild()
-            except BaseException as error:  # noqa: BLE001 - their constructor
-                self._refused = "{} could not be built again: {}".format(
-                    self._store.label, type(error).__name__
-                )
-                raise NoDatabase(self._refused) from None
-            owner = getattr(call, "__self__", None)
-        self._held = held
-        self._call = call
-        self._owner = owner
-        if self._ask is not None:
-            self._asking = _rebound(self._ask, self._original, owner)
-        self.state = _FromTheirStore(call) if self._shape.state else None
+        try:
+            with _Redirects(self._resource_files):
+                held = self._shape.hold()
+                if held is _FAILED:
+                    raise NoDatabase("their factory raised, so this pairing has no database")
+                self._held = held
+                self._call = self._bind(self._store).call
+                if self._ask is not None:
+                    self._asking = self._bind(self._ask)
+                self._reading = tuple(self._bind(reader) for reader in self._shape.readers)
+                self.state = _FromTheirStore(self._call) if self._shape.state else None
+        except NoDatabase as error:
+            # Only selected callables refuse the trial. A speculative reader's
+            # rebuild failure must leave later readers available to the search.
+            self._refused = str(error)
+            raise
+
+    def _bind(self, candidate: Candidate) -> Candidate:
+        """Rebuild each distinct owner once, including query-side caches."""
+
+        original = _bound_to(candidate)
+        # Identity matters: distinct instances can compare equal or be unhashable.
+        for previous, owner in self._owners:
+            if original is previous:
+                return _rebound(candidate, original, owner)
+        if candidate.rebuild is None:
+            return candidate
+        try:
+            call = candidate.rebuild()
+        except BaseException as error:  # noqa: BLE001 - their constructor
+            raise NoDatabase("{} could not be built again: {}".format(
+                candidate.label, type(error).__name__
+            )) from None
+        if original is not None:
+            self._owners.append((original, getattr(call, "__self__", None)))
+        return replace(candidate, call=call)
 
     def enroll(self, song_id: str, item: Any) -> Any:
         """Put one item in this trial's database, the week's way round."""
@@ -1296,6 +1243,8 @@ class _Trial:
         if self.state is not None:
             self.state.enrolling(song_id)
         target = self._call if self._held is None else _leading(self._call, self._held)
+        if self._arrange is None:
+            return target(song_id, item)
         return self._arrange(target, song_id, item)[self._index]()
 
     def query(self) -> Callable[[Any], Any]:
@@ -1303,7 +1252,7 @@ class _Trial:
 
         def _ask(item: Any) -> Any:
             self._begin()
-            return _read(self._asking, self._held, (), item, self.state)
+            return _read(self._asking, self._held, self._reading, item, self.state)
 
         return _ask
 
@@ -1317,7 +1266,8 @@ class _Trial:
         """
 
         self._begin()
-        return _rebound(candidate, self._original, self._owner).call
+        with _Redirects(self._resource_files):
+            return self._bind(candidate).call
 
 
 class AmbiguousStore(Exception):
@@ -1650,6 +1600,23 @@ def _read_further(
     return best
 
 
+def _accepts_n(candidate: Candidate, count: int) -> bool:
+    """Whether a query declares enough positional slots for this call."""
+
+    try:
+        signature = inspect.signature(candidate.call)
+        positionals = [p for p in signature.parameters.values() if p.kind in (
+            inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        )]
+        # Optional positionals are supported; extra variadic slots remain deferred.
+        if count > len(positionals):
+            return False
+        signature.bind(*([None] * count))
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
 def _takes_one(candidate: Candidate) -> bool:
     """Whether this callable takes exactly one required positional argument."""
 
@@ -1659,14 +1626,9 @@ def _takes_one(candidate: Candidate) -> bool:
 def _takes_n(candidate: Any, count: int) -> bool:
     """Whether this callable takes exactly ``count`` required positionals.
 
-    A `Candidate` or the callable itself. The same question is asked of a
-    candidate here, where it decides which shape's query a function can be,
-    and of a bare store in `roles._one_at_a_time`, where it decides whether a
-    store can be handed a fingerprint, an id and a time. One predicate,
-    because two of them answered differently on the same signature.
+    Accepts a `Candidate` or a callable. Reader enumeration retains this exact
+    required-argument filter; widening query signatures must not enlarge its pool.
     """
-
-    import inspect
 
     try:
         parameters = inspect.signature(
@@ -1731,6 +1693,7 @@ def _replay(
     fixture: Sequence[Any] = (),
     extras: Optional[Dict[str, Any]] = None,
     identities: Sequence[Any] = (),
+    resource_files: Optional[Dict[str, Path]] = None,
 ) -> Optional[Submission]:
     """Rebind a remembered result, or return None and let the search run.
 
@@ -1804,18 +1767,8 @@ def _replay(
         return None
 
     shape = _Shape(factory, readers, bool(stored.get("state")), stored.get("stateAttribute"))
-    held = shape.hold()
-    if held is _FAILED:
+    if arrangements is None:
         return None
-    call = store.rebuild() if shape.state and store.rebuild else store.call
-    state = _FromTheirStore(call) if shape.state else None
-
-    def _enroll(song_id: str, item: Any) -> Any:
-        if state is not None:
-            state.enrolling(song_id)
-        return arrangements(
-            call if held is None else _leading(call, held), song_id, item
-        )[index]()
 
     from .pipeline import Binding
 
@@ -1826,14 +1779,14 @@ def _replay(
         _received=tuple("" for _ in steps),
         _returned=tuple("" for _ in steps),
     )
+    # Construct on first use, as on a cold result. A construction failure is
+    # NoDatabase in the caller's directory, not a cache miss in our scratch dir.
     return Submission(
         _scored_placeholder(chain),
         discovery=found,
         chain=steps,
         attempt=Attempt(store.label, ask.label, index),
         attempts_tried=attempts_tried,
-        enroll=_enroll,
-        query=lambda item: _read(ask, held, readers, item, state),
         recalled=True,
         _store=store,
         _ask=ask,
@@ -1842,7 +1795,8 @@ def _replay(
         _readers=readers,
         _state=shape.state,
         _state_attribute=shape.state_attribute,
-    )
+        _resource_files=dict(resource_files or {}),
+    ).fresh()
 
 
 def _by_label(found: Discovery) -> Dict[str, Candidate]:
