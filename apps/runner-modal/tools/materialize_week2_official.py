@@ -68,7 +68,11 @@ def main() -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     temporary = Path(tempfile.mkdtemp(prefix=".week2-official-", dir=str(target.parent)))
     try:
-        payload, plans = encode_cases(args.track, cases)
+        # No key: this permutation is a carrier, not a secret. It is undone
+        # by `attach_recognition_gold` and the controller reshuffles each run
+        # with its own keyed seed, so an operator's machine does not need
+        # RUNNER_SIGNING_SECRET and re-materializing stays byte-stable.
+        payload, plans = encode_cases(args.track, cases, seed_key=None)
         if args.track == "vision-recognition":
             expected = recognition_gold(plans)
         (temporary / "payload.zip").write_bytes(payload)

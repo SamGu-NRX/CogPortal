@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import os
 import sys
 import unittest
+from unittest import mock
 from importlib.util import find_spec
 from pathlib import Path
 
@@ -13,6 +15,39 @@ except ImportError:
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "apps" / "runner-modal" / "src"))
 sys.path.insert(0, str(ROOT / "benchmarks" / "week2" / "src"))
+
+
+# Any key will do; what the tests check is that one is required, that it
+# changes the permutation, and that the sandbox has no way to supply it.
+KEY = b"test-permutation-key-that-is-long-enough"
+
+
+def recognition_case(counts=(2, 2, 2), unknown=2, post=3):
+    """A scenario whose every image carries a distinct value, so a slot is
+    traceable through an encode and back."""
+
+    from facial_recognition_benchmark.drivers import (
+        RecognitionIdentity,
+        RecognitionScenario,
+    )
+
+    counter = iter(range(1, 250))
+
+    def image():
+        return np.full((2, 2, 3), next(counter), dtype=np.uint8)
+
+    return RecognitionScenario(
+        known=[
+            RecognitionIdentity(
+                "person_{}".format(at), [image()], [image() for _ in range(count)]
+            )
+            for at, count in enumerate(counts)
+        ],
+        unknown_person_id="stranger",
+        unknown_queries=[image() for _ in range(unknown)],
+        unknown_enrollment=[image()],
+        post_enrollment_queries=[image() for _ in range(post)],
+    )
 
 
 def _has(module: str) -> bool:
@@ -114,9 +149,13 @@ class RecognitionPayloadCannotAnswerItself(unittest.TestCase):
         moved, which is not the property any of this is about.
         """
 
-        from cogworks_runner.week2_payload import encode_cases
+        from cogworks_runner.week2_payload import SEED_KEY_VARIABLE, encode_cases
 
-        result = encode_cases("vision-recognition", [case])
+        # Through the default path, so these run the way the controller does.
+        # Scoped rather than assigned, because this module shares a process
+        # with the callback tests that also write this variable.
+        with mock.patch.dict(os.environ, {SEED_KEY_VARIABLE: KEY.decode("utf-8")}):
+            result = encode_cases("vision-recognition", [case])
         if isinstance(result, tuple):
             return result
         return result, []
@@ -532,28 +571,7 @@ class TheTwoLanesDealTheSameWay(unittest.TestCase):
     """
 
     def case(self, counts=(2, 2, 2), unknown=2, post=3):
-        from facial_recognition_benchmark.drivers import (
-            RecognitionIdentity,
-            RecognitionScenario,
-        )
-
-        counter = iter(range(1, 250))
-
-        def image():
-            return np.full((2, 2, 3), next(counter), dtype=np.uint8)
-
-        return RecognitionScenario(
-            known=[
-                RecognitionIdentity(
-                    "person_{}".format(at), [image()], [image() for _ in range(count)]
-                )
-                for at, count in enumerate(counts)
-            ],
-            unknown_person_id="stranger",
-            unknown_queries=[image() for _ in range(unknown)],
-            unknown_enrollment=[image()],
-            post_enrollment_queries=[image() for _ in range(post)],
-        )
+        return recognition_case(counts, unknown, post)
 
     def test_the_plan_is_the_benchmarks_deal_and_not_a_second_one(self):
         from facial_recognition_benchmark.drivers import query_phases
@@ -561,27 +579,17 @@ class TheTwoLanesDealTheSameWay(unittest.TestCase):
         from cogworks_runner.week2_payload import _query_plan, _recognition_seed
 
         case = self.case()
-        plan = _query_plan(case)
+        plan = _query_plan(case, KEY)
 
         self.assertEqual(
             (plan.before_slots, plan.after_slots),
-            query_phases(plan.known_query_counts, plan.unknown_count, plan.post_count,
-                         _recognition_seed(case)),
+            query_phases(
+                plan.known_query_counts,
+                unknown_count=plan.unknown_count,
+                post_count=plan.post_count,
+                seed=_recognition_seed(case, KEY),
+            ),
         )
-
-    def test_every_person_is_asked_about_on_both_sides_of_the_enrollment(self):
-        """What the pooled split did not give, and the reason it moved."""
-
-        from cogworks_runner.week2_payload import _query_plan
-
-        plan = _query_plan(self.case(counts=(2, 2, 4)))
-
-        at = 0
-        for count in plan.known_query_counts:
-            theirs = set(range(at, at + count))
-            self.assertTrue(theirs & set(plan.before_slots), (count, at))
-            self.assertTrue(theirs & set(plan.after_slots), (count, at))
-            at += count
 
     def test_a_case_whose_first_batch_would_hold_only_the_stranger_is_refused(self):
         # Two people with one held-out photo each: the count is two, but with
@@ -590,14 +598,113 @@ class TheTwoLanesDealTheSameWay(unittest.TestCase):
         from cogworks_runner.week2_payload import _query_plan
 
         with self.assertRaises(ValueError) as caught:
-            _query_plan(self.case(counts=(1, 1)))
+            _query_plan(self.case(counts=(1, 1)), KEY)
 
-        self.assertIn("two or more held-out photos", str(caught.exception))
+        self.assertIn("holds no query whose answer is somebody already enrolled",
+                      str(caught.exception))
 
     def test_a_single_person_with_two_photos_is_enough(self):
         from cogworks_runner.week2_payload import _query_plan
 
-        plan = _query_plan(self.case(counts=(2,), unknown=1, post=1))
+        plan = _query_plan(self.case(counts=(2,), unknown=1, post=1), KEY)
 
         self.assertTrue(any(slot < 2 for slot in plan.before_slots))
         self.assertTrue(any(slot < 2 for slot in plan.after_slots))
+
+
+@unittest.skipIf(
+    np is None
+    or find_spec("PIL") is None
+    or not _has("facial_recognition_benchmark.drivers"),
+    "Week 2 dependency lane only",
+)
+class OnlyTheControllerCanDealTheHostedOrder(unittest.TestCase):
+    """The seed is keyed, so an enumerated guess has nothing to check against.
+
+    The old argument was that digesting the query images in canonical order
+    makes the seed unreproducible, because canonical order is the grouping.
+    That is not what it gives you. The search is flat, but a guess is
+    checkable: enumerate an order, compute its seed, replay the shuffle, see
+    whether it reproduces the batches you were handed. A reviewer recovered
+    every label on a two-identity case that way, and the benchmark hands the
+    submission FaceNet, so the orders worth enumerating are only the ones
+    inside each look-alike group.
+
+    A key removes the check. These tests pin that it is required, that it
+    changes the answer, and that the one caller allowed to go without it is the
+    operator tool, whose permutation is a carrier rather than a secret.
+    """
+
+    def case(self, counts=(2, 2, 2), unknown=2, post=3):
+        return recognition_case(counts, unknown, post)
+
+    def test_the_same_case_deals_differently_under_a_different_key(self):
+        from cogworks_runner.week2_payload import _query_plan
+
+        case = self.case()
+        mine = _query_plan(case, KEY)
+        theirs = _query_plan(case, b"a-different-key")
+
+        self.assertEqual(mine.known_query_counts, theirs.known_query_counts)
+        self.assertNotEqual(
+            (mine.before_slots, mine.after_slots),
+            (theirs.before_slots, theirs.after_slots),
+        )
+
+    def test_the_content_digest_a_sandbox_could_recompute_is_not_the_seed(self):
+        """What student code can compute, having this module and the images."""
+
+        from cogworks_runner.week2_payload import _recognition_seed
+
+        case = self.case()
+
+        self.assertNotEqual(_recognition_seed(case, None), _recognition_seed(case, KEY))
+
+    def test_the_same_key_deals_the_same_case_the_same_way_every_time(self):
+        from cogworks_runner.week2_payload import _query_plan
+
+        case = self.case()
+        first = _query_plan(case, KEY)
+        again = _query_plan(case, KEY)
+
+        self.assertEqual(
+            (first.before_slots, first.after_slots), (again.before_slots, again.after_slots)
+        )
+
+    def test_encoding_without_the_secret_fails_loudly_and_names_it(self):
+        from cogworks_runner.week2_payload import SEED_KEY_VARIABLE, encode_cases
+
+        with mock.patch.dict(os.environ, {}, clear=True):
+            with self.assertRaises(RuntimeError) as caught:
+                encode_cases("vision-recognition", [self.case()])
+
+        self.assertIn(SEED_KEY_VARIABLE, str(caught.exception))
+
+    def test_the_carrier_the_operator_tool_builds_needs_no_secret(self):
+        """`materialize_week2_official` runs where the key is not."""
+
+        from cogworks_runner.week2_payload import encode_cases
+
+        with mock.patch.dict(os.environ, {}, clear=True):
+            payload, plans = encode_cases(
+                "vision-recognition", [self.case()], seed_key=None
+            )
+
+        self.assertTrue(payload)
+        self.assertEqual(len(plans), 1)
+
+    def test_clustering_never_needs_the_secret(self):
+        from facial_recognition_benchmark.drivers import ClusteringScenario
+
+        from cogworks_runner.week2_payload import encode_cases
+
+        case = ClusteringScenario(
+            images=[np.full((2, 2, 3), at, dtype=np.uint8) for at in range(1, 5)],
+            expected_labels=[0, 0, 1, 1],
+            seed=7,
+        )
+        with mock.patch.dict(os.environ, {}, clear=True):
+            payload, plans = encode_cases("vision-clustering", [case])
+
+        self.assertTrue(payload)
+        self.assertEqual(plans, [])
