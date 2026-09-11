@@ -370,7 +370,7 @@ export async function promotePracticeRun(
   if (existing) return existingOfficialPromotion(existing, parent.surfaceId);
   const benchmark = await activeBenchmark(env, parent.benchmarkId, parent.benchmarkVersion);
   if (env.EXECUTION_PROVIDER === "modal") {
-    const eligibility = savedEnvironmentEligibility(parent, benchmark, actor.team.repoFullName);
+    const eligibility = savedEnvironmentEligibility(parent, benchmark, actor.team);
     if (!eligibility.eligible) throw new ApiHttpError(409, "not_promotable", eligibility.reason);
   }
   await syncTeamRuns(db, actor.team.id, parent.benchmarkId);
@@ -463,7 +463,15 @@ export async function publishOfficialRun(env: Env, actor: RunActor, runId: strin
       ],
       set: { runId: run.id, selectedAt: Date.now() },
     });
-  if (run.surfaceId) await publishRunSurface(env, run.surfaceId);
+  // Query after the selection write: a prior-selection read can miss a
+  // concurrent switch and leave the deselected console showing Published.
+  const affected = await db.selectDistinct({ surfaceId: runs.surfaceId }).from(runs).where(and(
+    eq(runs.teamId, run.teamId),
+    eq(runs.benchmarkId, run.benchmarkId),
+    eq(runs.benchmarkVersion, run.benchmarkVersion),
+    eq(runs.mode, "official"),
+  ));
+  await Promise.all(affected.flatMap(({ surfaceId }) => surfaceId ? [publishRunSurface(env, surfaceId)] : []));
   return { ok: true as const, surfaceId: run.surfaceId };
 }
 
@@ -506,7 +514,7 @@ export async function retryRun(
     if ((await successor()).length) return;
     throw new ApiHttpError(409, "invalid_request", "Retry the current failed execution from its console.");
   }
-  if (failed.provider !== env.EXECUTION_PROVIDER || failed.repositoryId !== actor.team.repoId) {
+  if (failed.provider !== env.EXECUTION_PROVIDER || failed.repositoryId === null || failed.repositoryId !== actor.team.repoId) {
     throw new ApiHttpError(409, "invalid_request", "The recorded execution source is no longer available. Start a new candidate.");
   }
   const benchmark = await activeBenchmark(env, failed.benchmarkId, failed.benchmarkVersion);

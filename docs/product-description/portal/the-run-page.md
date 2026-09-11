@@ -97,7 +97,9 @@ A session that expired renders `SESSION ENDED` instead, and a genuine server fau
 
 Reading a finished run never begins any work. The page has exactly two controls that do, and both are on the failure path or the promotion path.
 
-The first is "Run practice again on main", which appears for a practice run whose failure is marked retryable, and for an official run that did not consume its attempt. It starts a new practice run and then navigates to it, because "the old page kept its button, and pressing it again returned active_run_exists" (`RunDetailPage.tsx:60-69`). It spends one of the team's ten hosted runs.
+Recovery uses Retry in the current run view. It starts a new execution of the same recorded source and configuration, preserves practice or official mode, and leaves the previous execution in history. A physical run page remains about that execution.
+
+> Technical note: at this backend checkpoint, run detail supplies a nullable stored `surfaceId`. The portal owner is replacing the old branch-based restart with a link to the current console, where the server-offered Retry action belongs. That browser integration is not accepted here.
 
 The second is promotion, which is [`promote-to-the-leaderboard.md`](promote-to-the-leaderboard.md).
 
@@ -111,7 +113,7 @@ The commit chip is worth its own note. It shows seven characters and copies all 
 
 ### How it ends
 
-The page does not end. It is the record of a run, it is stable, and it stays correct indefinitely. Its two exits are a new run started from the retry button and a promotion, both of which navigate away.
+The physical run page remains a historical record. A newer Retry does not replace its failure or findings. The current console selects the newer execution, and its history retains the earlier ones.
 
 ## What a finished run puts on the page
 
@@ -171,7 +173,7 @@ It is the whole failure block for a run that carries a refusal, and it replaces 
 
 **The heading names where the run stopped.** `refused`, and then `at {stage}` when a stage can be named, with the stage itself in full ink (`RefusalCard.tsx:122-126`). The stage is read out of the headline, because the payload carries no field for it: `cogbench.verdict` writes the stage into the not_wired sentence and nowhere else, in one of two forms that both put the name between "the" and "step" (`RefusalCard.tsx:68-82`, quoting `python/cogbench/src/cogbench/verdict.py:389` and `:397`). A headline of any other shape returns null and the header falls back to the run's phase, so a new verdict wording degrades to a coarser true answer rather than a wrong one. The distinction is the point: "REFUSED AT DATABASE" tells a team which hand-off to go look at, and "REFUSED AT CONTRACT CHECK" only tells them when (`RefusalCard.tsx:114-116`).
 
-**The collapsed failure sits beside it,** on the same baseline, passed in as the card's `aside` (`RunDetailPage.tsx:179-187`). It reads `{code} · {mode}`, and for an official run adds `· attempt consumed` or `· attempt not consumed` (`apps/portal/src/components/FailureCard.tsx:35-45`). A practice run says nothing about attempts: `consumedAttempt` describes official attempts only, and a failed hosted practice run still counts against the practice quota the dashboard shows, so the old wording promised something the quota line contradicted.
+**The collapsed failure sits beside it.** It keeps the failure code and mode. The recovery policy is the same in either mode: a failed execution uses no quota. Final failure-card wording is part of the portal owner's pending integration.
 
 **Then the headline, as one line of ink** (`RefusalCard.tsx:130-132`). It is the only place the stage the run wanted is named at all, which is why it leads (`RefusalCard.tsx:20-22`).
 
@@ -200,28 +202,28 @@ The refusal's `notes` field is not rendered at all, for the same reason the head
 
 `FailureCard` has two forms.
 
-**Collapsed**, when a refusal is leading, it is one mono line and nothing else: `{code} · {mode}`, with `· attempt consumed` or `· attempt not consumed` appended only for an official run (`apps/portal/src/components/FailureCard.tsx:35-45`). The prop's own docstring says what it is for: beside a refusal, this card's title, explanation, and corrective action are the generic form of the same event, so it keeps only the three facts the refusal does not carry (`FailureCard.tsx:26-31`).
+**Collapsed**, when a refusal leads, the failure card keeps the code and mode rather than repeating the refusal's explanation. It must not imply that a failed evaluation spent quota.
 
 **Full**, for every other failure, it is titled `FAILED DURING {PHASE}` in capitals, with the phase taken from the failure itself, and a mono code chip in the panel's corner. Under it: a serif title, an explanation, the raw `failureDetail` in a preformatted block when there is one, a `What to do` block, a `Reproduce locally` copy block when a command applies, and for an official run one line stating the cost.
 
-That line is one of exactly two sentences: "This failure consumed one official attempt." or "No official attempt was consumed." (`FailureCard.tsx:85-87`). It is coloured against the two outcomes and is the only place on the page that states the cost in words. In the collapsed form the same fact survives as the three words at the end of the line, for every mode rather than for official runs alone.
+Failed practice and official executions use no quota. Legacy consumed-attempt wording is not a separate policy. The final browser copy remains subject to assembled UI verification.
 
 The copy comes from a fixed catalog of twelve categories, sharpened per module where the concept genuinely differs (`packages/contracts/src/failures.ts:31`).
 
-| Category | Code | Title | Retry offered |
-| --- | --- | --- | --- |
-| `repository_fetch` | `E-FETCH` | Repository could not be fetched | yes |
-| `dependency_install` | `E-INSTALL` | Dependency installation failed | no |
-| `data_download` | `E-DATA` | Benchmark data is not ready | yes |
-| `model_cache` | `E-MODEL` | Model cache is not ready | yes |
-| `adapter_missing` | `E-ADAPTER` | Nothing here could be scored | no |
-| `contract_invalid` | `E-CONTRACT` | Adapter does not satisfy the contract | no |
-| `student_runtime` | `E-RUNTIME` | Your code raised an exception | no |
-| `timeout` | `E-TIMEOUT` | Evaluation exceeded the time limit | no |
-| `memory_limit` | `E-MEMORY` | Memory limit exceeded | no |
-| `output_invalid` | `E-OUTPUT` | Predictions did not match the schema | no |
-| `scorer` | `E-SCORER` | Scoring failed on our side | yes |
-| `provider` | `E-PROVIDER` | Execution provider failed | yes |
+| Category | Code | Title |
+| --- | --- | --- |
+| `repository_fetch` | `E-FETCH` | Repository could not be fetched |
+| `dependency_install` | `E-INSTALL` | Dependency installation failed |
+| `data_download` | `E-DATA` | Benchmark data is not ready |
+| `model_cache` | `E-MODEL` | Model cache is not ready |
+| `adapter_missing` | `E-ADAPTER` | Nothing here could be scored |
+| `contract_invalid` | `E-CONTRACT` | Adapter does not satisfy the contract |
+| `student_runtime` | `E-RUNTIME` | Your code raised an exception |
+| `timeout` | `E-TIMEOUT` | Evaluation exceeded the time limit |
+| `memory_limit` | `E-MEMORY` | Memory limit exceeded |
+| `output_invalid` | `E-OUTPUT` | Predictions did not match the schema |
+| `scorer` | `E-SCORER` | Scoring failed on our side |
+| `provider` | `E-PROVIDER` | Execution provider failed |
 
 Two of them say outright that the fault is the platform's. `E-SCORER`: "Your predictions were produced and retrieved, but the trusted scorer failed. This is a platform problem, not a problem with your code." `E-PROVIDER`: "The isolated execution environment failed before your code ran. This is a platform problem, not a problem with your code."
 
@@ -269,7 +271,7 @@ The masthead's own chips finish the record. The mode chip reads `Practice` in ne
 | The network or the portal fails | A failed load replaces the page with the query-error card and a "Back to dashboard" link. | Nothing is in flight, so nothing to lose. A failed retry prints either the server's sentence or "The action couldn't be completed. Try again." under the button (`RunDetailPage.tsx:224-230`). |
 | The page or the process goes away | Nothing pending. | The record is durable and identical on reload, apart from the expanded rows and the expanded log, which reset. |
 | The thing being measured changes | The run is about a commit that was resolved when it started. A push, a branch deletion, or a repository change does not alter it. | A benchmark version bump does not alter a finished run either. It does alter the quota shown beside promote, and it makes the run's own version visibly older than the active one, which the page shows as `v3` in the metadata line and never flags. |
-| The platform refuses or credit runs out | Reading costs nothing and is never refused for quota. | The retry button spends a practice run and can be refused for quota; the promote button spends an official attempt. See [`../cross-cutting/credit-and-quota.md`](../cross-cutting/credit-and-quota.md). |
+| The platform refuses or credit runs out | Reading history is free and is never refused for quota. | Retry and promotion require available capacity. Only a completed evaluation uses quota. |
 
 ## Interactions with other systems
 
@@ -277,7 +279,7 @@ The masthead's own chips finish the record. The mode chip reads `Practice` in ne
 
 **The team owns it.** The page names no person anywhere. It names the branch, the commit, the benchmark, the functions, and the numbers, and none of them is attributed. That is the platform's hardest rule and this page is where it would be easiest to break.
 
-**Credit.** The page reports credit rather than spending it, except through the retry and promote buttons. The failure card's attempt line is the authoritative statement for an official run, and it is authoritative because the server sets it when hidden evaluation actually began (`failures.ts:9`).
+**Credit.** Reading results is free. Retry and promotion reserve capacity while running; failure uses no quota. See [credit and quota](../cross-cutting/credit-and-quota.md).
 
 **What the portal claims.** Every number on this page is a hosted measurement the portal made itself, which is why it may be promoted. A refusal is a sentence with a reason and never a zero, a withheld number is absent rather than zero, and a floor is drawn as the scale of the metric it belongs to rather than as a target. See [`../foundations/what-the-portal-claims.md`](../foundations/what-the-portal-claims.md).
 
@@ -293,8 +295,7 @@ The masthead's own chips finish the record. The mode chip reads `Practice` in ne
 
 - **A succeeded run with no primary metric renders no results at all.** The results block requires `run.status === "succeeded" && primary` (`RunDetailPage.tsx:235`), so a run that scored nothing primary shows a pipeline, possibly a finding, and then the promote panel with no number above it.
 - **A failed run with an unknown failure category renders nothing for the failure.** The block requires both `run.failure` and a catalog entry (`RunDetailPage.tsx:166`), so a category the catalog does not carry would leave a page with a red cross on the rail and no explanation. All twelve current categories are in the catalog.
-- **The retry button's fallback text is unreachable.** It reads "Run practice again on {branch}" with a fallback of "the default branch", but `branch` is a non-nullable string in the contract (`schema.ts:130`), so the fallback never renders.
-- **A retry on a detached run asks GitHub for a branch called `detached`.** A run started from an exact SHA with no branch stores the literal `detached` (`apps/portal/worker/services/run-actions.ts:279`). The comment above `retryFrom` says omitting the branch lets the server use the team's default (`RunDetailPage.tsx:59-65`), but because the field is never null, the literal is sent instead, and resolving it is unguarded.
+- **Retry uses the saved commit.** It does not resolve a branch named `detached` or substitute the default branch. If the saved source or required inputs are unavailable, the action refuses.
 - **The log's line count is of the whole log, not of what is shown.** `show all 214 lines` counts every line while the pane shows fourteen, which is the right number to promise and does mean the button understates how much is hidden by exactly fourteen.
 - **A phase that was skipped and a phase that took no time look the same.** A timing renders only when both ends exist, so a run that never installed anything shows `Install` with nothing under it, exactly like a phase whose events were lost.
 - **The `Complete` node is not a phase.** It has no timing, it is drawn by the component rather than by the contract's `RUN_PHASES`, and it fills only on `succeeded`. A failed run leaves it an outline forever.
@@ -307,7 +308,7 @@ The masthead's own chips finish the record. The mode chip reads `Practice` in ne
 - **A refusal suppresses the reproduce command and the raw detail.** The collapsed failure card keeps the code, the mode, and the attempt, and drops the title, the explanation, the `failureDetail` block, the `What to do` text, and the `Reproduce locally` copy block (`FailureCard.tsx:35-42`). For `E-ADAPTER` that is the intended trade, since the refusal says the same thing in the team's own names, but the copyable command is gone with it and the card's `next` row offers `cogworks check` rather than `cogworks run`.
 - **The official attempt line changes shape with the card.** A full card states the cost as a sentence in coloured type, and only for an official run (`FailureCard.tsx:79-89`); the collapsed line states it as two or three words, for every run (`:38-41`). An official refusal therefore reports its cost more quietly than an official failure of any other kind.
 - **The heading and the headline can name different stages.** The heading prefers the stage parsed out of the headline and falls back to the phase the page read off the failure (`RefusalCard.tsx:117`), so `PHASE_LABELS[failure.phase]` is used only when the parse fails. A headline that names a stage the phase disagrees with is resolved silently in the headline's favour.
-- **The failure detail is the only surviving text on an official failure.** With no log, `failureDetail` carries everything, which is why the refund cap notice is appended to it rather than replacing it: replacing "would delete the very evidence the message tells the team to bring to an instructor" (`apps/portal/worker/execution/refunds.ts:55`).
+- **An official failure keeps its detail.** Retry leaves that failure and any late findings attached to the old execution, rather than replacing them with the successor's result.
 - **Two runs on the same commit look identical above the fold.** The masthead shows the run label, the mode, the status, the benchmark, the branch, and the commit, and two practice runs of the same commit differ only in their label and their timestamp.
 - **The sweep's aria label reads the endpoints only.** A screen reader hears the first and last values and the axis, never the shape between them, which is the part the component exists to show (`SweepTrace.tsx:90`).
 - **The `← Dashboard` link is the only way back.** It sits above the masthead in small mono capitals, and a student who arrived from Discord or from a pasted link has nothing else on the page pointing anywhere.
@@ -315,7 +316,7 @@ The masthead's own chips finish the record. The mode chip reads `Practice` in ne
 
 ## Open questions and verification
 
-- The retry path for a run whose branch is the literal `detached` sends that string to GitHub, contradicting the comment directly above it (`RunDetailPage.tsx:59-65`). The resolve is unguarded on that path (`run-actions.ts:245`), so the likely outcome is an unhandled error rather than a sentence. Worth treating as a bug. **Unverified.**
+- The old physical-page branch restart is being replaced in the portal integration. Verify that the current-view link uses only the stored view identity, and that Retry keeps the failed execution's exact source and mode.
 - A succeeded run with diagnostics but no primary metric renders a finding and no `RESULTS` panel, so "The scorer had no notes on this run." can never appear for it. Whether that combination occurs was not established.
 - Whether the finding genuinely leads the eye ahead of the 5xl number below it was not observed, and it is the central claim of the page's design. It needs a screenshot. **Unverified.**
 - Whether a student can tell a floor from a score at a glance in the supporting list was not observed. The floor renders inline as `floor 0.42` at the metric's own precision, which reads correctly in the source. **Unverified.**
@@ -329,4 +330,4 @@ The masthead's own chips finish the record. The mode chip reads `Practice` in ne
 - The refusal card's heading depends on a regular expression over a sentence the CLI writes (`RefusalCard.tsx:80-82`). Nothing tests the two together, so a reworded verdict silently downgrades every heading to the coarser phase name and nothing anywhere reports the downgrade. Carried to triage.
 - Whether any current refusal payload carries both `skipped` entries and `errors` entries at once, which is the case the nine-character label column was sized for, was not established from a real run. **Unverified.**
 
-Verified against Cog\*Portal commit `f74e087`.
+Verified against Cog\*Portal commit `a0e8eac` for recovery policy; unchanged layout references retain the earlier draft. Assembled UI remains unverified.

@@ -18,7 +18,7 @@ function eligible(benchmarkId: string, pythonVersion: string, sandboxContract: n
     benchmarkId,
     repositoryId: evidence.source.repositoryId,
     sha: evidence.source.sha,
-  }, { id: benchmarkId, sandboxContract }, evidence.source.fullName);
+  }, { id: benchmarkId, sandboxContract }, { repoFullName: evidence.source.fullName, repoId: evidence.source.repositoryId });
 }
 
 test("migrated catalog sandbox contracts match the runner's literal release declarations", () => {
@@ -87,9 +87,26 @@ test("Vision interpreter versions remain provenance, while unknown and changed c
   }
 });
 
+test("matching repository names cannot replace known immutable repository identity", () => {
+  const run = { preparedArtifactId: evidence.artifactId, preparedEnvironmentJson: JSON.stringify(evidence),
+    benchmarkId: evidence.benchmarkId, repositoryId: evidence.source.repositoryId, sha: evidence.source.sha };
+  const benchmark = { id: evidence.benchmarkId, sandboxContract: 1 };
+  const team = { repoFullName: evidence.source.fullName, repoId: evidence.source.repositoryId };
+  assert.equal(savedEnvironmentEligibility(run, benchmark, team).eligible, true);
+  for (const repoId of [null, 999_999_999]) {
+    assert.notEqual(repoId, evidence.source.repositoryId);
+    assert.equal(savedEnvironmentEligibility(run, benchmark, { ...team, repoId }).eligible, false);
+  }
+  const unknownRun = { ...run, repositoryId: null,
+    preparedEnvironmentJson: JSON.stringify({ ...evidence, source: { ...evidence.source, repositoryId: null } }) };
+  assert.equal(savedEnvironmentEligibility(unknownRun, benchmark, { ...team, repoId: null }).eligible, false);
+  assert.equal(savedEnvironmentEligibility(unknownRun, benchmark, team).eligible, false);
+});
+
 test("saved evidence never establishes eligibility for another repository name or catalog row", () => {
   const run = { preparedArtifactId: evidence.artifactId, preparedEnvironmentJson: JSON.stringify(evidence),
     benchmarkId: evidence.benchmarkId, repositoryId: evidence.source.repositoryId, sha: evidence.source.sha };
-  assert.equal(savedEnvironmentEligibility(run, { id: evidence.benchmarkId, sandboxContract: 1 }, "other/repo").eligible, false);
-  assert.equal(savedEnvironmentEligibility(run, { id: "vision-clustering", sandboxContract: 1 }, evidence.source.fullName).eligible, false);
+  const team = { repoFullName: evidence.source.fullName, repoId: evidence.source.repositoryId };
+  assert.equal(savedEnvironmentEligibility(run, { id: evidence.benchmarkId, sandboxContract: 1 }, { ...team, repoFullName: "other/repo" }).eligible, false);
+  assert.equal(savedEnvironmentEligibility(run, { id: "vision-clustering", sandboxContract: 1 }, team).eligible, false);
 });

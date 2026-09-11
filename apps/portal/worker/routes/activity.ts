@@ -231,6 +231,6 @@ export function registerActivityRoutes(app: Hono<AppEnv>): void {
       return c.json({ error: { code: "invalid_request", message: "Expected a WebSocket upgrade." } }, 426);
     }
     const stub = c.env.RUN_SURFACES.get(c.env.RUN_SURFACES.idFromName(surfaceId));
-    return stub.fetch(new Request("https://run-surface.internal/connect", { headers: c.req.raw.headers }));
+    return stub.fetch(new Request(`https://run-surface.internal/connect?surfaceId=${encodeURIComponent(surfaceId)}`, { headers: c.req.raw.headers }));
   });
 }

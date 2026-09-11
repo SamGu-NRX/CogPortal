@@ -85,10 +85,12 @@ function surfaceSnapshot(): RunSurfaceSnapshot {
     officialRunId: null,
     published: false,
     refusalHeadline: null,
+    promotionRefusal: null,
     nextOfficialAttempt: 2,
     events: [],
     executionHistory: [],
     executionGeneration: 0,
+    snapshotRevision: 1,
     actions: ["open_console", "open_portal", "verify_hosted", "run_again"],
     simulated: true,
   };
