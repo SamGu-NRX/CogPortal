@@ -109,6 +109,8 @@ class Metric:
             primary=bool(value["primary"]),
             precision=int(value["precision"]),
             help=None if help_text is None else str(help_text),
+            role=None if value.get("role") is None else str(value["role"]),
+            relates_to=None if value.get("relatesTo") is None else str(value["relatesTo"]),
         )
 
 
