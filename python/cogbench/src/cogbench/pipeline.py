@@ -37,6 +37,7 @@ later stage is reached by feeding it a real upstream result.
 
 from __future__ import annotations
 
+import ast
 import contextlib
 import inspect
 import io
@@ -46,6 +47,7 @@ import re
 import signal
 import sys
 import tempfile
+import textwrap
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Callable, Dict, FrozenSet, List, Optional, Sequence, Tuple
@@ -378,6 +380,32 @@ class _Partial:
     forward: int = 0
 
 
+_MISSING_RECEIVER = object()
+_RUNTIME_SCOPE = object()
+
+
+@dataclass(eq=False)
+class _Receiver:
+    """One construction's owner, even after the chain carries a projection.
+
+    Unscoped sequential replay keeps its owner here. Inside runtime_pool the
+    same handle keys _RUNTIME, so nested runs can restore the outer owner.
+    """
+
+    value: Any = field(default=_MISSING_RECEIVER, compare=False, repr=False)
+
+    def get(self) -> Any:
+        if _RUNTIME_SCOPE in _RUNTIME:
+            return _RUNTIME.get(self, _MISSING_RECEIVER)
+        return self.value
+
+    def put(self, value: Any) -> None:
+        if _RUNTIME_SCOPE in _RUNTIME:
+            _RUNTIME[self] = value
+        else:
+            self.value = value
+
+
 @dataclass(frozen=True)
 class Candidate:
     """One callable that might serve one stage."""
@@ -476,6 +504,9 @@ class Candidate:
     #: holds the fixture. Set by `_resolve_branches` as it carries methods
     #: forward; None for every method used inside its own chain.
     branch: Optional[str] = field(default=None, compare=False)
+    #: Shared only by one constructor extension and its reached methods.
+    #: Runtime ownership is not binding evidence or part of its record.
+    receiver: Optional[_Receiver] = field(default=None, compare=False, repr=False)
 
     #: Which reading of the upstream value this step was called with, when
     #: the search took the value apart before handing it over: None for the
@@ -496,6 +527,12 @@ class Candidate:
     #: difference is a score rather than an error.
     handoff: Optional[str] = None
 
+    #: A lazy runtime mapper receives the original arguments and applies this
+    #: recorded call plan once, after resolving the callable in its namespace.
+    _runtime_call: Optional[Callable[..., Any]] = field(
+        default=None, compare=False, repr=False,
+    )
+
     @property
     def bound(self) -> Callable[..., Any]:
         """The callable, called the way the search called it.
@@ -505,6 +542,8 @@ class Candidate:
         and a chain that had been proved raised on its first call.
         """
 
+        if self._runtime_call is not None:
+            return self._runtime_call
         if (
             self.tuning is None
             and not self.plan
@@ -515,6 +554,7 @@ class Candidate:
             and self.handoff is None
             and self.attribute is None
             and not self.in_place
+            and self.receiver is None
         ):
             return self.call
         return lambda *args: _invoke(self, args)
@@ -550,15 +590,16 @@ class Candidate:
 #: than the search fixture's. Measured before this existed: a prepare step
 #: bound with supplied={"image": <fixture rows>} built the scored database
 #: from the fixture's projected descriptors, not the run's.
-_RUNTIME: Dict[str, Any] = {}
+_RUNTIME: Dict[Any, Any] = {}
 
 
 @contextlib.contextmanager
-def runtime_pool(values: Dict[str, Any]):
+def runtime_pool(values: Dict[Any, Any]):
     """Make ``values`` the live side inputs for every step called inside."""
 
     previous = dict(_RUNTIME)
     _RUNTIME.update(values)
+    _RUNTIME[_RUNTIME_SCOPE] = True
     try:
         yield
     finally:
@@ -621,45 +662,51 @@ def _arguments(candidate: Candidate, positional: Sequence[Any], index: Optional[
 
 
 def _rebound(candidate: Candidate, positional: Sequence[Any]) -> Callable[..., Any]:
-    """This step's callable, taken off the object the chain is carrying now.
-
-    A method reached through a constructor stage is stored as the bound
-    method of the object the SEARCH built, out of the search's fixture. A
-    scored run builds that object again from the benchmark's real input, and
-    a step that kept calling the first one answers about the fixture:
-    `Good([1]).read()` bound during the search still returned `[1]` after the
-    constructor was replayed with `[9]`, so a run could report fixture state
-    as the student's answer.
-
-    The chain already carries the new object -- it is what the constructor
-    step just returned and what this step is called with -- so the method is
-    taken off that. Falls back to the stored callable whenever the carried
-    value is not one of these objects, which is every step that is not a
-    method of a constructor stage's instance, so nothing else changes.
-    """
+    """Take the method off its runtime owner, without mistaking query data for it."""
 
     if candidate.attribute is None:
         return candidate.call
-    # The object this run built, in one of two places: carried by the chain
-    # as the value the constructor step just returned, or, for a method
-    # reached from ANOTHER branch, in the runtime pool under that branch's
-    # name. Measured before the second was read: a search branch bound to
-    # `Store([1]).search` from the prepare branch kept answering about
-    # `[1]` after the scored run had built `Store([9])`.
-    # A named branch owns the receiver even when an argument has the same type.
-    holders: List[Any] = []
-    if candidate.branch is not None:
-        if candidate.branch in _RUNTIME:
-            holders.append(_RUNTIME[candidate.branch])
-    elif positional:
-        holders.append(positional[0])
-    for held in holders:
+
+    def method(held: Any) -> Optional[Callable[..., Any]]:
         if candidate.owner is not None and not isinstance(held, candidate.owner):
-            continue
+            return None
         later = getattr(held, candidate.attribute, None)
-        if callable(later):
+        return later if callable(later) else None
+
+    # A branch may return a projection of the owner's own type. Its populated
+    # construction handle still identifies the owner that ran the earlier methods.
+    if candidate.receiver is not None:
+        held = candidate.receiver.get()
+        if held is not _MISSING_RECEIVER:
+            later = method(held)
+            if later is None:
+                raise TypeError("{} has no valid runtime receiver".format(candidate.label))
+            return later
+    # A named branch can supply an owner when no explicit runtime owner exists.
+    # It still takes precedence over a same-type query for legacy candidates.
+    if candidate.branch is not None and candidate.branch in _RUNTIME:
+        later = method(_RUNTIME[candidate.branch])
+        if later is not None:
+            return later
+    if candidate.receiver is not None:
+        raise RuntimeError(
+            "{} needs its constructor to run before this method".format(candidate.label)
+        )
+    # Legacy candidates have no construction handle. Keep their carried-owner
+    # behavior, including never treating a named branch's query as its owner.
+    if candidate.branch is None and positional:
+        later = method(positional[0])
+        if later is not None:
             return later
     return candidate.call
+
+
+def _publish(candidate: Candidate, result: Any) -> Any:
+    """Remember the actual constructor result, not a reconstructed fixture."""
+
+    if candidate.receiver is not None and isinstance(candidate.call, type):
+        candidate.receiver.put(result)
+    return result
 
 
 def _handed(candidate: Candidate, positional: Sequence[Any]) -> Tuple[Any, ...]:
@@ -714,7 +761,8 @@ def _invoke(candidate: Candidate, positional: Sequence[Any]) -> Any:
 
     positional = _handed(candidate, positional)
     if candidate.self_only:
-        return _carried(candidate, positional, _rebound(candidate, positional)())
+        result = _publish(candidate, _rebound(candidate, positional)())
+        return _carried(candidate, positional, result)
     if candidate.per_item:
         if not positional:
             raise TypeError("a per-item step needs the items to run over")
@@ -724,7 +772,7 @@ def _invoke(candidate: Candidate, positional: Sequence[Any]) -> Any:
         for index, item in enumerate(items):
             args, keywords = _arguments(candidate, (item,) + rest, index)
             call = _rebound(candidate, (item,) + rest)
-            produced.append(call(*args, **keywords))
+            produced.append(_publish(candidate, call(*args, **keywords)))
         if candidate.in_place and all(row is None for row in produced):
             # Each item was changed where it sat; the items go forward.
             return items
@@ -732,7 +780,10 @@ def _invoke(candidate: Candidate, positional: Sequence[Any]) -> Any:
             return [row[candidate.element] for row in produced]
         return produced
     args, keywords = _arguments(candidate, positional)
-    return _carried(candidate, positional, _rebound(candidate, positional)(*args, **keywords))
+    return _carried(
+        candidate, positional,
+        _publish(candidate, _rebound(candidate, positional)(*args, **keywords)),
+    )
 
 
 def _carried(candidate: Candidate, positional: Sequence[Any], result: Any) -> Any:
@@ -865,14 +916,38 @@ def _reaches_outside(value: Any) -> bool:
 
     text = ""
     try:
-        text = inspect.getsource(value)
-    except (OSError, TypeError):
+        # Syntax excludes comments and docstrings but retains executable
+        # expressions inside f-strings, including on Python 3.8.
+        tree = ast.parse(textwrap.dedent(inspect.getsource(value)))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name):
+                text += " " + node.id
+            elif isinstance(node, ast.Call):
+                if isinstance(node.func, ast.Name):
+                    text += " " + node.func.id + "("
+                elif isinstance(node.func, ast.Attribute):
+                    text += " " + node.func.attr + "("
+            elif isinstance(node, ast.Attribute):
+                parts = [node.attr]
+                parent = node.value
+                while isinstance(parent, ast.Attribute):
+                    parts.append(parent.attr)
+                    parent = parent.value
+                if isinstance(parent, ast.Name):
+                    text += " " + ".".join(reversed(parts + [parent.id]))
+    except (OSError, TypeError, SyntaxError):
         pass
     code = getattr(value, "__code__", None)
-    if code is not None:
-        text += " ".join(code.co_names) + " " + " ".join(
-            name for name in getattr(code, "co_consts", ()) if isinstance(name, str)
+    pending = [code] if code is not None else []
+    while pending:
+        block = pending.pop()
+        # Named functions reserve the first constant for their docstring.
+        # Comprehensions have no docstring slot and can start with live data.
+        constants = block.co_consts if block.co_name.startswith("<") else block.co_consts[1:]
+        text += " ".join(block.co_names) + " " + " ".join(
+            name for name in constants if isinstance(name, str)
         )
+        pending.extend(item for item in constants if isinstance(item, type(block)))
     return any(word in text for word in _SIDE_EFFECTING)
 
 
@@ -977,6 +1052,8 @@ def instances_in(modules: Sequence[Any]) -> List[Tuple[str, Any]]:
                 signature = inspect.signature(value)
                 signature.bind()
             except (TypeError, ValueError):
+                continue
+            if _reaches_outside(getattr(value, "__init__", None)):
                 continue
             try:
                 built.append(("{}.{}()".format(module_name, name), value()))
@@ -1357,7 +1434,9 @@ def _call(
     except (TypeError, ValueError):
         return False, None
     try:
-        result = _under_clock(candidate.call, *args, **keywords)
+        result = _under_clock(
+            lambda: _publish(candidate, _rebound(candidate, positional)(*args, **keywords))
+        )
     except BaseException as error:  # noqa: BLE001 - student code raises anything
         _record_raise(candidate, error)
         return False, None
@@ -1587,9 +1666,13 @@ def _bind_one(
     resource is not mistaken for a cutoff.
     """
 
+    if isinstance(candidate.call, type):
+        candidate = replace(candidate, receiver=_Receiver())
     if stage.folder:
         found = _from_a_folder(stage, candidate, positional)
         if found is not None:
+            bound, value = found
+            _publish(bound, value)
             return found
     shapes = _shapes(stage, candidate, len(positional), pool, identities)
     for shape in shapes:
@@ -2447,18 +2530,8 @@ def resolve_chain(
 
     with _scratch_cwd():
         _THEIR_ROOT = _their_root(modules)
-        if role.branches:
-            return _resolve_branches(
-                role,
-                modules,
-                fixture,
-                verify=verify,
-                beam=beam,
-                seed=seed,
-                extras=extras,
-                identities=identities,
-            )
-        return _resolve_chain(
+        resolve = _resolve_branches if role.branches else _resolve_chain
+        binding, refusal = resolve(
             role,
             modules,
             fixture,
@@ -2468,6 +2541,35 @@ def resolve_chain(
             extras=extras,
             identities=identities,
         )
+        return _empty_receivers(binding) if binding is not None else None, refusal
+
+
+def _empty_receivers(binding: Binding) -> Binding:
+    """Detach public replay handles from probe owners, preserving their sharing.
+
+    Internal branch searches still need their live associations. Only the public
+    return resets them; _value remains the intentional discovery evidence.
+    """
+
+    receivers: Dict[_Receiver, _Receiver] = {}
+
+    def clone(candidate: Candidate) -> Candidate:
+        if candidate.receiver is None:
+            return candidate
+        if candidate.receiver not in receivers:
+            receivers[candidate.receiver] = _Receiver()
+        return replace(candidate, receiver=receivers[candidate.receiver])
+
+    return replace(
+        binding,
+        steps=tuple(clone(step) for step in binding.steps),
+        fits=tuple((name, clone(step)) for name, step in binding.fits),
+        branches={
+            name: tuple(clone(step) for step in chain)
+            for name, chain in binding.branches.items()
+        },
+        _reach=tuple(clone(step) for step in binding._reach),
+    )
 
 
 @dataclass(frozen=True)
@@ -2640,6 +2742,11 @@ def _resolve_branches(
                     extras=pool_now,
                     identities=identities,
                     carried=carried_now,
+                    # The verifier receives every resolved branch, including ones
+                    # whose owners this independent branch never calls itself.
+                    verification_context=tuple(
+                        step for chain in chains_now.values() for step in chain
+                    ),
                     skip_forms=banned.get(branch.name, frozenset()),
                 )
                 if binding is None:
@@ -3028,12 +3135,17 @@ def _reachable(
     # handoff this step bound with, so rebuilding must not read them again:
     # a constructor bound on `element:1` would take element 1 of its own
     # argument the second time round.
-    plain = replace(candidate, handoff=None)
+    # This rebuild repeats fixture arguments only, not later method mutations.
+    # It must not publish into the chain's runtime receiver.
+    plain = replace(candidate, handoff=None, receiver=None)
 
     def _build() -> Any:
         return _invoke(plain, arguments)
 
-    return tuple(methods_of(candidate.label, value, build=_build))
+    return tuple(
+        replace(method, receiver=candidate.receiver)
+        for method in methods_of(candidate.label, value, build=_build)
+    )
 
 
 @contextlib.contextmanager
@@ -3106,6 +3218,7 @@ def _resolve_chain(
     extras: Optional[Dict[str, Any]] = None,
     identities: Sequence[Any] = (),
     carried: Optional[List[Candidate]] = None,
+    verification_context: Sequence[Candidate] = (),
     skip_forms: FrozenSet[int] = frozenset(),
 ) -> Resolution:
     random.seed(seed)
@@ -3542,7 +3655,17 @@ def _resolve_chain(
             continue
         asked.add(key)
         try:
-            accepted = verify is None or bool(verify(partial.chain))
+            # Verifiers replay constructors on their own cases. Keep those
+            # publications out of the probe owners later branches still need.
+            # Read before entering the scope, which hides unscoped defaults.
+            # This restores associations, not mutations to the objects themselves.
+            receivers = {
+                step.receiver: step.receiver.get()
+                for step in tuple(verification_context) + partial.chain
+                if step.receiver is not None
+            }
+            with runtime_pool(receivers):
+                accepted = verify is None or bool(verify(partial.chain))
         except BaseException:
             # Verification can call student code or inspect its malformed answer.
             continue

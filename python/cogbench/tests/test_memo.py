@@ -85,11 +85,11 @@ class KeyTests(unittest.TestCase):
             memo.fingerprint([self.file], benchmark="week3"),
         )
 
-    def test_version_10_binding_is_not_reused(self):
-        with mock.patch.object(memo, "FORMAT", 10):
+    def test_version_12_binding_is_not_reused(self):
+        with mock.patch.object(memo, "FORMAT", 12):
             old_key = memo.fingerprint([self.file], benchmark="w1")
         memo.write(self.tmp, old_key, {"enroll": "a.b"})
-        self.assertEqual(memo.FORMAT, 12)
+        self.assertEqual(memo.FORMAT, 13)
         new_key = memo.fingerprint([self.file], benchmark="w1")
         self.assertNotEqual(new_key, old_key)
         self.assertIsNone(memo.read(self.tmp, new_key))
@@ -728,11 +728,7 @@ def whose(features):
 
 
 class AnInitializerThatDecidesWhatItsPackageReturnsIsPartOfTheKey(unittest.TestCase):
-    """A package's `__init__.py` that runs without raising is neither a
-    module nor a skip, so nothing recorded that the search had read it and
-    the key did not cover it. Editing only that file left the entry valid
-    and replayed a binding built against the old value.
-    """
+    """Initializer-only edits must invalidate their members' remembered binding."""
 
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp()).resolve()
@@ -762,6 +758,26 @@ class AnInitializerThatDecidesWhatItsPackageReturnsIsPartOfTheKey(unittest.TestC
         self.assertEqual(
             sorted(path.name for path in memo.source_paths(found)),
             ["__init__.py", "core.py"],
+        )
+
+    def test_transitively_imported_initializer_beyond_traversal_is_hashed(self):
+        package = self.tmp / "a" / "b" / "c"
+        package.mkdir(parents=True)
+        initializer = package / "__init__.py"
+        initializer.write_text("SCALE = 2\n")
+        (self.tmp / "main.py").write_text(
+            "from a.b.c import SCALE\ndef encode(value):\n    return value * SCALE\n"
+        )
+
+        found = discover(self.tmp)
+        self.assertNotIn(initializer, [entry.path for entry in found.modules])
+        paths = memo.source_paths(found)
+        self.assertIn(initializer, paths)
+        before = memo.fingerprint(paths, benchmark="transitive-initializer")
+        self.assertTrue(before)
+        initializer.write_text("SCALE = 3\n")
+        self.assertNotEqual(
+            before, memo.fingerprint(paths, benchmark="transitive-initializer")
         )
 
     def test_editing_only_the_initializer_searches_again(self):

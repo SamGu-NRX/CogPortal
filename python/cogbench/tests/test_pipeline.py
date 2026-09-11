@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import shutil
 import signal
 import sys
@@ -7,6 +8,7 @@ import tempfile
 import time
 import tracemalloc
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from types import ModuleType
 from unittest.mock import patch
@@ -19,9 +21,14 @@ from cogbench.pipeline import (
     Fixtures,
     Role,
     Stage,
+    _MISSING_RECEIVER,
+    _Receiver,
+    _empty_receivers,
     _named_for_something_else,
+    _reachable,
     _under_clock,
     callables_in,
+    constructors_in,
     extend,
     methods_of,
     probe_sources,
@@ -846,7 +853,11 @@ class AClassThatDemandsItsDataIsAStep(unittest.TestCase):
             [s.label for s in binding.steps], ["theirs.Store", "theirs.Store.ids"]
         )
         self.assertTrue(binding.steps[1].self_only)
-        self.assertEqual(binding.steps[1].bound(None), [2, 4])
+        # Public bindings cannot answer from the probe's constructor instance.
+        with self.assertRaisesRegex(RuntimeError, "needs its constructor to run"):
+            binding.steps[1].bound(None)
+        built = binding.steps[0].bound([1, 2])
+        self.assertEqual(binding.steps[1].bound(built), [2, 4])
 
     def test_a_class_that_builds_for_free_is_still_left_to_instances_in(self):
         from cogbench.pipeline import constructors_in
@@ -1625,6 +1636,35 @@ class AConstructorsMethodsFollowTheObjectTheChainCarries(unittest.TestCase):
         self.assertEqual(len(binding.steps), 2)
         return binding
 
+    def test_projected_value_does_not_lose_its_constructor_owner(self):
+        class Store:
+            def __init__(self, rows):
+                self.rows = list(rows)
+                self.projected = False
+
+            def project(self):
+                self.projected = True
+                return [[row * 10] for row in self.rows]
+
+            def search(self, query):
+                return {"rows": self.rows, "query": query, "projected": self.projected}
+
+        role = Role("projection", (
+            Stage("build", produces=lambda value: isinstance(value, Store)),
+            Stage("project", produces=lambda value: isinstance(value, list)),
+            Stage("search", produces=lambda value: isinstance(value, dict)),
+        ))
+        binding, refusal = resolve_chain(role, [_module("store", Store=Store)], ([1],))
+        self.assertIsNone(refusal)
+        self.assertEqual(len(binding.steps), 3)
+        for rows in ([9], [4]):
+            value = rows
+            for step in binding.steps:
+                value = step.bound(value)
+            self.assertEqual(value, {
+                "rows": rows, "query": [[rows[0] * 10]], "projected": True,
+            })
+
     def test_the_second_step_answers_about_the_object_it_was_given(self):
         build, read = self._binding().steps
 
@@ -1680,6 +1720,320 @@ class AConstructorsMethodsFollowTheObjectTheChainCarries(unittest.TestCase):
                               owner=Store, per_item=True)
         self.assertEqual(candidate.bound([Store("first"), Store("second")]),
                          ["first", "second"])
+
+    def test_a_same_type_projection_is_query_data_not_the_receiver(self):
+        class Store:
+            def __init__(self, value):
+                self.value = value
+
+            def project(self):
+                self.value += 10
+                return Store(-1)
+
+            def search(self, query):
+                return {"owner": self.value, "query": query.value}
+
+        role = Role("projection", (
+            Stage("build", produces=lambda v: isinstance(v, Store)),
+            Stage("project", prefers=("project",), produces=lambda v: isinstance(v, Store)),
+            Stage("search", produces=lambda v: isinstance(v, dict)),
+        ))
+        binding, refusal = resolve_chain(role, [_module("store", Store=Store)], (1,))
+        self.assertIsNone(refusal)
+        self.assertEqual([s.label for s in binding.steps],
+                         ["store.Store", "store.Store.project", "store.Store.search"])
+        self.assertEqual(binding._value, {"owner": 11, "query": -1})
+        for value in (9, 4):
+            result = value
+            for step in binding.steps:
+                result = step.bound(result)
+            self.assertEqual(result, {"owner": value + 10, "query": -1})
+
+    def test_a_projected_branch_keeps_its_constructor_for_another_branch(self):
+        class Store:
+            def __init__(self, rows):
+                self.rows = list(rows)
+                self.projected = False
+
+            def project(self):
+                self.projected = True
+                return [row * 10 for row in self.rows]
+
+            def search(self, query):
+                return {"rows": self.rows, "query": query, "projected": self.projected}
+
+        prepare = Role("prepare", (
+            Stage("build", produces=lambda v: isinstance(v, Store)),
+            Stage("project", produces=lambda v: isinstance(v, list)),
+        ), fixture=([1],))
+        search = Role("search", (Stage("ask", produces=lambda v: isinstance(v, dict)),),
+                      fixture=(2,))
+        binding, refusal = resolve_chain(Role("all", (), branches=(prepare, search)),
+                                         [_module("store", Store=Store)], ())
+        self.assertIsNone(refusal)
+        build, project = binding.branches["prepare"]
+        ask, = binding.branches["search"]
+        self.assertIs(build.receiver, project.receiver)
+        self.assertIs(build.receiver, ask.receiver)
+        with self.assertRaisesRegex(RuntimeError, "needs its constructor to run"):
+            ask.bound(2)
+        for rows in ([9], [4]):
+            with runtime_pool({}):
+                projected = project.bound(build.bound(rows))
+                with runtime_pool({"prepare": projected}):
+                    self.assertEqual(ask.bound(2),
+                                     {"rows": rows, "query": 2, "projected": True})
+
+    def test_same_type_branch_projection_does_not_replace_its_constructor_owner(self):
+        class Store:
+            def __init__(self, value):
+                self.value = value
+
+            def project(self):
+                self.value += 10
+                return Store(-1)
+
+            def search(self, query):
+                return {"owner": self.value, "query": query}
+
+        prepare = Role("prepare", (
+            Stage("build", produces=lambda v: isinstance(v, Store)),
+            Stage("project", prefers=("project",), produces=lambda v: isinstance(v, Store)),
+        ), fixture=(1,))
+        search = Role("search", (Stage("ask", produces=lambda v: isinstance(v, dict)),),
+                      fixture=(2,))
+        binding, refusal = resolve_chain(Role("all", (), branches=(prepare, search)),
+                                         [_module("store", Store=Store)], ())
+        self.assertIsNone(refusal)
+        build, project = binding.branches["prepare"]
+        ask, = binding.branches["search"]
+        for value in (9, 4):
+            with runtime_pool({}):
+                projection = project.bound(build.bound(value))
+                self.assertEqual(projection.value, -1)
+                with runtime_pool({"prepare": projection}):
+                    self.assertEqual(ask.bound(2), {"owner": value + 10, "query": 2})
+
+    def test_prepare_verification_does_not_replace_the_next_branchs_probe_owner(self):
+        class Store:
+            def __init__(self, rows):
+                self.rows = list(rows)
+
+            def search(self, query):
+                if self.rows != [1]:
+                    raise ValueError("the search probe lost its fixture owner")
+                return {"rows": self.rows, "query": query}
+
+        prepare = Role("prepare", (Stage("build", produces=lambda v: isinstance(v, Store)),),
+                       fixture=([1],))
+        search = Role("search", (Stage("ask", produces=lambda v: isinstance(v, dict)),),
+                      fixture=(2,))
+        observed = []
+
+        def verify(chains):
+            if "search" not in chains:
+                build, = chains["prepare"]
+                observed.append(list(build.receiver.get().rows))
+                self.assertEqual(build.bound([9]).rows, [9])
+            else:
+                ask, = chains["search"]
+                observed.append(list(ask.receiver.get().rows))
+                self.assertEqual(ask.bound(2), {"rows": [1], "query": 2})
+            return True
+
+        binding, refusal = resolve_chain(Role("all", (), branches=(prepare, search)),
+                                         [_module("store", Store=Store)], (), verify=verify)
+        self.assertIsNone(refusal)
+        self.assertIsNotNone(binding)
+        self.assertEqual(observed, [[1], [1]])
+
+    def test_independent_branch_verification_can_read_an_earlier_branchs_owner(self):
+        module = self._module()
+
+        def query(value):
+            return {"query": value}
+
+        module.query = query
+        query.__module__ = module.__name__
+        prepare = Role("prepare", (
+            Stage("build", produces=lambda v: isinstance(v, module.Good)),
+            Stage("read", produces=lambda v: isinstance(v, list)),
+        ), fixture=([1],))
+        independent = Role("query", (
+            Stage("query", produces=lambda v: isinstance(v, dict)),
+        ), fixture=(2,))
+        observed = []
+
+        def verify(chains):
+            rows = chains["prepare"][-1].bound(None)
+            observed.append((tuple(chains), rows))
+            return rows == [1]
+
+        binding, refusal = resolve_chain(
+            Role("all", (), branches=(prepare, independent)), [module], (), verify=verify,
+        )
+        self.assertIsNone(refusal)
+        self.assertIsNotNone(binding)
+        self.assertEqual(observed, [(("prepare",), [1]), (("prepare", "query"), [1])])
+        self.assertIsNone(binding.branches["query"][0].receiver)
+
+    def test_rejected_verification_restores_probe_receiver_associations(self):
+        module = self._module()
+        role = Role("build", (Stage("build", produces=lambda v: isinstance(v, module.Good)),))
+        for raises in (False, True):
+            for scoped in (False, True):
+                with self.subTest(raises=raises, scoped=scoped):
+                    captured = []
+
+                    def verify(chain):
+                        build, = chain
+                        captured.append(build.receiver)
+                        self.assertEqual(build.receiver.get().rows, [1])
+                        build.bound([9])
+                        if raises:
+                            raise ValueError("verification failed")
+                        return False
+
+                    scope = runtime_pool({}) if scoped else contextlib.nullcontext()
+                    with scope:
+                        binding, refusal = resolve_chain(role, [module], ([1],), verify=verify)
+                        self.assertIsNone(binding)
+                        self.assertTrue(refusal.ran_to_the_end)
+                        self.assertEqual(len(captured), 1)
+                        self.assertEqual(captured[0].get().rows, [1])
+
+    def test_discovered_per_item_constructors_replay_each_input(self):
+        # Per-item construction is supported; reaching methods through the
+        # resulting list of owners is not part of this search contract.
+        class Item:
+            def __init__(self, value):
+                if not isinstance(value, int):
+                    raise TypeError("one integer is required")
+                self.value = value
+
+        role = Role("items", (Stage("build", per_item=True,
+                    produces=lambda v: isinstance(v, list)
+                    and all(isinstance(item, Item) for item in v)),))
+        binding, refusal = resolve_chain(role, [_module("items", Item=Item)], ([1, 2],))
+        self.assertIsNone(refusal)
+        build, = binding.steps
+        self.assertTrue(build.per_item)
+        self.assertEqual(binding._reach, ())
+        for values in ([9, 4], [3]):
+            self.assertEqual([item.value for item in build.bound(values)], values)
+
+    def test_nested_runtime_pools_restore_the_outer_constructor_owner(self):
+        build, read = self._binding().steps
+        build.bound([3])
+        with runtime_pool({}):
+            # A scoped run cannot borrow the binding's unscoped default.
+            with self.assertRaisesRegex(RuntimeError, "needs its constructor to run"):
+                read.bound(None)
+            build.bound([9])
+            with self.assertRaisesRegex(ValueError, "inner failure"):
+                with runtime_pool({}):
+                    build.bound([4])
+                    self.assertEqual(read.bound(None), [4])
+                    raise ValueError("inner failure")
+            self.assertEqual(read.bound(None), [9])
+        self.assertEqual(read.bound(None), [3])
+        with runtime_pool({}):
+            with self.assertRaisesRegex(RuntimeError, "needs its constructor to run"):
+                read.bound(None)
+
+    def test_two_extensions_of_the_same_constructor_have_distinct_handles(self):
+        module = self._module()
+        constructor = constructors_in([module])[0]
+        stage = Stage("build", produces=lambda v: isinstance(v, module.Good))
+        first, value_a, passed_a = extend(stage, [constructor], [1])[0]
+        second, value_b, passed_b = extend(stage, [constructor], [2])[0]
+        read_stage = Stage("read", produces=lambda v: isinstance(v, list))
+        read_a = extend(read_stage, _reachable(first, value_a, (passed_a,)), value_a)[0][0]
+        read_b = extend(read_stage, _reachable(second, value_b, (passed_b,)), value_b)[0][0]
+        self.assertIsNot(first.receiver, second.receiver)
+        self.assertIs(first.receiver, read_a.receiver)
+        self.assertIs(second.receiver, read_b.receiver)
+        self.assertEqual(read_a.bound(None), [1])
+        self.assertEqual(read_b.bound(None), [2])
+        for scoped in (False, True):
+            scope = runtime_pool({}) if scoped else contextlib.nullcontext()
+            with scope:
+                first.bound([9])
+                second.bound([4])
+                self.assertEqual(read_a.bound(None), [9])
+                self.assertEqual(read_b.bound(None), [4])
+
+    def test_explicit_receiver_precedes_named_branch_for_each_call_shape(self):
+        class Store:
+            def __init__(self, value):
+                self.value = value
+
+            def read(self, query):
+                return self.value, query.value
+
+        fixture, explicit, named, query = (Store(v) for v in (1, 2, 3, 4))
+        receiver = _Receiver()
+        candidate = Candidate("store.read", fixture.read, "store", attribute="read",
+                              owner=Store, branch="prepare", receiver=receiver)
+        for per_item in (False, True):
+            step = replace(candidate, per_item=per_item)
+            with runtime_pool({"prepare": named}):
+                receiver.put(explicit)
+                answer = step.bound([query] if per_item else query)
+                self.assertEqual(answer, [(2, 4)] if per_item else (2, 4))
+            with runtime_pool({"prepare": named}):
+                # Missing explicit owners may still use a supplied branch owner.
+                answer = step.bound([query] if per_item else query)
+                self.assertEqual(answer, [(3, 4)] if per_item else (3, 4))
+            with runtime_pool({}):
+                with self.assertRaisesRegex(RuntimeError, "needs its constructor to run"):
+                    step.bound([query] if per_item else query)
+            with runtime_pool({"prepare": object()}):
+                receiver.put(explicit)
+                answer = step.bound([query] if per_item else query)
+                self.assertEqual(answer, [(2, 4)] if per_item else (2, 4))
+
+    def test_public_finalization_clones_shared_handles_without_changing_evidence(self):
+        binding = self._binding()
+        build, read = binding.steps
+        fixture = build.bound([1])
+        original = replace(binding, fits=(("fit", build),),
+                           branches={"build": (build,), "read": (read,)}, _value=fixture)
+        fresh = _empty_receivers(original)
+        receiver = fresh.steps[0].receiver
+        self.assertIsNot(receiver, build.receiver)
+        self.assertIs(receiver.get(), _MISSING_RECEIVER)
+        for step in (fresh.steps[1], fresh.fits[0][1], fresh.branches["build"][0],
+                     fresh.branches["read"][0], *fresh._reach):
+            self.assertIs(step.receiver, receiver)
+        self.assertIs(fresh._value, fixture)
+        self.assertEqual(fresh, original)
+        self.assertEqual(repr(fresh.steps), repr(original.steps))
+        self.assertEqual(fresh.describe(), original.describe())
+        self.assertEqual([row.to_dict() for row in fresh.observations()],
+                         [row.to_dict() for row in original.observations()])
+        self.assertEqual(read.bound(None), [1])
+        with self.assertRaisesRegex(RuntimeError, "needs its constructor to run"):
+            fresh.steps[1].bound(fixture)
+
+    def test_runtime_hook_receives_raw_arguments_and_applies_metadata_once(self):
+        seen = []
+        candidate = Candidate("t.f", lambda value, tuning: (value, tuning), "t",
+                              tuning=7, plan=("value", "tuning"), handoff="element:1")
+
+        def mapped(*args):
+            seen.append(args)
+            return candidate.bound(*args)
+
+        hooked = replace(candidate, _runtime_call=mapped)
+        call = hooked.bound
+        self.assertEqual(seen, [])
+        self.assertEqual(call(("unused", 9)), (9, 7))
+        self.assertEqual(seen, [(("unused", 9),)])
+        self.assertEqual(hooked, candidate)
+        self.assertEqual(repr(hooked), repr(candidate))
+        self.assertEqual((hooked.tuning, hooked.plan, hooked.handoff),
+                         (7, ("value", "tuning"), "element:1"))
 
     def test_the_search_itself_is_unchanged(self):
         build, read = self._binding().steps
@@ -2322,7 +2676,8 @@ class AMethodCarriedAcrossBranchesIsTakenOffThisRunsObject(unittest.TestCase):
         self.assertIsNone(refusal)
         ask = binding.branches["search"][0]
         self.assertEqual(ask.branch, "prepare")
-        self.assertEqual(ask.bound(2), [2])
+        with self.assertRaisesRegex(RuntimeError, "needs its constructor to run"):
+            ask.bound(2)
 
         scored_store = binding.branches["prepare"][0].bound([9, 9])
         with runtime_pool({"prepare": scored_store}):

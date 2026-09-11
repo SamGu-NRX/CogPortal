@@ -71,7 +71,10 @@ __all__ = ["fingerprint", "read", "write", "cache_path"]
 #: version 10 decision must be searched again rather than replayed.
 #: 12: the key now includes current input identity. Source bytes alone do
 #: not distinguish searches given different fixtures, tunings, or resources.
-FORMAT = 12
+#: 13: project modules now execute once per discovery and package bodies
+#: enter its candidate namespace. Reconsider bindings chosen before that
+#: loader change and the constructor screening/receiver repairs.
+FORMAT = 13
 
 
 def cache_path(repository: Path) -> Path:
@@ -239,11 +242,9 @@ def source_paths(discovery: Any) -> List[Path]:
     the missing package and re-runs must get a new search, not the refusal
     they were shown before.
 
-    A package's ``__init__.py`` that ran without raising is here for the same
-    reason and was not: it is neither a module nor a skip, so the key did not
-    see it. A package whose initializer sets the constant its members read is
-    ordinary, and editing only that file left the key unchanged and replayed
-    a binding built against the old value.
+    Retained package initializers also contribute, including transitive
+    imports beyond discovery's traversal depth. Traversed initializers already
+    have module records and should appear only once.
     """
 
     paths: List[Path] = []
@@ -253,5 +254,8 @@ def source_paths(discovery: Any) -> List[Path]:
         path = getattr(entry, "path", None)
         if path is not None:
             paths.append(Path(path))
-    paths.extend(Path(p) for p in getattr(discovery, "initializers", []))
+    for initializer in getattr(discovery, "initializers", []):
+        path = Path(initializer)
+        if path not in paths:
+            paths.append(path)
     return paths
