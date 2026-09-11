@@ -113,6 +113,15 @@ class Messages(unittest.TestCase):
     def test_an_exception_with_nothing_to_say_is_named_by_its_type(self):
         self.assertEqual(message_of(ValueError()), "ValueError")
 
+    def test_a_broken_exception_formatter_keeps_the_original_type(self):
+        for failure in (RuntimeError("broken formatter"), SystemExit(1)):
+            with self.subTest(failure=type(failure).__name__):
+                class BrokenMessage(Exception):
+                    def __str__(self):
+                        raise failure
+
+                self.assertEqual(message_of(BrokenMessage()), "BrokenMessage")
+
     def test_only_the_first_line_survives(self):
         self.assertEqual(
             message_of(RuntimeError("first\nsecond")), "RuntimeError: first"

@@ -5,6 +5,7 @@ import signal
 import sys
 import tempfile
 import time
+import tracemalloc
 import unittest
 from pathlib import Path
 from types import ModuleType
@@ -20,8 +21,10 @@ from cogbench.pipeline import (
     _named_for_something_else,
     callables_in,
     extend,
+    methods_of,
     probe_sources,
     resolve_chain,
+    runtime_pool,
 )
 
 
@@ -228,6 +231,58 @@ class ChainTests(unittest.TestCase):
 
         self.assertIsNone(binding)
         self.assertIn("did not return the right answer", refusal.detail)
+
+    def test_chatty_candidates_do_not_accumulate_probe_output(self):
+        chunk = "x" * 65536
+
+        def source(samples, rate):
+            for index in range(128):
+                sys.stdout.write(chunk + str(index))
+                sys.stderr.write(chunk + str(index))
+            return _spectrogram(samples, rate)
+
+        module = _module("anything", alpha=source, beta=_peaks, gamma=_fanout)
+        saved_out, saved_err = sys.stdout, sys.stderr
+        tracemalloc.start()
+        try:
+            binding, refusal = resolve_chain(ROLE, [module], FIXTURE)
+            _, peak = tracemalloc.get_traced_memory()
+        finally:
+            tracemalloc.stop()
+
+        self.assertIsNone(refusal)
+        self.assertIsNotNone(binding)
+        self.assertIs(sys.stdout, saved_out)
+        self.assertIs(sys.stderr, saved_err)
+        self.assertLess(peak, 1024 * 1024)
+
+    def test_a_raising_verifier_rejects_the_chain(self):
+        module = _module("anything", alpha=_spectrogram, beta=_peaks, gamma=_fanout)
+
+        def verify(chain):
+            raise ValueError("malformed answer")
+
+        binding, refusal = resolve_chain(ROLE, [module], FIXTURE, verify=verify)
+
+        self.assertIsNone(binding)
+        self.assertTrue(refusal.ran_to_the_end)
+
+    def test_a_raising_verifier_does_not_prevent_a_later_binding(self):
+        module = _module("anything", alpha=_spectrogram, other=_spectrogram,
+                         beta=_peaks, gamma=_fanout)
+        attempted = []
+
+        def verify(chain):
+            attempted.append(chain[0].label)
+            if len(attempted) == 1:
+                raise ValueError("malformed answer")
+            return True
+
+        binding, refusal = resolve_chain(ROLE, [module], FIXTURE, verify=verify)
+
+        self.assertIsNone(refusal)
+        self.assertGreater(len(attempted), 1)
+        self.assertEqual(binding.steps[0].label, attempted[-1])
 
     def test_an_empty_repository_refuses_at_the_first_stage(self):
         binding, refusal = resolve_chain(ROLE, [], FIXTURE)
@@ -1451,6 +1506,25 @@ class AnOrdinaryParameterIsNotAnIdentitySlot(unittest.TestCase):
             self.assertEqual(refusal.stage, "g")
 
 
+class MethodDiscoveryTests(unittest.TestCase):
+    def test_enumerating_methods_does_not_evaluate_properties(self):
+        accessed = []
+
+        class Store:
+            @property
+            def average(self):
+                accessed.append(True)
+                return 1
+
+            def query(self, value):
+                return value
+
+        candidates = methods_of("store", Store())
+
+        self.assertEqual(accessed, [])
+        self.assertEqual([candidate.label for candidate in candidates], ["store.query"])
+
+
 class AConstructorsMethodsFollowTheObjectTheChainCarries(unittest.TestCase):
     """A method reached through a constructor stage is stored bound to the
     object the SEARCH built, out of the search's fixture. A scored run builds
@@ -1490,6 +1564,52 @@ class AConstructorsMethodsFollowTheObjectTheChainCarries(unittest.TestCase):
         rebuilt = build.bound([9])
 
         self.assertEqual(read.bound(rebuilt), [9])
+
+    def test_a_named_branch_remains_the_receiver_when_the_argument_has_its_type(self):
+        class Store:
+            def __init__(self, name):
+                self.name = name
+
+            def compare(self, other):
+                return self.name, other.name
+
+        fixture, catalog, query = Store("fixture"), Store("catalog"), Store("query")
+        for per_item in (False, True):
+            with self.subTest(per_item=per_item):
+                candidate = Candidate(
+                    "store.compare", fixture.compare, "store", attribute="compare",
+                    owner=Store, branch="prepare", per_item=per_item,
+                )
+                with runtime_pool({"prepare": catalog}):
+                    answer = candidate.bound([query] if per_item else query)
+                expected = ("catalog", "query")
+                self.assertEqual(answer, [expected] if per_item else expected)
+
+    def test_argument_taking_methods_use_the_carried_instance(self):
+        class Store:
+            def __init__(self, value):
+                self.value = value
+
+            def read(self, upstream):
+                return self.value
+
+        original, current = Store("fixture"), Store("run")
+        candidate = Candidate("store.read", original.read, "store", attribute="read", owner=Store)
+        self.assertEqual(candidate.bound(current), "run")
+
+    def test_per_item_methods_use_each_carried_instance(self):
+        class Store:
+            def __init__(self, value):
+                self.value = value
+
+            def read(self, upstream):
+                return self.value
+
+        original = Store("fixture")
+        candidate = Candidate("store.read", original.read, "store", attribute="read",
+                              owner=Store, per_item=True)
+        self.assertEqual(candidate.bound([Store("first"), Store("second")]),
+                         ["first", "second"])
 
     def test_the_search_itself_is_unchanged(self):
         build, read = self._binding().steps
