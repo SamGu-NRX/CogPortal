@@ -8,7 +8,7 @@ import { drizzle } from "drizzle-orm/d1";
 import { buildRunJob, enqueueRun, prepareRetryJob } from "../worker/execution/runner.ts";
 import { runs, teams, cohorts, benchmarks, type RunRow, type TeamRow, type BenchmarkRow } from "../worker/db/schema.ts";
 import type { Env } from "../worker/env.ts";
-import type { RunJobV1 } from "@cogworks/contracts/protocol";
+import { PreparedEnvironmentV1Schema, type RunJobV1 } from "@cogworks/contracts/protocol";
 import { ApiHttpError } from "../worker/http/errors.ts";
 
 const digest = "b".repeat(64);
@@ -22,7 +22,7 @@ const benchmark: BenchmarkRow = {
   id: "vision-recognition", version: 1, contractVersion: "cogworks.submissions.v1",
   pluginVersion: "1", datasetVersion: "official-v1", scorerVersion: "1", runtimeVersion: "python-3.11",
   entryPointName: "submission", title: "Vision", module: "vision", summary: "Retry test",
-  active: true, primaryMetricKey: "accuracy",
+  active: true, primaryMetricKey: "accuracy", sandboxContract: 1,
 };
 function environment(overrides: Partial<Env> = {}): Env {
   // Retry preparation needs no database; enqueue tests supply the SQLite binding.
@@ -48,12 +48,22 @@ function original(mode: "practice" | "official" = "practice", withWeights = fals
     datasetVersion: mode === "practice" ? "practice-v1" : benchmark.datasetVersion,
     scorerVersion: benchmark.scorerVersion, runtimeVersion: benchmark.runtimeVersion,
     preparedArtifactId: mode === "official" ? "im-prepared" : null,
+    preparedEnvironmentJson: null,
     createdAt: 1, finishedAt: null, lastEventSequence: -1, dispatchAttempts: 0,
     parentRunId: null, retryOfRunId: null, dispatchJobJson: null, attemptNumber: null,
     failureCategory: null, failurePhase: null, failureDetail: null, failureConsumedAttempt: false,
     refundedAt: null, log: null, diagnosticsJson: null, wiringJson: null, refusalJson: null,
     sweepJson: null, weightsSuppliedJson: "[]", environmentDigest: null, surfaceId: null,
   };
+  if (mode === "official") {
+    const evidence = PreparedEnvironmentV1Schema.parse(JSON.parse(readFileSync(
+      new URL("../../../protocols/v1/fixtures/prepared-environment.valid.json", import.meta.url), "utf8",
+    )));
+    run.preparedEnvironmentJson = JSON.stringify({ ...evidence,
+      artifactId: run.preparedArtifactId, benchmarkId: run.benchmarkId,
+      source: { repositoryId: run.repositoryId, fullName: team.repoFullName, sha: run.sha },
+    });
+  }
   const job = buildRunJob(env, run, team, benchmark,
     withWeights ? [{ path: "model.pkl", size: 3, sha256: digest }] : []);
   run.dispatchJobJson = JSON.stringify(job);
@@ -101,6 +111,38 @@ test("retry preserves recorded inputs, ignores late artifacts, and refreshes onl
     });
     assert.deepEqual({ ...retry, jobId: job.jobId, runId: job.runId, callback: job.callback }, job);
   }
+});
+
+test("saved-job Retry preserves provisioning evidence and refuses legacy or mismatched proof", async () => {
+  const { env, run, job } = original("official");
+  assert.ok(job.preparedEnvironment);
+  run.preparedEnvironmentJson = JSON.stringify({ ...job.preparedEnvironment, artifactId: "im-late-other" });
+  const retry = await prepareRetryJob(env, run, team, benchmark, "run_retry");
+  assert.deepEqual(retry.preparedEnvironment, job.preparedEnvironment);
+  assert.equal(retry.benchmark.sandboxContract, 1);
+  for (const mutate of [
+    (candidate: RunJobV1) => { delete candidate.preparedEnvironment; },
+    (candidate: RunJobV1) => { candidate.preparedEnvironment = null; },
+    (candidate: RunJobV1) => { candidate.preparedEnvironment!.artifactId = "im-other"; },
+    (candidate: RunJobV1) => { candidate.preparedEnvironment!.source.sha = "f".repeat(40); },
+    (candidate: RunJobV1) => { delete candidate.benchmark.sandboxContract; },
+    (candidate: RunJobV1) => { candidate.benchmark.sandboxContract = 2; },
+  ]) {
+    const candidate = structuredClone(job);
+    mutate(candidate);
+    await assert.rejects(prepareRetryJob(env, { ...run, dispatchJobJson: JSON.stringify(candidate) }, team, benchmark, "run_retry"), conflict);
+  }
+});
+
+test("a late practice observation does not become Retry's preparation input", async () => {
+  const { env, run, job } = original("practice");
+  const official = original("official");
+  run.preparedArtifactId = official.run.preparedArtifactId;
+  run.preparedEnvironmentJson = official.run.preparedEnvironmentJson;
+  const retry = await prepareRetryJob(env, run, team, benchmark, "run_retry");
+  assert.equal(retry.preparedArtifactId, null);
+  assert.equal(retry.preparedEnvironment, null);
+  assert.deepEqual(retry.weights, job.weights);
 });
 
 test("retry rejects absent, malformed, or mismatched recorded inputs", async () => {

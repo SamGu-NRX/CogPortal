@@ -13,6 +13,7 @@ import { ApiHttpError } from "../http/errors";
 import { newId } from "../util/id";
 import { getLatestTeamWeights } from "../services/local-reports";
 import { weightManifest, weightObjectKey } from "../services/weights";
+import { preparedEnvironmentMatchesRun, savedEnvironmentEligibility } from "../services/run-eligibility";
 
 const DEFAULT_IMAGE_DIGEST = "cogworks-week2-cpu-v1:unpublished";
 
@@ -62,14 +63,24 @@ export function buildRunJob(
   weights: WeightFile[] = [],
 ): RunJobV1 {
   const fullName = `${encodeURIComponent(team.repoOwner)}/${encodeURIComponent(team.repoName)}`;
+  if (benchmark.sandboxContract == null || !Number.isSafeInteger(benchmark.sandboxContract) || benchmark.sandboxContract <= 0) {
+    throw new ApiHttpError(409, "not_promotable", "The benchmark's execution contract is unknown.");
+  }
+  let preparedEnvironment = null;
+  if (run.preparedArtifactId || run.preparedEnvironmentJson) {
+    const eligibility = savedEnvironmentEligibility(run, benchmark, team.repoFullName);
+    if (!eligibility.eligible) throw new ApiHttpError(409, "not_promotable", eligibility.reason);
+    preparedEnvironment = eligibility.environment;
+  }
   return RunJobV1Schema.parse({
     protocolVersion: RUNNER_PROTOCOL_VERSION,
     jobId: newId("job_"),
     runId: run.id,
     mode: run.mode,
     preparedArtifactId: run.preparedArtifactId,
+    preparedEnvironment,
     source: {
-      repositoryId: team.repoId,
+      repositoryId: run.repositoryId,
       fullName: team.repoFullName,
       sha: run.sha,
       archiveUrl: `https://api.github.com/repos/${fullName}/tarball/${run.sha}`,
@@ -81,6 +92,7 @@ export function buildRunJob(
       pluginVersion: benchmark.pluginVersion,
       datasetVersion: run.mode === "official" ? benchmark.datasetVersion : "practice-v1",
       scorerVersion: benchmark.scorerVersion,
+      sandboxContract: benchmark.sandboxContract,
     },
     runtime: {
       // What the student's code actually runs on, which is not one number
@@ -173,6 +185,15 @@ function recordedJob(run: RunRow): RunJobV1 {
       (job.preparedArtifactId && job.weights !== undefined)) {
     throw retryInputError("Recorded dispatch artifact or weight inputs are inconsistent.");
   }
+  if (job.preparedArtifactId) {
+    if (!job.preparedEnvironment || !preparedEnvironmentMatchesRun(job.preparedEnvironment, {
+      ...run, preparedArtifactId: job.preparedArtifactId,
+    }, job.source.fullName)) {
+      throw retryInputError("The recorded saved environment has no matching provisioning evidence.");
+    }
+  } else if (job.preparedEnvironment) {
+    throw retryInputError("Recorded provisioning evidence has no saved artifact.");
+  }
   return job;
 }
 
@@ -213,9 +234,10 @@ export async function prepareRetryJob(
 ): Promise<RunJobV1> {
   const saved = recordedJob(failedRun);
   if (failedRun.status !== "failed" || failedRun.teamId !== team.id ||
+      failedRun.repositoryId !== team.repoId ||
       env.EXECUTION_PROVIDER !== failedRun.provider ||
       failedRun.runtimeVersion !== benchmark.runtimeVersion) {
-    throw retryInputError("Retry status, team, provider, or runtime version does not match.");
+    throw retryInputError("Retry status, team, repository, provider, or runtime version does not match.");
   }
   assertModalConfigured(env);
   // The row may carry an artifact from a late completion. Only the dispatch
@@ -224,6 +246,7 @@ export async function prepareRetryJob(
   try {
     current = buildRunJob(env, {
       ...failedRun, preparedArtifactId: saved.preparedArtifactId,
+      preparedEnvironmentJson: saved.preparedEnvironment ? JSON.stringify(saved.preparedEnvironment) : null,
     }, team, benchmark, saved.weights);
   } catch {
     throw retryInputError("Current repository or benchmark/runtime configuration is invalid for retry.");

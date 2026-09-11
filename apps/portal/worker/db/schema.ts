@@ -1,6 +1,7 @@
 import type { MetricRole } from "@cogworks/contracts/schema";
 import { sql } from "drizzle-orm";
 import {
+  check,
   index,
   integer,
   primaryKey,
@@ -269,8 +270,12 @@ export const benchmarks = sqliteTable(
     datasetVersion: text("dataset_version").notNull().default("practice-v1"),
     scorerVersion: text("scorer_version").notNull().default("1"),
     runtimeVersion: text("runtime_version").notNull().default("python-3.11"),
+    sandboxContract: integer("sandbox_contract"),
   },
-  (table) => [primaryKey({ columns: [table.id, table.version] })],
+  (table) => [
+    primaryKey({ columns: [table.id, table.version] }),
+    check("benchmarks_sandbox_contract_positive", sql`${table.sandboxContract} IS NULL OR (typeof(${table.sandboxContract}) = 'integer' AND ${table.sandboxContract} > 0)`),
+  ],
 );
 
 export const benchmarkFamilies = sqliteTable(
@@ -377,6 +382,9 @@ export const runs = sqliteTable("runs", {
   provider: text("provider", { enum: ["fixture", "modal"] }).notNull().default("fixture"),
   protocolVersion: text("protocol_version").notNull().default("1"),
   preparedArtifactId: text("prepared_artifact_id"),
+  /** Authenticated controller provisioning evidence. Null means unknown, not a
+   * match to the current image or scorer labels. */
+  preparedEnvironmentJson: text("prepared_environment_json"),
   environmentDigest: text("environment_digest"),
   datasetVersion: text("dataset_version").notNull().default("practice-v1"),
   scorerVersion: text("scorer_version").notNull().default("1"),

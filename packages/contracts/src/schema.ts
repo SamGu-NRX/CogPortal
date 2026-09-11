@@ -153,6 +153,9 @@ export const RunSummarySchema = z.object({
 export type RunSummary = z.infer<typeof RunSummarySchema>;
 
 export const RunDetailSchema = RunSummarySchema.extend({
+  /** Saved-environment refusal for a succeeded practice run. Null does not
+   * establish authorization or available quota. */
+  promotionRefusal: z.string().max(600).nullable().default(null),
   surfaceId: z.string().regex(/^surface_[a-f0-9]{20}$/).nullable().default(null),
   contractVersion: z.string(),
   parentRunId: z.string().nullable(),
@@ -677,6 +680,8 @@ export const RunSurfaceSnapshotSchema = z.object({
    * makes the message worth reading.
    */
   refusalHeadline: z.string().max(600).nullable().default(null),
+  // A successful practice can lack a reusable environment without losing its findings.
+  promotionRefusal: z.string().max(600).nullable().default(null),
   events: z.array(RunStreamEventSchema).max(250),
   actions: z.array(RunSurfaceActionSchema),
   simulated: z.boolean(),
@@ -823,8 +828,10 @@ export const DashboardSchema = z.object({
   quota: QuotaSchema,
   lastResolvedSha: z.string().nullable(),
   activeRun: RunSummarySchema.nullable(),
-  /** Most recent succeeded practice run (the promotable candidate). */
+  /** Most recent succeeded practice run; compatibility is reported separately. */
   latestCandidate: RunSummarySchema.nullable(),
+  /** Saved-environment refusal for latestCandidate, without changing its outcome. */
+  promotionRefusal: z.string().max(600).nullable().default(null),
   selection: SelectionSchema.nullable(),
   runs: z.array(RunSummarySchema),
 });

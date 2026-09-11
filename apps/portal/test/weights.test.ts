@@ -24,6 +24,14 @@ function runParts(mode: "practice" | "official" = "practice") {
       teamId: "team_1",
       mode,
       preparedArtifactId: mode === "official" ? "snapshot_1" : null,
+      benchmarkId: "language-search",
+      repositoryId: 1,
+      preparedEnvironmentJson: mode === "official" ? JSON.stringify({
+        schemaVersion: 1, artifactId: "snapshot_1", benchmarkId: "language-search",
+        source: { repositoryId: 1, fullName: "course/team", sha: "a".repeat(40) },
+        sandboxContract: 1, baseImageId: "im-base", pythonVersion: "3.8.20", sdkVersion: "0.2.0",
+        modules: [{ name: "cogbench.execution", path: "/opt/platform/cogbench/execution.py", sha256: SHA256_ABC }], weights: [],
+      }) : null,
       sha: "a".repeat(40),
     } as never,
     team: {
@@ -39,6 +47,7 @@ function runParts(mode: "practice" | "official" = "practice") {
       pluginVersion: "1.0.0",
       datasetVersion: "eval-v1",
       scorerVersion: "1.0.0",
+      sandboxContract: 1,
     } as never,
   };
 }

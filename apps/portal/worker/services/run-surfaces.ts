@@ -33,7 +33,7 @@ import {
 import { syncRun } from "../execution/sync";
 import { serializeMetric } from "../http/serializers";
 import { ApiHttpError } from "../http/errors";
-import { canPublishOfficialRun, currentSurfaceRun } from "./run-eligibility";
+import { canPublishOfficialRun, currentSurfaceRun, savedEnvironmentEligibility } from "./run-eligibility";
 import { acceptedRunPredicate, readRunAccounting } from "./run-accounting";
 
 const MAX_SURFACE_EVENTS = 250;
@@ -317,13 +317,21 @@ export async function buildRunSurfaceSnapshot(
     surface.id,
   );
 
+  const promotionEligibility = practice && env.EXECUTION_PROVIDER === "modal"
+    ? savedEnvironmentEligibility(practice, benchmark, team.repoFullName)
+    : null;
+  const promotionRefusal = stage === "hosted" && status === "succeeded" && promotionEligibility?.eligible === false
+    ? promotionEligibility.reason : null;
   const actions: RunSurfaceAction[] = ["open_console", "open_portal"];
   if (stage === "local" && status !== "running") {
     actions.push("run_again");
     if (status === "succeeded" && !local?.dirty) actions.splice(2, 0, "verify_hosted");
   } else if (stage === "hosted" && status !== "running") {
     actions.push("rerun_hosted");
-    if (status === "succeeded" && practice?.refundedAt === null) actions.splice(2, 0, "promote_official");
+    if (status === "succeeded" && practice?.refundedAt === null &&
+        promotionEligibility?.eligible !== false) {
+      actions.splice(2, 0, "promote_official");
+    }
   } else if (stage === "official" && official) {
     if (canPublishOfficialRun(official)) actions.push("publish_result");
     // Failed executions and historical refunds cannot be promoted again here.
@@ -383,6 +391,7 @@ export async function buildRunSurfaceSnapshot(
     // failure has a traceback and belongs in the log rather than in a chat
     // message.
     refusalHeadline: refusalHeadlineOf(official ?? practice),
+    promotionRefusal,
     events,
     actions,
     simulated: env.EXECUTION_PROVIDER === "fixture",
