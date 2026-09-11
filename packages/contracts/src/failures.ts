@@ -1,14 +1,5 @@
-/**
- * Failure catalog (handoff-plan §8, "Run detail behavior").
- *
- * Every known failure renders: the failed phase, a stable code, a
- * plain-language explanation, the exact corrective action, an optional
- * copyable local reproduction command, and whether an official attempt was
- * consumed. Never "Something went wrong".
- *
- * `consumedAttempt` on the run itself is authoritative (set server-side when
- * hidden evaluation has begun); `defaultConsumesAttempt` here only documents
- * the policy for copy.
+/** Diagnostic copy and corrective actions for each failure category.
+ * Failed executions do not consume practice or official quota.
  */
 import type { FailureCategory, Module } from "./schema";
 
@@ -21,11 +12,9 @@ export interface FailureCopy {
   reproCommand: string | null;
   /** Is re-running the same commit meaningful? (plan: retry only when so) */
   retryable: boolean;
-  defaultConsumesAttempt: boolean;
 }
 
-/** The parts of a failure that can differ per module. Codes, retryability,
- *  and attempt policy are platform facts and never vary. */
+/** Copy can differ per module; codes and retryability are platform facts. */
 type FailureOverride = Partial<Pick<FailureCopy, "title" | "explanation" | "action">>;
 
 export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
@@ -38,7 +27,6 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
       "Confirm the repository is public and the branch still exists, then start a new run.",
     reproCommand: "git clone <your repository url>",
     retryable: true,
-    defaultConsumesAttempt: false,
   },
   dependency_install: {
     code: "E-INSTALL",
@@ -49,7 +37,6 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
       "Reproduce locally with the command below, then pin versions that install cleanly under the course constraints and push a new commit.",
     reproCommand: "python -m pip install --constraint constraints.txt .",
     retryable: false,
-    defaultConsumesAttempt: false,
   },
   data_download: {
     code: "E-DATA",
@@ -60,7 +47,6 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
       "For a local run, reconnect and run the check below so CogBench can rebuild its cache. For an official run, staff repair the private evaluation volume.",
     reproCommand: "cogworks check --benchmark {benchmark}",
     retryable: true,
-    defaultConsumesAttempt: false,
   },
   model_cache: {
     code: "E-MODEL",
@@ -71,18 +57,22 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
       "Run the check below once you're back online so CogBench can refetch it. Official-image failures are repaired by staff.",
     reproCommand: "cogworks check --benchmark {benchmark}",
     retryable: true,
-    defaultConsumesAttempt: false,
   },
   adapter_missing: {
     code: "E-ADAPTER",
-    title: "Benchmark adapter not found",
+    title: "Nothing here could be scored",
+    // Written before the platform could find a team's code by running it.
+    // The old copy said "your package installed, but no entry point was
+    // registered" and told them to add one to pyproject.toml, which is
+    // packaging metadata that none of the thirteen 2026 capstones has and
+    // that the platform no longer needs. Sending a team to write it would
+    // cost them an afternoon on the wrong problem.
     explanation:
-      "Your package installed, but no entry point for this track was registered under the active submission contract group.",
+      "We look for the functions this week asks for by running the code in your repository. Nothing here did the job end to end, and the reason is below.",
     action:
-      'Add the v2 entry point to pyproject.toml and push:\n[project.entry-points."cogworks.submissions.v2"]\n{benchmark} = "benchmark_adapter:<your factory>"',
+      "Run the check below. It says how far your code was followed and what the next step was given, in your own function names.",
     reproCommand: "cogworks check --benchmark {benchmark}",
     retryable: false,
-    defaultConsumesAttempt: false,
   },
   contract_invalid: {
     code: "E-CONTRACT",
@@ -93,7 +83,6 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
       "Run the local contract check to see exactly which method failed, fix it, and push a new commit.",
     reproCommand: "cogworks test --benchmark {benchmark}",
     retryable: false,
-    defaultConsumesAttempt: false,
   },
   student_runtime: {
     code: "E-RUNTIME",
@@ -104,7 +93,6 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
       "Reproduce with the local practice runner; the traceback excerpt is in the log below. Fix, verify locally, then run practice again before promoting.",
     reproCommand: "cogworks run --benchmark {benchmark}",
     retryable: false,
-    defaultConsumesAttempt: true,
   },
   timeout: {
     code: "E-TIMEOUT",
@@ -115,7 +103,6 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
       "Profile a single case locally, then batch the work your adapter repeats and stop re-loading model weights on every call.",
     reproCommand: "cogworks run --benchmark {benchmark}",
     retryable: false,
-    defaultConsumesAttempt: true,
   },
   memory_limit: {
     code: "E-MEMORY",
@@ -126,7 +113,6 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
       "Work through the inputs in batches instead of holding them all at once, and release large intermediate arrays.",
     reproCommand: null,
     retryable: false,
-    defaultConsumesAttempt: true,
   },
   output_invalid: {
     code: "E-OUTPUT",
@@ -137,7 +123,6 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
       "Validate your output locally with the schema check, correct the prediction shape, and run practice again before promoting.",
     reproCommand: "cogworks test --benchmark {benchmark}",
     retryable: false,
-    defaultConsumesAttempt: true,
   },
   scorer: {
     code: "E-SCORER",
@@ -148,7 +133,6 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
       "Staff have been notified with this run's ID. Your attempt was not consumed; you may retry once the issue is resolved.",
     reproCommand: null,
     retryable: true,
-    defaultConsumesAttempt: false,
   },
   provider: {
     code: "E-PROVIDER",
@@ -159,7 +143,6 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
       "Retry the run. If this recurs, report the run ID to course staff.",
     reproCommand: null,
     retryable: true,
-    defaultConsumesAttempt: false,
   },
 };
 

@@ -23,12 +23,47 @@ export interface CommitRecord {
   authorLogin: string;
   authoredAt: number;
   filesChanged: string[];
+  /**
+   * `Co-authored-by:` trailers exactly as the commit message wrote them,
+   * unresolved. One 2026 student authored no commits under `authorLogin` and
+   * co-authored three, because the team worked in a single editor session; to
+   * every signal below they did not exist. Resolving a trailer to a person
+   * needs the team roster, which this module has no access to, so the raw
+   * trailer travels and `../services/process-signals.ts` decides who (if
+   * anyone) it names.
+   */
+  coAuthors: CoAuthorTrailer[];
+}
+
+/** One `Co-authored-by: Name <email>` trailer, as written. */
+export interface CoAuthorTrailer {
+  name: string;
+  email: string;
+}
+
+/**
+ * Git trailer lines, matched case-insensitively on the key. A trailer whose
+ * value is not `Something <address>` is not a co-author attribution and is
+ * skipped; anything that survives here still has to resolve to a roster
+ * member downstream, which is what keeps bots and strangers out without a
+ * list of their names.
+ */
+const CO_AUTHOR_TRAILER = /^co-authored-by:\s*(.*?)\s*<([^>]+)>$/i;
+
+export function parseCoAuthorTrailers(message: string): CoAuthorTrailer[] {
+  const trailers: CoAuthorTrailer[] = [];
+  for (const line of message.split("\n")) {
+    const match = CO_AUTHOR_TRAILER.exec(line.trim());
+    if (match) trailers.push({ name: match[1], email: match[2].trim() });
+  }
+  return trailers;
 }
 
 /**
  * Result of fetching a repository's commit history. `ok: false` carries a
- * `reason` that keeps three genuinely different situations apart:
+ * `reason` that keeps four genuinely different situations apart:
  *
+ * - `unauthorized`: GitHub rejected the user's sign-in token.
  * - `not_found`: the repo is gone or the token no longer has access to it.
  * - `rate_limited`: GitHub throttled the request; retry later.
  * - `fetch_failed`: anything else that stopped the fetch (network error,
@@ -43,11 +78,33 @@ export interface CommitRecord {
  * `docs/design/the-instrument-not-the-judge.md` ("Never interpolate").
  */
 export type FetchCommitsResult =
-  | { ok: true; commits: CommitRecord[] }
-  | { ok: false; reason: "not_found" | "rate_limited" | "fetch_failed" };
+  | {
+      ok: true;
+      commits: CommitRecord[];
+      /**
+       * The repository has commits older than the ones returned. Callers must
+       * not present a truncated window as the repository's whole history.
+       */
+      truncated: boolean;
+    }
+  | { ok: false; reason: "unauthorized" | "not_found" | "rate_limited" | "fetch_failed" };
 
-const MAX_COMMITS = 300;
+/**
+ * How many commits this reads, and why that number.
+ *
+ * One detail request per commit. One list request plus 40 details is 41
+ * external calls, which fits the 50 per invocation Cloudflare documents for
+ * the Workers Free plan, with room for a token refresh and for the redirect
+ * hops a renamed repository adds. (D1 draws on a separate internal pool, so
+ * database queries here are not part of that 50.)
+ *
+ * The old cap was 300. The demo repository has 75 commits, and reading it
+ * failed partway, at the 50th detail request, with no HTTP status.
+ */
+const MAX_COMMITS = 40;
 const DETAIL_CONCURRENCY = 8;
+/** Larger than MAX_COMMITS on purpose: one list request answers the whole
+ *  window and still reveals whether older commits exist. */
 const PER_PAGE = 100;
 
 function isRateLimited(response: Response): boolean {
@@ -91,11 +148,14 @@ function parseCommitDetail(value: unknown): CommitRecord | null {
         .filter((name): name is string => name !== null)
     : [];
 
+  const message = commit.message;
+
   return {
     sha,
     authorLogin: linkedLogin ?? gitAuthorName,
     authoredAt,
     filesChanged,
+    coAuthors: typeof message === "string" ? parseCoAuthorTrailers(message) : [],
   };
 }
 
@@ -130,6 +190,15 @@ export async function fetchCommitHistory(
   if (!owner || !name) return { ok: false, reason: "fetch_failed" };
 
   const shas: string[] = [];
+  let truncated = false;
+  // Where the detail requests go. A repository that has been renamed answers
+  // its old name with a redirect, and Cloudflare counts every hop against the
+  // same 50, so paying one per commit would cost 82 requests for a 40-commit
+  // window and fail before finishing. The list response below has already
+  // followed the redirect, so its final URL names the repository once and the
+  // detail requests go straight there.
+  let detailOwner = owner;
+  let detailName = name;
   for (let page = 1; shas.length < MAX_COMMITS; page += 1) {
     let response: Response;
     try {
@@ -143,6 +212,22 @@ export async function fetchCommitHistory(
       return { ok: false, reason: "fetch_failed" };
     }
 
+    // Only from the first page, and only when it actually moved.
+    if (page === 1 && response.url) {
+      const moved = /\/repos\/([^/]+)\/([^/?]+)\/commits/.exec(response.url);
+      if (moved && (moved[1] !== owner || moved[2] !== name)) {
+        detailOwner = decodeURIComponent(moved[1]);
+        detailName = decodeURIComponent(moved[2]);
+        console.warn(
+          JSON.stringify({
+            evt: "commit_repo_redirected",
+            from: fullName,
+            to: `${detailOwner}/${detailName}`,
+          }),
+        );
+      }
+    }
+
     if (response.status === 409) {
       // GitHub's exact response for a repository with zero commits is a 409
       // with body `{"message": "Git Repository is empty."}`. This is a
@@ -151,8 +236,9 @@ export async function fetchCommitHistory(
       // it as a failure would make "hasn't started" indistinguishable from
       // "GitHub access broke," which is exactly the conflation this result
       // type exists to prevent.
-      return { ok: true, commits: [] };
+      return { ok: true, commits: [], truncated: false };
     }
+    if (response.status === 401) return { ok: false, reason: "unauthorized" };
     if (response.status === 404) return { ok: false, reason: "not_found" };
     if (isRateLimited(response)) return { ok: false, reason: "rate_limited" };
     if (!response.ok) {
@@ -176,6 +262,11 @@ export async function fetchCommitHistory(
     if (!Array.isArray(payload)) return { ok: false, reason: "fetch_failed" };
     if (payload.length === 0) break;
 
+    // More entries on this page than the window takes means older commits
+    // exist. A full page means the same, since a further page was not read.
+    if (payload.length > MAX_COMMITS - shas.length || payload.length === PER_PAGE) {
+      truncated = true;
+    }
     for (const entry of payload) {
       if (!isRecord(entry) || typeof entry.sha !== "string") {
         return { ok: false, reason: "fetch_failed" };
@@ -186,27 +277,44 @@ export async function fetchCommitHistory(
     if (payload.length < PER_PAGE) break;
   }
 
-  if (shas.length === 0) return { ok: true, commits: [] };
+  if (shas.length === 0) return { ok: true, commits: [], truncated: false };
 
   const commits: (CommitRecord | null)[] = new Array(shas.length).fill(null);
+  let unauthorized = false;
   let rateLimited = false;
   let failed = false;
   let cursor = 0;
 
   async function worker(): Promise<void> {
-    while (cursor < shas.length && !rateLimited && !failed) {
+    while (cursor < shas.length && !unauthorized && !rateLimited && !failed) {
       const index = cursor;
       cursor += 1;
       const sha = shas[index];
       let response: Response;
       try {
         response = await githubApiRequest(
-          `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/commits/${sha}`,
+          `/repos/${encodeURIComponent(detailOwner)}/${encodeURIComponent(detailName)}/commits/${sha}`,
           token,
         );
-      } catch {
-        console.warn(JSON.stringify({ evt: "commit_detail_fetch_failed", repo: fullName, sha }));
+      } catch (error) {
+        // Name the cause. Without it this line said only that a fetch threw,
+        // and the two candidates want opposite fixes: the platform's
+        // per-request subrequest ceiling means asking for less, while the
+        // 10-second AbortSignal in githubApiRequest means asking again.
+        // Only the message is logged; the request carries a token.
+        console.warn(
+          JSON.stringify({
+            evt: "commit_detail_fetch_failed",
+            repo: fullName,
+            sha,
+            cause: error instanceof Error ? `${error.name}: ${error.message}` : "unknown",
+          }),
+        );
         failed = true;
+        return;
+      }
+      if (response.status === 401) {
+        unauthorized = true;
         return;
       }
       if (isRateLimited(response)) {
@@ -245,13 +353,26 @@ export async function fetchCommitHistory(
     Array.from({ length: Math.min(DETAIL_CONCURRENCY, shas.length) }, () => worker()),
   );
 
-  // A partial fetch is never returned as if it were the whole history: a
-  // team's history quality (`usable` vs `bulk_upload`) depends on totals
-  // across *every* commit, so silently dropping the commits that failed to
-  // fetch would let a real bulk-upload repo misclassify as `usable`, or vice
-  // versa. Any failure mid-fetch fails the whole result instead.
+  // A fetch that broke partway is never returned as if it had finished. A
+  // team's history quality (`usable` vs `bulk_upload`) is decided from totals
+  // over the commits in hand, so quietly dropping the ones that failed would
+  // let a real bulk-upload repository read as `usable`, or the reverse. Any
+  // failure mid-fetch fails the whole result instead.
+  //
+  // A truncated window is a different thing and is not a failure: those
+  // commits were never asked for. It is reported rather than hidden, because
+  // the same classification over the newest 40 commits is a statement about
+  // recent work and not about the repository. A project that began with one
+  // bulk commit and then developed normally is `bulk_upload` over its whole
+  // history and `usable` over this window, and both are true of what they
+  // describe.
+  if (unauthorized) return { ok: false, reason: "unauthorized" };
   if (rateLimited) return { ok: false, reason: "rate_limited" };
   if (failed) return { ok: false, reason: "fetch_failed" };
 
-  return { ok: true, commits: commits.filter((commit): commit is CommitRecord => commit !== null) };
+  return {
+    ok: true,
+    commits: commits.filter((commit): commit is CommitRecord => commit !== null),
+    truncated,
+  };
 }

@@ -282,10 +282,17 @@ in-place edit of a version teams have already published against.
 
 - **TODO(design):** Complete the visual pass for the connect wizard, member
   palette, and admin assignment rows.
-- **TODO(release):** `SetupPage` shows the TestPyPI install command for
-  `cogworks-benchmark`; it fails for students until the package is actually
-  published there (workflow `publish-testpypi.yml`, never dispatched). After
-  a real PyPI release, swap that one command to the plain install.
+- **TODO(release):** `cogworks-benchmark` 0.1.0 IS on TestPyPI and installs
+  and runs (checked 2026-08-20 against the JSON API, then installed into a
+  clean 3.11 venv). The stale claim here said it was never published, which
+  would have sent someone to publish a published package.
+  What is actually wrong is that 0.1.0 predates automatic discovery. Running
+  `cogworks check` from it against a real repository prints nine lines of
+  True and False and no next step; the same command in this tree reports
+  which of the team's own functions it wired up. `pyproject.toml` is now
+  0.2.0 and `publish-testpypi.yml` has to be dispatched by hand to close the
+  gap. The install command in `SetupPage` is deliberately unpinned so a
+  student picks up that release without a code change here.
 - **TODO(media):** The GitHub org/fork walkthrough player is wired
   (`WalkthroughVideo`, gated by `GITHUB_TEAM_VIDEO` in `ConnectPage.tsx`);
   record the clip per `docs/runbooks/onboarding-media.md`, drop the four

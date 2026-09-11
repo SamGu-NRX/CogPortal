@@ -5,6 +5,7 @@
 import { z } from "zod";
 import {
   AdminOverviewSchema,
+  AdminStaffRosterSchema,
   AdminTeamSummarySchema,
   ApiErrorSchema,
   BenchmarkSchema,
@@ -25,6 +26,7 @@ import {
   SetupStateSchema,
   StartRunResponseSchema,
   TeamDetailSchema,
+  TeamProcessSignalsSchema,
   type ApiErrorCode,
 } from "@cogworks/contracts/schema";
 
@@ -131,6 +133,7 @@ export const api = {
     }),
 
   team: () => request("/api/team", TeamDetailSchema),
+  teamProcess: () => request("/api/v1/team/process", TeamProcessSignalsSchema),
   updateTeam: (body: { name?: string; description?: string | null }) =>
     request("/api/team", TeamDetailSchema, { method: "PATCH", body }),
   changeTeamRepo: (fullName: string) =>
@@ -195,6 +198,14 @@ export const api = {
       AdminTeamSummarySchema,
       { method: "DELETE" },
     ),
+
+  adminStaffRoster: () => request("/api/admin/staff", AdminStaffRosterSchema),
+  adminAddStaff: (login: string) =>
+    request("/api/admin/staff", AdminStaffRosterSchema, { method: "POST", body: { login } }),
+  adminRemoveStaff: (login: string) =>
+    request(`/api/admin/staff/${encodeURIComponent(login)}`, AdminStaffRosterSchema, {
+      method: "DELETE",
+    }),
 
   benchmarks: () => request("/api/benchmarks", z.array(BenchmarkSchema)),
   localReports: (benchmarkId: string) =>

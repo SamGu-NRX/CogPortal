@@ -20,7 +20,7 @@ const STORAGE_KEY = "cogportal.track";
 /** CogWeb runs audio, then vision, then language. A team opening the portal
  *  is almost always working on the most recent module that's open, so the
  *  default is the last active one; the switcher is how they go back. */
-const COURSE_ORDER: Module[] = ["audio", "vision", "language"];
+export const COURSE_ORDER: Module[] = ["audio", "vision", "language"];
 
 function courseIndex(module: Module): number {
   const index = COURSE_ORDER.indexOf(module);

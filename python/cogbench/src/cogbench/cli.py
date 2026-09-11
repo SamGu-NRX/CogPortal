@@ -1,21 +1,27 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import platform
 import queue
+import subprocess
 import sys
 import threading
 import time
 import uuid
 import webbrowser
 from datetime import datetime, timezone
+from dataclasses import replace
 from pathlib import Path
-from typing import Optional, Sequence
+from typing import Any, Callable, List, NamedTuple, Optional, Sequence, Tuple
 from urllib.parse import urlparse
 
 from . import __version__
+from .environment import gap_note, local_gap
+from .isolate import COMPLETED, CRASHED, Outcome
+from . import isolate
 from .client import (
     PortalError,
     device_status,
@@ -26,8 +32,11 @@ from .client import (
     start_local_run,
     sync_report,
     update_setup_checks,
+    upload_weight,
 )
 from .models import LocalReport
+from .resolve import SubmissionReport, from_spec, resolve
+from .discover import _Redirects
 from .plugins import (
     PluginError,
     load_benchmark,
@@ -35,7 +44,9 @@ from .plugins import (
     plugin_names,
     resolve_submission,
 )
+from .progress import TerminalProgress
 from .project import repository_state
+from .report import render_check
 from .runner import ContractError, execute, model_cache_status
 from .storage import active_portal, latest_report, save_report, save_token, token_for
 
@@ -43,6 +54,8 @@ PROGRAM = "cogworks"
 
 
 def _parser() -> argparse.ArgumentParser:
+    # run_operation sends vars(args) as JSON. Every new run flag must remain
+    # JSON-safe; type=Path or another live object would break the exec path.
     parser = argparse.ArgumentParser(
         prog=PROGRAM,
         description="Check and run CogWorks practice benchmarks locally.",
@@ -59,7 +72,7 @@ def _parser() -> argparse.ArgumentParser:
     for name, help_text in (
         ("check", "check the local project and benchmark environment"),
         ("doctor", None),  # deprecated alias for check; hidden from help
-        ("test", "run one fast contract case"),
+        ("test", "check your code against one small benchmark case"),
         ("run", "run the public local practice benchmark"),
     ):
         command = subparsers.add_parser(name, **({} if help_text is None else {"help": help_text}))
@@ -76,17 +89,41 @@ def _parser() -> argparse.ArgumentParser:
                 action="store_true",
                 help="share one live progress bubble with your linked team",
             )
-            command.add_argument("--portal")
+            command.add_argument(
+                "--portal",
+                help="use this CogPortal address instead of the saved one",
+            )
     report = subparsers.add_parser("report", help="show a saved local report")
-    report.add_argument("path", nargs="?")
+    report.add_argument(
+        "path",
+        nargs="?",
+        help="saved report file to show (uses the latest report when omitted)",
+    )
     link = subparsers.add_parser("link", help="link this device to CogPortal")
-    link.add_argument("--portal")
-    link.add_argument("--no-browser", action="store_true")
+    link.add_argument(
+        "--portal",
+        help="use this CogPortal address instead of the saved one",
+    )
+    link.add_argument(
+        "--no-browser",
+        action="store_true",
+        help="print the approval link without opening your browser",
+    )
     sync = subparsers.add_parser("sync", help="explicitly sync one local report")
-    sync.add_argument("path", nargs="?")
-    sync.add_argument("--portal")
+    sync.add_argument(
+        "path",
+        nargs="?",
+        help="saved report file to sync (uses the latest report when omitted)",
+    )
+    sync.add_argument(
+        "--portal",
+        help="use this CogPortal address instead of the saved one",
+    )
     status = subparsers.add_parser("status", help="show this device's CogPortal connection")
-    status.add_argument("--portal")
+    status.add_argument(
+        "--portal",
+        help="use this CogPortal address instead of the saved one",
+    )
     return parser
 
 
@@ -113,14 +150,16 @@ def _portal(value: Optional[str]) -> str:
     return portal
 
 
-def _setup_payload(checks: Sequence[str], project_root: Path) -> dict:
+def _setup_payload(
+    checks: Sequence[str], project_root: Path, benchmark: Optional[str] = None
+) -> dict:
     repository = repository_state(project_root)
     if not repository.full_name:
         raise PortalError(
             "This directory is not a GitHub worktree with an `origin` remote. "
             "Change into your team project and retry."
         )
-    return {
+    payload = {
         "schemaVersion": 1,
         "repositoryFullName": repository.full_name,
         "checks": list(dict.fromkeys(checks)),
@@ -135,10 +174,22 @@ def _setup_payload(checks: Sequence[str], project_root: Path) -> dict:
             | set(plugin_names("cogworks.submissions.v2"))
         ),
     }
+    # Two of the four checks are about one benchmark: the install line names a
+    # single distribution and wiring resolves that benchmark's entry points.
+    # Without this the portal recorded them against the student and the team
+    # only, and the setup page credited whichever track it happened to be
+    # showing. Omitted rather than sent empty when there is no benchmark, so a
+    # portal that predates the field still accepts the request.
+    if benchmark:
+        payload["checkedBenchmarkId"] = benchmark
+    return payload
 
 
 def _update_setup(
-    portal_value: Optional[str], checks: Sequence[str], project_root: Path
+    portal_value: Optional[str],
+    checks: Sequence[str],
+    project_root: Path,
+    benchmark: Optional[str] = None,
 ) -> None:
     portal = _portal(portal_value)
     token = token_for(portal)
@@ -147,7 +198,9 @@ def _update_setup(
             "This CogPortal connection is missing, expired, or revoked. "
             "Run `cogworks link --portal {}` and retry.".format(portal)
         )
-    result = update_setup_checks(portal, token, _setup_payload(checks, project_root))
+    result = update_setup_checks(
+        portal, token, _setup_payload(checks, project_root, benchmark)
+    )
     accepted = result.get("accepted")
     if not isinstance(accepted, list):
         raise PortalError("CogPortal returned an invalid setup response.")
@@ -160,8 +213,14 @@ def _print_report(report: LocalReport, as_json: bool = False) -> None:
         return
     print("{} v{} · LOCAL · SELF-REPORTED".format(report.benchmark_id, report.benchmark_version))
     for metric in report.metrics:
-        value = ("{:.%df}" % metric.precision).format(metric.value)
-        print("{}: {}{}".format(metric.label, value, " " + metric.unit if metric.unit else ""))
+        precision = max(metric.precision, 4) if metric.primary else metric.precision
+        value = ("{:.%df}" % precision).format(metric.value)
+        unit = metric.unit
+        # Older plugins omitted the unit for timing metrics. The key is the
+        # only remaining evidence that the value is measured in seconds.
+        if not unit and metric.key.endswith("_seconds"):
+            unit = "s"
+        print("{}: {}{}".format(metric.label, value, " " + unit if unit else ""))
     if report.repository.sha:
         print("commit: {}{}".format(report.repository.sha[:7], " (dirty)" if report.repository.dirty else ""))
     for diagnostic in report.diagnostics:
@@ -175,6 +234,22 @@ def _resolve_report(path_value: Optional[str], project_root: Path) -> Path:
     if latest is None:
         raise ContractError("No local reports found. Run `cogworks run` first.")
     return latest
+
+
+def _format_expiry(expires_at_ms: int, now: Optional[datetime] = None) -> str:
+    expires = datetime.fromtimestamp(expires_at_ms / 1000, tz=timezone.utc)
+    current = now or datetime.now(timezone.utc)
+    days = (expires.date() - current.astimezone(timezone.utc).date()).days
+    date = "{} {}".format(expires.strftime("%b"), expires.day)
+    if days == 0:
+        return "{} (today)".format(date)
+    if days == 1:
+        return "{} (in 1 day)".format(date)
+    if days > 1:
+        return "{} (in {} days)".format(date, days)
+    if days == -1:
+        return "{} (1 day ago)".format(date)
+    return "{} ({} days ago)".format(date, abs(days))
 
 
 #: The interpreter each track's student code actually runs on when hosted.
@@ -202,6 +277,233 @@ def _installed_benchmark_hint() -> str:
     return installed[0] if len(installed) == 1 else "<benchmark>"
 
 
+def _discover(benchmark: str, project_root: Path, as_json: bool, *, spec=None):
+    """Search the repository for the code this benchmark needs.
+
+    Returns ``(submission, survey, unavailable)``, any of which may be None.
+    ``unavailable`` is why the search could not run at all, which is not the
+    same as searching and finding nothing: a benchmark that cannot describe
+    its task right now sends the reader somewhere different than one whose
+    repository holds nothing to bind.
+
+    Nothing here may fail the command. Discovery imports and runs a team's own
+    code, and the whole point of the report is to be readable when that code
+    misbehaves.
+    """
+
+    # _run_view already built this spec to hold its course mapping through
+    # scoring. Reuse that child-local object rather than load its data twice.
+    if spec is None:
+        plugin = load_benchmark(benchmark)
+        describes = getattr(plugin, "discovery", None)
+        if not callable(describes):
+            return None, None, None
+
+        try:
+            spec = describes()
+        except Exception as error:  # noqa: BLE001 - a broken benchmark is ours, not theirs
+            # Measured: week 3 asks for its caption file when it builds the spec,
+            # so on a machine that has not fetched the data yet this raised and
+            # the report said the benchmark "does not yet describe its task",
+            # which sent the student to write an adapter instead of running
+            # `cogworks test`. The reason carries its own next step; print it.
+            return None, None, str(error)
+
+    watcher = None if as_json else TerminalProgress()
+    try:
+        submission = from_spec(
+            project_root,
+            spec,
+            progress=watcher,
+            remember=True,
+            benchmark=benchmark,
+        )
+    except Exception as error:  # noqa: BLE001
+        if watcher is not None:
+            watcher.done()
+        print("Could not read your repository: {}".format(error), file=sys.stderr)
+        return None, None, None
+
+    found = submission.discovery
+    return submission, (found.to_dict() if found is not None else None), None
+
+
+class _Scoreable(NamedTuple):
+    """The one answer `check` reports and `run` acts on.
+
+    `factory` is None exactly when there is nothing to score. Every other
+    field is the evidence behind that, for the report.
+    """
+
+    factory: Optional[Callable[..., Any]]
+    weights: List[str]
+    #: What would actually be scored: "file", "discovery", or None.
+    source: Optional[str]
+    #: The live resolution, for a caller in the same process. None when
+    #: discovery did not run or could not read the repository.
+    submission: Optional[Any]
+    survey: Optional[dict]
+    #: How `resolve_submission` answered, whether or not that is what runs.
+    #: An installed entry point is reported and not scored, so a student can
+    #: see the reference package is on their machine without being told it is
+    #: their submission.
+    declared_source: Optional[str] = None
+    declared_detail: Optional[str] = None
+    declared_error: Optional[str] = None
+    #: Why the search could not run at all, when it could not.
+    discovery_unavailable: Optional[str] = None
+
+
+def _scoreable(name: str, benchmark, project_root: Path, *, as_json: bool, spec=None, spec_error=None) -> _Scoreable:
+    """Decide, once, what this repository would be scored on.
+
+    `check` and `run` have to agree. A student told their code is wired up and
+    ready to score, who then runs the command that report ends with and is met
+    with "no submission found", has been lied to by one of the two. They used
+    to answer separately: `check` accepted an installed entry point, `run`
+    refused it, and a vision-recognition repository passed the check and then
+    raised on the run. There is one decision now and both call it.
+
+    A declaration always wins. Discovery is what happens when there is none,
+    which for every repository in the 2026 corpus is always.
+    """
+
+    declared_source = None
+    declared_detail = None
+    declared_error = None
+    # A file in THIS repository, never an installed entry point. An entry
+    # point belongs to whatever package was pip-installed, and scoring that
+    # while standing in a student's repository produces a number for somebody
+    # else's code that looks exactly like a number for theirs. Measured: an
+    # empty repository scored 52% against the reference submission.
+    try:
+        factory, declared_source, declared_detail = resolve_submission(
+            name, str(benchmark.contract_version), project_root
+        )
+        if declared_source == "file":
+            return _Scoreable(
+                factory, [], "file", None, None, declared_source, declared_detail
+            )
+    except PluginError as error:
+        declared_error = str(error)
+
+    if spec_error is not None:
+        # A declaration needs no discovery data. Without one, preserve the
+        # original cold-cache failure instead of retrying or hiding its cause.
+        raise spec_error
+    submission, survey, unavailable = _discover(name, project_root, as_json, spec=spec)
+    build = getattr(benchmark, "submission_from_discovery", None)
+    if submission is None or not submission.ready or not callable(build):
+        return _Scoreable(
+            None, [], None, submission, survey,
+            declared_source, declared_detail, declared_error, unavailable,
+        )
+    weights = [str(path) for path in submission.weights_used]
+    return _Scoreable(
+        (lambda *args, **kwargs: build(submission)),
+        weights,
+        "discovery",
+        submission,
+        survey,
+        declared_source,
+        declared_detail,
+        declared_error,
+    )
+
+
+def _submission_for(name: str, benchmark, project_root: Path, *, as_json: bool, spec=None, spec_error=None):
+    """What to score, or a refusal. Returns the adapter and its weight paths."""
+
+    scoreable = _scoreable(name, benchmark, project_root, as_json=as_json, spec=spec, spec_error=spec_error)
+    if scoreable.factory is None:
+        # The report already said why in full. Repeating it here would print
+        # the same paragraphs twice, so this points at the command that
+        # explains it.
+        raise PluginError(
+            "Nothing in this repository could be scored yet. Run "
+            "`cogworks check --benchmark {}` to see what was found.".format(name)
+        )
+    return scoreable.factory, scoreable.weights
+
+
+def _check_view(name: str, project_root: Path, as_json: bool) -> dict:
+    """Read the repository and answer the readiness question, as plain data.
+
+    This is the whole of `check` that touches student code, and it is the unit
+    that runs in the child process. Its report is JSON data; only the parent
+    reconstructs the dataclasses that render_check reads.
+    """
+
+    benchmark = load_benchmark(name)
+    scoreable = _scoreable(name, benchmark, project_root, as_json=as_json)
+    return {
+        "ready": scoreable.factory is not None,
+        "source": scoreable.source,
+        "report": None if scoreable.submission is None else scoreable.submission.report().to_dict(),
+        "survey": scoreable.survey,
+        "declaredSource": scoreable.declared_source,
+        "declaredDetail": scoreable.declared_detail,
+        "declaredError": scoreable.declared_error,
+        "discoveryUnavailable": scoreable.discovery_unavailable,
+    }
+
+
+def _read_repository(
+    name: str, project_root: Path, as_json: bool, *, diagnostics: Optional[dict] = None
+) -> Tuple[Optional[dict], str, str]:
+    """Run `_check_view` where it cannot take this command down with it.
+
+    A student module can end the interpreter rather than raise: one 2026
+    repository's audio helper loads a second copy of a native backend and dies
+    with a nanobind error no `except` clause can see (`tests/test_isolate.py`).
+    Reading happened in this process, so the command whose whole job is to
+    explain a repository printed nothing at all about that one.
+
+    Returns `(view, status, detail)`. `view` is None when the child did not
+    report, and the status and detail are then what there is to say.
+    """
+
+    backend = isolate._isolation_backend()
+    if backend is None:
+        # Windows has no fork, so there is no isolation to offer. Running it
+        # here is what the platform can do; refusing instead would tell every
+        # Windows student their repository could not be read, which is a
+        # sentence about their code that nothing observed. `discover.survey`
+        # made the same call for the same reason.
+        outcome = Outcome(COMPLETED, value=_check_view(name, project_root, as_json))
+
+    # The child runs from the repository, which is where `cogworks run`
+    # imports a declared submission from. Left on the default scratch
+    # directory, a `submission.py` that reads a relative file at import time
+    # failed the check and then worked on the run, which is the disagreement
+    # this whole path exists to remove. Discovery still imports their modules
+    # from a scratch directory of its own; that is `discover`'s business.
+    elif backend is isolate.run_operation:
+        outcome = backend("check", {
+            "name": name, "repository": str(project_root.resolve()), "as_json": as_json,
+        }, scratch=project_root)
+    else:
+        outcome = backend(
+            lambda: _check_view(name, project_root, as_json), scratch=project_root
+        )
+    view = None
+    if outcome.status == COMPLETED:
+        # One rehydration site for exec, fork, and in-process Windows.
+        try:
+            if not isinstance(outcome.value, dict):
+                raise TypeError("expected a check report object")
+            view = dict(outcome.value)
+            if view["report"] is not None:
+                view["report"] = SubmissionReport.from_dict(view["report"])
+        except (KeyError, TypeError, ValueError) as error:
+            view = None
+            outcome = replace(outcome, status=CRASHED, value=None,
+                              detail="invalid check report: {}".format(error))
+    if diagnostics is not None:
+        diagnostics.update(outcome.diagnostics())
+    return view, outcome.status, outcome.detail
+
+
 def _check(benchmark: str, as_json: bool, project_root: Path) -> int:
     benchmark_group = (
         "cogworks.benchmarks.v2"
@@ -227,9 +529,9 @@ def _check(benchmark: str, as_json: bool, project_root: Path) -> int:
     }
     checks["benchmarkLoadable"] = False
     checks["submissionLoadable"] = False
-    #: Which discovery path found the submission: an installed entry point, or
-    #: a file at the repository root. Reported because the two fail for
-    #: different reasons and a student who cannot see which one ran is guessing.
+    #: What would actually be scored: a file in this repository, or what
+    #: discovery bound. Never an installed entry point, because `run` will not
+    #: score one either, and the two commands answer from the same decision.
     checks["submissionSource"] = None
     checks["submissionDetail"] = None
     if checks["benchmarkInstalled"] and benchmark_group.endswith(".v2"):
@@ -249,21 +551,62 @@ def _check(benchmark: str, as_json: bool, project_root: Path) -> int:
     elif checks["benchmarkInstalled"]:
         load_benchmark(benchmark)
         checks["benchmarkLoadable"] = True
-    try:
-        _, source, detail = resolve_submission(benchmark, contract_group, project_root)
-    except PluginError as error:
-        checks["submissionError"] = str(error)
-    else:
-        checks["submissionLoadable"] = True
-        checks["submissionSource"] = source
-        checks["submissionDetail"] = detail
+    # Everything that reads the repository happens in one call, in a child
+    # process, and answers the same question `run` asks.
+    submission = None
+    survey = None
+    installed_reference = False
+    unread_detail = ""
+    search_unavailable = ""
+    if checks["benchmarkLoadable"]:
+        diagnostics: dict = {}
+        view, status, detail = _read_repository(
+            benchmark, project_root, as_json, diagnostics=diagnostics
+        )
+        if view is None:
+            unread_detail = detail or "the process reading it ended without saying why"
+            checks["submissionError"] = (
+                "Reading this repository ended the process ({}): {}".format(status, unread_detail)
+            )
+            checks["isolationDetail"] = diagnostics
+        else:
+            submission = view["report"]
+            survey = view["survey"]
+            checks["submissionLoadable"] = bool(view["ready"])
+            checks["submissionSource"] = view["source"]
+            checks["submissionDetail"] = view["declaredDetail"]
+            installed_reference = view["declaredSource"] == "entry_point"
+            search_unavailable = view["discoveryUnavailable"] or ""
+            if view["declaredError"]:
+                checks["submissionError"] = view["declaredError"]
+            if submission is not None and submission.record is not None:
+                checks["discovery"] = submission.record
+
+    # Which of the graded run's packages this machine cannot import. Reported
+    # whether or not discovery ran, because it explains a difference between
+    # what this command sees and what the graded run sees, and that difference
+    # exists either way. Recorded in the JSON as well as the text report: the
+    # portal and any script reading `check --json` need the same fact.
+    checks["localGap"] = list(local_gap(benchmark))
+
     if as_json:
-        print(json.dumps(checks, indent=2, sort_keys=True))
+        print(json.dumps(checks, indent=2, sort_keys=True, default=str))
     else:
-        for key, value in checks.items():
-            print("{:<24} {}".format(key, value))
-        if benchmark_group.endswith(".v2"):
-            print("\nCaches are populated when you explicitly run `cogworks test` or `cogworks run`.")
+        for line in render_check(
+            benchmark=benchmark,
+            python_version=checks["python"],
+            hosted_python=checks["canonicalHostedPython"],
+            benchmark_ready=bool(checks["benchmarkLoadable"]),
+            repository=checks["repositoryFullName"],
+            submission=submission,
+            survey=survey,
+            local_gap_note=gap_note(benchmark, checks["localGap"]),
+            submission_source=checks["submissionSource"],
+            installed_reference=installed_reference,
+            unread_detail=unread_detail,
+            search_unavailable=search_unavailable,
+        ):
+            print(line)
     # `submissionInstalled` is deliberately not required: it only reports the
     # entry-point registration, and a repository that resolves by file has none.
     # `submissionLoadable` is the signal that we actually found the submission.
@@ -457,7 +800,81 @@ def _start_live_run(
     return _LiveRun(portal, token, str(result["sessionId"]))
 
 
+def _run_view(args: argparse.Namespace, project_root: Path) -> str:
+    """Resolve and score here; only the serialized report leaves this process."""
+
+    live: Optional[_LiveRun] = None
+    stdout_fd = None
+    try:
+        if args.json:
+            # Imports can print through Python or native code. Redirect the
+            # descriptor so neither can corrupt the parent's JSON report.
+            sys.stdout.flush()
+            stdout_fd = os.dup(1)
+            os.dup2(2, 1)
+        benchmark = load_benchmark(args.benchmark)
+        describes = getattr(benchmark, "discovery", None)
+        spec, spec_error = None, None
+        try:
+            spec = describes() if callable(describes) else None
+        except Exception as error:
+            # Week 3 builds discovery from cached course data. An explicit
+            # submission can run and fetch that data without this spec.
+            spec_error = error
+        # For as long as student code can run, a course artifact the benchmark
+        # owns resolves to its validated copy, including attribute reads while
+        # scoring. The spec and mapping are built here, never sent across exec.
+        with _Redirects(dict(getattr(spec, "resource_files", {}) or {})):
+            adapter, weights = _submission_for(
+                args.benchmark, benchmark, project_root, as_json=args.json, spec=spec,
+                spec_error=spec_error
+            )
+            if args.command == "run" and args.live:
+                # Live delivery owns worker threads. Start it beside execute in
+                # the child; threads started before fork would not survive there.
+                live = _start_live_run(args, benchmark, project_root)
+                live.progress("preparing")
+            report = execute(
+                benchmark,
+                adapter,
+                project_root,
+                smoke=args.command == "test",
+                progress=live.progress if live else None,
+                weights=weights,
+            )
+            if live:
+                live.completed(report)
+            return report.to_json()
+    except BaseException as error:
+        if live:
+            live.failed(error)
+        raise
+    finally:
+        # run_isolated uses _exit, which does not flush buffered student output.
+        sys.stdout.flush()
+        sys.stderr.flush()
+        if stdout_fd is not None:
+            os.dup2(stdout_fd, 1)
+            os.close(stdout_fd)
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
+    # Before anything reads a repository. Discovery runs student code whose
+    # answer can depend on string hashing -- one 2026 repository builds its
+    # IDF table by iterating a set -- and an interpreter's seed is fixed
+    # before its first line, so this is the last moment a run can be made
+    # reproducible. It replaces this process at most once and is a no-op
+    # under a seed that is already pinned, which is what the hosted image
+    # gives every sandbox.
+    #
+    # Only when this really is the command line. `main(["check", ...])` is
+    # how the tests drive the CLI, and replacing the process there would
+    # restart the test runner rather than the command.
+    if argv is None:
+        from .isolate import ensure_pinned_hash_seed
+
+        ensure_pinned_hash_seed()
+
     parser = _parser()
     args = parser.parse_args(argv)
     if args.command is None:
@@ -471,7 +888,6 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     # git state from a directory that is not a worktree, so `cogworks report`
     # after a successful run said "No local reports found".
     project_root = Path.cwd()
-    live: Optional[_LiveRun] = None
     try:
         if args.command in ("check", "doctor"):
             if args.command == "doctor":
@@ -481,26 +897,59 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 )
             result = _check(args.benchmark, args.json, project_root)
             if result == 0 and args.update_setup:
-                _update_setup(None, ("clone", "environment", "project", "wiring"), project_root)
+                _update_setup(
+                    None,
+                    ("clone", "environment", "project", "wiring"),
+                    project_root,
+                    args.benchmark,
+                )
             return result
         if args.command in ("test", "run"):
-            benchmark = load_benchmark(args.benchmark)
-            adapter = load_submission(
-                args.benchmark, str(benchmark.contract_version), project_root
-            )
-            if args.command == "run" and args.live:
-                live = _start_live_run(args, benchmark, project_root)
-                live.progress("preparing")
-            report = execute(
-                benchmark,
-                adapter,
-                project_root,
-                smoke=args.command == "test",
-                progress=live.progress if live else None,
-            )
+            backend = isolate._isolation_backend()
+            if backend is None:
+                # Windows runs in-process, as _read_repository and survey do;
+                # without fork this platform cannot offer crash containment.
+                outcome = Outcome(COMPLETED, value=_run_view(args, project_root))
+            else:
+                # The native import crash in test_isolate also affects run/test.
+                # Keep the adapter and the whole scored run inside this boundary.
+                #
+                # No budget. The boundary is here to contain a crash, and its
+                # defaults are discovery's: 300 seconds of CPU and 3 GiB, sized
+                # for reading a repository rather than for scoring one. The
+                # measurement that bears on a local run is a local one:
+                # carti4ce/week1_capstone took 381 seconds of evaluation on a
+                # laptop (worker/execution/runner.ts records it beside the
+                # hosted timings), so discovery's 300 would have cut a working
+                # submission short and called it a timeout. Local runs had no
+                # limit before this boundary existed and they still have none.
+                sys.stdout.flush()
+                sys.stderr.flush()
+                if backend is isolate.run_operation:
+                    # Send the parser namespace wholesale so flags have one
+                    # owner; this deliberately couples worker behavior to it.
+                    outcome = backend("run", {
+                        "args": vars(args), "repository": str(project_root.resolve()),
+                    }, scratch=project_root, timeout_seconds=None, memory_bytes=None)
+                else:
+                    outcome = backend(
+                        lambda: _run_view(args, project_root),
+                        scratch=project_root, timeout_seconds=None, memory_bytes=None,
+                    )
+            if outcome.status != COMPLETED:
+                if args.json:
+                    print(json.dumps({
+                        "benchmarkId": args.benchmark,
+                        "status": outcome.status,
+                        "detail": outcome.detail,
+                    }, indent=2))
+                else:
+                    print("{} · LOCAL · NO RESULT".format(args.benchmark))
+                    print("The run did not finish: {}.".format(outcome.detail))
+                    print("No score was produced.")
+                return 2
+            report = LocalReport.from_json(outcome.value)
             path = save_report(report, project_root)
-            if live:
-                live.completed(report)
             _print_report(report, args.json)
             if not args.json:
                 print("saved: {}".format(path))
@@ -559,7 +1008,90 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 raise PortalError("This portal is not linked. Run `cogworks link` first.")
             path = _resolve_report(args.path, project_root)
             report = LocalReport.from_json(path.read_text(encoding="utf-8"))
+            if report.weights_used and not report.repository.sha:
+                raise PortalError("The report has no repository revision for its weights; run the benchmark from a Git commit and sync again.")
+            uploads = []
+            for relative_path in report.weights_used:
+                if Path(relative_path).is_absolute() or ".." in Path(relative_path).parts:
+                    raise PortalError("Weight path must stay inside the repository: {}".format(relative_path))
+                source = project_root / relative_path
+                project_resolved = project_root.resolve()
+                source_resolved = source.resolve()
+                if source.is_symlink() or (
+                    source_resolved != project_resolved
+                    and project_resolved not in source_resolved.parents
+                ):
+                    raise PortalError(
+                        "Weight path must be a regular file inside the repository: {}".format(
+                            relative_path
+                        )
+                    )
+                if not source.is_file():
+                    raise PortalError("Weight file does not exist: {}".format(relative_path))
+
+                if report.repository.sha:
+                    blob = subprocess.run(
+                        ["git", "rev-parse", "--verify", "{}:{}".format(
+                            report.repository.sha, relative_path
+                        )],
+                        cwd=str(project_root), capture_output=True,
+                    )
+                    if blob.returncode == 0:
+                        # Compare raw bytes, without index state or Git clean filters.
+                        local_blob = subprocess.run(
+                            ["git", "hash-object", "--no-filters", "--", str(source)],
+                            cwd=str(project_root), capture_output=True,
+                        )
+                        if local_blob.returncode != 0:
+                            raise PortalError("Could not hash weight {}.".format(relative_path))
+                        if local_blob.stdout.strip() == blob.stdout.strip():
+                            print(
+                                "weights: {} is committed and travels with the repository".format(
+                                    relative_path
+                                )
+                            )
+                            continue
+                        print(
+                            "weights: {} differs from the report commit; uploading it".format(
+                                relative_path
+                            )
+                        )
+
+                # Workers caps request bodies at 100 MB on Free and Pro plans,
+                # and this account's plan is not established. The largest 2026
+                # corpus weight is 411 KB; Week 3's 200 MiB probe is separate.
+                max_weight_bytes = 100 * 1024 * 1024
+                size = source.stat().st_size
+                if size > max_weight_bytes:
+                    raise PortalError(
+                        "Weight files may not exceed 100 MiB: {}".format(relative_path)
+                    )
+                digest = hashlib.sha256()
+                with source.open("rb") as stream:
+                    for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                        digest.update(chunk)
+                uploads.append((relative_path, source, size, digest.hexdigest()))
+
+            # Publish expected bytes first so an interrupted sync cannot reuse an older upload.
+            report = replace(report, weights_uploaded=[
+                {"path": item[0], "sha256": item[3]} for item in uploads
+            ])
             sync_report(portal, token, json.loads(report.to_json()))
+            for relative_path, source, size, digest in uploads:
+                try:
+                    destination = upload_weight(
+                        portal, token, report.report_id, relative_path, source,
+                        expected_sha256=digest,
+                    )
+                except PortalError as error:
+                    raise PortalError(
+                        "Failed to sync weight {}: {}".format(relative_path, error)
+                    ) from error
+                print(
+                    "weights: {} ({} bytes) uploaded to {}".format(
+                        relative_path, size, destination
+                    )
+                )
             print("Synced {} as LOCAL · SELF-REPORTED.".format(report.report_id))
             return 0
         if args.command == "status":
@@ -571,26 +1103,19 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             print("GitHub   @{}".format(value["githubLogin"]))
             print("Team     {}".format(value["teamName"]))
             print("Repo     {}".format(value["repositoryFullName"]))
-            print("Discord  {}".format(
-                "#{}".format(value["discordChannelId"])
-                if value.get("discordChannelId") else "team channel not chosen"
-            ))
+            print(
+                "Discord  team channel {}".format(
+                    "chosen" if value.get("discordChannelId") else "not chosen"
+                )
+            )
             print("Device   {}".format(value["deviceName"]))
-            expires = datetime.fromtimestamp(
-                int(value["deviceExpiresAt"]) / 1000,
-                tz=timezone.utc,
-            ).isoformat().replace("+00:00", "Z")
-            print("Expires  {}".format(expires))
+            print("Expires  {}".format(_format_expiry(int(value["deviceExpiresAt"]))))
             print("Portal   {}".format(portal))
             return 0
     except KeyboardInterrupt:
-        if live:
-            live.failed(KeyboardInterrupt())
         print("\ncogworks: interrupted", file=sys.stderr)
         return 130
     except (ContractError, PluginError, PortalError, OSError, ValueError) as error:
-        if live:
-            live.failed(error)
         print("cogworks: {}".format(error), file=sys.stderr)
         return 2
     return 2

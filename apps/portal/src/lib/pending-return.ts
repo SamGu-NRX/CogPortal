@@ -17,3 +17,31 @@ export function pendingConnectionReturn(): string | null {
 export function clearConnectionReturn(): void {
   sessionStorage.removeItem(STORAGE_KEY);
 }
+
+const DROPPED_KEY = "cogportal.droppedDeviceLink";
+
+/**
+ * A student who runs `cogworks link` before joining a team lands on
+ * /connections and gets bounced to the step they still owe. What is lost is
+ * the browser's way back to the approval page, not the authorization: the
+ * browser says nothing and the terminal appears to poll for no reason, but
+ * the same code still approves once they return to it. The stage guard
+ * records the loss here so the destination page can say what just happened.
+ */
+export function rememberDroppedDeviceLink(path: string): void {
+  if (path.startsWith("/connections?user_code=") || path.startsWith("/connections#discord=")) {
+    sessionStorage.setItem(DROPPED_KEY, path.includes("user_code=") ? "device" : "discord");
+    // The return that sign-in saved for this same link. Dropping the link
+    // and keeping its return sent a student who had since made a team back
+    // to an approval page they had already left, from `/` and `/signin`, with
+    // no way to clear it.
+    sessionStorage.removeItem(STORAGE_KEY);
+  }
+}
+
+export function takeDroppedDeviceLink(): "device" | "discord" | null {
+  const value = sessionStorage.getItem(DROPPED_KEY);
+  if (value !== "device" && value !== "discord") return null;
+  sessionStorage.removeItem(DROPPED_KEY);
+  return value;
+}

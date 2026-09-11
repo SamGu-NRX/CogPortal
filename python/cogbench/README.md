@@ -10,10 +10,10 @@ run:     cogworks
 module:  python -m cogbench
 ```
 
-The TestPyPI pilot install is:
+The student install, from this repository's branch while PR #1 is open (TestPyPI holds 0.1.0, which has no resolver):
 
 ```sh
-python -m pip install --index-url https://test.pypi.org/simple/ --no-deps cogworks-benchmark==0.1.0
+python -m pip install --upgrade "cogworks-benchmark @ git+https://github.com/SamGu-NRX/CogPortal.git@fix/product-description-triage#subdirectory=python/cogbench"
 cogworks --help
 ```
 

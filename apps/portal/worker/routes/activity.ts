@@ -26,6 +26,9 @@ const TokenResponseSchema = z.object({
 });
 const ActivitySessionSchema = z.discriminatedUnion("linked", [
   z.object({ linked: z.literal(false), linkUrl: z.string().url() }),
+  // Linked but teamless was reported as unlinked, so the card told a student
+  // who had already linked to link again. Different state, different sentence.
+  z.object({ linked: z.literal("no_team"), portalUrl: z.string().url() }),
   z.object({
     linked: z.literal(true),
     githubLogin: z.string(),
@@ -164,10 +167,14 @@ export function registerActivityRoutes(app: Hono<AppEnv>): void {
   app.get("/activity/session", async (c) => {
     const discordUserId = await activityDiscordId(c);
     const identity = await activityIdentity(c.env, discordUserId);
-    if (!identity?.team) {
-      const start = await createDiscordLink(c.env, discordUserId, identity?.githubLogin ?? "Discord user");
+    if (!identity) {
+      const start = await createDiscordLink(c.env, discordUserId, "Discord user");
       const linkUrl = start.url ?? new URL("/connections", c.env.PUBLIC_ORIGIN ?? c.req.url).toString();
       return respond(c, ActivitySessionSchema, { linked: false, linkUrl });
+    }
+    if (!identity.team) {
+      const portalUrl = new URL("/connect", c.env.PUBLIC_ORIGIN ?? c.req.url).toString();
+      return respond(c, ActivitySessionSchema, { linked: "no_team", portalUrl });
     }
     return respond(c, ActivitySessionSchema, {
       linked: true,

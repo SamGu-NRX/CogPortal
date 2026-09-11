@@ -32,7 +32,11 @@ export async function requireDevice(c: Context<AppEnv>): Promise<DeviceAuth> {
     )
     .limit(1);
   if (!device) {
-    throw new ApiHttpError(401, "invalid_token", "This CogBench connection expired or was revoked.");
+    throw new ApiHttpError(
+      401,
+      "invalid_token",
+      "This CogWorks connection expired or was revoked. Run `cogworks link` to connect this machine again.",
+    );
   }
   await db.update(cliDevices).set({ lastUsedAt: Date.now() }).where(eq(cliDevices.id, device.id));
   return { deviceId: device.id, userId: device.userId, name: device.name, expiresAt: device.expiresAt };

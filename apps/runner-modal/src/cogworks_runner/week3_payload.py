@@ -80,6 +80,30 @@ def decode_payload(payload: bytes) -> Tuple[str, bool, List[Any]]:
     if benchmark_id != BENCHMARK_ID:
         raise ValueError("Unsupported Week 3 benchmark payload.")
     seed = int(metadata["tie_break_seed"])
+    queries = [str(value) for value in metadata["queries"]]
+    search_k = int(metadata["search_k"])
+
+    # One id list and one descriptor array shared by every search case, which
+    # is how `materialize_cases` builds them on the controller side.
+    #
+    # This is load-bearing, not tidiness. `drivers.run_with_adapter` decides
+    # whether to call `prepare_database` again by comparing `case.image_ids`
+    # and `case.descriptors` against the previous case's by object identity,
+    # because a student index need not be idempotent and an append-style
+    # prepare grows on a second call. Building a fresh `[int(v) for v in ...]`
+    # inside the rung loop gave every rung a distinct list, so the sandbox
+    # called prepare four times where the local run called it once. Measured
+    # on an append-style prepare: local search_mrr_truncated 0.406667, hosted
+    # 0.250000, with duplicate ids in the hosted rankings that
+    # `checks.validate_rankings` does not reject. Local and hosted disagreed
+    # silently, which is the one outcome this platform must never produce.
+    #
+    # `np.asarray` returns the same object when the dtype already matches, and
+    # `np.load` gives float32 here, so the retrieval and search cases share one
+    # array as they do locally.
+    pool_image_ids = [int(value) for value in metadata["pool_image_ids"]]
+    pool_descriptors = np.asarray(descriptors, dtype=np.float32)
+
     cases: List[Any] = [
         TextCase(
             kind="text",
@@ -89,18 +113,9 @@ def decode_payload(payload: bytes) -> Tuple[str, bool, List[Any]]:
         ),
         RetrievalCase(
             kind="retrieval",
-            queries=[str(value) for value in metadata["queries"]],
-            descriptors=np.asarray(descriptors, dtype=np.float32),
+            queries=list(queries),
+            descriptors=pool_descriptors,
             gold_rows=None,
-            tie_break_seed=seed,
-        ),
-        SearchCase(
-            kind="search",
-            queries=[str(value) for value in metadata["queries"]],
-            image_ids=[int(value) for value in metadata["pool_image_ids"]],
-            descriptors=np.asarray(descriptors, dtype=np.float32),
-            gold_image_ids=None,
-            k=int(metadata["search_k"]),
             tie_break_seed=seed,
         ),
     ]
@@ -111,18 +126,15 @@ def decode_payload(payload: bytes) -> Tuple[str, bool, List[Any]]:
     # does not grow by one full query list per rung.
     from language_search_benchmark import perturb
 
-    queries = [str(value) for value in metadata["queries"]]
     for rung in perturb.RUNGS:
-        if rung == "verbatim":
-            continue
         cases.append(
             SearchCase(
                 kind="search",
                 queries=perturb.rewrite_all(queries, rung),
-                image_ids=[int(value) for value in metadata["pool_image_ids"]],
-                descriptors=np.asarray(descriptors, dtype=np.float32),
+                image_ids=pool_image_ids,
+                descriptors=pool_descriptors,
                 gold_image_ids=None,
-                k=int(metadata["search_k"]),
+                k=search_k,
                 tie_break_seed=seed,
                 rung=rung,
             )

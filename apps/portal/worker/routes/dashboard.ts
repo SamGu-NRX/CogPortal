@@ -7,7 +7,6 @@ import { getDb } from "../db/client";
 import {
   benchmarks,
   leaderboardSelections,
-  officialAttempts,
   runMetrics,
   runs,
 } from "../db/schema";
@@ -20,6 +19,8 @@ import {
   serializeTeam,
 } from "../http/serializers";
 import { respond } from "../http/respond";
+import { readRunAccounting } from "../services/run-accounting";
+import { canPublishOfficialRun } from "../services/run-eligibility";
 
 export function registerDashboardRoutes(app: Hono<AppEnv>): void {
   app.get("/dashboard", async (c) => {
@@ -50,16 +51,9 @@ export function registerDashboardRoutes(app: Hono<AppEnv>): void {
         ),
       )
       .orderBy(desc(runs.createdAt));
-    const claims = await db
-      .select()
-      .from(officialAttempts)
-      .where(
-        and(
-          eq(officialAttempts.teamId, auth.team.id),
-          eq(officialAttempts.benchmarkId, benchmark.id),
-          eq(officialAttempts.benchmarkVersion, benchmark.version),
-        ),
-      );
+    const accounting = await readRunAccounting(db, {
+      teamId: auth.team.id, benchmarkId: benchmark.id, benchmarkVersion: benchmark.version,
+    });
     const [selectionRow] = await db
       .select()
       .from(leaderboardSelections)
@@ -84,7 +78,7 @@ export function registerDashboardRoutes(app: Hono<AppEnv>): void {
         .from(runMetrics)
         .where(and(eq(runMetrics.runId, selectionRow.runId), eq(runMetrics.isPrimary, true)))
         .limit(1);
-      if (selectedRun && primary) {
+      if (selectedRun && primary && canPublishOfficialRun(selectedRun)) {
         selection = {
           runId: selectedRun.id,
           selectedAt: selectionRow.selectedAt,
@@ -96,15 +90,15 @@ export function registerDashboardRoutes(app: Hono<AppEnv>): void {
     }
 
     const active = allRuns.find((run) => !["succeeded", "failed", "cancelled"].includes(run.status));
-    const candidate = allRuns.find((run) => run.mode === "practice" && run.status === "succeeded");
+    const candidate = allRuns.find((run) => run.mode === "practice" && run.status === "succeeded" && run.refundedAt === null);
     const summaries = await Promise.all(allRuns.slice(0, 50).map((run) => serializeRunSummary(db, run)));
     return respond(c, DashboardSchema, {
       benchmark: serializeBenchmark(benchmark),
       team: serializeTeam(auth.team),
       quota: {
-        practiceUsed: allRuns.filter((run) => run.mode === "practice").length,
+        practiceUsed: accounting.practiceUsed,
         practiceLimit: PRACTICE_LIMIT,
-        officialUsed: claims.length,
+        officialUsed: accounting.officialUsed,
         officialLimit: OFFICIAL_LIMIT,
       },
       lastResolvedSha: allRuns[0]?.sha ?? null,

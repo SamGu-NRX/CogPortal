@@ -141,24 +141,21 @@ class FailureAttributionTests(unittest.TestCase):
             source,
             "failure category must not be chosen from student-controlled text",
         )
-        # Every payload-shaped evaluate path must read the sandbox's owner
-        # tag. Counted against the number of such paths rather than a literal,
-        # so adding a track fails this test by omitting the check, not by
-        # existing. `_evaluate` (the v1 JSON path) is excluded: it has no
-        # payload and no platform-owned step to attribute.
-        module = ast.parse(source)
-        payload_paths = [
-            node.name
-            for node in module.body
-            if isinstance(node, ast.FunctionDef)
-            and node.name.startswith("_evaluate_")
-            and node.name != "_evaluate_installed"
-        ]
-        self.assertGreaterEqual(len(payload_paths), 3, payload_paths)
+        # This assertion used to read the other way: every payload path MUST
+        # read the owner tag. That was the previous fix, and it was wrong for
+        # a reason no amount of reading the controller would show, because the
+        # defect was in the sandbox. `redirect_stderr` rebinds `sys.stderr`
+        # and leaves file descriptor 2 alone, so `os.write(2, ...)` from any
+        # student module put the platform marker on the pipe the controller
+        # reads, and bought an unlimited supply of refunded official attempts.
+        #
+        # So no evaluate path may read it. The conditions it reported are
+        # verified controller-side before the sandbox starts; see
+        # `_platform_owned_evaluation_failure` in modal_app.
         self.assertEqual(
             source.count('"COG_PLATFORM_ERROR:" in stderr_text'),
-            len(payload_paths),
-            "each of {} must read the owner tag".format(payload_paths),
+            0,
+            "attribution must not read anything the student process wrote",
         )
 
 

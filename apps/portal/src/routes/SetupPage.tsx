@@ -1,10 +1,10 @@
-import { ArrowRight01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
+import { ArrowRight01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useState, type ReactNode } from "react";
-import { Link, useLocation, useSearchParams } from "react-router";
-import type { SetupStep, TeamDetail } from "@cogworks/contracts/schema";
+import { Link, useSearchParams } from "react-router";
+import type { TeamDetail, TeamMember } from "@cogworks/contracts/schema";
 import { Button } from "@/components/Button";
 import { Code } from "@/components/Code";
+import { CommandSheet, type CommandNote } from "@/components/CommandSheet";
 import { ConfirmButton } from "@/components/ConfirmButton";
 import { LoadingMark, QueryError } from "@/components/Feedback";
 import { Panel } from "@/components/Panel";
@@ -16,19 +16,18 @@ import {
   useSetupState,
   useTeam,
 } from "@/lib/queries";
+import { benchmarkEnvironment } from "@/lib/benchmark-packages";
 import { useTrack } from "@/lib/track";
 import {
   clearSetupProgress,
-  setupSteps,
-  useSetupChecks,
-  type SetupEntry,
+  setupCommandProgress,
+  setupCommandsForTeam,
+  type SetupCommandId,
 } from "@/lib/setup-progress";
 
 export function SetupPage() {
   const team = useTeam();
   const { data: session } = useSession();
-  const location = useLocation();
-  const entryState = (location.state as { entry?: SetupEntry } | null)?.entry;
 
   if (team.isPending || !session?.user) return <LoadingMark label="Loading your team" />;
   if (team.isError) {
@@ -43,7 +42,6 @@ export function SetupPage() {
     <SetupGuide
       team={team.data}
       login={session.user.login}
-      entry={entryState ?? (team.data.isAdmin ? "created" : "joined")}
       devTools={session.auth.onboardingDevToolsEnabled && session.user.isOwner}
     />
   );
@@ -52,83 +50,152 @@ export function SetupPage() {
 function SetupGuide({
   team,
   login,
-  entry,
   devTools,
 }: {
   team: TeamDetail;
   login: string;
-  entry: SetupEntry;
   devTools: boolean;
 }) {
-  const connections = useConnections();
-  const setupState = useSetupState();
-  const resetSetup = useResetSetupState();
   // The commands below have to name a real benchmark, and the entry points a
   // student must register are whatever this track's module actually has open.
+  // It comes first because the evidence query is scoped to it.
   const track = useTrack();
-  const benchmarkId = track.benchmarkId;
-  const selectedModule = track.benchmark?.module;
-  const moduleEntryPoints = selectedModule
-    ? track.tracks
-        .filter((benchmark) => benchmark.module === selectedModule)
-        .map((benchmark) => benchmark.entryPointName)
-    : [];
+  const connections = useConnections();
+  const setupState = useSetupState(track.benchmarkId);
+  const resetSetup = useResetSetupState();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [checks, toggleCheck] = useSetupChecks(team.id, login);
-  const [replayChecks, setReplayChecks] = useState<ReadonlySet<string>>(() => new Set());
   const requestedReplay = searchParams.get("replay");
   const replay =
     devTools && (requestedReplay === "creator" || requestedReplay === "member")
       ? requestedReplay
       : null;
-  const visibleEntry: SetupEntry = replay === "creator" ? "created" : replay === "member" ? "joined" : entry;
-  const visibleChecks = replay ? replayChecks : checks;
-  const toggleVisibleCheck = (key: string) => {
-    if (!replay) {
-      toggleCheck(key);
-      return;
-    }
-    setReplayChecks((current) => {
-      const next = new Set(current);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
+
+  // These reads decide both the commands and their verified state. Their
+  // fallback values are not safe instructions for a student to copy.
+  if (track.isPending || setupState.isPending || connections.isPending) {
+    return <LoadingMark label="Loading your team" />;
+  }
+
+  // A failed evidence read and a student who has run nothing produce the same
+  // empty verified set, so without this the page reports somebody's finished
+  // setup as work they never did. The commands come from the team and the
+  // track, which did load, so the sheet stays on screen and stays copyable;
+  // only the claim about what we have seen is withheld.
+  const evidenceFailed = setupState.isError || connections.isError;
+  const retryEvidence = () => {
+    if (setupState.isError) void setupState.refetch();
+    if (connections.isError) void connections.refetch();
   };
-  const terminal = replay ? [] : (setupState.data?.verified ?? []);
-  const terminalSet = new Set<SetupStep>(terminal);
-  const teammates = replay ? false : team.members.length >= 2;
-  const deviceLinked = replay ? false : (connections.data?.cliDevices.length ?? 0) > 0;
-  const created = visibleEntry === "created";
-  const teamFormationDone = created
-    ? teammates || visibleChecks.has("teammates")
-    : true;
 
-  const { done, total } = setupSteps(visibleEntry, visibleChecks, {
-    teammates,
-    terminal,
+  // Replay masks the evidence rather than the commands: a rehearsing owner
+  // sees the sheet a student sees on day zero.
+  const lines = setupCommandsForTeam({
+    repo: team.repo,
+    benchmark: track.benchmark,
+    benchmarkId: track.benchmarkId,
+    verifiedSteps: replay ? [] : setupState.data?.verified,
+    verifiedStepsForBenchmark: replay
+      ? []
+      : setupState.data?.verifiedByBenchmark[track.benchmarkId],
+    cliDeviceCount: replay ? 0 : (connections.data?.cliDevices.length ?? 0),
+    portalOrigin: window.location.origin,
   });
-  const complete = done === total;
-  const portalOrigin = window.location.origin;
-  const machineState = (step: SetupStep) =>
-    terminalSet.has(step) ? ("verified" as const) : ("pending" as const);
 
-  // Device linking supports the wiring check but is not a counted milestone.
-  const progress = [
-    { label: "Team", done: true },
-    { label: "People", done: teamFormationDone },
-    { label: "Clone", done: terminalSet.has("clone") },
-    { label: "Tool", done: terminalSet.has("environment") },
-    { label: "Project", done: terminalSet.has("project") },
-    { label: "Link", done: deviceLinked, unnumbered: true },
-    { label: "Check", done: terminalSet.has("wiring") },
-  ];
+  // The count and the gutter read the same array, so the masthead can never
+  // claim a number the sheet does not show.
+  const { verified, total } = setupCommandProgress(lines);
+  // Every open box belongs to this track and at least one is ticked: the
+  // switched-track state, where the count reads as lost work rather than as
+  // two commands nobody has run for this benchmark yet.
+  const onlyTrackStepsLeft =
+    verified > 0 &&
+    lines.some((line) => !line.verified) &&
+    lines.every((line) => line.verified || line.benchmarkScoped);
+  const complete = !evidenceFailed && verified === total;
+  const benchmarkTitle = track.benchmark?.title ?? track.benchmarkId;
+  const environment = benchmarkEnvironment(track.benchmarkId);
 
-  let step = 0;
-  const number = () => String(++step).padStart(2, "0");
+  /**
+   * What each command is for, keyed by id. A Record rather than a function, so
+   * a new SetupCommandId fails to compile until someone writes its note
+   * instead of rendering a bare command under an explained list.
+   */
+  const notes: Record<SetupCommandId, CommandNote> = {
+    clone: {
+      title: "Clone your team's repository",
+      why: "Every hosted attempt runs from this repository rather than from somebody's laptop, so a score is always about this copy. Work inside it from here on.",
+      help: "A folder with a similar name is not enough. The commands below compare this clone's GitHub remote with your team's repository.",
+    },
+    tool: {
+      title: "Install the CogWorks tool",
+      why: (
+        <>
+          <code className="font-mono text-[12.5px]">cogworks</code> is what reads
+          your repository and works out which of your own functions the benchmark
+          should call. It is pinned to one commit, so everyone reading this page
+          installs the same tool.
+        </>
+      ),
+      help: (
+        <>
+          If your terminal answers{" "}
+          <code className="font-mono">cogworks: command not found</code>, the
+          install landed somewhere this shell isn't looking. An inactive course
+          environment is the usual reason, so check that first and run the line
+          again.
+        </>
+      ),
+    },
+    benchmark: {
+      title: `Install the ${benchmarkTitle} benchmark`,
+      why: `The scorer for ${benchmarkTitle}, its data and its checks live in their own package. Changing the track at the top of this page changes this line.`,
+      help: "It brings the few packages the scorer itself needs. The rest of the course stack, the one your own code imports, comes from your week's environment.",
+    },
+    link: {
+      title: "Link this machine to CogPortal",
+      why: (
+        <>
+          This opens CogPortal to approve the connection and then hands your
+          terminal back. It is what lets a command report to your team, and you
+          can revoke it from{" "}
+          <Link
+            to="/connections"
+            className="text-ink underline decoration-rule underline-offset-4 hover:decoration-ink"
+          >
+            Connections
+          </Link>
+          . Nothing reports unless you ask it to; a local score stays on your
+          machine until you send it.
+        </>
+      ),
+      help: (
+        <>
+          It prints the address and the code before it opens anything, so if no
+          browser appears you can go there yourself, or add{" "}
+          <code className="font-mono">--no-browser</code> to skip the attempt. If
+          the code expires before you approve it, run the same line again for a
+          fresh one. When it returns, the clone box above should tick: linking
+          reports the repository you are standing in.
+        </>
+      ),
+    },
+    check: {
+      title: "Check it, and tell this page",
+      why: (
+        <>
+          <code className="font-mono text-[12.5px]">check</code> reads your
+          repository and reports what it found: which of your functions it wired
+          up, and which packages this machine is missing.{" "}
+          <code className="font-mono text-[12.5px]">--update-setup</code> is the
+          part that sends the result here.
+        </>
+      ),
+      help: "It reports only when it passes. If boxes stay empty, the answer is in your terminal: fix what it names there and run the same line again.",
+    },
+  };
 
   return (
-    <div className="anim-rise mx-auto w-full max-w-4xl py-12 sm:py-14">
+    <div className="anim-rise mx-auto w-full max-w-2xl py-12 sm:py-14">
       {devTools && (
         <DevRehearsal
           replay={replay}
@@ -148,264 +215,193 @@ function SetupGuide({
         />
       )}
 
-      <div className="grid items-start gap-10 lg:grid-cols-[170px_minmax(0,1fr)]">
-        <ProgressRail progress={progress} />
-
-        <div className="min-w-0 max-w-xl">
-          <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2">
-            <div className="min-w-0">
-              <p className="u-kicker" aria-live="polite">
-                Getting set up · {done} of {total}
-                {replay ? ` · replaying ${replay}` : ""}
-              </p>
-              <h1 className="mt-1 text-3xl">
-                {created ? "Your team has a home." : `You're on ${team.name}.`}
-              </h1>
-            </div>
-            {/* Every command on this page names a benchmark, so the page has
-                to show which one and let a student change it. Without this the
-                default track silently decides what they're told to type. */}
-            <TrackSwitcher
-              tracks={track.tracks}
-              benchmark={track.benchmark}
-              onSelect={track.select}
-            />
-          </div>
-          <p className="mt-2 text-[14px] text-ink-secondary">
-            Follow one path from GitHub to a checked local project. CogPortal
-            marks browser facts; the CogWorks CLI checks only the machine facts
-            it can actually inspect.
+      <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2">
+        <div className="min-w-0">
+          <p className="u-kicker" aria-live="polite">
+            Setup ·{" "}
+            {evidenceFailed ? "progress unavailable" : `${verified} of ${total} verified`}
+            {replay ? ` · replaying ${replay}` : ""}
           </p>
-
-          <ol className="relative mt-9">
-            <li
-              aria-hidden="true"
-              className="absolute top-4 bottom-4 left-[13px] w-px bg-rule-soft"
-            />
-
-            <Step index={number()} state="verified" title="The team project" chip="portal verified">
-              <p>
-                <a
-                  href={team.repo.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="font-mono text-[12px] text-ink underline decoration-rule underline-offset-4 hover:decoration-ink"
-                >
-                  {team.repo.fullName}
-                </a>{" "}
-                is the shared source of truth. Hosted attempts always run from
-                this repository, never from an uncommitted laptop folder.
-              </p>
-            </Step>
-
-            <Step
-              index={number()}
-              state={teamFormationDone ? "verified" : "pending"}
-              title={created ? "Bring your teammates" : "Know your team"}
-              chip={teamFormationDone ? (created && !teammates ? "self checked" : "portal verified") : undefined}
-              selfCheck={
-                created && !teammates
-                  ? {
-                      checked: visibleChecks.has("teammates"),
-                      onToggle: () => toggleVisibleCheck("teammates"),
-                      label: "I'm working solo for now",
-                    }
-                  : undefined
-              }
-            >
-              {created ? (
-                <p>
-                  Add collaborators in GitHub first, then add them from{" "}
-                  <Link to="/team" className="text-ink underline decoration-rule underline-offset-4 hover:decoration-ink">
-                    Team settings
-                  </Link>
-                  . For group work, keep at least two organization owners so one
-                  locked account cannot strand the team.
-                </p>
-              ) : (
-                <p>
-                  Your teammates share this repository and its attempts. Ask the
-                  team creator for GitHub write access before you clone.
-                </p>
-              )}
-            </Step>
-
-            <Step index={number()} state={machineState("clone")} title="Clone the starter" chip={terminalSet.has("clone") ? "CLI checked" : undefined}>
-              <p>Clone the exact repository CogPortal verified, then stay inside its worktree.</p>
-              <Code lang="bash" code={`git clone ${team.repo.url}.git\ncd ${team.repo.name}`} />
-              <p className="text-[12px] text-ink-faint">
-                The link/check commands below compare this GitHub remote with
-                your team. A similarly named folder is not enough.
-              </p>
-            </Step>
-
-            <Step index={number()} state={machineState("environment")} title="Install the CogWorks tool" chip={terminalSet.has("environment") ? "CLI checked" : undefined}>
-              <p>
-                Activate the course environment your instructor provided, then
-                install the lightweight CLI from the TestPyPI pilot channel.
-              </p>
-              <Code
-                lang="bash"
-                code="python -m pip install --index-url https://test.pypi.org/simple/ --no-deps cogworks-benchmark==0.1.0"
-              />
-              <p className="text-[12px] text-ink-faint">
-                The package is named <code className="font-mono">cogworks-benchmark</code>;
-                the command it installs is <code className="font-mono">cogworks</code>.
-                Those names intentionally differ.
-              </p>
-            </Step>
-
-            <Step index={number()} state={machineState("project")} title="Install this project" chip={terminalSet.has("project") ? "CLI checked" : undefined}>
-              <p>
-                The starter pins the benchmark pilot separately, then registers
-                the adapter entry points this track needs
-                {moduleEntryPoints.length > 0 ? (
-                  <>
-                    :{" "}
-                    {moduleEntryPoints.map((name, i) => (
-                      <span key={name}>
-                        {i > 0 && ", "}
-                        <code className="font-mono text-[12px]">{name}</code>
-                      </span>
-                    ))}
-                  </>
-                ) : null}
-                .
-              </p>
-              <Code
-                lang="bash"
-                code={'python -m pip install -r requirements-cogbench-pilot.txt\npython -m pip install -e .'}
-              />
-              <p className="text-[12px] text-ink-faint">
-                Editable installation means code changes take effect without
-                reinstalling. CogWorks does not create or repair your conda environment.
-              </p>
-            </Step>
-
-            <Step
-              state={deviceLinked ? "verified" : "pending"}
-              title="Link this machine"
-              chip={deviceLinked ? "linked" : undefined}
-            >
-              <p>
-                This visibly online command opens CogPortal for approval, then
-                returns to the terminal. The connection is revocable from{" "}
-                <Link to="/connections" className="text-ink underline decoration-rule underline-offset-4 hover:decoration-ink">
-                  Connections
-                </Link>
-                .
-              </p>
-              <Code lang="bash" code={`cogworks link --portal ${portalOrigin}`} />
-              <p className="text-[12px] text-ink-faint">
-                Linking never turns on background reporting. Ordinary check,
-                test, run, and report commands still leave CogPortal alone.
-              </p>
-            </Step>
-
-            <Step
-              index={number()}
-              state={machineState("wiring")}
-              title="Check the wiring"
-              chip={terminalSet.has("wiring") ? "CLI checked" : undefined}
-              last
-            >
-              <p>
-                <code className="font-mono text-[12px]">check</code> verifies
-                Python, the Git remote, installed benchmark package, editable
-                project, and adapter discovery. It does not grade your work or
-                download the large public model/data cache.
-              </p>
-              <Code
-                lang="bash"
-                code={`cogworks check --benchmark ${benchmarkId} --update-setup`}
-              />
-              <p className="text-[12px] text-ink-faint">
-                The flag makes this one run update the guide. If local checks
-                pass but CogPortal is offline, the terminal prints both outcomes,
-                exits 2, and gives the same command to retry.
-              </p>
-            </Step>
-          </ol>
-
-          {complete ? (
-            <Panel label="SETUP COMPLETE" tone="good" className="mt-8">
-              <p className="text-[14px] text-ink">
-                Your machine can find the starter and this track's adapter
-                interfaces. You're ready to begin implementing. A working model
-                isn't expected yet.
-              </p>
-              <Link
-                to="/dashboard"
-                className="u-pressable mt-4 inline-flex h-11 items-center gap-2 bg-ink px-6 text-[13.5px] font-medium tracking-wide text-paper-raised transition-colors duration-150 hover:bg-ink/90"
-              >
-                Open dashboard
-                <HugeiconsIcon icon={ArrowRight01Icon} size={15} strokeWidth={1.8} aria-hidden="true" />
-              </Link>
-            </Panel>
-          ) : (
-            <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-rule-soft pt-5">
-              <p className="text-[12.5px] text-ink-faint">No rush. The guide keeps your place.</p>
-              <Link
-                to="/dashboard"
-                className="u-pressable inline-flex min-h-9 items-center gap-1.5 font-mono text-[11.5px] tracking-[0.07em] text-ink-secondary uppercase hover:text-ink"
-              >
-                Open dashboard
-                <HugeiconsIcon icon={ArrowRight01Icon} size={14} strokeWidth={1.8} aria-hidden="true" />
-              </Link>
-            </div>
-          )}
-
-          <Panel label="THE LOOP YOU'LL USE NEXT" className="mt-6">
-            <p className="text-[13.5px] leading-relaxed text-ink-secondary">
-              Once you have implemented an adapter, <code className="font-mono text-[12px]">test</code>{" "}
-              runs the smaller public tier and <code className="font-mono text-[12px]">run</code>{" "}
-              runs the larger practice tier. First-time runs may explicitly download the public cache.
-            </p>
-            <div className="mt-3">
-              <Code
-                lang="bash"
-                code={`cogworks test --benchmark ${benchmarkId} --update-setup\ncogworks run --benchmark ${benchmarkId} --update-setup\ncogworks report`}
-              />
-            </div>
-            <p className="mt-3 font-mono text-[11px] text-ink-faint">
-              Later, omit --update-setup. Practice remains LOCAL · SELF-REPORTED.
-              {terminalSet.has("test") ? " FIRST TEST CHECKED." : ""}
-              {terminalSet.has("run") ? " FIRST RUN CHECKED." : ""}
-            </p>
-          </Panel>
+          <h1 className="mt-1 truncate text-3xl">{team.name}</h1>
         </div>
+        {/* Every command on this page names a benchmark, so the page has to
+            show which one and let a student change it. Without this the
+            default track silently decides what they're told to type. */}
+        <TrackSwitcher
+          tracks={track.tracks}
+          benchmark={track.benchmark}
+          onSelect={track.select}
+        />
       </div>
+
+      <a
+        href={team.repo.url}
+        target="_blank"
+        rel="noreferrer"
+        className="mt-1.5 inline-block font-mono text-[12px] text-ink-secondary underline decoration-rule underline-offset-4 hover:text-ink hover:decoration-ink"
+      >
+        {team.repo.fullName}
+      </a>
+
+      <div className="mt-5 flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-rule-soft pt-4">
+        <MemberStrip members={team.members} />
+        <span className="font-mono text-[11.5px] text-ink-secondary">
+          {team.members.length} {team.members.length === 1 ? "member" : "members"}
+        </span>
+        <Link
+          to="/team"
+          className="u-pressable ml-auto inline-flex min-h-9 items-center font-mono text-[11px] tracking-[0.09em] text-ink-secondary uppercase underline decoration-rule underline-offset-4 hover:text-ink hover:decoration-ink"
+        >
+          Add
+        </Link>
+      </div>
+
+      {/* The one thing a student cannot work out by looking. Nothing here
+          ticks as you type: `check` reports clone, environment, project and
+          wiring in a single call (cli.py), so four boxes fill on the last
+          command and grey rows above it are expected until then. */}
+      {/* The count comes from the sheet: a track with no packaged benchmark
+          has four commands, not five. */}
+      <p className="mt-7 max-w-[58ch] text-[14px] leading-[1.6] text-ink-secondary">
+        {total} commands, in this order.{" "}
+        {evidenceFailed
+          ? "The commands are right and you can run them now."
+          : onlyTrackStepsLeft
+            ? `The ticked ones are about this machine and carry over between tracks. The empty ones are about ${benchmarkTitle} and haven't reported for it yet.`
+            : "Nothing ticks as you type; boxes fill when a command reports back, and most of them fill on the last one, so empty boxes above it are normal until then."}
+      </p>
+
+      {/* Everything below the clone installs into whichever environment is
+          active, so this belongs above the first pip line rather than in the
+          help under it. The name is not ours: it comes from the same per-week
+          table as the benchmark distribution, transcribed from CogWeb in
+          docs/capstones/environment.md. Inline code rather than a copy block,
+          because every command in a box on this page has a gutter cell and
+          this one has no evidence behind it. */}
+      <p className="mt-4 max-w-[58ch] border-l-2 border-rule pl-4 text-[13.5px] leading-[1.6] text-ink-secondary">
+        Activate your course environment before the installs below, so the tool
+        lands beside the packages your own code already uses.{" "}
+        {environment ? (
+          <>
+            CogWeb calls {benchmarkTitle}'s{" "}
+            <code className="font-mono text-[12.5px] text-ink">
+              {environment.condaEnv}
+            </code>
+            , and{" "}
+            <a
+              href={environment.prereqsUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="text-ink underline decoration-rule underline-offset-4 hover:decoration-ink"
+            >
+              its prerequisites ↗
+            </a>{" "}
+            list what belongs in it. If you set yours up under another name, or
+            without conda, activate that one instead.
+          </>
+        ) : (
+          <>
+            Use the one your week's prerequisites describe. Without it the tool
+            installs somewhere your terminal will not find it.
+          </>
+        )}
+      </p>
+
+      {evidenceFailed && (
+        <div className="mt-6">
+          {/* Not an empty sheet and not a blocked page: the commands below are
+              still correct. What failed is the read of what we have observed,
+              which is why the gutter shows dashes instead of empty boxes. */}
+          {/* No children: the mapping's own way out is already the right one
+              here. A plain fault offers retry and no link, and the cases that
+              do carry a link (session ended, cohort or team required) send the
+              student exactly where they need to go. */}
+          <QueryError
+            error={setupState.error ?? connections.error}
+            retry={retryEvidence}
+          />
+        </div>
+      )}
+
+      <div className="mt-6">
+        <CommandSheet
+          lines={lines}
+          label="Setup commands, in run order"
+          notes={notes}
+          unreadable={{
+            "setup-state": setupState.isError,
+            devices: connections.isError,
+          }}
+        />
+      </div>
+
+      {complete ? (
+        <Panel label="SETUP COMPLETE" tone="good" className="mt-6">
+          <p className="max-w-[58ch] text-[14px] leading-[1.6] text-ink">
+            Every command above has reported back from a machine you linked,
+            so the tool found your functions and called them. Whether the code
+            is any good is what runs are for, and a local run is the next
+            thing; there's no limit on those.
+          </p>
+          <div className="mt-4">
+            <Code lang="bash" code={`cogworks run --benchmark ${track.benchmarkId}`} />
+          </div>
+          <Link
+            to="/dashboard"
+            className="u-pressable mt-4 inline-flex h-11 items-center gap-2 bg-ink px-6 text-[13.5px] font-medium tracking-wide text-paper-raised transition-colors duration-150 hover:bg-ink/90"
+          >
+            Open dashboard
+            <HugeiconsIcon icon={ArrowRight01Icon} size={15} strokeWidth={1.8} aria-hidden="true" />
+          </Link>
+        </Panel>
+      ) : (
+        <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-rule-soft pt-5">
+          <p className="text-[12.5px] text-ink-faint">
+            No rush. This page keeps your place.
+          </p>
+          <Link
+            to="/dashboard"
+            className="u-pressable inline-flex min-h-9 items-center gap-1.5 font-mono text-[11.5px] tracking-[0.07em] text-ink-secondary uppercase hover:text-ink"
+          >
+            Open dashboard
+            <HugeiconsIcon icon={ArrowRight01Icon} size={14} strokeWidth={1.8} aria-hidden="true" />
+          </Link>
+        </div>
+      )}
     </div>
   );
 }
 
-function ProgressRail({
-  progress,
-}: {
-  progress: Array<{ label: string; done: boolean; unnumbered?: boolean }>;
-}) {
-  let ordinal = 0;
+function MemberStrip({ members }: { members: TeamMember[] }) {
+  const shown = members.slice(0, 6);
+  const extra = members.length - shown.length;
   return (
-    <aside className="sticky top-8 hidden border-l border-rule-soft pl-4 lg:block" aria-label="Setup progress">
-      <p className="u-kicker mb-3">Field notes</p>
-      <ol className="space-y-2.5">
-        {progress.map((item) => (
-          <li
-            key={item.label}
-            role={item.unnumbered ? "presentation" : undefined}
-            className="flex items-center gap-2 font-mono text-[10.5px] tracking-[0.05em] uppercase"
-          >
+    <span className="flex min-w-0 items-center">
+      <span className="flex -space-x-1.5">
+        {shown.map((member) =>
+          member.avatarUrl ? (
+            <img
+              key={member.login}
+              src={member.avatarUrl}
+              alt=""
+              title={`@${member.login}`}
+              className="size-6 rounded-[2px] border border-paper"
+            />
+          ) : (
             <span
-              aria-hidden={item.unnumbered || undefined}
-              className={`inline-block w-[2ch] ${item.done ? "text-verify-deep" : "text-ink-faint"}`}
+              key={member.login}
+              aria-hidden="true"
+              title={`@${member.login}`}
+              className="flex size-6 items-center justify-center rounded-[2px] border border-paper bg-paper-sunken font-mono text-[10px] text-ink-secondary uppercase"
             >
-              {item.unnumbered ? "·" : String(++ordinal).padStart(2, "0")}
+              {member.login[0]}
             </span>
-            <span className={item.done ? "text-ink" : "text-ink-faint"}>{item.label}</span>
-          </li>
-        ))}
-      </ol>
-    </aside>
+          ),
+        )}
+      </span>
+      {extra > 0 && <span className="ml-2 font-mono text-[10.5px] text-ink-faint">+{extra}</span>}
+      <span className="sr-only">{members.map((member) => `@${member.login}`).join(", ")}</span>
+    </span>
   );
 }
 
@@ -444,68 +440,5 @@ function DevRehearsal({
         />
       </span>
     </div>
-  );
-}
-
-function Step({
-  index,
-  state,
-  title,
-  chip,
-  selfCheck,
-  children,
-  last = false,
-}: {
-  index?: string;
-  state: "verified" | "pending";
-  title: string;
-  chip?: string;
-  selfCheck?: { checked: boolean; onToggle: () => void; label: string };
-  children: ReactNode;
-  last?: boolean;
-}) {
-  const done = state === "verified";
-  return (
-    <li
-      role={index === undefined ? "presentation" : undefined}
-      className={`relative flex gap-4 ${last ? "" : "pb-8"}`}
-    >
-      <span
-        aria-hidden="true"
-        className={`relative z-10 flex size-7 shrink-0 items-center justify-center border font-mono text-[11px] transition-colors duration-150 ${
-          done
-            ? "border-verify/50 bg-verify-wash text-verify-deep"
-            : "border-rule bg-paper-raised text-ink-faint"
-        }`}
-      >
-        {done ? <HugeiconsIcon icon={Tick02Icon} size={14} strokeWidth={2.2} /> : (index ?? "·")}
-      </span>
-      <div className="min-w-0 flex-1 pt-0.5">
-        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-          <h2 className="font-serif text-[16.5px] font-semibold text-ink">{title}</h2>
-          {chip && (
-            <span className="font-mono text-[10px] tracking-[0.08em] text-verify-deep uppercase">
-              {chip}
-            </span>
-          )}
-        </div>
-        <div className="mt-1.5 space-y-2.5 text-[13.5px] leading-relaxed text-ink-secondary">
-          {children}
-        </div>
-        {selfCheck && (
-          <label className="mt-3 flex w-fit cursor-pointer items-center gap-2.5 py-1 select-none">
-            <input
-              type="checkbox"
-              checked={selfCheck.checked}
-              onChange={selfCheck.onToggle}
-              className="size-4 accent-[#1c2637]"
-            />
-            <span className="font-mono text-[11px] tracking-[0.07em] text-ink-secondary uppercase">
-              {selfCheck.label}
-            </span>
-          </label>
-        )}
-      </div>
-    </li>
   );
 }

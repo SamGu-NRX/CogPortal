@@ -62,7 +62,15 @@ export type FailureCategory = z.infer<typeof FailureCategorySchema>;
 export const ModuleSchema = z.enum(["vision", "audio", "language"]);
 export type Module = z.infer<typeof ModuleSchema>;
 
+export const TeamProvenanceSchema = z.enum(["live", "archive"]);
+export type TeamProvenance = z.infer<typeof TeamProvenanceSchema>;
+
 /* ── Metrics (data-driven, §6) ────────────────────────────────────────── */
+
+/** The kinds of number a benchmark can publish. The wire schema and the
+ *  browser schema both build their enum from this list, so a role the runner
+ *  may send is by construction one the browser accepts. */
+export const METRIC_ROLES = ["scored", "floor", "reported", "diagnostic", "plotted"] as const;
 
 export const MetricSchema = z.object({
   key: z.string(),
@@ -79,8 +87,24 @@ export const MetricSchema = z.object({
    * that predate it send nothing, and the UI shows no help affordance then.
    */
   help: z.string().nullish(),
+  /**
+   * What kind of number this is, so the run page can draw it correctly
+   * without knowing any metric's name. See ProtocolMetricSchema in
+   * protocol.ts for why: an arrow saying which direction is better is an
+   * assertion about the submission, and it is false on a floor.
+   *
+   * Nullish means the producer did not say. That used to be read as "scored",
+   * which is what everything was before this field existed; a run whose
+   * metrics carry no roles at all is now presented without direction claims
+   * instead, because a floor and a scored metric are indistinguishable in
+   * that state. See `claimsDirection` in the portal's MetricBlock.
+   */
+  role: z.enum(METRIC_ROLES).nullish(),
+  /** The metric this one is the floor of, or is reported alongside. */
+  relatesTo: z.string().nullish(),
 });
 export type Metric = z.infer<typeof MetricSchema>;
+export type MetricRole = (typeof METRIC_ROLES)[number];
 
 /* ── Runs ─────────────────────────────────────────────────────────────── */
 
@@ -136,7 +160,18 @@ export const RunDetailSchema = RunSummarySchema.extend({
   metrics: z.array(MetricSchema),
   /** The scorer's own notes on this run: which component scored zero and why.
    *  Safe for official runs; they describe the submission, never the data. */
-  diagnostics: z.array(z.string().max(240)).max(32),
+  /**
+   * One note is one instruction about what to change next, so it has to arrive
+   * whole. At 240 the scorers were cut mid-word: week 1's notes run to 315
+   * characters and week 2's abstention note to 392, and what the cut removed
+   * was the advice at the end rather than the description at the start.
+   *
+   * 600 matches what a refusal's prose fields already allow in this file. Both
+   * ends of the wire have to agree, so the portal is deployed before the
+   * runner: the worker answers 400 for a longer string and the runner does not
+   * retry a 400, which would lose the whole completed event.
+   */
+  diagnostics: z.array(z.string().max(600)).max(32),
   /**
    * How the score moved as the benchmark's difficulty knob turned. Null when
    * the benchmark has no such knob, or when the run predates the sweep.
@@ -161,10 +196,89 @@ export const RunDetailSchema = RunSummarySchema.extend({
     })
     .nullable()
     .default(null),
+  /**
+   * Which of the team's own functions ran, in the order they ran. Empty when
+   * the repository declared its own submission, because then nothing was
+   * inferred and there is no inference to show.
+   *
+   * Safe for official runs on the same grounds as diagnostics: it names their
+   * code and the shapes it passed, never the hidden data.
+   */
+  wiring: z
+    .array(
+      z.object({
+        stage: z.string().max(60),
+        function: z.string().max(200),
+        received: z.string().max(200).optional(),
+        returned: z.string().max(200).optional(),
+      }),
+    )
+    .max(16)
+    .default([]),
+  /**
+   * Why the platform could not find code to score, when that is what failed.
+   * Null for every other failure and for every run that succeeded.
+   *
+   * Separate from `failure.detail`, which is one capped line meant for a log.
+   * This is the part a student acts on: the step that stalled, what their
+   * last function returned, and the one next thing to do.
+   */
+  refusal: z
+    .object({
+      status: z.string().max(40),
+      headline: z.string().max(600),
+      nextStep: z.string().max(600).default(""),
+      trace: z
+        .array(
+          z.object({
+            stage: z.string().max(60),
+            function: z.string().max(200),
+            received: z.string().max(200).optional(),
+            returned: z.string().max(200).optional(),
+          }),
+        )
+        .max(16)
+        .default([]),
+      /* The three fields below default to [] so that a refusal stored before
+         they existed still parses and still renders its headline. */
+      /** What the search learned that the headline does not say. */
+      notes: z.array(z.string().max(600)).max(8).default([]),
+      /** Files the run could not read. `owner` is "theirs", "ours", or
+          "environment"; a skip that is ours is our fault and the page says
+          so rather than letting it read as their bug. */
+      skipped: z
+        .array(
+          z.object({
+            module: z.string().max(200),
+            reason: z.string().max(300),
+            owner: z.string().max(20).default("theirs"),
+          }),
+        )
+        .max(32)
+        .default([]),
+      /** What their code raised while the search called it, at the file and
+          line inside their own repository. */
+      errors: z
+        .array(
+          z.object({
+            file: z.string().max(200),
+            line: z.number().int().min(0),
+            function: z.string().max(200),
+            message: z.string().max(200),
+          }),
+        )
+        .max(16)
+        .default([]),
+    })
+    .nullable()
+    .default(null),
+  /** Repository-relative files copied from the student's local run. */
+  weightsSupplied: z.array(z.string().min(1).max(500)).max(32).default([]),
   /** Capped install/eval log. Practice runs only; null for official (§5). */
   log: z.string().nullable(),
   /** Official runs: currently published on the leaderboard. */
   selected: z.boolean(),
+  publishable: z.boolean(),
 });
 export type RunDetail = z.infer<typeof RunDetailSchema>;
 
@@ -219,12 +333,20 @@ export const TeamSchema = z.object({
   id: z.string(),
   name: z.string(),
   description: z.string().nullable(),
+  provenance: TeamProvenanceSchema,
   repo: RepoRefSchema.nullable(),
 });
 export type Team = z.infer<typeof TeamSchema>;
 
-/** System-level role: staff (TA/instructor) vs student. Derived from the
- *  PLATFORM_STAFF_LOGINS env allowlist at request time — never stored. */
+/**
+ * System-level role: staff (TA/instructor) vs student.
+ *
+ * Resolved at request time from two sources that are never merged: the
+ * owner-managed `platform_staff` table, and the PLATFORM_OWNER_LOGINS
+ * environment list, whose members are staff automatically. Owners stay in the
+ * environment on purpose, so that writing the roster table can never mint an
+ * owner (migration 0031).
+ */
 export const PlatformRoleSchema = z.enum(["student", "staff"]);
 export type PlatformRole = z.infer<typeof PlatformRoleSchema>;
 
@@ -355,9 +477,33 @@ export const LocalReportInputSchema = z.object({
   startedAt: z.number().int(),
   finishedAt: z.number().int(),
   metrics: z.array(MetricSchema).max(32),
+  /**
+   * Left at 240 on purpose. The local report never cut a note in half:
+   * `_diagnostic_lines` in cogbench/models.py splits at sentence and word
+   * boundaries before it fills this field, so the defect the hosted path
+   * had does not exist here and raising it would only churn a shipped
+   * client's contract.
+   */
   diagnostics: z.array(z.string().max(240)).max(32),
+  weightsUsed: z.array(z.string().min(1).max(500)).max(32),
+  // Required uploads, not completed uploads. Missing provenance stays unknown for old reports.
+  weightsUploaded: z.array(z.object({
+    path: z.string().min(1).max(500),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/),
+  })).max(32).nullish(),
 });
 export type LocalReportInput = z.infer<typeof LocalReportInputSchema>;
+
+export const LocalReportWeightsSchema = LocalReportInputSchema.pick({
+  weightsUsed: true,
+  weightsUploaded: true,
+}).refine(
+  (report) => report.weightsUploaded == null || (
+    report.weightsUploaded.every((weight) => report.weightsUsed.includes(weight.path)) &&
+    new Set(report.weightsUploaded.map((weight) => weight.path)).size === report.weightsUploaded.length
+  ),
+  { path: ["weightsUploaded"], message: "weightsUploaded must name each required path in weightsUsed once." },
+);
 
 export const LocalReportSchema = LocalReportInputSchema.extend({
   author: z.object({
@@ -503,6 +649,15 @@ export const RunSurfaceSnapshotSchema = z.object({
   officialRunId: z.string().nullable(),
   published: z.boolean(),
   nextOfficialAttempt: z.number().int().positive().nullable(),
+  /**
+   * One sentence saying why nothing could be scored, when that is what
+   * failed. Null otherwise.
+   *
+   * Discord shows "Contract check stopped", which is true and says nothing a
+   * team can act on. The reason is already written; carrying it here is what
+   * makes the message worth reading.
+   */
+  refusalHeadline: z.string().max(600).nullable().default(null),
   events: z.array(RunStreamEventSchema).max(250),
   actions: z.array(RunSurfaceActionSchema),
   simulated: z.boolean(),
@@ -648,6 +803,7 @@ export const LeaderboardEntrySchema = z.object({
   rank: z.number().int(),
   teamName: z.string(),
   teamDescription: z.string().nullable(),
+  provenance: TeamProvenanceSchema,
   repoUrl: z.string().nullable(),
   sha: z.string(),
   shortSha: z.string(),
@@ -709,6 +865,7 @@ export const TeamDetailSchema = z.object({
   id: z.string(),
   name: z.string(),
   description: z.string().nullable(),
+  provenance: TeamProvenanceSchema,
   repo: RepoRefSchema,
   members: z.array(TeamMemberSchema),
   tas: z.array(
@@ -798,8 +955,28 @@ export type ChurnEvent = z.infer<typeof ChurnEventSchema>;
  *  for a team with no runs yet, which is also when `stageFootprint` and
  *  `ownershipBreadth` are empty objects: no run means no way to know which
  *  capstone stage map applies, so there is no stage list to report against. */
+/**
+ * Which commits the panel read.
+ *
+ * Null when the history could not be read at all. `truncated` means older
+ * commits exist that were not requested, so the signals below describe recent
+ * work rather than the project. A Worker may make 50 external subrequests per
+ * invocation and each commit costs one, so the window is a platform limit made
+ * visible instead of a fetch that breaks at commit 50.
+ */
+export const HistoryWindowSchema = z.object({
+  commits: z.number().int().nonnegative(),
+  truncated: z.boolean(),
+});
+
 export const TeamProcessSignalsSchema = z.object({
   historyQuality: HistoryQualitySchema,
+  // Defaulted, not merely nullable. `team_process_signals` holds payloads
+  // serialized by whatever version wrote them, and rows written before this
+  // field existed have no key at all. The browser parses every response
+  // strictly, so a bare `.nullable()` would have blanked the team page for
+  // every team with a warm cache until it expired.
+  historyWindow: HistoryWindowSchema.nullable().default(null),
   weekLabel: z.enum(["week1", "week2", "week3"]).nullable(),
   stageFootprint: z.record(z.string(), StageActivitySchema),
   firstLight: FirstLightSchema,
@@ -818,6 +995,7 @@ export const CohortTeamSchema = z.object({
   id: z.string(),
   name: z.string(),
   description: z.string().nullable(),
+  provenance: TeamProvenanceSchema,
   repo: z.object({
     fullName: z.string(),
     url: z.string(),
@@ -862,6 +1040,31 @@ export const SETUP_STEPS = [
 export const SetupStepSchema = z.enum(SETUP_STEPS);
 export type SetupStep = z.infer<typeof SetupStepSchema>;
 
+/**
+ * The steps whose evidence is about one environment rather than the machine.
+ *
+ * `clone` is the repository, and a repository is the same clone on every
+ * track. The other three all describe the environment that happens to be
+ * active: `environment` installs the CLI into it, `project` installs one
+ * benchmark distribution into it, and `check --benchmark X` resolves that
+ * benchmark's entry points from it. CogWeb gives each week its own conda
+ * environment (see the portal's BENCHMARK_ENVIRONMENTS), so a CLI installed
+ * for week 1 is genuinely absent from week 3, and marking it verified there
+ * is the same overclaim as marking the benchmark installed.
+ *
+ * The id stored is a benchmark only because a benchmark stands in for a week.
+ * That is imprecise in one direction and only in one direction: the two vision
+ * tracks share week 2, so switching between them unticks lines that really are
+ * done. Under-claiming costs a command that exits almost immediately;
+ * over-claiming sends a student past the line whose absence produces
+ * `cogworks: command not found` at the next one.
+ */
+export const BENCHMARK_SCOPED_SETUP_STEPS = ["environment", "project", "wiring"] as const;
+export type BenchmarkScopedSetupStep = (typeof BENCHMARK_SCOPED_SETUP_STEPS)[number];
+export function isBenchmarkScopedStep(step: SetupStep): step is BenchmarkScopedSetupStep {
+  return (BENCHMARK_SCOPED_SETUP_STEPS as readonly SetupStep[]).includes(step);
+}
+
 /** POST /api/v1/cli/setup/checks. A linked CLI sends only coarse pass
  *  evidence: no paths, source, logs, predictions, metrics, or reports. */
 export const SetupEvidenceRequestSchema = z
@@ -873,6 +1076,13 @@ export const SetupEvidenceRequestSchema = z
     pythonVersion: z.string().min(1).max(40),
     benchmarkIds: z.array(z.string().min(1).max(100)).max(12),
     submissionIds: z.array(z.string().min(1).max(100)).max(12),
+    /**
+     * The benchmark `check` was run against, when it was run against one.
+     * Optional because a CLI pinned before this field existed cannot send it,
+     * and its evidence is then recorded without a benchmark rather than
+     * credited to whichever track the page happens to be showing.
+     */
+    checkedBenchmarkId: z.string().min(1).max(100).optional(),
   })
   .strict();
 export type SetupEvidenceRequest = z.infer<typeof SetupEvidenceRequestSchema>;
@@ -888,7 +1098,13 @@ export type SetupEvidenceResponse = z.infer<typeof SetupEvidenceResponseSchema>;
  *  current team. */
 export const SetupStateSchema = z
   .object({
+    /** Steps recorded with no benchmark attached: `clone` and `environment`,
+     *  plus anything an older CLI reported before scope existed. */
     verified: z.array(SetupStepSchema),
+    /** Steps recorded against a named benchmark, keyed by its id. A track
+     *  reads its own entry and nothing else, which is what stops one
+     *  benchmark's setup from marking another's as done. */
+    verifiedByBenchmark: z.record(z.string(), z.array(SetupStepSchema)),
   })
   .strict();
 export type SetupState = z.infer<typeof SetupStateSchema>;
@@ -955,6 +1171,7 @@ export const StartRunResponseSchema = z.object({ runId: z.string() });
 export const AdminTeamSummarySchema = z.object({
   id: z.string(),
   name: z.string(),
+  provenance: TeamProvenanceSchema,
   repoFullName: z.string(),
   members: z.array(
     z.object({
@@ -970,10 +1187,38 @@ export const AdminTeamSummarySchema = z.object({
       avatarUrl: z.string().nullable(),
     }),
   ),
+  /**
+   * Totals across every benchmark and version, not one track's usage. The
+   * limits in this file are per benchmark, so these two numbers have no
+   * denominator here and must not be rendered as a fraction of one: a team
+   * working through three tracks can legitimately exceed any single track's
+   * limit (worker/routes/admin.ts).
+   */
   practiceUsed: z.number().int(),
   officialUsed: z.number().int(),
-  /** Currently published primary metric value, when a selection exists. */
-  publishedScore: z.number().nullable(),
+  /**
+   * Official attempts this team has had given back because a run failed on the
+   * platform's side, across every benchmark. A team that keeps hitting real
+   * infrastructure trouble and a team whose submission provokes the same
+   * platform-side failure over and over look identical from the run list, and
+   * both are worth an instructor's attention. The cap that stops the refunds
+   * is per benchmark (worker/execution/refunds.ts); this total is a prompt to
+   * go look, not the cap itself.
+   */
+  refundsGiven: z.number().int(),
+  /**
+   * The team's latest published selection across all benchmarks, or null. The
+   * score is inseparable from what it scored: a Vision number and a Language
+   * number are not the same quantity and do not compare, so they travel in one
+   * object rather than as three fields that can disagree.
+   */
+  published: z
+    .object({
+      score: z.number(),
+      benchmarkName: z.string().nullable(),
+      benchmarkVersion: z.number().int(),
+    })
+    .nullable(),
 });
 export type AdminTeamSummary = z.infer<typeof AdminTeamSummarySchema>;
 
@@ -1021,6 +1266,36 @@ export const AdminAddMemberRequestSchema = z.object({
 
 /** POST /api/admin/teams/:teamId/tas */
 export const AdminAssignTaRequestSchema = AdminAddMemberRequestSchema;
+
+/** GET /api/admin/staff — the owner-managed platform staff roster. */
+export const AdminStaffRosterSchema = z.object({
+  entries: z.array(
+    z.object({
+      /** The casing the granting owner typed. Matching is case-insensitive. */
+      login: z.string(),
+      /**
+       * The name on the account holding this GitHub login, or null when
+       * nobody with this login has signed in yet. A roster entry is a login
+       * string, not an account, so an owner can add staff before the term
+       * starts. That also means a typo is accepted and grants nothing, and
+       * this field is how the console shows the difference.
+       */
+      name: z.string().nullable(),
+      /** Login of the owner who added this entry. */
+      grantedBy: z.string(),
+      grantedAt: z.number(),
+    }),
+  ),
+  /**
+   * Logins that are staff because PLATFORM_OWNER_LOGINS names them, shown so
+   * the console does not read as though the listed owners lack access.
+   */
+  owners: z.array(z.string()),
+});
+export type AdminStaffRoster = z.infer<typeof AdminStaffRosterSchema>;
+
+/** POST /api/admin/staff */
+export const AdminAddStaffRequestSchema = AdminAddMemberRequestSchema;
 
 /* ── Error envelope ───────────────────────────────────────────────────── */
 

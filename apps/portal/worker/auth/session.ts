@@ -73,6 +73,7 @@ function teamPayload(team: TeamRow | null): Team | null {
     id: team.id,
     name: team.name,
     description: team.description,
+    provenance: team.provenance,
     repo: {
       owner: team.repoOwner,
       name: team.repoName,
@@ -100,17 +101,23 @@ export async function authToSession(env: Env, auth: AuthState | null): Promise<S
   if (!auth) return { user: null, cohort: null, team: null, auth: auth_ };
   const login = accountLogin(auth.user);
   const roleLogin = authorizationLogin(env, auth.user);
-  const [taAssignment] = await getDb(env)
-    .select({ teamId: teamTas.teamId })
-    .from(teamTas)
-    .where(eq(teamTas.userId, auth.user.id))
-    .limit(1);
+  const db = getDb(env);
+  // The staff roster is a table since migration 0031, so the role is a read.
+  // It is independent of the TA lookup, so the two go together.
+  const [[taAssignment], role] = await Promise.all([
+    db
+      .select({ teamId: teamTas.teamId })
+      .from(teamTas)
+      .where(eq(teamTas.userId, auth.user.id))
+      .limit(1),
+    platformRole(db, env, roleLogin),
+  ]);
   return {
     user: {
       login,
       name: auth.user.name,
       avatarUrl: auth.user.avatarUrl,
-      platformRole: platformRole(env, roleLogin),
+      platformRole: role,
       isOwner: isPlatformOwner(env, roleLogin),
       isTa: Boolean(taAssignment),
     },

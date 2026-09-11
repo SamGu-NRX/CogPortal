@@ -1,5 +1,5 @@
 import type { Context, Hono } from "hono";
-import { and, asc, desc, eq, inArray, ne } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { FIXTURE_REPO } from "@cogworks/contracts/fixtures";
 import {
   ChangeTeamRepoRequestSchema,
@@ -34,11 +34,21 @@ import { validateTemplateRepository } from "../github/template";
 import { ApiHttpError } from "../http/errors";
 import { parseBody, respond } from "../http/respond";
 import { buildProcessSignals, findingSentences } from "../services/process-signals";
-import type { RunRecord, WeekLabel } from "../services/process-signals";
+import type { RosterMember, RunRecord, WeekLabel } from "../services/process-signals";
 
 function memberRole(role: string): TeamMember["role"] {
   if (role === "admin" || role === "maintain" || role === "write") return role;
   throw new Error("Team member has an invalid role.");
+}
+
+/**
+ * What to call a member. `github_login` is null for a development account
+ * (see routes/session.ts), so the email's local part stands in. One function
+ * because the name shown on the team page and the name a co-author trailer
+ * resolves to have to be the same string, or the same person reads as two.
+ */
+function displayLogin(row: { login: string | null; email: string }): string {
+  return row.login ?? row.email.split("@")[0];
 }
 
 export async function getTeamDetail(
@@ -88,6 +98,7 @@ export async function getTeamDetail(
     id: team.id,
     name: team.name,
     description: team.description,
+    provenance: team.provenance,
     repo: {
       owner: team.repoOwner,
       name: team.repoName,
@@ -96,13 +107,13 @@ export async function getTeamDetail(
       defaultBranch: team.defaultBranch,
     },
     members: members.map((member) => ({
-      login: member.login ?? member.email.split("@")[0],
+      login: displayLogin(member),
       name: member.name,
       avatarUrl: member.avatarUrl,
       role: memberRole(member.role),
     })),
     tas: tas.map((ta) => ({
-      login: ta.login ?? ta.email.split("@")[0],
+      login: displayLogin(ta),
       name: ta.name,
       avatarUrl: ta.avatarUrl,
     })),
@@ -131,6 +142,47 @@ export async function requireTeamAdmin(
       "Only the team creator can change team settings.",
     );
   }
+  // The stored role was written when the team was created or joined and was
+  // never read from GitHub again, so a creator demoted or removed on GitHub
+  // kept renaming the team and managing members here indefinitely. Staff
+  // could not remove them either: the removal route sees the stale admin
+  // role and points staff back at GitHub, where the change has already
+  // happened. Re-reading the permission at the gate closes that. A GitHub
+  // outage keeps the stored role, since refusing every admin action during
+  // one would be the larger failure; the fixture team has no repository to
+  // ask.
+  if (
+    auth.team.repoFullName !== FIXTURE_REPO.fullName &&
+    githubConfigured(c.env) &&
+    auth.user.githubLogin
+  ) {
+    const githubToken = await getGithubToken(authFor(c), auth.user.id, c.req.raw.headers);
+    if (githubToken) {
+      let current: string | null = null;
+      try {
+        current = teamRole(
+          await new RealGitHubClient().getPermission(
+            auth.team.repoFullName,
+            auth.user.githubLogin,
+            githubToken,
+          ),
+        );
+      } catch {
+        return auth;
+      }
+      if (current !== "admin") {
+        await getDb(c.env)
+          .update(teamMembers)
+          .set({ role: current ?? "write" })
+          .where(and(eq(teamMembers.teamId, auth.team.id), eq(teamMembers.userId, auth.user.id)));
+        throw new ApiHttpError(
+          403,
+          "forbidden",
+          "Your GitHub permission on the team repository is no longer admin, so team settings are read-only for you.",
+        );
+      }
+    }
+  }
   return auth;
 }
 
@@ -148,14 +200,65 @@ const MODULE_WEEK_LABELS: Record<string, WeekLabel> = {
 const PROCESS_SIGNALS_CACHE_MS = 30 * 60 * 1000;
 
 /**
- * A team's week is inferred from the benchmark module of its single most
- * recent run (any status -- an in-progress or failed run still tells you
- * which week the team is working in). `null` when the team has no runs yet;
- * `buildProcessSignals` treats that as "no stage map is knowable" rather
- * than guessing one, matching the "never interpolate" rule from
- * `docs/design/the-instrument-not-the-judge.md`.
+ * Runs that stand as evidence for the repository the team has connected.
+ *
+ * Only runs recorded against that repository. A run with another repository's
+ * id is another repository's evidence, and `runs.repository_id` arrived in
+ * migration 0013 with no backfill, so an older run has NULL here and cannot
+ * be tied to this one either.
+ *
+ * Dropping them is right and is not the whole answer: with nothing left,
+ * `firstLight` says "No run has scored end to end yet", which a team with five
+ * scored runs reads as the portal losing their work. `hasRunsElsewhere` below
+ * is what lets the panel say the true thing instead.
  */
-async function resolveWeekLabel(db: Database, teamId: string): Promise<WeekLabel | null> {
+function forConnectedRepository(repositoryId: number | null) {
+  // No repository id means no repository for a run to be evidence for.
+  if (repositoryId === null) return sql`0 = 1`;
+  return eq(runs.repositoryId, repositoryId);
+}
+
+/**
+ * Whether the team has scored runs that the scoping above set aside.
+ *
+ * The difference between "you have not scored yet" and "your scored runs are
+ * not from this repository" is the whole of what the panel gets wrong without
+ * it, and the portal can see which is true.
+ */
+export async function hasRunsElsewhere(
+  db: Database,
+  teamId: string,
+  repositoryId: number | null,
+): Promise<boolean> {
+  const [other] = await db
+    .select({ id: runs.id })
+    .from(runs)
+    .where(
+      and(
+        eq(runs.teamId, teamId),
+        eq(runs.status, "succeeded"),
+        repositoryId === null
+          ? undefined
+          : or(isNull(runs.repositoryId), ne(runs.repositoryId, repositoryId)),
+      ),
+    )
+    .limit(1);
+  return Boolean(other);
+}
+
+/**
+ * A team's week is inferred from the benchmark module of its single most
+ * recent run for its connected repository (any status -- an in-progress or
+ * failed run still tells you which week the team is working in). `null` when
+ * no run can speak for that repository; `buildProcessSignals` treats that as
+ * "no stage map is knowable" rather than guessing one, matching the "never
+ * interpolate" rule from `docs/design/the-instrument-not-the-judge.md`.
+ */
+export async function resolveWeekLabel(
+  db: Database,
+  teamId: string,
+  repositoryId: number | null,
+): Promise<WeekLabel | null> {
   const [latest] = await db
     .select({ module: benchmarks.module })
     .from(runs)
@@ -163,7 +266,7 @@ async function resolveWeekLabel(db: Database, teamId: string): Promise<WeekLabel
       benchmarks,
       and(eq(benchmarks.id, runs.benchmarkId), eq(benchmarks.version, runs.benchmarkVersion)),
     )
-    .where(eq(runs.teamId, teamId))
+    .where(and(eq(runs.teamId, teamId), forConnectedRepository(repositoryId)))
     .orderBy(desc(runs.createdAt))
     .limit(1);
   return latest ? (MODULE_WEEK_LABELS[latest.module] ?? null) : null;
@@ -171,19 +274,43 @@ async function resolveWeekLabel(db: Database, teamId: string): Promise<WeekLabel
 
 /**
  * Runs that count toward `firstLight`: only ones that made it all the way
- * through scoring. Mirrors `team-nudges.ts`'s established "scored run"
- * convention (`status = 'succeeded'` and keyed off `finishedAt`, not
+ * through scoring, and only for the connected repository (see
+ * `forConnectedRepository`). Mirrors `team-nudges.ts`'s established "scored
+ * run" convention (`status = 'succeeded'` and keyed off `finishedAt`, not
  * `createdAt`) rather than re-deriving it -- see the divergence note on
  * `RunRecord` in `../services/process-signals.ts`.
  */
-async function scoredRunRecords(db: Database, teamId: string): Promise<RunRecord[]> {
+export async function scoredRunRecords(
+  db: Database,
+  teamId: string,
+  repositoryId: number | null,
+): Promise<RunRecord[]> {
   const scored = await db
     .select({ id: runs.id, finishedAt: runs.finishedAt })
     .from(runs)
-    .where(and(eq(runs.teamId, teamId), eq(runs.status, "succeeded")));
+    .where(and(
+      eq(runs.teamId, teamId),
+      forConnectedRepository(repositoryId),
+      eq(runs.status, "succeeded"),
+    ));
   return scored
     .filter((run): run is { id: string; finishedAt: number } => run.finishedAt !== null)
     .map((run) => ({ runId: run.id, createdAt: run.finishedAt, scored: true }));
+}
+
+/**
+ * The team, as co-author resolution needs it. A `Co-authored-by:` trailer
+ * names a person by GitHub login or by email address, and only this layer
+ * knows which of those belong to this team; the fetch that reads the
+ * trailers (`../github/commits.ts`) has no roster to check them against.
+ */
+async function teamRoster(db: Database, teamId: string): Promise<RosterMember[]> {
+  const rows = await db
+    .select({ login: users.githubLogin, email: users.email })
+    .from(teamMembers)
+    .innerJoin(users, eq(teamMembers.userId, users.id))
+    .where(eq(teamMembers.teamId, teamId));
+  return rows.map((row) => ({ login: displayLogin(row), email: row.email }));
 }
 
 export function registerTeamRoutes(app: Hono<AppEnv>): void {
@@ -212,8 +339,12 @@ export function registerTeamRoutes(app: Hono<AppEnv>): void {
       return respond(c, TeamProcessSignalsSchema, { ...signals, computedAt: cached.computedAt });
     }
 
-    const weekLabel = await resolveWeekLabel(db, teamId);
-    const runRecords = await scoredRunRecords(db, teamId);
+    const [weekLabel, runRecords, roster, runsElsewhere] = await Promise.all([
+      resolveWeekLabel(db, teamId, auth.team.repoId),
+      scoredRunRecords(db, teamId, auth.team.repoId),
+      teamRoster(db, teamId),
+      hasRunsElsewhere(db, teamId, auth.team.repoId),
+    ]);
 
     let commitsResult: Awaited<ReturnType<typeof fetchCommitHistory>>;
     if (auth.team.repoFullName === FIXTURE_REPO.fullName && devAuthAvailable(c.env)) {
@@ -221,7 +352,7 @@ export function registerTeamRoutes(app: Hono<AppEnv>): void {
       // commit history to fetch -- and nothing to honestly call "fetch
       // failed" either, since we never tried and failed. Confirmed-empty is
       // the accurate state here, not a fabricated one.
-      commitsResult = { ok: true, commits: [] };
+      commitsResult = { ok: true, commits: [], truncated: false };
     } else {
       const githubToken = githubConfigured(c.env)
         ? await getGithubToken(authFor(c), auth.user.id, c.req.raw.headers)
@@ -231,20 +362,36 @@ export function registerTeamRoutes(app: Hono<AppEnv>): void {
         : { ok: false, reason: "fetch_failed" };
     }
 
-    const signals = buildProcessSignals({ commitsResult, runs: runRecords, weekLabel });
+    const signals = buildProcessSignals({
+      commitsResult,
+      runs: runRecords,
+      weekLabel,
+      roster,
+      runsElsewhere,
+    });
     const payload: Omit<TeamProcessSignals, "computedAt"> = {
-      ...signals,
+      historyQuality: signals.historyQuality,
+      historyWindow: signals.historyWindow,
+      weekLabel: signals.weekLabel,
+      stageFootprint: signals.stageFootprint,
+      firstLight: signals.firstLight,
+      boundaryChurn: signals.boundaryChurn,
+      ownershipBreadth: signals.ownershipBreadth,
       findingSentences: findingSentences(signals),
     };
-    const signalsJson = JSON.stringify(payload);
 
-    await db
-      .insert(teamProcessSignals)
-      .values({ teamId, computedAt: now, signalsJson, historyQuality: signals.historyQuality })
-      .onConflictDoUpdate({
-        target: teamProcessSignals.teamId,
-        set: { computedAt: now, signalsJson, historyQuality: signals.historyQuality },
-      });
+    // Caching a GitHub 401 would keep asking the student to sign in again
+    // after their new sign-in succeeds.
+    if (commitsResult.ok || commitsResult.reason !== "unauthorized") {
+      const signalsJson = JSON.stringify(payload);
+      await db
+        .insert(teamProcessSignals)
+        .values({ teamId, computedAt: now, signalsJson, historyQuality: signals.historyQuality })
+        .onConflictDoUpdate({
+          target: teamProcessSignals.teamId,
+          set: { computedAt: now, signalsJson, historyQuality: signals.historyQuality },
+        });
+    }
 
     return respond(c, TeamProcessSignalsSchema, { ...payload, computedAt: now });
   });
@@ -380,6 +527,10 @@ export function registerTeamRoutes(app: Hono<AppEnv>): void {
           templateSourceRepoId: repository.sourceRepositoryId,
         })
         .where(eq(teams.id, auth.team.id));
+      // The cached signals describe the repository that was connected a
+      // moment ago. Serving them for another thirty minutes shows the old
+      // repository's stages and commits under the new repository's name.
+      await db.delete(teamProcessSignals).where(eq(teamProcessSignals.teamId, auth.team.id));
     } catch (error) {
       if (isUniqueConstraintError(error)) {
         const [racingClaim] = await db

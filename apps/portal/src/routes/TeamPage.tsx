@@ -7,8 +7,10 @@ import { Button } from "@/components/Button";
 import { ConfirmButton } from "@/components/ConfirmButton";
 import { LoadingMark, QueryError } from "@/components/Feedback";
 import { GrantAccess } from "@/components/GrantAccess";
+import { MemberAvatar } from "@/components/MemberAvatar";
 import { MemberPalette } from "@/components/MemberPalette";
 import { Panel } from "@/components/Panel";
+import { ProcessPanel } from "@/components/ProcessPanel";
 import { RepoPicker } from "@/components/RepoPicker";
 import { ApiRequestError } from "@/lib/api";
 import {
@@ -19,8 +21,15 @@ import {
   useUpdateTeam,
 } from "@/lib/queries";
 
+/**
+ * Portal roles mirror the team's GitHub repository permissions: whoever GitHub
+ * calls an admin on the fork is a team admin here, with the settings and
+ * repository controls that implies. This is deliberate, so the label says
+ * "admin" rather than "creator": there can be more than one, and the way to
+ * grant or revoke it is on GitHub.
+ */
 const ROLE_LABELS: Record<string, string> = {
-  admin: "creator",
+  admin: "admin",
   maintain: "maintainer",
   write: "member",
 };
@@ -88,6 +97,9 @@ export function TeamPage() {
       ) : (
         <div className="mt-1 flex flex-wrap items-baseline gap-x-4 gap-y-1">
           <h1 className="text-3xl">{t.name}</h1>
+          {t.provenance === "archive" && (
+            <span className="u-kicker">2026 cohort, anonymized</span>
+          )}
           {t.isAdmin && (
             <button
               type="button"
@@ -216,6 +228,11 @@ export function TeamPage() {
         {t.isAdmin && <ChangeRepository currentFullName={t.repo.fullName} />}
       </Panel>
 
+      {/* ── Where the work went, read from this team's commits and runs ──
+          Last on the page, and the only panel here that is a reading rather
+          than a setting: everything above it is something you change. */}
+      <ProcessPanel members={t.members} />
+
       <Link
         to="/dashboard"
         className="u-pressable mt-8 inline-flex h-11 items-center gap-2 bg-ink px-6 text-[13.5px] font-medium tracking-wide text-paper-raised transition-colors duration-150 hover:bg-ink/90"
@@ -227,8 +244,8 @@ export function TeamPage() {
   );
 }
 
-/** Members, and — for the creator — the door: add cohort students without a
- *  team, remove anyone but the creator. Portal membership only; a GitHub
+/** Members, and for a team admin the door: add cohort students without a
+ *  team, remove anyone but a team admin. Portal membership only; a GitHub
  *  collaborator invite is still what lets them push. */
 function MembersPanel({ team }: { team: TeamDetail }) {
   const [adding, setAdding] = useState(false);
@@ -264,8 +281,11 @@ function MembersPanel({ team }: { team: TeamDetail }) {
       }
     >
       <ul className="divide-y divide-rule-soft">
-        {team.members.map((m) => (
-          <li key={m.login} className="flex items-center gap-3 py-2.5">
+        {team.members.map((m, i) => (
+          // The login is the display name, and two development accounts can
+          // share one (demo@dev.local beside a GitHub "demo"); GitHub logins
+          // are unique, so the index only ever breaks a tie the server made.
+          <li key={`${m.login}:${i}`} className="flex items-center gap-3 py-2.5">
             <MemberAvatar login={m.login} avatarUrl={m.avatarUrl} />
             <span className="min-w-0 flex-1 truncate font-mono text-[13px] text-ink">
               {m.login}
@@ -338,19 +358,6 @@ function RemoveMember({ login, onRemoved }: { login: string; onRemoved: () => vo
   );
 }
 
-function MemberAvatar({ login, avatarUrl }: { login: string; avatarUrl: string | null }) {
-  return avatarUrl ? (
-    <img src={avatarUrl} alt="" className="size-6 rounded-[2px]" />
-  ) : (
-    <span
-      aria-hidden="true"
-      className="flex size-6 items-center justify-center border border-rule bg-paper-sunken font-mono text-[10px] text-ink-secondary uppercase"
-    >
-      {login[0]}
-    </span>
-  );
-}
-
 /** Admin-only: repoint the team at a different repository. History and
  *  attempts stay with the team; blocked server-side while a run is active. */
 function ChangeRepository({ currentFullName }: { currentFullName: string }) {
@@ -402,7 +409,7 @@ function ChangeRepository({ currentFullName }: { currentFullName: string }) {
       <div className="mt-4 flex items-center gap-3">
         <ConfirmButton
           label="Change repository"
-          confirmLabel="Confirm — history stays with the team"
+          confirmLabel="Confirm, history stays with the team"
           onConfirm={() => {
             if (!selected) return;
             change.mutate(selected.fullName, {

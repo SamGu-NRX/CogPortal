@@ -3,6 +3,43 @@ import type { Metric } from "@cogworks/contracts/schema";
 import { formatMetricValue } from "@/lib/format";
 import { CornerBrackets } from "./Brackets";
 
+/**
+ * Whether this metric may claim a direction at all.
+ *
+ * Three reasons it may not, and they are different reasons:
+ *
+ * - A floor is a property of the dataset. The submission cannot move it, so
+ *   "higher is better" on one is advice to change the corpus.
+ * - The run recorded no roles at all. Before the portal stored `role`, a floor
+ *   and a scored metric arrived identical, so a stored week 3 result draws
+ *   "higher is better" on its three chance baselines. We cannot tell which is
+ *   which without guessing, so nothing claims a direction for that run. The
+ *   values are untouched; only the claim is withheld. A benchmark that has
+ *   never declared roles pays the same price, and declaring them removes it.
+ * - A reported metric is deliberately outside the score. That is a separate
+ *   fact from which way is better, so it keeps its direction when the
+ *   benchmark actually stated one. Only "lower is better" is treated as a
+ *   statement: producers compute `higher_is_better = key not in
+ *   lower_is_better`, so `true` is what an unclassified key gets by default.
+ *   Week 1's median identify time keeps its ▼; week 3's verbatim probes,
+ *   whose higher really is worse, show none.
+ *
+ *   This is deliberately conservative and it is wrong about one real metric.
+ *   Week 1's `margin_separation` is reported, is absent from
+ *   `lower_is_better`, and its own help says a high value is a usable
+ *   confidence signal, so higher genuinely is better and this rule denies it
+ *   an arrow. Nothing regressed — a reported metric never had one — but the
+ *   rule under-claims there, and the honest fix is for a benchmark to say
+ *   "no direction" itself rather than for the portal to infer it from a
+ *   producer's default. That needs a contract field and is not this change.
+ */
+export function claimsDirection(metric: Metric, rolesRecorded: boolean): boolean {
+  if (metric.role === "floor") return false;
+  if (metric.role == null && !rolesRecorded) return false;
+  if (metric.role === "reported") return metric.higherIsBetter === false;
+  return true;
+}
+
 /** Direction is always explicit — the portal never assumes higher-is-better. */
 function DirectionMark({ metric }: { metric: Metric }) {
   return (
@@ -12,7 +49,26 @@ function DirectionMark({ metric }: { metric: Metric }) {
   );
 }
 
-export function PrimaryMetric({ metric }: { metric: Metric }) {
+export function PrimaryMetric({
+  metric,
+  floors = [],
+  rolesRecorded = true,
+}: {
+  metric: Metric;
+  /**
+   * The floors this number should be read against, drawn as its scale.
+   *
+   * The primary is lifted out of the supporting list before that list renders
+   * (RunDetailPage), so a floor pointing at it has no row to fold into and
+   * would otherwise sit at the bottom of the page as a bare number. Week 1
+   * declares two of them, and its own help text says reading them together is
+   * the point: chance is what guessing scores, and the trivial baseline is
+   * what a pipeline that does none of the capstone scores.
+   */
+  floors?: Metric[];
+  /** Whether this run recorded any metric roles. See `claimsDirection`. */
+  rolesRecorded?: boolean;
+}) {
   return (
     <figure className="relative inline-block px-4 py-3">
       <CornerBrackets size={12} thickness={1.5} inset={0} className="text-detect" />
@@ -23,9 +79,50 @@ export function PrimaryMetric({ metric }: { metric: Metric }) {
           <span className="ml-1 text-lg font-normal text-ink-secondary">{metric.unit}</span>
         )}
       </div>
-      <figcaption className="mt-1">
-        <DirectionMark metric={metric} />
-      </figcaption>
+      {claimsDirection(metric, rolesRecorded) && (
+        <figcaption className="mt-1">
+          <DirectionMark metric={metric} />
+        </figcaption>
+      )}
+      {floors.length > 0 && (
+        /* Printed at the primary's precision, because the comparison is the
+           reason they are here. No arrow on any of them: a floor is a property
+           of the dataset, so there is no direction the submission controls. */
+        <dl className="mt-2 flex flex-wrap items-baseline gap-x-4 gap-y-1">
+          {floors.map((floor) => (
+            <div key={floor.key} className="flex items-baseline gap-1.5">
+              <dt className="font-mono text-[10px] tracking-[0.06em] text-ink-faint uppercase">
+                {floor.label}
+              </dt>
+              <dd className="u-tnum font-mono text-[11px] text-ink-secondary">
+                {formatMetricValue({ ...floor, precision: metric.precision })}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {/* The floor's own explanation, which moved here with it. A supporting
+          row could unfold its note; this block cannot, so without this the
+          benchmark computes the sentence, the runner sends it, the worker
+          stores it, and the page drops it. That is the failure shape this
+          repository has hit twice before. Open rather than behind a
+          disclosure, for the reason the primary's own help is open. */}
+      {floors.some((floor) => floor.help) && (
+        <dl className="mt-3 max-w-[46ch] border-l border-rule-soft pl-3">
+          {floors
+            .filter((floor) => floor.help)
+            .map((floor) => (
+              <div key={floor.key} className="mt-2 first:mt-0">
+                <dt className="font-mono text-[10px] tracking-[0.06em] text-ink-faint uppercase">
+                  {floor.label}
+                </dt>
+                <dd className="font-serif text-[12.5px] leading-[1.55] text-ink-secondary">
+                  {floor.help}
+                </dd>
+              </div>
+            ))}
+        </dl>
+      )}
       {/* The leaderboard number is the one a team will argue about, so its
           explanation is never behind a disclosure. Set in the body serif at
           reading size: this is prose to be read, not a label to be scanned. */}
@@ -54,7 +151,23 @@ export function PrimaryMetric({ metric }: { metric: Metric }) {
  * a dotted underline on the label, the printer's convention for an annotated
  * term, which appears only on rows that actually carry an explanation.
  */
-function SupportingMetricRow({ metric }: { metric: Metric }) {
+function SupportingMetricRow({
+  metric,
+  floors = [],
+  subordinate = false,
+  rolesRecorded,
+}: {
+  metric: Metric;
+  /** Rendered as this metric's scale rather than as rows of their own. A
+   *  metric can declare more than one: week 1 publishes a chance baseline and
+   *  a trivial baseline against the same score, and reading them together is
+   *  the point of having both. */
+  floors?: Metric[];
+  /** A probe reported beside the score it shadows, indented under it. */
+  subordinate?: boolean;
+  /** Whether this run recorded any metric roles. See `claimsDirection`. */
+  rolesRecorded: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const panelId = useId();
   const explained = Boolean(metric.help);
@@ -64,18 +177,47 @@ function SupportingMetricRow({ metric }: { metric: Metric }) {
       <span className="u-tnum font-mono text-[13px] font-medium text-ink">
         {formatMetricValue(metric)}
       </span>
-      <span className="font-mono text-[10px] text-ink-faint" aria-hidden="true">
-        {metric.higherIsBetter ? "▲" : "▼"}
-      </span>
-      <span className="sr-only">
-        {metric.higherIsBetter ? "higher is better" : "lower is better"}
-      </span>
+      {/* The scale the number sits on, not a reading of its own. A floor was
+          its own row with an arrow saying "higher is better", which is advice
+          to raise a number the submission does not control, and it left the
+          comparison the floor exists for as manual work. One floor is just
+          "floor"; two need their own names, because "floor" cannot tell them
+          apart. */}
+      {floors.map((floor) => (
+        <span key={floor.key} className="u-tnum font-mono text-[11px] text-ink-faint">
+          {floors.length === 1 ? "floor" : floor.label.toLowerCase()}{" "}
+          {formatMetricValue({ ...floor, precision: metric.precision })}
+        </span>
+      ))}
+      {/* Not scored and which way is better are separate facts, so they are
+          separate marks rather than two branches of one choice. */}
+      {metric.role === "reported" && (
+        <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint">
+          not scored
+        </span>
+      )}
+      {claimsDirection(metric, rolesRecorded) && (
+        <>
+          <span className="font-mono text-[10px] text-ink-faint" aria-hidden="true">
+            {metric.higherIsBetter ? "▲" : "▼"}
+          </span>
+          <span className="sr-only">
+            {metric.higherIsBetter ? "higher is better" : "lower is better"}
+          </span>
+        </>
+      )}
     </dd>
   );
 
+  // Indented and quieter, so the eye reads it as belonging to the row above
+  // rather than as another result.
+  const rowPadding = subordinate ? "py-1.5 pl-4" : "py-2";
+
   if (!explained) {
     return (
-      <div className="flex items-baseline justify-between gap-4 border-b border-rule-soft py-2 last:border-b-0">
+      <div
+        className={`flex items-baseline justify-between gap-4 border-b border-rule-soft last:border-b-0 ${rowPadding}`}
+      >
         <dt className="text-[13px] text-ink-secondary">{metric.label}</dt>
         {value}
       </div>
@@ -89,7 +231,7 @@ function SupportingMetricRow({ metric }: { metric: Metric }) {
         onClick={() => setOpen((wasOpen) => !wasOpen)}
         aria-expanded={open}
         aria-controls={panelId}
-        className="group relative flex w-full items-baseline justify-between gap-4 py-2 text-left transition-colors duration-150 hover:bg-detect-wash/40 focus-visible:outline-none focus-visible:bg-detect-wash/40"
+        className={`group relative flex w-full items-baseline justify-between gap-4 text-left transition-colors duration-150 hover:bg-detect-wash/40 focus-visible:outline-none focus-visible:bg-detect-wash/40 ${rowPadding}`}
       >
         {/* The instrument's own motif: brackets mark where it is looking. They
             fade in on hover and stay while the note is open. */}
@@ -128,12 +270,112 @@ function SupportingMetricRow({ metric }: { metric: Metric }) {
   );
 }
 
-export function SupportingMetrics({ metrics }: { metrics: Metric[] }) {
+/**
+ * The supporting table, arranged by what each number is rather than by the
+ * order the scorer happened to return it in.
+ *
+ * Week 3 publishes sixteen metrics: four scored, three floors, two probes
+ * that are run and deliberately not scored, and seven diagnostics. Drawn as
+ * one flat list they were indistinguishable, and two of them are homonyms
+ * whose difference is the whole point: `retrieval_mrr` is the score and
+ * `retrieval_mrr_verbatim` is what a submission scores by looking the answer
+ * up in the file it was handed. A student reading the second as the first
+ * reads their result as its opposite.
+ *
+ * So a floor renders as the scale of the metric it belongs to, and a
+ * reported probe renders directly beneath the score it shadows. The gap
+ * between those two is the reading, and adjacency is what makes it one.
+ *
+ * This reads `role` and `relatesTo` off the metric and never a metric's
+ * name, so a benchmark that grows a floor gets this for free and one that
+ * declares nothing renders exactly as it did before.
+ */
+export function SupportingMetrics({
+  metrics,
+  rolesRecorded = true,
+}: {
+  metrics: Metric[];
+  /** Whether this run recorded any metric roles. See `claimsDirection`. */
+  rolesRecorded?: boolean;
+}) {
   if (metrics.length === 0) return null;
+
+  const floors = new Map<string, Metric[]>();
+  const reported = new Map<string, Metric[]>();
+  for (const metric of metrics) {
+    if (!metric.relatesTo) continue;
+    if (metric.role === "floor") {
+      floors.set(metric.relatesTo, [...(floors.get(metric.relatesTo) ?? []), metric]);
+    }
+    if (metric.role === "reported") {
+      reported.set(metric.relatesTo, [...(reported.get(metric.relatesTo) ?? []), metric]);
+    }
+  }
+
+  // Anything paired to another metric has moved into that metric's row, and
+  // anything plotted is read off the curve above, where its exact value is
+  // printed beside its point. A row for it would be the same number twice.
+  //
+  // "Moved into" is checked, not assumed, because the parent can be absent:
+  // week 3 withholds `retrieval_mrr` when the image side is unmeasured and
+  // still sends `chance_mrr`, and a parent that is the run's primary metric
+  // renders above this component (RunDetailPage separates them). Dropping the
+  // child in either case deletes the number from the page entirely.
+  const byKey = new Map(metrics.map((metric) => [metric.key, metric]));
+  // A child can only move into a parent that is itself drawn as a row. Two
+  // passes, because "drawn" depends on absorption: with `floor_b → floor_a →
+  // score`, floor_a moves into score's row, so floor_b has nowhere to go and
+  // keeps its own. A metric pointing at itself is nobody's child.
+  const children = new Set(
+    metrics
+      .filter((metric) => {
+        if (!metric.relatesTo || metric.relatesTo === metric.key) return false;
+        if (metric.role !== "floor" && metric.role !== "reported") return false;
+        const parent = byKey.get(metric.relatesTo);
+        return Boolean(parent) && parent?.role !== "plotted";
+      })
+      .map((metric) => metric.key),
+  );
+  const absorbed = new Set(
+    [...children].filter((key) => !children.has(byKey.get(key)!.relatesTo!)),
+  );
+
+  const rows = metrics.filter(
+    (metric) => metric.role !== "plotted" && !absorbed.has(metric.key),
+  );
+  // Diagnostics last, and separated, because they describe one component in
+  // more detail rather than answering "how did I do". A benchmark that
+  // declares no roles keeps its original order, since every metric sorts
+  // equally.
+  const ordered = [
+    ...rows.filter((metric) => metric.role !== "diagnostic"),
+    ...rows.filter((metric) => metric.role === "diagnostic"),
+  ];
+  const firstDiagnostic = ordered.findIndex((metric) => metric.role === "diagnostic");
+
   return (
     <dl>
-      {metrics.map((metric) => (
-        <SupportingMetricRow key={metric.key} metric={metric} />
+      {ordered.map((metric, index) => (
+        <div
+          key={metric.key}
+          className={
+            index === firstDiagnostic && index > 0 ? "mt-3 border-t border-rule pt-1" : undefined
+          }
+        >
+          <SupportingMetricRow
+            metric={metric}
+            floors={floors.get(metric.key)}
+            rolesRecorded={rolesRecorded}
+          />
+          {(reported.get(metric.key) ?? []).map((probe) => (
+            <SupportingMetricRow
+              key={probe.key}
+              metric={probe}
+              subordinate
+              rolesRecorded={rolesRecorded}
+            />
+          ))}
+        </div>
       ))}
     </dl>
   );

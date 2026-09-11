@@ -45,6 +45,16 @@
  *   this" value Python already uses for a non-usable history -- no new
  *   sentence is needed for it, because `findingSentences`'s per-stage loops
  *   simply have no stages to iterate, which is the correct honest silence.
+ * - Authorship is a set of logins per commit, not one login. process.py's
+ *   `Commit.author_login` is a single string because process.py was written
+ *   against `git log` output, which reports one author. GitHub's own
+ *   attribution reads `Co-authored-by:` trailers too, and a 2026 team that
+ *   worked in one editor session put a real student on three commits and
+ *   nowhere else. Resolving a trailer to a person needs the team roster, so
+ *   the roster is an input here (`RosterMember[]`) rather than something
+ *   `../github/commits.ts` could have applied on its way past. See
+ *   `resolveCoAuthorLogin` for what counts as a resolution and why anything
+ *   else is dropped.
  * - `RunRecord.createdAt` is deliberately *not* sourced from the `runs`
  *   table's `created_at` column despite matching process.py's `Run.created_at`
  *   field name. `first_light` is about when a run finished and scored, and
@@ -56,7 +66,7 @@
  *   where this mapping happens.
  */
 
-import type { CommitRecord } from "../github/commits";
+import type { CoAuthorTrailer, CommitRecord } from "../github/commits";
 import type { FetchCommitsResult } from "../github/commits";
 
 // ---------------------------------------------------------------------------
@@ -115,8 +125,16 @@ function unavailableReason(commits: CommitRecord[], quality: CommitHistoryQualit
   return null;
 }
 
-/** The reason paired with `HISTORY_FETCH_FAILED`. TS-only; see module docstring. */
+/** The reasons paired with `HISTORY_FETCH_FAILED`. TS-only; see module docstring. */
 const FETCH_FAILED_REASON = "the commit history could not be read from GitHub just now";
+export const UNAUTHORIZED_HISTORY_REASON =
+  "GitHub no longer accepts this portal's sign-in for you, so the stages below are blank. Sign out, sign in with GitHub again, and reopen this page.";
+
+type HistoryFetchFailureReason = Extract<FetchCommitsResult, { ok: false }>["reason"];
+
+function historyUnavailableReason(reason: HistoryFetchFailureReason): string {
+  return reason === "unauthorized" ? UNAUTHORIZED_HISTORY_REASON : FETCH_FAILED_REASON;
+}
 
 // ---------------------------------------------------------------------------
 // Path matching shared by stageFootprint, ownershipBreadth, and boundaryChurn
@@ -184,6 +202,67 @@ function matchesAny(path: string, patterns: string[]): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Who a commit is by
+// ---------------------------------------------------------------------------
+
+/** One team member, as co-author resolution needs them. */
+export interface RosterMember {
+  login: string;
+  email: string;
+}
+
+const NOREPLY_HOST = "@users.noreply.github.com";
+
+/** `12345+ada@users.noreply.github.com` -> `ada`; `ada@users.noreply.github.com` -> `ada`. */
+function loginFromNoreply(email: string): string | null {
+  if (!email.endsWith(NOREPLY_HOST)) return null;
+  const local = email.slice(0, -NOREPLY_HOST.length);
+  const plus = local.indexOf("+");
+  return (plus === -1 ? local : local.slice(plus + 1)) || null;
+}
+
+/**
+ * The roster member a trailer names, or `null`.
+ *
+ * Three ways to resolve, in order: GitHub's own noreply address, which
+ * carries the login; the address the portal already has on file for a
+ * member; and the trailer's name field when it is literally a roster login,
+ * which is what an editor writes when it has a login and no address.
+ *
+ * A trailer that matches none of them is dropped, and that single rule is
+ * the whole defence against bots, AI assistants, and outside contributors
+ * appearing in a team's ownership map. There is deliberately no list of
+ * their names to maintain: anyone not on this team's roster is not on this
+ * team's roster, whoever they are.
+ *
+ * The roster's own spelling of the login is returned, not the trailer's, so
+ * the same person cannot appear twice under two casings.
+ */
+function resolveCoAuthorLogin(trailer: CoAuthorTrailer, roster: RosterMember[]): string | null {
+  const email = trailer.email.toLowerCase();
+  const noreplyLogin = loginFromNoreply(email);
+  if (noreplyLogin) {
+    const byNoreply = roster.find((member) => member.login.toLowerCase() === noreplyLogin);
+    if (byNoreply) return byNoreply.login;
+  }
+  const byEmail = roster.find((member) => member.email.toLowerCase() === email);
+  if (byEmail) return byEmail.login;
+  const name = trailer.name.trim().toLowerCase();
+  const byName = name ? roster.find((member) => member.login.toLowerCase() === name) : undefined;
+  return byName ? byName.login : null;
+}
+
+/** Every person a commit is by: its author, plus each trailer that resolves. */
+function commitAuthorLogins(commit: CommitRecord, roster: RosterMember[]): string[] {
+  const logins = [commit.authorLogin];
+  for (const trailer of commit.coAuthors) {
+    const login = resolveCoAuthorLogin(trailer, roster);
+    if (login !== null) logins.push(login);
+  }
+  return logins;
+}
+
+// ---------------------------------------------------------------------------
 // Signal 1: stage footprint
 // ---------------------------------------------------------------------------
 
@@ -235,6 +314,7 @@ function degradedStageMap(
 export function stageFootprint(
   commits: CommitRecord[],
   stageMap: Record<string, string[]>,
+  roster: RosterMember[],
 ): Record<string, StageActivity> {
   const quality = classifyHistoryQuality(commits);
   if (quality !== HISTORY_USABLE) {
@@ -250,7 +330,7 @@ export function stageFootprint(
     for (const commit of commits) {
       if (!commit.filesChanged.some((path) => matchesAny(path, patterns))) continue;
       commitCount += 1;
-      authors.add(commit.authorLogin);
+      for (const login of commitAuthorLogins(commit, roster)) authors.add(login);
       if (firstTouchAt === null || commit.authoredAt < firstTouchAt) firstTouchAt = commit.authoredAt;
       if (lastTouchAt === null || commit.authoredAt > lastTouchAt) lastTouchAt = commit.authoredAt;
     }
@@ -378,6 +458,7 @@ export function boundaryChurn(
 export function ownershipBreadth(
   commits: CommitRecord[],
   stageMap: Record<string, string[]>,
+  roster: RosterMember[],
 ): Record<string, string[]> {
   if (classifyHistoryQuality(commits) !== HISTORY_USABLE) return {};
 
@@ -385,7 +466,8 @@ export function ownershipBreadth(
   for (const [stage, patterns] of Object.entries(stageMap)) {
     const authors = new Set<string>();
     for (const commit of commits) {
-      if (commit.filesChanged.some((path) => matchesAny(path, patterns))) authors.add(commit.authorLogin);
+      if (!commit.filesChanged.some((path) => matchesAny(path, patterns))) continue;
+      for (const login of commitAuthorLogins(commit, roster)) authors.add(login);
     }
     result[stage] = Array.from(authors).sort();
   }
@@ -401,6 +483,16 @@ export type WeekLabel = "week1" | "week2" | "week3";
 /** The four signals bundled together, for handing to `findingSentences`. */
 export interface ProcessSignals {
   historyQuality: HistoryQuality;
+  /** Which commits every signal below was computed over. Null when none were
+   *  read. See HistoryWindowSchema for what `truncated` means. */
+  historyWindow: { commits: number; truncated: boolean } | null;
+  /**
+   * The team has scored runs, and none of them is evidence for the repository
+   * connected now. TS-only; not persisted, and not in the contract.
+   */
+  runsElsewhere: boolean;
+  /** Internal fetch detail. The contracts schema keeps `historyQuality` at `fetch_failed`. */
+  historyFetchFailureReason: HistoryFetchFailureReason | null;
   stageFootprint: Record<string, StageActivity>;
   firstLight: FirstLightSignal;
   boundaryChurn: ChurnEvent[];
@@ -409,83 +501,202 @@ export interface ProcessSignals {
   weekLabel: WeekLabel | null;
 }
 
-/** `src/audio/find_peaks.py` -> `find_peaks`, for naming a file in prose. Port of process.py's `_stem`. */
-function stem(path: string): string {
-  const segments = path.split("/");
-  const name = segments[segments.length - 1];
-  const dot = name.lastIndexOf(".");
-  return dot === -1 ? name : name.slice(0, dot);
-}
-
 /** Epoch ms -> `YYYY-MM-DD` (UTC), matching process.py's `_format_date` (`.date().isoformat()`). */
 function formatDate(epochMs: number): string {
   return new Date(epochMs).toISOString().slice(0, 10);
 }
 
 /**
+ * Stage names as prose: `["peaks"]` -> `"the peaks stage"`, `["peaks",
+ * "fanout"]` -> `"the peaks and fanout stages"`. The conjunction is a
+ * parameter because a negative sentence ("no commit has touched X or Y")
+ * and a positive one ("one person has committed to X and Y") need
+ * different ones to mean the same thing.
+ */
+function stagePhrase(stages: string[], conjunction: "and" | "or"): string {
+  const noun = stages.length === 1 ? "stage" : "stages";
+  if (stages.length === 1) return `the ${stages[0]} ${noun}`;
+  if (stages.length === 2) return `the ${stages[0]} ${conjunction} ${stages[1]} ${noun}`;
+  const last = stages[stages.length - 1];
+  return `the ${stages.slice(0, -1).join(", ")}, ${conjunction} ${last} ${noun}`;
+}
+
+/**
+ * The ceiling on how many sentences a team can be shown at once.
+ *
+ * The assembly below cannot exceed it today: the history caveat and the two
+ * coverage sentences are mutually exclusive (a history the caveat is about
+ * leaves `stageFootprint` unavailable and `ownershipBreadth` empty), so the
+ * longest real list is first light, contract churn, untouched stages, and
+ * single-author stages. The slice is here for whoever adds a fifth, because
+ * "a wall of sentences" is the failure this panel already had once.
+ */
+const MAX_FINDING_SENTENCES = 4;
+
+/** What happened to the pipeline: the history we could read, the first run
+ *  that scored, and whether the benchmark's own entry points moved after it. */
+function pipelineSentences(signals: ProcessSignals): string[] {
+  const sentences: string[] = [];
+
+  if (signals.historyQuality === HISTORY_BULK_UPLOAD) {
+    // Over a window this is a statement about the commits that were read, not
+    // about how the repository arrived: a recent large refactor sitting above
+    // 39 small commits classifies the same way, and the commits that would
+    // settle it were never requested.
+    sentences.push(
+      signals.historyWindow?.truncated
+        ? `One of your most recent ${signals.historyWindow.commits} commits holds most of the changed files, so within those there is no way to tell which commit touched which stage; the runs are the portal's own record and still hold.`
+        : "The repository arrived as one upload, so there is no way to tell which commit touched which stage; the runs are the portal's own record and still hold.",
+    );
+  } else if (signals.historyQuality === HISTORY_EMPTY) {
+    sentences.push(
+      "There is no commit history yet, so there is nothing to read about which parts of the pipeline have been worked on.",
+    );
+  } else if (signals.historyQuality === HISTORY_FETCH_FAILED) {
+    sentences.push(
+      signals.historyFetchFailureReason === "unauthorized"
+        ? UNAUTHORIZED_HISTORY_REASON
+        : "The commit history could not be read from GitHub just now, so the stages below are blank; the runs are the portal's own record and still hold.",
+    );
+    // Two branches on one fact. `historyUnavailableReason` above picks the
+    // per-stage wording from the same reason; keep them together if either
+    // sentence changes.
+  }
+
+  if (signals.firstLight.firstScoredAt === null) {
+    // Two different states, and they used to read as one. A team that scored
+    // five times on the repository they just disconnected was told "No run has
+    // scored end to end yet", which reads as the portal losing their work. The
+    // runs are still there; they are evidence for a different repository, or
+    // (before migration 0013) for one nothing recorded. Either way they cannot
+    // speak for this one, and saying that is both true and useful.
+    sentences.push(
+      signals.runsElsewhere
+        ? "Your earlier scored runs aren't tied to the repository that's connected now, so the stage map starts again with your next run."
+        : "No run has scored end to end yet, so there is no working pipeline to read anything else against. Integration is the part the course says is hardest, and it usually takes longer than teams expect.",
+    );
+  } else {
+    const date = formatDate(signals.firstLight.firstScoredAt);
+    // `scoredRunCount` counts every scored run including the first, so "since"
+    // would be off by one. Say "in total" and it is exactly what was counted.
+    sentences.push(
+      signals.firstLight.scoredRunCount === 1
+        ? `Your pipeline first scored end to end on ${date}, and that is still the only run that has scored.`
+        : `Your pipeline first scored end to end on ${date}, and ${signals.firstLight.scoredRunCount} runs have scored in total.`,
+    );
+  }
+
+  // One sentence for the whole set, not one per file. Per-file sentences
+  // were both a wall and an overclaim: `boundaryChurn.files` records that a
+  // file was touched, never what changed inside it, so naming a signature
+  // change was a claim the signal cannot support.
+  const churned = signals.boundaryChurn.length;
+  if (churned > 0) {
+    sentences.push(
+      // Names the files rather than calling them "the files the benchmark
+      // calls". The benchmark calls whichever functions discovery bound, which
+      // for most repositories are not these two.
+      `${churned} commit${churned === 1 ? " has" : "s have"} changed ${BOUNDARY_FILES.join(" or ")} since that run, so a run that passed before can stop passing.`,
+    );
+  }
+
+  return sentences;
+}
+
+/**
+ * How to say "we did not see one" when we only looked at part of the history.
+ *
+ * Every sentence built from commits is a statement about the window that was
+ * read. When older commits exist and were not requested, an absence is an
+ * absence in the window and nowhere else, and a page that says "no commit has
+ * touched this yet" about 40 of 75 commits is telling the team something
+ * untrue about their own project.
+ */
+function windowPhrase(signals: ProcessSignals): string {
+  const window = signals.historyWindow;
+  if (!window || !window.truncated) return "";
+  return ` in your most recent ${window.commits} commits`;
+}
+
+/** Who has worked where, as two whole-team readings rather than one line per
+ *  stage. Both are stage-wide, which is the only shape this module allows:
+ *  see the no-per-person rule in the module docstring. */
+function coverageSentences(signals: ProcessSignals): string[] {
+  const sentences: string[] = [];
+
+  const untouched = Object.keys(signals.stageFootprint)
+    .filter((stage) => {
+      const activity = signals.stageFootprint[stage];
+      return activity.available && activity.commitCount === 0;
+    })
+    .sort();
+  if (untouched.length > 0) {
+    const window = windowPhrase(signals);
+    sentences.push(
+      window
+        ? `No commit${window} has touched ${stagePhrase(untouched, "or")}, so that work either hasn't started, lives in files the portal doesn't read as that stage, or happened before the commits this page read.`
+        : `No commit has touched ${stagePhrase(untouched, "or")} yet, so that work either hasn't started or lives in files the portal doesn't read as that stage.`,
+    );
+  }
+
+  // A stage with no commits has no authors either, so it is already covered
+  // by the sentence above and cannot appear here as well.
+  const solo = Object.keys(signals.ownershipBreadth)
+    .filter((stage) => signals.ownershipBreadth[stage].length === 1)
+    .sort();
+  if (solo.length > 0) {
+    // "each of" when there is more than one stage. The observation is one
+    // author per stage, and the stages need not share an author: with alice on
+    // peaks and bob on the database, "only one person has committed to the
+    // database and peaks stages" says something false about two people.
+    //
+    // Just the observation, too. "Nobody else has been inside that code" was an
+    // inference from commit authorship, and commits do not establish who has
+    // read a file, reviewed it, or paired on it.
+    sentences.push(
+      solo.length === 1
+        ? `Only one person has committed to ${stagePhrase(solo, "and")}${windowPhrase(signals)}.`
+        : `Only one person has committed to each of ${stagePhrase(solo, "and")}${windowPhrase(signals)}.`,
+    );
+  }
+
+  return sentences;
+}
+
+/**
  * Template-assembled sentences describing `signals`, in the course's
- * register.
+ * register, in two groups: what happened to the pipeline, then who has
+ * worked where.
  *
  * Every sentence here is a fixed template selected by a condition on the
  * data; nothing is generated. That is a hard requirement, not a style
  * preference: a wrong generated claim about which teammate did what is
  * socially expensive to a team of seventeen-year-olds in a way a wrong
  * number is not (see `docs/design/the-instrument-not-the-judge.md`, "What
- * this forbids"). Each sentence states one observation and stops; a stage
- * with ordinary, spread-out activity gets no sentence at all, because an
- * unremarkable stage is not a finding. Direct port of process.py's
- * `finding_sentences`, plus one new sentence for `HISTORY_FETCH_FAILED`,
- * the TS-only state Python cannot produce (see module docstring).
+ * this forbids").
+ *
+ * Two things changed from process.py's `finding_sentences`, both because
+ * students read the first version on the deployed site and could not tell
+ * what it was for:
+ *
+ * - Each sentence now states its consequence, not only its observation.
+ *   "Only one person has touched the descriptors stage" is a fact with no
+ *   reason to care attached; a reader has to already know why a bus factor
+ *   of one matters before the sentence means anything.
+ * - The per-stage and per-file loops are gone. They emitted one sentence per
+ *   stage and one per contract file, which on a real team was seven lines of
+ *   near-identical prose above a stage list that said the same thing again.
+ *   Each is now a single sentence naming every stage it covers, so the list
+ *   cannot grow with the repository. `MAX_FINDING_SENTENCES` is the backstop.
+ *
+ * The `HISTORY_FETCH_FAILED` sentence remains TS-only; Python cannot produce
+ * that state (see module docstring).
  */
 export function findingSentences(signals: ProcessSignals): string[] {
-  const sentences: string[] = [];
-
-  if (signals.historyQuality === HISTORY_BULK_UPLOAD) {
-    sentences.push(
-      "The commit history is a single upload, so stage and ownership findings below aren't available; the runs are the portal's own observations and still count.",
-    );
-  } else if (signals.historyQuality === HISTORY_EMPTY) {
-    sentences.push("There is no commit history yet, so stage and ownership findings aren't available.");
-  } else if (signals.historyQuality === HISTORY_FETCH_FAILED) {
-    sentences.push(
-      `The commit history could not be read from GitHub just now, so stage and ownership findings aren't available; the runs are still reliable.`,
-    );
-  }
-
-  if (signals.firstLight.firstScoredAt === null) {
-    sentences.push(
-      "No end-to-end run yet. Integration is the part the course says is hardest, and it usually takes longer than teams expect.",
-    );
-  } else {
-    const count = signals.firstLight.scoredRunCount;
-    sentences.push(
-      `The first end-to-end run landed on ${formatDate(signals.firstLight.firstScoredAt)}, with ${count} scored run${count === 1 ? "" : "s"} since.`,
-    );
-  }
-
-  const namedFiles = new Set<string>();
-  for (const event of signals.boundaryChurn) {
-    for (const path of event.files) {
-      const fileStem = stem(path);
-      if (namedFiles.has(fileStem)) continue;
-      namedFiles.add(fileStem);
-      sentences.push(`The ${fileStem} signature changed after your pipeline first worked.`);
-    }
-  }
-
-  for (const stageName of Object.keys(signals.ownershipBreadth).sort()) {
-    const authors = signals.ownershipBreadth[stageName];
-    if (authors.length === 1) sentences.push(`Only one person has touched the ${stageName} stage.`);
-  }
-
-  for (const stageName of Object.keys(signals.stageFootprint).sort()) {
-    const activity = signals.stageFootprint[stageName];
-    if (activity.available && activity.commitCount === 0) {
-      sentences.push(`No commits have touched the ${stageName} stage yet.`);
-    }
-  }
-
-  return sentences;
+  return [...pipelineSentences(signals), ...coverageSentences(signals)].slice(
+    0,
+    MAX_FINDING_SENTENCES,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -548,7 +759,13 @@ export const BOUNDARY_FILES = ["submission.py", "benchmark_adapter.py"];
 export interface BuildProcessSignalsInput {
   commitsResult: FetchCommitsResult;
   runs: RunRecord[];
+  /** See `ProcessSignals.runsElsewhere`. Defaults to false. */
+  runsElsewhere?: boolean;
   weekLabel: WeekLabel | null;
+  /** The team, for resolving `Co-authored-by:` trailers. An empty roster
+   *  resolves nothing, which is the honest reading of "we don't know who
+   *  these people are" rather than a reason to guess. */
+  roster: RosterMember[];
 }
 
 /**
@@ -571,7 +788,12 @@ export function buildProcessSignals(input: BuildProcessSignalsInput): ProcessSig
   if (!input.commitsResult.ok) {
     return {
       historyQuality: HISTORY_FETCH_FAILED,
-      stageFootprint: stageMap ? degradedStageMap(stageMap, FETCH_FAILED_REASON) : {},
+      historyWindow: null,
+      runsElsewhere: input.runsElsewhere ?? false,
+      historyFetchFailureReason: input.commitsResult.reason,
+      stageFootprint: stageMap
+        ? degradedStageMap(stageMap, historyUnavailableReason(input.commitsResult.reason))
+        : {},
       firstLight: light,
       boundaryChurn: [],
       ownershipBreadth: {},
@@ -581,11 +803,16 @@ export function buildProcessSignals(input: BuildProcessSignalsInput): ProcessSig
 
   const commits = input.commitsResult.commits;
   return {
+    // What was read, so nothing below is mistaken for the whole repository.
+    // Every signal here is computed over these commits and no others.
+    historyWindow: { commits: commits.length, truncated: input.commitsResult.truncated },
     historyQuality: classifyHistoryQuality(commits),
-    stageFootprint: stageMap ? stageFootprint(commits, stageMap) : {},
+    runsElsewhere: input.runsElsewhere ?? false,
+    historyFetchFailureReason: null,
+    stageFootprint: stageMap ? stageFootprint(commits, stageMap, input.roster) : {},
     firstLight: light,
     boundaryChurn: boundaryChurn(commits, BOUNDARY_FILES, light.firstScoredAt),
-    ownershipBreadth: stageMap ? ownershipBreadth(commits, stageMap) : {},
+    ownershipBreadth: stageMap ? ownershipBreadth(commits, stageMap, input.roster) : {},
     weekLabel: input.weekLabel,
   };
 }

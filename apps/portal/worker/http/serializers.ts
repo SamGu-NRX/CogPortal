@@ -9,6 +9,7 @@ import {
   type Team,
 } from "@cogworks/contracts/schema";
 import type { Database } from "../db/client";
+import { canPublishOfficialRun } from "../services/run-eligibility";
 import {
   leaderboardSelections,
   runMetrics,
@@ -40,6 +41,7 @@ export function serializeTeam(row: TeamRow): Team {
     id: row.id,
     name: row.name,
     description: row.description,
+    provenance: row.provenance,
     repo: {
       owner: row.repoOwner,
       name: row.repoName,
@@ -60,6 +62,8 @@ export function serializeMetric(row: typeof runMetrics.$inferSelect): Metric {
     primary: row.isPrimary,
     precision: row.precision,
     help: row.help,
+    role: row.role,
+    relatesTo: row.relatesTo,
   };
 }
 
@@ -89,7 +93,8 @@ export async function serializeRunSummary(db: Database, row: RunRow): Promise<Ru
             category: row.failureCategory,
             phase: row.failurePhase,
             detail: row.failureDetail,
-            consumedAttempt: row.failureConsumedAttempt,
+            // Kept on the wire for older clients; failures no longer use quota.
+            consumedAttempt: false,
           }
         : null,
   };
@@ -141,8 +146,16 @@ export async function serializeRunDetail(
     // submission's own output shape, never the hidden data.
     diagnostics: parseDiagnostics(row.diagnosticsJson),
     sweep: parseSweep(row.sweepJson),
+    // Named for their own functions, so it is safe on an official run for the
+    // same reason diagnostics are: it describes their code, never the data.
+    wiring: parseWiring(row.wiringJson),
+    // Names their own modules and functions, so it is safe on an official run
+    // for the same reason diagnostics are.
+    refusal: parseRefusal(row.refusalJson),
+    weightsSupplied: parseWeightsSupplied(row.weightsSuppliedJson),
     log: row.mode === "practice" ? row.log : null,
     selected: selection[0]?.runId === row.id,
+    publishable: canPublishOfficialRun(row),
   };
 }
 
@@ -159,6 +172,30 @@ function parseDiagnostics(value: string | null): string[] {
   }
 }
 
+/** Same tolerance again: a malformed refusal costs the explanation, never the
+ *  page. The capped `failure.detail` still renders either way. */
+function parseRefusal(value: string | null): RunDetail["refusal"] {
+  if (!value) return null;
+  try {
+    const parsed = RunDetailSchema.shape.refusal.safeParse(JSON.parse(value));
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Same tolerance again: a malformed wiring record costs that panel, never
+ *  the page. */
+function parseWiring(value: string | null): RunDetail["wiring"] {
+  if (!value) return [];
+  try {
+    const parsed = RunDetailSchema.shape.wiring.safeParse(JSON.parse(value));
+    return parsed.success ? parsed.data : [];
+  } catch {
+    return [];
+  }
+}
+
 /** Same tolerance as `parseDiagnostics`: a malformed sweep costs the curve,
  *  never the page. Validated against the schema rather than trusted, because
  *  this is stored JSON and a shape change would otherwise reach the browser
@@ -170,5 +207,14 @@ function parseSweep(value: string | null): RunDetail["sweep"] {
     return parsed.success ? parsed.data : null;
   } catch {
     return null;
+  }
+}
+
+function parseWeightsSupplied(value: string): RunDetail["weightsSupplied"] {
+  try {
+    const parsed = RunDetailSchema.shape.weightsSupplied.safeParse(JSON.parse(value));
+    return parsed.success ? parsed.data : [];
+  } catch {
+    return [];
   }
 }

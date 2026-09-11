@@ -4,13 +4,15 @@ import { useState } from "react";
 import { Navigate, useNavigate, useSearchParams } from "react-router";
 import { nextStagePath } from "@/App";
 import { Button } from "@/components/Button";
+import { LoadingMark, QueryError } from "@/components/Feedback";
 import { GitHubIcon } from "@/components/GitHubIcon";
 import { ApiRequestError } from "@/lib/api";
 import { useDevLogin, useSession } from "@/lib/queries";
 import { pendingConnectionReturn } from "@/lib/pending-return";
 
 export function SignInPage() {
-  const { data: session } = useSession();
+  const sessionQuery = useSession();
+  const { data: session } = sessionQuery;
   const navigate = useNavigate();
   const devLogin = useDevLogin();
   const [params] = useSearchParams();
@@ -18,6 +20,25 @@ export function SignInPage() {
 
   if (session?.user) {
     return <Navigate to={pendingConnectionReturn() ?? nextStagePath(session)} replace />;
+  }
+
+  // Without this branch an outage read as "sign-in isn't configured": no
+  // session means no auth config, and the availability check below treats
+  // absence as a disabled provider. A cached session still renders the form.
+  if (sessionQuery.isError && !session) {
+    return (
+      <QueryError
+        error={sessionQuery.error}
+        retry={() => void sessionQuery.refetch()}
+      />
+    );
+  }
+
+  // The same mislabeling happens for the moment the first session read is in
+  // flight: no data yet is not "provider disabled". Show the loading mark
+  // until the answer exists.
+  if (sessionQuery.isPending && !session) {
+    return <LoadingMark />;
   }
 
   const auth = session?.auth;
@@ -50,14 +71,20 @@ export function SignInPage() {
               Continue with GitHub
             </a>
           ) : (
-            <button
-              disabled
-              className="flex h-12 w-full cursor-not-allowed items-center justify-center gap-2.5 bg-ink/35 text-[14px] font-medium tracking-wide text-paper-raised"
-              title="GitHub sign-in isn't configured. Ask course staff to enable it."
-            >
-              <GitHubIcon className="size-[18px]" />
-              Continue with GitHub
-            </button>
+            <>
+              <button
+                disabled
+                className="flex h-12 w-full cursor-not-allowed items-center justify-center gap-2.5 bg-ink/35 text-[14px] font-medium tracking-wide text-paper-raised"
+              >
+                <GitHubIcon className="size-[18px]" />
+                Continue with GitHub
+              </button>
+              {/* Visible, not a hover title: keyboard and touch users have no
+                  hover, and a disabled control takes no focus. */}
+              <p className="mt-3 text-center text-[13px] text-ink-secondary">
+                GitHub sign-in isn't configured. Ask course staff to enable it.
+              </p>
+            </>
           )}
           {oauthError && (
             <p role="alert" className="mt-3 text-center text-[13px] text-detect-deep">
