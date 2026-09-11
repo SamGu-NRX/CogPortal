@@ -1835,17 +1835,10 @@ def _check_predictions(benchmark: Any, predictions: List[Any], case_count: int) 
     """
 
     if len(predictions) != case_count:
-        # Says what happened and stops. It used to tell the student to look for
-        # "a case your code skipped", which under the v2 contract is not
-        # something they can do: the benchmark's own driver walks the case list
-        # and calls their functions once per case. The one time this fired for
-        # real, the platform had handed the sandbox a shorter list than it
-        # scored, and the message sent the student looking through their own
-        # code for it.
+        # This check covers both student-built v1 lists and driver-built v2 lists.
         raise _refuse_output(
-            "Your submission returned {} results for {} cases. Scoring pairs "
-            "them up in order, so it needs one per case. The driver calls your "
-            "code once per case, so if you did not build this list yourself, "
+            "Scoring received {} results for {} cases and needs one per case. "
+            "If your adapter builds this list, check its length. Otherwise, "
             "tell course staff.".format(len(predictions), case_count)
         )
 

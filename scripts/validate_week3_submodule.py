@@ -21,7 +21,8 @@ BENCHMARK = ROOT / "benchmarks" / "week3"
 #
 # No version in PLUGIN_EXPECTATIONS moves: a complete grid scores identically,
 # so this is not a scorer bump and needs no migration.
-REVIEWED_COMMIT = "888916b6ea982a1b1d98249bade82f72c996ce17"
+# Count original cases before dictionaries can hide repeated verbatim/search rungs.
+REVIEWED_COMMIT = "1004766b66a4405ceda1a1b014a0438098a6570e"
 
 PLUGIN_EXPECTATIONS = {
     'benchmark_id = "language-search"': "benchmark id",
@@ -29,7 +30,7 @@ PLUGIN_EXPECTATIONS = {
     'contract_version = "cogworks.submissions.v2"': "contract version",
     # Tracks the catalog row, which migration 0032 moved to retrieval-v4 when
     # `search_mrr` changed from the verbatim rung alone to the mean of the
-    # four query rewrites. Leaving this at retrieval-v2 would assert the
+    # three query rewrites. Leaving this at retrieval-v2 would assert the
     # catalog says something it no longer says.
     'scorer_version = "retrieval-v4"': "scorer version",
     'primary_metric = "overall"': "primary metric",
