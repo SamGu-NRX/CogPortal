@@ -745,6 +745,37 @@ test("a hosted console pairs its current stage's source and commit without borro
   assert.equal(snapshot.shortSha, "b".repeat(7));
   assert.equal(snapshot.branch, "hosted-branch");
   assert.equal(snapshot.sourceRefusal, null);
+
+  // Legacy verification accepted local sessions before their source was known.
+  await db.update(localRunSessions).set({ repositoryId: null }).where(eq(localRunSessions.id, "local_source"));
+  const legacyHosted = await buildRunSurfaceSnapshot(env(binding, "modal"), SURFACE_ID);
+  assert.equal(legacyHosted.sourceRefusal, null);
+  assert.ok(legacyHosted.actions.includes("promote_official"));
+  assert.ok(legacyHosted.actions.includes("rerun_hosted"));
+  await db.update(runs).set({ mode: "official" }).where(eq(runs.id, PRACTICE_RUN_ID));
+  const legacyOfficial = await buildRunSurfaceSnapshot(env(binding, "modal"), SURFACE_ID);
+  assert.equal(legacyOfficial.stage, "official");
+  assert.equal(legacyOfficial.sourceRefusal, null);
+  assert.ok(legacyOfficial.actions.includes("publish_result"));
+});
+
+test("missing hosted stages reject mutations before realtime publication", async () => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  hubPublications = 0;
+  await assert.rejects(
+    performRunSurfaceMutation(env(binding, "fixture"), actor, SURFACE_ID, "publish_result"),
+    (error: unknown) => error instanceof ApiHttpError && error.code === "not_selectable",
+  );
+  await seedLocalSource(db);
+  await db.delete(runs).where(eq(runs.id, PRACTICE_RUN_ID));
+  for (const [action, code] of [["promote_official", "not_promotable"], ["rerun_hosted", "not_found"], ["publish_result", "not_selectable"]] as const) {
+    await assert.rejects(
+      performRunSurfaceMutation(env(binding, "fixture"), actor, SURFACE_ID, action),
+      (error: unknown) => error instanceof ApiHttpError && error.code === code,
+    );
+  }
+  assert.equal(hubPublications, 0);
 });
 
 function renderDashboard(dashboard: Dashboard): string {

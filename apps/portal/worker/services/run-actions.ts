@@ -629,9 +629,14 @@ export async function performRunSurfaceMutation(
     .where(and(eq(runs.surfaceId, surfaceId), eq(runs.mode, "official")))
     .limit(1);
   if (action === "promote_official" || action === "rerun_hosted") {
-    if (surfacePractice) requireRunSource(actor, surfacePractice, "act on it");
+    if (!surfacePractice) {
+      if (action === "rerun_hosted") throw new ApiHttpError(404, "not_found", "Hosted run not found.");
+      throw new ApiHttpError(409, "not_promotable", "Verify this run first.");
+    }
+    requireRunSource(actor, surfacePractice, "act on it");
   } else if (action === "publish_result") {
-    if (surfaceOfficial) requireRunSource(actor, surfaceOfficial, "publish a result");
+    if (!surfaceOfficial) throw new ApiHttpError(409, "not_selectable", "No official result is ready.");
+    requireRunSource(actor, surfaceOfficial, "publish a result");
   }
 
   const snapshot = await publishRunSurface(env, surfaceId);

@@ -328,7 +328,7 @@ export async function buildRunSurfaceSnapshot(
   const source = runSource(current.repositoryFullName);
   const hostedRefusal = sourceRun ? runSourceRefusal(team, sourceRun, "act on it") : null;
   const localRefusal = local ? runSourceRefusal(team, local, "verify it here") : null;
-  const sourceRefusal = hostedRefusal ?? localRefusal;
+  const sourceRefusal = stage === "local" ? localRefusal : hostedRefusal;
 
   const actions: RunSurfaceAction[] = ["open_console", "open_portal"];
   if (stage === "local" && status !== "running") {
