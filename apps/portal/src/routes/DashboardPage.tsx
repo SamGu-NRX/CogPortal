@@ -228,6 +228,9 @@ export function DashboardPage() {
                   : ""}
                 {d.selection.shortSha}
               </p>
+              <p className="mt-1 break-words font-mono text-[11px] text-ink-secondary">
+                {d.selection.source?.fullName ?? "source not recorded"}
+              </p>
               <p className="u-tnum mt-1 font-mono text-[11.5px] tracking-[0.05em] text-ink-secondary">
                 {d.selection.primaryMetric.label}{" "}
                 {formatMetricValue(d.selection.primaryMetric)}
@@ -507,7 +510,9 @@ function CurrentRunPanel({
         <div className="mt-6 border-t border-rule pt-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <div className="u-kicker text-verify-deep">Candidate ready</div>
+              <div className={`u-kicker ${d.latestCandidate.sourceRefusal ? "text-ink-secondary" : "text-verify-deep"}`}>
+                {d.latestCandidate.sourceRefusal ? "Previous result" : "Candidate ready"}
+              </div>
               <p className="mt-1 text-[14px]">
                 <Link
                   to={`/runs/${d.latestCandidate.id}`}
@@ -521,20 +526,31 @@ function CurrentRunPanel({
                 </span>{" "}
                 on {d.latestCandidate.branch} · {d.latestCandidate.shortSha}
               </p>
+              <p className="mt-1 break-words font-mono text-[11px] text-ink-secondary">
+                {d.latestCandidate.repo?.fullName ?? "source not recorded"}
+              </p>
             </div>
-            <ConfirmButton
-              label="Promote to official"
-              confirmLabel={`Confirm, uses attempt ${d.quota.officialUsed + 1} of ${OFFICIAL_LIMIT}`}
-              onConfirm={() => promote.mutate(d.latestCandidate!.id)}
-              busy={promote.isPending}
-              disabled={officialLeft <= 0}
-            />
+            {!d.latestCandidate.sourceRefusal && (
+              <ConfirmButton
+                label="Promote to official"
+                confirmLabel={`Confirm, uses attempt ${d.quota.officialUsed + 1} of ${OFFICIAL_LIMIT}`}
+                onConfirm={() => promote.mutate(d.latestCandidate!.id)}
+                busy={promote.isPending}
+                disabled={officialLeft <= 0}
+              />
+            )}
           </div>
-          <p className="mt-2 font-mono text-[11px] leading-relaxed text-ink-faint">
-            {officialLeft <= 0
-              ? "All official attempts are used."
-              : "Runs the same commit against hidden inputs. Logs are suppressed."}
-          </p>
+          {d.latestCandidate.sourceRefusal ? (
+            <p className="mt-2 text-[13px] leading-relaxed text-ink-secondary">
+              {d.latestCandidate.sourceRefusal}
+            </p>
+          ) : (
+            <p className="mt-2 font-mono text-[11px] leading-relaxed text-ink-faint">
+              {officialLeft <= 0
+                ? "All official attempts are used."
+                : "Runs the same commit against hidden inputs. Logs are suppressed."}
+            </p>
+          )}
           {promoteError && (
             <p role="alert" className="mt-2 text-[13px] text-detect-deep">
               {promoteError.message}

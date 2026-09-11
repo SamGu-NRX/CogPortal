@@ -4,9 +4,21 @@ import { DatabaseSync } from "node:sqlite";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { and, eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { FIXTURE_REPO } from "@cogworks/contracts/fixtures";
+import { DashboardSchema, type Dashboard } from "@cogworks/contracts/schema";
+import { Hono } from "hono";
+import * as React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { StaticRouter } from "react-router";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { DashboardPage } from "../src/routes/DashboardPage.tsx";
+import { createAuth } from "../worker/auth/better-auth.ts";
+import { registerDashboardRoutes } from "../worker/routes/dashboard.ts";
+import { buildRunSurfaceSnapshot } from "../worker/services/run-surfaces.ts";
+import { serializeRunDetail } from "../worker/http/serializers.ts";
+import type { AppEnv } from "../worker/env.ts";
 import type { Database } from "../worker/db/client.ts";
 import {
   benchmarks,
@@ -17,6 +29,8 @@ import {
   officialAttempts,
   runs,
   runSurfaces,
+  runMetrics,
+  teamMembers,
   teams,
   users,
 } from "../worker/db/schema.ts";
@@ -675,6 +689,127 @@ test("hosted verification of a local run from another repository is refused", as
     performRunSurfaceMutation(env(binding, "fixture"), actor, SURFACE_ID, "verify_hosted"),
     (error: unknown) => error instanceof ApiHttpError && error.code === "source_changed",
   );
+});
+
+async function seedLocalSource(db: Database): Promise<void> {
+  await db.insert(cliDevices).values({
+    id: "device_source", userId: "user_test", name: "laptop", tokenHash: "source-hash",
+    createdAt: NOW, expiresAt: NOW + 86_400_000,
+  });
+  await db.insert(localRunSessions).values({
+    id: "local_source", teamId: "team_test", userId: "user_test", deviceId: "device_source",
+    benchmarkId: BENCHMARK_ID, benchmarkVersion: 1,
+    repositoryId: FIXTURE_REPO.repositoryId, repositoryFullName: "old-name/local-source",
+    sha: "a".repeat(40), branch: "main", dirty: false, status: "succeeded", phase: "complete",
+    createdAt: NOW, updatedAt: NOW + 1_000, finishedAt: NOW + 1_000,
+  });
+  await db.update(runSurfaces).set({ localRunId: "local_source" }).where(eq(runSurfaces.id, SURFACE_ID));
+}
+
+test("local-only console keeps recorded source and uses the verification refusal after a repository change", async () => {
+  const { db, binding } = freshDb();
+  await seedPromotion(db);
+  await seedLocalSource(db);
+  await db.delete(runs).where(eq(runs.id, PRACTICE_RUN_ID));
+
+  const matching = await buildRunSurfaceSnapshot(env(binding, "modal"), SURFACE_ID);
+  assert.equal(matching.source?.fullName, "old-name/local-source");
+  assert.equal(matching.sha, "a".repeat(40));
+  assert.equal(matching.sourceRefusal, null);
+  assert.ok(matching.actions.includes("verify_hosted"));
+
+  await db.update(teams).set({ repoId: FIXTURE_REPO.repositoryId + 1 }).where(eq(teams.id, "team_test"));
+  const changed = await buildRunSurfaceSnapshot(env(binding, "modal"), SURFACE_ID);
+  assert.deepEqual(changed.source, matching.source);
+  assert.match(changed.sourceRefusal ?? "", /verify it here/);
+  assert.ok(!changed.actions.includes("verify_hosted"));
+
+  await db.update(localRunSessions).set({ repositoryId: null }).where(eq(localRunSessions.id, "local_source"));
+  const unknown = await buildRunSurfaceSnapshot(env(binding, "modal"), SURFACE_ID);
+  assert.deepEqual(unknown.source, matching.source);
+  assert.match(unknown.sourceRefusal ?? "", /predates/);
+  assert.ok(!unknown.actions.includes("verify_hosted"));
+});
+
+test("a hosted console pairs its current stage's source and commit without borrowing local metadata", async () => {
+  const { db, binding } = freshDb();
+  await seedPromotion(db);
+  await seedLocalSource(db);
+  // Distinct metadata makes a mixed-stage projection detectable even though
+  // normal verification preserves the local commit.
+  await db.update(runs).set({ sha: "b".repeat(40), branch: "hosted-branch" }).where(eq(runs.id, PRACTICE_RUN_ID));
+  const snapshot = await buildRunSurfaceSnapshot(env(binding, "modal"), SURFACE_ID);
+  assert.equal(snapshot.stage, "hosted");
+  assert.equal(snapshot.source?.fullName, "some-org/the-repository-it-ran-from");
+  assert.equal(snapshot.sha, "b".repeat(40));
+  assert.equal(snapshot.shortSha, "b".repeat(7));
+  assert.equal(snapshot.branch, "hosted-branch");
+  assert.equal(snapshot.sourceRefusal, null);
+});
+
+function renderDashboard(dashboard: Dashboard): string {
+  (globalThis as typeof globalThis & { React: typeof React }).React = React;
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+  client.setQueryData(["benchmarks"], [dashboard.benchmark]);
+  client.setQueryData(["dashboard", dashboard.benchmark.id], dashboard);
+  client.setQueryData(["local-reports", dashboard.benchmark.id], []);
+  client.setQueryData(["repositories"], []);
+  return renderToStaticMarkup(React.createElement(QueryClientProvider, { client },
+    React.createElement(StaticRouter, { location: "/dashboard" }, React.createElement(DashboardPage))));
+}
+
+test("dashboard API and rendered candidate agree with detail for unknown, changed and renamed sources", async () => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  await db.update(benchmarks).set({ active: false }).where(and(eq(benchmarks.id, BENCHMARK_ID), ne(benchmarks.version, 1)));
+  await db.insert(runMetrics).values({ runId: PRACTICE_RUN_ID, key: "accuracy", label: "Accuracy",
+    value: 0.8, unit: null, higherIsBetter: true, isPrimary: true, precision: 2 });
+  const testEnv = { ...env(binding, "modal"), DEV_AUTH: "enabled" as const,
+    BETTER_AUTH_SECRET: "a-secure-development-secret-32-chars", BETTER_AUTH_URL: "http://localhost:5173" };
+  const signedIn = await createAuth(testEnv).api.signUpEmail({
+    body: { email: "dashboard-source@example.test", password: "cogportal-local-dev-password", name: "Source reader" },
+    returnHeaders: true,
+  });
+  await db.insert(teamMembers).values({ teamId: actor.team.id, userId: signedIn.response.user.id, role: "admin" });
+  const cookie = signedIn.headers.getSetCookie().map((value) => value.split(";")[0]).join("; ");
+  const app = new Hono<AppEnv>();
+  registerDashboardRoutes(app);
+  for (const repositoryId of [null, FIXTURE_REPO.repositoryId + 1, FIXTURE_REPO.repositoryId]) {
+    await db.update(runs).set({ repositoryId }).where(eq(runs.id, PRACTICE_RUN_ID));
+    const response = await app.fetch(new Request(`http://localhost:5173/dashboard?benchmark=${BENCHMARK_ID}`, { headers: { cookie } }), testEnv);
+    assert.equal(response.status, 200);
+    const dashboard = DashboardSchema.parse(await response.json());
+    const [row] = await db.select().from(runs).where(eq(runs.id, PRACTICE_RUN_ID));
+    assert.ok(row);
+    const detail = await serializeRunDetail(db, row, actor.team);
+    assert.equal(dashboard.latestCandidate?.id, PRACTICE_RUN_ID);
+    assert.equal(dashboard.latestCandidate?.sourceRefusal, detail.sourceRefusal);
+    assert.equal(dashboard.latestCandidate?.repo?.fullName, "some-org/the-repository-it-ran-from");
+    const html = renderDashboard(dashboard);
+    if (repositoryId === FIXTURE_REPO.repositoryId) {
+      assert.equal(dashboard.latestCandidate?.sourceRefusal, null, "a same-ID rename remains eligible");
+      assert.match(html, /Candidate ready/);
+      assert.match(html, /Promote to official/);
+      assert.match(renderDashboard({ ...dashboard, quota: { ...dashboard.quota, officialUsed: dashboard.quota.officialLimit } }), /disabled=""[^>]*>Promote to official/);
+    } else {
+      assert.match(html, /Previous result/);
+      assert.ok(detail.sourceRefusal);
+      assert.ok(html.includes(detail.sourceRefusal));
+      assert.doesNotMatch(html, /Promote to official/);
+      assert.doesNotMatch(html, /Candidate ready/);
+    }
+  }
+  await db.update(runs).set({ mode: "official", attemptNumber: 1 }).where(eq(runs.id, PRACTICE_RUN_ID));
+  await db.insert(leaderboardSelections).values({
+    teamId: actor.team.id, benchmarkId: BENCHMARK_ID, benchmarkVersion: 1,
+    runId: PRACTICE_RUN_ID, selectedAt: NOW,
+  });
+  const response = await app.fetch(new Request(`http://localhost:5173/dashboard?benchmark=${BENCHMARK_ID}`, { headers: { cookie } }), testEnv);
+  assert.equal(response.status, 200);
+  const published = DashboardSchema.parse(await response.json());
+  assert.equal(published.selection?.source?.fullName, "some-org/the-repository-it-ran-from");
+  assert.equal(published.selection?.runId, PRACTICE_RUN_ID);
+  assert.match(renderDashboard(published), /PUBLISHED RESULT[\s\S]*some-org\/the-repository-it-ran-from/);
 });
 
 test("the rule answers every combination of missing and differing ids", () => {
