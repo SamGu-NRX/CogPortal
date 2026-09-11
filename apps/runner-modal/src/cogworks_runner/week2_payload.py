@@ -315,7 +315,13 @@ def encode_cases(
             plans.append(plan)
     elif benchmark_id == CLUSTERING_ID:
         for case in cases:
-            records.append({"images": add(case.images), "seed": int(case.seed)})
+            records.append({
+                "images": add(case.images),
+                "seed": int(case.seed),
+                # Keep repetitions unscored and grouped with their own base case.
+                "scored": case.scored,
+                "scenario_key": case.scenario_key,
+            })
     else:
         raise ValueError("Unsupported Week 2 benchmark.")
 
@@ -398,6 +404,9 @@ def decode_cases(payload: bytes) -> Tuple[str, List[Any]]:
                 images=select(record["images"]),
                 expected_labels=[],
                 seed=int(record["seed"]),
+                # Older bundles contained only scored cases and no grouping key.
+                scored=record.get("scored", True),
+                scenario_key=record.get("scenario_key"),
             )
             for record in metadata["cases"]
         ]

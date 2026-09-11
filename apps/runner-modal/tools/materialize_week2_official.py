@@ -59,9 +59,14 @@ def main() -> None:
         expected = None
     else:
         cases = clustering_scenarios(official)
-        count = sum(len(case.images) for case in cases)
-        if len(cases) != 3 or not 80 <= count <= 120:
-            raise SystemExit("Official clustering manifest must contain three bounded cases.")
+        # Stability repeats reuse the base images for findings, not extra scores.
+        scored = [case for case in cases if case.scored]
+        count = sum(len(case.images) for case in scored)
+        if len(scored) != 3 or not 80 <= count <= 120:
+            raise SystemExit(
+                "Official clustering manifest must contain three scored base cases "
+                "with 80 to 120 total images, excluding stability repetitions."
+            )
         expected = [list(case.expected_labels) for case in cases]
 
     target = args.volume_root.resolve() / args.track / args.dataset_version
@@ -90,7 +95,14 @@ def main() -> None:
     except Exception:
         shutil.rmtree(str(temporary), ignore_errors=True)
         raise
-    print("Materialized {} official images for {}.".format(count, args.track))
+    if args.track == "vision-clustering":
+        print(
+            "Materialized {} scored clustering cases with {} images and {} stability repetitions.".format(
+                len(scored), count, len(cases) - len(scored)
+            )
+        )
+    else:
+        print("Materialized {} official images for {}.".format(count, args.track))
 
 
 if __name__ == "__main__":
