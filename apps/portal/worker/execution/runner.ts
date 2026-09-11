@@ -1,4 +1,5 @@
 import { and, eq, isNull, sql } from "drizzle-orm";
+import { ZodError } from "zod";
 import {
   RUNNER_PROTOCOL_VERSION,
   RunJobV1Schema,
@@ -55,13 +56,17 @@ export function assertModalConfigured(env: Env): asserts env is Env & {
   origin(env);
 }
 
-export function buildRunJob(
+const RunJobInputsSchema = RunJobV1Schema.omit({ jobId: true, callback: true });
+
+// Render-time Retry checks need the same execution inputs without minting a
+// transport ID or requiring callback/provider configuration.
+function buildRunJobInputs(
   env: Env,
   run: RunRow,
   team: TeamRow,
   benchmark: BenchmarkRow,
   weights: WeightFile[] = [],
-): RunJobV1 {
+): Omit<RunJobV1, "jobId" | "callback"> {
   const fullName = `${encodeURIComponent(team.repoOwner)}/${encodeURIComponent(team.repoName)}`;
   if (benchmark.sandboxContract == null || !Number.isSafeInteger(benchmark.sandboxContract) || benchmark.sandboxContract <= 0) {
     throw new ApiHttpError(409, "not_promotable", "The benchmark's execution contract is unknown.");
@@ -72,9 +77,8 @@ export function buildRunJob(
     if (!eligibility.eligible) throw new ApiHttpError(409, "not_promotable", eligibility.reason);
     preparedEnvironment = eligibility.environment;
   }
-  return RunJobV1Schema.parse({
+  return RunJobInputsSchema.parse({
     protocolVersion: RUNNER_PROTOCOL_VERSION,
-    jobId: newId("job_"),
     runId: run.id,
     mode: run.mode,
     preparedArtifactId: run.preparedArtifactId,
@@ -149,11 +153,27 @@ export function buildRunJob(
       timeoutSeconds: 900,
       maxOutputBytes: 8 * 1_024,
     },
-    callback: {
-      url: `${origin(env)}/api/internal/v1/runner/events`,
-      keyId: env.RUNNER_SIGNING_KEY_ID ?? "runner-v1",
-    },
     ...(run.preparedArtifactId ? {} : { weights }),
+  });
+}
+
+function callbackFor(env: Env): RunJobV1["callback"] {
+  return {
+    url: `${origin(env)}/api/internal/v1/runner/events`,
+    keyId: env.RUNNER_SIGNING_KEY_ID ?? "runner-v1",
+  };
+}
+
+export function buildRunJob(
+  env: Env,
+  run: RunRow,
+  team: TeamRow,
+  benchmark: BenchmarkRow,
+  weights: WeightFile[] = [],
+): RunJobV1 {
+  return RunJobV1Schema.parse({
+    ...buildRunJobInputs(env, run, team, benchmark, weights),
+    jobId: newId("job_"), callback: callbackFor(env),
   });
 }
 
@@ -168,7 +188,8 @@ function recordedJob(run: RunRow): RunJobV1 {
   let job: RunJobV1;
   try {
     job = RunJobV1Schema.parse(JSON.parse(run.dispatchJobJson));
-  } catch {
+  } catch (error) {
+    if (!(error instanceof SyntaxError || error instanceof ZodError)) throw error;
     throw retryInputError("This run's recorded dispatch inputs are invalid. Start a new candidate.");
   }
   if (job.runId !== run.id || job.mode !== run.mode || job.source.sha !== run.sha ||
@@ -222,16 +243,14 @@ async function validateRecordedWeights(env: Env, job: RunJobV1): Promise<void> {
   }
 }
 
-/** Preserve the recorded inputs; only transport and execution identifiers change.
- * Modal has no artifact-availability preflight API here. A recorded snapshot ID
- * remains the input, and Modal reports an unavailable snapshot as a run failure. */
-export async function prepareRetryJob(
+/** Read-only validation shared by admission and Retry advertisement. It returns
+ * the original dispatch inputs and performs no transport or availability work. */
+export function validateRetryInputs(
   env: Env,
   failedRun: RunRow,
   team: TeamRow,
   benchmark: BenchmarkRow,
-  newRunId: string,
-): Promise<RunJobV1> {
+): RunJobV1 {
   const saved = recordedJob(failedRun);
   if (failedRun.status !== "failed" || failedRun.teamId !== team.id ||
       failedRun.repositoryId !== team.repoId ||
@@ -239,16 +258,16 @@ export async function prepareRetryJob(
       failedRun.runtimeVersion !== benchmark.runtimeVersion) {
     throw retryInputError("Retry status, team, repository, provider, or runtime version does not match.");
   }
-  assertModalConfigured(env);
   // The row may carry an artifact from a late completion. Only the dispatch
   // record identifies whether the original execution prepared its own inputs.
-  let current: RunJobV1;
+  let current: Omit<RunJobV1, "jobId" | "callback">;
   try {
-    current = buildRunJob(env, {
+    current = buildRunJobInputs(env, {
       ...failedRun, preparedArtifactId: saved.preparedArtifactId,
       preparedEnvironmentJson: saved.preparedEnvironment ? JSON.stringify(saved.preparedEnvironment) : null,
     }, team, benchmark, saved.weights);
-  } catch {
+  } catch (error) {
+    if (!(error instanceof ZodError) && !(error instanceof ApiHttpError && error.status === 409)) throw error;
     throw retryInputError("Current repository or benchmark/runtime configuration is invalid for retry.");
   }
   if (JSON.stringify(saved.source) !== JSON.stringify(current.source) ||
@@ -257,12 +276,26 @@ export async function prepareRetryJob(
       saved.protocolVersion !== current.protocolVersion) {
     throw retryInputError("Repository or benchmark/runtime configuration changed since this run.");
   }
+  return saved;
+}
+
+/** Availability and transport checks stay at admission. A missing snapshot is
+ * still the provider's terminal failure, never a render-time preflight. */
+export async function prepareRetryJob(
+  env: Env,
+  failedRun: RunRow,
+  team: TeamRow,
+  benchmark: BenchmarkRow,
+  newRunId: string,
+): Promise<RunJobV1> {
+  const saved = validateRetryInputs(env, failedRun, team, benchmark);
+  assertModalConfigured(env);
   await validateRecordedWeights(env, saved);
   if (!newRunId || newRunId === failedRun.id) {
     throw retryInputError("Retry requires a new execution ID.");
   }
   return RunJobV1Schema.parse({
-    ...saved, jobId: current.jobId, runId: newRunId, callback: current.callback,
+    ...saved, jobId: newId("job_"), runId: newRunId, callback: callbackFor(env),
   });
 }
 

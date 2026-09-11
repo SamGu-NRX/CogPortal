@@ -518,10 +518,12 @@ export async function retryRun(
     throw new ApiHttpError(409, "invalid_request", "The recorded execution source is no longer available. Start a new candidate.");
   }
   const benchmark = await activeBenchmark(env, failed.benchmarkId, failed.benchmarkVersion);
-  if (failed.contractVersion !== benchmark.contractVersion
+  // Modal's recorded-input check in prepareRetryJob owns these comparisons.
+  // Fixture runs have no recorded job, so retain their existing label check.
+  if (failed.provider === "fixture" && (failed.contractVersion !== benchmark.contractVersion
     || failed.scorerVersion !== benchmark.scorerVersion
     || failed.runtimeVersion !== benchmark.runtimeVersion
-    || failed.datasetVersion !== (failed.mode === "official" ? benchmark.datasetVersion : "practice-v1")) {
+    || failed.datasetVersion !== (failed.mode === "official" ? benchmark.datasetVersion : "practice-v1"))) {
     throw new ApiHttpError(409, "invalid_request", "The recorded benchmark configuration has changed. Start a new candidate.");
   }
   if (actor.team.repoFullName !== FIXTURE_REPO.fullName) {

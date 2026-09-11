@@ -31,6 +31,7 @@ import {
   type RunSurfaceRow,
 } from "../db/schema";
 import { syncRun } from "../execution/sync";
+import { validateRetryInputs } from "../execution/runner";
 import { serializeMetric } from "../http/serializers";
 import { ApiHttpError } from "../http/errors";
 import { canPublishOfficialRun, currentSurfaceRun, savedEnvironmentEligibility } from "./run-eligibility";
@@ -346,13 +347,22 @@ export async function readRunSurfaceSnapshot(
   const occupied = accounting.officialUsed + accounting.officialReserved;
   const nextAttempt = occupied < OFFICIAL_LIMIT ? occupied + 1 : null;
   const execution = official ?? practice;
+  let retryRefusal: string | null = null;
+  if (execution?.status === "failed" && execution.provider === "modal") {
+    try {
+      validateRetryInputs(env, execution, team, benchmark);
+    } catch (error) {
+      if (!(error instanceof ApiHttpError) || error.status !== 409) throw error;
+      retryRefusal = error.message;
+    }
+  }
   const retryCapacity = execution?.mode === "official"
     ? occupied < OFFICIAL_LIMIT
     : accounting.practiceUsed + accounting.practiceReserved < PRACTICE_LIMIT;
   if (execution?.status === "failed" && benchmark.active && !accounting.activeRuns
     && retryCapacity && execution.provider === env.EXECUTION_PROVIDER
     && execution.repositoryId !== null && execution.repositoryId === team.repoId
-    && (execution.dispatchJobJson !== null || execution.provider === "fixture")) {
+    && retryRefusal === null) {
     actions.splice(2, 0, "retry");
   }
 
@@ -395,6 +405,7 @@ export async function readRunSurfaceSnapshot(
     // message.
     refusalHeadline: refusalHeadlineOf(official ?? practice),
     promotionRefusal,
+    retryRefusal,
     events,
     actions,
     simulated: env.EXECUTION_PROVIDER === "fixture",
