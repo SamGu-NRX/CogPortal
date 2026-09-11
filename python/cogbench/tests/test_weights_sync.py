@@ -172,6 +172,7 @@ class CliTrackedWeightSkipTest(unittest.TestCase):
 
         self.assertEqual(result, 0)
         mock_sync.assert_called_once()
+        self.assertEqual(mock_sync.call_args[0][2]["weightsUploaded"], [])
         # Verify upload was NOT called for tracked file
         mock_upload.assert_not_called()
         # Verify output mentions the tracked file
@@ -238,6 +239,9 @@ class CliUntrackedWeightUploadTest(unittest.TestCase):
 
         self.assertEqual(result, 0)
         mock_sync.assert_called_once()
+        self.assertEqual(mock_sync.call_args[0][2]["weightsUploaded"], [{
+            "path": "trained_weights.npz", "sha256": hashlib.sha256(b"fake numpy data").hexdigest(),
+        }])
         # Verify upload WAS called for untracked file
         mock_upload.assert_called_once()
         # Check the arguments to upload_weight
@@ -305,7 +309,7 @@ class CliMissingWeightFileFailsTest(unittest.TestCase):
                                 result = main(["sync", str(report_file)])
 
         self.assertEqual(result, 2)
-        mock_sync.assert_called_once()
+        mock_sync.assert_not_called()
         self.assertIn("does not exist", stderr.getvalue())
 
 
@@ -340,6 +344,9 @@ class CliTrackedModifiedWeightUploadTest(unittest.TestCase):
             text=True,
         ).stdout.strip()
         weight_path.write_bytes(b"modified after report")
+        # Git diff can hide this modification; provenance must compare the actual bytes.
+        subprocess.run(["git", "update-index", "--assume-unchanged", "model.pkl"],
+                       cwd=str(self.tmp), check=True, capture_output=True)
         report = LocalReport(
             report_id="local_modified",
             benchmark_id="language-search",
@@ -428,7 +435,109 @@ class CliUnsafeWeightPathTest(unittest.TestCase):
         self.assertIn("regular file inside the repository", stderr.getvalue())
 
 
+class WeightProvenanceTests(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name).resolve()
+        self.git("init")
+        self.git("-c", "user.name=Test", "-c", "user.email=test@example.com",
+                 "commit", "--allow-empty", "-m", "Initial")
+        self.sha = self.git("rev-parse", "HEAD").stdout.strip()
+
+    def git(self, *args):
+        return subprocess.run(["git", *args], cwd=str(self.root), check=True,
+                              capture_output=True, text=True)
+
+    def report(self):
+        return LocalReport.create(
+            benchmark_id="language-search", benchmark_version=1,
+            contract_version="cogworks.submissions.v2", sdk_version="0.1.0",
+            plugin_version="0.1.0",
+            repository=RepositoryState(None, "test/repo", self.sha, False),
+            started_at=1, finished_at=2, metrics=[], diagnostics=[], predictions=[],
+            weights_used=["model.pkl"],
+        )
+
+    def test_newly_staged_file_requires_upload_before_upload_loop_starts(self):
+        (self.root / "model.pkl").write_bytes(b"newly staged")
+        self.git("add", "model.pkl")
+        report_file = self.root / "report.json"
+        report_file.write_text(self.report().to_json(), encoding="utf-8")
+        events = []
+
+        def post(_portal, _token, payload):
+            self.assertEqual(payload["weightsUploaded"], [{
+                "path": "model.pkl", "sha256": hashlib.sha256(b"newly staged").hexdigest(),
+            }])
+            events.append("post")
+
+        def upload(*_args, expected_sha256):
+            self.assertEqual(expected_sha256, hashlib.sha256(b"newly staged").hexdigest())
+            self.assertEqual(events, ["post"])
+            events.append("upload")
+            return "weights/test/repo/model.pkl"
+
+        with patch("cogbench.cli.sync_report", side_effect=post), patch(
+            "cogbench.cli.upload_weight", side_effect=upload
+        ), patch("cogbench.cli.token_for", return_value="token"), patch(
+            "cogbench.cli._resolve_report", return_value=report_file
+        ), patch("cogbench.cli._portal", return_value="http://example.com"), patch(
+            "cogbench.cli.Path.cwd", return_value=self.root
+        ), redirect_stdout(io.StringIO()):
+            self.assertEqual(main(["sync", str(report_file)]), 0)
+        self.assertEqual(events, ["post", "upload"])
+
+    def test_sync_without_report_sha_fails_before_post(self):
+        payload = json.loads(self.report().to_json())
+        payload["sha"] = None
+        report_file = self.root / "report.json"
+        report_file.write_text(json.dumps(payload), encoding="utf-8")
+        stderr = io.StringIO()
+        with patch("cogbench.cli.sync_report") as post, patch(
+            "cogbench.cli.token_for", return_value="token"
+        ), patch("cogbench.cli._resolve_report", return_value=report_file), patch(
+            "cogbench.cli._portal", return_value="http://example.com"
+        ), patch("cogbench.cli.Path.cwd", return_value=self.root), redirect_stderr(stderr):
+            self.assertEqual(main(["sync", str(report_file)]), 2)
+        post.assert_not_called()
+        self.assertIn("no repository revision for its weights", stderr.getvalue())
+
+    def test_provenance_round_trip_preserves_unknown_and_explicit_empty(self):
+        payload = json.loads(self.report().to_json())
+        payload.pop("weightsUploaded")
+        self.assertIsNone(LocalReport.from_json(json.dumps(payload)).weights_uploaded)
+        for provenance in [None, [], [{"path": "model.pkl", "sha256": "a" * 64}]]:
+            payload["weightsUploaded"] = provenance
+            restored = LocalReport.from_json(json.dumps(payload))
+            self.assertEqual(restored.weights_uploaded, provenance)
+            self.assertEqual(restored.to_wire()["weightsUploaded"], provenance)
+
+    def test_malformed_provenance_fails_without_coercion(self):
+        payload = json.loads(self.report().to_json())
+        for provenance in ["model.pkl", [1], ["other.pkl"], {},
+                           [{"path": "model.pkl"}], [{"path": "model.pkl", "sha256": "invalid"}],
+                           [{"path": "other.pkl", "sha256": "a" * 64}]]:
+            with self.subTest(provenance=provenance):
+                payload["weightsUploaded"] = provenance
+                with self.assertRaisesRegex(ValueError, "weightsUploaded"):
+                    LocalReport.from_json(json.dumps(payload))
+
+
 class UploadWeightDigestHeaderTest(unittest.TestCase):
+    def test_upload_keeps_the_report_digest_when_the_file_changes_after_post(self):
+        with tempfile.TemporaryDirectory() as directory:
+            weight_path = Path(directory) / "model.pkl"
+            weight_path.write_bytes(b"changed after POST")
+            expected = hashlib.sha256(b"bytes in report").hexdigest()
+            response = MagicMock()
+            response.__enter__.return_value.read.return_value = b'{"destination":"weights/model.pkl"}'
+            with patch("cogbench.client.urllib.request.urlopen", return_value=response) as request:
+                upload_weight("http://example.com", "token", "local_digest", "model.pkl",
+                              weight_path, expected_sha256=expected)
+            headers = {key.lower(): value for key, value in request.call_args[0][0].header_items()}
+            self.assertEqual(headers["x-cogworks-weight-sha256"], expected)
+
     def test_upload_sends_the_sha256_header(self):
         with tempfile.TemporaryDirectory() as directory:
             weight_path = Path(directory) / "model.pkl"

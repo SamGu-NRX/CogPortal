@@ -8,6 +8,7 @@ import {
   deviceAuthorizations,
   outboxEvents,
   runs,
+  type RunRow,
 } from "../db/schema";
 import { refundOfficialAttempt, withRefundCapNotice } from "./refunds";
 
@@ -53,6 +54,22 @@ const STALE_FAILURE_DETAIL = "The execution provider stopped reporting progress.
 const STALE_REFUNDED_DETAIL = `${STALE_FAILURE_DETAIL} This attempt was refunded.`;
 /** Practice runs claim no official attempt, so there is nothing to give back. */
 const STALE_SETTLED_DETAIL = `${STALE_FAILURE_DETAIL} Start the run again when you're ready.`;
+
+// These are the reaper's existing failure states, including an interrupted
+// settlement. A scorer failure or dispatch rejection is not a stale result.
+export function isStaleRunFailure(
+  run: Pick<RunRow, "status" | "provider" | "failureCategory" | "failureDetail">,
+): boolean {
+  return run.status === "failed" &&
+    run.provider === "modal" &&
+    run.failureCategory === "provider" &&
+    [
+      STALE_FAILURE_DETAIL,
+      STALE_REFUNDED_DETAIL,
+      STALE_SETTLED_DETAIL,
+      withRefundCapNotice(STALE_FAILURE_DETAIL),
+    ].includes(run.failureDetail ?? "");
+}
 
 function staleAfterMs(env: Env): number {
   const configured = Number(env.RUN_STALE_AFTER_SECONDS ?? DEFAULT_STALE_AFTER_SECONDS);
@@ -164,7 +181,11 @@ export async function maintainPlatform(env: Env, now = Date.now()): Promise<void
             }
           : { failureDetail: refunded ? STALE_REFUNDED_DETAIL : STALE_SETTLED_DETAIL },
       )
-      .where(eq(runs.id, run.id));
+      .where(and(
+        eq(runs.id, run.id),
+        eq(runs.status, "failed"),
+        eq(runs.failureDetail, STALE_FAILURE_DETAIL),
+      ));
   }
 
   await Promise.all([

@@ -1,5 +1,5 @@
 import type { Context, Hono } from "hono";
-import { and, eq, lt } from "drizzle-orm";
+import { and, eq, exists, lt, ne, notInArray } from "drizzle-orm";
 import { z } from "zod";
 import { RunEventV1Schema, type RunEventV1 } from "@cogworks/contracts/protocol";
 import type { FailureCategory, RunPhase, RunStreamEventCode } from "@cogworks/contracts/schema";
@@ -15,6 +15,7 @@ import {
 } from "../db/schema";
 import { hmacSignature } from "../execution/runner";
 import { refundOfficialAttempt, withRefundCapNotice } from "../execution/refunds";
+import { isStaleRunFailure } from "../execution/maintenance";
 import { ApiHttpError } from "../http/errors";
 import { respond } from "../http/respond";
 import { constantTimeTextEqual } from "../util/crypto";
@@ -84,31 +85,41 @@ async function applyEvent(env: AppEnv["Bindings"], event: RunEventV1): Promise<v
   const db = getDb(env);
   const [run] = await db.select().from(runs).where(eq(runs.id, event.runId)).limit(1);
   if (!run) throw new ApiHttpError(404, "not_found", "Run not found.");
-  if (["succeeded", "failed", "cancelled"].includes(run.status)) return;
+  const lateCompletion = event.type === "completed" && isStaleRunFailure(run);
+  if (["succeeded", "failed", "cancelled"].includes(run.status) && !lateCompletion) return;
   if (event.sequence <= run.lastEventSequence) return;
 
   if (event.type === "status") {
     const phase = event.status;
-    if (run.status !== phase) {
-      const previous = previousPhase(phase);
-      await db
-        .update(runPhases)
-        .set({ startedAt: event.occurredAt })
-        .where(and(eq(runPhases.runId, run.id), eq(runPhases.phase, phase)));
-      if (previous) {
-        await db
-          .update(runPhases)
-          .set({ endedAt: event.occurredAt })
-          .where(and(eq(runPhases.runId, run.id), eq(runPhases.phase, previous)));
-      }
-    }
-    if (run.mode === "official" && phase === "evaluating") {
-      await db.update(officialAttempts).set({ consumed: true }).where(eq(officialAttempts.runId, run.id));
-    }
-    await db
-      .update(runs)
-      .set({ status: phase, lastEventSequence: event.sequence })
-      .where(and(eq(runs.id, run.id), lt(runs.lastEventSequence, event.sequence)));
+    const previous = previousPhase(phase);
+    const eligible = and(
+      eq(runs.id, run.id),
+      notInArray(runs.status, ["succeeded", "failed", "cancelled"]),
+      lt(runs.lastEventSequence, event.sequence),
+    );
+    const phaseChanged = exists(db.select({ id: runs.id }).from(runs)
+      .where(and(eligible, ne(runs.status, phase))));
+    // The reaper can finish and refund this run after the initial read. Gate
+    // every write on persisted state in one D1 transaction, with the run update
+    // last so all statements see the same status and sequence eligibility.
+    await db.batch([
+      db.update(runPhases).set({ startedAt: event.occurredAt }).where(and(
+        eq(runPhases.runId, run.id), eq(runPhases.phase, phase), phaseChanged,
+      )),
+      ...(previous ? [
+        db.update(runPhases).set({ endedAt: event.occurredAt }).where(and(
+          eq(runPhases.runId, run.id), eq(runPhases.phase, previous), phaseChanged,
+        )),
+      ] : []),
+      ...(phase === "evaluating" ? [
+        db.update(officialAttempts).set({ consumed: true }).where(and(
+          eq(officialAttempts.runId, run.id),
+          exists(db.select({ id: runs.id }).from(runs)
+            .where(and(eligible, eq(runs.mode, "official")))),
+        )),
+      ] : []),
+      db.update(runs).set({ status: phase, lastEventSequence: event.sequence }).where(eligible),
+    ]);
     return;
   }
 
@@ -152,10 +163,7 @@ async function applyEvent(env: AppEnv["Bindings"], event: RunEventV1): Promise<v
           isPrimary: metric.primary,
           precision: metric.precision,
           help: metric.help ?? null,
-          // Explicit nulls on both branches, so a result declaring no role
-          // stores "none recorded" rather than inheriting an earlier write.
-          // The conflict branch only ever sees a retry of the same event
-          // today, since applyEvent returns early on a terminal run.
+          // A retry must not inherit metadata absent from the result.
           role: metric.role ?? null,
           relatesTo: metric.relatesTo ?? null,
         })
@@ -206,6 +214,11 @@ async function applyEvent(env: AppEnv["Bindings"], event: RunEventV1): Promise<v
       .update(runs)
       .set({
         status: "succeeded",
+        failureCategory: null,
+        failurePhase: null,
+        failureDetail: null,
+        failureConsumedAttempt: false,
+        refusalJson: null,
         finishedAt: event.occurredAt,
         preparedArtifactId: event.preparedArtifactId,
         environmentDigest: event.environmentDigest,

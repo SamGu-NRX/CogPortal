@@ -33,6 +33,7 @@ import {
 import { syncRun } from "../execution/sync";
 import { serializeMetric } from "../http/serializers";
 import { ApiHttpError } from "../http/errors";
+import { canPublishOfficialRun } from "./run-eligibility";
 
 const MAX_SURFACE_EVENTS = 250;
 
@@ -322,8 +323,10 @@ export async function buildRunSurfaceSnapshot(
   } else if (stage === "hosted" && status !== "running") {
     actions.push("rerun_hosted");
     if (status === "succeeded") actions.splice(2, 0, "promote_official");
-  } else if (stage === "official" && status === "succeeded") {
-    actions.push("publish_result");
+  } else if (stage === "official" && official) {
+    if (canPublishOfficialRun(official)) actions.push("publish_result");
+    // A refunded result cannot be published or promoted again on this surface.
+    if (status !== "running" && official.refundedAt !== null) actions.push("rerun_hosted");
   }
 
   const claims = await db

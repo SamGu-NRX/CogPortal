@@ -209,7 +209,7 @@ test("the report paths become a digest-bound R2 manifest", async () => {
     await weightManifest(bucket, "course/team", sha, [
       "models/present.pkl",
       "models/committed.pkl",
-    ]),
+    ], [{ path: "models/present.pkl", sha256: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f" }]),
     [
       {
         path: "models/present.pkl",
@@ -217,6 +217,101 @@ test("the report paths become a digest-bound R2 manifest", async () => {
         sha256: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
       },
     ],
+  );
+});
+
+test("a newer report rejects stale stored bytes and accepts its completed upload", async () => {
+  const object: R2Object = {
+    key: "model.pkl", version: "1", size: 3, etag: "etag", httpEtag: '"etag"',
+    uploaded: new Date(), checksums: { sha256: new Uint8Array(32).buffer, toJSON: () => ({}) },
+    storageClass: "Standard", writeHttpMetadata: () => {},
+  };
+  const bucket = { head: async () => object };
+  const required = [{ path: "model.pkl", sha256: SHA256_ABC }];
+  await assert.rejects(
+    weightManifest(bucket, "course/team", "a".repeat(40), ["model.pkl"], required),
+    (error: unknown) => error instanceof Error && "status" in error && error.status === 409 &&
+      /does not match this report; sync the report again/.test(error.message),
+  );
+  // A legacy report cannot prove that even an existing object belongs to it.
+  await assert.rejects(
+    weightManifest(bucket, "course/team", "a".repeat(40), ["model.pkl"], null),
+    /doesn't identify its uploaded weights/,
+  );
+  object.checksums.sha256 = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("abc"));
+  assert.deepEqual(
+    await weightManifest(bucket, "course/team", "a".repeat(40), ["model.pkl"], required),
+    [{ path: "model.pkl", sha256: SHA256_ABC, size: 3 }],
+  );
+});
+
+test("manifest validates provenance even without a storage binding", async () => {
+  await assert.rejects(
+    weightManifest(undefined, "course/team", "a".repeat(40), ["model.pkl"], null),
+    /doesn't identify its uploaded weights/,
+  );
+  await assert.rejects(
+    weightManifest(undefined, "course/team", "a".repeat(40), ["model.pkl"],
+      [{ path: "model.pkl", sha256: SHA256_ABC }]),
+    /Weight storage is not configured/,
+  );
+  assert.deepEqual(await weightManifest(undefined, "course/team", "a".repeat(40), ["model.pkl"], []), []);
+  assert.deepEqual(await weightManifest(undefined, "course/team", "a".repeat(40), [], null), []);
+});
+
+test("required uploads without checksums are rejected", async () => {
+  const object: R2Object = {
+    key: "model.pkl", version: "1", size: 3, etag: "etag", httpEtag: '"etag"',
+    uploaded: new Date(), checksums: { toJSON: () => ({}) },
+    storageClass: "Standard", writeHttpMetadata: () => {},
+  };
+  await assert.rejects(
+    weightManifest({ head: async () => object }, "course/team", "a".repeat(40),
+      ["model.pkl"], [{ path: "model.pkl", sha256: SHA256_ABC }]),
+    /has no SHA-256 checksum; sync the report again/,
+  );
+});
+
+test("incomplete sync cannot produce a dispatch manifest", async () => {
+  await assert.rejects(
+    weightManifest({ head: async () => null }, "course/team", "a".repeat(40),
+      ["model.pkl"], [{ path: "model.pkl", sha256: SHA256_ABC }]),
+    /Required weight model.pkl has not been uploaded; sync the report again/,
+  );
+});
+
+test("legacy missing objects require resync rather than imply committed weights", async () => {
+  for (const provenance of [undefined, null]) {
+    await assert.rejects(
+      weightManifest({ head: async () => null }, "course/team", "a".repeat(40),
+        ["model.pkl"], provenance),
+      /doesn't identify its uploaded weights; update the CLI and sync the report again/,
+    );
+  }
+});
+
+test("proven committed weights never read stale R2 overrides", async () => {
+  const bucket = { head: async () => { throw new Error("must not read committed weights"); } };
+  assert.deepEqual(
+    await weightManifest(bucket, "course/team", "a".repeat(40), ["model.pkl"], []),
+    [],
+  );
+});
+
+test("uploads outside weightsUsed are rejected before R2 reads", async () => {
+  await assert.rejects(
+    weightManifest({ head: async () => { throw new Error("unexpected read"); } },
+      "course/team", "a".repeat(40), ["model.pkl"], [{ path: "other.pkl", sha256: SHA256_ABC }]),
+    /invalid weight provenance/,
+  );
+});
+
+test("duplicate required uploads are rejected before R2 reads", async () => {
+  const required = { path: "model.pkl", sha256: SHA256_ABC };
+  await assert.rejects(
+    weightManifest({ head: async () => { throw new Error("unexpected read"); } },
+      "course/team", "a".repeat(40), [required.path], [required, required]),
+    /invalid weight provenance/,
   );
 });
 

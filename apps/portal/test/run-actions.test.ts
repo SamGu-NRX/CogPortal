@@ -6,21 +6,30 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { and, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
+import { Hono } from "hono";
+import { maintainPlatform } from "../worker/execution/maintenance.ts";
+import { hmacSignature } from "../worker/execution/runner.ts";
+import { registerRunnerEventRoutes } from "../worker/routes/runner-events.ts";
+import { buildRunSurfaceSnapshot } from "../worker/services/run-surfaces.ts";
 import { FIXTURE_REPO } from "@cogworks/contracts/fixtures";
 import type { Database } from "../worker/db/client.ts";
 import {
   benchmarks,
   cohorts,
   officialAttempts,
+  localReports,
+  teamMembers,
   runs,
   runSurfaces,
   teams,
   users,
 } from "../worker/db/schema.ts";
-import type { Env } from "../worker/env.ts";
+import type { AppEnv, Env } from "../worker/env.ts";
 import { ApiHttpError } from "../worker/http/errors.ts";
 import {
   promotePracticeRun,
+  startPracticeRun,
+  rerunHostedSurface,
   type RunActor,
 } from "../worker/services/run-actions.ts";
 
@@ -277,6 +286,141 @@ test("a succeeded official run remains idempotent on the same surface", async ()
     await promotePracticeRun(env(binding, "fixture"), actor, PRACTICE_RUN_ID),
     { runId: officialRunId, surfaceId: SURFACE_ID },
   );
+});
+
+test("a reaped official result that arrives late offers a fresh hosted run instead of re-promotion", async () => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  const officialId = await seedOfficial(db, "succeeded");
+  await db.update(runs).set({ status: "evaluating", finishedAt: null }).where(eq(runs.id, officialId));
+  const runtime = env(binding, "modal");
+  await maintainPlatform(runtime, NOW + 3_601_001);
+  const [reaped] = await db.select().from(runs).where(eq(runs.id, officialId));
+  assert.equal(reaped.status, "failed");
+  assert.notEqual(reaped.refundedAt, null);
+  assert.equal((await db.select().from(officialAttempts)).length, 0);
+
+  const app = new Hono<AppEnv>();
+  registerRunnerEventRoutes(app);
+  const body = JSON.stringify({
+    protocolVersion: "1",
+    eventId: "event_late_official",
+    runId: officialId,
+    sequence: 5,
+    occurredAt: NOW + 60_000,
+    type: "completed",
+    preparedArtifactId: "artifact_test",
+    environmentDigest: "b".repeat(64),
+    sanitizedLog: null,
+    result: {
+      protocolVersion: "1",
+      benchmarkId: BENCHMARK_ID,
+      benchmarkVersion: 1,
+      metrics: [{ key: "accuracy", label: "Accuracy", value: 0.5, unit: null, higherIsBetter: true, primary: true, precision: 3 }],
+      diagnostics: ["The image stage returned no embeddings."],
+      outputDigest: "c".repeat(64),
+    },
+  });
+  const timestamp = String(Math.floor(Date.now() / 1_000));
+  const response = await app.fetch(new Request("https://portal.example/internal/v1/runner/events", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "X-Cogworks-Key-Id": "runner-v1",
+      "X-Cogworks-Timestamp": timestamp,
+      "X-Cogworks-Signature": `v1=${await hmacSignature(runtime.RUNNER_SIGNING_SECRET!, timestamp, body)}`,
+    },
+    body,
+  }), runtime);
+  assert.equal(response.status, 200, await response.text());
+  const [recovered] = await db.select().from(runs).where(eq(runs.id, officialId));
+  assert.equal(recovered.status, "succeeded");
+  assert.equal(recovered.refundedAt, reaped.refundedAt);
+  assert.match(recovered.diagnosticsJson!, /image stage/);
+  await assert.rejects(promotePracticeRun(runtime, actor, PRACTICE_RUN_ID), (error: unknown) => {
+    assert.ok(error instanceof ApiHttpError);
+    assert.equal(error.code, "not_promotable");
+    assert.match(error.message, /refunded.*Start a new practice run/);
+    return true;
+  });
+  const snapshot = await buildRunSurfaceSnapshot(runtime, SURFACE_ID);
+  assert.equal(snapshot.status, "succeeded");
+  assert.ok(snapshot.actions.includes("rerun_hosted"));
+  assert.ok(!snapshot.actions.includes("publish_result"));
+  assert.ok(!snapshot.actions.includes("promote_official"));
+  const rerun = await rerunHostedSurface(env(binding, "fixture"), actor, SURFACE_ID);
+  assert.notEqual(rerun.surfaceId, SURFACE_ID);
+  const [successor] = await db.select().from(runSurfaces).where(eq(runSurfaces.id, rerun.surfaceId));
+  assert.equal(successor.supersedesSurfaceId, SURFACE_ID);
+  assert.equal((await db.select().from(officialAttempts)).length, 0);
+});
+
+test("incomplete weight uploads fail hosted dispatch without leaving an active run or attempt", async () => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  await db.insert(teamMembers).values({ teamId: actor.team.id, userId: actor.userId, role: "write" });
+  await db.insert(localReports).values({
+    reportId: "report_missing_weight",
+    userId: actor.userId,
+    benchmarkId: BENCHMARK_ID,
+    benchmarkVersion: 1,
+    contractVersion: "cogworks.submissions.v1",
+    sdkVersion: "0.2.0",
+    pluginVersion: "1",
+    repositoryFullName: FIXTURE_REPO.fullName,
+    sha: "a".repeat(40),
+    dirty: false,
+    startedAt: NOW,
+    finishedAt: NOW + 1_000,
+    metricsJson: "[]",
+    diagnosticsJson: "[]",
+    weightsUsedJson: '["models/first.pkl","models/missing.pkl"]',
+    weightsUploadedJson: JSON.stringify([
+      { path: "models/first.pkl", sha256: "0".repeat(64) },
+      { path: "models/missing.pkl", sha256: "0".repeat(64) },
+    ]),
+    syncedAt: NOW + 2_000,
+  });
+  let sent = 0;
+  const checked: string[] = [];
+  const runtime = env(binding, "modal", { async send() { sent += 1; } });
+  // SAFETY: dispatch only reads head(). No upload or other R2 operation runs here.
+  runtime.ARTIFACTS = {
+    async head(key: string) {
+      checked.push(key);
+      return key.endsWith("first.pkl")
+        ? { size: 3, checksums: { sha256: new Uint8Array(32).buffer } }
+        : null;
+    },
+  } as unknown as R2Bucket;
+
+  // Official promotion reuses a prepared artifact; new hosted practice is
+  // the owning path that assembles uploaded weights before enqueueing.
+  for (let retry = 0; retry < 2; retry += 1) {
+    await assert.rejects(startPracticeRun(runtime, actor, {
+      benchmarkId: BENCHMARK_ID,
+      exactSha: "a".repeat(40),
+    }), {
+      code: "invalid_request",
+      status: 409,
+      message: "Required weight models/missing.pkl has not been uploaded; sync the report again.",
+    });
+  }
+  assert.equal(sent, 0);
+  assert.equal(checked.length, 4);
+  assert.ok(checked[1].endsWith("models/missing.pkl"));
+  const failed = (await db.select().from(runs)).filter((run) => run.id !== PRACTICE_RUN_ID);
+  assert.equal(failed.length, 2, "retry was not blocked by an active-run row");
+  for (const run of failed) {
+    assert.equal(run.status, "failed");
+    assert.equal(run.failureCategory, "provider");
+    assert.equal(run.failurePhase, "queued");
+    assert.equal(run.failureDetail, "Required weight models/missing.pkl has not been uploaded; sync the report again.");
+    assert.equal(run.failureConsumedAttempt, false);
+    assert.notEqual(run.finishedAt, null);
+    assert.equal(run.lastEventSequence, -1);
+  }
+  assert.equal((await db.select().from(officialAttempts)).length, 0);
 });
 
 test("an official dispatch failure releases its unconsumed claim", async () => {

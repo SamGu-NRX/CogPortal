@@ -136,6 +136,8 @@ class LocalReport:
     diagnostics: List[str]
     output_digest: str
     weights_used: List[str] = field(default_factory=list)
+    # None means sync has not compared the files with the report's Git revision.
+    weights_uploaded: Optional[List[Dict[str, str]]] = None
 
     @classmethod
     def create(
@@ -191,6 +193,7 @@ class LocalReport:
             "metrics": [metric.to_wire() for metric in self.metrics],
             "diagnostics": list(self.diagnostics),
             "weightsUsed": list(self.weights_used) if self.weights_used else [],
+            "weightsUploaded": self.weights_uploaded,
         }
 
     def to_json(self) -> str:
@@ -201,6 +204,19 @@ class LocalReport:
     @classmethod
     def from_json(cls, raw: str) -> "LocalReport":
         value = json.loads(raw)
+        weights_uploaded = value.get("weightsUploaded")
+        if weights_uploaded is not None and (
+            not isinstance(weights_uploaded, list)
+            or any(
+                not isinstance(weight, dict)
+                or weight.get("path") not in value.get("weightsUsed", [])
+                or not isinstance(weight.get("sha256"), str)
+                or len(weight["sha256"]) != 64
+                or any(char not in "0123456789abcdef" for char in weight["sha256"])
+                for weight in weights_uploaded
+            )
+        ):
+            raise ValueError("weightsUploaded must name paths from weightsUsed with SHA-256 digests")
         return cls(
             report_id=str(value["reportId"]),
             benchmark_id=str(value["benchmarkId"]),
@@ -221,4 +237,5 @@ class LocalReport:
             diagnostics=[str(item) for item in value.get("diagnostics", [])],
             output_digest=str(value["outputDigest"]),
             weights_used=[str(item) for item in value.get("weightsUsed", [])],
+            weights_uploaded=weights_uploaded,
         )

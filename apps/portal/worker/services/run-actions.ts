@@ -33,6 +33,7 @@ import { ApiHttpError } from "../http/errors";
 import { newId, randomHex } from "../util/id";
 import { sha256Hex } from "../util/crypto";
 import { publishRunSurface } from "./run-surfaces";
+import { canPublishOfficialRun } from "./run-eligibility";
 
 export interface RunActor {
   userId: string;
@@ -129,11 +130,13 @@ function isUniqueConstraintError(error: unknown): boolean {
 }
 
 function existingOfficialPromotion(run: RunRow, surfaceId: string) {
-  if (run.status === "failed") {
+  if (run.status === "failed" || run.refundedAt !== null) {
     throw new ApiHttpError(
       409,
       "not_promotable",
-      "That official attempt already ran and failed. Start a new practice run to create the next candidate to promote.",
+      run.status === "failed"
+        ? "That official attempt already ran and failed. Start a new practice run to create the next candidate to promote."
+        : "That official attempt was refunded. Start a new practice run to create the next candidate to promote.",
     );
   }
   return { runId: run.id, surfaceId };
@@ -181,6 +184,11 @@ async function dispatch(env: Env, runId: string, team: TeamRow, benchmark: Bench
       eq(runs.status, "queued"),
       eq(runs.lastEventSequence, -1),
     );
+    // Weight validation provides a safe resync instruction. Keep it in both
+    // the failed run and the response rather than suggesting a blind retry.
+    const inputError = error instanceof ApiHttpError && error.code === "invalid_request"
+      ? error
+      : null;
     const failRun = db
       .update(runs)
       .set({
@@ -188,7 +196,7 @@ async function dispatch(env: Env, runId: string, team: TeamRow, benchmark: Bench
         finishedAt: Date.now(),
         failureCategory: "provider",
         failurePhase: "queued",
-        failureDetail: "The run could not be queued for Modal.",
+        failureDetail: inputError?.message ?? "The run could not be queued for Modal.",
       })
       .where(unstarted);
     let changed: number;
@@ -220,6 +228,7 @@ async function dispatch(env: Env, runId: string, team: TeamRow, benchmark: Bench
     // Modal has the job. Nothing above matched, so nothing was changed; leave
     // the run alone and let the run page follow it.
     if (changed === 0) return;
+    if (inputError) throw inputError;
     throw new ApiHttpError(502, "provider_unconfigured", "The run could not be queued. Try again.");
   }
 }
@@ -475,8 +484,10 @@ export async function publishOfficialRun(env: Env, actor: RunActor, runId: strin
     .limit(1);
   if (!row) throw new ApiHttpError(404, "not_found", "Run not found.");
   const run = await syncRun(db, row);
-  if (run.mode !== "official" || run.status !== "succeeded") {
-    throw new ApiHttpError(409, "not_selectable", "Only a succeeded official run can be published.");
+  if (!canPublishOfficialRun(run)) {
+    throw new ApiHttpError(409, "not_selectable", run.refundedAt !== null
+      ? "This attempt was refunded, so its findings can't be published. Choose another official run."
+      : "Only a succeeded official run can be published.");
   }
   await db
     .insert(leaderboardSelections)

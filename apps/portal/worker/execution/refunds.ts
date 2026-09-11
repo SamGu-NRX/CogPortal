@@ -1,4 +1,4 @@
-import { and, count, eq, isNotNull, ne } from "drizzle-orm";
+import { and, count, eq, exists, isNotNull, isNull, notInArray, sql } from "drizzle-orm";
 import type { Database } from "../db/client";
 import { officialAttempts, runs } from "../db/schema";
 
@@ -77,28 +77,6 @@ export type RefundOutcome =
   /** There was no official attempt to give back, or it was given back already. */
   | "not_applicable";
 
-async function refundsAlreadyGiven(db: Database, run: RefundableRun): Promise<number> {
-  const [row] = await db
-    .select({ value: count() })
-    .from(runs)
-    .where(
-      and(
-        eq(runs.teamId, run.teamId),
-        eq(runs.benchmarkId, run.benchmarkId),
-        eq(runs.benchmarkVersion, run.benchmarkVersion),
-        isNotNull(runs.refundedAt),
-        // Exclude the run being decided. None of the three callers writes the
-        // attempt delete and the run's terminal state in one transaction (D1
-        // has no transaction on this path), so a retry can re-enter this
-        // decision for a run that was already marked. Counting itself would
-        // make the second pass read one refund higher than the first and
-        // report a cap that is not there.
-        ne(runs.id, run.id),
-      ),
-    );
-  return row?.value ?? 0;
-}
-
 /**
  * Decides whether this failed run gets its official attempt back, and if so,
  * gives it back and records that it happened.
@@ -117,12 +95,57 @@ export async function refundOfficialAttempt(
   // its failure detail changes, so without this guard a refunded run would
   // rewrite its own timestamp on every cron tick.
   if (run.refundedAt !== null) return "not_applicable";
-  if ((await refundsAlreadyGiven(db, run)) >= REFUND_CAP) return "capped";
+  const scope = and(
+    eq(runs.teamId, run.teamId),
+    eq(runs.benchmarkId, run.benchmarkId),
+    eq(runs.benchmarkVersion, run.benchmarkVersion),
+  );
+  const refundCount = db.select({ value: count() }).from(runs)
+    .where(and(scope, isNotNull(runs.refundedAt)));
+  // Explicit qualification keeps drizzle's single-table SELECT mapping from
+  // turning the correlated runs.id into the attempt table's own id.
+  const hasAttempt = sql<number>`exists (
+    select 1 from official_attempts as attempt where attempt.run_id = runs.id
+  )`;
 
-  await db.delete(officialAttempts).where(eq(officialAttempts.runId, run.id));
-  // Mark after the delete, never before. Marked-but-not-deleted would charge
-  // the team a refund they did not receive. Deleted-but-not-marked is repaired
-  // by the next poll or cron tick, which re-runs this whole decision.
-  await db.update(runs).set({ refundedAt: now }).where(eq(runs.id, run.id));
-  return "refunded";
+  // D1 executes batch statements sequentially in one transaction. Claiming the
+  // refund under the cap in the UPDATE prevents competing runs from taking the
+  // last refund; a failed DELETE rolls back the stamp as well.
+  const [claim] = await db.batch([
+    db.update(runs).set({ refundedAt: now }).where(and(
+      eq(runs.id, run.id),
+      scope,
+      isNull(runs.refundedAt),
+      eq(runs.mode, "official"),
+      notInArray(runs.status, ["succeeded", "cancelled"]),
+      hasAttempt,
+      sql`(${refundCount}) < ${REFUND_CAP}`,
+    )),
+    db.delete(officialAttempts).where(and(
+      eq(officialAttempts.runId, run.id),
+      // A stamped official run must have no attempt claim, including on retry.
+      // Read that invariant directly rather than connection-local changes().
+      exists(db.select({ id: runs.id }).from(runs).where(and(
+        eq(runs.id, run.id),
+        scope,
+        eq(runs.mode, "official"),
+        isNotNull(runs.refundedAt),
+      ))),
+    )),
+  ]);
+  if (claim.meta.changes === 1) return "refunded";
+
+  const [persisted] = await db.select({
+    refundedAt: runs.refundedAt,
+    mode: runs.mode,
+    status: runs.status,
+    hasAttempt,
+  }).from(runs).where(and(eq(runs.id, run.id), scope));
+  // Callers may hold a pre-refund snapshot while another invocation succeeds.
+  // Report that success instead of treating its stamp as the fifth prior refund.
+  if (persisted?.refundedAt != null) return "refunded";
+  if (!persisted || persisted.mode !== "official" ||
+      persisted.status === "succeeded" || persisted.status === "cancelled" ||
+      !persisted.hasAttempt) return "not_applicable";
+  return "capped";
 }

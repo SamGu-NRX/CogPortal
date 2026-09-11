@@ -9,6 +9,7 @@ import {
   type Team,
 } from "@cogworks/contracts/schema";
 import type { Database } from "../db/client";
+import { canPublishOfficialRun } from "../services/run-eligibility";
 import {
   leaderboardSelections,
   runMetrics,
@@ -153,6 +154,7 @@ export async function serializeRunDetail(
     weightsSupplied: parseWeightsSupplied(row.weightsSuppliedJson),
     log: row.mode === "practice" ? row.log : null,
     selected: selection[0]?.runId === row.id,
+    publishable: canPublishOfficialRun(row),
   };
 }
 

@@ -471,6 +471,8 @@ export const localReports = sqliteTable("local_reports", {
   diagnosticsJson: text("diagnostics_json").notNull(),
   /** Paths discovery read while producing this local report. */
   weightsUsedJson: text("weights_used_json").notNull().default("[]"),
+  /** Required uploads; NULL preserves unknown provenance on legacy reports. */
+  weightsUploadedJson: text("weights_uploaded_json"),
   syncedAt: integer("synced_at").notNull(),
 });
 

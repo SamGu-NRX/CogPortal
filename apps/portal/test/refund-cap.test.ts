@@ -29,8 +29,8 @@ import { syncRun } from "../worker/execution/sync.ts";
 
 /*
  * The real D1 binding is a Cloudflare object we cannot construct in a node
- * test. This is the smallest surface drizzle's d1 driver calls (bind, run,
- * all, raw; see drizzle-orm/d1/session.js), backed by in-process SQLite built
+ * test. This implements the calls drizzle's d1 driver uses (bind, run,
+ * all, raw, batch; see drizzle-orm/d1/session.js), backed by in-process SQLite built
  * from the same migration files that run against D1.
  *
  * A mocked query builder would not do. The per-team, per-benchmark grain of
@@ -44,6 +44,7 @@ interface Harness {
   db: Database;
   /** What a worker Env carries as `DB`. maintainPlatform takes the Env. */
   binding: unknown;
+  sqlite: DatabaseSync;
 }
 
 function freshDb(): Harness {
@@ -69,8 +70,13 @@ function freshDb(): Harness {
       async run() {
         return { success: true, meta: statement.run(...bound) };
       },
+      execute() {
+        const results = statement.all(...bound);
+        const { changes } = sqlite.prepare("SELECT changes() AS changes").get()!;
+        return { success: true, results, meta: { changes } };
+      },
       async all() {
-        return { success: true, results: statement.all(...bound) };
+        return prepared.execute();
       },
       async raw() {
         statement.setReturnArrays(true);
@@ -81,8 +87,23 @@ function freshDb(): Harness {
     };
     return prepared;
   }
-  const binding = { prepare };
-  return { db: drizzle(binding as never), binding };
+  const binding = {
+    prepare,
+    async batch(statements: ReturnType<typeof prepare>[]) {
+      // Keep execution synchronous inside the transaction, as D1 serializes
+      // batches rather than interleaving their statements across requests.
+      sqlite.exec("BEGIN");
+      try {
+        const results = statements.map((statement) => statement.execute());
+        sqlite.exec("COMMIT");
+        return results;
+      } catch (error) {
+        sqlite.exec("ROLLBACK");
+        throw error;
+      }
+    },
+  };
+  return { db: drizzle(binding as never), binding, sqlite };
 }
 
 const NOW = 1_780_000_000_000;
@@ -121,8 +142,9 @@ interface RunOptions {
   id: string;
   teamId: string;
   benchmarkId?: string;
+  benchmarkVersion?: number;
   mode?: "practice" | "official";
-  status?: "queued" | "failed" | "succeeded";
+  status?: "queued" | "preparing" | "failed" | "succeeded" | "cancelled";
   branch?: string;
   provider?: "fixture" | "modal";
   createdAt?: number;
@@ -139,7 +161,7 @@ async function claimedRun(db: Database, options: RunOptions): Promise<void> {
     id: options.id,
     teamId: options.teamId,
     benchmarkId,
-    benchmarkVersion: 1,
+    benchmarkVersion: options.benchmarkVersion ?? 1,
     contractVersion: "cogworks.submissions.v1",
     mode,
     status: options.status ?? "queued",
@@ -165,7 +187,7 @@ async function claimedRun(db: Database, options: RunOptions): Promise<void> {
     id: `attempt_${options.id}`,
     teamId: options.teamId,
     benchmarkId,
-    benchmarkVersion: 1,
+    benchmarkVersion: options.benchmarkVersion ?? 1,
     runId: options.id,
     // Real attempt numbers are 1..3 per benchmark and the table is unique on
     // (team, benchmark, version, number). These tests create more failed runs
@@ -321,6 +343,127 @@ test("a run that was already refunded is not refunded a second time", async () =
   assert.equal(await refundOfficialAttempt(db, await runRow(db, "run_1"), NOW), "not_applicable");
   assert.equal((await runRow(db, "run_1")).refundedAt, NOW - 5_000);
   assert.equal(await refundCount(db, "team_a", VISION), 1);
+});
+
+test("competing runs at cap minus one receive exactly one refund", async () => {
+  const { db } = freshDb();
+  await seedTeams(db, ["team_a"]);
+  await priorRefunds(db, "team_a", VISION, REFUND_CAP - 1);
+  await claimedRun(db, { id: "run_10", teamId: "team_a", status: "failed" });
+  await claimedRun(db, { id: "run_11", teamId: "team_a", status: "failed" });
+  const snapshots = await Promise.all([runRow(db, "run_10"), runRow(db, "run_11")]);
+
+  const outcomes = await Promise.all(snapshots.map((run) => refundOfficialAttempt(db, run, NOW)));
+
+  assert.deepEqual([...outcomes].sort(), ["capped", "refunded"]);
+  assert.equal(await refundCount(db, "team_a", VISION), REFUND_CAP);
+  for (const [index, run] of snapshots.entries()) {
+    assert.equal(await attemptExists(db, run.id), outcomes[index] === "capped");
+    assert.equal((await runRow(db, run.id)).refundedAt, outcomes[index] === "refunded" ? NOW : null);
+  }
+});
+
+test("concurrent stale snapshots of one run report its refund without restamping", async () => {
+  const { db } = freshDb();
+  await seedTeams(db, ["team_a"]);
+  await priorRefunds(db, "team_a", VISION, REFUND_CAP - 1);
+  await claimedRun(db, { id: "run_10", teamId: "team_a", status: "failed" });
+  const snapshot = await runRow(db, "run_10");
+
+  assert.deepEqual(await Promise.all([
+    refundOfficialAttempt(db, snapshot, NOW),
+    refundOfficialAttempt(db, { ...snapshot }, NOW + 1_000),
+  ]), ["refunded", "refunded"]);
+  assert.equal(await refundOfficialAttempt(db, snapshot, NOW + 2_000), "refunded");
+  assert.equal((await runRow(db, snapshot.id)).refundedAt, NOW);
+  assert.equal(await attemptExists(db, snapshot.id), false);
+  assert.equal(await refundCount(db, "team_a", VISION), REFUND_CAP);
+});
+
+test("a stale retry removes a stamped run's leftover claim without another refund", async () => {
+  const { db } = freshDb();
+  await seedTeams(db, ["team_a"]);
+  await priorRefunds(db, "team_a", VISION, REFUND_CAP - 1);
+  await claimedRun(db, { id: "run_10", teamId: "team_a", status: "failed" });
+  const snapshot = await runRow(db, "run_10");
+  // Reproduce a stamp with a leftover claim to check the persisted invariant.
+  await db.update(runs).set({ refundedAt: NOW }).where(eq(runs.id, snapshot.id));
+
+  assert.equal(await refundOfficialAttempt(db, snapshot, NOW + 1_000), "refunded");
+  assert.equal(await attemptExists(db, snapshot.id), false);
+  assert.equal((await runRow(db, snapshot.id)).refundedAt, NOW);
+  assert.equal(await refundCount(db, "team_a", VISION), REFUND_CAP);
+});
+
+test("a failed attempt deletion rolls back the refund stamp and permits retry", async () => {
+  const { db, sqlite } = freshDb();
+  await seedTeams(db, ["team_a"]);
+  await priorRefunds(db, "team_a", VISION, REFUND_CAP - 1);
+  await claimedRun(db, { id: "run_10", teamId: "team_a", status: "failed" });
+  const snapshot = await runRow(db, "run_10");
+  sqlite.exec(`CREATE TRIGGER fail_refund_delete BEFORE DELETE ON official_attempts
+    BEGIN SELECT RAISE(ABORT, 'test attempt deletion failure'); END`);
+
+  await assert.rejects(refundOfficialAttempt(db, snapshot, NOW), /test attempt deletion failure/);
+  assert.equal((await runRow(db, snapshot.id)).refundedAt, null);
+  assert.equal(await attemptExists(db, snapshot.id), true);
+  assert.equal(await refundCount(db, "team_a", VISION), REFUND_CAP - 1);
+
+  sqlite.exec("DROP TRIGGER fail_refund_delete");
+  assert.equal(await refundOfficialAttempt(db, snapshot, NOW + 1_000), "refunded");
+  assert.equal((await runRow(db, snapshot.id)).refundedAt, NOW + 1_000);
+  assert.equal(await attemptExists(db, snapshot.id), false);
+});
+
+for (const priorCount of [0, REFUND_CAP]) {
+  test(`no attempt creates no phantom refund with ${priorCount} prior refunds`, async () => {
+    const { db } = freshDb();
+    await seedTeams(db, ["team_a"]);
+    await priorRefunds(db, "team_a", VISION, priorCount);
+    await claimedRun(db, { id: "run_10", teamId: "team_a", status: "failed" });
+    const snapshot = await runRow(db, "run_10");
+    await db.delete(officialAttempts).where(eq(officialAttempts.runId, snapshot.id));
+
+    assert.equal(await refundOfficialAttempt(db, snapshot, NOW), "not_applicable");
+    assert.equal((await runRow(db, snapshot.id)).refundedAt, null);
+    assert.equal(await refundCount(db, "team_a", VISION), priorCount);
+  });
+}
+
+for (const status of ["succeeded", "cancelled"] as const) {
+  test(`persisted ${status} state blocks a refund from stale input`, async () => {
+    const { db } = freshDb();
+    await seedTeams(db, ["team_a"]);
+    await claimedRun(db, { id: "run_10", teamId: "team_a", status: "failed" });
+    const snapshot = await runRow(db, "run_10");
+    await db.update(runs).set({ status }).where(eq(runs.id, snapshot.id));
+
+    assert.equal(await refundOfficialAttempt(db, snapshot, NOW), "not_applicable");
+    assert.equal((await runRow(db, snapshot.id)).refundedAt, null);
+    assert.equal(await attemptExists(db, snapshot.id), true);
+  });
+}
+
+test("persisted practice mode blocks a refund from stale official input", async () => {
+  const { db } = freshDb();
+  await seedTeams(db, ["team_a"]);
+  await claimedRun(db, { id: "run_10", teamId: "team_a", status: "failed" });
+  const snapshot = await runRow(db, "run_10");
+  await db.update(runs).set({ mode: "practice" }).where(eq(runs.id, snapshot.id));
+
+  assert.equal(await refundOfficialAttempt(db, snapshot, NOW), "not_applicable");
+  assert.equal((await runRow(db, snapshot.id)).refundedAt, null);
+  assert.equal(await attemptExists(db, snapshot.id), true);
+});
+
+test("a benchmark version has its own refund cap", async () => {
+  const { db } = freshDb();
+  await seedTeams(db, ["team_a"]);
+  await priorRefunds(db, "team_a", VISION, REFUND_CAP);
+  await claimedRun(db, { id: "run_10", teamId: "team_a", benchmarkVersion: 2, status: "failed" });
+
+  assert.equal(await refundOfficialAttempt(db, await runRow(db, "run_10"), NOW), "refunded");
+  assert.equal(await attemptExists(db, "run_10"), false);
 });
 
 // ---------------------------------------------------------------------------
