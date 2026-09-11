@@ -92,7 +92,7 @@ export function registerDashboardRoutes(app: Hono<AppEnv>): void {
     const active = allRuns.find((run) => !["succeeded", "failed", "cancelled"].includes(run.status));
     const candidate = allRuns.find((run) => run.mode === "practice" && run.status === "succeeded" && run.refundedAt === null);
     const promotionEligibility = candidate && c.env.EXECUTION_PROVIDER === "modal"
-      ? savedEnvironmentEligibility(candidate, benchmark, auth.team.repoFullName) : null;
+      ? savedEnvironmentEligibility(candidate, benchmark, auth.team) : null;
     const promotionRefusal = promotionEligibility?.eligible === false ? promotionEligibility.reason : null;
     const summaries = await Promise.all(allRuns.slice(0, 50).map((run) => serializeRunSummary(db, run)));
     return respond(c, DashboardSchema, {

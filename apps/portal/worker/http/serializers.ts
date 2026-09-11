@@ -128,7 +128,7 @@ export async function serializeRunDetail(
     const [benchmark] = await db.select().from(benchmarks)
       .where(and(eq(benchmarks.id, row.benchmarkId), eq(benchmarks.version, row.benchmarkVersion))).limit(1);
     const eligibility = savedEnvironmentEligibility(row,
-      benchmark ?? { id: row.benchmarkId, sandboxContract: null }, team.repoFullName);
+      benchmark ?? { id: row.benchmarkId, sandboxContract: null }, team);
     if (!eligibility.eligible) promotionRefusal = eligibility.reason;
   }
 
