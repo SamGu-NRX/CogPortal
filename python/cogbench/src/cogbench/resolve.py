@@ -23,9 +23,11 @@ from __future__ import annotations
 import inspect
 import sys
 from collections.abc import Mapping as _MappingABC
+from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Mapping, Any, Callable, Dict, FrozenSet, List, Optional, Sequence, Tuple
+from types import GetSetDescriptorType, MemberDescriptorType
+from typing import Mapping, Any, Callable, Dict, FrozenSet, Iterator, List, Optional, Sequence, Tuple
 
 from . import memo
 from .discover import Discovery, discover, _Redirects
@@ -594,7 +596,11 @@ def resolve(
                 # the hook runs their code (a model's constructor and loader),
                 # and their code writes relative files.
                 with _scratch_cwd():
-                    from_repository = dict(prepare(found.root.path, found.namespace) or {})
+                    # The hook and conversion of its returned mapping can both
+                    # run student code, so they share the existing probe clock.
+                    from_repository = _under_clock(
+                        lambda: dict(prepare(found.root.path, found.namespace) or {})
+                    )
             except Exception as error:  # noqa: BLE001 - the week's hook may refuse
                 watcher.done()
                 return Submission(
@@ -1332,9 +1338,9 @@ class _FromTheirStore:
         them was never an answer, because their store never touched it.
 
         So the comparison is the object before enrolling against the object
-        after. A mapping that is still the same object at the same size is one
-        their store did not fill. Identity as well as size, because a store
-        that replaces a table rather than adding to it has still filled it.
+        after. Identity and size detect replacement and growth; a deep copy
+        detects nested in-place changes. Failed copying or equality leaves a
+        table possibly changed, so it cannot rule out an ambiguous store.
 
         This only ever narrows. When their store filled nothing at all there
         is no difference to read, and `arguments` falls back to naming what
@@ -1350,18 +1356,19 @@ class _FromTheirStore:
         if value is not was or len(value) != size:
             return True
         if contents is _UNCOPIED:
-            return False
+            return True
         try:
-            return dict(value) != contents
+            # Deep snapshots reach nested student equality methods too.
+            return _under_clock(lambda: not bool(dict(value) == contents))
         except BaseException:  # noqa: BLE001 - their mapping, their equality
-            return False
+            return True
 
     def arguments(self) -> Tuple[Any, Dict[str, str]]:
         """The filled table and the id-to-name table, in that order."""
 
         holds = [
             (name, value)
-            for name, value in sorted(vars(self._instance).items())
+            for name, value in sorted(_stored_attributes(self._instance), key=lambda pair: pair[0])
             if isinstance(value, _MappingABC) and len(value) > 0
         ]
         filled = [pair for pair in holds if self._filled_here(*pair)]
@@ -1384,28 +1391,42 @@ class _FromTheirStore:
         return filled[0][1], {song_id: song_id for song_id in self._enrolled}
 
 
-#: A mapping whose contents could not be copied before enrolling; compared
-#: by identity and size only afterwards.
+#: Copying failed, so unchanged identity and size cannot prove unchanged contents.
 _UNCOPIED = object()
 
 
-def _mappings_on(instance: Any) -> Dict[str, Tuple[Any, int, Any]]:
-    """Every mapping attribute an object has right now: the object, its size,
-    and a shallow copy of its contents.
-
-    The object itself is kept, not just its size, so a store that swaps in a
-    new table is not mistaken for one that left the old one alone; the copy
-    is what tells a table filled in place from one left alone.
-    """
+def _stored_attributes(instance: Any) -> Iterator[Tuple[str, Any]]:
+    """Read actual instance storage without executing properties or __getattr__."""
 
     if instance is None:
-        return {}
-    try:
-        items = list(vars(instance).items())
-    except TypeError:
-        return {}
+        return
+    classes = type(instance).__mro__
+    for cls in classes:
+        descriptor = vars(cls).get("__dict__")
+        if isinstance(descriptor, GetSetDescriptorType):
+            yield from descriptor.__get__(instance, type(instance)).items()
+            break
+    for cls in classes:
+        for name, descriptor in vars(cls).items():
+            if isinstance(descriptor, MemberDescriptorType):
+                try:
+                    value = descriptor.__get__(instance, type(instance))
+                except AttributeError:  # An uninitialized slot has no stored value.
+                    continue
+                yield name, value
+
+
+def _mappings_on(instance: Any) -> Dict[str, Tuple[Any, int, Any]]:
+    """Mapping storage, retaining reference and size as well as deep contents.
+
+    Nested built-in containers must not share a snapshot with live state.
+    This is not a general arbitrary-object snapshot guarantee: custom copying
+    and equality control what can be observed. If either raises, the table
+    remains possibly changed rather than being excluded from consideration.
+    """
+
     found: Dict[str, Tuple[Any, int, Any]] = {}
-    for name, value in items:
+    for name, value in _stored_attributes(instance):
         if not isinstance(value, _MappingABC):
             continue
         try:
@@ -1413,7 +1434,8 @@ def _mappings_on(instance: Any) -> Dict[str, Tuple[Any, int, Any]]:
         except BaseException:  # noqa: BLE001 - their mapping, their __len__
             continue
         try:
-            contents: Any = dict(value)
+            # Both mapping conversion and copying may run student code.
+            contents: Any = _under_clock(lambda: deepcopy(dict(value)))
         except BaseException:  # noqa: BLE001 - a mapping that cannot be read whole
             contents = _UNCOPIED
         found[name] = (value, size, contents)
@@ -1526,6 +1548,24 @@ def _shapes_for(
     return shapes
 
 
+def _reader_input(value: Any) -> Any:
+    """Detach a probe input, preserving built-in dictionary view types.
+
+    Python's deepcopy cannot copy these views. Rebuild their visible contents
+    in a detached dictionary, keeping iteration order and repeated values.
+    Other inputs still depend on their own deepcopy support; this does not
+    reconstruct arbitrary objects or views nested inside them.
+    """
+
+    if type(value) is type({}.items()):
+        return deepcopy(dict(value)).items()
+    if type(value) is type({}.keys()):
+        return deepcopy(dict.fromkeys(value)).keys()
+    if type(value) is type({}.values()):
+        return deepcopy(dict(enumerate(value))).values()
+    return deepcopy(value)
+
+
 def _read_further(
     grades: Callable[[Any], Tuple[Any, str]],
     answer: Any,
@@ -1580,8 +1620,10 @@ def _read_further(
                     # object and that is their code too. A reader that does not
                     # return is not a reader of this value, which is what the
                     # `except` below already says about one that raises.
+                    # A mutating reader must not poison its siblings or the
+                    # next frontier. Copy failures skip this probe too.
                     produced = _under_clock(
-                        lambda c=reader, v=value: trial.reading(c)(v)
+                        lambda c=reader, v=value: trial.reading(c)(_reader_input(v))
                     )
                 except BaseException:  # noqa: BLE001 - not a reader of this value
                     continue

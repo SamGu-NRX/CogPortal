@@ -9,6 +9,7 @@ import tracemalloc
 import unittest
 from pathlib import Path
 from types import ModuleType
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "python" / "cogbench" / "src"))
@@ -19,6 +20,7 @@ from cogbench.pipeline import (
     Role,
     Stage,
     _named_for_something_else,
+    _under_clock,
     callables_in,
     extend,
     methods_of,
@@ -26,6 +28,74 @@ from cogbench.pipeline import (
     resolve_chain,
     runtime_pool,
 )
+
+
+@unittest.skipUnless(
+    hasattr(signal, "SIGALRM") and hasattr(signal, "getitimer"),
+    "clock ownership requires POSIX interval timers",
+)
+class ClockOwnershipTests(unittest.TestCase):
+    def setUp(self):
+        if signal.getitimer(signal.ITIMER_REAL)[0]:
+            self.skipTest("the test runner already owns an alarm")
+        self.previous_handler = signal.getsignal(signal.SIGALRM)
+        self.addCleanup(signal.signal, signal.SIGALRM, self.previous_handler)
+        self.addCleanup(signal.setitimer, signal.ITIMER_REAL, 0)
+
+    def test_a_callers_timer_and_handler_survive_success_and_failure(self):
+        def caller_handler(signum, frame):
+            self.fail("the caller's twelve-second timer expired during a short test")
+
+        for raises in (False, True):
+            with self.subTest(raises=raises):
+                signal.signal(signal.SIGALRM, caller_handler)
+                signal.setitimer(signal.ITIMER_REAL, 12, 0.25)
+
+                def call():
+                    self.assertIs(signal.getsignal(signal.SIGALRM), caller_handler)
+                    remaining, interval = signal.getitimer(signal.ITIMER_REAL)
+                    self.assertGreater(remaining, 1)
+                    self.assertEqual(interval, 0.25)
+                    if raises:
+                        raise ValueError("their call failed")
+                    return "answer"
+
+                with patch("cogbench.pipeline.CALL_TIMEOUT_SECONDS", 1):
+                    if raises:
+                        with self.assertRaisesRegex(ValueError, "their call failed"):
+                            _under_clock(call)
+                    else:
+                        self.assertEqual(_under_clock(call), "answer")
+                self.assertIs(signal.getsignal(signal.SIGALRM), caller_handler)
+                remaining, interval = signal.getitimer(signal.ITIMER_REAL)
+                self.assertGreater(remaining, 1)
+                self.assertEqual(interval, 0.25)
+                signal.setitimer(signal.ITIMER_REAL, 0)
+
+    def test_nested_probes_do_not_cancel_the_outer_deadline(self):
+        for raises in (False, True):
+            with self.subTest(raises=raises):
+                def outer():
+                    before = signal.getitimer(signal.ITIMER_REAL)[0]
+                    handler = signal.getsignal(signal.SIGALRM)
+
+                    def inner():
+                        if raises:
+                            raise ValueError("inner failure")
+
+                    if raises:
+                        with self.assertRaisesRegex(ValueError, "inner failure"):
+                            _under_clock(inner)
+                    else:
+                        _under_clock(inner)
+                    after = signal.getitimer(signal.ITIMER_REAL)[0]
+                    self.assertGreater(after, 0)
+                    self.assertLessEqual(after, before)
+                    self.assertIs(signal.getsignal(signal.SIGALRM), handler)
+
+                _under_clock(outer)
+                self.assertEqual(signal.getitimer(signal.ITIMER_REAL)[0], 0)
+                self.assertIs(signal.getsignal(signal.SIGALRM), self.previous_handler)
 
 
 def _module(name: str, **members) -> ModuleType:

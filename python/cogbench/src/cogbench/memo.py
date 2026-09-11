@@ -24,8 +24,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
+
+from .pipeline import _under_clock
+from .storage import workspace_dir
 
 __all__ = ["fingerprint", "read", "write", "cache_path"]
 
@@ -61,7 +65,10 @@ __all__ = ["fingerprint", "read", "write", "cache_path"]
 #: the other direction. And `attemptsTried` is now the whole search rather
 #: than the accepted chain's own ordinal, so a 9 entry replays a number that
 #: understates the work by every chain tried before the one that bound.
-FORMAT = 10
+#: 11: state snapshots and reader probes now preserve different candidate
+#: state during search. Those changes can select different bindings, so a
+#: version 10 decision must be searched again rather than replayed.
+FORMAT = 11
 
 
 def cache_path(repository: Path) -> Path:
@@ -98,6 +105,8 @@ def read(repository: Path, key: str) -> Optional[Dict[str, Any]]:
 
     path = cache_path(repository)
     try:
+        if path.parent.is_symlink() or path.is_symlink():
+            return None
         stored = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
@@ -114,19 +123,45 @@ def write(repository: Path, key: str, binding: Dict[str, Any]) -> None:
     the run over a cache write would turn a speed feature into an outage.
     """
 
-    path = cache_path(repository)
+    # Container subclasses can run student code during JSON iteration. Use
+    # the probe clock and failure boundary before making any workspace, and
+    # reject nonfinite floats that strict JSON cannot represent.
     try:
-        from .storage import workspace_dir
+        serialized = _under_clock(
+            json.dumps, {"key": key, "binding": binding},
+            indent=2, sort_keys=True, allow_nan=False,
+        ) + "\n"
+    except BaseException:  # noqa: BLE001 - student iteration can raise anything
+        return
 
+    path = cache_path(repository)
+    temporary: Optional[Path] = None
+    try:
+        # Check before workspace_dir can write its ignore file, including a
+        # dangling link. These checks do not protect against concurrent swaps.
+        if path.parent.is_symlink() or (path.parent / ".gitignore").is_symlink():
+            return
         workspace_dir(Path(repository))
-        temporary = path.with_name(path.name + ".tmp")
-        temporary.write_text(
-            json.dumps({"key": key, "binding": binding}, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
+        if path.parent.is_symlink() or not path.parent.is_dir():
+            return
+        # Exclusive creation avoids following a pre-existing temporary link.
+        # Replacement also leaves any other hard link to the old entry intact.
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=str(path.parent),
+            prefix=path.name + ".", suffix=".tmp", delete=False,
+        ) as stream:
+            temporary = Path(stream.name)
+            stream.write(serialized)
         temporary.replace(path)
+        temporary = None
     except OSError:
         return
+    finally:
+        if temporary is not None:
+            try:
+                temporary.unlink()
+            except OSError:
+                pass
 
 
 def source_paths(discovery: Any) -> List[Path]:

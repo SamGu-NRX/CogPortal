@@ -1,17 +1,22 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "python" / "cogbench" / "src"))
 
 from cogbench import memo  # noqa: E402
-from cogbench.pipeline import Role, Stage  # noqa: E402
+from cogbench.discover import discover  # noqa: E402
+from cogbench.storage import workspace_dir  # noqa: E402
+from cogbench.pipeline import Fixtures, Role, Stage  # noqa: E402
 from cogbench.resolve import NoDatabase, resolve  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -31,6 +36,15 @@ from test_resolve import (  # noqa: E402
     _ranked_accepts,
     _ranked_grades,
 )
+
+
+class _RaisesOnIteration(list):
+    def __init__(self, error):
+        super().__init__([1])
+        self.error = error
+
+    def __iter__(self):
+        raise self.error("student iteration failed")
 
 
 class KeyTests(unittest.TestCase):
@@ -71,6 +85,15 @@ class KeyTests(unittest.TestCase):
             memo.fingerprint([self.file], benchmark="week3"),
         )
 
+    def test_version_10_binding_is_not_reused(self):
+        with mock.patch.object(memo, "FORMAT", 10):
+            old_key = memo.fingerprint([self.file], benchmark="w1")
+        memo.write(self.tmp, old_key, {"enroll": "a.b"})
+        self.assertEqual(memo.FORMAT, 11)
+        new_key = memo.fingerprint([self.file], benchmark="w1")
+        self.assertNotEqual(new_key, old_key)
+        self.assertIsNone(memo.read(self.tmp, new_key))
+
     def test_a_file_that_could_not_be_read_still_makes_a_key(self):
         missing = self.tmp / "gone.py"
         self.assertTrue(memo.fingerprint([self.file, missing], benchmark="w1"))
@@ -84,6 +107,148 @@ class StoreTests(unittest.TestCase):
     def test_a_binding_survives_a_round_trip(self):
         memo.write(self.tmp, "k", {"enroll": "a.b"})
         self.assertEqual(memo.read(self.tmp, "k"), {"enroll": "a.b"})
+
+    def test_unsupported_tunings_skip_the_cache_without_creating_a_workspace(self):
+        circular = []
+        circular.append(circular)
+        for tuning in (
+            {1, 2}, object(), circular, float("nan"), float("inf"), -float("inf"),
+            _RaisesOnIteration(RuntimeError), _RaisesOnIteration(SystemExit),
+        ):
+            with self.subTest(type=type(tuning).__name__, value=repr(tuning)):
+                memo.write(self.tmp, "k", {"tunings": [tuning]})
+                self.assertFalse(memo.cache_path(self.tmp).parent.exists())
+
+    def test_serialization_runs_under_the_clock_before_workspace_creation(self):
+        binding = {"tunings": [2]}
+        events = []
+
+        def clock(call, *args, **kwargs):
+            self.assertIs(call, json.dumps)
+            self.assertEqual(args, ({"key": "k", "binding": binding},))
+            self.assertFalse(kwargs["allow_nan"])
+            self.assertFalse(memo.cache_path(self.tmp).parent.exists())
+            events.append("serialize")
+            return call(*args, **kwargs)
+
+        def workspace(root):
+            self.assertEqual(events, ["serialize"])
+            events.append("workspace")
+            return workspace_dir(root)
+
+        with mock.patch.object(memo, "_under_clock", side_effect=clock) as guarded:
+            with mock.patch.object(memo, "workspace_dir", side_effect=workspace):
+                memo.write(self.tmp, "k", binding)
+        guarded.assert_called_once()
+        self.assertEqual(events, ["serialize", "workspace"])
+        self.assertEqual(memo.read(self.tmp, "k"), binding)
+
+    def test_clock_failure_skips_workspace_creation(self):
+        with mock.patch.object(memo, "_under_clock", side_effect=RuntimeError("clock")):
+            with mock.patch.object(memo, "workspace_dir") as workspace:
+                memo.write(self.tmp, "k", {"tunings": [2]})
+        workspace.assert_not_called()
+        self.assertFalse(memo.cache_path(self.tmp).parent.exists())
+
+    def test_serialization_failures_leave_an_existing_entry_untouched(self):
+        memo.write(self.tmp, "k", {"tunings": [2]})
+        path = memo.cache_path(self.tmp)
+        before = path.read_bytes()
+        for error in (TypeError, ValueError, OverflowError, RecursionError):
+            with self.subTest(error=error.__name__), mock.patch.object(
+                memo.json, "dumps", side_effect=error("cannot serialize")
+            ):
+                memo.write(self.tmp, "other", {"tunings": [object()]})
+            self.assertEqual(path.read_bytes(), before)
+            self.assertEqual(sorted(p.name for p in path.parent.iterdir()), [".gitignore", "resolved.json"])
+
+    def test_symlinked_workspace_is_neither_read_nor_written(self):
+        with tempfile.TemporaryDirectory() as directory:
+            outside = Path(directory)
+            record = outside / "resolved.json"
+            original = '{"key": "k", "binding": {"enroll": "outside"}}'
+            record.write_text(original)
+            memo.cache_path(self.tmp).parent.symlink_to(outside, target_is_directory=True)
+            self.assertIsNone(memo.read(self.tmp, "k"))
+            memo.write(self.tmp, "k", {"enroll": "a.b"})
+            self.assertEqual(record.read_text(), original)
+            self.assertEqual([p.name for p in outside.iterdir()], ["resolved.json"])
+
+    def test_dangling_workspace_symlink_is_left_alone(self):
+        with tempfile.TemporaryDirectory() as directory:
+            outside = Path(directory) / "missing"
+            memo.cache_path(self.tmp).parent.symlink_to(outside, target_is_directory=True)
+            self.assertIsNone(memo.read(self.tmp, "k"))
+            memo.write(self.tmp, "k", {"enroll": "a.b"})
+            self.assertFalse(outside.exists())
+
+    def test_symlinked_ignore_file_prevents_writes_even_when_dangling(self):
+        path = memo.cache_path(self.tmp)
+        path.parent.mkdir()
+        ignore = path.parent / ".gitignore"
+        with tempfile.TemporaryDirectory() as directory:
+            outside = Path(directory) / "ignore"
+            for exists in (False, True):
+                with self.subTest(target_exists=exists):
+                    if exists:
+                        outside.write_text("original")
+                    ignore.symlink_to(outside)
+                    memo.write(self.tmp, "k", {"enroll": "a.b"})
+                    self.assertFalse(path.exists())
+                    self.assertEqual(outside.exists(), exists)
+                    if exists:
+                        self.assertEqual(outside.read_text(), "original")
+                    ignore.unlink()
+
+    def test_old_predictable_temp_symlink_is_not_used_or_removed(self):
+        path = memo.cache_path(self.tmp)
+        path.parent.mkdir()
+        old_temp = path.with_name("resolved.json.tmp")
+        with tempfile.TemporaryDirectory() as directory:
+            outside = Path(directory) / "untouched"
+            outside.write_text("original")
+            old_temp.symlink_to(outside)
+            memo.write(self.tmp, "k", {"enroll": "a.b"})
+            self.assertEqual(outside.read_text(), "original")
+            self.assertTrue(old_temp.is_symlink())
+            self.assertEqual(memo.read(self.tmp, "k"), {"enroll": "a.b"})
+
+    def test_cache_file_symlink_is_a_miss_and_replaced_without_following_it(self):
+        path = memo.cache_path(self.tmp)
+        path.parent.mkdir()
+        with tempfile.TemporaryDirectory() as directory:
+            outside = Path(directory) / "record"
+            original = '{"key": "k", "binding": {"enroll": "outside"}}'
+            outside.write_text(original)
+            path.symlink_to(outside)
+            self.assertIsNone(memo.read(self.tmp, "k"))
+            memo.write(self.tmp, "k", {"enroll": "a.b"})
+            self.assertFalse(path.is_symlink())
+            self.assertEqual(outside.read_text(), original)
+            self.assertEqual(memo.read(self.tmp, "k"), {"enroll": "a.b"})
+
+    def test_replacing_a_hardlinked_entry_preserves_outside_bytes(self):
+        path = memo.cache_path(self.tmp)
+        path.parent.mkdir()
+        with tempfile.TemporaryDirectory() as directory:
+            outside = Path(directory) / "record"
+            outside.write_text("original")
+            os.link(str(outside), str(path))
+            memo.write(self.tmp, "k", {"enroll": "a.b"})
+            self.assertEqual(outside.read_text(), "original")
+            self.assertEqual(memo.read(self.tmp, "k"), {"enroll": "a.b"})
+
+    def test_failed_replace_cleans_only_its_own_temporary_file(self):
+        memo.write(self.tmp, "k", {"enroll": "original"})
+        path = memo.cache_path(self.tmp)
+        unrelated = path.with_name("resolved.json.tmp")
+        unrelated.write_text("unrelated")
+        before = set(path.parent.iterdir())
+        with mock.patch.object(Path, "replace", side_effect=OSError("cannot replace")):
+            memo.write(self.tmp, "other", {"enroll": "changed"})
+        self.assertEqual(set(path.parent.iterdir()), before)
+        self.assertEqual(unrelated.read_text(), "unrelated")
+        self.assertEqual(memo.read(self.tmp, "k"), {"enroll": "original"})
 
     def test_a_different_key_reads_nothing(self):
         memo.write(self.tmp, "k", {"enroll": "a.b"})
@@ -282,8 +447,6 @@ class ReuseTests(unittest.TestCase):
 
 
 def _key(repository: Path) -> str:
-    from cogbench.discover import discover
-
     return memo.fingerprint(memo.source_paths(discover(repository)), benchmark="mini")
 
 
@@ -311,6 +474,32 @@ class ARememberedTuningIsReplayed(unittest.TestCase):
             remember=True,
         )
 
+    def test_non_json_tuning_does_not_abort_resolution(self):
+        (self.tmp / "theirs.py").write_text(
+            "def feats(value, rate, cutoff):\n    return [(value, rate)]\n"
+        )
+        circular = []
+        circular.append(circular)
+        for tuning in (
+            {1, 2}, object(), circular, float("nan"), float("inf"), -float("inf"),
+            _RaisesOnIteration(RuntimeError), _RaisesOnIteration(SystemExit),
+        ):
+            with self.subTest(type=type(tuning).__name__, value=repr(tuning)):
+                role = Role(
+                    "fingerprint",
+                    (Stage("features", produces=lambda v: isinstance(v, list), arity=2, tunings=(tuning,)),),
+                )
+                submission = resolve(
+                    self.tmp, chain_role=role, fixture=FIXTURE,
+                    accepts=lambda chain, *_: (True, ""),
+                    arrangements=None, remember=True,
+                )
+                self.assertTrue(submission.ready, submission.verdict.headline)
+                self.assertFalse(submission.recalled)
+                self.assertIs(submission.chain[0].tuning, tuning)
+                self.assertEqual(submission.chain[0].bound(7, 44100), [(7, 44100)])
+                self.assertFalse(memo.cache_path(self.tmp).parent.exists())
+
     def test_the_entry_records_the_tuning_and_the_replay_restores_it(self):
         first = self._resolve()
         self.assertTrue(first.ready)
@@ -327,8 +516,6 @@ class ARememberedTuningIsReplayed(unittest.TestCase):
     def test_an_entry_without_tunings_is_searched_again_rather_than_replayed_bare(self):
         first = self._resolve()
         path = memo.cache_path(self.tmp)
-        import json
-
         record = json.loads(path.read_text())
         del record["binding"]["tunings"]
         path.write_text(json.dumps(record))
@@ -349,8 +536,6 @@ class ARememberedTuningIsReplayed(unittest.TestCase):
 
         self._resolve()
         path = memo.cache_path(self.tmp)
-        import json
-
         record = json.loads(path.read_text())
         record["binding"]["arrangement"] = []
         path.write_text(json.dumps(record))
@@ -374,8 +559,6 @@ class ARememberedFormIsReplayed(unittest.TestCase):
         )
 
     def _resolve(self):
-        from cogbench.pipeline import Fixtures
-
         role = Role(
             "fingerprint",
             (Stage("features", produces=lambda v: isinstance(v, list), arity=2),),
@@ -460,8 +643,6 @@ class ARememberedHandoffIsReplayed(unittest.TestCase):
     def test_an_entry_that_does_not_say_which_part_bound_is_searched_again(self):
         self._resolve()
         path = memo.cache_path(self.tmp)
-        import json
-
         record = json.loads(path.read_text())
         del record["binding"]["handoffs"]
         path.write_text(json.dumps(record))
@@ -512,10 +693,6 @@ class TheWorkspaceIgnoresItself(unittest.TestCase):
     """A local run must not dirty the checkout it ran in."""
 
     def test_git_does_not_see_the_cogbench_directory(self):
-        import subprocess
-
-        from cogbench.storage import workspace_dir
-
         root = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, root, ignore_errors=True)
         subprocess.run(["git", "init", "-q"], cwd=root, check=True)
@@ -580,8 +757,6 @@ class AnInitializerThatDecidesWhatItsPackageReturnsIsPartOfTheKey(unittest.TestC
         )
 
     def test_the_initializer_is_one_of_the_files_the_key_reads(self):
-        from cogbench.discover import discover
-
         self._write(2)
 
         found = discover(self.tmp)

@@ -1386,7 +1386,12 @@ def _under_clock(call: Callable[..., Any], *args: Any, **keywords: Any) -> Any:
     # raise as "not a reader of this value" would quietly drop a working one.
     # So it degrades to no clock, which is what a platform without SIGALRM
     # already gets.
+    # SIGALRM has one timer per process. An enclosing probe or caller already
+    # using it owns its timing, even when longer than our default. Replacing
+    # that timer and cancelling ours would silently remove the caller's clock.
     alarm = hasattr(signal, "SIGALRM")
+    if alarm and hasattr(signal, "getitimer"):
+        alarm = signal.getitimer(signal.ITIMER_REAL)[0] == 0
     previous = None
     if alarm:
         try:

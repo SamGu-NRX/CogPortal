@@ -6,18 +6,375 @@ import signal
 import sys
 import tempfile
 import unittest
+from collections.abc import Mapping
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "python" / "cogbench" / "src"))
 
 from cogbench import memo  # noqa: E402
-from cogbench.pipeline import Candidate, Role, Stage  # noqa: E402
+from cogbench.pipeline import Candidate, Role, Stage, _Timeout  # noqa: E402
 from cogbench.progress import Progress  # noqa: E402
 from cogbench.resolve import (  # noqa: E402
-    NoDatabase, _Shape, _Trial, _accepts_n, _read_further, _takes_one, resolve,
+    AmbiguousStore, NoDatabase, _FromTheirStore, _Shape, _Trial, _accepts_n,
+    _read_further, _reader_input, _takes_one, resolve,
 )
 from cogbench.verdict import NOT_READ, NOT_WIRED, NOTHING_HERE, SCORED  # noqa: E402
+
+
+class StoredMappingInspectionTests(unittest.TestCase):
+    def test_inherited_and_mangled_slots_are_read_without_properties(self):
+        class Base:
+            __slots__ = ("__table", "uninitialized")
+
+            def __init__(self):
+                self.__table = {"key": []}
+
+            def store(self):
+                self.__table["key"].append("alpha")
+
+            @property
+            def trap(self):
+                raise AssertionError("property must not run")
+
+        class Cabinet(Base):
+            __slots__ = ("metadata",)
+
+            def __init__(self):
+                super().__init__()
+                self.metadata = {"settings": [1]}
+
+        cabinet = Cabinet()
+        state = _FromTheirStore(cabinet.store)
+        self.assertEqual(set(state._before), {"_Base__table", "metadata"})
+        cabinet.store()
+        state.enrolling("alpha")
+        table, names = state.arguments()
+        self.assertIs(table, cabinet._Base__table)
+        self.assertEqual(state.chosen, "_Base__table")
+        self.assertEqual(names, {"alpha": "alpha"})
+
+    def test_actual_dict_storage_is_read_beneath_a_property(self):
+        class Base:
+            pass
+
+        class Cabinet(Base):
+            __slots__ = ("table",)
+
+            def __init__(self):
+                self.table = {"key": []}
+                self.metadata = {"settings": [1]}
+
+            @property
+            def __dict__(self):
+                raise AssertionError("not actual storage")
+
+            def store(self):
+                self.table["key"].append("alpha")
+
+        cabinet = Cabinet()
+        state = _FromTheirStore(cabinet.store)
+        self.assertEqual(set(state._before), {"table", "metadata"})
+        cabinet.store()
+        self.assertIs(state.arguments()[0], cabinet.table)
+
+    def test_nested_in_place_change_beside_unchanged_metadata(self):
+        class Cabinet:
+            def __init__(self):
+                self.table = {"key": {"ids": []}}
+                self.metadata = {"settings": [1]}
+
+            def store(self):
+                self.table["key"]["ids"].append("alpha")
+
+        cabinet = Cabinet()
+        state = _FromTheirStore(cabinet.store)
+        cabinet.store()
+        self.assertIs(state.arguments()[0], cabinet.table)
+
+    def test_uncopyable_or_uncomparable_tables_cannot_be_ruled_out(self):
+        class Uncopyable:
+            def __deepcopy__(self, memo):
+                raise ValueError("cannot snapshot")
+
+        class Uncomparable:
+            def __eq__(self, other):
+                raise ValueError("cannot compare")
+
+        class Cabinet:
+            def __init__(self, opaque):
+                self.metadata = {"opaque": opaque}
+                self.table = {}
+
+            def store(self):
+                self.table["key"] = ["alpha"]
+
+        for opaque in (Uncopyable(), Uncomparable()):
+            with self.subTest(kind=type(opaque).__name__):
+                cabinet = Cabinet(opaque)
+                state = _FromTheirStore(cabinet.store)
+                cabinet.store()
+                with self.assertRaisesRegex(AmbiguousStore, "metadata, table"):
+                    state.arguments()
+
+    def test_mapping_conversion_copy_and_equality_run_under_the_guard(self):
+        guarded = []
+        observed = []
+
+        def guard(call, *args, **kwargs):
+            guarded.append(True)
+            try:
+                return call(*args, **kwargs)
+            finally:
+                guarded.pop()
+
+        class Nested:
+            def __deepcopy__(self, memo):
+                observed.append(("copy", bool(guarded)))
+                return Nested()
+
+            def __eq__(self, other):
+                observed.append(("equality", bool(guarded)))
+                return True
+
+        class Table(Mapping):
+            def __len__(self):
+                return 1
+
+            def __iter__(self):
+                observed.append(("iteration", bool(guarded)))
+                return iter(["key"])
+
+            def __getitem__(self, key):
+                observed.append(("lookup", bool(guarded)))
+                return Nested()
+
+        class Cabinet:
+            def __init__(self):
+                self.table = Table()
+
+            def store(self):
+                pass
+
+        cabinet = Cabinet()
+        with patch("cogbench.resolve._under_clock", side_effect=guard):
+            state = _FromTheirStore(cabinet.store)
+            self.assertIs(state.arguments()[0], cabinet.table)
+        self.assertEqual({kind for kind, _ in observed}, {
+            "copy", "equality", "iteration", "lookup",
+        })
+        self.assertTrue(all(active for _, active in observed), observed)
+
+    def test_snapshot_or_comparison_timeout_leaves_ambiguous_tables(self):
+        class Cabinet:
+            def __init__(self):
+                self.metadata = {"settings": [1]}
+                self.table = {"key": []}
+
+            def store(self):
+                self.table["key"].append("alpha")
+
+        for operation in ("snapshot", "comparison"):
+            with self.subTest(operation=operation):
+                cabinet = Cabinet()
+                if operation == "comparison":
+                    state = _FromTheirStore(cabinet.store)
+                with patch(
+                    "cogbench.resolve._under_clock", side_effect=_Timeout("existing clock"),
+                ) as clock:
+                    if operation == "snapshot":
+                        state = _FromTheirStore(cabinet.store)
+                    cabinet.store()
+                    with self.assertRaisesRegex(AmbiguousStore, "metadata, table"):
+                        state.arguments()
+                self.assertEqual(clock.call_count, 2)
+
+    @unittest.skipUnless(
+        hasattr(signal, "SIGALRM") and hasattr(signal, "getitimer"),
+        "live alarm inspection requires POSIX interval timers",
+    )
+    def test_nested_copy_and_equality_observe_a_live_alarm(self):
+        observed = []
+
+        class Nested:
+            def __deepcopy__(self, memo):
+                observed.append(("copy", signal.getitimer(signal.ITIMER_REAL)[0]))
+                return Nested()
+
+            def __eq__(self, other):
+                observed.append(("equality", signal.getitimer(signal.ITIMER_REAL)[0]))
+                return True
+
+        class Cabinet:
+            def __init__(self):
+                self.table = {"key": Nested()}
+
+            def store(self):
+                pass
+
+        cabinet = Cabinet()
+        with patch("cogbench.pipeline.CALL_TIMEOUT_SECONDS", 1):
+            state = _FromTheirStore(cabinet.store)
+            self.assertIs(state.arguments()[0], cabinet.table)
+        self.assertEqual([kind for kind, _ in observed], ["copy", "equality"])
+        self.assertTrue(all(0 < remaining <= 1 for _, remaining in observed), observed)
+
+    def test_equal_contents_replacement_is_still_a_changed_table(self):
+        class Cabinet:
+            def __init__(self):
+                self.table = {"key": ["alpha"]}
+                self.metadata = {"settings": [1]}
+
+            def store(self):
+                self.table = {"key": ["alpha"]}
+
+        cabinet = Cabinet()
+        state = _FromTheirStore(cabinet.store)
+        cabinet.store()
+        self.assertIs(state.arguments()[0], cabinet.table)
+
+
+class ReaderInputIsolationTests(unittest.TestCase):
+    class Trial:
+        def reading(self, candidate):
+            return candidate.call
+
+    def test_mutating_reader_cannot_poison_siblings_at_either_depth(self):
+        for raises in (False, True):
+            for depth in (1, 2):
+                with self.subTest(raises=raises, depth=depth):
+                    answer = {"ids": ["alpha"], "depth": 0}
+
+                    def poison(value):
+                        value["ids"].clear()
+                        if raises:
+                            raise ValueError("mutated before failing")
+                        return value
+
+                    def advance(value):
+                        value["depth"] += 1
+                        return value
+
+                    def finish(value):
+                        if value == {"ids": ["alpha"], "depth": depth - 1}:
+                            return "complete"
+                        raise ValueError("not ready")
+
+                    pool = [Candidate("poison", poison, "test")]
+                    if depth == 2:
+                        pool.append(Candidate("advance", advance, "test"))
+                    pool.append(Candidate("finish", finish, "test"))
+                    result = _read_further(
+                        lambda value: (value == "complete", ""),
+                        answer, self.Trial(), pool, depth,
+                    )
+                    self.assertIsNotNone(result)
+                    self.assertEqual(
+                        [candidate.label for candidate in result[1]],
+                        ["advance", "finish"] if depth == 2 else ["finish"],
+                    )
+                    self.assertEqual(answer, {"ids": ["alpha"], "depth": 0})
+
+    def test_dictionary_views_keep_their_type_and_detach_the_backing_data(self):
+        for kind in ("items", "keys", "values"):
+            with self.subTest(kind=kind):
+                shared = [1]
+                source = {"beta": shared, "alpha": shared}
+                view = getattr(source, kind)()
+                detached = _reader_input(view)
+                self.assertIs(type(detached), type(view))
+                self.assertEqual(list(detached), list(view))
+                source["later"] = [2]
+                self.assertEqual(len(detached), 2)
+                if kind != "keys":
+                    values = [value for _, value in detached] if kind == "items" else list(detached)
+                    self.assertIs(values[0], values[1])
+                    values[0].append(3)
+                    self.assertEqual(shared, [1])
+
+    def test_sorting_readers_accept_each_dictionary_view_type(self):
+        source = {"beta": 2, "alpha": 1}
+        for kind in ("items", "keys", "values"):
+            with self.subTest(kind=kind):
+                answer = getattr(source, kind)()
+                expected = sorted(answer)
+                seen = []
+
+                def sort_view(value):
+                    seen.append(type(value))
+                    return sorted(value)
+
+                reader = Candidate("sort", sort_view, "test")
+                result = _read_further(
+                    lambda value: (value == expected, ""),
+                    answer, self.Trial(), [reader], 1,
+                )
+                self.assertEqual(result, (1.0, (reader,)))
+                self.assertEqual(seen, [type(answer)])
+
+    def test_nested_items_view_mutation_cannot_poison_a_later_frontier(self):
+        for raises in (False, True):
+            with self.subTest(raises=raises):
+                source = {"beta": ["beta"], "alpha": ["alpha"]}
+                view_type = type(source.items())
+                seen = []
+
+                def poison(view):
+                    for _, ids in view:
+                        ids.clear()
+                    if raises:
+                        raise ValueError("mutated before failing")
+                    return view
+
+                def advance(view):
+                    for _, ids in view:
+                        ids.append("ready")
+                    return view
+
+                def finish(view):
+                    seen.append(type(view))
+                    if not all(ids == [name, "ready"] for name, ids in view):
+                        raise ValueError("not ready")
+                    return sorted(name for name, _ in view)
+
+                pool = [Candidate(name, call, "test") for name, call in (
+                    ("poison", poison), ("advance", advance), ("finish", finish),
+                )]
+                result = _read_further(
+                    lambda value: (value == ["alpha", "beta"], ""),
+                    source.items(), self.Trial(), pool, 2,
+                )
+                self.assertEqual(result, (1.0, (pool[1], pool[2])))
+                self.assertTrue(seen)
+                self.assertEqual(set(seen), {view_type})
+                self.assertEqual(source, {"beta": ["beta"], "alpha": ["alpha"]})
+
+    def test_copying_runs_under_the_guard_and_failure_skips_the_reader(self):
+        guarded = []
+        calls = []
+
+        class Uncopyable:
+            def __deepcopy__(self, memo):
+                self_test.assertTrue(guarded)
+                raise ValueError("cannot copy reader input")
+
+        def guard(call, *args, **kwargs):
+            guarded.append(True)
+            try:
+                return call(*args, **kwargs)
+            finally:
+                guarded.pop()
+
+        self_test = self
+        reader = Candidate("reader", lambda value: calls.append(value), "test")
+        with patch("cogbench.resolve._under_clock", side_effect=guard) as clock:
+            result = _read_further(
+                lambda value: (False, ""), Uncopyable(), self.Trial(), [reader], 2,
+            )
+        self.assertIsNone(result)
+        self.assertEqual(calls, [])
+        self.assertEqual(clock.call_count, 1)
 
 
 class QuerySignatureTests(unittest.TestCase):
@@ -957,6 +1314,77 @@ class WhatTheRepositoryItselfSuppliesIsReadOnceTheRootIsKnown(unittest.TestCase)
 
         self.assertTrue(submission.ready, submission.verdict.headline)
 
+    def test_prepare_runs_under_the_existing_guard_in_scratch(self):
+        guarded = []
+        original_cwd = Path.cwd()
+        resource = self.tmp / "benchmark-resource.txt"
+        resource.write_text("course artifact")
+
+        def guard(call, *args, **kwargs):
+            guarded.append(True)
+            try:
+                return call(*args, **kwargs)
+            finally:
+                guarded.pop()
+
+        conversions = []
+
+        class Prepared(Mapping):
+            def __len__(self):
+                conversions.append(bool(guarded))
+                return 1
+
+            def __iter__(self):
+                conversions.append(bool(guarded))
+                return iter(("W",))
+
+            def __getitem__(self, key):
+                conversions.append(bool(guarded))
+                return 3
+
+        def prepare(root, modules):
+            self.assertTrue(guarded)
+            self.assertNotEqual(Path.cwd(), original_cwd)
+            self.assertNotEqual(Path.cwd(), root)
+            Path("prepare-created.txt").write_text("scratch only")
+            self.assertEqual(os.environ["COGWORKS_LANGUAGE_DATA"], str(resource.parent))
+            self.assertEqual(resource.read_text(), "course artifact")
+            return Prepared()
+
+        with patch("cogbench.resolve._under_clock", side_effect=guard) as clock:
+            submission = resolve(
+                self.tmp, chain_role=self.role, fixture=([1],),
+                accepts=lambda chain, *_: (chain[0].bound([1]) == [3], ""),
+                arrangements=None, prepare=prepare,
+                resource_files={"course-artifact.txt": resource},
+            )
+        self.assertTrue(submission.ready, submission.verdict.headline)
+        clock.assert_called_once()
+        self.assertTrue(conversions)
+        self.assertTrue(all(conversions))
+        self.assertEqual(Path.cwd(), original_cwd)
+        self.assertFalse((self.tmp / "prepare-created.txt").exists())
+
+    def test_prepare_timeout_uses_the_existing_refusal_without_waiting(self):
+        original_cwd = Path.cwd()
+
+        def prepare(root, modules):
+            self.fail("the patched guard must cut off the hook")
+
+        with patch(
+            "cogbench.resolve._under_clock",
+            side_effect=_Timeout("prepare exhausted the existing clock"),
+        ) as clock:
+            submission = resolve(
+                self.tmp, chain_role=self.role, fixture=([1],),
+                accepts=lambda chain, *_: (True, ""),
+                arrangements=None, prepare=prepare,
+            )
+        clock.assert_called_once()
+        self.assertEqual(submission.verdict.status, NOT_READ)
+        self.assertIn("prepare exhausted the existing clock", submission.verdict.headline)
+        self.assertEqual(Path.cwd(), original_cwd)
+
     def test_a_hook_that_raises_refuses_with_its_own_words(self):
         def prepare(root, modules):
             raise RuntimeError("two files could be the projection: a.npy, b.npy")
@@ -1597,6 +2025,23 @@ class OnlyWhatEnrollingFilledCountsAsTheirTable(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp()).resolve()
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
         (self.tmp / "theirs.py").write_text(CONFIGURED_STORE_REPO)
+
+    def test_a_slotted_store_resolves_with_prepopulated_nested_contents(self):
+        (self.tmp / "theirs.py").write_text(
+            CONFIGURED_STORE_REPO.replace(
+                "class Cabinet:",
+                "class Cabinet:\n    __slots__ = ('settings', 'hashes')",
+            ).replace(
+                "self.hashes = {}",
+                "self.hashes = {(14, 44100): [], (18, 44100): []}",
+            )
+        )
+        submission = resolve(
+            self.tmp, chain_role=ROLE, fixture=FIXTURE,
+            accepts=_accepts, arrangements=_arrangements,
+        )
+        self.assertTrue(submission.ready, submission.verdict.headline)
+        self.assertEqual(submission._state_attribute, "hashes")
 
     def test_a_settings_table_does_not_make_their_store_ambiguous(self):
         submission = resolve(
