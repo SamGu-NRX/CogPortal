@@ -709,9 +709,12 @@ def load_student(benchmark_id, contract_version="cogworks.submissions.v1"):
     # Passing repo_root explicitly rather than relying on the working directory
     # keeps this correct even if a submission changes directory during its own
     # import, which several audited repositories do while loading a pickle.
+    #
+    # Returns the factory and the course-file mapping to hold while it runs.
+    # See `_course_files`.
     if adapter_source == "discovery":
         return _discovered_factory(benchmark_id)
-    return load_submission(benchmark_id, contract_version, repo_root=repo_root)
+    return load_submission(benchmark_id, contract_version, repo_root=repo_root), contextlib.nullcontext()
 
 
 def _discovered_factory(benchmark_id):
@@ -758,7 +761,31 @@ def _discovered_factory(benchmark_id):
     except Exception:
         pass  # the score is the point; the explanation is worth less than it
 
-    return lambda *args, **kwargs: benchmark.submission_from_discovery(found)
+    return (
+        lambda *args, **kwargs: benchmark.submission_from_discovery(found),
+        _course_files(spec),
+    )
+
+
+def _course_files(spec):
+    # The mapping `cogworks run` holds across the candidate call, held here too.
+    #
+    # `from_spec` opens this same scope for resolution and closes it when it
+    # returns, so a submission that reads a course file while running rather
+    # than while being searched is outside it. A captured alias still works,
+    # because a from-import keeps the patched function; a lookup through the
+    # module, or a first import inside the call, gets the real loader, which
+    # downloads into its own cache and fails here because the evaluation
+    # sandbox has no network.
+    #
+    # Discovery path only, because that is where the mapping already exists. A
+    # repository that declares its own submission would need `spec` built for
+    # it, and building one loads the week's test tier and course artifacts.
+    from cogbench.discover import _Redirects
+
+    return _Redirects(dict(getattr(spec, "resource_files", {}) or {}))
+
+
 # Who owns the step currently running. The controller decides whether a
 # failure consumes one of the three official attempts, and it must decide that
 # from WHERE the exception came from, never from what the message says: the
@@ -787,9 +814,15 @@ try:
         resources = benchmark.model_factory()
         owner = "student"
         with contextlib.redirect_stdout(buffer), contextlib.redirect_stderr(buffer):
-            factory = load_student(benchmark_id, "cogworks.submissions.v2")
-            predictions = benchmark.run(factory, resources, cases)
-        predictions = list(predictions)
+            factory, course_files = load_student(benchmark_id, "cogworks.submissions.v2")
+            with course_files:
+                # Materialized inside both scopes, not after them. `benchmark.run`
+                # may return a generator, and a generator runs its body at
+                # iteration: listing it once the scopes had closed executed the
+                # submission against the restored course loader, which downloads
+                # and cannot reach the network here, and sent its output past the
+                # capture buffer.
+                predictions = list(benchmark.run(factory, resources, cases))
         if len(predictions) != len(cases):
             raise RuntimeError("Submission returned the wrong number of case outputs.")
     elif pathlib.Path("/tmp/cog-week3-payload.zip").exists():
@@ -812,9 +845,15 @@ try:
         resources = benchmark.model_factory()
         owner = "student"
         with contextlib.redirect_stdout(buffer), contextlib.redirect_stderr(buffer):
-            factory = load_student(benchmark_id, "cogworks.submissions.v2")
-            predictions = benchmark.run(factory, resources, cases)
-        predictions = list(predictions)
+            factory, course_files = load_student(benchmark_id, "cogworks.submissions.v2")
+            with course_files:
+                # Materialized inside both scopes, not after them. `benchmark.run`
+                # may return a generator, and a generator runs its body at
+                # iteration: listing it once the scopes had closed executed the
+                # submission against the restored course loader, which downloads
+                # and cannot reach the network here, and sent its output past the
+                # capture buffer.
+                predictions = list(benchmark.run(factory, resources, cases))
         if len(predictions) != len(cases):
             raise RuntimeError("Submission returned the wrong number of component outputs.")
     elif pathlib.Path("/tmp/cog-v2-payload.zip").exists():
@@ -827,21 +866,26 @@ try:
         model = FacenetModel(device="cpu")
         owner = "student"
         with contextlib.redirect_stdout(buffer), contextlib.redirect_stderr(buffer):
-            factory = load_student(benchmark_id, "cogworks.submissions.v2")
-            predictions = benchmark.run(factory, model, cases)
-        predictions = list(predictions)
+            factory, course_files = load_student(benchmark_id, "cogworks.submissions.v2")
+            with course_files:
+                # Materialized inside both scopes, not after them. `benchmark.run`
+                # may return a generator, and a generator runs its body at
+                # iteration: listing it once the scopes had closed executed the
+                # submission against the restored course loader, which downloads
+                # and cannot reach the network here, and sent its output past the
+                # capture buffer.
+                predictions = list(benchmark.run(factory, model, cases))
         if len(predictions) != len(cases):
             raise RuntimeError("Submission returned the wrong number of scenario outputs.")
     else:
         inputs = json.loads(pathlib.Path("/tmp/cog-inputs.json").read_text(encoding="utf-8"))
         owner = "student"
-        adapter = load_student(benchmark_id)
+        adapter, course_files = load_student(benchmark_id)
         predictor = getattr(adapter, "predict", adapter if callable(adapter) else None)
         if not callable(predictor):
             raise RuntimeError("Submission adapter must be callable or expose predict(inputs).")
-        with contextlib.redirect_stdout(buffer), contextlib.redirect_stderr(buffer):
-            predictions = predictor(inputs)
-        predictions = list(predictions)
+        with contextlib.redirect_stdout(buffer), contextlib.redirect_stderr(buffer), course_files:
+            predictions = list(predictor(inputs))
         if len(predictions) != len(inputs):
             raise RuntimeError("Submission returned the wrong number of predictions.")
 except Exception as error:
