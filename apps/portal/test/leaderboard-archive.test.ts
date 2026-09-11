@@ -5,7 +5,10 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { drizzle } from "drizzle-orm/d1";
+import { eq } from "drizzle-orm";
 import {
+  benchmarkFamilies,
+  benchmarkFamilyComponents,
   cohorts,
   leaderboardSelections,
   runMetrics,
@@ -13,7 +16,7 @@ import {
   teams,
 } from "../worker/db/schema.ts";
 import type { Env } from "../worker/env.ts";
-import { getLeaderboardReadModel } from "../worker/services/leaderboard.ts";
+import { getFamilyLeaderboardReadModel, getLeaderboardReadModel } from "../worker/services/leaderboard.ts";
 
 /**
  * An archive row on the leaderboard is labeled "2026 cohort, anonymized". The
@@ -154,3 +157,35 @@ test("a live row keeps both, because its score is a claim about readable code", 
   assert.equal(live.sha, REAL_SHA);
   assert.equal(live.shortSha, REAL_SHA.slice(0, 7));
 });
+
+for (const excluded of [
+  { status: "succeeded", mode: "official", refundedAt: 30 },
+  { status: "failed", mode: "official", refundedAt: null },
+  { status: "cancelled", mode: "official", refundedAt: null },
+  { status: "succeeded", mode: "practice", refundedAt: null },
+] as const) {
+  test(`both leaderboards exclude selected ${excluded.status}/${excluded.mode}/refund=${excluded.refundedAt}`, async () => {
+    const env = await seeded();
+    const db = drizzle(env.DB);
+    await db.update(runs).set({ repositoryId: 123 });
+    await db.insert(benchmarkFamilies).values({
+      id: "test-audio", version: 1, title: "Test audio", module: "audio", active: true,
+    });
+    await db.insert(benchmarkFamilyComponents).values({
+      familyId: "test-audio", familyVersion: 1, key: "identification",
+      label: "Identification", benchmarkId: "audio-identification", benchmarkVersion: 1,
+      metricKey: "identification_score", weight: 1, sortOrder: 0,
+    });
+    assert.equal((await getFamilyLeaderboardReadModel(env, "test-audio")).entries.length, 2);
+    await db.update(runs).set(excluded).where(eq(runs.id, "run_team_archive"));
+    const board = await getLeaderboardReadModel(env, "audio-identification");
+    const family = await getFamilyLeaderboardReadModel(env, "test-audio");
+    for (const result of [board, family]) {
+      assert.deepEqual(result.entries.map((entry) => entry.teamName), ["team_live"]);
+      assert.equal(result.entries[0]?.rank, 1);
+    }
+    // Keep the selection and findings as history; filtering must happen on read.
+    assert.equal((await db.select().from(leaderboardSelections)).length, 2);
+    assert.equal((await db.select().from(runMetrics)).length, 2);
+  });
+}

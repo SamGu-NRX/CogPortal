@@ -9,6 +9,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 from cogbench import cli, isolate
 from cogbench.isolate import COMPLETED, Outcome
+from cogbench.models import LocalReport, Metric, RepositoryState
 from cogbench.raised import Raised
 from cogbench.resolve import Attempt, SubmissionReport
 from cogbench.verdict import Coverage, Observation, Verdict
@@ -27,6 +28,37 @@ class ReportRoundTrips(unittest.TestCase):
             coverage=Coverage(('train',), (('helper', 'missing package', 'ours'),)),
             errors=(Raised('train.py', 24, 'train.prep_data', 'ValueError: wrong shape'),),
         )
+
+    def test_local_metric_metadata_and_weights_survive_json_roundtrip(self):
+        metrics = [
+            Metric('metric_' + role, role, 0.25, None, True, role == 'scored', 3,
+                   help='What this measures.', role=role,
+                   relates_to=None if role == 'scored' else 'metric_scored')
+            for role in ('scored', 'floor', 'reported', 'diagnostic')
+        ]
+        report = LocalReport(
+            report_id='local_roles', benchmark_id='fixture', benchmark_version=1,
+            contract_version='cogworks.submissions.v2', sdk_version='0.2.0',
+            plugin_version='1', repository=RepositoryState(None, 'course/team', 'a' * 40, False),
+            started_at=1, finished_at=2, metrics=metrics,
+            diagnostics=['The findings remain available.'], output_digest='b' * 64,
+            weights_used=['model.pkl'],
+            weights_uploaded=[{'path': 'model.pkl', 'sha256': 'c' * 64}],
+        )
+        restored = LocalReport.from_json(report.to_json())
+        self.assertEqual(restored, report)
+        self.assertEqual(restored.to_wire(), report.to_wire())
+
+    def test_legacy_metric_metadata_stays_absent(self):
+        metric = Metric('score', 'Score', 0.25, None, True, True, 3)
+        wire = metric.to_wire()
+        for metadata in ({}, {'role': None, 'relatesTo': None}):
+            with self.subTest(metadata=metadata):
+                restored = Metric.from_wire(dict(wire, **metadata))
+                self.assertEqual(restored, metric)
+                self.assertEqual(restored.to_wire(), wire)
+                self.assertNotIn('role', restored.to_wire())
+                self.assertNotIn('relatesTo', restored.to_wire())
 
     def test_observation(self):
         self.roundtrip(Observation('features', 'train.features', 'image', 'vector'))

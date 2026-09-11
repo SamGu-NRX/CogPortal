@@ -18,6 +18,11 @@ from fastapi import Request, Response
 
 from .image_bake import WEEK3_DATA_DIR, cache_facenet_checkpoint, cache_week3_artifacts
 from .protocol import canonical_json, signature, validate_job, verify_signature
+from .prepared_environment import (
+    bind_environment,
+    validate_observation,
+    validate_prepared_environment,
+)
 
 # Every request the runner makes to the portal or to GitHub carries this.
 # urllib's default is "Python-urllib/3.11", and Cloudflare's managed rules
@@ -1360,7 +1365,7 @@ def _student_python(job: Dict[str, Any]) -> str:
     }.get(job["benchmark"]["id"], "python")
 
 
-def _prepare(job: Dict[str, Any], reporter: LiveReporter) -> str:
+def _prepare(job: Dict[str, Any], reporter: LiveReporter) -> Tuple[str, Dict[str, Any]]:
     sandbox = None
     try:
         callback = urlsplit(job["callback"]["url"])
@@ -1394,8 +1399,10 @@ def _prepare(job: Dict[str, Any], reporter: LiveReporter) -> str:
         ]
         if callback.hostname and callback.hostname not in allowlist:
             allowlist.append(callback.hostname)
+        image = _sandbox_image(job)
+        image.hydrate()
         sandbox = modal.Sandbox.create(
-            image=_sandbox_image(job),
+            image=image,
             app=app,
             cpu=(0.5, job["runtime"]["cpu"]),
             memory=(512, job["runtime"]["memoryMb"]),
@@ -1403,6 +1410,27 @@ def _prepare(job: Dict[str, Any], reporter: LiveReporter) -> str:
             outbound_domain_allowlist=allowlist,
         )
         reporter.status("preparing")
+        # Only this pristine image is platform-owned. Neither the archive nor
+        # an installer has run. Preserve the observation in controller memory;
+        # reading it back after student code runs would cross the trust boundary.
+        pristine = sandbox.exec(
+            _student_python(job), "-m", "cogworks_runner.prepared_environment",
+            job["benchmark"]["id"],
+        )
+        pristine.wait()
+        if pristine.returncode != 0:
+            raise RunnerFailure(
+                "provider", "preparing",
+                "The published environment cannot establish its execution contract.", True,
+            )
+        try:
+            observation = json.loads(pristine.stdout.read())
+            validate_observation(job, observation)
+        except (ValueError, TypeError) as error:
+            raise RunnerFailure(
+                "provider", "preparing",
+                "The published environment does not satisfy the current execution contract.", True,
+            ) from error
         sandbox.filesystem.write_text(PREPARE_SCRIPT, "/tmp/cog-prepare.py")
         reporter.status("installing")
         with StatusHeartbeat(reporter, "installing"):
@@ -1438,7 +1466,8 @@ def _prepare(job: Dict[str, Any], reporter: LiveReporter) -> str:
                 )
             raise RunnerFailure("dependency_install", "installing", detail or "Install failed.", False)
         reporter.status("contract_check")
-        return sandbox.snapshot_filesystem().object_id
+        snapshot_id = sandbox.snapshot_filesystem().object_id
+        return snapshot_id, bind_environment(job, observation, snapshot_id, image.object_id)
     except RunnerFailure:
         raise
     except Exception as error:
@@ -1485,21 +1514,12 @@ _WIRING: List[Dict[str, Any]] = []
 #   * A wrong element type is an uncaught AttributeError inside `score()`, and
 #     `execute_job` classifies any non-RunnerFailure raised during the scoring
 #     phase as `scorer` with `infrastructure=True`. That copy tells the team
-#     "this is a platform problem, not a problem with your code" and refunds
-#     the attempt, so a payload that crashes the scorer buys unlimited official
-#     retries. This is the same free-attempt economics the owner-tag comments
-#     in `_evaluate_v2` closed on the evaluating phase; the scoring phase kept
-#     it open.
+#     "this is a platform problem, not a problem with your code". Validate
+#     malformed submission output before scoring so that advice stays accurate.
 #
-# `output_invalid` is the category for this. It exists already
-# (FAILURE_CATEGORIES in packages/contracts/src/schema.ts), its copy is written
-# for exactly this case ("Predictions did not match the schema",
-# packages/contracts/src/failures.ts), and it is a member of CONSUMING_FAILURES
-# in both apps/portal/worker/routes/runner-events.ts and
-# apps/portal/worker/execution/sync.ts, so refusing here spends the attempt
-# rather than refunding it. Until now nothing in the scoring phase could
-# produce it: its only producer was the v1 lane's substring match on
-# student-controlled stderr.
+# `output_invalid` already has the appropriate copy in contracts/failures.ts.
+# Every failed execution releases capacity; this boundary determines ownership
+# of the failure, not whether an evaluation counts against quota.
 
 
 class _NonFiniteNumber(ValueError):
@@ -1533,8 +1553,8 @@ def _bounded_int(text: str) -> int:
     Scoring calls float() on submission numbers in several places (Week 1's
     `_margin`, `_v2_metrics`' own `float(value)`), and `float(2 ** 1024)`
     raises OverflowError rather than returning an infinity. Uncaught during
-    scoring that is the `scorer`/infrastructure path, so a 400-digit integer
-    in a scores list buys the same refunded attempt as a NaN.
+    scoring that is the `scorer`/infrastructure path, which misattributes a
+    400-digit integer supplied by the submission to our scorer.
 
     Tried by conversion rather than by a bit-length bound. The bound is not
     exactly on a bit boundary: 2**1023 has 1024 bits and converts, 2**1024 - 1
@@ -1738,12 +1758,9 @@ _EMPTY_ROW_OK = frozenset({"rankings"})
 def _refuse_output(detail: str) -> RunnerFailure:
     """Build the refusal for results that cannot be scored.
 
-    `infrastructure=False` and the `output_invalid` category together are what
-    spend the official attempt. Both matter: `execute_job` reads
-    `infrastructure` to decide whether the run was our fault, and
-    CONSUMING_FAILURES in runner-events.ts reads the category. Getting either
-    wrong turns the refusal back into the free retry this check exists to
-    close.
+    `infrastructure=False` and `output_invalid` identify malformed submission
+    results, rather than blaming the platform's scorer. Every failure releases
+    capacity; attribution still determines which problem the team is told about.
 
     The phase is "evaluating" rather than "scoring". What is wrong is the
     submission's results, and those were produced during evaluation; naming
@@ -1759,7 +1776,7 @@ def _check_matrix_field(index: int, field: str, rows: List[Any]) -> None:
     See `_NUMERIC_MATRIX_FIELDS` for why this exists and what it costs: JSON
     `null` reaches numpy as NaN, and a NaN embedding scores 1.0 rather than
     crashing. Ragged rows are refused too, since numpy raises on them and an
-    uncaught raise during the scoring phase is the refunded-attempt path.
+    uncaught raise during scoring would incorrectly blame the platform.
 
     Only the first offending leaf is named. A submission that got this wrong
     usually got it wrong everywhere, and one location is what the team needs
@@ -2005,12 +2022,9 @@ def _evaluate_v2(
             # writes after it imports student code is student speech, and the
             # conditions a marker used to report are already verified by the
             # controller before the sandbox starts.
-            # Not "contract_invalid" from the message text: that category is
-            # absent from CONSUMING_FAILURES in runner-events.ts, so deriving
-            # it from student-controlled words was a second way to buy a free
-            # official attempt (`raise RuntimeError("benchmark_adapter.py")`).
-            # The contract check already ran during prepare; a failure here is
-            # the submission's.
+            # Student-controlled message text cannot identify a platform fault.
+            # Provisioning compatibility was checked before this execution;
+            # the failure here belongs to the submission, not that check.
             raise RunnerFailure("student_runtime", "evaluating", detail, False)
         predictions = _load_predictions(
             sandbox.filesystem.read_text("/tmp/cog-predictions.json")
@@ -2076,7 +2090,7 @@ def _restore_v2_predictions(predictions: List[Any], plans: List[Any]) -> List[An
 
     The refusals here are `output_invalid` rather than provider faults, for the
     reason `_refuse_output` states: what is wrong is the submission's results,
-    and a provider category would refund the attempt. The sandbox driver
+    and a provider category would misidentify their cause. The sandbox driver
     already length-checked each batch before writing the file, but that check
     ran inside the student's own process, so it is re-done on this side.
     """
@@ -2155,12 +2169,9 @@ def _evaluate_week3(
             # No platform-fault branch. _week3_cases already decoded and
             # validated the same artifacts in this process, before the sandbox
             # ran. See _platform_owned_evaluation_failure.
-            # Not "contract_invalid" from the message text: that category is
-            # absent from CONSUMING_FAILURES in runner-events.ts, so deriving
-            # it from student-controlled words was a second way to buy a free
-            # official attempt (`raise RuntimeError("benchmark_adapter.py")`).
-            # The contract check already ran during prepare; a failure here is
-            # the submission's.
+            # Student-controlled message text cannot identify a platform fault.
+            # Provisioning compatibility was checked before this execution;
+            # the failure here belongs to the submission, not that check.
             if _timed_out(job, started, process.returncode, stderr_text):
                 raise RunnerFailure(
                     "timeout",
@@ -2277,9 +2288,9 @@ def _evaluate_week1(
 def _platform_owned_evaluation_failure() -> None:
     """Why no evaluation failure is ever attributed to the platform from here.
 
-    A failed official run either spends one of a team's three attempts or is
-    refunded. Refunding is the branch that benefits the submission, so the
-    evidence for it has to come from somewhere the submission cannot write.
+    All failures release capacity. Platform attribution still requires evidence
+    the submission cannot write; otherwise the advice blames our environment
+    for what the submitted code did.
 
     The sandbox used to say. It wrote `COG_PLATFORM_ERROR:` to stderr when it
     failed before importing student code, and the controller read that. The
@@ -2291,9 +2302,8 @@ def _platform_owned_evaluation_failure() -> None:
         import os
         os.write(2, b"COG_PLATFORM_ERROR: FaceNet cache validation failed")
 
-    put the marker on the pipe the controller reads. That bought `model_cache`,
-    which is infrastructure-owned and absent from CONSUMING_FAILURES, so the
-    attempt came back. Unbounded, and the run page blamed our model cache.
+    put the marker on the pipe the controller reads. The run page then blamed
+    our model cache for a message the submission had fabricated.
 
     The exit code is no better: `os._exit` beats the `SystemExit(2)` the script
     would otherwise raise. Once student code is running in a process, nothing
@@ -2302,8 +2312,11 @@ def _platform_owned_evaluation_failure() -> None:
     moved the trust to a new channel (adapter name, then message words, then
     this marker) and each left the shape intact.
 
-    Nothing is lost by not asking. Every condition the marker reported is
-    verified by this process, before the sandbox is created:
+    Saved-environment compatibility is checked separately against the retained
+    pre-install observation. It proves provisioning, not that installation left
+    those modules intact. Never replace it with a read from the restored image.
+
+    The conditions the old marker reported are checked outside student execution:
 
       _week1_cases   re-renders the corpus from its seeds and checks it
                      against the same pinned sha256 digests
@@ -2558,11 +2571,20 @@ def execute_job(job_value: Dict[str, Any]) -> None:
     phase = "queued"
     try:
         prepared_this_run = job["preparedArtifactId"] is None
-        snapshot_id = job["preparedArtifactId"] or _prepare(job, reporter)
+        if prepared_this_run:
+            snapshot_id, prepared_environment = _prepare(job, reporter)
+        else:
+            phase = "contract_check"
+            reporter.status("contract_check")
+            snapshot_id = job["preparedArtifactId"]
+            prepared_environment = job.get("preparedEnvironment")
+            incompatibility = validate_prepared_environment(job, prepared_environment)
+            if incompatibility:
+                raise RunnerFailure("provider", "contract_check", incompatibility, True)
+        # This evidence came from before installation, over the signed job.
+        # Later package changes or prediction claims cannot change attribution.
         weights_supplied = [weight["path"] for weight in job.get("weights", [])]
         phase = "contract_check"
-        if job["preparedArtifactId"]:
-            reporter.status("contract_check")
         benchmark = _load_benchmark(job)
         week3 = job["benchmark"]["id"] == "language-search"
         week1 = job["benchmark"]["id"] == "audio-identification"
@@ -2602,8 +2624,7 @@ def execute_job(job_value: Dict[str, Any]) -> None:
         # here is about what the submission returned, and `phase` is what the
         # failure handler below reports. Anything raised once phase is
         # "scoring" and is not a RunnerFailure becomes category "scorer" with
-        # infrastructure=True, which tells the team the platform broke and
-        # refunds the attempt.
+        # infrastructure=True, which tells the team the platform broke.
         _check_predictions(benchmark, predictions, case_count)
         phase = "scoring"
         reporter.status("scoring")
@@ -2614,13 +2635,15 @@ def execute_job(job_value: Dict[str, Any]) -> None:
         output_digest = hashlib.sha256(
             json.dumps(predictions, sort_keys=True, separators=(",", ":")).encode("utf-8")
         ).hexdigest()
-        environment_digest = hashlib.sha256(
-            "{}:{}:{}".format(
-                snapshot_id,
-                job["runtime"]["imageDigest"],
-                job["benchmark"]["pluginVersion"],
-            ).encode("utf-8")
-        ).hexdigest()
+        # Preparation identity is preserved separately from this evaluator.
+        # Requested image labels cannot describe a restored filesystem.
+        environment_digest = hashlib.sha256(canonical_json({
+            "preparedEnvironment": prepared_environment,
+            "evaluationScriptSha256": hashlib.sha256(EVALUATE_SCRIPT.encode("utf-8")).hexdigest(),
+            "controllerPython": sys.version,
+            "pluginVersion": benchmark.plugin_version,
+            "scorerVersion": benchmark.scorer_version,
+        })).hexdigest()
         result = {
             "protocolVersion": "1",
             "benchmarkId": job["benchmark"]["id"],
@@ -2677,8 +2700,7 @@ def execute_job(job_value: Dict[str, Any]) -> None:
     # anything raised while the phase is "scoring" to `category: "scorer"`. So a
     # portal that would not answer turned a run that scored into a scorer
     # failure: the team's real number was replaced by a claim that our scorer
-    # broke, and in official mode that refunds an attempt against a result that
-    # exists.
+    # broke. Delivery failure must not replace a result that already exists.
     #
     # The result is written down before it is sent. `_post_event` retries three
     # times; when those are exhausted the numbers used to exist only in this
@@ -2691,6 +2713,7 @@ def execute_job(job_value: Dict[str, Any]) -> None:
         "completed",
         result=result,
         preparedArtifactId=snapshot_id,
+        preparedEnvironment=prepared_environment,
         environmentDigest=environment_digest,
         sanitizedLog=student_log if job["mode"] == "practice" else None,
     )

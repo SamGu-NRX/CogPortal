@@ -20,6 +20,8 @@ import {
   LeaderboardSchema,
   LocalReportListSchema,
   RunDetailSchema,
+  RetryRunRequestSchema,
+  type RetryRunRequest,
   RunSurfaceSnapshotSchema,
   RunSummarySchema,
   SessionSchema,
@@ -29,6 +31,13 @@ import {
   TeamProcessSignalsSchema,
   type ApiErrorCode,
 } from "@cogworks/contracts/schema";
+
+type ExistingRunSurfaceMutation = "verify_hosted" | "promote_official" | "publish_result" | "rerun_hosted";
+
+export type RunSurfaceMutationInput = { surfaceId: string } & (
+  | { action: ExistingRunSurfaceMutation; runId?: never }
+  | ({ action: "retry" } & RetryRunRequest)
+);
 
 const AdminCohortSchema = AdminOverviewSchema.shape.cohort;
 
@@ -241,12 +250,16 @@ export const api = {
     request(`/api/run-surfaces/${encodeURIComponent(surfaceId)}`, RunSurfaceSnapshotSchema),
   mutateRunSurface: (
     surfaceId: string,
-    action: "verify_hosted" | "promote_official" | "publish_result" | "rerun_hosted",
+    ...mutation: [action: ExistingRunSurfaceMutation] | [action: "retry", target: RetryRunRequest]
   ) =>
     request(
-      `/api/run-surfaces/${encodeURIComponent(surfaceId)}/actions/${action}`,
+      `/api/run-surfaces/${encodeURIComponent(surfaceId)}/actions/${mutation[0]}`,
       RunSurfaceSnapshotSchema,
-      { method: "POST" },
+      {
+        method: "POST",
+        // Replays must reuse the caller's failed execution, never the latest snapshot.
+        body: mutation[0] === "retry" ? RetryRunRequestSchema.parse(mutation[1]) : undefined,
+      },
     ),
 
   leaderboard: (benchmarkId?: string) =>
