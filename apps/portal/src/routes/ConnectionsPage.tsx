@@ -252,7 +252,7 @@ export function ConnectionsPage() {
                   portal and refuses `cogworks link` outright, which used to send a
                   first-time student to Setup to find the rest of it. */}
               <CopyBlock className="mt-3" text={linkCommand(window.location.origin)} />
-              <p className="mt-3 text-[12px] text-ink-faint">
+              <p className="mt-3 text-[13px] text-ink-secondary">
                 Don't have the tool yet?{" "}
                 <Link to="/setup" className="text-ink underline underline-offset-4">
                   Setup

@@ -11,6 +11,9 @@ import { linkCommand, setupCommandLines } from "../src/lib/setup-progress.ts";
  * to copy `cogworks link --portal ...` from the setup page: the page sent them
  * to the terminal, and the terminal sent them back to find a different page.
  * `python/cogbench/src/cogbench/cli.py:129-134` is the refusal.
+ *
+ * These cover the string. That the panel renders it needs a DOM and was checked
+ * in the browser instead, against a local device flow with no linked devices.
  */
 
 const ORIGIN = "https://cogportal-dev.sillion.app";
@@ -22,9 +25,10 @@ test("the command names a portal, so an unconfigured CLI can run it", () => {
   assert.ok(command.includes(ORIGIN), "the device request has to reach this portal");
 });
 
-test("Setup's rail and Connections show the same command", () => {
-  // Two places offering different commands is how the student ends up linked to
-  // the wrong portal, so they read from one function rather than two templates.
+test("the setup rail reads the same helper the panel does", () => {
+  // Two places offering different commands is how a student ends up linked to
+  // the wrong portal, so both read one function rather than two templates. This
+  // pins the rail's half; reverting the panel alone would not fail here.
   const rail = setupCommandLines({
     cloneUrl: "https://github.com/cogworks-demo/face-finder.git",
     repoName: "face-finder",
