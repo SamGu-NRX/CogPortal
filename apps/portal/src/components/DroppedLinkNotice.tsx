@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { takeDroppedDeviceLink } from "@/lib/pending-return";
+import { deviceLinkCommand } from "@/lib/setup-progress";
 
 /**
  * Says what the portal just declined to do.
@@ -24,7 +25,7 @@ export function DroppedLinkNotice() {
       {kind === "device" ? (
         <>
           A device was waiting for approval, but you need a team first. Finish
-          this step, then run <code className="font-mono text-[12px]">cogworks link</code> again.
+          this step, then run <code className="font-mono text-[12px] [overflow-wrap:anywhere]">{deviceLinkCommand(window.location.origin)}</code> again.
         </>
       ) : (
         <>
