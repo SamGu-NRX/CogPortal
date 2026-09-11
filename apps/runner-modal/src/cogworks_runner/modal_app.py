@@ -773,16 +773,14 @@ def _course_files(spec):
     # downloads into its own cache and fails here because the evaluation
     # sandbox has no network.
     #
-    # The SDK's own object and lifetime rules, not a second set of hooks.
-    # Nesting is safe: each instance saves what it replaced, and the inner
-    # scope restores the outer one rather than the original.
-    #
     # Discovery path only, because that is where the mapping already exists. A
     # repository that declares its own submission would need `spec` built for
     # it, and building one loads the week's test tier and course artifacts.
     from cogbench.discover import _Redirects
 
     return _Redirects(dict(getattr(spec, "resource_files", {}) or {}))
+
+
 # Who owns the step currently running. The controller decides whether a
 # failure consumes one of the three official attempts, and it must decide that
 # from WHERE the exception came from, never from what the message says: the

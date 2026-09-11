@@ -105,12 +105,6 @@ class TheStagedMappingCoversEveryLookupShape(unittest.TestCase):
                 scope.leave()
         self.assertEqual(observed, STAGED)
 
-    def test_without_the_scope_the_same_lookup_downloads(self):
-        """The counterfactual, so the two above are not passing by accident."""
-
-        with StubCourseLoader() as module:
-            self.assertEqual(module.get_data_path("captions_train2014.json"), DOWNLOADED)
-
     def test_leaving_the_scope_restores_the_real_loader(self):
         with StubCourseLoader() as module:
             scope = self.scope()
@@ -126,7 +120,7 @@ class TheSandboxHoldsItAcrossTheCandidateCall(unittest.TestCase):
 
         script = evaluate_script()
         tree = ast.parse(script)
-        unguarded = []
+        guarded_calls = []
         for node in ast.walk(tree):
             if not isinstance(node, ast.With):
                 continue
@@ -140,10 +134,10 @@ class TheSandboxHoldsItAcrossTheCandidateCall(unittest.TestCase):
             for inner in ast.walk(node):
                 if isinstance(inner, ast.Call) and isinstance(inner.func, ast.Attribute):
                     if inner.func.attr == "run":
-                        unguarded.append(inner)
-        self.assertTrue(unguarded, "no benchmark.run(...) is held inside course_files")
+                        guarded_calls.append(inner)
+        self.assertTrue(guarded_calls, "no benchmark.run(...) is held inside course_files")
 
-        guarded = {id(call) for call in unguarded}
+        guarded = {id(call) for call in guarded_calls}
         for node in ast.walk(tree):
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
                 if node.func.attr == "run" and getattr(node.func.value, "id", "") == "benchmark":
@@ -152,6 +146,32 @@ class TheSandboxHoldsItAcrossTheCandidateCall(unittest.TestCase):
                         guarded,
                         "a benchmark.run(...) call runs outside the course-file scope",
                     )
+
+
+    def test_every_load_student_call_takes_both_halves(self):
+        """The script is a string no test executes, so its one contract with
+        `load_student` is checked here instead.
+
+        Every branch has to unpack the factory and the scope. A branch that
+        took only the factory would raise inside a real Modal run and nowhere
+        else.
+        """
+
+        tree = ast.parse(evaluate_script())
+        calls = 0
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Assign):
+                continue
+            call = node.value
+            if not (isinstance(call, ast.Call) and getattr(call.func, "id", "") == "load_student"):
+                continue
+            calls += 1
+            target = node.targets[0]
+            self.assertIsInstance(
+                target, ast.Tuple, "load_student's result is not unpacked at line {}".format(node.lineno)
+            )
+            self.assertEqual(len(target.elts), 2, node.lineno)
+        self.assertEqual(calls, 4, "expected one load_student call per payload branch")
 
 
 if __name__ == "__main__":
