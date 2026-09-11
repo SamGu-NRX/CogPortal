@@ -2873,16 +2873,12 @@ class ImportContext:
         self.directories: Tuple[Path, ...] = tuple(directories)
         self._modules: Dict[str, ModuleType] = {}
         self._finders: List[object] = []
-        self._depth = 0
-        self._installed = False
-        # Only meaningful while installed, declared here so the whole of this
-        # object's state is in one place.
-        self._displaced: Dict[str, ModuleType] = {}
-        self._added: List[object] = []
-        self._before: set = set()
-        self._held_path: List[str] = []
-        self._held_preexisting: set = set()
-        self._held_displaced: Dict[str, ModuleType] = {}
+        #: One entry per live block, innermost last. A stack rather than a
+        #: counter because blocks interleave: entering A, then B, then A again
+        #: has to put A's names back the second time, and a counter that
+        #: treated the second A as already installed left B's modules in place
+        #: and handed A's own function B's state.
+        self._frames: List[Optional[Dict[str, object]]] = []
 
     def __bool__(self) -> bool:
         """Whether entering this would put anything back.
@@ -2937,44 +2933,54 @@ class ImportContext:
             self._finders.append(finder)
 
     def __enter__(self) -> "ImportContext":
-        self._depth += 1
-        if self._depth > 1 or not self:
+        if not self:
+            # Nothing of theirs to put back. A frame is still pushed so that
+            # enter and leave stay balanced for a caller that does not check.
+            self._frames.append(None)
             return self
-        self._displaced = {}
-        self._held_path = list(sys.path)
+        displaced: Dict[str, ModuleType] = {}
         # Read before their names go in, so the reuse check judges a file
         # against what the process held rather than against this repository.
-        self._held_preexisting = set(_PREEXISTING)
+        held_preexisting = set(_PREEXISTING)
         _PREEXISTING.clear()
         _PREEXISTING.update(sys.modules)
-        self._held_displaced = dict(_DISPLACED)
+        held_displaced = dict(_DISPLACED)
         _DISPLACED.clear()
+        held_path = list(sys.path)
         for name, module in self._modules.items():
             if name in sys.modules:
-                self._displaced[name] = sys.modules[name]
+                displaced[name] = sys.modules[name]
             sys.modules[name] = module
-        self._added = [
-            finder for finder in self._finders if finder not in sys.meta_path
-        ]
-        for finder in reversed(self._added):
+        added = [finder for finder in self._finders if finder not in sys.meta_path]
+        for finder in reversed(added):
             sys.meta_path.insert(0, finder)
         for directory in reversed(self.directories):
             sys.path.insert(0, str(directory))
-        self._before = set(sys.modules)
-        self._installed = True
+        self._frames.append({
+            "displaced": displaced,
+            "added": added,
+            "before": set(sys.modules),
+            "path": held_path,
+            "preexisting": held_preexisting,
+            "wasDisplaced": held_displaced,
+        })
         return self
 
     def __exit__(self, *_exc) -> None:
-        self._depth -= 1
-        if self._depth > 0 or not self._installed:
+        if not self._frames:
             return
-        self._installed = False
-        sys.path[:] = self._held_path
+        frame = self._frames.pop()
+        if frame is None:
+            return
+        displaced: Dict[str, ModuleType] = frame["displaced"]  # type: ignore[assignment]
+        added: List[object] = frame["added"]  # type: ignore[assignment]
+        before: set = frame["before"]  # type: ignore[assignment]
+        sys.path[:] = frame["path"]  # type: ignore[arg-type]
         # Whatever their code imported while it ran is theirs too, so it is
         # kept for the next call and taken out with the rest. Deepest name
         # first: a nested package resolves its search path by looking its
         # parent up in the table being emptied.
-        for name in sorted(set(sys.modules) - self._before, reverse=True):
+        for name in sorted(set(sys.modules) - before, reverse=True):
             module = sys.modules.get(name)
             if module is not None and _belongs_to(name, module, self.directories):
                 self.retain(name, module)
@@ -2985,14 +2991,16 @@ class ImportContext:
         for name, original in _DISPLACED.items():
             sys.modules[name] = original
         _DISPLACED.clear()
-        _DISPLACED.update(self._held_displaced)
-        for name, original in self._displaced.items():
+        _DISPLACED.update(frame["wasDisplaced"])  # type: ignore[arg-type]
+        # Whatever this block pushed aside, which on a nested entry is the
+        # block outside it rather than the process's own module.
+        for name, original in displaced.items():
             sys.modules[name] = original
         sys.meta_path[:] = [
-            finder for finder in sys.meta_path if finder not in self._added
+            finder for finder in sys.meta_path if finder not in added
         ]
         _PREEXISTING.clear()
-        _PREEXISTING.update(self._held_preexisting)
+        _PREEXISTING.update(frame["preexisting"])  # type: ignore[arg-type]
 
 
 @contextlib.contextmanager

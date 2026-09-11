@@ -2416,6 +2416,41 @@ class AReturnedSubmissionCanStillImportItsOwnModules(_Submission):
 
         self.assertEqual((first, inner, after), ("repo-a:x", "repo-b:x", "repo-a:x"))
 
+    def test_re_entering_one_while_the_other_is_live_restores_it(self):
+        """A counter is not enough. Entering A, then B, then A again has to
+        put A's names back the second time; treating the inner A as already
+        installed left B's modules in place, and A's own function read B's
+        state. Found by the PR7 owner against real files on 3.8."""
+
+        one, two = self.submission("a", "repo-a"), self.submission("b", "repo-b")
+        call_one, call_two = self.caller(one), self.caller(two)
+
+        seen = []
+        with one.imports():
+            seen.append(call_one("x"))
+            with two.imports():
+                seen.append(call_two("x"))
+                with one.imports():
+                    seen.append(call_one("x"))
+                seen.append(call_two("x"))
+            seen.append(call_one("x"))
+
+        self.assertEqual(
+            seen, ["repo-a:x", "repo-b:x", "repo-a:x", "repo-b:x", "repo-a:x"]
+        )
+
+    def test_a_block_that_raises_still_puts_the_process_back(self):
+        found = self.submission("boom", "repo-boom")
+        before, path = set(sys.modules), list(sys.path)
+
+        with self.assertRaises(ValueError):
+            with found.imports():
+                self.caller(found)("x")
+                raise ValueError("their code raised")
+
+        self.assertEqual(set(sys.modules) - before, set())
+        self.assertEqual(sys.path, path)
+
     def test_a_third_party_module_is_never_touched(self):
         """Evicting one does not unload its C extension, so it must be loaded
         once and left alone."""
