@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import sys
 import tempfile
+import tracemalloc
 import unittest
 from pathlib import Path
 
@@ -106,6 +107,48 @@ class TheirFrame(unittest.TestCase):
         self.assertEqual(root_of_their_code(error, Path(__file__).parent), self.tmp)
 
 
+class TracebackLabels(unittest.TestCase):
+    def test_pseudo_filename_does_not_replace_the_repository_frame(self):
+        root = Path.cwd()
+        namespace = {}
+        exec(compile(
+            "def go():\n    exec(\"raise ValueError('no')\")\n",
+            str(root / "entry.py"), "exec",
+        ), namespace)
+        try:
+            namespace["go"]()
+        except ValueError as error:
+            self.assertEqual(where_it_raised(error, root), ("entry.py", 2))
+        else:
+            self.fail("fixture did not raise")
+
+    def test_pseudo_filename_does_not_invent_a_student_root(self):
+        try:
+            exec(compile("raise ValueError('no')", "<string>", "exec"))
+        except ValueError as error:
+            self.assertIsNone(root_of_their_code(error, Path(__file__).parent))
+
+    def test_error_without_a_driver_frame_has_no_inferred_student_root(self):
+        try:
+            raise ValueError("host failure")
+        except ValueError as error:
+            self.assertIsNone(root_of_their_code(error, Path(__file__).parent / "driver"))
+
+    def test_host_frames_before_the_driver_are_not_the_student_root(self):
+        root = Path(__file__).parent
+        namespace = {}
+        for path, source in (
+            (root / "team" / "student.py", "def student():\n    raise ValueError('no')"),
+            (root / "driver" / "run.py", "def driver():\n    student()"),
+            (root / "host" / "main.py", "def host():\n    driver()"),
+        ):
+            exec(compile(source, str(path), "exec"), namespace)
+        try:
+            namespace["host"]()
+        except ValueError as error:
+            self.assertEqual(root_of_their_code(error, root / "driver"), root / "team")
+
+
 class Messages(unittest.TestCase):
     def test_the_type_is_kept_because_the_words_alone_say_too_little(self):
         self.assertEqual(message_of(KeyError("song_list")), "KeyError: 'song_list'")
@@ -129,6 +172,20 @@ class Messages(unittest.TestCase):
 
     def test_a_long_message_is_capped(self):
         self.assertLessEqual(len(message_of(RuntimeError("x" * 500))), 200)
+
+    def test_multiline_message_formatting_does_not_copy_every_line(self):
+        error = RuntimeError("first\n" + "another line\n" * 100000)
+        tracemalloc.start()
+        try:
+            self.assertEqual(message_of(error), "RuntimeError: first")
+            _, peak = tracemalloc.get_traced_memory()
+        finally:
+            tracemalloc.stop()
+        self.assertLess(peak, 1024 * 1024)
+
+    def test_whitespace_is_removed_before_the_bounded_first_line(self):
+        error = RuntimeError(chr(0x2003) * 1000 + "first  \nsecond\n" + " " * 1000)
+        self.assertEqual(message_of(error), "RuntimeError: first  ")
 
 
 class Lines(unittest.TestCase):
