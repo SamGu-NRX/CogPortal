@@ -1698,6 +1698,32 @@ class AFileIsReadOnceHoweverItIsReached(_Fixture):
         self.assertEqual(self._times_run(), 1)
         self.assertEqual(self._module(found, "database").STORE, {"seeded": 1})
 
+    def test_a_bare_import_and_a_relative_one_reach_the_same_module(self):
+        """A package directory is on the path too, so a root script's bare
+        `import database` loads `core/database.py` under the top-level name.
+        A member's `from .database import STORE` then asks the package loader
+        for the same file under the package's name, and running it twice gave
+        the directory two stores, with the search bound to the empty one."""
+
+        core = self.tmp / "core"
+        core.mkdir()
+        (core / "__init__.py").write_text("")
+        (core / "database.py").write_text(self._records("STORE = {}\n"))
+        (core / "extra.py").write_text(
+            "from .database import STORE\n\n\ndef peek():\n    return STORE\n"
+        )
+        (self.tmp / "aaa_main.py").write_text(
+            "import database as d\nd.STORE['seeded'] = 1\n"
+        )
+
+        found = discover(self.tmp)
+
+        self.assertEqual(self._times_run(), 1)
+        self.assertIs(
+            self._module(found, "extra").peek(), self._module(found, "database").STORE
+        )
+        self.assertEqual(self._module(found, "database").STORE, {"seeded": 1})
+
     def test_a_sibling_reached_by_a_relative_import_is_the_same_object(self):
         """The member the student never imported is read under the package
         their own import already made, so its `from .database import STORE`
@@ -2451,6 +2477,37 @@ class AReturnedSubmissionCanStillImportItsOwnModules(_Submission):
         self.assertEqual(set(sys.modules) - before, set())
         self.assertEqual(sys.path, path)
 
+    def test_two_submissions_notebooks_do_not_answer_for_each_other(self):
+        """The `ipynb.fs` shells carry no file and an empty search path, so
+        neither eviction test could see them and they outlived the block. The
+        surviving shell still held the first team's notebook as an attribute,
+        and the second team's `from ipynb.fs.defs import nine` was answered
+        from it without their finder ever being asked. Found by the
+        acceptance reviewer."""
+
+        submissions = []
+        for name, token in (("nbA", "A"), ("nbB", "B")):
+            root = self.tmp / name
+            root.mkdir()
+            (root / "nine.ipynb").write_text(
+                _notebook("def pick():\n    return {!r}\n".format(token))
+            )
+            (root / "loader.py").write_text(
+                "def run():\n"
+                "    from ipynb.fs.defs import nine\n"
+                "    return nine.pick()\n"
+            )
+            submissions.append(discover(root))
+
+        before = set(sys.modules)
+        seen = []
+        for found in (submissions[0], submissions[1], submissions[0], submissions[1]):
+            with found.imports():
+                seen.append(self._module(found, "loader").run())
+
+        self.assertEqual(seen, ["A", "B", "A", "B"])
+        self.assertEqual(set(sys.modules) - before, set())
+
     def test_a_third_party_module_is_never_touched(self):
         """Evicting one does not unload its C extension, so it must be loaded
         once and left alone."""
@@ -2645,14 +2702,17 @@ class ASalvagedSurveyKeepsWhatItMeasured(_Fixture):
     three fields per module while a completed record carries what it took to
     read one, so the salvage lost exactly the notes a reader needs most."""
 
+    @unittest.skipUnless(hasattr(os, "fork"), "requires os.fork process isolation")
     def test_the_recovery_notes_and_the_stub_list_survive(self):
+        """Guarded, not conditional on the result: without fork the survey
+        runs in this process, and the fixture's `os._exit` would take the test
+        runner down before there was anything to skip on."""
+
         (self.tmp / "a_ann.py").write_text("def f(x: Missing) -> int:\n    return 1\n")
         (self.tmp / "z_die.py").write_text("import os\nos._exit(23)\n")
 
         found = survey(self.tmp)
 
-        if found.ok:
-            self.skipTest("this platform ran the survey in-process")
         self.assertFalse(found.looked)
         recovered = [
             entry for entry in found.record["modules"] if entry["name"] == "a_ann"

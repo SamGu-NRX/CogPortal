@@ -1082,13 +1082,34 @@ class _PackageLoader(importlib.machinery.SourceFileLoader):
     and ``SyntaxError`` line numbers all stay exactly as they were.
     """
 
+    #: The module this file had already produced, when it had. Recorded in
+    #: `create_module` because that is the last moment the two can be told
+    #: apart: by `exec_module` the import machinery has given the new module
+    #: this file's `__file__` as well.
+    _reused: Optional[ModuleType] = None
+
     def create_module(self, spec):
+        # One module object per source file, the rule `_import_one` applies.
+        # This loader is the other place a repository file is executed. A root
+        # script's bare `import database` loads `core/database.py` under the
+        # top-level name, because the package directory is on the path too,
+        # and a member's `from .database import STORE` then asks this loader
+        # for the same file under the package's name. Running it twice gave
+        # the directory two stores, and the search bound functions to the
+        # empty one.
+        self._reused = _already_executed(Path(self.path))
         module = ModuleType(spec.name.rpartition(".")[2])
         # The dotted parent is what a leading dot resolves against.
         module.__package__ = spec.parent
         return module
 
     def exec_module(self, module) -> None:
+        if self._reused is not None:
+            # The import machinery re-reads `sys.modules[spec.name]` once this
+            # returns, which is how a loader hands back the object that
+            # already exists instead of a second copy of it.
+            sys.modules[self.name] = self._reused
+            return
         # self.name, not module.__name__: the base class checks the code it
         # hands back against the name the loader was built with, and the bare
         # stem fails that check with "loader cannot handle database".
@@ -2825,7 +2846,10 @@ def _belongs_to(name: str, module: object, directories: Sequence[Path]) -> bool:
     same outcome as not recognising it.
     """
 
-    if name.startswith(_PACKAGE_PREFIX):
+    if name.startswith(_PACKAGE_PREFIX) or name in _NOTEBOOK_PACKAGES:
+        # Both are names discovery invents. The `ipynb.fs` shells carry no
+        # file and an empty search path, so neither test below can see them,
+        # and a call that imported a notebook left three of them behind.
         return True
     try:
         return any(
@@ -2867,6 +2891,14 @@ class ImportContext:
     map, not just theirs. A module that only loaded because of a redirect is
     kept as an object; a lazy import that would need one fails.
     ``LoadedModule.redirected`` names the modules that were affected.
+
+    Two limits a caller has to design around. While a block is open, this
+    repository's top-level names win, so a submission with a ``profile.py``
+    makes ``import cProfile`` inside the block reach theirs; keep a block
+    around the student's call and nothing else. And a submission that invents
+    a new module name on every call, by loading a file under a fresh name
+    through ``importlib``, grows this inventory by one each time, because each
+    of those is genuinely a module of theirs that the next call may want.
     """
 
     def __init__(self, directories: Sequence[Path] = ()) -> None:
