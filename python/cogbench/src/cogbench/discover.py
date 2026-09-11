@@ -357,6 +357,13 @@ class Discovery:
     modules: List[LoadedModule] = field(default_factory=list)
     skipped: List[SkippedModule] = field(default_factory=list)
     stub_calls: List[str] = field(default_factory=list)
+    #: Package `__init__.py` files that ran without raising. They are not
+    #: modules here (their names live on the package object, not in
+    #: `namespace`) and they are not skips, so nothing else records that they
+    #: were read. `memo.source_paths` needs them: a package whose initializer
+    #: decides what its members return is source the binding depends on, and
+    #: editing it left the cache key unchanged and replayed a stale binding.
+    initializers: List[Path] = field(default_factory=list)
     #: The packages this run actually stood in for, which is not the same as
     #: the packages it was willing to. A listed package that turned out to be
     #: installed is not stubbed and must not be reported as though it were.
@@ -2050,7 +2057,7 @@ def load_modules(
     import_timeout: float = IMPORT_TIMEOUT_SECONDS,
     journal: Optional[Callable[[str, object], None]] = None,
     resource_files: Optional[Mapping[str, Path]] = None,
-) -> Tuple[List[LoadedModule], List[SkippedModule], List[str]]:
+) -> Tuple[List[LoadedModule], List[SkippedModule], List[str], List[Path]]:
     """Import every module in ``root``, then in each of ``extra``.
 
     The caller is expected to have made ``root`` the working directory and put
@@ -2093,6 +2100,7 @@ def load_modules(
 
     loaded: List[LoadedModule] = []
     skipped: List[SkippedModule] = []
+    initializers: List[Path] = []
     taken: set = set()
 
     def _consume(directory: Path) -> None:
@@ -2115,6 +2123,8 @@ def load_modules(
                 if failure is not None:
                     skipped.append(failure)
                     _note(journal, "skipped", failure)
+                else:
+                    initializers.append(initializer)
 
         for path in files:
             # A file whose stem an earlier directory already owns is read
@@ -2204,7 +2214,7 @@ def load_modules(
         notebooks.withdraw()
         redirects.leave()
 
-    return loaded, skipped, calls
+    return loaded, skipped, calls, initializers
 
 
 def _is_student_module(module: object, root: Path) -> bool:
@@ -2389,7 +2399,7 @@ def discover(
     # right about wanting a working directory; it does not get to be this one.
     if scratch is not None:
         with _entered(root.path, working=Path(scratch), also=extra):
-            modules, skipped, calls = load_modules(
+            modules, skipped, calls, initializers = load_modules(
                 root.path,
                 extra=extra,
                 import_timeout=import_timeout,
@@ -2400,7 +2410,7 @@ def discover(
     else:
         with tempfile.TemporaryDirectory(prefix="cogworks-import-") as temporary:
             with _entered(root.path, working=Path(temporary), also=extra):
-                modules, skipped, calls = load_modules(
+                modules, skipped, calls, initializers = load_modules(
                     root.path,
                     extra=extra,
                     import_timeout=import_timeout,
@@ -2414,6 +2424,7 @@ def discover(
         skipped=skipped,
         stub_calls=calls,
         stubbed=stubbed,
+        initializers=initializers,
     )
 
 

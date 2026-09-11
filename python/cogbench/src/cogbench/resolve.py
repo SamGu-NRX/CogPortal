@@ -40,6 +40,7 @@ from .pipeline import (
     instances_in,
     methods_of,
     resolve_chain,
+    under_clock,
     _muted,
     _scratch_cwd,
 )
@@ -1093,14 +1094,21 @@ def _pair(
             # excluded, because turning an empty tally into a ranking is a
             # thing one of their readers can do, and excluding it made that
             # reader unreachable.
-            better = _read_further(
+            better, spent = _read_further(
                 grades,
                 asked.answer,
                 trial,
                 [c for c in readable if c is not store and c is not ask],
                 readers,
                 grade,
+                max_attempts - tried,
             )
+            # Reader probes come out of the same ceiling as the pairings, so
+            # the loop above stops on them too. `total` grows by what they
+            # spent rather than being guessed up front, because whether a
+            # pairing reaches a reader at all depends on how it graded.
+            tried += spent
+            total += spent
             if better is not None:
                 grade, bound = better[0], replace(bound, readers=better[1])
                 if best is None or grade > best[0]:
@@ -1570,8 +1578,9 @@ def _read_further(
     trial: "_Trial",
     pool: Sequence[Candidate],
     readers: int,
-    floor: float = 0.0,
-) -> Optional[Tuple[float, Tuple[Candidate, ...]]]:
+    floor: float,
+    budget: int,
+) -> Tuple[Optional[Tuple[float, Tuple[Candidate, ...]]], int]:
     """The shortest run of their readers that turns ``answer`` into something
     the benchmark can read, or None when none of them improves on it.
 
@@ -1596,9 +1605,18 @@ def _read_further(
     where it was changed nothing the benchmark can see, and binding it would
     put one of their functions in the record for a run whose answer it did not
     alter.
+
+    ``budget`` is what is left of the search's attempt ceiling, and a probe
+    spends one of it, because what the ceiling is protecting is calls into
+    their code rather than the search's reason for making them. Tails are
+    every ordering of the pool, so the count is the pool size to the power of
+    the depth: twelve readers at depth three is 16,116 calls, which the search
+    made while reporting forty attempts. Returns what it found and what it
+    spent, and the caller adds the spend to the same counter a pairing uses.
     """
 
     best: Optional[Tuple[float, Tuple[Candidate, ...]]] = None
+    spent = 0
     frontier: List[Tuple[Tuple[Candidate, ...], Any]] = [((), answer)]
     for _depth in range(max(readers, 0)):
         onward: List[Tuple[Tuple[Candidate, ...], Any]] = []
@@ -1606,12 +1624,15 @@ def _read_further(
             for reader in pool:
                 if reader in tail:
                     continue
+                if spent >= budget:
+                    return best, spent
+                spent += 1
                 try:
-                    # Muted for the reason `pipeline._muted` gives: their
-                    # functions narrate, and this one is being probed rather
-                    # than run.
-                    with _muted():
-                        produced = trial.reading(reader)(value)
+                    # The same clock and the same mute every other call into
+                    # their code gets. A reader that does not return is not a
+                    # reader of this value, which is what the `except` below
+                    # already says about one that raises.
+                    produced = under_clock(trial.reading(reader), value)
                 except BaseException:  # noqa: BLE001 - not a reader of this value
                     continue
                 tail_with = tail + (reader,)
@@ -1622,11 +1643,11 @@ def _read_further(
                 if best is None or grade > best[0]:
                     best = (grade, tail_with)
                 if grade >= FULLY_ANSWERED:
-                    return best
+                    return best, spent
         frontier = onward
         if not frontier:
             break
-    return best
+    return best, spent
 
 
 def _takes_one(candidate: Candidate) -> bool:

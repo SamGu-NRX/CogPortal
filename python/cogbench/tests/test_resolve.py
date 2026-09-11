@@ -1864,3 +1864,80 @@ class Engine:
 
 if __name__ == "__main__":
     unittest.main()
+
+
+READER_POOL_REPO = '''
+import os
+
+_DB = {}
+_COUNTER = os.environ["COGBENCH_READER_COUNTER"]
+
+
+def _tick():
+    with open(_COUNTER, "a") as handle:
+        handle.write("x")
+
+
+def make_features(value, rate):
+    return [(value * 2, rate)]
+
+
+def remember(features, item_id):
+    _DB[tuple(features)] = item_id
+
+
+def whose(features):
+    return _DB.get(tuple(features), "")
+
+''' + "\n".join(
+    "def read_{i}(x):\n    _tick()\n    return x\n".format(i=i) for i in range(12)
+)
+
+
+def _reader_grades(answer):
+    if isinstance(answer, list) and answer and answer[0] == "alpha":
+        return 1.0, "ranked"
+    return (0.5 if answer == "alpha" else 0.0), "half"
+
+
+def _reader_accepts(chain, enroll_call, query_call):
+    enrolled, detail = _enrol(chain, enroll_call)
+    if not enrolled or query_call is None:
+        return enrolled, detail
+    try:
+        answer = query_call(chain[0].call(7, 44100))
+    except BaseException as error:  # noqa: BLE001
+        return False, "querying raised {}".format(type(error).__name__)
+    return _reader_grades(answer)
+
+
+class AReaderProbeCostsAnAttemptLikeEveryOtherCall(unittest.TestCase):
+    """Tails are every ordering of the reader pool, so the probe count is the
+    pool size to the power of the depth. Twelve of their functions at depth
+    three is 16,116 calls into their code, and the search made them while
+    reporting forty attempts, because only pairings were counted.
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.counter = self.tmp / "calls.txt"
+        os.environ["COGBENCH_READER_COUNTER"] = str(self.counter)
+        self.addCleanup(os.environ.pop, "COGBENCH_READER_COUNTER", None)
+        (self.tmp / "theirs.py").write_text(READER_POOL_REPO)
+
+    def test_their_code_is_not_called_past_the_attempt_ceiling(self):
+        submission = resolve(
+            self.tmp,
+            chain_role=ROLE,
+            fixture=FIXTURE,
+            accepts=_reader_accepts,
+            arrangements=_arrangements,
+            grades=_reader_grades,
+            readers=3,
+            max_attempts=40,
+        )
+
+        made = len(self.counter.read_text()) if self.counter.exists() else 0
+        self.assertLessEqual(made, 40, "made {} calls under a ceiling of 40".format(made))
+        self.assertLessEqual(submission.attempts_tried, 40)

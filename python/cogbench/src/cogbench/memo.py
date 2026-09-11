@@ -136,6 +136,12 @@ def source_paths(discovery: Any) -> List[Path]:
     exactly the change that should invalidate the cache. A student who adds
     the missing package and re-runs must get a new search, not the refusal
     they were shown before.
+
+    A package's ``__init__.py`` that ran without raising is here for the same
+    reason and was not: it is neither a module nor a skip, so the key did not
+    see it. A package whose initializer sets the constant its members read is
+    ordinary, and editing only that file left the key unchanged and replayed
+    a binding built against the old value.
     """
 
     paths: List[Path] = []
@@ -145,4 +151,5 @@ def source_paths(discovery: Any) -> List[Path]:
         path = getattr(entry, "path", None)
         if path is not None:
             paths.append(Path(path))
+    paths.extend(Path(p) for p in getattr(discovery, "initializers", []))
     return paths
