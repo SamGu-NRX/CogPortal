@@ -669,6 +669,8 @@ export const RunSurfaceSnapshotSchema = z.object({
   executionHistory: z.array(RunExecutionSummarySchema).default([]),
   /** Count of attached physical executions, for rejecting pre-Retry stream frames. */
   executionGeneration: z.number().int().nonnegative().default(0),
+  /** Per-surface DO sequence; zero is reserved for cached payloads from before numbering. */
+  snapshotRevision: z.number().int().nonnegative().safe().default(0),
   published: z.boolean(),
   nextOfficialAttempt: z.number().int().positive().nullable(),
   /**
@@ -697,7 +699,7 @@ export function shouldReplaceRunSurfaceSnapshot(
     return incoming.executionGeneration > current.executionGeneration;
   }
   if (current.status !== "running" && incoming.status === "running") return false;
-  return incoming.updatedAt >= current.updatedAt;
+  return incoming.snapshotRevision > current.snapshotRevision;
 }
 
 export function runSurfaceCurrentRunId(snapshot: RunSurfaceSnapshot): string | null {

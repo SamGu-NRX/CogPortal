@@ -65,13 +65,13 @@ Four outcomes end the ask with nothing recorded anywhere.
 
 The four guard sentences above. A leaderboard, a benchmark list, or a local-notes view, all of which are reads. And the connect card, which is the one that looks like work and is not: it writes a link token row, but that row is a one-time credential, not a change to the team.
 
-> Technical note: `open_console` and the Entry Point are intercepted in the request handler and answered with callback type 12 before `executeCommand` runs (`index.ts:104`). That interception is load-bearing. `open_console` reaching `executeCommand` matches the surface-action shape, is not `run_again`, and is not one of the four mutations, so it would answer "That run action is not available." for a button the platform itself put on the message (`commands.ts:504`).
+> Technical note: `open_console` and the Entry Point are intercepted in the request handler and answered with callback type 12 before `executeCommand` runs (`index.ts:104`). That interception is load-bearing. `open_console` reaching `executeCommand` matches the surface-action shape, is not `run_again`, and is not one of the mutations, so it would answer "That run action is not available." for a button the platform itself put on the message (`commands.ts:504`).
 
 ### The work begins
 
 For most views there is no such moment. Home, benchmarks, leaderboard, and local notes are reads, and abandoning any of them costs nothing.
 
-Four asks have one, and all four are guarded by a confirmation card first. Verify hosted, promote to official, publish result, and rerun hosted each send a preview with the consequence in the button label, and only the second press calls the portal (`commands.ts:506`, `test/commands.test.ts:255`). The moment work begins is that second press: a hosted run starts, an official attempt is spent, or a leaderboard entry is replaced. See [`../foundations/the-run.md`](../foundations/the-run.md) for what each of those costs.
+Hosted actions have one, and each is guarded by a confirmation card first. Verify hosted, promote to official, publish result, rerun hosted and Retry each send a preview with the consequence in the button label, and only the second press calls the portal (`commands.ts:506`, `test/commands.test.ts:255`). The moment work begins is that second press: a hosted execution is admitted or a leaderboard entry is replaced. See [`../foundations/the-run.md`](../foundations/the-run.md) for what each of those costs.
 
 Binding the team channel has one too. The confirmation writes the channel onto the team, and from then on every shared run posts there.
 
@@ -159,19 +159,19 @@ Red, and the only card that describes what other people will see:
 
 Two buttons: "Yes, use this channel" and "Not now". Confirming binds and returns the home card with the channel line filled in (`commands.ts:620`).
 
-#### The four run-surface confirmations
+#### The run-surface confirmations
 
 Each is a red card holding a receipt (benchmark, commit chip, stage, metric, each line prefixed `>`), then a sentence, then a labelled button and "Not now".
 
-> "### Verify this exact commit?" / "The hosted bench runs this exact commit, so the score is observed, not self-reported. It's practice and spends nothing." / button "Verify bbbbbbb hosted" (`commands.ts:512`)
+Hosted verification runs the saved commit as practice. Its confirmation must distinguish capacity reserved while running from quota used only by a completed evaluation.
 
-> "### Use an official attempt?" / "This reuses the artifact that already passed hosted, so nothing reruns. Confirming spends one official attempt." / button "Use attempt 2 of 3", with an extra receipt line "▮▯▯  attempt 2 of 3" (`commands.ts:518`)
+Promotion reuses the prepared environment and evaluates the saved commit against hidden inputs. It reserves official capacity; failure uses no quota.
 
 > "### Publish this result?" / "This becomes the team's public leaderboard entry. You can replace it later with another official result." / button "Publish to leaderboard" (`commands.ts:527`)
 
 > "### Start a new hosted run?" / "This starts a fresh hosted run on the same commit. The current run stays as history." / button "Start hosted run" (`commands.ts:533`)
 
-The two that spend something use Discord's danger style; the two that do not use primary (`commands.ts:516`, `:522`, `:531`, `:537`).
+Retry adds a confirmation for the failed execution. It preserves practice or official mode and the saved source, with at most one successor for that failure. The old failure stays in history. Final Discord presentation remains unverified.
 
 #### After a confirmation
 
@@ -196,7 +196,7 @@ Six sentences end an ask without producing a view. "Cog lives in the CogWorks co
 | Who you are | The Discord account id is the whole identity. Unlinked gets the connect card. Linked with no team gets the one-step-left card. Linked with a team gets home. A team creator or maintainer additionally gets the "Use this as our team channel" button; anyone else reads the sentence naming who can (`apps/portal/worker/services/discord.ts:194`). An instructor is not a role here; there is no admin view in Discord. | No effect. The identity is read once at the start of the interaction, and a link completed in the browser a second later does not change the card already being built. |
 | Where your team and repository stand | The whole shape of the home card. No team gives the teamless card. A team with no repository gives "-# repository not connected yet" in place of the repository chip. No bound channel gives one of the two "Live runs are ready" sentences instead of the channel link. No shared run gives "The bench is ready. No shared runs yet." | No effect within one interaction. A teammate binding the channel mid-request does not change the card; pressing anything in the navigation menu rebuilds it from current state. |
 | Which week's benchmark | The benchmarks view lists every published benchmark and marks the inactive ones "   paused" (`commands.ts:275`); only active ones appear in the "Get the run command…" menu. The leaderboard shows one benchmark, chosen by the portal, and the command carries no way to ask for another. Home reports whichever benchmark the latest shared run used. | No effect. |
-| Practice or leaderboard | Local notes are self-reported and labelled as never leaderboard-eligible. The private leaderboard shows only published entries. The confirmation cards are where the two meet: verify hosted turns a local run into an observed one, promote spends an official attempt, publish puts it on the board. | No effect. Each confirmation acts on the snapshot it read when the prompt was built, and the portal re-checks the state before mutating (`apps/portal/worker/services/run-actions.ts:491`). |
+| Practice or leaderboard | Local notes are self-reported and labelled as never leaderboard-eligible. The private leaderboard shows only published entries. The confirmation cards are where the two meet: verify hosted turns a local run into an observed one, promotion starts an official evaluation, publish puts it on the board. | No effect. Each confirmation acts on the snapshot it read when the prompt was built, and the portal re-checks the state before mutating (`apps/portal/worker/services/run-actions.ts:491`). |
 | Flags, options, and where you are typing | `view` jumps straight to one of five cards and is the only option the command has. The channel matters for exactly one thing: binding, which uses the channel the interaction came from and refuses without one. The guild matters absolutely; outside the course guild every path answers with a sentence. A phone and a desktop get identical bytes, though the layout is Discord's to decide. | No effect. |
 
 Nothing here can change mid-ask. Every input is read from the interaction payload, which is fixed the moment Discord sends it.
@@ -213,7 +213,7 @@ Nothing here can change mid-ask. Every input is read from the interaction payloa
 | The thing being measured changes | A branch that moved, a week that rolled over, or a run that finished between opening the card and pressing a button. The card shows what was true when it was built. | A confirmation acts on a surface id, and a surface is about one commit, so a branch that moved does not change what the action does. A run that reached a state where the action no longer applies gets a portal refusal, which the student reads as the generic sentence. |
 | The platform refuses or credit runs out | An exhausted official quota does not change the home card: the attempts line still renders, and the promote button still appears when the surface offers the action. | The refusal arrives from the portal as "The official-attempt quota is exhausted." (`apps/portal/worker/services/run-actions.ts:357`) and is replaced with the generic sentence before the student sees it. Nothing is spent. |
 
-After any interrupt, the only durable effects are the four mutations and the channel binding, and each of those required a second press.
+After any interrupt, the durable effects come from run actions and channel binding, and each of those required a second press.
 
 ## Interactions with other systems
 
@@ -221,7 +221,7 @@ After any interrupt, the only durable effects are the four mutations and the cha
 
 **The team owns it.** Every card except the connect card is about the team. Local notes name the GitHub login that produced each report, which is the one place a person appears, and they carry no per-person number beyond that person's own self-reported metric on their own row.
 
-**Credit.** `/cog` spends nothing by itself. Promote to official spends one of three attempts, and the button label says which one. The attempts line and the button label both hardcode 3 (`commands.ts:185`, `:186`, `:521`, `:524`) while the authority is `OFFICIAL_LIMIT` in `packages/contracts/src/schema.ts:1177`. See [`../cross-cutting/credit-and-quota.md`](../cross-cutting/credit-and-quota.md).
+**Credit.** Opening `/cog` is free. Hosted actions reserve capacity while running; completed evaluations count and failures do not. The earlier draft found hardcoded official-limit labels in `commands.ts:185`, `:186`, `:521` and `:524`; their presentation still needs rechecking. See [credit and quota](../cross-cutting/credit-and-quota.md).
 
 **What the portal claims.** The local-notes view is the trust vocabulary in one line: "-# self-reported, never leaderboard-eligible". The verify-hosted confirmation is the other half: "the score is observed, not self-reported". See [`../foundations/what-the-portal-claims.md`](../foundations/what-the-portal-claims.md).
 
@@ -253,4 +253,4 @@ After any interrupt, the only durable effects are the four mutations and the cha
 - Whether the emoji manifest is synced for the production application id was not established. If it is not, every mark in every card renders as a font glyph. **Unverified.**
 - Whether a deferred edit failure is visible to a student as a permanently thinking command was not observed. **Unverified.**
 
-Verified against Cog\*Portal commit `f74e087`.
+Verified against Cog\*Portal commit `a0e8eac` for recovery policy; unchanged Discord descriptions retain earlier references. No guild verification is claimed.

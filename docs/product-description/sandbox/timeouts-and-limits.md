@@ -2,7 +2,7 @@
 
 ## Summary
 
-This document owns every limit a hosted run is subject to, with its units and where it is set, and the second question that follows from the first: when a run is stopped at a limit, how the platform decides whether the team's code or the platform is responsible. That decision is worth money. A failure marked `infrastructure=True` refunds one of the team's three official attempts; one marked `False` spends it. Deciding wrongly either hands out free attempts or charges a team for an outage.
+This document owns the limits a hosted execution is subject to and how the platform explains a failure at a limit. Attribution determines the explanation. Failed executions use no quota in either mode.
 
 There is no screen called "limits". A student meets them as a failure card headed "Evaluation exceeded the time limit" or "Memory limit exceeded", as a log that ends with `[N characters omitted]`, or as a run that simply stops.
 
@@ -10,7 +10,7 @@ The attribution rule is one sentence: nothing a student process writes is eviden
 
 ## The simple case
 
-A team's Week 1 submission enrolls thirty songs and answers 252 queries. It has 900 seconds. At 900 seconds Modal kills the process, which comes back to the controller as a nonzero return code with no traceback, indistinguishable from a crash. The controller checks the elapsed time, sees it at or past the budget, and reports a timeout naming the budget rather than "Evaluation failed." The attempt is spent, because a timeout is the submission's own resource use.
+A team's Week 1 submission enrolls thirty songs and answers 252 queries. It has 900 seconds. At 900 seconds Modal kills the process, which comes back to the controller as a nonzero return code with no traceback, indistinguishable from a crash. The controller checks the elapsed time, sees it at or past the budget, and reports a timeout naming the budget rather than "Evaluation failed." The failed execution uses no quota.
 
 ## Every limit
 
@@ -115,7 +115,7 @@ Everything else arrives as an exception from the Modal client, and every evaluat
 - "memory" or "oom" becomes `memory_limit`, `infrastructure=False`.
 - Anything else becomes `provider`, `infrastructure=True`.
 
-Both limits are `False`, so both spend the attempt. That is the right call: a timeout or an out-of-memory is the submission's own resource use, and marking either infrastructure would let a team retry an expensive submission at no cost (`test_limit_attribution.py:136`). Anything unrecognized refunds, which is also right: a dropped connection is the platform's, and charging a team for it would spend one of three attempts on an outage.
+Timeout and memory-limit failures are attributed from the controller's observations. Neither failure uses quota. Attribution must still be accurate so the team receives the right explanation.
 
 Timeout is checked before memory, so a message containing both words is a timeout. The four copies of this classifier are tested against each other rather than deduplicated, because each builds a different message and what has to hold is that the same text is classified the same way whichever benchmark the team ran (`test_limit_attribution.py:153`).
 
@@ -132,7 +132,7 @@ import os
 os.write(2, b"COG_PLATFORM_ERROR: FaceNet cache validation failed")
 ```
 
-That bought category `model_cache`, which is infrastructure-owned and absent from the consuming set, so the attempt came back. Unbounded, and the run page blamed the platform's model cache. The exit code was no better: `os._exit` beats the `SystemExit(2)` the script would otherwise raise (`modal_app.py:2026`).
+That incorrectly produced a `model_cache` explanation blaming the platform. The exit code was no better: `os._exit` beats the `SystemExit(2)` the script would otherwise raise (`modal_app.py:2026`).
 
 The fix was not a harder-to-forge channel. Two earlier fixes each moved the trust to a new channel, the adapter name, then the message words, then this marker, and each left the shape intact. The rule now is that once student code is running in a process, nothing that process emits is evidence about the platform, so no evaluate lane reads any of it.
 
@@ -147,7 +147,7 @@ The sandbox still writes the marker (`modal_app.py:746`). Nothing reads it, and 
 | Who you are | No effect. Nobody gets a larger budget, and an instructor cannot extend one. | No effect. |
 | Where your team and repository stand | A repository larger than 100 MiB as a tarball never reaches a sandbox. Everything else meets the same limits. | No effect. |
 | Which week's benchmark | Decides the memory ceiling: 4096 MB for Week 1 and Week 3, 2048 MB otherwise (`runner.ts:129`). Week 3 loads a 200-dimensional GloVe table inside the sandbox, about 350 MB warm and 1.5 GB peak on a cold parse; Week 1 renders a 30-song catalog of float32 audio before any student code runs. It also decides which timeout message is shown, and whether a timeout is recognized on the process-return path at all. | No effect. |
-| Practice or leaderboard | Same limits, same budgets. The practice split is smaller, so the same code is likelier to finish inside 900 seconds on practice than on the hidden split; a team can pass practice and time out officially. Only an official timeout costs an attempt. | No effect. |
+| Practice or leaderboard | The practice split is smaller, so code may complete in practice and time out officially. Failed executions use no quota in either mode. | No effect. |
 | Flags, options, and where you are typing | Nothing a student types changes any limit. A local `cogworks run` has no wall clock, no memory ceiling, and no log cap, so a submission that times out hosted may simply be slow locally with nothing saying so. | No effect. |
 
 ## Cancel and interrupt
@@ -157,10 +157,10 @@ The sandbox still writes the marker (`modal_app.py:746`). Nothing reads it, and 
 | You stop it yourself | There is nothing to stop it with. No route under `apps/portal/worker/routes/` cancels a run, so closing the page or the terminal leaves it running to its budget. | The same. The budget expires on its own schedule, and the only thing that ends a run early is the reaper, an hour after it went quiet. |
 | You do something else mid-way | A second run for the same benchmark is refused with `active_run_exists`. | The same. The lock is held until the run reaches a terminal state. |
 | A teammate acts at the same time | No effect on any limit. | No effect. A teammate's push does not touch this run's clock. |
-| The network or the portal fails | No effect; nothing is running. | The callback is retried three times with backoff. If all three fail the run finishes in the sandbox and the portal never hears, and the reaper settles it an hour later as a provider failure with the attempt refunded. |
+| The network or the portal fails | No effect; nothing is running. | The callback is retried three times with backoff. If all three fail the run finishes in the sandbox and the portal never hears, and the reaper settles it an hour later as a provider failure using no quota. |
 | The page or the process goes away | No effect. | A killed controller leaves a sandbox that terminates itself at its budget and a run row that only the reaper will settle. The gap between the two is up to an hour. |
 | The thing being measured changes | Limits are copied into the job when it is built, so a deploy that changes a value does not reach a run already in flight. | No effect. The sandbox holds its own copy. |
-| The platform refuses or credit runs out | Credit is checked before any container is created, so a team at zero never meets a limit. | A timeout or an out-of-memory spends the attempt. Everything unrecognized refunds it, up to a per-team, per-benchmark refund cap; past the cap the attempt stays spent and the failure detail says so (`runner-events.ts:210`). |
+| The platform refuses or credit runs out | Admission checks capacity before dispatch. | Timeout, memory and provider failures use no quota. There is no category-based charge or refund cap. |
 
 ## Interactions with other systems
 
@@ -168,7 +168,7 @@ The sandbox still writes the marker (`modal_app.py:746`). Nothing reads it, and 
 
 **The team owns it.** A budget belongs to a run, and a run belongs to a team. There is no per-person allowance of anything.
 
-**Credit.** `timeout` and `memory_limit` are two of the four consuming categories, alongside `student_runtime` and `output_invalid`, and only for an official run whose failure is not marked infrastructure and whose phase is `evaluating` or `scoring` (`runner-events.ts:25`). See [`../cross-cutting/credit-and-quota.md`](../cross-cutting/credit-and-quota.md).
+**Credit.** All failed executions use no quota. A valid completed evaluation counts regardless of its score. See [credit and quota](../cross-cutting/credit-and-quota.md).
 
 **What the portal claims.** A run killed at the container level is attributed by elapsed time and signal, never by reading text the student could have written. That is the same honesty rule the trust vocabulary rests on; see [`../foundations/what-the-portal-claims.md`](../foundations/what-the-portal-claims.md).
 
@@ -182,16 +182,15 @@ The sandbox still writes the marker (`modal_app.py:746`). Nothing reads it, and 
 
 ## Edge cases
 
-- **Week 2 has no timeout attribution on the process-return path.** `_evaluate_week1` and `_evaluate_week3` record a start time and call `_timed_out`; `_evaluate_v2` and `_evaluate` do neither (`modal_app.py:1719`, `modal_app.py:1669`). Both Week 2 benchmark ids route through `_evaluate_v2`, so a Week 2 submission killed at 900 seconds is reported as `student_runtime` with a truncated stderr tail. The attempt is spent either way, so the cost is the sentence: the team is told their code raised an exception and handed a fragment of a log, rather than being told they ran out of time.
+- **Week 2 has no timeout attribution on the process-return path.** `_evaluate_week1` and `_evaluate_week3` record a start time and call `_timed_out`; `_evaluate_v2` and `_evaluate` do neither (`modal_app.py:1719`, `modal_app.py:1669`). Both Week 2 benchmark ids route through `_evaluate_v2`, so a Week 2 submission killed at 900 seconds is reported as `student_runtime` with a truncated stderr tail. Neither failure uses quota, but the sentence still matters: the team is told their code raised an exception and handed a fragment of a log, rather than being told they ran out of time.
 - **The Week 3 timeout message is Week 1's copy, verbatim.** Both lanes raise the same string (`modal_app.py:1917`, `modal_app.py:1996`): "Evaluation ran past its {} second budget and was stopped. Every song has to be enrolled and every query answered inside that window; a database that is re-read or rewritten once per song or per query grows with the catalog and will not fit." A language-search team is told about songs and a catalog. The static card beside it has correct per-module advice for exactly this case, telling a language team to "Embed the image pool once in prepare_database() rather than per search" (`packages/contracts/src/failures.ts:225`), so the run page shows the right advice and the wrong sentence at the same time.
 - **The number 900 lives in two packages.** The runner interpolates the real `timeoutSeconds` into its message; the failure catalog hardcodes "Your submission ran past the 15-minute wall-time ceiling and was stopped." (`failures.ts:119`). Changing the budget in `runner.ts` leaves the card claiming fifteen minutes.
-- **A prepare timeout is not called a timeout.** `_prepare` classifies its nonzero return code by substring on the detail, and has no elapsed-time check at all (`modal_app.py:1169`). A prepare stage killed at 900 seconds falls through to `dependency_install`, so a repository whose `setup.py` hangs is told its dependencies failed to install. That category refunds, so the cost is again the sentence rather than the attempt.
-- **A `pip install -e` failure is only fatal when nothing else can resolve the submission.** A repository carrying both a broken `pyproject.toml` and a working `submission.py` is still scored, because failing it would spend an official attempt on the platform's packaging preference (`modal_app.py:406`).
+- **A prepare timeout is not called a timeout.** `_prepare` classifies its nonzero return code by substring on the detail, and has no elapsed-time check at all (`modal_app.py:1169`). A prepare stage killed at 900 seconds falls through to `dependency_install`, so a repository whose `setup.py` hangs is told its dependencies failed to install. The failure is free, but the explanation can still send the team toward the wrong fix.
+- **A `pip install -e` failure is only fatal when nothing else can resolve the submission.** A repository carrying both a broken `pyproject.toml` and a working `submission.py` is still scored, rather than refusing a usable submission over the platform's packaging preference (`modal_app.py:406`).
 - **A `requirements.txt` that will not install is a note, not a failure.** The prepare script writes `COG_NOTE:` to stderr and carries on, so the import that actually needs the package fails later in the student's own frame, naming the module rather than naming pip (`modal_app.py:430`).
 - **The 16-step trace cap is silent.** A wiring trace or a refusal trace longer than sixteen steps is cut with nothing saying so, unlike the log, which says how many characters it dropped.
-- **A refunded attempt can still be spent.** Refunds are capped per team per benchmark. Past the cap the run still fails, the attempt stays spent, and the failure detail is rewritten to say so, because a team that silently lost an attempt to a platform failure cannot tell (`apps/portal/worker/routes/runner-events.ts:210`).
 - **Nothing tells a student the memory ceiling before they hit it.** The number is not on the run page, the dashboard, or in `cogworks check`. It reaches them only as the words "Memory limit exceeded" and an action telling them to work in batches (`failures.ts:126`).
-- **A local run has none of these limits.** `cogworks run` has no wall clock, no memory ceiling, and no log cap, so the first time a team meets any of them is on a hosted run, and for an official run that is also the first time one costs something.
+- **A local run has none of these limits.** `cogworks run` has no wall clock, no memory ceiling, and no log cap, so the first time a team meets any of them is on a hosted run, and a failure at a hosted limit still uses no quota.
 - **`cancelled` is a status nothing produces.** It is in the schema (`apps/portal/worker/db/schema.ts:304`), the phase rail draws it as "Stopped before completion", and the console prints "Cancelled" (`apps/portal/src/components/RunConsole.tsx:78`). No route, service, or cron path ever writes it. A run either finishes, fails, or is reaped, so this is dead copy for a state a student cannot reach.
 
 ## Open questions and verification
@@ -204,4 +203,4 @@ The sandbox still writes the marker (`modal_app.py:746`). Nothing reads it, and 
 - Nothing was observed at a real limit. Every number here is read from source and every attribution path from tests that exercise the classifier rather than a live sandbox. In particular, which exception Modal raises on an out-of-memory, and with what text, is unknown to this repository. **Unverified.**
 - Whether the two 900 second budgets are meant to be one value or two that happen to agree was not established. They come from one field on the job and are applied at two `Sandbox.create` calls, so a run can occupy 1800 seconds of wall clock against a 3600 second controller function.
 
-Verified against Cog\*Portal commit `f74e087`.
+Verified against Cog\*Portal commit `a0e8eac` for quota policy; unchanged timeout and attribution references retain the earlier draft.

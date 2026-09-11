@@ -68,7 +68,7 @@ export function buildRunJob(
   }
   let preparedEnvironment = null;
   if (run.preparedArtifactId || run.preparedEnvironmentJson) {
-    const eligibility = savedEnvironmentEligibility(run, benchmark, team.repoFullName);
+    const eligibility = savedEnvironmentEligibility(run, benchmark, team);
     if (!eligibility.eligible) throw new ApiHttpError(409, "not_promotable", eligibility.reason);
     preparedEnvironment = eligibility.environment;
   }
