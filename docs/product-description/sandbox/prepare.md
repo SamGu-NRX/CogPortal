@@ -44,7 +44,7 @@ resolved the repository. The student sees a lit node and a clock, then `Contract
 
 ```mermaid
 stateDiagram-v2
-    [*] --> queued : the run row is written, credit is spent
+    [*] --> queued : execution admitted, capacity reserved
     queued --> preparing : modal.Sandbox.create returned
     queued --> contract_check : an official run carries a prepared artifact
     preparing --> installing : the prepare script is written and started
@@ -76,7 +76,7 @@ official run's `Prepare` and `Install` nodes fill without ever having been the c
 A job that fails validation is refused before `modal.Sandbox.create` is called, so no container is
 created and no event is emitted. From the run page's point of view prepare never started: the run
 stays at `queued` until the worker's own failure path moves it. The two sentences a student can
-meet here are the worker's, not the sandbox's, and both come after credit has been spent, because
+meet here are the worker's, not the sandbox's, and both come after capacity has been reserved, because
 the run row is written first: "The run could not be queued for Modal."
 (`apps/portal/worker/services/run-actions.ts:168`) and "The run could not be queued. Try again."
 (`run-actions.ts:176`). See [`../foundations/the-run.md`](../foundations/the-run.md).
@@ -85,7 +85,7 @@ the run row is written first: "The run could not be queued for Modal."
 
 `modal.Sandbox.create` returning. `reporter.status("preparing")` is the line immediately after it
 (`modal_app.py:1205`), so the `Prepare` node lighting on the rail is the student's proof that a
-container exists. Before that instant the run has cost credit but consumed no compute; after it, a
+container exists. Before that instant the run has reserved capacity but used no quota; after it, a
 container is running against the team's repository. The sandbox is created with an outbound
 allowlist of four fixed hosts, `api.github.com`, `codeload.github.com`, `pypi.org`,
 `files.pythonhosted.org`, plus the portal's own hostname from the callback URL
@@ -175,9 +175,8 @@ by substring, in a fixed order (`modal_app.py:1226`):
 The codes, titles, and explanations are `packages/contracts/src/failures.ts:32`, `:54`, `:76`,
 `:43`, and `:159`. Only the `adapter_missing` branch attaches a refusal object, and it is the only
 route in the platform that does (`modal_app.py:1235`); see
-[`discovery.md`](discovery.md#the-refusal-that-reaches-the-run-page). **No prepare failure spends
-an official attempt**: all five carry `defaultConsumesAttempt: false`, and `provider` additionally
-carries `infrastructure: True`, the platform saying the fault is its own. The `adapter_missing`
+[`discovery.md`](discovery.md#the-refusal-that-reaches-the-run-page). **No failed execution uses quota**, regardless of its category. The `infrastructure` flag
+attributes a failure; it does not decide its cost. The `adapter_missing`
 route reports phase `contract_check` even though the failure happened during `installing`, so the
 rail marks it at the node whose name matches what went wrong.
 
@@ -200,13 +199,13 @@ rail marks it at the node whose name matches what went wrong.
 
 | Event | Before the work begins | While it works |
 | --- | --- | --- |
-| You stop it yourself | The run row exists and credit is spent from the moment "Start run" was pressed, so there is nothing prepare-shaped to cancel yet. Cancelling here leaves a `cancelled` run with no container ever created. | Cancelling marks the run `cancelled`. The prepare sandbox is not told: it keeps running until its own timeout or until the `finally` clause terminates it (`modal_app.py:1253`). **Unverified**: whether a cancel reaches the controller promptly was not observed. |
+| You stop it yourself | Admission already left an execution record. | Closing the view does not cancel the sandbox. The execution eventually completes or fails. |
 | You do something else mid-way | Navigating away does not affect prepare. The run is durable and the sandbox is running in Modal, not in the browser. Starting a second run on the same benchmark is refused with `active_run_exists`. | The same. Closing the run page stops the 2 second poll and nothing else. |
 | A teammate acts at the same time | A teammate starting a run on the same benchmark first takes the lock, and this ask is refused before anything is prepared. | A teammate pushing a commit does not change this run: the archive URL names a resolved commit, and it was already fetched. A teammate cancelling the run has the same effect as the student cancelling it. |
 | The portal fails | The run never leaves `queued`, and the student reads "The run could not be queued. Try again." (`run-actions.ts:176`). | The sandbox keeps working. Its status events retry three times each on 429, 500, 502, 503, 504, and connection failures (`modal_app.py:870`), so a brief portal outage costs a heartbeat rather than the run. A callback that fails all three attempts raises inside the controller, and the run is left showing whatever phase last landed. |
 | The process goes away | Nothing exists to lose. | A killed container surfaces as an exception around the sandbox, which becomes `provider` at phase `preparing` with `infrastructure: True`, so the team is not charged. A killed controller leaves the run stuck at its last reported phase with no failure event at all. **Unverified.** |
 | The thing being measured changes | The branch moving before the run starts changes which commit is resolved. After it is resolved, nothing does. | No effect. The archive is one immutable tarball of one commit. A benchmark version change under a run in flight is caught later, at `contract_check`, not here (`modal_app.py:960`). |
-| Refused, or out of credit | Quota is checked before the run row is written, so a team at zero never reaches prepare. | Not reachable. Prepare consults no quota and can neither spend nor refund. The refund decision is made from the failure's `infrastructure` flag after prepare has ended. |
+| Refused, or out of credit | Admission checks capacity before dispatch. | Preparation does not change used quota. Any failed execution frees its reservation. |
 
 After any interrupt, what survives is the run row and whatever phase events already landed. The
 sandbox is ephemeral and its filesystem is discarded unless prepare finished and snapshotted it.
@@ -220,10 +219,7 @@ permission question was settled there. The sandbox has no notion of a user.
 filesystem snapshot, becomes the team's prepared artifact. That is what a later official run is
 scored from, which is why a practice run is a prerequisite for promotion.
 
-**Credit.** Prepare spends nothing and refunds nothing; credit was spent when the run row was
-written. What prepare decides is the `infrastructure` flag on a failure, and that decides the
-refund. Four of the five set it false, so the practice slot is gone; only `provider` sets it true.
-See [`../cross-cutting/credit-and-quota.md`](../cross-cutting/credit-and-quota.md).
+**Credit.** Preparation does not spend quota. A failed execution uses no quota in either mode; only a completed evaluation counts. See [credit and quota](../cross-cutting/credit-and-quota.md).
 
 **What the portal claims.** Prepare produces no numbers and makes no claim about the repository,
 with one exception: the `adapter_missing` route attaches a refusal, and a refusal is a claim. That
@@ -302,4 +298,4 @@ when it settles; the phases between do not reach a channel. See
   code and was not observed, and no timing was measured, so how long `Install` sits lit with no
   other feedback is unknown. **Unverified.**
 
-Verified against Cog\*Portal commit `f74e087`.
+Verified against Cog\*Portal commit `a0e8eac` for quota policy; unchanged preparation descriptions retain their earlier references.
