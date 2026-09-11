@@ -780,6 +780,25 @@ class AnInitializerThatDecidesWhatItsPackageReturnsIsPartOfTheKey(unittest.TestC
             before, memo.fingerprint(paths, benchmark="transitive-initializer")
         )
 
+    def test_import_context_adds_late_transitive_source_to_the_inventory(self):
+        package = self.tmp / "a" / "b" / "c"
+        package.mkdir(parents=True)
+        source = package / "values.py"
+        source.write_text("SCALE = 2\n")
+        (self.tmp / "main.py").write_text(
+            "def encode(value):\n    from a.b.c.values import SCALE\n    return value * SCALE\n"
+        )
+        found = discover(self.tmp)
+        self.assertNotIn(source, memo.source_paths(found))
+        main = next(entry.module for entry in found.modules if entry.name == "main")
+        with found.imports():
+            self.assertEqual(main.encode(3), 6)
+        paths = memo.source_paths(found)
+        self.assertEqual(paths.count(source), 1)
+        before = memo.fingerprint(paths, benchmark="late-source")
+        source.write_text("SCALE = 3\n")
+        self.assertNotEqual(before, memo.fingerprint(paths, benchmark="late-source"))
+
     def test_editing_only_the_initializer_searches_again(self):
         self._write(2)
         self.assertTrue(self._resolve().ready)

@@ -242,9 +242,9 @@ def source_paths(discovery: Any) -> List[Path]:
     the missing package and re-runs must get a new search, not the refusal
     they were shown before.
 
-    Retained package initializers also contribute, including transitive
-    imports beyond discovery's traversal depth. Traversed initializers already
-    have module records and should appear only once.
+    The retained import context contributes transitive project sources beyond
+    discovery's traversal depth. Its inventory replaces a separate process scan
+    for package initializers and also covers ordinary imported modules.
     """
 
     paths: List[Path] = []
@@ -254,8 +254,8 @@ def source_paths(discovery: Any) -> List[Path]:
         path = getattr(entry, "path", None)
         if path is not None:
             paths.append(Path(path))
-    for initializer in getattr(discovery, "initializers", []):
-        path = Path(initializer)
+    for source in discovery.imports().files:
+        path = Path(source)
         if path not in paths:
             paths.append(path)
     return paths

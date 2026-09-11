@@ -44,6 +44,30 @@ class ScreeningTests(unittest.TestCase):
                 self.assertTrue(_reaches_outside(module.transform))
                 self.assertEqual(callables_in([module]), [])
 
+    def test_unavailable_source_retains_live_dynamic_import_constants(self):
+        for expression in ('__import__("pydub")', 'importlib.import_module("sounddevice")'):
+            with self.subTest(expression=expression):
+                module = self.module(
+                    'def transform(value):\n    return ' + expression + '\n'
+                    'class Store:\n    def __init__(self):\n        self.backend = ' + expression + '\n'
+                )
+                linecache.cache.pop("<screening-fixture>", None)
+                self.assertTrue(_reaches_outside(module.transform))
+                self.assertTrue(_reaches_outside(module.Store.__init__))
+
+    def test_unavailable_source_distinguishes_nested_docstrings_and_imports(self):
+        for body, screened in (
+            ('return __import__("pydub")', True),
+            ('"""pydub is not used."""\n        return value', False),
+        ):
+            with self.subTest(body=body):
+                module = self.module(
+                    'def transform(value):\n    def helper():\n        ' + body + '\n'
+                    '    return helper()\n'
+                )
+                linecache.cache.pop("<screening-fixture>", None)
+                self.assertEqual(_reaches_outside(module.transform), screened)
+
     def test_qualified_input_calls_are_screened(self):
         module = self.module(
             'def transform(value):\n    import builtins\n'
