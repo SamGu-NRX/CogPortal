@@ -1,4 +1,4 @@
-import { and, eq, exists, inArray, lt, or, sql } from "drizzle-orm";
+import { and, eq, inArray, lt, or, sql } from "drizzle-orm";
 import type { RunPhase } from "@cogworks/contracts/schema";
 import type { Env } from "../env";
 import { getDb } from "../db/client";
@@ -7,7 +7,6 @@ import {
   accountLinkTokens,
   deviceAuthorizations,
   outboxEvents,
-  officialAttempts,
   runs,
 } from "../db/schema";
 
@@ -66,9 +65,8 @@ export async function maintainPlatform(env: Env, now = Date.now()): Promise<void
     const eligible = and(
       eq(runs.id, run.id), eq(runs.provider, "modal"), eq(runs.status, run.status),
     );
-    const eligibleExists = exists(db.select({ id: runs.id }).from(runs).where(eligible));
-    // Failure, release and notification commit together. A concurrent completion
-    // wins or loses against this transaction, never against a later refund pass.
+    // Failure and notification commit together. A concurrent completion
+    // wins or loses against this transaction.
     await db.batch([
       db.insert(outboxEvents).select(db.select({
         id: sql<string>`${`outbox_stale_${run.id}`}`.as("id"),
@@ -80,7 +78,6 @@ export async function maintainPlatform(env: Env, now = Date.now()): Promise<void
         attempts: sql<number>`0`.as("attempts"),
         nextAttemptAt: sql<number>`${now}`.as("nextAttemptAt"),
       }).from(runs).where(eligible)).onConflictDoNothing(),
-      db.delete(officialAttempts).where(and(eq(officialAttempts.runId, run.id), eligibleExists)),
       db.update(runs).set({
         status: "failed",
         finishedAt: now,
