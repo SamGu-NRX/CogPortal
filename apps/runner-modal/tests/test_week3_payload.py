@@ -18,6 +18,13 @@ except ImportError:
 # (which sorts first) to have done it as an import side effect.
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "apps" / "runner-modal" / "src"))
+# And the benchmark whose payload these tests check. test_week2_payload.py
+# already did this for its own week; leaving it out here meant four tests
+# reported as ordinary failures on any interpreter without the Week 3 package
+# installed, which reads as broken code rather than a missing install. Week 3
+# is a flat-layout package (benchmarks/week3/language_search_benchmark), not
+# the src layout Week 2 uses.
+sys.path.insert(0, str(ROOT / "benchmarks" / "week3"))
 
 
 def _cases():
@@ -122,10 +129,10 @@ class Week3PayloadTest(unittest.TestCase):
             )
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
+@unittest.skipIf(
+    np is None or find_spec("language_search_benchmark") is None,
+    "needs numpy and the week 3 benchmark package",
+)
 class RungCasesSurviveTheBoundary(unittest.TestCase):
     """The query rewrites are regenerated in the sandbox rather than shipped.
 
@@ -215,3 +222,7 @@ class RungCasesSurviveTheBoundary(unittest.TestCase):
         self.assertEqual(len(searches), 4)
         for case in searches:
             self.assertEqual(case.gold_image_ids, [10, 11, 12])
+
+
+if __name__ == "__main__":
+    unittest.main()
