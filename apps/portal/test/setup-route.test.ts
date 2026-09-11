@@ -22,11 +22,15 @@ function d1Adapter(sqlite: DatabaseSync): AppEnv["Bindings"]["DB"] {
     return {
       bind: (...values: SQLInputValue[]) => prepare(sql, values),
       first: () => unsupported("first"),
-      async raw() {
+      // SAFETY: node:sqlite's types do not track setReturnArrays. At this
+      // host boundary, SQLite returns positional rows as D1.raw expects;
+      // Drizzle maps those rows to its selected fields.
+      raw: (async (options?: { columnNames?: boolean }): Promise<unknown> => {
+        if (options?.columnNames) return unsupported("raw({ columnNames: true })");
         const statement = sqlite.prepare(sql);
         statement.setReturnArrays(true);
         return statement.all(...parameters);
-      },
+      }) as D1PreparedStatement["raw"],
       all: () => unsupported("all"),
       async run() {
         const result = sqlite.prepare(sql).run(...parameters);
@@ -49,16 +53,13 @@ function d1Adapter(sqlite: DatabaseSync): AppEnv["Bindings"]["DB"] {
   function unsupported(method: string): never {
     throw new Error(`Setup route's SQLite fixture does not implement D1.${method}`);
   }
-  // SAFETY: this host boundary supplies the prepared-statement operations used
-  // by Drizzle here. D1's generic result types are unchecked, as in its SDK;
-  // SQLite determines the actual rows. Unused operations explicitly fail.
   return {
     prepare,
     batch: () => unsupported("batch"),
     exec: () => unsupported("exec"),
     withSession: () => unsupported("withSession"),
     dump: () => unsupported("dump"),
-  } as AppEnv["Bindings"]["DB"];
+  };
 }
 
 function fixture(t: TestContext) {
