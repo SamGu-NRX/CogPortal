@@ -40,7 +40,7 @@ from .pipeline import (
     instances_in,
     methods_of,
     resolve_chain,
-    _muted,
+    _under_clock,
     _scratch_cwd,
 )
 from .verdict import (
@@ -70,6 +70,18 @@ __all__ = [
 #: 1,230 for Cog-gurts and 1,956 for rutvim2009. The ceiling is well above all
 #: of them: a repository is refused for having no working pairing, not for
 #: being large.
+#:
+#: Reader probes are not attempts and are not counted here. `_read_further`
+#: enumerates orderings of their one-argument functions, so one pairing over a
+#: pool of `P` at depth `d` costs `P + P(P-1) + ...` calls: 820 at the 2026
+#: corpus median of ten such functions, 14,425 at its maximum of twenty-five
+#: (BagelBreaker week 2, counted by AST on 2026-09-11). That recurs per
+#: partially-graded pairing and nothing bounds the total. Charging probes to
+#: this ceiling was tried and withdrawn: it spent all 20,000 on one repository
+#: and refused the later chains untried, where the same repository binds in 54
+#: attempts without it. The per-call clock now applies to each probe, so the
+#: unbounded quantity is calls rather than time. Bounding the enumeration
+#: itself needs a run of the weeks against the corpus that has not happened.
 MAX_ATTEMPTS = 20000
 
 #: What `accepts` returns when a pairing answered the question completely.
@@ -1596,6 +1608,12 @@ def _read_further(
     where it was changed nothing the benchmark can see, and binding it would
     put one of their functions in the record for a run whose answer it did not
     alter.
+
+    How much this costs is not bounded here, and the note on `MAX_ATTEMPTS`
+    says why that is still open. Tails are orderings of the pool without
+    repetition, so one pairing at depth `d` over a pool of `P` costs
+    `P + P(P-1) + ... ` calls: 1,464 for twelve readers at depth three, and
+    that recurs for every pairing that graded short of fully answered.
     """
 
     best: Optional[Tuple[float, Tuple[Candidate, ...]]] = None
@@ -1607,11 +1625,14 @@ def _read_further(
                 if reader in tail:
                     continue
                 try:
-                    # Muted for the reason `pipeline._muted` gives: their
-                    # functions narrate, and this one is being probed rather
-                    # than run.
-                    with _muted():
-                        produced = trial.reading(reader)(value)
+                    # The clock every other call into their code already had.
+                    # `reading` is inside it because it rebinds onto their
+                    # object and that is their code too. A reader that does not
+                    # return is not a reader of this value, which is what the
+                    # `except` below already says about one that raises.
+                    produced = _under_clock(
+                        lambda c=reader, v=value: trial.reading(c)(v)
+                    )
                 except BaseException:  # noqa: BLE001 - not a reader of this value
                     continue
                 tail_with = tail + (reader,)

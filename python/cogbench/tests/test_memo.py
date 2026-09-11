@@ -421,3 +421,79 @@ class TheWorkspaceIgnoresItself(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+PACKAGE_INIT = "SCALE = {scale}\n"
+
+PACKAGE_CORE = '''
+from . import SCALE
+
+_DB = {}
+
+
+def make_features(value, rate):
+    return [(value * SCALE, rate)]
+
+
+def remember(features, item_id):
+    _DB[tuple(features)] = item_id
+
+
+def whose(features):
+    return _DB.get(tuple(features), "")
+'''
+
+
+class AnInitializerThatDecidesWhatItsPackageReturnsIsPartOfTheKey(unittest.TestCase):
+    """A package's `__init__.py` that runs without raising is neither a
+    module nor a skip, so nothing recorded that the search had read it and
+    the key did not cover it. Editing only that file left the entry valid
+    and replayed a binding built against the old value.
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def _write(self, scale: int) -> None:
+        package = self.tmp / "theirs"
+        package.mkdir(exist_ok=True)
+        (package / "__init__.py").write_text(PACKAGE_INIT.format(scale=scale))
+        (package / "core.py").write_text(PACKAGE_CORE)
+
+    def _resolve(self):
+        return resolve(
+            self.tmp,
+            chain_role=ROLE,
+            fixture=FIXTURE,
+            accepts=_accepts,
+            arrangements=_arrangements,
+            remember=True,
+        )
+
+    def test_the_initializer_is_one_of_the_files_the_key_reads(self):
+        from cogbench.discover import discover
+
+        self._write(2)
+
+        found = discover(self.tmp)
+
+        self.assertEqual(
+            sorted(path.name for path in memo.source_paths(found)),
+            ["__init__.py", "core.py"],
+        )
+
+    def test_editing_only_the_initializer_searches_again(self):
+        self._write(2)
+        self.assertTrue(self._resolve().ready)
+        self.assertTrue(self._resolve().recalled)
+
+        self._write(3)
+
+        self.assertFalse(self._resolve().recalled)
+
+    def test_a_repository_nobody_touched_still_replays(self):
+        self._write(2)
+        self.assertTrue(self._resolve().ready)
+
+        self.assertTrue(self._resolve().recalled)

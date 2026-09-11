@@ -1363,36 +1363,62 @@ def _call(
         inspect.signature(candidate.call).bind(*args, **keywords)
     except (TypeError, ValueError):
         return False, None
-    # Windows has no SIGALRM. There the per-call clock is not enforced and
-    # a probe that hangs is caught only by the whole-of-discovery wall clock
-    # in `run_isolated`, which Windows also lacks; the CLI already says
-    # discovery is not isolated there. Guarding here keeps the module
-    # importable and the search running on the platforms it can run on.
-    alarm = hasattr(signal, "SIGALRM")
-    previous = signal.signal(signal.SIGALRM, _raise_timeout) if alarm else None
-    if alarm:
-        signal.alarm(CALL_TIMEOUT_SECONDS)
     try:
-        # The alarm is cancelled inside the guarded block, not in the outer
-        # `finally`. A call that returns just as the clock runs out has the
-        # alarm land between the return and the cancel; when the cancel sat
-        # in `finally`, that was outside the `except`, and the `_Timeout`
-        # left this function and ended the whole search. Measured on one
-        # 2026 repository whose constructor probe took ten seconds.
-        try:
-            with _muted():
-                result = candidate.call(*args, **keywords)
-        finally:
-            if alarm:
-                signal.alarm(0)
+        result = _under_clock(candidate.call, *args, **keywords)
     except BaseException as error:  # noqa: BLE001 - student code raises anything
         _record_raise(candidate, error)
         return False, None
+    return True, result
+
+
+def _under_clock(call: Callable[..., Any], *args: Any, **keywords: Any) -> Any:
+    """Call one of their callables muted and under the per-call clock.
+
+    Every place the search runs their code goes through here, so the clock is
+    one implementation rather than one per caller. `resolve._read_further`
+    probes readers without `_call`'s argument planning and needs the same
+    clock; before it had one, a single reader that slept took the search with
+    it, measured at 56 seconds for four calls against this 10-second limit.
+
+    Windows has no SIGALRM. There the clock is not enforced and a probe that
+    hangs is caught only by the whole-of-discovery wall clock in
+    `run_isolated`, which Windows also lacks; the CLI already says discovery
+    is not isolated there. Guarding here keeps the module importable and the
+    search running on the platforms it can run on.
+    """
+
+    # A worker thread cannot hold a signal handler: `signal.signal` raises
+    # ValueError off the main thread. That is this process being unable to
+    # offer a clock, not their function failing, and a caller that reads a
+    # raise as "not a reader of this value" would quietly drop a working one.
+    # So it degrades to no clock, which is what a platform without SIGALRM
+    # already gets.
+    alarm = hasattr(signal, "SIGALRM")
+    previous = None
+    if alarm:
+        try:
+            previous = signal.signal(signal.SIGALRM, _raise_timeout)
+        except ValueError:
+            alarm = False
+    try:
+        if alarm:
+            signal.alarm(CALL_TIMEOUT_SECONDS)
+        # The alarm is cancelled inside the guarded block, not in the outer
+        # `finally`. A call that returns just as the clock runs out has the
+        # alarm land between the return and the cancel; when the cancel sat
+        # in `finally`, that was outside the caller's `except`, and the
+        # `_Timeout` left this function and ended the whole search. Measured
+        # on one 2026 repository whose constructor probe took ten seconds.
+        try:
+            with _muted():
+                return call(*args, **keywords)
+        finally:
+            if alarm:
+                signal.alarm(0)
     finally:
         if alarm:
             signal.alarm(0)
             signal.signal(signal.SIGALRM, previous)
-    return True, result
 
 
 @contextlib.contextmanager
