@@ -1864,3 +1864,55 @@ class Engine:
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AReaderProbeGetsThePerCallClockLikeEveryOtherCall(unittest.TestCase):
+    """A reader that does not return used to be waited on forever.
+
+    `_read_further` called their function directly, so the ten-second clock
+    every other call into their code goes through did not apply. Measured
+    before this test existed: four probes of a reader that sleeps fourteen
+    seconds took fifty-six seconds.
+
+    What this does NOT pin is how many probes there are. Tails are orderings
+    of the pool, so one pairing over a pool of twelve at depth three is 1,464
+    calls and it recurs per partially-graded pairing. That is still unbounded
+    and is recorded as open work; drawing it from the pairing ceiling was
+    tried and refused the repository instead, see the report.
+    """
+
+    def test_a_reader_that_does_not_return_is_cut_off_not_waited_on(self):
+        import time
+        import unittest.mock
+
+        from cogbench import pipeline
+
+        # One second rather than the real ten, because what is under test is
+        # that a clock applies at all, not what it is set to.
+        with unittest.mock.patch.object(pipeline, "CALL_TIMEOUT_SECONDS", 1):
+            started = time.time()
+            with self.assertRaises(BaseException):
+                pipeline._under_clock(lambda: time.sleep(6))
+            waited = time.time() - started
+
+        self.assertLess(waited, 4)
+
+    def test_the_clock_steps_aside_where_it_cannot_be_held(self):
+        """A worker thread cannot hold a signal handler. Reading that raise as
+        "not a reader of this value" would drop one of their working
+        functions, so the clock goes away instead of the reader."""
+
+        import threading
+
+        from cogbench.pipeline import _under_clock
+
+        answered = {}
+
+        def work():
+            answered["value"] = _under_clock(lambda x: x * 2, 21)
+
+        thread = threading.Thread(target=work)
+        thread.start()
+        thread.join()
+
+        self.assertEqual(answered.get("value"), 42)

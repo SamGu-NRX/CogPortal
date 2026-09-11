@@ -357,6 +357,13 @@ class Discovery:
     modules: List[LoadedModule] = field(default_factory=list)
     skipped: List[SkippedModule] = field(default_factory=list)
     stub_calls: List[str] = field(default_factory=list)
+    #: Package `__init__.py` files that ran without raising. They are not
+    #: modules here (their names live on the package object, not in
+    #: `namespace`) and they are not skips, so nothing else records that they
+    #: were read. `memo.source_paths` needs them: a package whose initializer
+    #: decides what its members return is source the binding depends on, and
+    #: editing it left the cache key unchanged and replayed a stale binding.
+    initializers: List[Path] = field(default_factory=list)
     #: The packages this run actually stood in for, which is not the same as
     #: the packages it was willing to. A listed package that turned out to be
     #: installed is not stubbed and must not be reported as though it were.
@@ -835,6 +842,37 @@ def stubbed_now() -> List[str]:
         for name in STUBBED_MODULES
         if isinstance(sys.modules.get(name), _Stub)
     ]
+
+
+def initializers_now(root: Path, extra: Sequence[Path] = ()) -> List[Path]:
+    """Which of their package bodies ran, read from the process.
+
+    Asked after the imports for the reason `stubbed_now` gives: `load_modules`
+    is exported and widening its return tuple would break a caller that
+    unpacks three values. `sys.modules` is where the answer already lives, and
+    a package whose body raised is not in it, so this is the successful ones
+    by construction rather than by remembering to append at the right branch.
+
+    `memo.source_paths` needs them. An `__init__.py` that ran is neither a
+    module here nor a skip, so nothing else records that the search read it,
+    and a package whose initializer sets the constant its members return is
+    ordinary: editing only that file left the key unchanged and replayed a
+    binding built against the old value.
+    """
+
+    roots = [Path(root).resolve()] + [Path(one).resolve() for one in extra]
+    found: List[Path] = []
+    for module in list(sys.modules.values()):
+        where = getattr(module, "__file__", None)
+        if not where or Path(where).name != "__init__.py":
+            continue
+        try:
+            path = Path(where).resolve()
+        except OSError:
+            continue
+        if any(_inside(path, one) for one in roots):
+            found.append(path)
+    return sorted(set(found))
 
 
 def _missing_module(error: BaseException) -> Optional[str]:
@@ -2397,6 +2435,7 @@ def discover(
                 resource_files=resource_files,
             )
             stubbed = stubbed_now()
+            initializers = initializers_now(root.path, extra)
     else:
         with tempfile.TemporaryDirectory(prefix="cogworks-import-") as temporary:
             with _entered(root.path, working=Path(temporary), also=extra):
@@ -2408,12 +2447,14 @@ def discover(
                     resource_files=resource_files,
                 )
                 stubbed = stubbed_now()
+                initializers = initializers_now(root.path, extra)
     return Discovery(
         root=root,
         modules=modules,
         skipped=skipped,
         stub_calls=calls,
         stubbed=stubbed,
+        initializers=initializers,
     )
 
 
