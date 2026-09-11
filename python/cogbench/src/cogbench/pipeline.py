@@ -939,11 +939,16 @@ def _reaches_outside(value: Any) -> bool:
         pass
     code = getattr(value, "__code__", None)
     pending = [code] if code is not None else []
+    docstring_flag = getattr(inspect, "CO_HAS_DOCSTRING", None)
     while pending:
         block = pending.pop()
-        # Named functions reserve the first constant for their docstring.
-        # Comprehensions have no docstring slot and can start with live data.
-        constants = block.co_consts if block.co_name.startswith("<") else block.co_consts[1:]
+        # Python 3.14 omits the old None slot when a function has no docstring.
+        # Its flag distinguishes documentation from a first live string constant.
+        has_docstring = (
+            bool(block.co_flags & docstring_flag) if docstring_flag is not None
+            else not block.co_name.startswith("<")
+        )
+        constants = block.co_consts[1:] if has_docstring else block.co_consts
         text += " ".join(block.co_names) + " " + " ".join(
             name for name in constants if isinstance(name, str)
         )
