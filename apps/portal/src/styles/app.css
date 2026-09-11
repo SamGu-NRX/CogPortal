@@ -205,16 +205,17 @@
     font-size: 12.5px;
     line-height: 1.65;
     overflow-x: auto;
+    /* The copy button floats over the top right corner, so the first line
+       keeps clear of it. Inside the scroll box, so the end of a long line
+       clears it too. */
+    padding-right: 1.75rem;
   }
 
-  /* A command whose tail has to stay readable, like a pinned commit. A
-     scrolling line passes under the copy button; a wrapped one would sit under
-     it, so the first line keeps clear of it. */
+  /* A command whose tail has to stay readable, like a pinned commit. */
   .code-block.is-wrapped pre {
     overflow-x: visible;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
-    padding-right: 1.75rem;
   }
 }
 
