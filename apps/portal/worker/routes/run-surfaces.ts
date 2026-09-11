@@ -63,7 +63,7 @@ export function registerRunSurfaceRoutes(app: Hono<AppEnv>): void {
     }
     const stub = c.env.RUN_SURFACES.get(c.env.RUN_SURFACES.idFromName(surfaceId));
     return stub.fetch(
-      new Request("https://run-surface.internal/connect", {
+      new Request(`https://run-surface.internal/connect?surfaceId=${encodeURIComponent(surfaceId)}`, {
         headers: c.req.raw.headers,
       }),
     );

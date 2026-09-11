@@ -56,6 +56,7 @@ function snapshot(overrides: Partial<RunSurfaceSnapshot> = {}): RunSurfaceSnapsh
     officialRunId: null,
     executionHistory: [],
     executionGeneration: 0,
+    snapshotRevision: 1,
     published: false,
     refusalHeadline: null,
     nextOfficialAttempt: 2,

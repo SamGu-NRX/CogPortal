@@ -46,6 +46,7 @@ function snapshot(status: RunSurfaceSnapshot["status"]): RunSurfaceSnapshot {
     officialRunId: null,
     executionHistory: [],
     executionGeneration: 0,
+    snapshotRevision: 1,
     published: false,
     nextOfficialAttempt: 2,
     events: [0, 1, 2, 3, 4].map((sequence) => ({

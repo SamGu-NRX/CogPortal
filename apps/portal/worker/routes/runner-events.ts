@@ -6,7 +6,6 @@ import type { RunPhase, RunStreamEventCode } from "@cogworks/contracts/schema";
 import type { AppEnv } from "../env";
 import { getDb } from "../db/client";
 import {
-  officialAttempts,
   outboxEvents,
   runEvents,
   runMetrics,
@@ -187,7 +186,6 @@ async function applyEvent(env: AppEnv["Bindings"], event: RunEventV1): Promise<v
   } else {
     await db.batch([
       terminalNotice,
-      db.delete(officialAttempts).where(and(eq(officialAttempts.runId, run.id), activeExists)),
       db.update(runs).set({
         status: "failed",
         finishedAt: event.occurredAt,

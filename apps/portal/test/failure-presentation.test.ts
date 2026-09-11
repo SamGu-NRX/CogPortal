@@ -210,7 +210,7 @@ function retrySnapshot(mode: "practice" | "official" = "practice") {
     progress: null, primaryMetric: null, localRunId: null,
     practiceRunId: mode === "practice" ? "physical_failed" : "physical_practice",
     officialRunId: mode === "official" ? "physical_failed" : null,
-    executionGeneration: 1,
+    executionGeneration: 1, snapshotRevision: 1,
     executionHistory: [{ id: "physical_failed", mode, status: "failed", retryOfRunId: null, createdAt: 1000, finishedAt: 8000 }],
     published: false, nextOfficialAttempt: 1, actions: ["retry"], simulated: true,
     events: [{ eventId: "failure_event_123", source: mode, sourceRunId: "physical_failed", sourceSequence: 1,
@@ -374,18 +374,30 @@ test("live hook rejects old generations, old responses and closed-console frames
   const { container, root } = await mount(t, React.createElement(Probe, { initial: first }));
   const current = () => RunSurfaceSnapshotSchema.parse(JSON.parse(container.textContent));
   const socket = Socket.opened[0];
-  const next = { ...first, status: "running" as const, phase: "queued", executionGeneration: 2, practiceRunId: "physical_retry", actions: [] };
+  const next = { ...first, status: "running" as const, phase: "queued", executionGeneration: 2, snapshotRevision: 2, practiceRunId: "physical_retry", actions: [] };
   await act(async () => { root.render(React.createElement(Probe, { initial: next })); });
   await act(async () => socket.frame({ ...first, updatedAt: 99999 }));
   assert.equal(current().practiceRunId, "physical_retry");
   await act(async () => root.render(React.createElement(Probe, { initial: { ...first, updatedAt: 99999 } })));
   assert.equal(current().executionGeneration, 2);
-  const done = { ...next, status: "succeeded" as const, updatedAt: 12000 };
+  const evaluating = { ...next, phase: "evaluating", snapshotRevision: 3 };
+  await act(async () => socket.frame(evaluating));
+  await act(async () => socket.frame(next));
+  assert.equal(current().phase, "evaluating", "equal timestamps cannot roll back a newer revision");
+  await act(async () => root.render(React.createElement(Probe, { initial: next })));
+  assert.equal(current().snapshotRevision, 3, "a stale query response cannot replace a live revision");
+  const done = { ...evaluating, status: "succeeded" as const, updatedAt: 12000, snapshotRevision: 4 };
   await act(async () => socket.frame(done));
   await act(async () => socket.frame({ ...next, updatedAt: 13000 }));
   assert.equal(current().status, "succeeded");
   await act(async () => socket.frame({ ...done, updatedAt: 11000, branch: "wrong" }));
   assert.equal(current().branch, "detached");
+  const published = { ...done, published: true, snapshotRevision: 5 };
+  await act(async () => socket.frame(published));
+  await act(async () => socket.frame(done));
+  assert.equal(current().published, true);
+  await act(async () => socket.frame({ ...done, snapshotRevision: 6 }));
+  assert.equal(current().published, false, "a newer revision can deselect the same successful run");
   const other = { ...first, id: `surface_${"c".repeat(20)}` };
   await act(async () => root.render(React.createElement(Probe, { initial: other })));
   await act(async () => socket.frame({ ...done, executionGeneration: 99 }));
