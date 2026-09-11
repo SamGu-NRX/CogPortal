@@ -30,9 +30,10 @@ re-attaches those with ``attach_clustering_labels`` from ``expected.json``.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import io
 import json
-import random
+import os
 import zipfile
 from dataclasses import dataclass, replace
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
@@ -80,8 +81,38 @@ class RecognitionQueryPlan:
         return self.known_count + self.unknown_count + self.post_count
 
 
-def _recognition_seed(case: Any) -> int:
-    """A per-case shuffle seed the payload cannot reproduce.
+# HMAC domain separation. `RUNNER_SIGNING_SECRET` also signs callbacks and
+# weight requests; a distinct label keeps a permutation seed and a request
+# signature independent uses of the one key.
+_PERMUTATION_LABEL = b"cogworks/week2/recognition-permutation/v1"
+
+# `encode_cases(seed_key=...)` defaults to reading the environment. A caller
+# that means "no key" has to say `None`, so a missing secret is a loud failure
+# rather than a quiet downgrade to the guessable seed.
+_FROM_ENVIRONMENT = object()
+
+SEED_KEY_VARIABLE = "RUNNER_SIGNING_SECRET"
+
+
+def _seed_key(requested: Any) -> Optional[bytes]:
+    """The HMAC key for this encode, or ``None`` for an unkeyed carrier plan."""
+
+    if requested is not _FROM_ENVIRONMENT:
+        return requested
+    try:
+        return os.environ[SEED_KEY_VARIABLE].encode("utf-8")
+    except KeyError:
+        raise RuntimeError(
+            "Encoding a recognition payload needs {} to key its per-case "
+            "permutation. The controller function declares the signing secret "
+            "and already fails without it; a caller that is deliberately "
+            "building an unkeyed carrier plan, as materialize_week2_official "
+            "does, passes seed_key=None.".format(SEED_KEY_VARIABLE)
+        ) from None
+
+
+def _recognition_seed(case: Any, key: Optional[bytes]) -> int:
+    """A per-case shuffle seed the sandbox cannot reproduce.
 
     The order has to be stable across runs so one submission scored twice sees
     the same batches, which rules out ``random.random()`` and the clock.
@@ -96,12 +127,30 @@ def _recognition_seed(case: Any) -> int:
     recomputable in the sandbox, and recomputing it recovers the permutation,
     which recovers the grouping the permutation exists to hide.
 
-    So the digest runs over the query images in canonical order, and canonical
-    order is the grouping itself. Reproducing the seed therefore requires
-    already knowing the answer. There is no partial digest to match against, so
-    a guess can only be checked once it is complete: the search is flat, and
-    checking a complete guess tells an attacker nothing they did not already
-    have by making it.
+    The digest therefore runs over the query images in canonical order, which
+    is the grouping itself. That much used to be the whole argument, and it
+    claimed more than it could: the search is flat, with no partial digest to
+    match against, but a guess is checkable. Enumerate a canonical order,
+    compute its seed, replay the shuffle and see whether it reproduces the
+    batches you were handed. A reviewer did that on a two-identity case,
+    3! x 3! = 36 orders per count guess, and recovered every label without
+    comparing two faces. Worse, the benchmark hands the submission FaceNet, so
+    it can group the queries by appearance first and enumerate only the orders
+    within each group, which is a couple of permutations per person.
+
+    So the digest is keyed. ``key`` is HMAC's key and the label below is domain
+    separation from the callback signatures that key already makes, so the two
+    uses stay independent. The sandbox is created without secrets
+    (``modal_app.py`` passes none to ``Sandbox.create``) and the controller
+    function holds them, so an enumerated order can no longer be checked: there
+    is nothing to compare a guessed seed against.
+
+    ``key`` is ``None`` only where the plan is a carrier rather than a secret.
+    ``materialize_week2_official`` builds the hidden bundle on an operator's
+    machine, which does not have the key, and its permutation is undone by
+    ``attach_recognition_gold`` before the controller re-encodes each run with
+    its own. Rotating the key reorders later hosted batches and invalidates
+    nothing on the volume.
     """
 
     digest = hashlib.sha256()
@@ -125,63 +174,77 @@ def _recognition_seed(case: Any) -> int:
     digest.update(b"\x1d")
     for image in case.post_enrollment_queries:
         absorb(image)
-    return int.from_bytes(digest.digest()[:8], "big")
+    content = digest.digest()
+    if key is None:
+        return int.from_bytes(content[:8], "big")
+    keyed = hmac.new(key, _PERMUTATION_LABEL + content, hashlib.sha256).digest()
+    return int.from_bytes(keyed[:8], "big")
 
 
-def _canonical_query_images(case: Any) -> List[Any]:
-    """Every query image, in canonical slot order.
+def _query_plan(case: Any, key: Optional[bytes]) -> RecognitionQueryPlan:
+    """Deal the canonical query slots into the two sandbox batches.
 
-    The order matches ``recognition_expected`` exactly, so slot ``i`` here and
-    entry ``i`` of that function's concatenated output describe the same image.
+    The deal itself belongs to the benchmark, which owns the lifecycle and the
+    gold, and `facial_recognition_benchmark.drivers.query_phases` is the one
+    both lanes call. This half is what the benchmark deliberately does not
+    know: which seed a hosted run deals with, and the map from a shuffled batch
+    back to a scored answer, which stays here and never enters a payload.
+
+    Before they shared it, the two dealt differently. This one pooled every
+    known slot and split the total, so one person's photos could land wholly on
+    one side; the local driver split each person's own. Same lifecycle, and the
+    same submission could score two numbers depending on where it ran.
+
+    Imported inside the function, like the other benchmark imports in this
+    module, so importing this module still works where the benchmark is not
+    installed. Encoding a recognition case does not: this import and
+    ``_canonical_query_images`` both run under ``encode_cases``, so that path
+    now needs the benchmark the way decoding always has. Clustering is
+    unaffected. Every caller that encodes recognition already installs it.
     """
 
-    images: List[Any] = []
-    for identity in case.known:
-        images.extend(identity.queries)
-    images.extend(case.unknown_queries)
-    images.extend(case.post_enrollment_queries)
-    return images
-
-
-def _query_plan(case: Any) -> RecognitionQueryPlan:
-    """Deal the canonical query slots into the two sandbox batches."""
+    from facial_recognition_benchmark.drivers import query_phases
 
     known_query_counts = tuple(len(identity.queries) for identity in case.known)
     known_count = sum(known_query_counts)
     unknown_count = len(case.unknown_queries)
     post_count = len(case.post_enrollment_queries)
-    if known_count < 2:
-        raise ValueError(
-            "A recognition case needs at least two known queries so both sandbox "
-            "batches contain work whose answer is a known person; got {}. A batch "
-            "holding only the stranger's photos is answerable with one constant "
-            "label and without looking at any pixels.".format(known_count)
-        )
 
-    rng = random.Random(_recognition_seed(case))
-    known_slots = list(range(known_count))
-    rng.shuffle(known_slots)
-    # Half to each batch; with an odd count the extra goes to the second. The
-    # split only has to leave both batches holding known queries, which is what
-    # makes a constant answer in either batch cost something.
-    split = known_count // 2
-    before = known_slots[:split] + list(range(known_count, known_count + unknown_count))
-    after = known_slots[split:] + list(
-        range(known_count + unknown_count, known_count + unknown_count + post_count)
+    before, after = query_phases(
+        known_query_counts,
+        unknown_count=unknown_count,
+        post_count=post_count,
+        seed=_recognition_seed(case, key),
     )
-    rng.shuffle(before)
-    rng.shuffle(after)
+    # Checked on the deal rather than on a count that used to imply it. Half of
+    # each person's own photos go to each side now, so two people with one
+    # photo each leave the first batch holding nothing but the stranger, which
+    # is answerable with one constant label and without looking at any pixels.
+    # `known_count >= 2` no longer rules that out; this does. The check reads
+    # the deal rather than restating the split rule, so it keeps working if the
+    # split changes -- which is also why the message reports what was observed
+    # instead of naming a photo count the rule happens to imply today.
+    if not any(slot < known_count for slot in before):
+        raise ValueError(
+            "The first sandbox batch for this recognition case holds no query "
+            "whose answer is somebody already enrolled; known query counts {}, "
+            "{} unknown and {} post-enrollment. A batch holding only the "
+            "stranger's photos is answerable with one constant label and "
+            "without looking at any pixels.".format(
+                list(known_query_counts), unknown_count, post_count
+            )
+        )
     return RecognitionQueryPlan(
         known_query_counts=known_query_counts,
         unknown_count=unknown_count,
         post_count=post_count,
-        before_slots=tuple(before),
-        after_slots=tuple(after),
+        before_slots=before,
+        after_slots=after,
     )
 
 
 def encode_cases(
-    benchmark_id: str, cases: Sequence[Any]
+    benchmark_id: str, cases: Sequence[Any], *, seed_key: Any = _FROM_ENVIRONMENT
 ) -> Tuple[bytes, List[RecognitionQueryPlan]]:
     """Encode sandbox inputs, and return the map back for the controller.
 
@@ -190,6 +253,12 @@ def encode_cases(
     the caller must keep them in memory and must never write them anywhere the
     sandbox can read. ``recognition_gold`` serializes them for the controller's
     own side of the hidden volume.
+
+    ``seed_key`` keys each case's permutation; see ``_recognition_seed``. Left
+    alone it reads ``RUNNER_SIGNING_SECRET``, which the controller function has
+    and the sandbox does not. Pass ``None`` to build an unkeyed carrier plan,
+    which is what the materialize tool wants and nothing else does. Clustering
+    ignores it.
     """
 
     images: List[np.ndarray] = []
@@ -202,9 +271,17 @@ def encode_cases(
     records: List[Dict[str, Any]] = []
     plans: List[RecognitionQueryPlan] = []
     if benchmark_id == RECOGNITION_ID:
+        from facial_recognition_benchmark.drivers import canonical_query_images
+
+        seed_key = _seed_key(seed_key)
         for case in cases:
-            plan = _query_plan(case)
-            slot_images = _canonical_query_images(case)
+            plan = _query_plan(case, seed_key)
+            # Canonical slot order is the order `recognition_expected` builds
+            # its gold in, so slot `i` here and entry `i` there are the same
+            # image. Taking it from the benchmark rather than writing it out
+            # again is what keeps the whole map from a shuffled batch back to a
+            # scored answer honest.
+            slot_images = canonical_query_images(case)
             # Enrollment images are allocated first, then the queries in the
             # order the sandbox will be handed them. Image indices are assigned
             # sequentially, so allocating a query image at the moment its batch
