@@ -3,8 +3,13 @@
 The zip carries only what the submission needs to produce embeddings and
 search results: caption texts, the descriptor pool, pool image ids, seeds,
 and the showcase switch. Gold (text groups, retrieval rows, search image
-ids) never enters the payload; the controller re-attaches it for scoring
-with ``attach_gold``.
+ids) never enters the payload; the controller re-attaches it for scoring with
+the benchmark's ``attach_gold``.
+
+"Gold-free" means no answer field crosses, not that the answers are secret: the
+verbatim queries are captions, and the captions file is baked into the sandbox
+image, so a submission can look them up. That is the reason the scored rungs
+are the rewrites and the verbatim rung is reported and not scored.
 """
 
 from __future__ import annotations
@@ -20,11 +25,12 @@ BENCHMARK_ID = "language-search"
 
 
 def _verbatim_by_kind(cases: Sequence[Any]) -> Dict[str, Any]:
-    """One case per kind, taking the verbatim search case.
+    """One case per kind, taking the verbatim one.
 
-    Several search cases share one kind, one per query rewrite. A plain
-    by-kind dict keeps whichever came last, which would silently make a
-    rewritten rung the scored component.
+    Retrieval and search each have several cases sharing a kind, one per query
+    rewrite. A plain by-kind dict keeps whichever came last, which would
+    silently make a rewritten rung the case the payload and the gold record are
+    built from.
     """
 
     return {

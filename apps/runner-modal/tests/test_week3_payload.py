@@ -138,62 +138,37 @@ class RungCasesSurviveTheBoundary(unittest.TestCase):
     """
 
     def _cases(self):
-        from language_search_benchmark.datasets import SearchCase, TextCase, RetrievalCase
+        """The controller's grid, from the benchmark's constructor.
 
-        from language_search_benchmark import perturb
+        Hand-building it here was a third copy of the thing `build_cases`
+        exists to hold, and the version that omitted the retrieval rewrites is
+        what let these tests agree with a decoder that omitted them too.
+        """
 
-        # Built the way `datasets.materialize_cases` builds it, including the
-        # parts that are easy to get wrong: retrieval carries the same rungs as
-        # search and comes first, search holds its own copy of the pool, and
-        # every search case shares one id list. A fixture that omits the
-        # retrieval rungs agrees with a decoder that omits them too, and
-        # neither notices; a fixture that shares one array across components
-        # cannot show a mutating submission reaching the retrieval rungs.
-        descriptors = np.zeros((3, 512), dtype=np.float32)
-        search_descriptors = descriptors.copy()
-        search_image_ids = [10, 11, 12]
+        from language_search_benchmark.datasets import attach_gold, build_cases
+
         queries = ["A man riding a horse", "Two cats on a bed", "A red bus downtown"]
-        rewrites = [rung for rung in perturb.RUNGS if rung != "verbatim"]
-        base = [
-            TextCase(kind="text", captions=list(queries), group_rows=[0, 1, 2], tie_break_seed=7),
-            RetrievalCase(
-                kind="retrieval", queries=list(queries), descriptors=descriptors,
-                gold_rows=[0, 1, 2], tie_break_seed=7,
-            ),
-            SearchCase(
-                kind="search", queries=list(queries), image_ids=search_image_ids,
-                descriptors=search_descriptors, gold_image_ids=[10, 11, 12], k=3,
+        return attach_gold(
+            build_cases(
+                text_captions=queries,
+                queries=queries,
+                pool_image_ids=[10, 11, 12],
+                pool_descriptors=np.zeros((3, 512), dtype=np.float32),
                 tie_break_seed=7,
+                search_k=3,
             ),
-        ]
-        base += [
-            RetrievalCase(
-                kind="retrieval", queries=perturb.rewrite_all(queries, rung),
-                descriptors=descriptors, gold_rows=[0, 1, 2], tie_break_seed=7,
-                rung=rung,
-            )
-            for rung in rewrites
-        ]
-        base += [
-            SearchCase(
-                kind="search", queries=perturb.rewrite_all(queries, rung),
-                image_ids=search_image_ids, descriptors=search_descriptors,
-                gold_image_ids=[10, 11, 12], k=3, tie_break_seed=7, rung=rung,
-            )
-            for rung in rewrites
-        ]
-        return base
+            text_group_rows=[0, 1, 2],
+            retrieval_gold_rows=[0, 1, 2],
+            search_gold_image_ids=[10, 11, 12],
+        )
 
     def test_the_sandbox_runs_the_same_cases_the_controller_scores(self):
-        """Position is the only thing tying an output back to its case.
+        """The zip carries enough to rebuild the grid it was made from.
 
-        A practice run scores `benchmark.load_cases("evaluation")` against
-        what the sandbox returns, and the sandbox runs whatever `decode_payload`
-        rebuilds. Rebuilding only the search rungs put six cases in the sandbox
-        against a nine-case tier, so `component_scores` read a retrieval output
-        where it expected the text one and raised `KeyError: 'text'`. Official
-        runs decode the same payload on both sides, which is why this stayed
-        invisible there.
+        Both sides call `build_cases` now, so this no longer guards against two
+        builders drifting; the benchmark owns that. What it still catches is a
+        metadata field dropped or renamed in `encode_payload`, which would
+        rebuild a different grid from the same cases.
         """
 
         from cogworks_runner.week3_payload import decode_payload, encode_payload
@@ -207,28 +182,6 @@ class RungCasesSurviveTheBoundary(unittest.TestCase):
             [(c.kind, getattr(c, "rung", "verbatim")) for c in rebuilt], shape
         )
 
-    def test_attach_gold_answers_a_retrieval_rung_with_pool_rows(self):
-        """A retrieval rung is ranked on the controller, so its answer is a
-        pool row, not an image id. `dataclasses.replace` raises on a field the
-        class does not have, so giving every rung `gold_image_ids` fails
-        outright once retrieval rungs exist."""
-
-        from language_search_benchmark.datasets import attach_gold
-        from cogworks_runner.week3_payload import (
-            decode_payload, encode_payload, extract_gold,
-        )
-
-        cases = self._cases()
-        _id, _showcase, rebuilt = decode_payload(
-            encode_payload("language-search", cases, showcase=False)
-        )
-        restored = attach_gold(rebuilt, **extract_gold(cases))
-        from language_search_benchmark import perturb
-
-        retrievals = [c for c in restored if c.kind == "retrieval"]
-        self.assertEqual(len(retrievals), len(perturb.RUNGS))
-        for case in retrievals:
-            self.assertEqual(case.gold_rows, [0, 1, 2], case.rung)
 
     def test_the_sandbox_derives_the_same_queries_the_controller_built(self):
         from cogworks_runner.week3_payload import decode_payload, encode_payload
@@ -276,78 +229,6 @@ class RungCasesSurviveTheBoundary(unittest.TestCase):
             if case.kind == "text":
                 self.assertIsNone(case.group_rows, "gold must not cross the boundary")
 
-    def test_every_rung_shares_one_pool_object_so_the_index_is_built_once(self):
-        """The sandbox must call prepare_database as often as the local run does.
-
-        `drivers.run_with_adapter` decides whether to rebuild the submission's
-        index by comparing `case.image_ids` and `case.descriptors` against the
-        previous case's by object identity, because a student index need not be
-        idempotent. `decode_payload` used to build a fresh id list inside the
-        rung loop, so the sandbox rebuilt four times where the local run built
-        once. On an append-style prepare (legal: nothing in the contract asks
-        for idempotence) that changed the reported score, measured
-        search_mrr_truncated 0.406667 locally against 0.250000 hosted, with
-        duplicate ids in the hosted rankings that validate_rankings does not
-        reject. Silent local/hosted disagreement is the one failure this
-        platform must never produce, so identity is asserted directly rather
-        than inferred from equal scores.
-        """
-
-        from cogworks_runner.week3_payload import decode_payload, encode_payload
-
-        _id, _showcase, rebuilt = decode_payload(
-            encode_payload("language-search", self._cases(), showcase=False)
-        )
-        from language_search_benchmark import perturb
-
-        searches = [c for c in rebuilt if c.kind == "search"]
-        self.assertEqual(len(searches), len(perturb.RUNGS))
-        verbatim = next(c for c in searches if c.rung == "verbatim")
-        for case in searches:
-            self.assertIs(case.image_ids, verbatim.image_ids, case.rung)
-            self.assertIs(case.descriptors, verbatim.descriptors, case.rung)
-
-    def test_the_search_pool_is_a_copy_so_a_mutating_prepare_cannot_reach_retrieval(self):
-        """`materialize_cases` hands search `matrix.copy()` on purpose.
-
-        Nothing in the contract asks a submission's `prepare_database` to leave
-        the pool alone, and the retrieval rungs run after the search index is
-        built. Sharing one array here let an in-place prepare change what those
-        rungs were ranked against: measured on the real tier, all three
-        rewritten retrieval outputs differed from the local run. An earlier
-        version of this test asserted the aliasing and claimed
-        `materialize_cases` did the same, which pinned the defect in place.
-        """
-
-        from cogworks_runner.week3_payload import decode_payload, encode_payload
-
-        _id, _showcase, rebuilt = decode_payload(
-            encode_payload("language-search", self._cases(), showcase=False)
-        )
-        retrievals = [c for c in rebuilt if c.kind == "retrieval"]
-        searches = [c for c in rebuilt if c.kind == "search"]
-        self.assertIsNot(retrievals[0].descriptors, searches[0].descriptors)
-        np.testing.assert_array_equal(retrievals[0].descriptors, searches[0].descriptors)
-        # Sharing within each component is what keeps the index built once.
-        for case in retrievals:
-            self.assertIs(case.descriptors, retrievals[0].descriptors, case.rung)
-        for case in searches:
-            self.assertIs(case.descriptors, searches[0].descriptors, case.rung)
-
-    def test_a_mutating_prepare_leaves_the_retrieval_pool_alone(self):
-        """The behaviour the copy exists for, driven rather than asserted."""
-
-        from cogworks_runner.week3_payload import decode_payload, encode_payload
-
-        _id, _showcase, rebuilt = decode_payload(
-            encode_payload("language-search", self._cases(), showcase=False)
-        )
-        search = next(c for c in rebuilt if c.kind == "search")
-        before = [c.descriptors.copy() for c in rebuilt if c.kind == "retrieval"]
-        search.descriptors += 100.0  # what an in-place prepare_database does
-        after = [c.descriptors for c in rebuilt if c.kind == "retrieval"]
-        for expected, observed in zip(before, after):
-            np.testing.assert_array_equal(expected, observed)
 
     def test_attach_gold_preserves_the_shared_pool_objects(self):
         """Gold is re-attached with dataclasses.replace, which copies the

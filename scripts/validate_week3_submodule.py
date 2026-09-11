@@ -10,13 +10,18 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 BENCHMARK = ROOT / "benchmarks" / "week3"
-# Moved from b166f5c, which built the case grid in two places. d9dbc8b gives
-# the benchmark one `build_cases`, which the sandbox decoder now calls instead
-# of assembling the grid itself, and declares the three rewritten retrieval
-# metrics the scorer already returned. No version in PLUGIN_EXPECTATIONS moves:
-# a complete grid scores identically, so this is not a scorer bump and needs no
-# migration.
-REVIEWED_COMMIT = "d9dbc8b5c77290032cdabb618b957a8f42011b79"
+# Moved from b166f5c, which built the case grid in three places: the
+# benchmark, the sandbox decoder, and the benchmark's own test fixture. The
+# fixture is the one that mattered, because it shipped only the search
+# rewrites and so agreed with the decoder that did the same. The benchmark
+# now owns one `build_cases`, which the sandbox decoder calls instead of
+# assembling the grid itself, and declares the three rewritten retrieval
+# metrics the scorer already returned. The same range also makes the package
+# import without the SDK, which had left that repository's own CI red.
+#
+# No version in PLUGIN_EXPECTATIONS moves: a complete grid scores identically,
+# so this is not a scorer bump and needs no migration.
+REVIEWED_COMMIT = "2e94f696d48016283ace59f1ce72339ed1b48d4f"
 
 PLUGIN_EXPECTATIONS = {
     'benchmark_id = "language-search"': "benchmark id",
