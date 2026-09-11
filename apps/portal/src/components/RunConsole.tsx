@@ -76,7 +76,7 @@ function stageMark(snapshot: RunSurfaceSnapshot, stage: RunLifecycleStage): stri
 }
 
 function statusCopy(snapshot: RunSurfaceSnapshot): string {
-  if (snapshot.status === "failed") return "Stopped during evaluation";
+  if (snapshot.status === "failed") return "Run failed";
   if (snapshot.status === "cancelled") return "Stopped before completion";
   if (snapshot.status === "succeeded") return "Bench clear";
   const phase = snapshot.phase.replaceAll("_", " ");
@@ -134,6 +134,8 @@ export function RunConsole({
   compact?: boolean;
 }) {
   const logRef = useRef<HTMLUListElement>(null);
+  const logFocusedRef = useRef(false);
+  const historyToggleRef = useRef<HTMLButtonElement>(null);
   const atBottomRef = useRef(true);
   const [newEvents, setNewEvents] = useState(0);
   const currentRunId = runSurfaceCurrentRunId(snapshot);
@@ -149,7 +151,16 @@ export function RunConsole({
   const [historyExpanded, setHistoryExpanded] = useState(false);
   const terminal = snapshot.status !== "running";
   const timelineEvents = collapseRepeatedRunEvents(currentEvents);
+  const failed = snapshot.status === "failed";
+  const failureEvent = [...currentEvents].reverse().find((event) => event.code.startsWith("run.failed."));
+  const failureReason = snapshot.refusalHeadline || (failureEvent ? EVENT_COPY[failureEvent.code] : null);
   const visibleEvents = terminal && !historyExpanded ? timelineEvents.slice(-3) : timelineEvents;
+  const historyToggle = failed
+    ? { open: "Hide details", closed: "Show details" }
+    : { open: "Show summary", closed: `Show all ${timelineEvents.length}` };
+  const recordedMetrics = snapshot.metrics.length > 0
+    ? snapshot.metrics
+    : snapshot.primaryMetric ? [snapshot.primaryMetric] : [];
 
   useLayoutEffect(() => {
     if (
@@ -178,9 +189,17 @@ export function RunConsole({
     }
   }, [currentEvents.length, currentRunId, snapshot.id, terminal]);
 
+  // Removing the focused log must not strand keyboard focus on the document.
+  useLayoutEffect(() => {
+    if (failed && !historyExpanded && logFocusedRef.current) {
+      historyToggleRef.current?.focus();
+      logFocusedRef.current = false;
+    }
+  }, [failed, historyExpanded]);
+
   useEffect(() => {
     setHistoryExpanded(false);
-  }, [snapshot.id, snapshot.stage, snapshot.status]);
+  }, [snapshot.id, currentRunId, snapshot.stage, snapshot.status]);
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -250,13 +269,18 @@ export function RunConsole({
               <span className="u-tnum">{formatElapsed(snapshot.elapsedMs)}</span>
             </p>
           </div>
-          {snapshot.primaryMetric && (
+          {snapshot.status === "succeeded" && snapshot.primaryMetric && (
             <div className="min-w-36 border-l-2 border-verify pl-4">
               <div className="u-kicker">{snapshot.primaryMetric.label}</div>
               <div className="mt-1 font-serif text-3xl font-semibold u-tnum">{formatMetric(snapshot)}</div>
             </div>
           )}
         </div>
+        {failed && (
+          <p className="mt-3 max-w-prose break-words text-[13px] text-ink-secondary">
+            {failureReason ?? "No failure reason was recorded."}
+          </p>
+        )}
         {snapshot.status === "running" && (
           <div className="mt-4 border-t border-rule-soft pt-3" role="status" aria-live="polite">
             <div className="mb-2 flex min-w-0 items-center justify-between gap-3">
@@ -305,20 +329,32 @@ export function RunConsole({
       <div className="grid md:grid-cols-[minmax(0,1fr)_15rem]">
         <div className="relative border-b border-rule md:border-r md:border-b-0">
           <div className="flex items-center justify-between border-b border-rule-soft px-4 py-3">
-            <span className="u-kicker">{terminal ? "Run summary" : "Safe event stream"}</span>
-            {terminal && timelineEvents.length > 3 && (
+            <span className="u-kicker">{failed ? "Execution history" : terminal ? "Run summary" : "Safe event stream"}</span>
+            {terminal && (failed || timelineEvents.length > 3) && (
               <button
                 type="button"
                 className="min-h-9 px-2 text-[11px] text-ink-secondary underline decoration-rule underline-offset-4"
+                ref={historyToggleRef}
                 aria-expanded={historyExpanded}
                 onClick={() => setHistoryExpanded((expanded) => !expanded)}
               >
-                {historyExpanded ? "Show summary" : `Show all ${timelineEvents.length}`}
+                {historyExpanded ? historyToggle.open : historyToggle.closed}
               </button>
             )}
           </div>
-          <ul
+          {failed && historyExpanded && (
+            <div className="space-y-2 border-b border-rule-soft px-4 py-3 text-[12px] text-ink-secondary">
+              <p>Recorded findings from this failed execution.</p>
+              <p className="break-all font-mono">{currentRunId}</p>
+              {recordedMetrics.map((metric) => (
+                <p key={metric.key}>{metric.label}: {metric.value.toFixed(metric.precision)}{metric.unit ? ` ${metric.unit}` : ""}</p>
+              ))}
+            </div>
+          )}
+          {(!failed || historyExpanded) && <ul
             ref={logRef}
+            onFocus={() => { logFocusedRef.current = true; }}
+            onBlur={() => { logFocusedRef.current = false; }}
             tabIndex={terminal && !historyExpanded ? undefined : 0}
             aria-label={terminal ? "Run event summary" : "Live run events"}
             className={`log-scroll bg-paper-sunken/30 focus-visible:outline-offset-[-2px] ${terminal && !historyExpanded ? "" : "h-[min(34vh,18rem)] overflow-y-auto"}`}
@@ -330,10 +366,10 @@ export function RunConsole({
             }}
           >
             {visibleEvents.length ? visibleEvents.map((event) => <EventLine key={event.eventId} event={event} />) : (
-              <li className="px-5 py-12 text-center text-[13px] text-ink-faint">Waiting for the first structured event.</li>
+              <li className="px-5 py-12 text-center text-[13px] text-ink-faint">{terminal ? "No structured events were recorded." : "Waiting for the first structured event."}</li>
             )}
-          </ul>
-          {newEvents > 0 && (
+          </ul>}
+          {!terminal && newEvents > 0 && (
             <button
               type="button"
               className="absolute bottom-3 left-1/2 min-h-9 -translate-x-1/2 border border-rule bg-ink px-3 text-[12px] text-paper-raised shadow-md"
@@ -371,7 +407,8 @@ export function RunConsole({
             </p>
           )}
           <div className="mt-6 grid gap-2">
-            {snapshot.actions.filter((action) => ACTION_COPY[action]).map((action) => (
+            {/* No current action retries a failed execution in this view. */}
+            {snapshot.actions.filter((action) => !failed && ACTION_COPY[action]).map((action) => (
               <button
                 key={action}
                 type="button"
@@ -399,9 +436,6 @@ export function RunConsole({
             )}
           </div>
           {error && <p role="alert" className="mt-4 border-l-2 border-detect pl-3 text-[12px] text-detect-deep">{error}</p>}
-          {snapshot.status === "failed" && (
-            <p className="mt-4 text-[12px] text-ink-secondary">The useful detail is still in the runner's terminal.</p>
-          )}
         </aside>
       </div>
       )}
