@@ -10,13 +10,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 BENCHMARK = ROOT / "benchmarks" / "week3"
-REVIEWED_COMMIT = "abdce758b85c347bc7ac0c15e31c5bc015ca5803"
+REVIEWED_COMMIT = "b166f5c15e950baccc3785839cdcc660ffe01bb4"
 
 PLUGIN_EXPECTATIONS = {
     'benchmark_id = "language-search"': "benchmark id",
     "benchmark_version = 1": "benchmark version",
     'contract_version = "cogworks.submissions.v2"': "contract version",
-    'scorer_version = "retrieval-v2"': "scorer version",
     'primary_metric = "overall"': "primary metric",
 }
 
@@ -24,8 +23,18 @@ MIGRATION_EXPECTATIONS = (
     "language-search",
     "cogworks.submissions.v2",
     "language-search-official-v1",
-    "retrieval-v2",
     "week3-cpu-v1",
+)
+
+#: The catalog row the hosted runner reads, as the migrations leave it. The
+#: last one wins, which is what applying them in order does.
+#: The migration that last moves the row, so a later re-seed is detectable.
+LAST_SCORER_MIGRATION = "0032_week3_scorer_v4.sql"
+
+CATALOG_SCORER = re.compile(
+    r"UPDATE\s+benchmarks\s+SET\s+scorer_version\s*=\s*'([^']+)'\s*"
+    r"WHERE\s+id\s*=\s*'language-search'",
+    re.IGNORECASE,
 )
 
 
@@ -98,6 +107,39 @@ def main() -> None:
     for value in MIGRATION_EXPECTATIONS:
         if value not in migrations:
             raise SystemExit("No portal migration mentions {!r}.".format(value))
+
+    # The plugin computes the score and the catalog row names it. A hosted run
+    # reads the row, so the two disagreeing means a run is filed under a
+    # version that did not score it. Derived from the migrations rather than
+    # restated here, because a version bump is a new migration by design.
+    catalog = CATALOG_SCORER.findall(migrations)
+    if not catalog:
+        raise SystemExit("No portal migration sets language-search's scorer_version.")
+    # The row is seeded by an INSERT with positional values, which this cannot
+    # read. A later re-seed in that shape would leave the last UPDATE as the
+    # answer and the check would pass while the catalog said something else.
+    # Fail loudly instead of reading the wrong statement.
+    reseeds = [
+        path.name
+        for path in sorted((ROOT / "apps" / "portal" / "migrations").glob("*.sql"))
+        if "INTO benchmarks" in path.read_text(encoding="utf-8")
+        and "language-search" in path.read_text(encoding="utf-8")
+        and path.name > LAST_SCORER_MIGRATION
+    ]
+    if reseeds:
+        raise SystemExit(
+            "{} re-seeds the benchmarks row after the last scorer_version "
+            "update; this check cannot read a positional INSERT.".format(reseeds[0])
+        )
+    declared = re.search(r'scorer_version\s*=\s*"([^"]+)"', plugin_source)
+    if declared is None:
+        raise SystemExit("benchmarks/week3's plugin declares no scorer_version.")
+    if declared.group(1) != catalog[-1]:
+        raise SystemExit(
+            "benchmarks/week3 scores as {} and the portal catalog says {}. A "
+            "hosted run would be filed under a version that did not score "
+            "it.".format(declared.group(1), catalog[-1])
+        )
 
 
 if __name__ == "__main__":
