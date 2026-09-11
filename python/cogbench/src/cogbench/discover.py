@@ -1113,15 +1113,25 @@ class _PackageFinder:
 def _register_package(directory: Path) -> str:
     """Create the package object a directory's modules will belong to.
 
-    The package's own ``__name__`` stays synthetic, which looks wrong and is
-    load-bearing. CPython resolves ``from . import sibling`` by formatting
-    ``"{}.{}".format(package.__name__, "sibling")`` and importing that.
-    Measured on 2026-08-20 with a friendly ``__name__`` of ``core``: the
-    import machinery was asked for the top-level name ``core`` and raised
-    ``ModuleNotFoundError: No module named 'core'``, because the synthetic
-    package is registered under the synthetic name. The synthetic name is
-    never shown to a student; only module ``__name__`` values are, and those
-    are bare stems.
+    The package's own ``__name__`` is synthetic so that a directory called
+    ``core`` cannot take the top-level name ``core`` from something installed,
+    and so that two directories of that name in one repository stay apart.
+
+    A note about the measurement that used to be recorded here: changing
+    ``__name__`` alone to ``core`` did raise ``ModuleNotFoundError: No module
+    named 'core'``, because CPython resolves ``from . import sibling`` by
+    formatting ``"{}.{}".format(package.__name__, "sibling")`` while the
+    ``sys.modules`` key and the finder still answered for the synthetic name.
+    That is a half-change and it had to fail; it is not evidence that a
+    directory's own name cannot be used. Changing the key, the spec and the
+    finder together works, and a reviewer prototyped it against this suite
+    with identical results. It is not done here because it would rewrite how
+    every package in this file is named, which is a larger change than the
+    repairs this commit is making.
+
+    The cost of keeping the synthetic name: a function defined directly in an
+    ``__init__.py`` carries it into the candidate label a student reads.
+    Re-exports do not, because they keep their defining module's name.
 
     An ``__init__.py`` is executed as the package body, so a package whose
     setup lives there gets that setup. A failure there is deliberately not
@@ -1217,6 +1227,12 @@ def _live_package(directory: Path) -> Optional[str]:
     return None
 
 
+def _dotted_name(package: str, stem: str) -> str:
+    """``package.stem``, the one spelling everything here files members under."""
+
+    return "{}.{}".format(package, stem)
+
+
 def _dotted(package: str, path: Path) -> str:
     """The name a package member is filed under.
 
@@ -1224,7 +1240,7 @@ def _dotted(package: str, path: Path) -> str:
     show, so the loader, `_execute` and `_forget` agree on one key.
     """
 
-    return "{}.{}".format(package, path.stem)
+    return _dotted_name(package, path.stem)
 
 
 def _safe_suffix(name: str) -> str:
@@ -1655,11 +1671,23 @@ def _execute(
     except SyntaxError as error:
         if into is None:
             _forget(name, package, path)
+        # Name the file the error is in. A module that imports a sibling with
+        # a syntax error fails with that sibling's SyntaxError, and reporting
+        # it against the importer sent a team to look at a file that is
+        # correct: `main.py` was blamed for `line 4: expected ':'` in
+        # `bad_syntax.py`.
+        blamed = getattr(error, "filename", None)
+        where = ""
+        if blamed and os.path.realpath(str(blamed)) != os.path.realpath(str(path)):
+            where = " of {}".format(os.path.basename(str(blamed)))
         return (
             None,
             error,
             SkippedModule(
-                name, path, "syntax", "line {}: {}".format(error.lineno, error.msg)
+                name,
+                path,
+                "syntax",
+                "line {}{}: {}".format(error.lineno, where, error.msg),
             ),
         )
     except BaseException as error:  # noqa: BLE001 - student code raises anything
@@ -1773,8 +1801,20 @@ def _import_one(
             redirects.install(basename)
             notes.redirected = notes.redirected + (basename,)
         if pristine is not None:
+            # Python keeps an imported submodule as an attribute of its
+            # package. One the failed attempt imported is still in
+            # `sys.modules`, so the retry's import of it is a cache hit that
+            # sets no attribute, and clearing the dict alone left
+            # `package.child` importable but `package.child` unreachable.
+            children = {
+                key: value
+                for key, value in into.__dict__.items()
+                if isinstance(value, ModuleType)
+                and sys.modules.get(_dotted_name(into.__name__, key)) is value
+            }
             into.__dict__.clear()
             into.__dict__.update(pristine)
+            into.__dict__.update(children)
         try:
             if folder is not None:
                 with _reading_from(folder):
@@ -2065,7 +2105,10 @@ class _NotebookFsFinder:
                 ),
                 name=spec.name,
             )
-        self._notes[os.path.realpath(str(notebook))] = notes
+        # `setdefault`, because a second spelling (`ipynb.fs.defs` after
+        # `ipynb.fs.full`) reuses the module and comes back with empty notes.
+        # The read that happened is the first one.
+        self._notes.setdefault(os.path.realpath(str(notebook)), notes)
         self._made.append(spec.name)
         return module
 
@@ -2650,12 +2693,16 @@ def _searches_inside(module: object, directories: Sequence[Path]) -> bool:
     The next repository's ``import core.database`` then found the last one's.
     """
 
-    locations = getattr(module, "__path__", None)
-    if not locations:
-        return False
     try:
+        locations = getattr(module, "__path__", None)
+        if not locations:
+            return False
         entries = [Path(os.path.realpath(str(entry))) for entry in locations]
     except Exception:  # noqa: BLE001 - a __path__ may be anything
+        # Reading one is not always inert. A nested namespace package's
+        # ``__path__`` resolves by looking its parent up in ``sys.modules``,
+        # and this runs while that table is being emptied, so the parent may
+        # be gone already. Even asking whether it is empty does the lookup.
         return False
     return any(
         entry == directory.resolve() or _inside(entry, directory)
@@ -2746,7 +2793,12 @@ def _entered(
         for name, original in list(_DISPLACED.items()):
             sys.modules[name] = original
         _DISPLACED.clear()
-        for name in set(sys.modules) - before:
+        # Deepest name first. A nested namespace package resolves its
+        # ``__path__`` by looking its parent up in ``sys.modules``, so
+        # evicting `core` before `core.sub` left the child unable to say
+        # where it searched, and it stayed behind pointing into a checkout
+        # this process had finished with.
+        for name in sorted(set(sys.modules) - before, reverse=True):
             module = sys.modules.get(name)
             if module is None:
                 continue
@@ -2756,9 +2808,17 @@ def _entered(
             if name.startswith(_PACKAGE_PREFIX):
                 sys.modules.pop(name, None)
                 continue
-            if any(
-                _is_student_module(module, directory) for directory in (root, *also)
-            ) or _searches_inside(module, (root, *also)):
+            try:
+                theirs = any(
+                    _is_student_module(module, directory)
+                    for directory in (root, *also)
+                ) or _searches_inside(module, (root, *also))
+            except Exception:  # noqa: BLE001 - anything can be in sys.modules
+                # Deciding whether to evict must not be the thing that ends
+                # the run. An entry that refuses to answer is left alone,
+                # which is the same outcome as not recognising it.
+                continue
+            if theirs:
                 sys.modules.pop(name, None)
         sys.meta_path[:] = [
             finder
