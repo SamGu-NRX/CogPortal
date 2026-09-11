@@ -646,11 +646,13 @@ def _rebound(candidate: Candidate, positional: Sequence[Any]) -> Callable[..., A
     # name. Measured before the second was read: a search branch bound to
     # `Store([1]).search` from the prepare branch kept answering about
     # `[1]` after the scored run had built `Store([9])`.
+    # A named branch owns the receiver even when an argument has the same type.
     holders: List[Any] = []
-    if positional:
+    if candidate.branch is not None:
+        if candidate.branch in _RUNTIME:
+            holders.append(_RUNTIME[candidate.branch])
+    elif positional:
         holders.append(positional[0])
-    if candidate.branch is not None and candidate.branch in _RUNTIME:
-        holders.append(_RUNTIME[candidate.branch])
     for held in holders:
         if candidate.owner is not None and not isinstance(held, candidate.owner):
             continue
@@ -713,13 +715,6 @@ def _invoke(candidate: Candidate, positional: Sequence[Any]) -> Any:
     positional = _handed(candidate, positional)
     if candidate.self_only:
         return _carried(candidate, positional, _rebound(candidate, positional)())
-    if candidate.attribute is not None and candidate.branch is not None:
-        # A method of an object another branch built. The object is not in
-        # this chain's arguments, so it is looked up by branch name, and the
-        # arguments go to the method as they are.
-        call = _rebound(candidate, ())
-        args, keywords = _arguments(candidate, positional)
-        return _carried(candidate, positional, call(*args, **keywords))
     if candidate.per_item:
         if not positional:
             raise TypeError("a per-item step needs the items to run over")
@@ -728,7 +723,8 @@ def _invoke(candidate: Candidate, positional: Sequence[Any]) -> Any:
         produced = []
         for index, item in enumerate(items):
             args, keywords = _arguments(candidate, (item,) + rest, index)
-            produced.append(candidate.call(*args, **keywords))
+            call = _rebound(candidate, (item,) + rest)
+            produced.append(call(*args, **keywords))
         if candidate.in_place and all(row is None for row in produced):
             # Each item was changed where it sat; the items go forward.
             return items
@@ -736,7 +732,7 @@ def _invoke(candidate: Candidate, positional: Sequence[Any]) -> Any:
             return [row[candidate.element] for row in produced]
         return produced
     args, keywords = _arguments(candidate, positional)
-    return _carried(candidate, positional, candidate.call(*args, **keywords))
+    return _carried(candidate, positional, _rebound(candidate, positional)(*args, **keywords))
 
 
 def _carried(candidate: Candidate, positional: Sequence[Any], result: Any) -> Any:
@@ -1116,16 +1112,13 @@ def methods_of(
             continue
         if name not in vars(owner) and not any(name in vars(base) for base in owner.__mro__):
             continue
+        if isinstance(inspect.getattr_static(instance, name, None), property):
+            # Properties compute values; enumerating methods must not run them.
+            continue
         try:
             value = getattr(instance, name, None)
         except BaseException:  # noqa: BLE001 - reading an attribute runs their code
-            # A property is their code, and reading one runs it. Week 2's
-            # Lashika repository has `Profile.average_descriptor`, a property
-            # that averages the descriptors it was built with; on an object
-            # the search constructed out of a cutoff there are none, and
-            # `np.mean(0.3, axis=0)` raises. Enumerating what an object can
-            # do must never end discovery, so an attribute that will not be
-            # read is simply not a candidate.
+            # A custom descriptor can also raise while returning a method.
             continue
         if not callable(value) or isinstance(value, type):
             continue
@@ -1421,24 +1414,32 @@ def _under_clock(call: Callable[..., Any], *args: Any, **keywords: Any) -> Any:
             signal.signal(signal.SIGALRM, previous)
 
 
+class _DiscardedOutput(io.StringIO):
+    def write(self, text):
+        if self.closed:
+            raise ValueError("I/O operation on closed file")
+        return len(text)
+
+
 @contextlib.contextmanager
 def _muted():
     """Probe without the student's console.
 
     Their functions narrate: one prints every fingerprint it built, which is
     thousands of lines per call and tens of thousands across a search. Their
-    output belongs to their run, not to ours, so probing captures it and
-    throws it away. What a student sees is the report, which says what was
+    output belongs to their run, not to ours, so probing discards it without
+    retaining it in memory. What a student sees is the report, which says what was
     tried and what came back.
     """
 
     saved_out, saved_err = sys.stdout, sys.stderr
-    sys.stdout = io.StringIO()
-    sys.stderr = io.StringIO()
-    try:
-        yield
-    finally:
-        sys.stdout, sys.stderr = saved_out, saved_err
+    # Opening devnull here would be mistaken for a student read by _watching.
+    with _DiscardedOutput() as out, _DiscardedOutput() as err:
+        sys.stdout, sys.stderr = out, err
+        try:
+            yield
+        finally:
+            sys.stdout, sys.stderr = saved_out, saved_err
 
 
 def probe_sources(
@@ -3535,7 +3536,12 @@ def _resolve_chain(
         if key in asked:
             continue
         asked.add(key)
-        if verify is None or verify(partial.chain):
+        try:
+            accepted = verify is None or bool(verify(partial.chain))
+        except BaseException:
+            # Verification can call student code or inspect its malformed answer.
+            continue
+        if accepted:
             return (
                 Binding(
                     role.name,

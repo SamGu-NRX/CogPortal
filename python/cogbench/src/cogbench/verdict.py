@@ -105,6 +105,14 @@ def describe(value: Any) -> str:
     that a binding record can be compared byte for byte.
     """
 
+    try:
+        return _describe(value)
+    except BaseException:
+        # Describing a student value may itself run a property or __repr__.
+        return "{} (description unavailable)".format(type(value).__name__)
+
+
+def _describe(value: Any) -> str:
     shape = getattr(value, "shape", None)
     if shape is not None:
         return "an array of shape {}".format(tuple(shape))
@@ -114,6 +122,9 @@ def describe(value: Any) -> str:
         )
         if not value:
             return "an empty {}".format(type(value).__name__)
+        if isinstance(value, set):
+            # Sets have no stable first entry across Python hash seeds.
+            return "{} of {}".format(name, len(value))
         first = next(iter(value))
         inner = getattr(first, "shape", None)
         if inner is not None:
