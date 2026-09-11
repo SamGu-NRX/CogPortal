@@ -91,6 +91,9 @@ export function deviceLinkCommand(portalOrigin: string): string {
   return `cogworks link --portal ${portalOrigin}`;
 }
 
+// Keep both accepted callers on the same origin-specific command.
+export { deviceLinkCommand as linkCommand };
+
 /**
  * The commands, in run order, for one team's repository and one track.
  *
