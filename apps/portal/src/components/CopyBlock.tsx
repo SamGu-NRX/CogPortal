@@ -1,3 +1,5 @@
+import { Copy01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useRef, useState } from "react";
 
 /** A copyable command line: mono, single action, 44px target. */
@@ -17,7 +19,9 @@ export function CopyBlock({
    *  crowds out the page. Off by default. */
   wrap?: boolean;
 }) {
-  const [copied, setCopied] = useState(false);
+  const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
+  const copying = useRef(false);
+  const copied = copyStatus === "copied";
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(
@@ -28,18 +32,24 @@ export function CopyBlock({
   );
 
   const copy = async () => {
+    // Suppress overlapping writes without disabling the focused button.
+    if (copying.current) return;
+    copying.current = true;
+    if (timer.current) clearTimeout(timer.current);
+    setCopyStatus("idle");
     try {
       await navigator.clipboard.writeText(text);
-      setCopied(true);
-      if (timer.current) clearTimeout(timer.current);
-      timer.current = setTimeout(() => setCopied(false), 1400);
+      setCopyStatus("copied");
+      timer.current = setTimeout(() => setCopyStatus("idle"), 1400);
     } catch {
-      /* ignore */
+      setCopyStatus("failed");
+    } finally {
+      copying.current = false;
     }
   };
 
   return (
-    <div className={`flex items-stretch gap-0 ${className}`}>
+    <div className={`flex flex-wrap items-stretch gap-0 ${className}`}>
       <code
         // A scrolling box has to be reachable by keyboard to be scrollable by
         // one, the way the run console's log is. A wrapped block scrolls
@@ -53,14 +63,26 @@ export function CopyBlock({
       >
         {text}
       </code>
+      {/* Same control as the code block's, so one gesture means one thing
+          across the page. */}
       <button
         type="button"
         onClick={copy}
-        className="u-pressable min-w-11 border border-l-0 border-rule bg-paper-raised px-3 font-mono text-[11px] tracking-[0.08em] text-ink-secondary uppercase transition-colors duration-150 hover:text-ink"
+        title="Copy command"
+        className="u-pressable flex min-w-11 items-center justify-center border border-l-0 border-rule bg-paper-raised px-3 transition-colors duration-150 hover:border-ink-secondary"
       >
-        {copied ? "ok" : "copy"}
+        <HugeiconsIcon
+          icon={copied ? Tick02Icon : Copy01Icon}
+          size={13}
+          strokeWidth={1.8}
+          className={copied ? "text-verify" : "text-ink-faint"}
+          aria-hidden="true"
+        />
         <span className="sr-only">Copy command</span>
       </button>
+      <p role="status" className={copyStatus === "failed" ? "mt-2 w-full text-[13px] text-detect-deep" : "sr-only"}>
+        {copyStatus === "failed" ? "Couldn't copy. Select the command and copy it manually." : copied ? "Copied." : ""}
+      </p>
     </div>
   );
 }

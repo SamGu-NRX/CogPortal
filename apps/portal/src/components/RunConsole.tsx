@@ -1,3 +1,5 @@
+import { ArrowUpRight01Icon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type {
   RunLifecycleStage,
@@ -390,8 +392,9 @@ export function RunConsole({
               </p>
             )}
             {onOpenPortal && (
-              <button type="button" className="min-h-11 px-3 text-left text-[12px] text-ink-secondary underline decoration-rule underline-offset-4" onClick={onOpenPortal}>
-                Open Cog*Portal ↗
+              <button type="button" className="inline-flex min-h-11 items-center gap-1 px-3 text-left text-[12px] text-ink-secondary underline decoration-rule underline-offset-4" onClick={onOpenPortal}>
+                Open Cog*Portal
+                <HugeiconsIcon icon={ArrowUpRight01Icon} size={12} strokeWidth={1.8} aria-hidden="true" />
               </button>
             )}
           </div>

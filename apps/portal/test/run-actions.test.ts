@@ -841,6 +841,20 @@ test("dashboard API and rendered candidate agree with detail for unknown, change
   assert.equal(published.selection?.source?.fullName, "some-org/the-repository-it-ran-from");
   assert.equal(published.selection?.runId, PRACTICE_RUN_ID);
   assert.match(renderDashboard(published), /PUBLISHED RESULT[\s\S]*some-org\/the-repository-it-ran-from/);
+
+  const firstRun = renderDashboard({
+    ...published,
+    benchmark: { ...published.benchmark, id: "language-search", title: "Semantic Image Search", module: "language" },
+    runs: [], latestCandidate: null, selection: null,
+    quota: { ...published.quota, practiceUsed: 0, officialUsed: 0 },
+  });
+  assert.match(firstRun, /FIRST RUN/);
+  // Grid items must shrink so Code scrolls internally instead of widening the page.
+  assert.match(firstRun, /<div class="min-w-0"><h3 class="u-kicker">On your machine/);
+  assert.match(firstRun, /<div class="min-w-0"><h3 class="u-kicker">Here, from your pushed commit/);
+  assert.match(firstRun, /class="code-block /);
+  assert.match(firstRun, /cogworks check --benchmark language-search\ncogworks run --benchmark language-search\ncogworks sync/);
+  assert.match(firstRun, /<select[^>]*>[\s\S]*main/);
 });
 
 test("the rule answers every combination of missing and differing ids", () => {

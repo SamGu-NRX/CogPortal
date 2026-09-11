@@ -1,4 +1,4 @@
-import { ArrowRight01Icon } from "@hugeicons/core-free-icons";
+import { ArrowRight01Icon, ArrowUpRight01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { ReactNode } from "react";
 import { Link, useSearchParams } from "react-router";
@@ -165,7 +165,14 @@ function SetupGuide({
                 rel="noreferrer"
                 className="text-ink underline decoration-rule underline-offset-4 hover:decoration-ink"
               >
-                {benchmarkTitle} prerequisites ↗
+                {benchmarkTitle} prerequisites
+                <HugeiconsIcon
+                  icon={ArrowUpRight01Icon}
+                  size={12}
+                  strokeWidth={1.8}
+                  className="inline-block align-[-0.1em]"
+                  aria-hidden="true"
+                />
               </a>
               :
             </>
@@ -298,7 +305,9 @@ function SetupGuide({
                 last={index === lines.length - 1}
               >
                 {said[line.id].body}
-                <CopyBlock className="mt-2.5" text={line.command} wrap />
+                <div className="mt-2.5">
+                  <Code lang="bash" code={line.command} wrap />
+                </div>
                 <TerminalCheckoff step={line.step} state={state} tokens={tokens} />
               </Step>
             );
