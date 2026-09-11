@@ -10,7 +10,19 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 BENCHMARK = ROOT / "benchmarks" / "week3"
-REVIEWED_COMMIT = "b166f5c15e950baccc3785839cdcc660ffe01bb4"
+# Moved from b166f5c, which built the case grid in three places: the
+# benchmark, the sandbox decoder, and the benchmark's own test fixture. The
+# fixture is the one that mattered, because it shipped only the search
+# rewrites and so agreed with the decoder that did the same. The benchmark
+# now owns one `build_cases`, which the sandbox decoder calls instead of
+# assembling the grid itself, and declares the three rewritten retrieval
+# metrics the scorer already returned. The same range also makes the package
+# import without the SDK, which had left that repository's own CI red.
+#
+# No version in PLUGIN_EXPECTATIONS moves: a complete grid scores identically,
+# so this is not a scorer bump and needs no migration.
+# Count original cases before dictionaries can hide repeated verbatim/search rungs.
+REVIEWED_COMMIT = "1004766b66a4405ceda1a1b014a0438098a6570e"
 
 PLUGIN_EXPECTATIONS = {
     'benchmark_id = "language-search"': "benchmark id",
@@ -18,7 +30,7 @@ PLUGIN_EXPECTATIONS = {
     'contract_version = "cogworks.submissions.v2"': "contract version",
     # Tracks the catalog row, which migration 0032 moved to retrieval-v4 when
     # `search_mrr` changed from the verbatim rung alone to the mean of the
-    # four query rewrites. Leaving this at retrieval-v2 would assert the
+    # three query rewrites. Leaving this at retrieval-v2 would assert the
     # catalog says something it no longer says.
     'scorer_version = "retrieval-v4"': "scorer version",
     'primary_metric = "overall"': "primary metric",
