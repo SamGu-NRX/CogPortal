@@ -23,6 +23,7 @@ import {
   leaderboardSelections,
   teamMembers,
   runs,
+  runPhases,
   runSurfaces,
   teams,
   users,
@@ -88,7 +89,7 @@ function freshDb(): Harness {
   const binding = {
     prepare,
     // D1 commits a batch as one implicit transaction; mirror that so the
-    // dispatch-failure cleanup's atomicity claim is exercised, not stubbed.
+    // admission rollback is exercised, not stubbed.
     async batch(statements: Array<{ run(): unknown }>) {
       sqlite.exec("BEGIN");
       try {
@@ -254,9 +255,6 @@ for (const mode of ["practice", "official"] as const) {
     }
     if (mode === "official") {
       assert.equal(next.attemptNumber, 1);
-      const claims = await db.select().from(officialAttempts);
-      assert.equal(claims.length, 1);
-      assert.equal(claims[0]?.runId, next.id);
     }
     await db.update(runs).set({ status: "failed", finishedAt: Date.now() }).where(eq(runs.id, next.id));
     await retryRun(env(binding, "fixture"), actor, SURFACE_ID, failedId);
@@ -409,7 +407,6 @@ test("a reaped official result that arrives late offers a fresh hosted run inste
   const [reaped] = await db.select().from(runs).where(eq(runs.id, officialId));
   assert.equal(reaped.status, "failed");
   assert.equal(reaped.refundedAt, null);
-  assert.equal((await db.select().from(officialAttempts)).length, 0);
 
   const app = new Hono<AppEnv>();
   registerRunnerEventRoutes(app);
@@ -465,10 +462,9 @@ test("a reaped official result that arrives late offers a fresh hosted run inste
   assert.notEqual(rerun.surfaceId, SURFACE_ID);
   const [successor] = await db.select().from(runSurfaces).where(eq(runSurfaces.id, rerun.surfaceId));
   assert.equal(successor.supersedesSurfaceId, SURFACE_ID);
-  assert.equal((await db.select().from(officialAttempts)).length, 0);
 });
 
-test("incomplete weight uploads fail hosted dispatch without leaving an active run or attempt", async () => {
+test("incomplete weight uploads fail hosted dispatch without leaving an active run", async () => {
   const { db, binding } = freshDb();
   const actor = await seedPromotion(db);
   await db.insert(teamMembers).values({ teamId: actor.team.id, userId: actor.userId, role: "write" });
@@ -533,10 +529,9 @@ test("incomplete weight uploads fail hosted dispatch without leaving an active r
     assert.notEqual(run.finishedAt, null);
     assert.equal(run.lastEventSequence, -1);
   }
-  assert.equal((await db.select().from(officialAttempts)).length, 0);
 });
 
-test("an official dispatch failure releases its unconsumed claim", async () => {
+test("an official dispatch failure releases capacity", async () => {
   const { db, binding } = freshDb();
   const actor = await seedPromotion(db);
   const queue = {
@@ -555,8 +550,6 @@ test("an official dispatch failure releases its unconsumed claim", async () => {
     },
   );
 
-  const claims = await db.select().from(officialAttempts);
-  assert.equal(claims.length, 0);
   const [official] = await db
     .select()
     .from(runs)
@@ -564,10 +557,11 @@ test("an official dispatch failure releases its unconsumed claim", async () => {
   assert.ok(official);
   assert.equal(official.status, "failed");
   assert.equal(official.failureCategory, "provider");
+  assert.equal((await readRunAccounting(db, ACCOUNTING_SCOPE)).officialReserved, 0);
 });
 
 for (const status of [400, 401, 502, 503, 200, 302, 202]) {
-  test(`direct Modal dispatch returning ${status} ${status >= 400 && status < 500 ? "fails the run and releases its claim" : "keeps the queued run and its claim"}`, async () => {
+  test(`direct Modal dispatch returning ${status} ${status >= 400 && status < 500 ? "fails the run and releases capacity" : "keeps the queued reservation"}`, async () => {
     const { db, binding } = freshDb();
     const actor = await seedPromotion(db);
     const originalFetch = globalThis.fetch;
@@ -597,9 +591,7 @@ for (const status of [400, 401, 502, 503, 200, 302, 202]) {
       assert.equal(official.status, rejected ? "failed" : "queued");
       assert.equal(official.dispatchAttempts, status === 202 ? 1 : 0);
       assert.equal(official.failureCategory, rejected ? "provider" : null);
-      const claims = await db.select().from(officialAttempts);
-      assert.equal(claims.length, rejected ? 0 : 1);
-      if (!rejected) assert.equal(claims[0].runId, official.id);
+      assert.equal((await readRunAccounting(db, ACCOUNTING_SCOPE)).officialReserved, rejected ? 0 : 1);
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -607,7 +599,7 @@ for (const status of [400, 401, 502, 503, 200, 302, 202]) {
 }
 
 for (const callbackLanded of [false, true]) {
-  test(`a direct Modal network error keeps the ${callbackLanded ? "callback's preparing" : "queued"} run and its claim`, async () => {
+  test(`a direct Modal network error keeps the ${callbackLanded ? "callback's preparing" : "queued"} reservation`, async () => {
     const { db, binding } = freshDb();
     const actor = await seedPromotion(db);
     const originalFetch = globalThis.fetch;
@@ -633,9 +625,6 @@ for (const callbackLanded of [false, true]) {
       if (callbackLanded) assert.equal(official.lastEventSequence, 0);
       assert.equal(official.failureCategory, null);
       assert.equal(official.failureDetail, null);
-      const claims = await db.select().from(officialAttempts);
-      assert.equal(claims.length, 1);
-      assert.equal(claims[0].runId, official.id);
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -673,17 +662,9 @@ test("a callback that lands before the dispatch rejects leaves the live run alon
   assert.equal(official?.status, "preparing", "the callback's state survived");
   assert.equal(official?.failureCategory, null);
   assert.equal(official?.failureDetail, null);
-  const claims = await db.select().from(officialAttempts);
-  assert.equal(claims.length, 1, "a live official run keeps its claim");
 });
 
-test("dispatch-failure cleanup commits the failed run and the claim release together", async () => {
-  // The repair pairs two writes: mark the run failed, delete the claim. A
-  // partial commit is worse than either order alone (a failed run keeping its
-  // claim spends an attempt; a claimless queued run wedges the active-run
-  // index), so the service issues them as one D1 batch. This pins the batch
-  // by observing both effects and that no intermediate state satisfies one
-  // without the other after the call returns.
+test("dispatch failure remains terminal and blocks same-surface re-promotion", async () => {
   const { db, binding } = freshDb();
   const actor = await seedPromotion(db);
   const queue = {
@@ -698,16 +679,8 @@ test("dispatch-failure cleanup commits the failed run and the claim release toge
     .select()
     .from(runs)
     .where(and(eq(runs.parentRunId, PRACTICE_RUN_ID), eq(runs.mode, "official")));
-  const claims = await db.select().from(officialAttempts);
-  // Both halves, atomically observed: terminal run AND zero claims. A tree
-  // where either assertion fails while the other passes is the partial-write
-  // state the batch exists to forbid.
   assert.equal(official?.status, "failed");
-  assert.equal(claims.length, 0);
-  // The claim is released (zero rows above), but the failed official run now
-  // occupies this surface, so same-surface re-promotion is refused: that is
-  // the B-04 fix composing with this one. The attempt itself is reusable
-  // through a fresh surface, which the refusal's message points at.
+  assert.equal((await readRunAccounting(db, ACCOUNTING_SCOPE)).officialReserved, 0);
   await assert.rejects(
     promotePracticeRun(env(binding, "fixture"), actor, PRACTICE_RUN_ID),
     (error: unknown) => {
@@ -831,30 +804,46 @@ test("legacy failed claims cannot block concurrent promotion into the last offic
   assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
   const [active] = (await db.select().from(runs)).filter((run) => run.status === "queued");
   assert.equal(active.attemptNumber, 3, "visible attempt number follows completed evaluations");
-  const [claim] = await db.select().from(officialAttempts).where(eq(officialAttempts.runId, active.id));
-  assert.ok(claim, "the accepted execution and its claim commit together");
-  assert.equal(claim.attemptNumber, 1, "the lowest compatibility slot was released and reused");
-  assert.equal((await db.select().from(officialAttempts)).length, 1);
+  assert.equal((await db.select().from(runPhases).where(eq(runPhases.runId, active.id))).length, RUN_PHASES.length);
   assert.deepEqual(await readRunAccounting(db, ACCOUNTING_SCOPE), {
     practiceUsed: 2, officialUsed: 2, practiceReserved: 0, officialReserved: 1, activeRuns: 1,
   });
 });
 
-test("a failed compatibility claim insert rolls back admission and legacy claim cleanup", async () => {
-  const { db, binding } = freshDb();
-  const actor = await seedPromotion(db);
-  await historyRun(db, "legacy_failure", { mode: "official", status: "failed" });
-  await db.insert(officialAttempts).values({
-    id: "legacy_claim", ...ACCOUNTING_SCOPE, runId: "legacy_failure", attemptNumber: 1, consumed: true, claimedAt: NOW,
+for (const admission of ["promotion", "practice Retry", "official Retry"] as const) {
+  test(`${admission} phase failure rolls back admission before dispatch`, async () => {
+    const { db, binding } = freshDb();
+    const actor = await seedPromotion(db);
+    const failedId = admission === "official Retry" ? await seedOfficial(db, "failed") : PRACTICE_RUN_ID;
+    if (admission !== "promotion") {
+      await db.update(runs).set({ status: "failed", provider: "fixture" }).where(eq(runs.id, failedId));
+    }
+    const before = await db.select().from(runs);
+    const surfaces = await db.select().from(runSurfaces);
+    // Fail after earlier phase inserts to prove the whole admission rolls back.
+    await db.run(sql`
+      CREATE TRIGGER reject_test_phase BEFORE INSERT ON run_phases
+      WHEN NEW.phase = 'evaluating'
+      BEGIN SELECT RAISE(ABORT, 'test phase write failure'); END
+    `);
+    let dispatched = 0;
+    const runtime = env(binding, admission === "promotion" ? "modal" : "fixture", {
+      async send() { dispatched += 1; },
+    });
+    const admit = () => admission === "promotion"
+      ? promotePracticeRun(runtime, actor, PRACTICE_RUN_ID)
+      : retryRun(runtime, actor, SURFACE_ID, failedId);
+    await assert.rejects(admit(), /test phase write failure/);
+    assert.deepEqual(await db.select().from(runs), before);
+    assert.deepEqual(await db.select().from(runSurfaces), surfaces);
+    assert.deepEqual(await db.select().from(runPhases), []);
+    assert.equal(dispatched, 0);
+    await db.run(sql`DROP TRIGGER reject_test_phase`);
+    await admit();
+    assert.equal((await db.select().from(runs)).length, before.length + 1);
+    assert.equal((await db.select().from(runPhases)).length, RUN_PHASES.length);
   });
-  await db.run(sql`
-    CREATE TRIGGER reject_test_claim BEFORE INSERT ON official_attempts
-    BEGIN SELECT RAISE(ABORT, 'test claim write failure'); END
-  `);
-  await assert.rejects(promotePracticeRun(env(binding, "modal", { async send() {} }), actor, PRACTICE_RUN_ID));
-  assert.equal((await db.select().from(runs)).length, 2);
-  assert.deepEqual((await db.select().from(officialAttempts)).map((claim) => claim.id), ["legacy_claim"]);
-});
+}
 
 test("historical refunded success stays uncharged and unpublished despite a surviving claim and selection", async () => {
   const { db, binding } = freshDb();
@@ -874,13 +863,14 @@ test("historical refunded success stays uncharged and unpublished despite a surv
 });
 
 for (const successSlot of [1, 3]) {
-  test(`promotion preserves success claim ${successSlot}, fills the lowest gap, and cleans only its quota scope`, async () => {
+  test(`promotion numbers by accepted count despite historical attempt ${successSlot}`, async () => {
     const { db, binding } = freshDb();
     const actor = await seedPromotion(db);
     for (let slot = 1; slot <= 3; slot++) {
       const accepted = slot === successSlot;
       await historyRun(db, `history_${slot}`, {
         mode: "official", status: accepted || slot === 2 ? "succeeded" : "cancelled",
+        attemptNumber: slot,
         refundedAt: !accepted && slot === 2 ? NOW : null,
       });
       await db.insert(officialAttempts).values({
@@ -888,31 +878,11 @@ for (const successSlot of [1, 3]) {
         attemptNumber: slot, consumed: true, claimedAt: NOW,
       });
     }
-    await db.insert(teams).values({ ...actor.team, id: "other_team", repoFullName: "other/repo" });
-    const otherScopes = [
-      { ...ACCOUNTING_SCOPE, teamId: "other_team" },
-      { ...ACCOUNTING_SCOPE, benchmarkId: "other-benchmark" },
-      { ...ACCOUNTING_SCOPE, benchmarkVersion: 2 },
-    ];
-    for (const [index, scope] of otherScopes.entries()) {
-      await historyRun(db, `other_failure_${index}`, { ...scope, mode: "official", status: "failed" });
-      await db.insert(officialAttempts).values({
-        id: `other_claim_${index}`, ...scope, runId: `other_failure_${index}`,
-        attemptNumber: 1, consumed: true, claimedAt: NOW,
-      });
-    }
+    const historicalClaims = await db.select().from(officialAttempts);
     const promoted = await promotePracticeRun(env(binding, "modal", { async send() {} }), actor, PRACTICE_RUN_ID);
     const [run] = await db.select().from(runs).where(eq(runs.id, promoted.runId));
     assert.equal(run.attemptNumber, 2);
-    const claims = await db.select().from(officialAttempts);
-    const claim = claims.find((row) => row.runId === promoted.runId)!;
-    assert.equal(claim.attemptNumber, successSlot === 1 ? 2 : 1);
-    assert.ok(claims.some((row) => row.id === `history_claim_${successSlot}`));
-    assert.equal(claims.length, 5, "one accepted historical claim, one new claim, three untouched scopes");
-    for (let index = 0; index < otherScopes.length; index++) {
-      assert.ok(claims.some((row) => row.id === `other_claim_${index}`));
-    }
-    assert.ok(claims.every((row) => row.attemptNumber >= 1 && row.attemptNumber <= 3));
     assert.equal((await readRunAccounting(db, ACCOUNTING_SCOPE)).officialUsed, 1);
+    assert.deepEqual(await db.select().from(officialAttempts), historicalClaims, "admission leaves historical data untouched");
   });
 }

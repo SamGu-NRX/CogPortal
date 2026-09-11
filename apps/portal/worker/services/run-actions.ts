@@ -16,7 +16,6 @@ import {
   discordAccounts,
   leaderboardSelections,
   localRunSessions,
-  officialAttempts,
   runPhases,
   runs,
   runSurfaces,
@@ -31,11 +30,11 @@ import { syncRun, syncTeamRuns } from "../execution/sync";
 import { DispatchUnacknowledged, assertModalConfigured, enqueueRun, prepareRetryJob } from "../execution/runner";
 import { FixtureGitHubClient, RealGitHubClient } from "../github/client";
 import { ApiHttpError } from "../http/errors";
-import { newId, randomHex } from "../util/id";
+import { randomHex } from "../util/id";
 import { sha256Hex } from "../util/crypto";
 import { publishRunSurface } from "./run-surfaces";
 import { canPublishOfficialRun, currentSurfaceRun } from "./run-eligibility";
-import { insertRunWithCapacity, nextOfficialClaimSlot, readRunAccounting, releaseExcludedOfficialClaims } from "./run-accounting";
+import { insertRunWithCapacity, readRunAccounting } from "./run-accounting";
 
 export interface RunActor {
   userId: string;
@@ -167,8 +166,7 @@ async function dispatch(env: Env, runId: string, team: TeamRow, benchmark: Bench
     // above its -1 default. So the repair carries that condition, and how many
     // rows it changed is the answer to whether the run had started.
     //
-    // Commit failure and compatibility-claim release together. Both writes
-    // require the execution to remain unstarted, so a callback wins safely.
+    // Fail only an unstarted execution so a callback wins safely.
     const db = getDb(env);
     const unstarted = and(
       eq(runs.id, runId),
@@ -190,22 +188,7 @@ async function dispatch(env: Env, runId: string, team: TeamRow, benchmark: Bench
         failureDetail: inputError?.message ?? "The run could not be queued for Modal.",
       })
       .where(unstarted);
-    let changed: number;
-    if (run.mode === "official") {
-      // Release first while the unstarted predicate still matches.
-      const [, failed] = await db.batch([
-        db.delete(officialAttempts).where(
-          and(
-            eq(officialAttempts.runId, runId),
-            exists(db.select({ unstarted: sql`1` }).from(runs).where(unstarted)),
-          ),
-        ),
-        failRun,
-      ]);
-      changed = failed.meta.changes ?? 0;
-    } else {
-      changed = (await failRun).meta.changes ?? 0;
-    }
+    const changed = (await failRun).meta.changes ?? 0;
     // Nothing was still waiting to start, so a callback got here first and
     // Modal has the job. Nothing above matched, so nothing was changed; leave
     // the run alone and let the run page follow it.
@@ -418,16 +401,13 @@ export async function promotePracticeRun(
       lastEventSequence: -1,
       surfaceId: parent.surfaceId,
     });
-    // A rejected conditional insert creates no compatibility claim. D1 batches
-    // roll back the run as well if the claim insert hits a concurrent conflict.
-    const insertClaim = db.insert(officialAttempts).select(sql`
-      select ${newId("attempt_")}, ${actor.team.id}, ${parent.benchmarkId},
-        ${parent.benchmarkVersion}, ${runId}, ${nextOfficialClaimSlot(scope)}, 0, ${now}
+    // A phase-write failure must not leave an admitted run without its phases.
+    // A rejected capacity insert creates no phases.
+    const insertPhases = RUN_PHASES.map((phase) => db.insert(runPhases).select(sql`
+      select ${runId}, ${phase}, null, null
       where exists (select 1 from ${runs} where ${runs.id} = ${runId})
-    `);
-    const [, inserted] = await db.batch([
-      releaseExcludedOfficialClaims(db, scope), insertRun, insertClaim,
-    ]);
+    `));
+    const [inserted] = await db.batch([insertRun, ...insertPhases]);
     if (!inserted.meta.changes) throw new ApiHttpError(409, "quota_exhausted", "The official-attempt quota is exhausted.");
   } catch (error) {
     const attached = await db.select().from(runs).where(eq(runs.surfaceId, parent.surfaceId));
@@ -439,7 +419,6 @@ export async function promotePracticeRun(
     }
     throw error;
   }
-  await insertPhaseSkeleton(env, runId);
   await dispatch(env, runId, actor.team, benchmark);
   await publishRunSurface(env, parent.surfaceId);
   return { runId, surfaceId: parent.surfaceId };
@@ -595,19 +574,10 @@ export async function retryRun(
     exists(db.select({ id: runs.id }).from(runs).where(eq(runs.id, runId))),
   ));
   try {
-    if (failed.mode === "official") {
-      const insertClaim = db.insert(officialAttempts).select(sql`
-        select ${newId("attempt_")}, ${failed.teamId}, ${failed.benchmarkId},
-          ${failed.benchmarkVersion}, ${runId}, ${nextOfficialClaimSlot(scope)}, 0, ${now}
-        where exists (select 1 from ${runs} where ${runs.id} = ${runId})
-      `);
-      const [, inserted] = await db.batch([
-        releaseExcludedOfficialClaims(db, scope), insertRun, insertClaim, ...insertPhases, updateSurface,
-      ]);
-      if (!inserted.meta.changes) throw new ApiHttpError(409, "quota_exhausted", "The official-attempt quota is exhausted.");
-    } else {
-      const [inserted] = await db.batch([insertRun, ...insertPhases, updateSurface]);
-      if (!inserted.meta.changes) throw new ApiHttpError(409, "quota_exhausted", "The practice-run quota is exhausted.");
+    const [inserted] = await db.batch([insertRun, ...insertPhases, updateSurface]);
+    if (!inserted.meta.changes) {
+      throw new ApiHttpError(409, "quota_exhausted",
+        failed.mode === "official" ? "The official-attempt quota is exhausted." : "The practice-run quota is exhausted.");
     }
   } catch (error) {
     if ((await successor()).length) return;
