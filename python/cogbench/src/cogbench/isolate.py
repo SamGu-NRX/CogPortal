@@ -553,6 +553,7 @@ def run_isolated(
     timeout_seconds: Optional[int] = DEFAULT_TIMEOUT_SECONDS,
     memory_bytes: Optional[int] = DEFAULT_MEMORY_BYTES,
     scratch: Optional[Path] = None,
+    on_poll: Optional[Callable[[], None]] = None,
 ) -> Outcome:
     """Run ``work`` in a child process and report what became of it.
 
@@ -585,7 +586,7 @@ def run_isolated(
             raise AssertionError("unreachable")
 
         os.close(write_fd)
-        return _collect(pid, read_fd, timeout_seconds, memory_bytes)
+        return _collect(pid, read_fd, timeout_seconds, memory_bytes, on_poll)
 
 
 def run_operation(
@@ -593,6 +594,8 @@ def run_operation(
     timeout_seconds: Optional[int] = DEFAULT_TIMEOUT_SECONDS,
     memory_bytes: Optional[int] = DEFAULT_MEMORY_BYTES,
     scratch: Optional[Path] = None,
+    on_poll: Optional[Callable[[], None]] = None,
+    pass_fds: tuple = (),
 ) -> Outcome:
     """Reconstruct one SDK operation after exec, without carrying live objects.
 
@@ -603,7 +606,7 @@ def run_operation(
     import json
     import subprocess
 
-    if operation not in ("check", "run", "survey"):
+    if operation not in ("check", "run", "survey", "live_identity"):
         raise ValueError("unknown isolated SDK operation: {!r}".format(operation))
     with tempfile.TemporaryDirectory(prefix="cogworks-discovery-") as temporary:
         workspace = Path(scratch).resolve() if scratch else Path(temporary)
@@ -642,7 +645,7 @@ def run_operation(
                 # Bootstrap outside the repository: a student json.py must
                 # not be imported before the child installs its limits.
                 cwd=temporary, env=environment, stdin=subprocess.DEVNULL,
-                pass_fds=(write_fd,), start_new_session=True,
+                pass_fds=(write_fd,) + pass_fds, start_new_session=True,
             )
         except BaseException:
             os.close(read_fd)
@@ -650,7 +653,7 @@ def run_operation(
         finally:
             os.close(write_fd)
         try:
-            return _collect(process.pid, read_fd, timeout_seconds, memory_bytes)
+            return _collect(process.pid, read_fd, timeout_seconds, memory_bytes, on_poll)
         finally:
             # _collect owns waitpid and process-group cleanup, including SIGINT.
             process.wait()
@@ -670,6 +673,9 @@ def _operation_child() -> None:
         project = ExecutionPaths(
             Path(arguments["repository"]), Path(arguments.get("original", arguments["repository"]))
         )
+        if operation == "live_identity":
+            from .cli import _live_identity
+            return _live_identity(arguments["name"], project.original)
         # Restore project-local import directories only after startup and limits.
         sys.path[:0] = [str(project.execution)] + request["project_paths"]
         if operation == "check":
@@ -677,10 +683,14 @@ def _operation_child() -> None:
             return _check_view(arguments["name"], project.execution, arguments["as_json"], project=project)
         if operation == "run":
             import argparse
-            from .cli import _run_view
+            from functools import partial
+            from .cli import _run_view, _send_progress
             # The whole parser namespace is intentional: worker behavior
             # follows whatever flags the CLI parser defines, not a second schema.
-            return _run_view(argparse.Namespace(**arguments["args"]), project.execution, project=project)
+            progress_fd = arguments.get("progress_fd")
+            progress = partial(_send_progress, progress_fd) if progress_fd is not None else None
+            return _run_view(argparse.Namespace(**arguments["args"]), project.execution,
+                             project=project, progress=progress)
         if operation == "survey":
             from .discover import _survey_work
             return _survey_work(Path(arguments["repository"]), arguments["declared_root"],
@@ -691,7 +701,7 @@ def _operation_child() -> None:
            request["memory"], request["timeout"])
 
 
-def _collect(pid, read_fd, timeout_seconds, memory_bytes) -> Outcome:
+def _collect(pid, read_fd, timeout_seconds, memory_bytes, on_poll=None) -> Outcome:
     outcome = None
     fired = False
     reason = None
@@ -703,6 +713,10 @@ def _collect(pid, read_fd, timeout_seconds, memory_bytes) -> Outcome:
 
     def exited():
         nonlocal status, reaped
+        # Parent-side observation begins after fork/exec, so live delivery can
+        # start threads without leaving their locks in the child's fork state.
+        if on_poll is not None:
+            on_poll()
         if not reaped:
             while True:
                 try:
