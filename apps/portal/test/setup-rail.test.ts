@@ -6,16 +6,21 @@ import type { SetupStep } from "@cogworks/contracts/schema";
 
 (globalThis as typeof globalThis & { React: typeof React }).React = React;
 
-import { CommandSheet, commandText } from "../src/components/CommandSheet.tsx";
-import { BENCHMARK_PACKAGES, benchmarkPackage } from "../src/lib/benchmark-packages.ts";
-import { setupCommandLines } from "../src/lib/setup-progress.ts";
+import { StaticRouter } from "react-router";
+import { Step, StepRail } from "../src/components/StepRail.tsx";
+import {
+  BENCHMARK_PACKAGES,
+  benchmarkEnvironment,
+  benchmarkPackage,
+} from "../src/lib/benchmark-packages.ts";
+import { setupCommandLines, stepState } from "../src/lib/setup-progress.ts";
 
 /**
- * The setup page is now a sheet of commands a student pastes literally, so
- * the strings are the product. These pin the three things that are wrong in a
- * way no type checks: an install that resolves to the wrong artifact, a check
- * that silently reports nothing, and a gutter that claims a fact the portal
- * has not observed.
+ * The setup page is a numbered rail of commands a student pastes literally,
+ * so the strings are the product. These pin the things that are wrong in a way
+ * no type checks: an install that resolves to the wrong artifact, a check that
+ * silently reports nothing, and a step that claims a fact the portal has not
+ * observed.
  */
 
 function lines(
@@ -36,22 +41,12 @@ function lines(
 }
 
 
-/** The smallest note set the sheet will take. The page's real notes are prose;
- *  these exist so a render test can exercise the layout without them. */
-const NOTES = {
-  clone: { title: "Clone", why: "why clone" },
-  tool: { title: "Tool", why: "why tool", help: "help tool" },
-  benchmark: { title: "Benchmark", why: "why benchmark" },
-  link: { title: "Link", why: "why link" },
-  check: { title: "Check", why: "why check" },
-} as const;
 
 function commandFor(fragment: string): string {
   const found = lines().find((line) => line.command.includes(fragment));
   assert.ok(found, `no command containing ${fragment}`);
   return found.command;
 }
-
 test("the tool is installed from a commit, like every other package here", () => {
   // Neither TestPyPI nor main serves a usable tool: both hold cogbench 0.1.0,
   // and main is 112 commits back with no resolve.py, so `check` there cannot
@@ -147,16 +142,6 @@ test("the clone command names the team's own repository", () => {
     "git clone https://github.com/demo-org/rooks-nest.git && cd rooks-nest",
   );
 });
-
-test("copy all carries the commands and none of the comments", () => {
-  const sheet = lines();
-  const text = commandText(sheet);
-
-  assert.doesNotMatch(text, /^#/m);
-  assert.equal(text.split("\n").length, sheet.length);
-  assert.equal(text.split("\n")[0], sheet[0]!.command);
-});
-
 test("a gutter cell fills only for a step the portal has observed", () => {
   const none = lines();
   assert.equal(none.filter((line) => line.verified).length, 0);
@@ -173,61 +158,82 @@ test("a gutter cell fills only for a step the portal has observed", () => {
   assert.equal(linked.filter((line) => !line.verified).length, 0);
 });
 
-test("the rendered sheet moves a tick only for the lines it has verified", () => {
-  const html = renderToStaticMarkup(
-    React.createElement(CommandSheet, {
-      lines: lines({}, ["clone"]),
-      label: "Setup commands, in run order",
-      notes: NOTES,
-    }),
-  );
+/**
+ * One rail, assembled the way the page assembles it.
+ *
+ * The state comes from the production `stepState`, not from a copy of its rule
+ * here: a test that reimplemented the per-read selection would stay green if
+ * the page started blanking every step on any outage.
+ */
+const TITLES: Record<string, string> = {
+  clone: "Get the code",
+  tool: "Set up your environment",
+  benchmark: "Install the Recognition benchmark",
+  link: "Link this device",
+  check: "Prove the wiring",
+};
 
-  // anim-rise is the tick's entrance; one verified line means one tick.
+function railHtml(
+  options: {
+    verified?: readonly SetupStep[];
+    deviceLinked?: boolean;
+    unreadable?: Partial<Record<"setup-state" | "devices", boolean>>;
+  } = {},
+): string {
+  const rail = lines({ deviceLinked: options.deviceLinked ?? false }, options.verified ?? []);
+  return renderToStaticMarkup(
+    React.createElement(
+      StaticRouter as never,
+      { location: "/setup" },
+      React.createElement(
+        StepRail,
+        null,
+        rail.map((line, index) =>
+          React.createElement(
+            Step,
+            {
+              key: line.id,
+              index: String(index + 1).padStart(2, "0"),
+              state: stepState(line, options.unreadable ?? {}),
+              title: TITLES[line.id]!,
+              last: index === rail.length - 1,
+            },
+            React.createElement("code", null, line.command),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+test("the rail ticks only the steps it has verified", () => {
+  const html = railHtml({ verified: ["clone"] });
+
+  // anim-rise is the chip's entrance; one verified step means one chip.
   assert.equal(html.match(/anim-rise/g)?.length, 1);
   assert.equal(html.match(/Verified\. /g)?.length, 1);
-  assert.equal(
-    html.match(/Not verified yet\. /g)?.length,
-    lines().length - 1,
-  );
-  // Every line keeps a gutter cell, filled or empty.
-  assert.equal(
-    (html.match(/bg-verify-wash/g)?.length ?? 0) +
-      (html.match(/bg-paper-raised/g)?.length ?? 0),
-    lines().length,
-  );
+  assert.equal(html.match(/Not verified yet\. /g)?.length, lines().length - 1);
 });
 
-test("the sheet's own text uses no em dash", () => {
-  const html = renderToStaticMarkup(
-    React.createElement(CommandSheet, {
-      lines: lines({}, ["clone", "environment"]),
-      label: "Setup commands, in run order",
-      notes: NOTES,
-    }),
-  );
-  assert.ok(!html.includes("—"), "em dash rendered on the command sheet");
-});
-
-test("every command is rendered under a title and a reason", () => {
-  // The Record type makes a missing note a compile error, so what is left to
-  // check is that the sheet actually renders one per command rather than
-  // dropping any.
-  const html = renderToStaticMarkup(
-    React.createElement(CommandSheet, {
-      lines: lines(),
-      label: "Setup commands, in run order",
-      notes: NOTES,
-    }),
-  );
-
+test("every step renders its own heading, its own mark and its own command", () => {
+  const html = railHtml();
   // React escapes quotes in the pinned install lines, so compare like for like.
   const escape = (text: string) => text.replaceAll("&", "&amp;").replaceAll('"', "&quot;");
+
   for (const line of lines()) {
-    const note = NOTES[line.id];
-    assert.ok(html.includes(note.title), `no title rendered for ${line.id}`);
     assert.ok(html.includes(escape(line.command)), `no command rendered for ${line.id}`);
+    assert.ok(html.includes(TITLES[line.id]!), `no heading rendered for ${line.id}`);
   }
-  assert.equal(html.match(/<h3/g)?.length, lines().length);
+  assert.equal(html.match(/<h2/g)?.length, lines().length);
+  // Every unverified step still shows its ordinal, so a rail of five reads as
+  // five things to do rather than as blank squares.
+  for (const ordinal of ["01", "02", "03", "04", "05"]) {
+    assert.ok(html.includes(`>${ordinal}</span>`), `no mark rendered for step ${ordinal}`);
+  }
+});
+
+test("the rail's own text uses no em dash", () => {
+  assert.ok(!railHtml({ verified: ["clone", "environment"] }).includes("\u2014"));
 });
 
 test("an unreadable evidence request is not rendered as work nobody did", () => {
@@ -235,56 +241,54 @@ test("an unreadable evidence request is not rendered as work nobody did", () => 
   // what a student who has run nothing produces. Rendered as empty boxes, an
   // outage tells someone their finished setup was never seen and sends them
   // back to a terminal where everything already worked.
-  const done = lines({ deviceLinked: true }, ["clone", "environment", "project", "wiring"]);
-  const html = renderToStaticMarkup(
-    React.createElement(CommandSheet, {
-      lines: done,
-      label: "Setup commands, in run order",
-      notes: NOTES,
-      unreadable: { "setup-state": true, devices: true },
-    }),
-  );
+  const html = railHtml({
+    deviceLinked: true,
+    verified: ["clone", "environment", "project", "wiring"],
+    unreadable: { "setup-state": true, devices: true },
+  });
 
-  assert.ok(html.includes("Progress unknown."), "no unknown state announced");
+  assert.ok(html.includes("Progress unknown. "), "no unknown state announced");
   assert.ok(!html.includes("Verified. "), "claimed verification it could not read");
-  assert.ok(!html.includes("Not verified yet."), "claimed the work was not done");
-  // Nothing is dimmed as complete either: the sheet cannot know which of these
-  // is finished, so every command stays at full contrast to be run again.
-  assert.equal(html.match(/text-ink-secondary">git clone/g), null);
+  assert.ok(!html.includes("Not verified yet. "), "claimed the work was not done");
 });
 
-test("a read that succeeded still ticks and still dims what it saw", () => {
-  const done = lines({ deviceLinked: true }, ["clone", "environment", "project", "wiring"]);
-  const html = renderToStaticMarkup(
-    React.createElement(CommandSheet, {
-      lines: done,
-      label: "Setup commands, in run order",
-      notes: NOTES,
-    }),
-  );
+test("a read that succeeded still ticks", () => {
+  const html = railHtml({
+    deviceLinked: true,
+    verified: ["clone", "environment", "project", "wiring"],
+  });
 
-  assert.ok(html.includes("Verified. "), "verified state was lost");
-  assert.ok(!html.includes("Progress unknown."), "an observed read claimed to be unknown");
-  // ink-secondary at 6.10:1 on paper-sunken, not ink-faint at 3.03:1. A
-  // finished command is still the thing a student copies on a second machine.
-  assert.ok(!html.includes("text-ink-faint\">git clone"), "completed command dropped below 4.5:1");
+  assert.equal(html.match(/Verified\. /g)?.length, lines().length);
+  assert.ok(!html.includes("Progress unknown. "), "an observed read claimed to be unknown");
 });
 
-test("one failed read does not blank the lines the other read answered", () => {
-  // The device list and the setup state are separate requests. When only the
-  // device list fails, the four steps the setup state answered are still
-  // known, and showing them as unknown would withhold facts the page is
-  // holding correctly.
-  const done = lines({ deviceLinked: true }, ["clone", "environment", "project", "wiring"]);
-  const html = renderToStaticMarkup(
-    React.createElement(CommandSheet, {
-      lines: done,
-      label: "Setup commands, in run order",
-      notes: NOTES,
-      unreadable: { devices: true },
-    }),
+test("one failed read does not blank the steps the other read answered", () => {
+  // The device list and the setup state are separate requests, so an outage in
+  // one must not withhold facts the other answered correctly.
+  const done = lines(
+    { deviceLinked: true },
+    ["clone", "environment", "project", "wiring"],
   );
 
-  assert.equal(html.match(/Verified\. /g)?.length, 4, "the setup state's four lines were lost");
-  assert.equal(html.match(/Progress unknown\./g)?.length, 1, "only the link line is unknown");
+  const devicesDown = done.map((line) => stepState(line, { devices: true }));
+  assert.deepEqual(
+    devicesDown,
+    ["verified", "verified", "verified", "unknown", "verified"],
+    "only the link step reads the device list",
+  );
+
+  const stateDown = done.map((line) => stepState(line, { "setup-state": true }));
+  assert.deepEqual(
+    stateDown,
+    ["unknown", "unknown", "unknown", "verified", "unknown"],
+    "the link step does not read the setup state",
+  );
+
+  const html = railHtml({
+    deviceLinked: true,
+    verified: ["clone", "environment", "project", "wiring"],
+    unreadable: { devices: true },
+  });
+  assert.equal(html.match(/Verified\. /g)?.length, 4, "the setup state's four steps were lost");
+  assert.equal(html.match(/Progress unknown\. /g)?.length, 1, "only the link step is unknown");
 });

@@ -99,19 +99,17 @@ export function Landing() {
 
           <Step n={2} title="Set up your machine">
             <p>
-              Clone the repository, activate the course environment for your
-              week, and install the CogWorks tool. Once you sign in, the setup
-              page has the exact commands for your track and records what they
-              report back.
+              Clone the repository, activate your week's course environment,
+              and install the CogWorks tool. The setup page has the exact
+              commands for your track.
             </p>
           </Step>
 
           <Step n={3} title="Practice on your own machine">
             <p>
               <code className="font-mono text-[12.5px]">cogworks run</code> scores
-              your code locally, with the same scorer the hosted run uses. There
-              is no limit on local runs, so this is where the work happens: read
-              what it says, change something, run it again.
+              your code locally, with the same checks and scorer a hosted run
+              uses, and there's no limit on local runs.
             </p>
           </Step>
 
