@@ -4,6 +4,8 @@ import {
   OFFICIAL_LIMIT,
   PRACTICE_LIMIT,
   RUN_PHASES,
+  RetryRunRequestSchema,
+  type RetryRunRequest,
 } from "@cogworks/contracts/schema";
 import type { AuthState } from "../auth/session";
 import { createAuth, getGithubToken } from "../auth/better-auth";
@@ -14,7 +16,6 @@ import {
   discordAccounts,
   leaderboardSelections,
   localRunSessions,
-  officialAttempts,
   runPhases,
   runs,
   runSurfaces,
@@ -26,14 +27,14 @@ import {
   type TeamRow,
 } from "../db/schema";
 import { syncRun, syncTeamRuns } from "../execution/sync";
-import { DispatchUnacknowledged, assertModalConfigured, enqueueRun } from "../execution/runner";
+import { DispatchUnacknowledged, assertModalConfigured, enqueueRun, prepareRetryJob } from "../execution/runner";
 import { FixtureGitHubClient, RealGitHubClient } from "../github/client";
 import { ApiHttpError } from "../http/errors";
-import { newId, randomHex } from "../util/id";
+import { randomHex } from "../util/id";
 import { sha256Hex } from "../util/crypto";
 import { publishRunSurface } from "./run-surfaces";
-import { canPublishOfficialRun } from "./run-eligibility";
-import { insertRunWithCapacity, nextOfficialClaimSlot, readRunAccounting, releaseExcludedOfficialClaims } from "./run-accounting";
+import { canPublishOfficialRun, currentSurfaceRun, savedEnvironmentEligibility } from "./run-eligibility";
+import { insertRunWithCapacity, readRunAccounting } from "./run-accounting";
 
 export interface RunActor {
   userId: string;
@@ -165,8 +166,7 @@ async function dispatch(env: Env, runId: string, team: TeamRow, benchmark: Bench
     // above its -1 default. So the repair carries that condition, and how many
     // rows it changed is the answer to whether the run had started.
     //
-    // Commit failure and compatibility-claim release together. Both writes
-    // require the execution to remain unstarted, so a callback wins safely.
+    // Fail only an unstarted execution so a callback wins safely.
     const db = getDb(env);
     const unstarted = and(
       eq(runs.id, runId),
@@ -188,22 +188,7 @@ async function dispatch(env: Env, runId: string, team: TeamRow, benchmark: Bench
         failureDetail: inputError?.message ?? "The run could not be queued for Modal.",
       })
       .where(unstarted);
-    let changed: number;
-    if (run.mode === "official") {
-      // Release first while the unstarted predicate still matches.
-      const [, failed] = await db.batch([
-        db.delete(officialAttempts).where(
-          and(
-            eq(officialAttempts.runId, runId),
-            exists(db.select({ unstarted: sql`1` }).from(runs).where(unstarted)),
-          ),
-        ),
-        failRun,
-      ]);
-      changed = failed.meta.changes ?? 0;
-    } else {
-      changed = (await failRun).meta.changes ?? 0;
-    }
+    const changed = (await failRun).meta.changes ?? 0;
     // Nothing was still waiting to start, so a callback got here first and
     // Modal has the job. Nothing above matched, so nothing was changed; leave
     // the run alone and let the run page follow it.
@@ -230,11 +215,8 @@ export async function startPracticeRun(
   const db = getDb(env);
   const benchmark = await activeBenchmark(env, options.benchmarkId);
   if (options.surfaceId) {
-    const [existing] = await db
-      .select()
-      .from(runs)
-      .where(and(eq(runs.surfaceId, options.surfaceId), eq(runs.mode, "practice")))
-      .limit(1);
+    const attached = await db.select().from(runs).where(eq(runs.surfaceId, options.surfaceId));
+    const existing = currentSurfaceRun(attached, "practice");
     if (existing) return { runId: existing.id, surfaceId: options.surfaceId };
   }
   await syncTeamRuns(db, actor.team.id, benchmark.id);
@@ -245,7 +227,13 @@ export async function startPracticeRun(
   if (accounting.practiceUsed + accounting.practiceReserved >= PRACTICE_LIMIT) {
     throw new ApiHttpError(409, "quota_exhausted", "The practice-run quota is exhausted.");
   }
-  if (env.EXECUTION_PROVIDER === "modal") assertModalConfigured(env);
+  if (env.EXECUTION_PROVIDER === "modal") {
+    assertModalConfigured(env);
+    // A contract transition pauses admission before creating a failed execution.
+    if (benchmark.sandboxContract == null || !Number.isSafeInteger(benchmark.sandboxContract) || benchmark.sandboxContract <= 0) {
+      throw new ApiHttpError(409, "not_promotable", "This benchmark's hosted environment is not ready.");
+    }
+  }
 
   const fixtureRepository = actor.team.repoFullName === FIXTURE_REPO.fullName;
   const branch = options.branch || actor.team.defaultBranch;
@@ -345,11 +333,8 @@ export async function startPracticeRun(
     });
     if (!inserted.meta.changes) throw new ApiHttpError(409, "quota_exhausted", "The practice-run quota is exhausted.");
   } catch (error) {
-    const [existing] = await db
-      .select()
-      .from(runs)
-      .where(and(eq(runs.surfaceId, surfaceId), eq(runs.mode, "practice")))
-      .limit(1);
+    const attached = await db.select().from(runs).where(eq(runs.surfaceId, surfaceId));
+    const existing = currentSurfaceRun(attached, "practice");
     if (existing) return { runId: existing.id, surfaceId };
     // The partial unique index resolves concurrent starts as a normal conflict.
     if (isUniqueConstraintError(error)) {
@@ -380,13 +365,14 @@ export async function promotePracticeRun(
   if (parent.mode !== "practice" || parent.status !== "succeeded" || parent.refundedAt !== null || !parent.surfaceId) {
     throw new ApiHttpError(409, "not_promotable", "Only a succeeded hosted run can be promoted.");
   }
-  const [existing] = await db
-    .select()
-    .from(runs)
-    .where(and(eq(runs.surfaceId, parent.surfaceId), eq(runs.mode, "official")))
-    .limit(1);
+  const attached = await db.select().from(runs).where(eq(runs.surfaceId, parent.surfaceId));
+  const existing = currentSurfaceRun(attached, "official");
   if (existing) return existingOfficialPromotion(existing, parent.surfaceId);
   const benchmark = await activeBenchmark(env, parent.benchmarkId, parent.benchmarkVersion);
+  if (env.EXECUTION_PROVIDER === "modal") {
+    const eligibility = savedEnvironmentEligibility(parent, benchmark, actor.team);
+    if (!eligibility.eligible) throw new ApiHttpError(409, "not_promotable", eligibility.reason);
+  }
   await syncTeamRuns(db, actor.team.id, parent.benchmarkId);
   const scope = { teamId: actor.team.id, benchmarkId: parent.benchmarkId, benchmarkVersion: parent.benchmarkVersion };
   const accounting = await readRunAccounting(db, scope);
@@ -396,9 +382,6 @@ export async function promotePracticeRun(
   }
   if (env.EXECUTION_PROVIDER === "modal") {
     assertModalConfigured(env);
-    if (!parent.preparedArtifactId) {
-      throw new ApiHttpError(409, "not_promotable", "The prepared hosted artifact is unavailable. Verify the commit again.");
-    }
   }
   const runId = `run_${randomHex(5)}`;
   const now = Date.now();
@@ -409,6 +392,8 @@ export async function promotePracticeRun(
       mode: "official",
       status: "queued",
       parentRunId: parent.id,
+      retryOfRunId: null,
+      dispatchJobJson: null,
       failureCategory: null,
       failurePhase: null,
       failureDetail: null,
@@ -423,23 +408,17 @@ export async function promotePracticeRun(
       lastEventSequence: -1,
       surfaceId: parent.surfaceId,
     });
-    // A rejected conditional insert creates no compatibility claim. D1 batches
-    // roll back the run as well if the claim insert hits a concurrent conflict.
-    const insertClaim = db.insert(officialAttempts).select(sql`
-      select ${newId("attempt_")}, ${actor.team.id}, ${parent.benchmarkId},
-        ${parent.benchmarkVersion}, ${runId}, ${nextOfficialClaimSlot(scope)}, 0, ${now}
+    // A phase-write failure must not leave an admitted run without its phases.
+    // A rejected capacity insert creates no phases.
+    const insertPhases = RUN_PHASES.map((phase) => db.insert(runPhases).select(sql`
+      select ${runId}, ${phase}, null, null
       where exists (select 1 from ${runs} where ${runs.id} = ${runId})
-    `);
-    const [, inserted] = await db.batch([
-      releaseExcludedOfficialClaims(db, scope), insertRun, insertClaim,
-    ]);
+    `));
+    const [inserted] = await db.batch([insertRun, ...insertPhases]);
     if (!inserted.meta.changes) throw new ApiHttpError(409, "quota_exhausted", "The official-attempt quota is exhausted.");
   } catch (error) {
-    const [raced] = await db
-      .select()
-      .from(runs)
-      .where(and(eq(runs.surfaceId, parent.surfaceId), eq(runs.mode, "official")))
-      .limit(1);
+    const attached = await db.select().from(runs).where(eq(runs.surfaceId, parent.surfaceId));
+    const raced = currentSurfaceRun(attached, "official");
     if (raced) return existingOfficialPromotion(raced, parent.surfaceId);
     if (error instanceof ApiHttpError) throw error;
     if (isUniqueConstraintError(error)) {
@@ -447,7 +426,6 @@ export async function promotePracticeRun(
     }
     throw error;
   }
-  await insertPhaseSkeleton(env, runId);
   await dispatch(env, runId, actor.team, benchmark);
   await publishRunSurface(env, parent.surfaceId);
   return { runId, surfaceId: parent.surfaceId };
@@ -485,17 +463,23 @@ export async function publishOfficialRun(env: Env, actor: RunActor, runId: strin
       ],
       set: { runId: run.id, selectedAt: Date.now() },
     });
-  if (run.surfaceId) await publishRunSurface(env, run.surfaceId);
+  // Query after the selection write: a prior-selection read can miss a
+  // concurrent switch and leave the deselected console showing Published.
+  const affected = await db.selectDistinct({ surfaceId: runs.surfaceId }).from(runs).where(and(
+    eq(runs.teamId, run.teamId),
+    eq(runs.benchmarkId, run.benchmarkId),
+    eq(runs.benchmarkVersion, run.benchmarkVersion),
+    eq(runs.mode, "official"),
+  ));
+  await Promise.all(affected.flatMap(({ surfaceId }) => surfaceId ? [publishRunSurface(env, surfaceId)] : []));
   return { ok: true as const, surfaceId: run.surfaceId };
 }
 
 export async function rerunHostedSurface(env: Env, actor: RunActor, surfaceId: string) {
   const successorId = `surface_${(await sha256Hex(`rerun:${surfaceId}`)).slice(0, 20)}`;
-  const [practice] = await getDb(env)
-    .select()
-    .from(runs)
-    .where(and(eq(runs.surfaceId, surfaceId), eq(runs.mode, "practice"), eq(runs.teamId, actor.team.id)))
-    .limit(1);
+  const attached = await getDb(env).select().from(runs)
+    .where(and(eq(runs.surfaceId, surfaceId), eq(runs.teamId, actor.team.id)));
+  const practice = currentSurfaceRun(attached, "practice");
   if (!practice) throw new ApiHttpError(404, "not_found", "Hosted run not found.");
   return startPracticeRun(env, actor, {
     benchmarkId: practice.benchmarkId,
@@ -506,11 +490,129 @@ export async function rerunHostedSurface(env: Env, actor: RunActor, surfaceId: s
   });
 }
 
+export async function retryRun(
+  env: Env,
+  actor: RunActor,
+  surfaceId: string,
+  failedRunId: string,
+): Promise<void> {
+  const db = getDb(env);
+  const [failed] = await db.select().from(runs).where(and(
+    eq(runs.id, failedRunId), eq(runs.surfaceId, surfaceId), eq(runs.teamId, actor.team.id),
+  )).limit(1);
+  if (!failed) throw new ApiHttpError(404, "not_found", "Run not found.");
+  const githubToken = await requireCurrentRepositoryPermission(env, actor);
+  if (failed.status !== "failed") {
+    throw new ApiHttpError(409, "invalid_request", "Only a failed execution can be retried.");
+  }
+  const successor = () => db.select().from(runs).where(eq(runs.retryOfRunId, failed.id)).limit(1);
+  // A replay stays bound to this failure even if its successor has also failed.
+  if ((await successor()).length) return;
+  const attached = await db.select().from(runs).where(eq(runs.surfaceId, surfaceId));
+  const current = currentSurfaceRun(attached, "official") ?? currentSurfaceRun(attached, "practice");
+  if (current?.id !== failed.id) {
+    if ((await successor()).length) return;
+    throw new ApiHttpError(409, "invalid_request", "Retry the current failed execution from its console.");
+  }
+  if (failed.provider !== env.EXECUTION_PROVIDER || failed.repositoryId === null || failed.repositoryId !== actor.team.repoId) {
+    throw new ApiHttpError(409, "invalid_request", "The recorded execution source is no longer available. Start a new candidate.");
+  }
+  const benchmark = await activeBenchmark(env, failed.benchmarkId, failed.benchmarkVersion);
+  // Modal's recorded-input check in prepareRetryJob owns these comparisons.
+  // Fixture runs have no recorded job, so retain their existing label check.
+  if (failed.provider === "fixture" && (failed.contractVersion !== benchmark.contractVersion
+    || failed.scorerVersion !== benchmark.scorerVersion
+    || failed.runtimeVersion !== benchmark.runtimeVersion
+    || failed.datasetVersion !== (failed.mode === "official" ? benchmark.datasetVersion : "practice-v1"))) {
+    throw new ApiHttpError(409, "invalid_request", "The recorded benchmark configuration has changed. Start a new candidate.");
+  }
+  if (actor.team.repoFullName !== FIXTURE_REPO.fullName) {
+    if (!githubToken) throw new ApiHttpError(403, "forbidden", "Sign in to GitHub on Cog*Portal first.");
+    try {
+      const github = new RealGitHubClient();
+      const repository = await github.getRepo(actor.team.repoFullName, githubToken);
+      if (repository.id !== failed.repositoryId || repository.private) {
+        throw new Error("Recorded repository unavailable to the runner");
+      }
+      const sha = await github.resolveRef(actor.team.repoOwner, actor.team.repoName, failed.sha, githubToken);
+      if (sha !== failed.sha) throw new Error("Commit changed");
+    } catch {
+      throw new ApiHttpError(409, "invalid_request", "The runner can't read the recorded repository and commit. Restore access before Retry.");
+    }
+  }
+  await syncTeamRuns(db, actor.team.id, failed.benchmarkId);
+  const scope = { teamId: actor.team.id, benchmarkId: failed.benchmarkId, benchmarkVersion: failed.benchmarkVersion };
+  const accounting = await readRunAccounting(db, scope);
+  if (accounting.activeRuns) {
+    if ((await successor()).length) return;
+    throw new ApiHttpError(409, "active_run_exists", "A run is already active for this benchmark.");
+  }
+  const occupied = failed.mode === "official"
+    ? accounting.officialUsed + accounting.officialReserved
+    : accounting.practiceUsed + accounting.practiceReserved;
+  if (occupied >= (failed.mode === "official" ? OFFICIAL_LIMIT : PRACTICE_LIMIT)) {
+    if ((await successor()).length) return;
+    throw new ApiHttpError(409, "quota_exhausted", "The completed-evaluation quota is exhausted.");
+  }
+  const runId = `run_${randomHex(5)}`;
+  const job = failed.provider === "modal"
+    ? await prepareRetryJob(env, failed, actor.team, benchmark, runId)
+    : null;
+  const now = Date.now();
+  const insertRun = insertRunWithCapacity(db, {
+    id: runId,
+    teamId: failed.teamId,
+    benchmarkId: failed.benchmarkId,
+    benchmarkVersion: failed.benchmarkVersion,
+    contractVersion: failed.contractVersion,
+    mode: failed.mode,
+    status: "queued",
+    branch: failed.branch,
+    sha: failed.sha,
+    repositoryId: failed.repositoryId,
+    parentRunId: failed.parentRunId,
+    retryOfRunId: failed.id,
+    dispatchJobJson: job ? JSON.stringify(job) : null,
+    provider: failed.provider,
+    protocolVersion: failed.protocolVersion,
+    preparedArtifactId: job ? job.preparedArtifactId : failed.preparedArtifactId,
+    preparedEnvironmentJson: job?.preparedEnvironment ? JSON.stringify(job.preparedEnvironment) : null,
+    datasetVersion: failed.datasetVersion,
+    scorerVersion: failed.scorerVersion,
+    runtimeVersion: failed.runtimeVersion,
+    surfaceId,
+    createdAt: now,
+  });
+  const insertPhases = RUN_PHASES.map((phase) => db.insert(runPhases).select(sql`
+    select ${runId}, ${phase}, null, null
+    where exists (select 1 from ${runs} where ${runs.id} = ${runId})
+  `));
+  const updateSurface = db.update(runSurfaces).set({ updatedAt: now }).where(and(
+    eq(runSurfaces.id, surfaceId),
+    exists(db.select({ id: runs.id }).from(runs).where(eq(runs.id, runId))),
+  ));
+  try {
+    const [inserted] = await db.batch([insertRun, ...insertPhases, updateSurface]);
+    if (!inserted.meta.changes) {
+      throw new ApiHttpError(409, "quota_exhausted",
+        failed.mode === "official" ? "The official-attempt quota is exhausted." : "The practice-run quota is exhausted.");
+    }
+  } catch (error) {
+    if ((await successor()).length) return;
+    if (isUniqueConstraintError(error)) {
+      throw new ApiHttpError(409, "active_run_exists", "A run is already active for this benchmark.");
+    }
+    throw error;
+  }
+  await dispatch(env, runId, actor.team, benchmark);
+}
+
 export type RunSurfaceMutation =
   | "verify_hosted"
   | "promote_official"
   | "publish_result"
-  | "rerun_hosted";
+  | "rerun_hosted"
+  | "retry";
 
 /** Shared mutation boundary for Portal HTTP, the Activity, and CogBot RPC.
  * Every caller supplies a freshly resolved actor; eligibility rendered in a
@@ -520,6 +622,7 @@ export async function performRunSurfaceMutation(
   actor: RunActor,
   surfaceId: string,
   action: RunSurfaceMutation,
+  request?: RetryRunRequest,
 ) {
   const surface = await getDb(env)
     .select()
@@ -528,6 +631,12 @@ export async function performRunSurfaceMutation(
     .limit(1)
     .then((rows) => rows[0]);
   if (!surface) throw new ApiHttpError(404, "not_found", "Run surface not found.");
+
+  if (action === "retry") {
+    const { runId } = RetryRunRequestSchema.parse(request);
+    await retryRun(env, actor, surfaceId, runId);
+    return publishRunSurface(env, surfaceId);
+  }
 
   if (action === "verify_hosted") {
     if (!surface.localRunId) {

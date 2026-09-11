@@ -159,7 +159,7 @@ The status field makes this harder rather than easier to spot. `RefusalCard` ren
 
 **The team owns it.** A refusal is about the team's repository at a commit. It names the team's own function names and says nothing about a person.
 
-**Credit.** `adapter_missing` is not a consuming failure, so a refused official run refunds its attempt up to the per-team cap (`apps/portal/worker/routes/runner-events.ts:169`). Past the cap the attempt stays spent and the detail line is rewritten to say so. See [`credit-and-quota.md`](credit-and-quota.md).
+**Credit.** A failed execution uses no quota, including one refused because no adapter could be found. See [credit and quota](credit-and-quota.md).
 
 **What the portal claims.** The vocabulary and its rules live in [`foundations/what-the-portal-claims.md`](../foundations/what-the-portal-claims.md). This document only compares how much of it each surface prints.
 
@@ -197,4 +197,4 @@ The status field makes this harder rather than easier to spot. `RefusalCard` ren
 - Whether a `wired_but_wrong` verdict can reach a refusal card was not settled. A week that ends in a database is ready on its store and query pair alone, so a bound pair with a wrong answer scores rather than refuses; an unbound pair with a `wired_but_wrong` verdict is a shape the source permits and no test covers. **Unverified.**
 - A trace longer than 16 steps is cut with no mark on the page saying it was cut. Whether any 2026 repository produces one was not measured. **Unverified.**
 
-Verified against Cog\*Portal commit `f74e087`.
+Verified against Cog\*Portal commit `a0e8eac` for quota policy; unchanged descriptions retain their earlier references.

@@ -2,7 +2,7 @@ import type { Context, Hono } from "hono";
 import { deleteCookie, getSignedCookie, setSignedCookie } from "hono/cookie";
 import { desc, eq } from "drizzle-orm";
 import { z } from "zod";
-import { RunSurfaceSnapshotSchema } from "@cogworks/contracts/schema";
+import { RetryRunRequestSchema, RunSurfaceSnapshotSchema } from "@cogworks/contracts/schema";
 import { accountLogin } from "../auth/session";
 import type { AppEnv } from "../env";
 import { getDb } from "../db/client";
@@ -40,6 +40,7 @@ const ActivityMutationSchema = z.enum([
   "promote_official",
   "publish_result",
   "rerun_hosted",
+  "retry",
 ]);
 
 function configured(c: Context<AppEnv>): { clientId: string; clientSecret: string; sessionSecret: string } {
@@ -210,11 +211,13 @@ export function registerActivityRoutes(app: Hono<AppEnv>): void {
     if (surface.teamId !== identity.team.id) {
       throw new ApiHttpError(404, "not_found", "Run surface not found.");
     }
+    const action = ActivityMutationSchema.parse(c.req.param("action"));
     const snapshot = await performRunSurfaceMutation(
       c.env,
       await discordRunActor(c.env, discordUserId),
       surfaceId,
-      ActivityMutationSchema.parse(c.req.param("action")),
+      action,
+      action === "retry" ? await parseBody(c, RetryRunRequestSchema) : undefined,
     );
     return respond(c, RunSurfaceSnapshotSchema, snapshot);
   });
@@ -228,6 +231,6 @@ export function registerActivityRoutes(app: Hono<AppEnv>): void {
       return c.json({ error: { code: "invalid_request", message: "Expected a WebSocket upgrade." } }, 426);
     }
     const stub = c.env.RUN_SURFACES.get(c.env.RUN_SURFACES.idFromName(surfaceId));
-    return stub.fetch(new Request("https://run-surface.internal/connect", { headers: c.req.raw.headers }));
+    return stub.fetch(new Request(`https://run-surface.internal/connect?surfaceId=${encodeURIComponent(surfaceId)}`, { headers: c.req.raw.headers }));
   });
 }

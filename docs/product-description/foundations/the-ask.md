@@ -8,7 +8,7 @@ There is no screen or command called "the ask". It is the shape shared by arrivi
 
 ## The simple case
 
-A student presses a button. Either something is wrong with the request and they get a sentence back immediately with nothing changed, or work begins: a row is written, credit is spent, a container starts. From that moment the ask has a trace, and interrupting it leaves something behind. When the work settles, the student is shown what happened and given one next action.
+A student presses a button. Either the request is refused with a reason, or work begins and leaves a durable record. Admitting a hosted execution reserves capacity; completion, not admission, uses quota. Interrupting the browser does not erase the record.
 
 The platform's whole stance sits in that last clause. A finished ask leads with what it found, not with what it scored, and the number sits below the sentence (`docs/design/the-instrument-not-the-judge.md`).
 
@@ -46,7 +46,7 @@ Nothing is written, no credit is spent, and no notification is sent. Every docum
 
 The moment abandoning the ask stops being free. It is a different moment on every surface, and each document names its own exactly:
 
-- **A hosted run.** The run row is written and credit is spent, before any container exists. A run that never reaches a sandbox has still consumed the practice slot until a refund puts it back.
+- **A hosted run.** The execution is admitted before a container exists. It reserves capacity while active. A failure uses no quota and remains history; a completed evaluation counts.
 - **A local run.** The first student module is imported. Discovery runs the team's own code, so by this point their code has had side effects on their own machine that the platform cannot undo.
 - **A local report.** The first byte written to `.cogbench/reports/local_<hex>.json`.
 - **A device link.** The moment the token is written to the config file, which happens after the browser approval, not before.
@@ -150,4 +150,4 @@ Every feature document fills the same seven rows, in this order. These are the d
 - The connections page polls every 4 seconds forever while no device is linked (`apps/portal/src/lib/queries.ts:120`). Whether that is intentional or an oversight is a product call; it is carried to triage.
 - No document in this set observed a real Ctrl+C mid-run. What the CLI does is read from the handler; whether the live session's `failed` event actually lands before the process exits was not confirmed. **Unverified.**
 
-Verified against Cog\*Portal commit `f74e087`.
+Verified against Cog\*Portal commit `a0e8eac` for hosted quota policy; unchanged descriptions retain earlier references.

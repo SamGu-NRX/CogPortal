@@ -1,23 +1,24 @@
 import type { Context, Hono } from "hono";
 import { and, eq, exists, lt, ne, notInArray, sql } from "drizzle-orm";
 import { z } from "zod";
-import { RunEventV1Schema, type RunEventV1 } from "@cogworks/contracts/protocol";
+import { PreparedEnvironmentV1Schema, RunEventV1Schema, RunJobV1Schema, type RunEventV1 } from "@cogworks/contracts/protocol";
 import type { RunPhase, RunStreamEventCode } from "@cogworks/contracts/schema";
 import type { AppEnv } from "../env";
 import { getDb } from "../db/client";
 import {
-  officialAttempts,
   outboxEvents,
   runEvents,
   runMetrics,
   runPhases,
   runs,
+  teams,
 } from "../db/schema";
 import { hmacSignature } from "../execution/runner";
 import { ApiHttpError } from "../http/errors";
 import { respond } from "../http/respond";
 import { constantTimeTextEqual } from "../util/crypto";
 import { appendRunStreamEvent, runnerFailureCode } from "../services/run-surfaces";
+import { preparedEnvironmentMatchesRun } from "../services/run-eligibility";
 
 const OkSchema = z.object({ ok: z.literal(true), duplicate: z.boolean() });
 const MAX_CLOCK_SKEW_SECONDS = 300;
@@ -70,6 +71,50 @@ async function applyEvent(env: AppEnv["Bindings"], event: RunEventV1): Promise<v
   const lateCompletion = event.type === "completed" && run.status === "failed";
   if (["succeeded", "failed", "cancelled"].includes(run.status) && !lateCompletion) return;
   if (event.sequence <= run.lastEventSequence) return;
+  let preparedEnvironmentJson = run.preparedEnvironmentJson;
+  if (event.type === "completed") {
+    if (run.preparedArtifactId && run.preparedArtifactId !== event.preparedArtifactId) {
+      throw new ApiHttpError(400, "invalid_request", "Runner artifact does not match the saved artifact.");
+    }
+    const evidence = event.preparedEnvironment;
+    if (evidence) {
+      let repositoryFullName: string | undefined;
+      if (run.dispatchJobJson) {
+        // A team may change repositories while its old execution finishes.
+        // Callback provenance belongs to the admitted job, not today's team.
+        try {
+          repositoryFullName = RunJobV1Schema.parse(JSON.parse(run.dispatchJobJson)).source.fullName;
+        } catch {
+          throw new ApiHttpError(400, "invalid_request", "Recorded dispatch source is invalid.");
+        }
+      } else {
+        const [team] = await db.select().from(teams).where(eq(teams.id, run.teamId)).limit(1);
+        repositoryFullName = team?.repoFullName;
+      }
+      if (!repositoryFullName || !preparedEnvironmentMatchesRun(evidence, {
+        ...run, preparedArtifactId: event.preparedArtifactId,
+      }, repositoryFullName)) {
+        throw new ApiHttpError(400, "invalid_request", "Runner provisioning evidence does not match the run.");
+      }
+      if (run.preparedArtifactId) {
+        // Reuse inherits the original observation. Even an authenticated
+        // completion cannot relabel an old snapshot as newly provisioned.
+        let stored;
+        try {
+          stored = PreparedEnvironmentV1Schema.parse(JSON.parse(run.preparedEnvironmentJson ?? "null"));
+        } catch {
+          throw new ApiHttpError(400, "invalid_request", "The saved artifact has no valid provisioning evidence.");
+        }
+        if (JSON.stringify(stored) !== JSON.stringify(evidence)) {
+          throw new ApiHttpError(400, "invalid_request", "Runner provisioning evidence changed during artifact reuse.");
+        }
+      } else {
+        preparedEnvironmentJson = JSON.stringify(evidence);
+      }
+    }
+    // Omitted legacy evidence remains unknown; omitted reuse evidence retains
+    // the stored observation. environmentDigest never establishes compatibility.
+  }
 
   if (event.type === "status") {
     const phase = event.status;
@@ -121,10 +166,17 @@ async function applyEvent(env: AppEnv["Bindings"], event: RunEventV1): Promise<v
     }
     // Failure is terminal. A later result belongs to this execution's history,
     // never to a new attempt or a successful current state.
-    const acceptsEvidence = and(
+    const acceptsCompletion = and(
       eq(runs.id, run.id),
       notInArray(runs.status, ["succeeded", "cancelled"]),
       lt(runs.lastEventSequence, event.sequence),
+    );
+    // Two late callbacks may have read the same failed run before either
+    // records its snapshot. Only the first may establish that observation.
+    const acceptsEvidence = and(
+      acceptsCompletion,
+      sql`${runs.preparedArtifactId} IS ${run.preparedArtifactId}`,
+      sql`${runs.preparedEnvironmentJson} IS ${run.preparedEnvironmentJson}`,
     );
     const evidenceExists = exists(db.select({ id: runs.id }).from(runs).where(acceptsEvidence));
     await db.batch([
@@ -164,6 +216,7 @@ async function applyEvent(env: AppEnv["Bindings"], event: RunEventV1): Promise<v
           ? {}
           : { weightsSuppliedJson: JSON.stringify(event.result.weightsSupplied) }),
         preparedArtifactId: event.preparedArtifactId,
+        preparedEnvironmentJson,
         environmentDigest: event.environmentDigest,
         log: run.mode === "practice" ? event.sanitizedLog : null,
       }).where(acceptsEvidence),
@@ -181,13 +234,14 @@ async function applyEvent(env: AppEnv["Bindings"], event: RunEventV1): Promise<v
         lastEventSequence: event.sequence,
       }).where(active),
       db.update(runs).set({ lastEventSequence: event.sequence }).where(and(
-        acceptsEvidence, eq(runs.status, "failed"),
+        acceptsCompletion, eq(runs.status, "failed"),
+        eq(runs.preparedArtifactId, event.preparedArtifactId),
+        sql`${runs.preparedEnvironmentJson} IS ${preparedEnvironmentJson}`,
       )),
     ]);
   } else {
     await db.batch([
       terminalNotice,
-      db.delete(officialAttempts).where(and(eq(officialAttempts.runId, run.id), activeExists)),
       db.update(runs).set({
         status: "failed",
         finishedAt: event.occurredAt,

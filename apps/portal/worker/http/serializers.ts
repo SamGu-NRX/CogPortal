@@ -9,8 +9,9 @@ import {
   type Team,
 } from "@cogworks/contracts/schema";
 import type { Database } from "../db/client";
-import { canPublishOfficialRun } from "../services/run-eligibility";
+import { canPublishOfficialRun, savedEnvironmentEligibility } from "../services/run-eligibility";
 import {
+  benchmarks,
   leaderboardSelections,
   runMetrics,
   runPhases,
@@ -122,9 +123,19 @@ export async function serializeRunDetail(
       .limit(1),
   ]);
   const phaseOrder = new Map(RUN_PHASES.map((phase, index) => [phase, index]));
+  let promotionRefusal: string | null = null;
+  if (row.provider === "modal" && row.mode === "practice" && row.status === "succeeded" && row.refundedAt === null) {
+    const [benchmark] = await db.select().from(benchmarks)
+      .where(and(eq(benchmarks.id, row.benchmarkId), eq(benchmarks.version, row.benchmarkVersion))).limit(1);
+    const eligibility = savedEnvironmentEligibility(row,
+      benchmark ?? { id: row.benchmarkId, sandboxContract: null }, team);
+    if (!eligibility.eligible) promotionRefusal = eligibility.reason;
+  }
 
   return {
     ...summary,
+    promotionRefusal,
+    surfaceId: row.surfaceId,
     contractVersion: row.contractVersion,
     parentRunId: row.parentRunId,
     repo: {

@@ -353,11 +353,19 @@ when nothing changed.
 **Write down those `im-` ids.** They are the only real candidate for
 `RUNNER_IMAGE_DIGEST`. Set it in your `.dev.vars` as `<name>@<id>`.
 
-The digest selects nothing: `_sandbox_image` in `modal_app.py` picks an image by name. Its only use is one of three inputs to the `environmentDigest`
-reported on a completed run. So the placeholder cannot fail a dispatch. What it
-does is make every run's reproducibility record a hash of the word
-"unpublished", so two runs on genuinely different images are recorded as
-identical. Fix it before students see results.
+The digest selects nothing: `_sandbox_image` in `modal_app.py` picks an image
+by name. Its only use is one of three inputs to the `environmentDigest`
+reported on a completed run, alongside the prepared snapshot id and the plugin
+version. So the placeholder cannot fail a dispatch, and it does not collapse
+the record either: the snapshot id is the first input and already differs
+whenever the image differs. What the placeholder costs is one input that says
+nothing.
+
+Setting a real id is still worth doing, but know what it buys. One string
+cannot name three images, the runner picks the image per benchmark, and a run
+that reuses a prepared snapshot skips that choice entirely, so no value here
+identifies the image that ran. Treat it as unresolved provenance rather than
+something to fix before students see results.
 
 After deploying, rerun step 6. Only now are you testing your working tree.
 

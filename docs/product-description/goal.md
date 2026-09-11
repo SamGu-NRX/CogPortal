@@ -73,9 +73,9 @@ Draft these last, describe the intended behavior from the source as it reads at 
 
 **Benchmark ids and tracks.** `audio-identification` is week1, `vision-recognition` and `vision-clustering` are week2, `language-search` is week3. One week can ship more than one benchmark id, so never write "week" where "benchmark" is meant. An unknown id resolves to no track rather than a guess.
 
-**Quota, as the portal shows it.** Ten hosted practice runs and three official attempts per team per benchmark. The dashboard and the run page read the limit from the quota payload; the admin page hardcodes `/10` and `/3` (`apps/portal/src/routes/AdminPage.tsx:437`), which is a triage item, not a second source of truth.
+**Quota, as the portal shows it.** Ten completed hosted practice evaluations and three completed official evaluations per team, benchmark and version. Valid low and partial results count. Failed executions use no quota. Active executions reserve capacity. Recovery policy was corrected against local `a0e8eac`; unchanged descriptions retain their earlier source references.
 
-**Runs go one at a time per benchmark.** Starting a second run while one is active returns `active_run_exists` and the dashboard shows "A run is already in progress; runs go one at a time per benchmark."
+**Runs go one at a time per benchmark.** One active execution per team and benchmark, across versions. Retry preserves the recorded source, configuration, mode and view, with one successor per failed execution. Old failures and late findings remain history.
 
 **Refusal, not failure.** When the platform manufactured an absence (a module skipped for the platform's own reason), it refuses to reach a verdict about the repository rather than reporting one. That refusal is `could_not_look`, and its sentence names the count of unread files and says the graded run installs those packages and will read them.
 
