@@ -1,6 +1,9 @@
 """Round trips keep the renderer's dataclasses aligned with their JSON records."""
 import json
 import sys
+import tempfile
+import io
+import os
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -14,7 +17,17 @@ from cogbench.resolve import Attempt, SubmissionReport
 from cogbench.verdict import Coverage, Observation, Verdict
 
 
-class ReportRoundTrips(unittest.TestCase):
+class TinyProjectTest(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name).resolve()
+        previous_cwd = Path.cwd()
+        os.chdir(str(self.root))
+        self.addCleanup(os.chdir, str(previous_cwd))
+
+
+class ReportRoundTrips(TinyProjectTest):
     def roundtrip(self, value):
         encoded = json.loads(json.dumps(value.to_dict()))
         self.assertEqual(type(value).from_dict(encoded), value)
@@ -68,7 +81,7 @@ class ReportRoundTrips(unittest.TestCase):
                  patch.object(isolate, 'run_operation', return_value=Outcome(COMPLETED, value=view)) as execute, \
                  patch.object(isolate, '_isolation_backend', return_value={
                      'inline': None, 'fork': fork, 'exec': execute}[backend]):
-                actual, status, detail = cli._read_repository('fixture', Path('/tmp'), True)
+                actual, status, detail = cli._read_repository('fixture', self.root, True)
             self.assertEqual(status, COMPLETED, detail)
             self.assertEqual(actual['report'], report)
             self.assertEqual(actual['survey'], view['survey'])
@@ -83,7 +96,7 @@ class ReportRoundTrips(unittest.TestCase):
                  patch.object(isolate, '_isolation_backend', return_value={
                      'inline': None, 'fork': fork, 'exec': execute}[backend]):
                 diagnostics = {}
-                view, status, detail = cli._read_repository('fixture', Path('/tmp'), True,
+                view, status, detail = cli._read_repository('fixture', self.root, True,
                                                            diagnostics=diagnostics)
             self.assertIsNone(view)
             self.assertEqual(status, 'crashed')
@@ -101,13 +114,13 @@ class ReportRoundTrips(unittest.TestCase):
         submission = SimpleNamespace(discovery=None)
         with patch.object(cli, 'load_benchmark', side_effect=AssertionError('spec rebuilt')), \
              patch.object(cli, 'from_spec', return_value=submission) as resolve:
-            result, survey, unavailable = cli._discover('fixture', Path('/tmp'), True, spec=spec)
+            result, survey, unavailable = cli._discover('fixture', self.root, True, spec=spec)
         self.assertIs(result, submission)
         self.assertIsNone(unavailable)
         self.assertIs(resolve.call_args[0][1], spec)
 
 
-class AMalformedOperationResultIsCategorizedNotRaised(unittest.TestCase):
+class AMalformedOperationResultIsCategorizedNotRaised(TinyProjectTest):
     """The envelope says the child finished. It says nothing about the shape.
 
     A `completed` payload whose value is None, `"{}"` or `"[]"` used to reach
@@ -126,7 +139,7 @@ class AMalformedOperationResultIsCategorizedNotRaised(unittest.TestCase):
                                  side_effect=lambda: cli.isolate.run_operation), \
                     patch.object(cli.isolate, 'run_operation',
                                  return_value=self._completed(value)):
-                view, status, detail = cli._read_repository('fixture', Path('/tmp'), True)
+                view, status, detail = cli._read_repository('fixture', self.root, True)
             self.assertIsNone(view)
             self.assertEqual(status, isolate.CRASHED)
             self.assertIn('invalid check report', detail)
@@ -141,7 +154,7 @@ class AMalformedOperationResultIsCategorizedNotRaised(unittest.TestCase):
                           side_effect=lambda: cli.isolate.run_operation), \
                 patch.object(cli.isolate, 'run_operation',
                              return_value=self._completed(complete)):
-            view, status, detail = cli._read_repository('fixture', Path('/tmp'), True)
+            view, status, detail = cli._read_repository('fixture', self.root, True)
         self.assertEqual(status, isolate.COMPLETED)
         self.assertEqual(view['ready'], False)
 
@@ -159,7 +172,7 @@ class AMalformedOperationResultIsCategorizedNotRaised(unittest.TestCase):
         )
         with patch.object(cli, 'load_benchmark', return_value=object()), \
                 patch.object(cli, '_scoreable', return_value=empty):
-            built = cli._check_view('fixture', Path('/tmp'), True)
+            built = cli._check_view('fixture', self.root, True)
         self.assertEqual(
             sorted(cli._CHECK_VIEW_KEYS), sorted(built),
             'the contract and the view it describes have drifted',
@@ -174,10 +187,56 @@ class AMalformedOperationResultIsCategorizedNotRaised(unittest.TestCase):
                                  side_effect=lambda: cli.isolate.run_operation), \
                     patch.object(cli.isolate, 'run_operation',
                                  return_value=self._completed(dict(complete, survey=survey))):
-                view, status, detail = cli._read_repository('fixture', Path('/tmp'), True)
+                view, status, detail = cli._read_repository('fixture', self.root, True)
             self.assertIsNone(view)
             self.assertEqual(status, isolate.CRASHED)
             self.assertIn('invalid check report', detail)
+
+    def test_malformed_survey_entries_are_categorized_before_rendering(self):
+        complete = dict.fromkeys(cli._CHECK_VIEW_KEYS)
+        complete['ready'] = False
+        surveys = (
+            {'modules': [None]}, {'modules': [1]},
+            {'modules': [{'path': 'student.py'}]},
+            {'skipped': [None]}, {'skipped': [1]},
+            {'skipped': [{'name': 'student', 'detail': []}]},
+        )
+        for survey in surveys:
+            with self.subTest(survey=survey), \
+                    patch.object(cli, 'plugin_names', return_value=['fixture']), \
+                    patch.object(cli, 'load_benchmark', return_value=SimpleNamespace(
+                        model_cache_status=lambda: {'ready': True},
+                        cache_status=lambda tier: SimpleNamespace(ready=True, path=self.root, message=''))), \
+                    patch.object(cli, '_local_operation', return_value=self._completed(
+                        dict(complete, survey=survey))), \
+                    patch.object(cli, 'render_check', wraps=cli.render_check) as renderer, \
+                    patch('sys.stdout', new_callable=io.StringIO):
+                code = cli.main(['check', '--benchmark', 'fixture'])
+            self.assertEqual(code, 2)
+            self.assertIsNone(renderer.call_args.kwargs['survey'])
+            self.assertIn('invalid check report: survey.', renderer.call_args.kwargs['unread_detail'])
+
+    def test_a_rich_survey_survives_the_cli_boundary(self):
+        survey = {
+            'root': str(self.root), 'rootReason': 'declared',
+            'considered': ['student.py'], 'stubbed': ['optional'], 'stubCalls': [],
+            'modules': [{'name': 'student', 'path': str(self.root / 'student.py'),
+                         'futureAnnotations': True, 'redirected': ['weights.bin'],
+                         'redirectNote': ['course resource'], 'note': 'kept'}],
+            'skipped': [{'name': 'helper', 'detail': 'missing optional package',
+                         'reason': 'missing_dependency', 'missing': 'optional',
+                         'origin': 'student', 'importedFrom': 'student.py'}],
+        }
+        complete = dict.fromkeys(cli._CHECK_VIEW_KEYS)
+        complete.update(ready=True, source='discovery', survey=survey)
+        with patch.object(cli, 'plugin_names', return_value=['fixture']), \
+                patch.object(cli, 'load_benchmark', return_value=SimpleNamespace(
+                    model_cache_status=lambda: {'ready': True},
+                    cache_status=lambda tier: SimpleNamespace(ready=True, path=self.root, message=''))), \
+                patch.object(cli, '_local_operation', return_value=self._completed(complete)), \
+                patch.object(cli, 'render_check', return_value=[]) as renderer:
+            cli.main(['check', '--benchmark', 'fixture'])
+        self.assertEqual(renderer.call_args.kwargs['survey'], survey)
 
     def test_a_malformed_run_report_exits_two_with_a_reason(self):
         import io

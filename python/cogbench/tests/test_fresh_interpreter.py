@@ -8,6 +8,7 @@ try:
 except ImportError:
     resource = None
 import signal
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -122,7 +123,11 @@ def create_submission(inputs):
         self.assertTrue(view['ready'])
         observed = json.loads(self.record.read_text())
         self.assertNotEqual(observed['pid'], os.getpid())
-        self.assertEqual(observed['cwd'], str(self.repo))
+        execution = Path(observed['cwd'])
+        self.assertNotEqual(execution, self.repo)
+        self.assertEqual(execution.name, self.repo.name)
+        self.assertTrue(execution.parent.name.startswith('cogworks-execution-'))
+        self.assertFalse(execution.parent.exists(), 'parent must remove the execution copy')
         self.assertEqual(observed['cpu'], [300, 305])
         self.assertEqual(observed['core'], [0, 0])
         # macOS may reject RLIMIT_AS; never claim installation if it did.
@@ -293,6 +298,87 @@ resource.setrlimit = lambda *args: None
             observed = json.loads(self.record.read_text())
             self.assertEqual(observed['cpu'], [resource.RLIM_INFINITY, resource.RLIM_INFINITY], 'scored runs retain their unbounded CPU budget')
             wait_gone(self, observed['descendant'])
+
+    def test_native_resource_writes_stay_private_through_scoring(self):
+        database = self.repo / 'existing.sqlite'
+        with sqlite3.connect(str(database)) as db:
+            db.execute('CREATE TABLE state(value INTEGER)')
+            db.execute('INSERT INTO state VALUES (10)')
+        db.close()
+        original = database.read_bytes()
+        source = self.repo / 'src'
+        source.mkdir()
+        (source / 'local_resource.py').write_text(
+            'from pathlib import Path\nROOT = Path(__file__).resolve().parent.parent\n')
+        environment = self.repo / '.venv'
+        environment.mkdir()
+        (environment / 'pyvenv.cfg').write_text('home = fixture\n')
+        (environment / 'python').symlink_to(sys.executable)
+        packages = environment / 'site-packages'
+        packages.mkdir()
+        (packages / 'environment_fixture.py').write_text('VALUE = 42\n')
+        sys.path[:0] = [str(source), str(packages)]
+        self.addCleanup(sys.path.remove, str(source))
+        self.addCleanup(sys.path.remove, str(packages))
+        (self.repo / 'submission.py').write_text('''
+from pathlib import Path
+import sqlite3
+ROOT = Path(__file__).resolve().parent
+from local_resource import ROOT as SOURCE_ROOT
+from environment_fixture import VALUE
+assert SOURCE_ROOT == ROOT and VALUE == 42
+assert not (ROOT / '.venv').exists()
+assert Path.cwd() == ROOT
+with sqlite3.connect(str(ROOT / 'existing.sqlite')) as db:
+    db.execute('UPDATE state SET value = value + 1')
+db.close()
+def create_submission(inputs):
+    with sqlite3.connect(str(ROOT / 'existing.sqlite')) as db:
+        assert db.execute('SELECT value FROM state').fetchone()[0] == 11
+        db.execute('UPDATE state SET value = value + 1')
+    db.close()
+    (ROOT / 'generated.txt').write_text('prediction ran')
+    return [str(ROOT) for _ in inputs]
+''')
+        benchmark_file = self.root / 'boundary_fixture.py'
+        benchmark_file.write_text(benchmark_file.read_text() + '''
+    def score(self, predictions, expected):
+        from pathlib import Path
+        import json, sqlite3
+        root = Path(predictions[0])
+        assert root.is_dir()
+        assert (root / 'generated.txt').read_text() == 'prediction ran'
+        with sqlite3.connect(str(root / 'existing.sqlite')) as db:
+            assert db.execute('SELECT value FROM state').fetchone()[0] == 12
+        db.close()
+        Path(%r).write_text(json.dumps({'root': str(root)}))
+        return [], ['private resource scored']
+''' % str(self.record))
+        (self.repo / '.gitignore').write_text('.cogbench/\n.venv/\n__pycache__/\n')
+        for args in (
+            ['init', '-q'],
+            ['remote', 'add', 'origin', 'https://github.com/students/private-fixture.git'],
+            ['add', 'submission.py', 'existing.sqlite', '.gitignore', 'src'],
+            ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+             '-c', 'commit.gpgsign=false', 'commit', '-qm', 'fixture'],
+        ):
+            subprocess.run(['git'] + args, cwd=str(self.repo), check=True, capture_output=True)
+        sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=str(self.repo), text=True).strip()
+        for command in ('test', 'run'):
+            with self.subTest(command=command), patch.object(cli.Path, 'cwd', return_value=self.repo), \
+                 self.reject_raw_fork(), redirect_stdout(io.StringIO()) as output:
+                code = cli.main([command, '--benchmark', 'boundary-fixture', '--json'])
+            self.assertEqual(code, 0, output.getvalue())
+            report = json.loads(output.getvalue())
+            self.assertEqual(report['diagnostics'], ['private resource scored'])
+            self.assertEqual(report['sha'], sha)
+            self.assertEqual(report['repositoryFullName'], 'students/private-fixture')
+            self.assertFalse(report['dirty'])
+            copied = Path(json.loads(self.record.read_text())['root'])
+            self.assertNotEqual(copied, self.repo)
+            self.assertFalse(copied.parent.exists())
+            self.assertEqual(database.read_bytes(), original)
+            self.assertFalse((self.repo / 'generated.txt').exists())
 
     def test_score_time_attribute_lookup_uses_validated_course_file(self):
         owned = self.root / 'validated.pkl'

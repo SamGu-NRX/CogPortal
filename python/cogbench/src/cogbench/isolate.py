@@ -333,6 +333,7 @@ def _child(
     student code that registered one of those would run it here.
     """
 
+    owner_pid = os.getpid()
     exit_code = 0
     try:
         os.setsid()
@@ -358,6 +359,10 @@ def _child(
                 "status": RAISED,
                 "detail": "{}: {}".format(type(error).__name__, str(error)[:300]),
             }).encode("utf-8")
+        # An ordinary fork inside work inherits this stack and pipe. Only the
+        # direct child may publish when those inherited calls return or raise.
+        if os.getpid() != owner_pid:
+            os._exit(0)
         # Publish completion only after serialization and stream flushing.
         # Serialization may itself print. Fatal signals and asynchronous writers can
         # still lose output; a completed payload no longer races this flush.
@@ -412,10 +417,8 @@ class _PayloadError(Exception):
 #: outcome this constant exists to produce.
 MAX_PAYLOAD_BYTES = 8 * 1024 * 1024
 
-#: How much of the body one `os.read` may ask for. Without it a body at the
-#: cap is requested whole, so the parent holds the accumulated bytes and an
-#: equally large read buffer at once. This halves that peak; the cap is what
-#: bounds it at all.
+#: Bound individual read requests independently of the child's declared size.
+#: JSON decoding and object construction still allocate beyond this buffer.
 _READ_CHUNK = 64 * 1024
 
 
@@ -447,12 +450,12 @@ def _read_payload(read_fd: int, exited: Optional[Callable[[], bool]] = None) -> 
     (size,) = struct.unpack("!I", header)
     if size > MAX_PAYLOAD_BYTES:
         raise _PayloadError("payload_too_large: declared {} bytes".format(size))
-    body = b""
+    body = bytearray()
     while len(body) < size:
         chunk = read(min(size - len(body), _READ_CHUNK))
         if not chunk:
             raise _PayloadError("truncated_body")
-        body += chunk
+        body.extend(chunk)
     # JSON stops child bytes becoming code in the parent, and this envelope
     # stops the child claiming a death the parent did not observe. It cannot
     # stop a child lying about its result; the parent re-verifies elsewhere.
@@ -468,7 +471,7 @@ def _read_payload(read_fd: int, exited: Optional[Callable[[], bool]] = None) -> 
         if status == COMPLETED:
             _json_value(record["value"])
         return Outcome(status, value=record.get("value"), detail=record["detail"])
-    except _Alarm:
+    except (_Alarm, MemoryError):
         raise
     except BaseException as error:
         raise _PayloadError("invalid_outcome") from error
@@ -594,8 +597,8 @@ def run_operation(
     """Reconstruct one SDK operation after exec, without carrying live objects.
 
     macOS high-level APIs cannot safely run in a raw fork of the CLI. Popen
-    uses no Python preexec callback; limits are installed in the interpreter
-    before importing the operation owner or any student module.
+    uses no Python preexec callback. Limits precede SDK operation dispatch,
+    but Python's environment-owned site hooks have already run.
     """
     import json
     import subprocess
@@ -605,36 +608,32 @@ def run_operation(
     with tempfile.TemporaryDirectory(prefix="cogworks-discovery-") as temporary:
         workspace = Path(scratch).resolve() if scratch else Path(temporary)
         request = Path(temporary) / "operation.json"
-        request.write_text(json.dumps({"operation": operation, "arguments": arguments,
-                                      "memory": memory_bytes, "timeout": timeout_seconds,
-                                      "workspace": str(workspace)}),
-                           encoding="utf-8")
-        read_fd, write_fd = os.pipe()
         environment = dict(os.environ, PYTHONHASHSEED="0")
-        # Site processing precedes our bootstrap and cannot be moved after it:
-        # disabling site would also disable the editable installs the course
-        # uses. What this can do is keep the repository under test out of the
-        # search path site uses, so a `sitecustomize.py` a student wrote is
-        # not what runs. The machine's own .pth files and sitecustomize still
-        # run first, and they are the setup this check was installed into.
-        #
-        # So the guarantee is not "nothing runs before limits". It is that
-        # nothing from the repository does, and that a hook which quietly
-        # neuters `setrlimit` is caught: `_apply_limits` reads back every limit
-        # it set and refuses the operation when the value did not take
-        # (test_ancestor_startup_hook_cannot_silently_disable_limits). A limit
-        # the kernel refuses outright is a different case and is not a
-        # refusal: the child runs weaker, which
-        # test_refused_address_space_limit_remains_a_weaker_child pins.
+        # Environment-owned .pth/sitecustomize hooks still run before limits.
+        # Exclude both project paths from the explicit startup search path;
+        # this is not a guarantee about code those environment hooks import.
         repository = Path(arguments["repository"]).resolve()
+        original = Path(arguments.get("original", repository)).resolve()
+        from .execution import ExecutionPaths
+        project = ExecutionPaths(repository, original)
         startup_paths = [str(Path(__file__).resolve().parent.parent)]
+        project_paths = []
         for entry in sys.path:
-            if not entry:
-                continue
-            path = Path(entry).resolve()
-            if path != repository and repository not in path.parents:
+            path = Path(entry or os.getcwd()).resolve()
+            if project.environment_path(path):
+                startup_paths.append(str(path))
+            elif path == original or original in path.parents:
+                project_paths.append(str(repository / path.relative_to(original)))
+            elif path == repository or repository in path.parents:
+                project_paths.append(str(path))
+            elif entry:
                 startup_paths.append(str(path))
         environment["PYTHONPATH"] = os.pathsep.join(startup_paths)
+        request.write_text(json.dumps({"operation": operation, "arguments": arguments,
+                                      "memory": memory_bytes, "timeout": timeout_seconds,
+                                      "workspace": str(workspace), "project_paths": project_paths}),
+                           encoding="utf-8")
+        read_fd, write_fd = os.pipe()
         _flush_streams()
         try:
             process = subprocess.Popen(
@@ -665,18 +664,23 @@ def _operation_child() -> None:
     arguments = request["arguments"]
 
     def work():
-        # _child has installed limits before invoking this function. Student
-        # imports can now use their root without exposing it to site startup.
-        sys.path.insert(0, str(Path(arguments["repository"]).resolve()))
+        # _child applied limits before this dispatch. Python's environment
+        # hooks ran earlier; this is where SDK-directed student imports begin.
+        from .execution import ExecutionPaths
+        project = ExecutionPaths(
+            Path(arguments["repository"]), Path(arguments.get("original", arguments["repository"]))
+        )
+        # Restore project-local import directories only after startup and limits.
+        sys.path[:0] = [str(project.execution)] + request["project_paths"]
         if operation == "check":
             from .cli import _check_view
-            return _check_view(arguments["name"], Path(arguments["repository"]), arguments["as_json"])
+            return _check_view(arguments["name"], project.execution, arguments["as_json"], project=project)
         if operation == "run":
             import argparse
             from .cli import _run_view
             # The whole parser namespace is intentional: worker behavior
             # follows whatever flags the CLI parser defines, not a second schema.
-            return _run_view(argparse.Namespace(**arguments["args"]), Path(arguments["repository"]))
+            return _run_view(argparse.Namespace(**arguments["args"]), project.execution, project=project)
         if operation == "survey":
             from .discover import _survey_work
             return _survey_work(Path(arguments["repository"]), arguments["declared_root"],
@@ -719,6 +723,8 @@ def _collect(pid, read_fd, timeout_seconds, memory_bytes) -> Outcome:
                 outcome = _read_payload(read_fd, exited)
             except _PayloadError as error:
                 reason = str(error)
+            except MemoryError:
+                reason = "payload_allocation_failed"
             except OSError as error:
                 reason = "read_error: {}".format(error)
             if not reaped and (outcome is not None or reason in ("eof", "truncated_header", "truncated_body")):
@@ -768,7 +774,7 @@ def _collect(pid, read_fd, timeout_seconds, memory_bytes) -> Outcome:
                 # WNOHANG and cleanup. Those cannot have come from our SIGKILL.
                 if final_status is not None and not (os.WIFSIGNALED(final_status)
                         and os.WTERMSIG(final_status) == signal.SIGKILL):
-                    status = final_status
+                    status, reaped = final_status, True
     # A result is only trustworthy if the child exited on its own. The result
     # descriptor is reachable from the child, so code running there can write a
     # correctly framed "completed" envelope, close it, and hang: the parent

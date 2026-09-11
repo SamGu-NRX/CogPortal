@@ -17,6 +17,39 @@ from cogbench import cli, isolate
 
 @unittest.skipUnless(hasattr(os, 'fork'), 'requires POSIX isolation')
 class ProcessOutcomes(unittest.TestCase):
+    def test_forked_work_cannot_publish_the_grandchilds_return(self):
+        def work():
+            descendant = os.fork()
+            if descendant == 0:
+                return "grandchild"
+            os.waitpid(descendant, 0)
+            return "direct child"
+        result = isolate.run_isolated(work, timeout_seconds=5)
+        self.assertEqual(result.status, isolate.COMPLETED, result)
+        self.assertEqual(result.value, "direct child")
+
+    def test_clean_exit_first_observed_after_cleanup_keeps_its_result(self):
+        read_fd, write_fd = os.pipe()
+        payload = json.dumps({'status': 'completed', 'detail': '', 'value': 42}).encode()
+        os.write(write_fd, struct.pack('!I', len(payload)) + payload)
+        os.close(write_fd)
+        # The child exits between the last nonblocking wait and the final
+        # reap. No longer wait budget is needed to use this observed exit.
+        with patch.object(isolate, '_reap_bounded', return_value=None), \
+             patch.object(isolate.os, 'waitpid', return_value=(0, 0)), \
+             patch.object(isolate, '_terminate'), \
+             patch.object(isolate, '_reap', return_value=(123, 0)):
+            result = isolate._collect(123, read_fd, None, None)
+        self.assertEqual(result.status, isolate.COMPLETED, result)
+        self.assertEqual(result.value, 42)
+        self.assertIsNone(result.read_reason)
+
+    def test_parent_allocation_refusal_is_a_categorized_failure(self):
+        with patch.object(isolate, '_read_payload', side_effect=MemoryError):
+            result = isolate.run_isolated(lambda: 42, timeout_seconds=5)
+        self.assertEqual(result.status, isolate.CRASHED, result)
+        self.assertEqual(result.read_reason, 'payload_allocation_failed')
+
     def test_self_sigkill_is_unknown_not_a_timeout(self):
         for _ in range(10):
             result = isolate.run_isolated(lambda: os.kill(os.getpid(), signal.SIGKILL))
@@ -272,12 +305,13 @@ class ProcessOutcomes(unittest.TestCase):
             def cache_status(self, tier):
                 from types import SimpleNamespace
                 return SimpleNamespace(ready=True, path=Path('/tmp'), message='')
-        with patch.object(isolate, 'run_operation', return_value=result), \
+        with tempfile.TemporaryDirectory() as temporary, \
+             patch.object(isolate, 'run_operation', return_value=result), \
              patch.object(isolate, '_isolation_backend', side_effect=lambda: isolate.run_operation), \
              patch.object(cli, 'plugin_names', return_value=['fixture']), \
              patch.object(cli, 'load_benchmark', return_value=Benchmark()), \
              patch('sys.stdout', new_callable=io.StringIO) as output:
-            code = cli._check('fixture', True, Path('/tmp'))
+            code = cli._check('fixture', True, Path(temporary))
         record = json.loads(output.getvalue())
         self.assertEqual(code, 2)
         self.assertIn(result.detail, record['submissionError'])

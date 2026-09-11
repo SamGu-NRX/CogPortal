@@ -19,6 +19,7 @@ import sys
 import tempfile
 import unittest
 from contextlib import redirect_stdout
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -122,6 +123,40 @@ class CheckAndRunAgree(unittest.TestCase):
         self.assertIsNotNone(scoreable.factory)
         self.assertEqual(adapter()[0], "discovered")
 
+    def test_a_missing_declaration_still_searches_and_clears_its_missing_file_error(self):
+        cli._discover = lambda *a, **k: (_Ready(), None, None)
+        scoreable = cli._scoreable('fixture', _Discoverable(), self.tmp, as_json=True)
+        self.assertEqual(scoreable.source, 'discovery')
+        self.assertIsNone(scoreable.declared_error)
+
+    def test_a_broken_declaration_does_not_fall_back_to_discovery(self):
+        (self.tmp / 'submission.py').write_text('def create_submission(:\n')
+        cli._discover = lambda *a, **k: self.fail('broken declaration must stop discovery')
+        scoreable = cli._scoreable('fixture', _Discoverable(), self.tmp, as_json=True)
+        self.assertIsNone(scoreable.factory)
+        self.assertEqual(scoreable.declared_source, 'file')
+        self.assertIn('SyntaxError', scoreable.declared_error)
+        benchmark = _Discoverable()
+        benchmark.cache_status = lambda tier: SimpleNamespace(ready=True, path=self.tmp, message='')
+        with patch.object(cli, 'plugin_names', return_value=['fixture']), \
+             patch.object(cli, 'load_benchmark', return_value=benchmark), \
+             patch.object(cli, 'model_cache_status', return_value={'ready': True}), \
+             patch.object(isolate, '_isolation_backend', return_value=None), \
+             redirect_stdout(io.StringIO()) as output:
+            code = cli._check('fixture', False, self.tmp)
+        self.assertEqual(code, 2)
+        self.assertIn('SyntaxError', output.getvalue())
+        self.assertIn('Fix the error in that file', output.getvalue())
+        self.assertNotIn('taking the interpreter down', output.getvalue())
+
+    def test_discovery_failure_keeps_the_specific_reason(self):
+        with patch.object(cli, 'from_spec', side_effect=RuntimeError('fixture preparation failed')):
+            submission, survey, unavailable = cli._discover(
+                'fixture', self.tmp, True, spec=object())
+        self.assertIsNone(submission)
+        self.assertIsNone(survey)
+        self.assertEqual(unavailable, 'RuntimeError: fixture preparation failed')
+
     def test_a_declared_file_is_scored_without_searching(self):
         cli.resolve_submission = lambda *a, **k: ("theirs", "file", "submission.py")
         cli._discover = lambda *a, **k: self.fail("a declaration ends the question")
@@ -193,7 +228,7 @@ class ReadingCannotTakeTheCommandDown(unittest.TestCase):
             code = cli._check("audio-identification", False, self.tmp)
 
         self.assertEqual(code, 2)
-        self.assertIn("ended the process before it finished", stdout.getvalue())
+        self.assertIn("Could not finish checking your repository", stdout.getvalue())
 
 
 @unittest.skipUnless(hasattr(os, "fork"), "no fork, so nothing to isolate")
@@ -207,8 +242,13 @@ class ScoredRunIsolation(unittest.TestCase):
 
     def _main(self, command="run", *flags):
         stdout = io.StringIO()
-        with patch.object(cli.Path, "cwd", return_value=self.tmp), redirect_stdout(stdout):
-            code = cli.main([command, "--benchmark", "fixture", *flags])
+        previous_cwd = Path.cwd()
+        try:
+            os.chdir(str(self.tmp))
+            with redirect_stdout(stdout):
+                code = cli.main([command, "--benchmark", "fixture", *flags])
+        finally:
+            os.chdir(str(previous_cwd))
         return code, stdout.getvalue()
 
     def _report(self, **kwargs):
@@ -227,7 +267,11 @@ class ScoredRunIsolation(unittest.TestCase):
 
         def resolve(*args, **kwargs):
             self.assertNotEqual(os.getpid(), parent)
-            self.assertEqual(args[2], self.tmp)
+            copied = args[2]
+            self.assertNotEqual(copied, self.tmp)
+            self.assertTrue(copied.is_dir())
+            self.assertEqual(kwargs['project'].execution, copied)
+            self.assertEqual(kwargs['project'].original, self.tmp)
             return lambda: "unpicklable adapter"
 
         def execute(benchmark, adapter, root, **kwargs):
@@ -308,7 +352,7 @@ class ScoredRunIsolation(unittest.TestCase):
             kwargs["progress"]("evaluating", 1, 1)
             if fail:
                 raise cli.ContractError("adapter returned the wrong shape")
-            return self._report()
+            return replace(self._report(), diagnostics=['loaded {}'.format(os.getcwd())])
 
         for fail in (False, True):
             with self.subTest(fail=fail), \
@@ -330,6 +374,9 @@ class ScoredRunIsolation(unittest.TestCase):
                     self.assertEqual(sent["events"][-1]["code"], "run.failed.contract")
                 else:
                     self.assertEqual(sent["events"][-1]["report"]["benchmarkId"], "fixture")
+                    self.assertEqual(sent["events"][-1]["report"]["diagnostics"],
+                                     json.loads(text)["diagnostics"])
+                    self.assertNotIn('cogworks-execution-', str(sent["events"][-1]["report"]))
 
     def test_json_redirects_python_and_native_output_through_execution(self):
         script = r'''
@@ -358,13 +405,14 @@ cli.load_benchmark = lambda *args: object()
 cli._submission_for = resolve
 cli.execute = execute
 from cogbench import isolate
-isolate._isolation_backend = lambda: isolate.run_isolated
+isolate._isolation_backend = lambda: None if os.environ.get("FIXTURE_NO_FORK") else isolate.run_isolated
 raise SystemExit(cli.main(["run", "--benchmark", "fixture"] + sys.argv[1:]))
 '''
         environment = dict(os.environ, PYTHONDONTWRITEBYTECODE="1",
                            PYTHONPATH=str(ROOT / "python/cogbench/src"))
-        for flags in (["--json"], []):
-            with self.subTest(flags=flags):
+        for no_fork, flags in ((False, ['--json']), (False, []), (True, ['--json']), (True, [])):
+            with self.subTest(no_fork=no_fork, flags=flags):
+                environment['FIXTURE_NO_FORK'] = '1' if no_fork else ''
                 result = subprocess.run([sys.executable, "-c", script, *flags], cwd=self.tmp,
                                         env=environment, capture_output=True, text=True, timeout=30)
                 self.assertEqual(result.returncode, 0, result.stderr)

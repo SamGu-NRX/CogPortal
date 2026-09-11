@@ -28,6 +28,7 @@ from typing import Mapping, Any, Callable, Dict, FrozenSet, List, Optional, Sequ
 
 from . import memo
 from .discover import Discovery, discover, _Redirects
+from .execution import ExecutionPaths
 from .isolate import hash_seed_in_effect as _hash_seed_in_effect
 from .progress import Progress
 from .pipeline import (
@@ -576,6 +577,7 @@ def resolve(
     readers: int = 0,
     prepare: Optional[Callable[[Path, Sequence[Any]], Mapping[str, Any]]] = None,
     expects: Optional[str] = None,
+    project: Optional[ExecutionPaths] = None,
 ) -> Submission:
     """Resolve one repository against one week's task.
 
@@ -638,6 +640,7 @@ def resolve(
 
         watcher = progress or Progress()
         repository = Path(repository).resolve()
+        project = project or ExecutionPaths(repository, repository)
 
         watcher.phase("Reading your repository")
         found = discover(
@@ -645,6 +648,7 @@ def resolve(
             hints=hints,
             declared_root=declared_root,
             resource_files=resource_files,
+            private_copy=project.execution != project.original,
         )
         weights_used: Tuple[str, ...] = ()
         if prepare is not None:
@@ -694,13 +698,13 @@ def resolve(
             return Submission(nothing_here(repository.name), discovery=found)
 
         key = (
-            memo.fingerprint(memo.source_paths(found), benchmark=benchmark)
+            memo.fingerprint(memo.source_paths(found), benchmark=benchmark, project=project)
             if remember
             else ""
         )
         if key:
             recalled = _replay(
-                memo.read(repository, key),
+                memo.read(project.original, key),
                 found,
                 chain_role,
                 arrangements,
@@ -710,7 +714,9 @@ def resolve(
             )
             if recalled is not None:
                 watcher.done()
-                return recalled
+                # Preparation runs against this execution copy even on a memo
+                # hit; retain the resources it actually loaded for this run.
+                return replace(recalled, weights_used=weights_used)
 
         watcher.phase("Looking for the functions that do the work")
         # What the week's test said about the last chain it rejected, kept so a
@@ -870,7 +876,7 @@ def resolve(
         if arrangements is None:
             watcher.done()
             if key:
-                memo.write(repository, key, dict(_remembered(chain), arrangement=-1))
+                memo.write(project.original, key, dict(_remembered(chain), arrangement=-1))
             return Submission(
                 _scored_placeholder(chain),
                 discovery=found,
@@ -901,7 +907,7 @@ def resolve(
         watcher.done()
         if key:
             memo.write(
-                repository,
+                project.original,
                 key,
                 dict(
                     _remembered(chain),

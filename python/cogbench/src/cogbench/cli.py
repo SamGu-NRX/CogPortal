@@ -11,13 +11,16 @@ import time
 import uuid
 import webbrowser
 from datetime import datetime, timezone
+from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable, NamedTuple, Optional, Sequence, Tuple
 from urllib.parse import urlparse
 
 from . import __version__
+from .apploader import SubmissionFileError, SubmissionFileMissing
 from .environment import gap_note, local_gap
+from .execution import ExecutionPaths, ExecutionCopyError, entered_project, private_project
 from .isolate import COMPLETED, CRASHED, Outcome
 from . import isolate
 from .client import (
@@ -274,7 +277,7 @@ def _installed_benchmark_hint() -> str:
     return installed[0] if len(installed) == 1 else "<benchmark>"
 
 
-def _discover(benchmark: str, project_root: Path, as_json: bool, *, spec=None):
+def _discover(benchmark: str, project_root: Path, as_json: bool, *, spec=None, project=None):
     """Search the repository for the code this benchmark needs.
 
     Returns ``(submission, survey, unavailable)``, any of which may be None.
@@ -314,12 +317,12 @@ def _discover(benchmark: str, project_root: Path, as_json: bool, *, spec=None):
             progress=watcher,
             remember=True,
             benchmark=benchmark,
+            project=project,
         )
     except Exception as error:  # noqa: BLE001
         if watcher is not None:
             watcher.done()
-        print("Could not read your repository: {}".format(error), file=sys.stderr)
-        return None, None, None
+        return None, None, "{}: {}".format(type(error).__name__, error)
 
     found = submission.discovery
     return submission, (found.to_dict() if found is not None else None), None
@@ -350,7 +353,7 @@ class _Scoreable(NamedTuple):
     discovery_unavailable: Optional[str] = None
 
 
-def _scoreable(name: str, benchmark, project_root: Path, *, as_json: bool, spec=None, spec_error=None) -> _Scoreable:
+def _scoreable(name: str, benchmark, project_root: Path, *, as_json: bool, spec=None, spec_error=None, project=None) -> _Scoreable:
     """Decide, once, what this repository would be scored on.
 
     `check` and `run` have to agree. A student told their code is wired up and
@@ -382,12 +385,14 @@ def _scoreable(name: str, benchmark, project_root: Path, *, as_json: bool, spec=
             )
     except PluginError as error:
         declared_error = str(error)
+        if isinstance(error.__cause__, SubmissionFileError) and not isinstance(error.__cause__, SubmissionFileMissing):
+            return _Scoreable(None, None, None, None, "file", None, declared_error)
 
     if spec_error is not None:
         # A declaration needs no discovery data. Without one, preserve the
         # original cold-cache failure instead of retrying or hiding its cause.
         raise spec_error
-    submission, survey, unavailable = _discover(name, project_root, as_json, spec=spec)
+    submission, survey, unavailable = _discover(name, project_root, as_json, spec=spec, project=project)
     build = getattr(benchmark, "submission_from_discovery", None)
     if submission is None or not submission.ready or not callable(build):
         return _Scoreable(
@@ -401,14 +406,14 @@ def _scoreable(name: str, benchmark, project_root: Path, *, as_json: bool, spec=
         survey,
         declared_source,
         declared_detail,
-        declared_error,
+        None,
     )
 
 
-def _submission_for(name: str, benchmark, project_root: Path, *, as_json: bool, spec=None, spec_error=None):
+def _submission_for(name: str, benchmark, project_root: Path, *, as_json: bool, spec=None, spec_error=None, project=None):
     """What to score, or a refusal."""
 
-    scoreable = _scoreable(name, benchmark, project_root, as_json=as_json, spec=spec, spec_error=spec_error)
+    scoreable = _scoreable(name, benchmark, project_root, as_json=as_json, spec=spec, spec_error=spec_error, project=project)
     if scoreable.factory is None:
         # The report already said why in full. Repeating it here would print
         # the same paragraphs twice, so this points at the command that
@@ -420,7 +425,29 @@ def _submission_for(name: str, benchmark, project_root: Path, *, as_json: bool, 
     return scoreable.factory
 
 
-def _check_view(name: str, project_root: Path, as_json: bool) -> dict:
+@contextmanager
+def _student_output(as_json: bool):
+    # Both Python prints and native writes must stay off the JSON descriptor.
+    # A separate stream also lets no-fork code close stdout without closing ours.
+    original_stdout = sys.stdout
+    saved_fd = os.dup(1)
+    output = os.fdopen(os.dup(2 if as_json else 1), "w", buffering=1,
+                       encoding="utf-8", errors="replace")
+    try:
+        isolate._flush_streams()
+        if as_json:
+            os.dup2(2, 1)
+        sys.stdout = output
+        yield
+    finally:
+        isolate._flush_streams()
+        sys.stdout = original_stdout
+        os.dup2(saved_fd, 1)
+        os.close(saved_fd)
+        output.close()
+
+
+def _check_view(name: str, project_root: Path, as_json: bool, *, project=None) -> dict:
     """Read the repository and answer the readiness question, as plain data.
 
     This is the whole of `check` that touches student code, and it is the unit
@@ -428,18 +455,101 @@ def _check_view(name: str, project_root: Path, as_json: bool) -> dict:
     reconstructs the dataclasses that render_check reads.
     """
 
-    benchmark = load_benchmark(name)
-    scoreable = _scoreable(name, benchmark, project_root, as_json=as_json)
-    return {
-        "ready": scoreable.factory is not None,
-        "source": scoreable.source,
-        "report": None if scoreable.submission is None else scoreable.submission.report().to_dict(),
-        "survey": scoreable.survey,
-        "declaredSource": scoreable.declared_source,
-        "declaredDetail": scoreable.declared_detail,
-        "declaredError": scoreable.declared_error,
-        "discoveryUnavailable": scoreable.discovery_unavailable,
-    }
+    project = project or ExecutionPaths(project_root, project_root)
+    with entered_project(project), _student_output(as_json):
+        benchmark = load_benchmark(name)
+        scoreable = _scoreable(name, benchmark, project_root, as_json=as_json, project=project)
+        view = {
+            "ready": scoreable.factory is not None,
+            "source": scoreable.source,
+            "report": None if scoreable.submission is None else scoreable.submission.report().to_dict(),
+            "survey": scoreable.survey,
+            "declaredSource": scoreable.declared_source,
+            "declaredDetail": scoreable.declared_detail,
+            "declaredError": scoreable.declared_error,
+            "discoveryUnavailable": scoreable.discovery_unavailable,
+        }
+        return project.describe(view)
+
+
+def _local_operation(operation: str, project_root: Path, **arguments) -> Outcome:
+    # The parent keeps the project copy through import, preparation and scoring.
+    # Scratch-first imports and probes still use separate temporary directories;
+    # files generated in those scratch directories do not survive to scoring.
+    try:
+        with private_project(project_root) as project:
+            def work():
+                if operation == "check":
+                    return _check_view(
+                        arguments["name"], project.execution, arguments["as_json"], project=project
+                    )
+                return _run_view(
+                    argparse.Namespace(**arguments["args"]), project.execution, project=project
+                )
+
+            backend = isolate._isolation_backend()
+            if backend is None:
+                # This cannot contain a native crash. Ordinary Python failures
+                # still belong to the operation, not to the parent renderer.
+                try:
+                    outcome = Outcome(COMPLETED, value=work())
+                except (Exception, SystemExit) as error:
+                    outcome = Outcome(isolate.RAISED, detail="{}: {}".format(type(error).__name__, error))
+            else:
+                # Scoring retains its existing unbounded CPU/wall policy. One
+                # measured local evaluation took 381 seconds, longer than the
+                # discovery default; this copy is not a new scoring deadline.
+                limits = {"timeout_seconds": None, "memory_bytes": None} if operation == "run" else {}
+                if backend is isolate.run_operation:
+                    outcome = backend(operation, dict(
+                        arguments, repository=str(project.execution), original=str(project.original)
+                    ), scratch=project.execution, **limits)
+                else:
+                    outcome = backend(work, scratch=project.execution, **limits)
+            return replace(outcome, detail=project.describe(outcome.detail))
+    except ExecutionCopyError as error:
+        return Outcome(CRASHED, detail=str(error))
+
+
+def _validate_survey(record) -> None:
+    """Validate the discovery record before any parent-side renderer reads it."""
+    if not isinstance(record, dict):
+        raise TypeError("survey must be an object")
+    for field in ("root", "rootReason", "unreadReason", "endedWhileReading"):
+        if field in record and not isinstance(record[field], str):
+            raise TypeError("survey.{} must be text".format(field))
+    if "unread" in record and type(record["unread"]) is not bool:
+        raise TypeError("survey.unread must be a boolean")
+    for field in ("considered", "stubbed", "stubCalls"):
+        if field in record and (
+            not isinstance(record[field], list) or
+            not all(isinstance(item, str) for item in record[field])
+        ):
+            raise TypeError("survey.{} must be a list of text".format(field))
+    for field, required in (("modules", ("name",)), ("skipped", ("name", "detail"))):
+        entries = record.get(field, [])
+        if not isinstance(entries, list):
+            raise TypeError("survey.{} must be a list".format(field))
+        for index, entry in enumerate(entries):
+            location = "survey.{}[{}]".format(field, index)
+            if not isinstance(entry, dict):
+                raise TypeError("{} must be an object".format(location))
+            for key in required:
+                if key not in entry:
+                    raise ValueError("{}.{} is missing".format(location, key))
+            for key in ("name", "path", "origin", "detail", "reason", "importedFrom", "note"):
+                if key in entry and not isinstance(entry[key], str):
+                    raise TypeError("{}.{} must be text".format(location, key))
+            if "missing" in entry and entry["missing"] is not None and not isinstance(entry["missing"], str):
+                raise TypeError("{}.missing must be text or null".format(location))
+            if "futureAnnotations" in entry and type(entry["futureAnnotations"]) is not bool:
+                raise TypeError("{}.futureAnnotations must be a boolean".format(location))
+            for key in ("redirected", "redirectNote"):
+                if key in entry and (
+                    not isinstance(entry[key], list) or
+                    not all(isinstance(item, str) for item in entry[key])
+                ):
+                    raise TypeError("{}.{} must be a list of text".format(location, key))
 
 
 #: What `_check` reads off a check view. The child builds it in `_check_view`
@@ -466,29 +576,7 @@ def _read_repository(
     report, and the status and detail are then what there is to say.
     """
 
-    backend = isolate._isolation_backend()
-    if backend is None:
-        # Windows has no fork, so there is no isolation to offer. Running it
-        # here is what the platform can do; refusing instead would tell every
-        # Windows student their repository could not be read, which is a
-        # sentence about their code that nothing observed. `discover.survey`
-        # made the same call for the same reason.
-        outcome = Outcome(COMPLETED, value=_check_view(name, project_root, as_json))
-
-    # The child runs from the repository, which is where `cogworks run`
-    # imports a declared submission from. Left on the default scratch
-    # directory, a `submission.py` that reads a relative file at import time
-    # failed the check and then worked on the run, which is the disagreement
-    # this whole path exists to remove. Discovery still imports their modules
-    # from a scratch directory of its own; that is `discover`'s business.
-    elif backend is isolate.run_operation:
-        outcome = backend("check", {
-            "name": name, "repository": str(project_root.resolve()), "as_json": as_json,
-        }, scratch=project_root)
-    else:
-        outcome = backend(
-            lambda: _check_view(name, project_root, as_json), scratch=project_root
-        )
+    outcome = _local_operation("check", project_root, name=name, as_json=as_json)
     view = None
     if outcome.status == COMPLETED:
         # One rehydration site for exec, fork, and in-process Windows. The
@@ -503,10 +591,13 @@ def _read_repository(
             if missing:
                 raise KeyError("check report is missing {}".format(", ".join(missing)))
             view = dict(outcome.value)
-            # `render_survey` indexes into this, so a present-but-wrong survey
-            # raises in the parent the way a missing key used to.
-            if view["survey"] is not None and not isinstance(view["survey"], dict):
-                raise TypeError("survey must be an object")
+            if type(view["ready"]) is not bool:
+                raise TypeError("check report ready must be a boolean")
+            for field in ("source", "declaredDetail", "declaredSource", "declaredError", "discoveryUnavailable"):
+                if view[field] is not None and not isinstance(view[field], str):
+                    raise TypeError("check report {} must be text or null".format(field))
+            if view["survey"] is not None:
+                _validate_survey(view["survey"])
             if view["report"] is not None:
                 view["report"] = SubmissionReport.from_dict(view["report"])
         except (KeyError, TypeError, ValueError) as error:
@@ -571,6 +662,7 @@ def _check(benchmark: str, as_json: bool, project_root: Path) -> int:
     survey = None
     installed_reference = False
     unread_detail = ""
+    declaration_error = ""
     search_unavailable = ""
     if checks["benchmarkLoadable"]:
         diagnostics: dict = {}
@@ -580,7 +672,7 @@ def _check(benchmark: str, as_json: bool, project_root: Path) -> int:
         if view is None:
             unread_detail = detail or "the process reading it ended without saying why"
             checks["submissionError"] = (
-                "Reading this repository ended the process ({}): {}".format(status, unread_detail)
+                "Could not check this repository ({}): {}".format(status, unread_detail)
             )
             checks["isolationDetail"] = diagnostics
         else:
@@ -593,6 +685,8 @@ def _check(benchmark: str, as_json: bool, project_root: Path) -> int:
             search_unavailable = view["discoveryUnavailable"] or ""
             if view["declaredError"]:
                 checks["submissionError"] = view["declaredError"]
+                if not view["ready"] and submission is None and view["declaredSource"] == "file":
+                    declaration_error = view["declaredError"]
             if submission is not None and submission.record is not None:
                 checks["discovery"] = submission.record
 
@@ -618,6 +712,7 @@ def _check(benchmark: str, as_json: bool, project_root: Path) -> int:
             submission_source=checks["submissionSource"],
             installed_reference=installed_reference,
             unread_detail=unread_detail,
+            declaration_error=declaration_error,
             search_unavailable=search_unavailable,
         ):
             print(line)
@@ -814,61 +909,52 @@ def _start_live_run(
     return _LiveRun(portal, token, str(result["sessionId"]))
 
 
-def _run_view(args: argparse.Namespace, project_root: Path) -> str:
+def _run_view(args: argparse.Namespace, project_root: Path, *, project=None) -> str:
     """Resolve and score here; only the serialized report leaves this process."""
 
+    project = project or ExecutionPaths(project_root, project_root)
     live: Optional[_LiveRun] = None
-    stdout_fd = None
     try:
-        if args.json:
-            # Imports can print through Python or native code. Redirect the
-            # descriptor so neither can corrupt the parent's JSON report.
-            sys.stdout.flush()
-            stdout_fd = os.dup(1)
-            os.dup2(2, 1)
-        benchmark = load_benchmark(args.benchmark)
-        describes = getattr(benchmark, "discovery", None)
-        spec, spec_error = None, None
-        try:
-            spec = describes() if callable(describes) else None
-        except Exception as error:
-            # Week 3 builds discovery from cached course data. An explicit
-            # submission can run and fetch that data without this spec.
-            spec_error = error
-        # For as long as student code can run, a course artifact the benchmark
-        # owns resolves to its validated copy, including attribute reads while
-        # scoring. The spec and mapping are built here, never sent across exec.
-        with _Redirects(dict(getattr(spec, "resource_files", {}) or {})):
-            adapter = _submission_for(
-                args.benchmark, benchmark, project_root, as_json=args.json, spec=spec,
-                spec_error=spec_error
-            )
-            if args.command == "run" and args.live:
-                # Live delivery owns worker threads. Start it beside execute in
-                # the child; threads started before fork would not survive there.
-                live = _start_live_run(args, benchmark, project_root)
-                live.progress("preparing")
-            report = execute(
-                benchmark,
-                adapter,
-                project_root,
-                smoke=args.command == "test",
-                progress=live.progress if live else None,
-            )
-            if live:
-                live.completed(report)
-            return report.to_json()
+        with entered_project(project), _student_output(args.json):
+            benchmark = load_benchmark(args.benchmark)
+            describes = getattr(benchmark, "discovery", None)
+            spec, spec_error = None, None
+            try:
+                spec = describes() if callable(describes) else None
+            except Exception as error:
+                # Week 3 builds discovery from cached course data. An explicit
+                # submission can run and fetch that data without this spec.
+                spec_error = error
+            # For as long as student code can run, a course artifact the benchmark
+            # owns resolves to its validated copy, including attribute reads while
+            # scoring. The spec and mapping are built here, never sent across exec.
+            with _Redirects(dict(getattr(spec, "resource_files", {}) or {})):
+                adapter = _submission_for(
+                    args.benchmark, benchmark, project_root, as_json=args.json, spec=spec,
+                    spec_error=spec_error, project=project
+                )
+                if args.command == "run" and args.live:
+                    # Live delivery owns worker threads. Start it beside execute in
+                    # the child; threads started before fork would not survive there.
+                    live = _start_live_run(args, benchmark, project.original)
+                    live.progress("preparing")
+                # execute's cwd argument supplies Git attribution; student code
+                # continues to run with the private working directory above.
+                report = execute(
+                    benchmark,
+                    adapter,
+                    project.original,
+                    smoke=args.command == "test",
+                    progress=live.progress if live else None,
+                )
+                serialized = json.dumps(project.describe(json.loads(report.to_json())))
+                if live:
+                    live.completed(LocalReport.from_json(serialized))
+                return serialized
     except BaseException as error:
         if live:
             live.failed(error)
         raise
-    finally:
-        # run_isolated uses _exit, which does not flush buffered student output.
-        sys.stdout.flush()
-        sys.stderr.flush()
-        if stdout_fd is not None:
-            os.dup2(stdout_fd, 1)
-            os.close(stdout_fd)
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
@@ -918,37 +1004,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 )
             return result
         if args.command in ("test", "run"):
-            backend = isolate._isolation_backend()
-            if backend is None:
-                # Windows runs in-process, as _read_repository and survey do;
-                # without fork this platform cannot offer crash containment.
-                outcome = Outcome(COMPLETED, value=_run_view(args, project_root))
-            else:
-                # The native import crash in test_isolate also affects run/test.
-                # Keep the adapter and the whole scored run inside this boundary.
-                #
-                # No budget. The boundary is here to contain a crash, and its
-                # defaults are discovery's: 300 seconds of CPU and 3 GiB, sized
-                # for reading a repository rather than for scoring one. The
-                # measurement that bears on a local run is a local one:
-                # carti4ce/week1_capstone took 381 seconds of evaluation on a
-                # laptop (worker/execution/runner.ts records it beside the
-                # hosted timings), so discovery's 300 would have cut a working
-                # submission short and called it a timeout. Local runs had no
-                # limit before this boundary existed and they still have none.
-                sys.stdout.flush()
-                sys.stderr.flush()
-                if backend is isolate.run_operation:
-                    # Send the parser namespace wholesale so flags have one
-                    # owner; this deliberately couples worker behavior to it.
-                    outcome = backend("run", {
-                        "args": vars(args), "repository": str(project_root.resolve()),
-                    }, scratch=project_root, timeout_seconds=None, memory_bytes=None)
-                else:
-                    outcome = backend(
-                        lambda: _run_view(args, project_root),
-                        scratch=project_root, timeout_seconds=None, memory_bytes=None,
-                    )
+            outcome = _local_operation("run", project_root, args=vars(args))
             if outcome.status != COMPLETED:
                 if args.json:
                     print(json.dumps({
