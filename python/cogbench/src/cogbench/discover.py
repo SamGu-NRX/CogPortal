@@ -366,6 +366,10 @@ class Discovery:
     modules: List[LoadedModule] = field(default_factory=list)
     skipped: List[SkippedModule] = field(default_factory=list)
     stub_calls: List[str] = field(default_factory=list)
+    #: Package initializer files retained in the process, including imports beyond
+    #: the directory traversal depth. Those deeper files have no LoadedModule
+    #: record but still determine the memoized binding.
+    initializers: List[Path] = field(default_factory=list)
     #: The packages this run actually stood in for, which is not the same as
     #: the packages it was willing to. A listed package that turned out to be
     #: installed is not stubbed and must not be reported as though it were.
@@ -922,6 +926,29 @@ def stubbed_now() -> List[str]:
         for name in STUBBED_MODULES
         if isinstance(sys.modules.get(name), _Stub)
     ]
+
+
+def initializers_now(root: Path, extra: Sequence[Path] = ()) -> List[Path]:
+    """Collect retained initializers, including imports beyond traversal depth.
+
+    Traversed packages already have LoadedModule records. A module can also
+    import a deeper package whose initializer discovery never visits; memo
+    invalidation must still include that source file.
+    """
+
+    roots = [Path(root).resolve()] + [Path(one).resolve() for one in extra]
+    found: List[Path] = []
+    for module in list(sys.modules.values()):
+        try:
+            where = getattr(module, "__file__", None)
+            if not where or Path(where).name != "__init__.py":
+                continue
+            path = Path(where).resolve()
+        except Exception:  # sys.modules entries can refuse attribute access.
+            continue
+        if any(_inside(path, one) for one in roots):
+            found.append(path)
+    return sorted(set(found))
 
 
 def _said(error: BaseException) -> str:
@@ -2901,6 +2928,7 @@ def discover(
                 resource_files=resource_files,
             )
             stubbed = stubbed_now()
+            initializers = initializers_now(root.path, extra)
     else:
         with tempfile.TemporaryDirectory(prefix="cogworks-import-") as temporary:
             with _entered(root.path, working=Path(temporary), also=extra):
@@ -2912,12 +2940,14 @@ def discover(
                     resource_files=resource_files,
                 )
                 stubbed = stubbed_now()
+                initializers = initializers_now(root.path, extra)
     return Discovery(
         root=root,
         modules=modules,
         skipped=skipped,
         stub_calls=calls,
         stubbed=stubbed,
+        initializers=initializers,
     )
 
 

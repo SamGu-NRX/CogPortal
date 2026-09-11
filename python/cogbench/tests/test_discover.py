@@ -855,6 +855,28 @@ class SurveyIsolationTests(unittest.TestCase):
         self.assertEqual(reasons.get("b_missing"), "missing_dependency")
         self.assertIn("z_fatal", str(result.record.get("endedWhileReading", "")))
 
+    @unittest.skipUnless(
+        hasattr(os, "fork"), "requires os.fork process isolation"
+    )
+    def test_the_two_outcomes_do_not_render_as_the_same_sentence(self):
+        from cogbench.report import render_survey
+
+        (self.tmp / "a_fine.py").write_text("def peaks(x):\n    return x\n")
+        (self.tmp / "z_fatal.py").write_text("import os\nos.abort()\n")
+        died = survey(self.tmp, timeout_seconds=60)
+
+        empty_repository = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, empty_repository, ignore_errors=True)
+        (empty_repository / "README.md").write_text("# nothing here\n")
+        empty = survey(empty_repository, timeout_seconds=60)
+
+        died_text = "\n".join(render_survey(died.record))
+        empty_text = "\n".join(render_survey(empty.record))
+
+        self.assertIn("stopped early", died_text)
+        self.assertNotIn("stopped early", empty_text)
+        self.assertIn("nothing", empty_text)
+
 
 class PlottingDoesNotStopTheSearch(unittest.TestCase):
     """Student code draws, and drawing must never open a window here.
