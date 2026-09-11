@@ -1,20 +1,8 @@
-"""Hostile submissions, each trying to buy back an official attempt.
+"""Submission output must not forge a platform failure or a successful result.
 
-A team gets three official attempts per benchmark. A run that fails for a
-platform reason gives the attempt back, so "the platform broke" is the
-sentence a submission has an incentive to make the controller say. Every
-fixture here is one way of trying, run through the real sandbox script.
-
-They assert on the outcome, not on the mechanism: attempt consumed, failure
-owned by the submission. That is deliberate. Three fixes to this code have
-each moved attribution to a new channel and left the shape intact, and a
-test written against the mechanism passes again the moment the mechanism
-moves. A test written against the ledger keeps failing until the answer is
-right.
-
-Every entry is an exploit that worked, or that would have worked. They stay
-after they are fixed, because the way this class of defect returns is that
-someone re-adds a channel nobody is still testing.
+These fixtures run through the real sandbox script and retain diagnostic
+attribution checks. Failure categories explain what broke; they no longer
+decide whether a practice or official slot is used.
 """
 
 from __future__ import annotations
@@ -29,11 +17,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 MODAL_APP = ROOT / "apps" / "runner-modal" / "src" / "cogworks_runner" / "modal_app.py"
-
-#: Categories that spend one of the three official attempts. Mirrors
-#: CONSUMING_FAILURES in apps/portal/worker/routes/runner-events.ts. A
-#: submission wants a category that is NOT in here.
-CONSUMING = {"student_runtime", "timeout", "memory_limit", "output_invalid"}
 
 
 def _evaluate_script() -> str:
@@ -137,33 +120,15 @@ def _verdict_from_the_real_rule(stderr: str) -> str:
 
     for _path, needle in _controller_rule():
         if needle in stderr:
-            # A platform-owned category: infrastructure=True, refunded.
+            # A platform-owned category would misattribute submission output.
             return "platform_owned"
-    return "student_runtime"
-
-
-def _controller_verdict(returncode: int, stderr: str) -> str:
-    """What the controller decides, using its own rule.
-
-    Reproduces the branch every `_evaluate_*` path takes on a nonzero return.
-    Kept as a copy rather than imported because `modal_app` imports `modal`
-    and `fastapi`, which the test interpreter does not have; the tests in
-    `TheRuleHereMatchesTheRealOne` keep the copy honest.
-
-    The rule has one line now. A nonzero return from the process that ran the
-    submission is the submission's, whatever that process said about it,
-    because everything it emits after importing student code is student
-    speech. Timeouts are decided separately by `_timed_out`, from elapsed
-    seconds and the return code, neither of which comes from in there.
-    """
-
     return "student_runtime"
 
 
 class ForgedPlatformFault(unittest.TestCase):
     """Attempts to make the controller say the platform broke."""
 
-    def test_writing_the_marker_to_fd_2_does_not_buy_a_refund(self):
+    def test_writing_the_marker_to_fd_2_does_not_forge_a_platform_failure(self):
         """The exploit this file was written for.
 
         `contextlib.redirect_stderr` swaps the `sys.stderr` object. File
@@ -183,9 +148,9 @@ class ForgedPlatformFault(unittest.TestCase):
         # The marker really does reach the controller. That is the point: the
         # fix is not that the write fails, it is that nobody reads it.
         self.assertIn("COG_PLATFORM_ERROR:", stderr)
-        self.assertIn(_verdict_from_the_real_rule(stderr), CONSUMING)
+        self.assertEqual(_verdict_from_the_real_rule(stderr), "student_runtime")
 
-    def test_the_marker_via_a_reopened_stderr_does_not_buy_a_refund(self):
+    def test_the_marker_via_a_reopened_stderr_does_not_forge_a_platform_failure(self):
         """Same idea, through a fresh file object on the same descriptor,
         which `redirect_stderr` also does not cover."""
 
@@ -199,9 +164,9 @@ class ForgedPlatformFault(unittest.TestCase):
             '''
         )
         self.assertNotEqual(returncode, 0)
-        self.assertIn(_verdict_from_the_real_rule(stderr), CONSUMING)
+        self.assertEqual(_verdict_from_the_real_rule(stderr), "student_runtime")
 
-    def test_restoring_sys_stderr_does_not_buy_a_refund(self):
+    def test_restoring_sys_stderr_does_not_forge_a_platform_failure(self):
         """A submission can undo the redirect from inside it, since the
         original object is reachable through `sys.__stderr__`."""
 
@@ -214,9 +179,9 @@ class ForgedPlatformFault(unittest.TestCase):
             '''
         )
         self.assertNotEqual(returncode, 0)
-        self.assertIn(_verdict_from_the_real_rule(stderr), CONSUMING)
+        self.assertEqual(_verdict_from_the_real_rule(stderr), "student_runtime")
 
-    def test_platform_words_in_the_exception_do_not_buy_a_refund(self):
+    def test_platform_words_in_the_exception_do_not_forge_a_platform_failure(self):
         """The first exploit, kept because this is how it came back twice.
 
         The controller used to substring-match the last error line for words
@@ -229,7 +194,7 @@ class ForgedPlatformFault(unittest.TestCase):
             '''
         )
         self.assertNotEqual(returncode, 0)
-        self.assertIn(_verdict_from_the_real_rule(stderr), CONSUMING)
+        self.assertEqual(_verdict_from_the_real_rule(stderr), "student_runtime")
 
 
 class ForgedSuccess(unittest.TestCase):
@@ -255,8 +220,8 @@ class ForgedSuccess(unittest.TestCase):
             )
 
 
-class TheRuleHereMatchesTheRealOne(unittest.TestCase):
-    """The verdict helper above is a copy, so it can drift. This pins it."""
+class ControllerAttribution(unittest.TestCase):
+    """Failure attribution must not trust the submission's own output."""
 
     def test_no_evaluate_path_reads_the_student_process_for_attribution(self):
         source = MODAL_APP.read_text(encoding="utf-8")
@@ -265,18 +230,6 @@ class TheRuleHereMatchesTheRealOne(unittest.TestCase):
             0,
             "attribution must not read anything the student process wrote",
         )
-
-    def test_the_consuming_set_here_matches_the_worker(self):
-        worker = (
-            ROOT / "apps" / "portal" / "worker" / "routes" / "runner-events.ts"
-        ).read_text(encoding="utf-8")
-        block = worker.split("CONSUMING_FAILURES", 1)[1].split("]", 1)[0]
-        declared = {
-            line.strip().strip('",')
-            for line in block.splitlines()
-            if line.strip().startswith('"')
-        }
-        self.assertEqual(declared, CONSUMING)
 
 
 if __name__ == "__main__":

@@ -27,6 +27,7 @@ export function FailureCard({
   children?: ReactNode;
 }) {
   const copy = failure ? resolveFailureCopy(failure.category, { benchmarkId, module }) : null;
+  const reason = refusal?.headline || copy?.title;
 
   if (collapsed) {
     return (
@@ -39,13 +40,8 @@ export function FailureCard({
   return (
     <Panel tone="alert">
       <h3 className="font-serif text-xl font-semibold text-ink">Run failed</h3>
-      <p className="mt-2 max-w-prose break-words text-[14px] text-ink-secondary">
-        {refusal?.headline || copy?.title || "No failure reason was recorded."}
-      </p>
-      {(refusal?.nextStep || copy?.action) && (
-        <p className="mt-2 max-w-prose break-words text-[14px] whitespace-pre-wrap text-ink">
-          {refusal?.nextStep || copy?.action}
-        </p>
+      {reason && (
+        <p className="mt-2 max-w-prose break-words text-[14px] text-ink-secondary">{reason}</p>
       )}
       {(failure || refusal || children) && (
         <div className="mt-4">
@@ -65,6 +61,9 @@ export function FailureCard({
             )}
             {refusal && (
               <RefusalCard refusal={refusal} benchmarkId={benchmarkId} stage={failure ? PHASE_LABELS[failure.phase] : undefined} />
+            )}
+            {!refusal && copy?.action && (
+              <p className="max-w-prose break-words text-[13px] whitespace-pre-wrap text-ink">{copy.action}</p>
             )}
             {copy?.reproCommand && (
               <div>

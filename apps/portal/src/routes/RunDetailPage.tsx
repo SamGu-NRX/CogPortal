@@ -45,7 +45,8 @@ export function RunDetailPage() {
   // covers the first render, before the run record arrives.
   const runBenchmarkId = runQuery.data?.benchmarkId ?? DEFAULT_BENCHMARK;
   const benchmarks = useBenchmarks();
-  const runModule = benchmarks.data?.find((b) => b.id === runBenchmarkId)?.module;
+  const runBenchmark = benchmarks.data?.find((b) => b.id === runBenchmarkId);
+  const runModule = runBenchmark?.module;
   // Cached alongside the dashboard: supplies quota and selection context.
   const dashboard = useDashboard(runBenchmarkId, Boolean(runQuery.data));
   const promote = usePromote();
@@ -101,7 +102,7 @@ export function RunDetailPage() {
       {/* ── Masthead ── */}
       <header className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2">
         <h1 className="font-serif text-3xl font-semibold">
-          {runNumberLabel(run.id)}
+          {run.status === "failed" ? runBenchmark?.title ?? "Run" : runNumberLabel(run.id)}
         </h1>
         <span
           className={`border px-2 py-0.5 font-mono text-[10.5px] font-medium tracking-[0.09em] uppercase ${
@@ -200,7 +201,7 @@ export function RunDetailPage() {
               <>
                 {hasRecordedFindings && (
                   <div className="space-y-4 border-t border-rule-soft pt-4">
-                    <p className="text-[13px] text-ink-secondary">Recorded findings from this failed execution.</p>
+                    <p className="text-[13px] text-ink-secondary">Saved results</p>
                     {run.diagnostics.length > 0 && (
                       <Finding sentence={run.diagnostics[0]} supporting={run.diagnostics.slice(1)} />
                     )}
@@ -361,7 +362,7 @@ export function RunDetailPage() {
         </Panel>
       )}
 
-      {run.status === "succeeded" && run.mode === "official" && (
+      {run.publishable && (
         <Panel
           label={run.selected ? "PUBLISHED" : "PUBLISH"}
           tone={run.selected ? "good" : "default"}

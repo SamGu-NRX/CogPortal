@@ -1,5 +1,5 @@
 import type { Hono } from "hono";
-import { and, asc, count, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   AdminAddMemberRequestSchema,
@@ -22,7 +22,6 @@ import {
   benchmarks,
   cohorts,
   leaderboardSelections,
-  officialAttempts,
   platformStaff,
   runMetrics,
   runs,
@@ -34,6 +33,7 @@ import {
 import { ApiHttpError } from "../http/errors";
 import { parseBody, respond } from "../http/respond";
 import { isUniqueConstraintError } from "./team";
+import { acceptedRunPredicate, readRunAccounting } from "../services/run-accounting";
 
 const AdminCohortSchema = z.object({
   slug: z.string(),
@@ -51,7 +51,7 @@ async function getAdminTeamSummary(
   db: Database,
   teamId: string,
 ): Promise<AdminTeamSummary> {
-  const [[team], members, tas, [practice], [official], [refunds], [published]] = await Promise.all([
+  const [[team], members, tas, accounting, [published]] = await Promise.all([
     db.select().from(teams).where(eq(teams.id, teamId)).limit(1),
     db
       .select({
@@ -74,21 +74,8 @@ async function getAdminTeamSummary(
       .innerJoin(users, eq(teamTas.userId, users.id))
       .where(eq(teamTas.teamId, teamId))
       .orderBy(asc(users.githubLogin)),
-    db
-      .select({ value: count() })
-      .from(runs)
-      .where(and(eq(runs.teamId, teamId), eq(runs.mode, "practice"))),
-    db
-      .select({ value: count() })
-      .from(officialAttempts)
-      .where(eq(officialAttempts.teamId, teamId)),
-    // Refunds a team has received, counted across benchmarks. Nothing counted
-    // these before migration 0029, so a team's total starts at zero on the
-    // deploy that added the column even if they were refunded before it.
-    db
-      .select({ value: count() })
-      .from(runs)
-      .where(and(eq(runs.teamId, teamId), isNotNull(runs.refundedAt))),
+    // Admin team totals intentionally span every benchmark and version.
+    readRunAccounting(db, { teamId, allBenchmarks: true }),
     db
       .select({
         value: runMetrics.value,
@@ -115,7 +102,8 @@ async function getAdminTeamSummary(
           eq(runMetrics.isPrimary, true),
         ),
       )
-      .where(eq(leaderboardSelections.teamId, teamId))
+      .innerJoin(runs, eq(runs.id, leaderboardSelections.runId))
+      .where(and(eq(leaderboardSelections.teamId, teamId), eq(runs.mode, "official"), acceptedRunPredicate()))
       .orderBy(desc(leaderboardSelections.selectedAt))
       .limit(1),
   ]);
@@ -146,9 +134,10 @@ async function getAdminTeamSummary(
       name: ta.name,
       avatarUrl: ta.avatarUrl,
     })),
-    practiceUsed: practice?.value ?? 0,
-    officialUsed: official?.value ?? 0,
-    refundsGiven: refunds?.value ?? 0,
+    practiceUsed: accounting.practiceUsed,
+    officialUsed: accounting.officialUsed,
+    // Retained for older clients. Failures no longer require a refund decision.
+    refundsGiven: 0,
     published:
       published?.value == null
         ? null

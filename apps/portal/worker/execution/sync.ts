@@ -1,17 +1,9 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, exists, notInArray, sql } from "drizzle-orm";
 import { FIXTURE_PHASE_DURATIONS_MS } from "@cogworks/contracts/fixtures";
 import { RUN_PHASES, isTerminal, type FailureCategory } from "@cogworks/contracts/schema";
 import type { Database } from "../db/client";
 import { officialAttempts, runMetrics, runPhases, runs, type RunRow } from "../db/schema";
 import { fixtureLog, fixtureMetrics, fixtureScenario } from "./fixture";
-import { refundOfficialAttempt, withRefundCapNotice } from "./refunds";
-
-const CONSUMING_FAILURES = new Set<FailureCategory>([
-  "student_runtime",
-  "timeout",
-  "memory_limit",
-  "output_invalid",
-]);
 
 /**
  * Advances a fixture run to the state implied by wall-clock time. This lazy,
@@ -63,98 +55,58 @@ export async function syncRun(db: Database, row: RunRow, now = Date.now()): Prom
     finishedAt = row.createdAt + totalDuration;
   }
 
-  for (const phase of phaseValues) {
-    await db
-      .insert(runPhases)
-      .values(phase)
-      .onConflictDoUpdate({
-        target: [runPhases.runId, runPhases.phase],
-        set: { startedAt: phase.startedAt, endedAt: phase.endedAt },
-      });
-  }
-
-  const evaluatingOffset = RUN_PHASES.slice(0, RUN_PHASES.indexOf("evaluating")).reduce(
-    (total, phase) => total + FIXTURE_PHASE_DURATIONS_MS[phase],
-    0,
+  const eligible = and(
+    eq(runs.id, row.id),
+    notInArray(runs.status, ["succeeded", "failed", "cancelled"]),
+    // An older poll must not move a newer poll's phase backward.
+    sql`case ${runs.status}
+      when 'queued' then 0 when 'preparing' then 1 when 'installing' then 2
+      when 'contract_check' then 3 when 'evaluating' then 4 when 'scoring' then 5
+      else 6 end <= ${nextStatus === "failed" || nextStatus === "succeeded" ? 6 : RUN_PHASES.indexOf(nextStatus)}`,
   );
-  if (row.mode === "official" && now >= row.createdAt + evaluatingOffset) {
-    await db
-      .update(officialAttempts)
-      .set({ consumed: true })
-      .where(eq(officialAttempts.runId, row.id));
-  }
-
-  const studentFault = terminalFailure
-    ? (terminalFailure.phase === "evaluating" || terminalFailure.phase === "scoring") &&
-      CONSUMING_FAILURES.has(terminalFailure.category)
-    : false;
-  // A failure that is ours gives the attempt back, up to the per-team,
-  // per-benchmark cap in ./refunds.ts. Past the cap the attempt stays spent,
-  // so the run has to say both things: `consumedAttempt` reports what really
-  // happened to the attempt (FailureCard.tsx renders it as the authoritative
-  // line), and the detail explains why, because a team that silently lost an
-  // attempt to our failure cannot tell that from a bug.
-  let failureDetail = terminalFailure?.detail ?? null;
-  let consumedAttempt = studentFault;
-  if (terminalFailure && !studentFault) {
-    const outcome = await refundOfficialAttempt(db, row, now);
-    if (outcome === "capped") {
-      failureDetail = withRefundCapNotice(failureDetail);
-      consumedAttempt = true;
-    }
-  }
-
-  if (nextStatus === "succeeded") {
-    for (const metric of fixtureMetrics(row.id, row.branch, row.benchmarkId)) {
-      await db
-        .insert(runMetrics)
-        .values({
-          runId: row.id,
-          key: metric.key,
-          label: metric.label,
-          value: metric.value,
-          unit: metric.unit,
-          higherIsBetter: metric.higherIsBetter,
-          isPrimary: metric.primary,
-          precision: metric.precision,
-          // The fixture path dropped help as well, so a fixture run could not
-          // reproduce what a real one renders.
-          help: metric.help ?? null,
-          role: metric.role ?? null,
-          relatesTo: metric.relatesTo ?? null,
-        })
-        .onConflictDoUpdate({
-          target: [runMetrics.runId, runMetrics.key],
-          set: {
-            label: metric.label,
-            value: metric.value,
-            unit: metric.unit,
-            higherIsBetter: metric.higherIsBetter,
-            isPrimary: metric.primary,
-            precision: metric.precision,
-            help: metric.help ?? null,
-            role: metric.role ?? null,
-            relatesTo: metric.relatesTo ?? null,
-          },
-        });
-    }
-  }
-
-  await db
-    .update(runs)
-    .set({
+  const eligibleExists = exists(db.select({ id: runs.id }).from(runs).where(eligible));
+  const [firstPhase, ...remainingPhases] = phaseValues.map((phase) => db.insert(runPhases).select(db.select({
+      runId: sql<string>`${phase.runId}`.as("runId"),
+      phase: sql<typeof phase.phase>`${phase.phase}`.as("phase"),
+      startedAt: sql<number | null>`${phase.startedAt}`.as("startedAt"),
+      endedAt: sql<number | null>`${phase.endedAt}`.as("endedAt"),
+    }).from(runs).where(eligible)).onConflictDoUpdate({
+      target: [runPhases.runId, runPhases.phase],
+      set: { startedAt: phase.startedAt, endedAt: phase.endedAt },
+    }));
+  if (!firstPhase) throw new Error("Fixture run has no phases.");
+  await db.batch([
+    firstPhase, ...remainingPhases,
+    ...(nextStatus === "succeeded" ? fixtureMetrics(row.id, row.branch, row.benchmarkId).map((metric) =>
+      db.insert(runMetrics).select(db.select({
+        runId: sql<string>`${row.id}`.as("runId"),
+        key: sql<string>`${metric.key}`.as("key"),
+        label: sql<string>`${metric.label}`.as("label"),
+        value: sql<number>`${metric.value}`.as("value"),
+        unit: sql<string | null>`${metric.unit}`.as("unit"),
+        higherIsBetter: sql<boolean>`${Number(metric.higherIsBetter)}`.as("higherIsBetter"),
+        isPrimary: sql<boolean>`${Number(metric.primary)}`.as("isPrimary"),
+        precision: sql<number>`${metric.precision}`.as("precision"),
+        help: sql<string | null>`${metric.help ?? null}`.as("help"),
+        role: sql<typeof runMetrics.$inferInsert.role>`${metric.role ?? null}`.as("role"),
+        relatesTo: sql<string | null>`${metric.relatesTo ?? null}`.as("relatesTo"),
+      }).from(runs).where(eligible)).onConflictDoNothing()
+    ) : []),
+    ...(nextStatus === "failed" ? [
+      db.delete(officialAttempts).where(and(eq(officialAttempts.runId, row.id), eligibleExists)),
+    ] : []),
+    db.update(runs).set({
       status: nextStatus,
       finishedAt,
       failureCategory: terminalFailure?.category ?? null,
       failurePhase: terminalFailure?.phase ?? null,
-      failureDetail,
-      failureConsumedAttempt: consumedAttempt,
-      log:
-        row.mode === "practice" && (nextStatus === "succeeded" || nextStatus === "failed")
-          ? fixtureLog(row.id, row.branch, row.sha, row.benchmarkId)
-          : null,
-    })
-    .where(eq(runs.id, row.id));
+      failureDetail: terminalFailure?.detail ?? null,
+      failureConsumedAttempt: false,
+      log: row.mode === "practice" && (nextStatus === "succeeded" || nextStatus === "failed")
+        ? fixtureLog(row.id, row.branch, row.sha, row.benchmarkId)
+        : null,
+    }).where(eligible),
+  ]);
 
   const [updated] = await db.select().from(runs).where(eq(runs.id, row.id)).limit(1);
   return updated ?? row;

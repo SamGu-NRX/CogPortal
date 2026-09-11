@@ -21,7 +21,7 @@ function run(overrides: Partial<RunDetail> = {}): RunDetail {
     attemptNumber: null, primaryMetric: null,
     failure: { category: "student_runtime", phase: "evaluating", consumedAttempt: true, detail: "RuntimeError: fixture exception" },
     phases: [], metrics: [], diagnostics: [], sweep: null, wiring: [], refusal: null,
-    weightsSupplied: [], log: "practice traceback", selected: false,
+    weightsSupplied: [], log: "practice traceback", selected: false, publishable: false,
     ...overrides,
   };
 }
@@ -105,9 +105,30 @@ test("failed late findings stay hidden history, with no publication or promotion
 test("missing failure metadata still reports failure without inventing a cause", async (t) => {
   const { container } = await mount(t, page(t, run({ failure: null, log: null })));
   assert.match(container.textContent, /Run failed/);
-  assert.match(container.textContent, /No failure reason was recorded/);
+  assert.doesNotMatch(container.textContent, /No failure reason was recorded/);
   assert.doesNotMatch(container.textContent, /raised an exception/);
 });
+
+test("provider failure keeps staff escalation in details", async (t) => {
+  const { container } = await mount(t, page(t, run({
+    failure: { category: "provider", phase: "evaluating", consumedAttempt: false, detail: null },
+  })));
+  assert.match(container.textContent, /The run couldn't finish/);
+  assert.doesNotMatch(container.textContent, /Execution provider failed/);
+  const escalation = [...container.querySelectorAll("p")].find((node) => node.textContent.includes("course staff"));
+  assert.ok(escalation?.closest('[aria-hidden="true"][inert]'));
+});
+
+for (const publishable of [false, true]) {
+  test(`official publication follows server publishable=${publishable}`, async (t) => {
+    const { container } = await mount(t, page(t, run({
+      mode: "official", status: "succeeded", failure: null, publishable,
+      selected: !publishable,
+    })));
+    assert.equal(container.textContent.includes("Publish to leaderboard"), publishable);
+    assert.doesNotMatch(container.textContent, /ATTEMPT REFUNDED|returned your attempt|This result is your team's public entry/);
+  });
+}
 
 test("completed partial evaluation retains findings, supporting results and promotion", async (t) => {
   const { container } = await mount(t, page(t, run({
@@ -119,7 +140,7 @@ test("completed partial evaluation retains findings, supporting results and prom
   assert.match(container.textContent, /This run has no overall score/);
   assert.match(container.textContent, /Text MRR/);
   assert.match(container.textContent, /Promote to official/);
-  assert.doesNotMatch(container.textContent, /Run failed|Recorded findings from this failed/);
+  assert.doesNotMatch(container.textContent, /Run failed|Saved results/);
 });
 
 test("console failure ignores late completion in its summary, retaining it only in details", async (t) => {
@@ -151,7 +172,7 @@ test("console failure ignores late completion in its summary, retaining it only 
   assert.ok(toggle);
   assert.equal(window.document.activeElement, toggle);
   await act(async () => toggle.click());
-  assert.match(container.textContent, /Recorded findings from this failed execution/);
+  assert.match(container.textContent, /Saved results/);
   assert.match(container.textContent, /Late accuracy: 0.100/);
   assert.match(container.textContent, /Run complete/);
   assert.equal(window.document.activeElement, toggle);

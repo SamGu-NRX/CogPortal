@@ -404,7 +404,7 @@ export function GalleryPage() {
           benchmarkId="audio-identification"
           module="audio"
         >
-          <p className="text-[13px] text-ink-secondary">Recorded findings from this failed execution.</p>
+          <p className="text-[13px] text-ink-secondary">Saved results</p>
           <Finding sentence="The fingerprints were measured before execution stopped." />
           <SupportingMetrics metrics={[metric()]} rolesRecorded={false} />
         </FailureCard>

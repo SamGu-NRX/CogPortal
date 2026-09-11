@@ -13,8 +13,8 @@ zip() truncates, and four Week 1 results covering a submission's two correct
 queries score identification_score 1.0 where the honest twelve score 0.2. A
 wrong element type is an uncaught AttributeError inside score(), and
 execute_job labels anything raised during the scoring phase as category
-"scorer" with infrastructure=True, whose copy tells the team the platform
-broke and refunds the attempt. Both tests below pin the refusal instead.
+"scorer" with infrastructure=True, which wrongly tells the team the platform
+broke. Both tests below pin the submission-output refusal instead.
 """
 
 from __future__ import annotations
@@ -1069,28 +1069,16 @@ class WiringTests(unittest.TestCase):
     def test_check_runs_before_the_phase_becomes_scoring(self):
         # Order is what decides who gets blamed. Once phase is "scoring",
         # execute_job's handler turns any non-RunnerFailure into category
-        # "scorer" with infrastructure=True, which refunds the attempt.
+        # "scorer" with infrastructure=True, which misattributes invalid output.
         check_at = SOURCE.index("_check_predictions(benchmark, predictions, case_count)")
         phase_at = SOURCE.index('phase = "scoring"')
         self.assertLess(check_at, phase_at)
 
-    def test_refusal_consumes_the_attempt(self):
-        # output_invalid is in CONSUMING_FAILURES in both runner-events.ts and
-        # sync.ts, and infrastructure=False is the other half of that
-        # decision. A refusal that refunds the attempt is the free retry this
-        # check exists to close.
+    def test_refusal_identifies_invalid_submission_output(self):
         failure = NS["_refuse_output"]("anything")
         self.assertEqual(failure.category, "output_invalid")
         self.assertFalse(failure.infrastructure)
         self.assertEqual(failure.phase, "evaluating")
-
-        for path in (
-            ROOT / "apps" / "portal" / "worker" / "routes" / "runner-events.ts",
-            ROOT / "apps" / "portal" / "worker" / "execution" / "sync.ts",
-        ):
-            text = path.read_text(encoding="utf-8")
-            block = text.split("CONSUMING_FAILURES", 1)[1].split("]", 1)[0]
-            self.assertIn("output_invalid", block, path.name)
 
     def test_every_registered_v2_benchmark_has_a_declared_shape(self):
         # A week added later without an entry still gets the count check, and

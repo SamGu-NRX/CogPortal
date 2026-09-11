@@ -12,7 +12,7 @@ import type { BenchmarkRow, RunRow, TeamRow } from "../db/schema";
 import { runs } from "../db/schema";
 import { ApiHttpError } from "../http/errors";
 import { newId } from "../util/id";
-import { getLatestTeamWeightPaths } from "../services/local-reports";
+import { getLatestTeamWeights } from "../services/local-reports";
 import { weightManifest } from "../services/weights";
 
 const DEFAULT_IMAGE_DIGEST = "cogworks-week2-cpu-v1:unpublished";
@@ -175,13 +175,15 @@ export async function enqueueRun(
 ): Promise<void> {
   assertModalConfigured(env);
   let weights: WeightFile[] = [];
-  if (env.ARTIFACTS && !run.preparedArtifactId) {
+  if (!run.preparedArtifactId) {
     // Weights are stored under the repository and commit they were synced for,
     // so they have to be looked up under the run's repository for the same
     // reason the job's source does.
     const repository = run.repositoryFullName ?? team.repoFullName;
-    const paths = await getLatestTeamWeightPaths(env, run.teamId, repository, run.sha);
-    weights = await weightManifest(env.ARTIFACTS, repository, run.sha, paths);
+    const report = await getLatestTeamWeights(env, run.teamId, repository, run.sha);
+    weights = await weightManifest(
+      env.ARTIFACTS, repository, run.sha, report.weightsUsed, report.weightsUploaded,
+    );
   }
   const job = buildRunJob(env, run, team, benchmark, weights);
   if (env.RUN_QUEUE) {

@@ -17,6 +17,7 @@ import {
   teams,
 } from "../db/schema";
 import { ApiHttpError } from "../http/errors";
+import { canPublishOfficialRun } from "./run-eligibility";
 import { serializeBenchmark, serializeMetric } from "../http/serializers";
 import {
   hasSharedBenchmarkSource,
@@ -70,6 +71,7 @@ export async function getLeaderboardReadModel(
 
   const entries: LeaderboardEntry[] = [];
   for (const row of selected) {
+    if (!canPublishOfficialRun(row.run)) continue;
     const runMetricsForRow = metricsByRun.get(row.run.id) ?? [];
     const primary = runMetricsForRow.find((metric) => metric.isPrimary);
     if (!primary || row.run.finishedAt === null) continue;
@@ -141,7 +143,7 @@ export async function getFamilyLeaderboardReadModel(
     .innerJoin(runs, eq(leaderboardSelections.runId, runs.id))
     .innerJoin(teams, eq(leaderboardSelections.teamId, teams.id));
   const relevant = selected.filter((row) =>
-    components.some(
+    canPublishOfficialRun(row.run) && components.some(
       (component) =>
         component.benchmarkId === row.run.benchmarkId &&
         component.benchmarkVersion === row.run.benchmarkVersion,

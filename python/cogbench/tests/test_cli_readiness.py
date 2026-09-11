@@ -19,6 +19,7 @@ import sys
 import tempfile
 import unittest
 from contextlib import redirect_stdout
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -28,6 +29,7 @@ sys.path.insert(0, str(ROOT / "python" / "cogbench" / "src"))
 
 from cogbench import cli, isolate  # noqa: E402
 from cogbench.isolate import CRASHED, Outcome  # noqa: E402
+from cogbench.models import LocalReport, Metric  # noqa: E402
 from cogbench.plugins import PluginError  # noqa: E402
 
 
@@ -221,6 +223,14 @@ class ScoredRunIsolation(unittest.TestCase):
 
     def test_resolve_and_execute_stay_in_child_and_parent_saves_the_report(self):
         parent = os.getpid()
+        save_report = cli.save_report
+        metrics = [
+            Metric("metric_" + role, role, 0.25, None, True, role == "scored", 3,
+                   help="What this measures.", role=role,
+                   relates_to=None if role == "scored" else "metric_scored")
+            for role in ("scored", "floor", "reported", "diagnostic")
+        ]
+        uploads = [{"path": "weights.pkl", "sha256": "c" * 64}]
 
         def resolve(*args, **kwargs):
             self.assertNotEqual(os.getpid(), parent)
@@ -232,14 +242,19 @@ class ScoredRunIsolation(unittest.TestCase):
             self.assertEqual(adapter(), "unpicklable adapter")
             self.assertEqual(root, self.tmp)
             self.assertEqual(kwargs["smoke"], command == "test")
-            return self._report(weights_used=kwargs["weights"])
+            return replace(self._report(weights_used=kwargs["weights"]),
+                           metrics=metrics, weights_uploaded=uploads)
 
         def save(report, root):
             self.assertEqual(os.getpid(), parent)
             self.assertEqual(root, self.tmp)
             self.assertEqual(report.weights_used, ["weights.pkl"])
             self.assertNotEqual(report.diagnostics, ["child pid: {}".format(parent)])
-            return self.tmp / "report.json"
+            self.assertEqual(report.metrics, metrics)
+            self.assertEqual(report.weights_uploaded, uploads)
+            path = save_report(report, root)
+            self.assertEqual(LocalReport.from_json(path.read_text()), report)
+            return path
 
         for command in ("run", "test"):
             with self.subTest(command=command), patch.object(cli, "load_benchmark", return_value=object()), \
@@ -248,7 +263,10 @@ class ScoredRunIsolation(unittest.TestCase):
                     patch.object(cli, "save_report", side_effect=save) as saved:
                 code, text = self._main(command, "--json")
                 self.assertEqual(code, 0, text)
-                self.assertEqual(json.loads(text)["weightsUsed"], ["weights.pkl"])
+                payload = json.loads(text)
+                self.assertEqual(payload["weightsUsed"], ["weights.pkl"])
+                self.assertEqual(payload["weightsUploaded"], uploads)
+                self.assertEqual(payload["metrics"], [metric.to_wire() for metric in metrics])
                 saved.assert_called_once()
 
     def test_a_crash_in_resolution_or_execution_reports_no_result(self):
