@@ -97,7 +97,15 @@ def message_of(error: BaseException) -> str:
     """
 
     try:
-        text = str(error).strip().splitlines()
+        message = str(error)
+        start, end = 0, len(message)
+        while start < end and message[start].isspace():
+            start += 1
+        while end > start and message[end - 1].isspace():
+            end -= 1
+        # Slice before splitting: a multiline error must not allocate a list
+        # proportional to its length just to display at most MESSAGE_LIMIT chars.
+        text = message[start:min(end, start + MESSAGE_LIMIT)].splitlines()
     except BaseException:
         # A student's __str__ must not replace the error we are reporting.
         text = []
@@ -119,13 +127,12 @@ def where_it_raised(error: BaseException, root: Path) -> Optional[Tuple[str, int
     # nothing in the repository raised.
     root = Path(root).resolve()
     for frame in reversed(traceback.extract_tb(error.__traceback__)):
+        if frame.filename.startswith("<") and frame.filename.endswith(">"):
+            continue
         try:
             where = Path(frame.filename).resolve()
         except (OSError, ValueError):
-            # `co_filename` is a label, not a promise of a path: the
-            # interpreter puts `<string>` there for anything compiled from
-            # one. A frame that cannot be read as a path is not theirs, and
-            # this report must not be what ends a run.
+            # Other invalid filename labels must not break error reporting.
             continue
         try:
             inside = where.relative_to(root)
@@ -149,7 +156,10 @@ def root_of_their_code(error: BaseException, ours: Path) -> Optional[Path]:
     """
 
     ours = Path(ours).resolve()
+    entered_ours = False
     for frame in traceback.extract_tb(error.__traceback__):
+        if frame.filename.startswith("<") and frame.filename.endswith(">"):
+            continue
         try:
             where = Path(frame.filename).resolve()
         except (OSError, ValueError):
@@ -158,7 +168,10 @@ def root_of_their_code(error: BaseException, ours: Path) -> Optional[Path]:
         try:
             where.relative_to(ours)
         except ValueError:
-            return where.parent
+            if entered_ours:
+                return where.parent
+            continue
+        entered_ours = True
     return None
 
 
