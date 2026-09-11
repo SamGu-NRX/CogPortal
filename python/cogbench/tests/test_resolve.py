@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import signal
 import sys
 import tempfile
 import unittest
@@ -1881,6 +1882,9 @@ class AReaderProbeGetsThePerCallClockLikeEveryOtherCall(unittest.TestCase):
     tried and refused the repository instead, see the report.
     """
 
+    @unittest.skipUnless(
+        hasattr(signal, "SIGALRM"), "the per-call clock is SIGALRM, which Windows lacks"
+    )
     def test_a_reader_that_does_not_return_is_cut_off_not_waited_on(self):
         import time
         import unittest.mock
