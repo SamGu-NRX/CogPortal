@@ -192,6 +192,7 @@ function snapshot(status: RunSurfaceSnapshot["status"] = "running"): RunSurfaceS
     refusalHeadline: null,
     executionHistory: [],
     executionGeneration: 0,
+    snapshotRevision: 1,
     events: [0, 1, 2, 3].map((sequence) => ({
       eventId: `stream_event_${sequence}`,
       source: "local" as const,

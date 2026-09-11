@@ -89,6 +89,7 @@ function surfaceSnapshot(): RunSurfaceSnapshot {
     events: [],
     executionHistory: [],
     executionGeneration: 0,
+    snapshotRevision: 1,
     actions: ["open_console", "open_portal", "verify_hosted", "run_again"],
     simulated: true,
   };

@@ -10,7 +10,8 @@ import { Hono } from "hono";
 import { maintainPlatform } from "../worker/execution/maintenance.ts";
 import { hmacSignature } from "../worker/execution/runner.ts";
 import { registerRunnerEventRoutes } from "../worker/routes/runner-events.ts";
-import { buildRunSurfaceSnapshot } from "../worker/services/run-surfaces.ts";
+import { appendRunStreamEvent, buildRunSurfaceSnapshot, publishRunSurface } from "../worker/services/run-surfaces.ts";
+import { runSurfaceHubs } from "./fixtures/run-surface-hub.ts";
 import { FIXTURE_REPO } from "@cogworks/contracts/fixtures";
 import { DashboardSchema, RunDetailSchema, RUN_PHASES } from "@cogworks/contracts/schema";
 import { insertRunWithCapacity, readRunAccounting } from "../worker/services/run-accounting.ts";
@@ -117,7 +118,7 @@ function freshDb(): Harness {
 }
 
 function env(binding: unknown, provider: "fixture" | "modal", queue?: { send(): Promise<void> }): Env {
-  return {
+  const runtime = {
     DB: binding,
     ENVIRONMENT: "development",
     DEV_AUTH: "disabled",
@@ -126,13 +127,9 @@ function env(binding: unknown, provider: "fixture" | "modal", queue?: { send(): 
     MODAL_RUNNER_URL: "https://runner.example",
     RUNNER_SIGNING_SECRET: "test-signing-secret-that-is-long-enough",
     RUN_QUEUE: queue,
-    // A promotion that reaches the end publishes the run surface. Until a
-    // dispatch could survive its own rejection, no test here got that far.
-    RUN_SURFACES: {
-      idFromName: (name: string) => name,
-      get: () => ({ fetch: async () => new Response(null, { status: 200 }) }),
-    },
   } as unknown as Env;
+  runtime.RUN_SURFACES = runSurfaceHubs(runtime).namespace;
+  return runtime;
 }
 
 async function seedPromotion(db: Database): Promise<RunActor> {
@@ -1065,3 +1062,282 @@ for (const successSlot of [1, 3]) {
     assert.deepEqual(await db.select().from(officialAttempts), historicalClaims, "admission leaves historical data untouched");
   });
 }
+
+for (const [recorded, current] of [[null, null], [null, FIXTURE_REPO.repositoryId], [123, FIXTURE_REPO.repositoryId], [FIXTURE_REPO.repositoryId, null], [FIXTURE_REPO.repositoryId, FIXTURE_REPO.repositoryId]] as const) {
+  test(`Retry advertisement and admission require known matching repository IDs: ${recorded}/${current}`, async () => {
+    const { db, binding } = freshDb();
+    const actor = await seedPromotion(db);
+    await db.update(runs).set({ status: "failed", provider: "fixture", repositoryId: recorded }).where(eq(runs.id, PRACTICE_RUN_ID));
+    await db.update(teams).set({ repoId: current }).where(eq(teams.id, actor.team.id));
+    actor.team.repoId = current;
+    const runtime = env(binding, "fixture");
+    const snapshot = await buildRunSurfaceSnapshot(runtime, SURFACE_ID);
+    const eligible = recorded !== null && recorded === current;
+    assert.equal(snapshot.actions.includes("retry"), eligible);
+    if (!eligible) await assert.rejects(retryRun(runtime, actor, SURFACE_ID, PRACTICE_RUN_ID), { code: "invalid_request" });
+    else await retryRun(runtime, actor, SURFACE_ID, PRACTICE_RUN_ID);
+  });
+}
+
+test("DO revisions survive recreation and upgrade legacy latest payloads", async () => {
+  const { db, binding } = freshDb();
+  await seedPromotion(db);
+  const runtime = env(binding, "modal");
+  const hubs = runSurfaceHubs(runtime);
+  runtime.RUN_SURFACES = hubs.namespace;
+  const first = await buildRunSurfaceSnapshot(runtime, SURFACE_ID);
+  assert.equal(first.snapshotRevision, 1);
+  hubs.get(SURFACE_ID).restart();
+  const second = await publishRunSurface(runtime, SURFACE_ID);
+  assert.equal(second.snapshotRevision, 2);
+  assert.equal(second.updatedAt, first.updatedAt);
+  const { snapshotRevision: _, ...legacy } = second;
+  hubs.get(SURFACE_ID).values.set("latest", JSON.stringify(legacy));
+  hubs.get(SURFACE_ID).values.delete("snapshotRevision");
+  hubs.get(SURFACE_ID).restart();
+  assert.equal((await buildRunSurfaceSnapshot(runtime, SURFACE_ID)).snapshotRevision, 1);
+  assert.deepEqual(hubs.requests.map((request) => request.operation), ["/snapshot", "/publish", "/snapshot"]);
+});
+
+test("socket connection builds a numbered snapshot before any publication and shares the read sequence", async (t) => {
+  const { db, binding } = freshDb();
+  await seedPromotion(db);
+  const runtime = env(binding, "modal");
+  const hubs = runSurfaceHubs(runtime);
+  runtime.RUN_SURFACES = hubs.namespace;
+  const sent: string[] = [];
+  const previousPair = Object.getOwnPropertyDescriptor(globalThis, "WebSocketPair");
+  Object.assign(globalThis, {
+    WebSocketPair: class {
+      0 = {};
+      1 = { send(payload: string) { sent.push(payload); }, close() {} };
+    },
+  });
+  t.after(() => {
+    if (previousPair) Object.defineProperty(globalThis, "WebSocketPair", previousPair);
+    else Reflect.deleteProperty(globalThis, "WebSocketPair");
+  });
+  // Node's Response rejects 101; only the host upgrade response is substituted.
+  const NativeResponse = Response;
+  t.mock.method(globalThis, "Response", class extends NativeResponse {
+    constructor(body?: BodyInit | null, init?: ResponseInit) {
+      super(body, init?.status === 101 ? { ...init, status: 200 } : init);
+      if (init?.status === 101) Object.defineProperty(this, "status", { value: 101 });
+    }
+  });
+  const response = await hubs.get(SURFACE_ID).fetch(new Request(`https://run-surface.internal/connect?surfaceId=${SURFACE_ID}`, {
+    headers: { Upgrade: "websocket" },
+  }));
+  assert.equal(response.status, 101);
+  assert.equal(JSON.parse(sent[0]).snapshotRevision, 1);
+  const read = await buildRunSurfaceSnapshot(runtime, SURFACE_ID);
+  assert.equal(read.snapshotRevision, 2);
+  assert.deepEqual(JSON.parse(sent[1]), read);
+  const published = await publishRunSurface(runtime, SURFACE_ID);
+  assert.equal(published.snapshotRevision, 3);
+  assert.deepEqual(JSON.parse(sent[2]), published);
+  await hubs.get(SURFACE_ID).alarm();
+  assert.equal(JSON.parse(sent[3]).snapshotRevision, 4);
+});
+
+test("snapshot wrappers reject unstamped or wrong-console payloads and await publication failure", async () => {
+  const { db, binding } = freshDb();
+  await seedPromotion(db);
+  const runtime = env(binding, "modal");
+  const snapshot = await buildRunSurfaceSnapshot(runtime, SURFACE_ID);
+  for (const payload of [{ ...snapshot, snapshotRevision: 0 }, { ...snapshot, id: "surface_aaaaaaaaaaaaaaaaaaaa" }]) {
+    // SAFETY: these wrappers use only namespace lookup and the stub's fetch.
+    runtime.RUN_SURFACES = {
+      idFromName: (id: string) => id,
+      get: () => ({ fetch: async () => Response.json(payload) }),
+    } as unknown as Env["RUN_SURFACES"];
+    await assert.rejects(buildRunSurfaceSnapshot(runtime, SURFACE_ID), /unstamped or mismatched/);
+    await assert.rejects(publishRunSurface(runtime, SURFACE_ID), /unstamped or mismatched/);
+  }
+  // SAFETY: publication reaches only namespace lookup and the stub's fetch.
+  runtime.RUN_SURFACES = {
+    idFromName: (id: string) => id,
+    get: () => ({ fetch: async () => new Response("Unavailable", { status: 503 }) }),
+  } as unknown as Env["RUN_SURFACES"];
+  await assert.rejects(publishRunSurface(runtime, SURFACE_ID), /could not be updated/);
+});
+
+test("overlapping read and publish signals serialize the complete database build", async () => {
+  const { db, binding } = freshDb();
+  await seedPromotion(db);
+  await db.update(runs).set({ status: "queued", finishedAt: null }).where(eq(runs.id, PRACTICE_RUN_ID));
+  // SAFETY: freshDb supplies this D1-shaped adapter; the hook only wraps raw.
+  const d1 = binding as { prepare(query: string): { raw(): Promise<unknown> } };
+  const prepare = d1.prepare.bind(d1);
+  let release!: () => void;
+  let entered!: () => void;
+  const blocked = new Promise<void>((resolve) => { entered = resolve; });
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  let builds = 0;
+  d1.prepare = (query) => {
+    const statement = prepare(query);
+    if (query.includes('from "runs"') && query.includes('"runs"."surface_id" = ?') && query.includes("order by")) {
+      const raw = statement.raw.bind(statement);
+      statement.raw = async () => {
+        builds += 1;
+        const rows = await raw();
+        if (builds === 1) { entered(); await gate; }
+        return rows;
+      };
+    }
+    return statement;
+  };
+  const runtime = env(binding, "modal");
+  const hubs = runSurfaceHubs(runtime);
+  runtime.RUN_SURFACES = hubs.namespace;
+  const firstResponse = buildRunSurfaceSnapshot(runtime, SURFACE_ID);
+  await blocked;
+  await db.update(runs).set({ status: "evaluating" }).where(eq(runs.id, PRACTICE_RUN_ID));
+  const secondResponse = publishRunSurface(runtime, SURFACE_ID);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(builds, 1, "the second signal must not start its database build while the first is paused");
+  release();
+  const [queued, evaluating] = await Promise.all([firstResponse, secondResponse]);
+  assert.equal(queued.phase, "queued");
+  assert.equal(evaluating.phase, "evaluating");
+  assert.equal(queued.updatedAt, evaluating.updatedAt);
+  assert.equal(queued.snapshotRevision, 1);
+  assert.equal(evaluating.snapshotRevision, 2);
+  assert.deepEqual(hubs.get(SURFACE_ID).messages, [queued, evaluating]);
+});
+
+test("publishing notifies every official console in scope, including the previously selected result", async () => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  const firstId = await seedOfficial(db, "succeeded");
+  const [first] = await db.select().from(runs).where(eq(runs.id, firstId));
+  const [surface] = await db.select().from(runSurfaces).where(eq(runSurfaces.id, SURFACE_ID));
+  const otherSurface = "surface_aaaaaaaaaaaaaaaaaaaa";
+  const thirdSurface = "surface_bbbbbbbbbbbbbbbbbbbb";
+  const excludedSurface = "surface_cccccccccccccccccccc";
+  for (const [id, version] of [[otherSurface, 1], [thirdSurface, 1], [excludedSurface, 2]] as const) {
+    await db.insert(runSurfaces).values({ ...surface, id, benchmarkVersion: version });
+    await db.insert(runs).values({ ...first, id: `run_${id}`, surfaceId: id, benchmarkVersion: version, attemptNumber: null });
+  }
+  const runtime = env(binding, "modal");
+  const hubs = runSurfaceHubs(runtime);
+  runtime.RUN_SURFACES = hubs.namespace;
+  const before = await buildRunSurfaceSnapshot(runtime, SURFACE_ID);
+  await publishOfficialRun(runtime, actor, firstId);
+  const selected = hubs.get(SURFACE_ID).messages.at(-1)!;
+  await publishOfficialRun(runtime, actor, `run_${otherSurface}`);
+  const deselected = hubs.get(SURFACE_ID).messages.at(-1)!;
+  assert.deepEqual([before.published, selected.published, deselected.published], [false, true, false]);
+  assert.deepEqual([before.snapshotRevision, selected.snapshotRevision, deselected.snapshotRevision], [1, 2, 3]);
+  assert.equal(before.updatedAt, deselected.updatedAt);
+  assert.equal(hubs.get(otherSurface).messages.at(-1)?.published, true);
+  assert.deepEqual(new Set(hubs.requests.filter((r) => r.operation === "/publish").map((r) => r.surfaceId)), new Set([SURFACE_ID, otherSurface, thirdSurface]));
+  assert.equal(hubs.requests.some((r) => r.surfaceId === excludedSurface), false);
+});
+
+test("late old-generation evidence updates history without replacing the current execution", async () => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  await db.update(runs).set({ status: "failed", provider: "fixture" }).where(eq(runs.id, PRACTICE_RUN_ID));
+  const runtime = env(binding, "fixture");
+  const before = await buildRunSurfaceSnapshot(runtime, SURFACE_ID);
+  const retry = await performRunSurfaceMutation(runtime, actor, SURFACE_ID, "retry", { runId: PRACTICE_RUN_ID });
+  await appendRunStreamEvent(runtime, SURFACE_ID, {
+    eventId: "late_old_execution", source: "practice", sourceRunId: PRACTICE_RUN_ID,
+    sourceSequence: 99, phase: "evaluating", code: "run.failed.runtime", occurredAt: Date.now() + 10_000,
+    elapsedMs: 2_000, progress: null,
+  });
+  const latest = await buildRunSurfaceSnapshot(runtime, SURFACE_ID);
+  assert.equal(latest.executionGeneration, before.executionGeneration + 1);
+  assert.equal(latest.practiceRunId, retry.practiceRunId);
+  assert.equal(latest.phase, retry.phase);
+  assert.ok(latest.snapshotRevision > retry.snapshotRevision);
+  assert.ok(latest.events.some((event) => event.eventId === "late_old_execution"));
+});
+
+test("alarm missing-context cleanup preserves the revision through restoration and recreation", async () => {
+  const { db, binding } = freshDb();
+  await seedPromotion(db);
+  const runtime = env(binding, "modal");
+  const hubs = runSurfaceHubs(runtime);
+  runtime.RUN_SURFACES = hubs.namespace;
+  const first = await publishRunSurface(runtime, SURFACE_ID);
+  const [benchmark] = await db.select().from(benchmarks).where(and(eq(benchmarks.id, BENCHMARK_ID), eq(benchmarks.version, 1)));
+  await db.delete(benchmarks);
+  await hubs.get(SURFACE_ID).alarm();
+  assert.equal(hubs.get(SURFACE_ID).values.has("latest"), false);
+  assert.equal(hubs.get(SURFACE_ID).values.has("surfaceId"), false);
+  assert.equal(hubs.get(SURFACE_ID).values.get("snapshotRevision"), first.snapshotRevision);
+  await db.insert(benchmarks).values(benchmark);
+  hubs.get(SURFACE_ID).restart();
+  assert.equal((await buildRunSurfaceSnapshot(runtime, SURFACE_ID)).snapshotRevision, first.snapshotRevision + 1);
+});
+
+for (const operation of ["snapshot", "publish", "connect", "alarm"] as const) {
+  for (const failure of ["missing_context", "database"] as const) {
+    test(`${operation} handles ${failure} outside the gate without resetting the hub`, async (t) => {
+      const { db, binding } = freshDb();
+      await seedPromotion(db);
+      const runtime = env(binding, "modal");
+      const hubs = runSurfaceHubs(runtime);
+      runtime.RUN_SURFACES = hubs.namespace;
+      const first = await publishRunSurface(runtime, SURFACE_ID);
+      const hub = hubs.get(SURFACE_ID);
+      const [benchmark] = await db.select().from(benchmarks).where(and(eq(benchmarks.id, BENCHMARK_ID), eq(benchmarks.version, 1)));
+      const logs: string[] = [];
+      t.mock.method(console, "error", (message: string) => { logs.push(message); });
+      if (failure === "missing_context") {
+        await db.delete(benchmarks).where(and(eq(benchmarks.id, BENCHMARK_ID), eq(benchmarks.version, 1)));
+      } else {
+        // SAFETY: prepare throws before the builder can use any other D1 method.
+        runtime.DB = { prepare() { throw new Error("Transient database failure"); } } as unknown as Env["DB"];
+      }
+      const started = Date.now();
+      if (operation === "alarm") {
+        await hub.alarm();
+        if (failure === "database") {
+          assert.ok(hub.scheduledAlarm !== null && hub.scheduledAlarm >= started + 2_000);
+          assert.match(logs[0] ?? "", /run_surface_tick_failed/);
+          assert.match(logs[0] ?? "", /Transient database failure/);
+          assert.equal(hub.values.has("latest"), true);
+        } else {
+          assert.equal(hub.scheduledAlarm, null);
+          assert.equal(hub.values.has("latest"), false);
+        }
+      } else if (operation === "connect") {
+        const request = new Request(`https://run-surface.internal/connect?surfaceId=${SURFACE_ID}`, {
+          headers: { Upgrade: "websocket" },
+        });
+        if (failure === "database") await assert.rejects(hub.fetch(request), /Transient database failure/);
+        else {
+          const response = await hub.fetch(request);
+          assert.equal(response.status, 404);
+          assert.equal(await response.text(), "Run surface context no longer exists.");
+        }
+      } else {
+        const request = operation === "snapshot" ? buildRunSurfaceSnapshot : publishRunSurface;
+        if (failure === "database") await assert.rejects(request(runtime, SURFACE_ID), /Transient database failure/);
+        else await assert.rejects(request(runtime, SURFACE_ID), {
+          status: 404, code: "not_found", message: "Run surface context no longer exists.",
+        });
+      }
+      assert.deepEqual(hub.gateRejections, []);
+      assert.equal(hub.messages.length, 1, "a failed build must not broadcast a fallback snapshot");
+      assert.equal(hub.values.get("snapshotRevision"), first.snapshotRevision);
+      if (failure === "missing_context") await db.insert(benchmarks).values(benchmark);
+      else runtime.DB = binding as Env["DB"];
+      const recovered = await buildRunSurfaceSnapshot(runtime, SURFACE_ID);
+      assert.equal(recovered.snapshotRevision, first.snapshotRevision + 1);
+      assert.deepEqual(hub.gateRejections, []);
+    });
+  }
+}
+
+test("missing snapshot context retains its 404 across the DO request boundary", async () => {
+  const { db, binding } = freshDb();
+  await seedPromotion(db);
+  await db.delete(benchmarks);
+  await assert.rejects(buildRunSurfaceSnapshot(env(binding, "modal"), SURFACE_ID), {
+    status: 404, code: "not_found", message: "Run surface context no longer exists.",
+  });
+});
