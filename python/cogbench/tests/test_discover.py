@@ -2291,12 +2291,16 @@ class ARetriedInitializerKeepsWhatItAlreadyImported(_Fixture):
         core = self.tmp / "core"
         core.mkdir()
         (core / "child.py").write_text("def helper():\n    return 'the child ran'\n")
+        # `from .child import helper`, not `from . import child`. The bare
+        # form is rebound by the retry anyway, because `IMPORT_FROM` falls
+        # back to `sys.modules` when the attribute is missing, so it passes
+        # whether or not the attribute was preserved.
         (core / "__init__.py").write_text(
-            "from . import child\n"
+            "from .child import helper\n"
             "\n"
             "\n"
             "def f(x: Missing):\n"
-            "    return child.helper()\n"
+            "    return helper()\n"
         )
 
         found = discover(self.tmp)
