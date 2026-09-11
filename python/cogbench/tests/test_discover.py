@@ -2209,19 +2209,28 @@ class AnythingCanBeInSysModules(_Fixture):
     there that answer attribute access with whatever they like."""
 
     def test_a_hostile_entry_does_not_end_the_search(self):
-        class Hostile:
-            __slots__ = ()
-
-            def __getattr__(self, name):
-                raise RuntimeError("this object refuses " + name)
-
-        sys.modules["cogbench_test_hostile"] = Hostile()
         self.addCleanup(sys.modules.pop, "cogbench_test_hostile", None)
+        # Put there by a module discovery is reading, not before it starts.
+        # An entry that was already present is in `_PREEXISTING`, which every
+        # scan skips, so planting it early tests nothing.
+        (self.tmp / "aaa_plant.py").write_text(
+            "import sys\n"
+            "\n"
+            "\n"
+            "class Hostile:\n"
+            "    __slots__ = ()\n"
+            "\n"
+            "    def __getattr__(self, name):\n"
+            "        raise RuntimeError('this object refuses ' + name)\n"
+            "\n"
+            "\n"
+            "sys.modules['cogbench_test_hostile'] = Hostile()\n"
+        )
         (self.tmp / "solver.py").write_text("def solve(x):\n    return x\n")
 
         found = discover(self.tmp)
 
-        self.assertEqual([entry.name for entry in found.modules], ["solver"])
+        self.assertIn("solver", [entry.name for entry in found.modules])
 
 
 class ANamespacePackageDoesNotOutliveTheRun(_Fixture):
@@ -2244,6 +2253,121 @@ class ANamespacePackageDoesNotOutliveTheRun(_Fixture):
 
         self.assertNotIn("core", sys.modules)
         self.assertNotIn("core.m", sys.modules)
+
+
+class ANestedPackageTheirImportMadeIsEvictedSafely(_Fixture):
+    """A namespace package's `__path__` is not inert: resolving it looks its
+    parent up in `sys.modules`, and teardown is emptying that table while it
+    decides what to evict. With `core` gone before `core.sub`, asking the
+    child where it searches raised `KeyError` out of `discover`."""
+
+    def test_both_levels_go_and_neither_takes_the_run_down(self):
+        nested = self.tmp / "core" / "sub"
+        nested.mkdir(parents=True)
+        (nested / "m.py").write_text("V = 1\n")
+        (self.tmp / "aaa_main.py").write_text("import core.sub.m\n")
+        before = set(sys.modules)
+        self.addCleanup(
+            lambda: [sys.modules.pop(n, None) for n in set(sys.modules) - before]
+        )
+
+        discover(self.tmp)
+
+        self.assertNotIn("core", sys.modules)
+        self.assertNotIn("core.sub", sys.modules)
+
+    def test_a_child_whose_parent_is_already_gone_answers_rather_than_raises(self):
+        """The ordering above is a set's, so pin the hazard directly."""
+
+        from importlib._bootstrap_external import _NamespacePath
+        from types import ModuleType
+
+        parent = ModuleType("cogbench_test_ns")
+        parent.__path__ = _NamespacePath(
+            "cogbench_test_ns", [str(self.tmp)], lambda *a: None
+        )
+        sys.modules["cogbench_test_ns"] = parent
+        self.addCleanup(sys.modules.pop, "cogbench_test_ns", None)
+        # Built while the parent is still there, because building one looks
+        # the parent up as well. Then the parent goes, which is the state
+        # teardown reaches partway through emptying the table.
+        child = ModuleType("cogbench_test_ns.leaf")
+        child.__path__ = _NamespacePath(
+            "cogbench_test_ns.leaf", [str(self.tmp)], lambda *a: None
+        )
+        sys.modules.pop("cogbench_test_ns", None)
+
+        self.assertFalse(
+            discover_module._searches_inside(child, (self.tmp,))
+        )
+
+
+class ARetriedInitializerKeepsWhatItAlreadyImported(_Fixture):
+    """Python keeps an imported submodule as an attribute of its package. One
+    the failed attempt imported is still in `sys.modules`, so the retry's
+    import of it is a cache hit that sets no attribute, and resetting the
+    package namespace alone left `core.child` importable and `core.child`
+    unreachable."""
+
+    def test_the_submodule_is_still_reachable_through_the_package(self):
+        core = self.tmp / "core"
+        core.mkdir()
+        (core / "child.py").write_text("def helper():\n    return 'the child ran'\n")
+        # `from .child import helper`, not `from . import child`. The bare
+        # form is rebound by the retry anyway, because `IMPORT_FROM` falls
+        # back to `sys.modules` when the attribute is missing, so it passes
+        # whether or not the attribute was preserved.
+        (core / "__init__.py").write_text(
+            "from .child import helper\n"
+            "\n"
+            "\n"
+            "def f(x: Missing):\n"
+            "    return helper()\n"
+        )
+
+        found = discover(self.tmp)
+
+        body = self._module(found, "__init__")
+        self.assertEqual(body.child.helper(), "the child ran")
+        self.assertEqual(body.f(None), "the child ran")
+
+
+class ASecondNotebookSpellingDoesNotEraseTheFirstReading(_Fixture):
+    """`ipynb.fs.defs.x` after `ipynb.fs.full.x` reuses the module and has no
+    notes of its own. Storing those emptied the record of the read that
+    actually happened, and the notebook was reported as having needed no
+    remedy when it had needed one."""
+
+    def test_the_retry_survives_the_second_import(self):
+        (self.tmp / "nine.ipynb").write_text(_notebook("def g(x: Missing):\n    return 1\n"))
+        (self.tmp / "aaa_full.py").write_text("from ipynb.fs.full.nine import g\n")
+        (self.tmp / "aab_defs.py").write_text("from ipynb.fs.defs.nine import g\n")
+
+        found = discover(self.tmp)
+
+        entry = [item for item in found.modules if item.name == "nine"][0]
+        self.assertTrue(entry.future_annotations)
+
+
+class ASyntaxErrorNamesTheFileItIsIn(_Fixture):
+    """A module importing a sibling with a syntax error fails with that
+    sibling's `SyntaxError`. Reporting it against the importer sent a team to
+    look at a file that is correct: `main.py` was blamed for `line 4:
+    expected ':'`, which is in `bad_syntax.py`."""
+
+    def test_the_importer_is_not_blamed_for_its_sibling(self):
+        (self.tmp / "bad_syntax.py").write_text(
+            "def broken(\n    x,\n    y\n    return x\n"
+        )
+        (self.tmp / "main.py").write_text("import bad_syntax\n")
+
+        found = discover(self.tmp)
+
+        blamed = [entry for entry in found.skipped if entry.name == "main"][0]
+        self.assertEqual(blamed.reason, "syntax")
+        self.assertIn("bad_syntax.py", blamed.detail)
+        itself = [entry for entry in found.skipped if entry.name == "bad_syntax"][0]
+        self.assertNotIn("of ", itself.detail)
 
 
 if __name__ == "__main__":
