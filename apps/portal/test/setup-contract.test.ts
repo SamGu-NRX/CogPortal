@@ -26,9 +26,22 @@ test("setup evidence accepts only the coarse documented payload", () => {
   );
 });
 
+test("setup evidence accepts the CLI's checked benchmark without relaxing other fields", () => {
+  const payload = { ...validEvidence, checkedBenchmarkId: "vision-recognition" };
+  assert.equal(SetupEvidenceRequestSchema.parse(payload).checkedBenchmarkId, "vision-recognition");
+  assert.throws(() => SetupEvidenceRequestSchema.parse({ ...payload, checkedBenchmarkId: "" }));
+  assert.throws(() => SetupEvidenceRequestSchema.parse({ ...payload, source: "private" }));
+});
+
 test("setup state contains checked milestones and no callback tokens", () => {
-  const state = SetupStateSchema.parse({ verified: ["clone", "wiring"] });
-  assert.deepEqual(state, { verified: ["clone", "wiring"] });
+  const state = SetupStateSchema.parse({
+    verified: ["clone"],
+    verifiedByBenchmark: { "vision-recognition": ["environment", "project", "wiring"] },
+  });
+  assert.deepEqual(state, {
+    verified: ["clone"],
+    verifiedByBenchmark: { "vision-recognition": ["environment", "project", "wiring"] },
+  });
   assert.throws(() =>
     SetupStateSchema.parse({
       verified: ["clone"],
