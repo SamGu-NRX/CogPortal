@@ -1065,18 +1065,50 @@ _GUARD_INSTALLED = False
 #: `open` modes that create or truncate. `r` alone is absent on purpose.
 _WRITING = ("w", "a", "x", "+")
 
+#: The same intent in the flags `os.open` reports, which arrive instead of a
+#: mode string and were read as "no mode, so not a write" until they were not.
+_WRITING_FLAGS = (
+    os.O_WRONLY | os.O_RDWR | os.O_APPEND | os.O_CREAT | os.O_TRUNC
+)
+
 
 def _write_guard(event: str, arguments) -> None:  # pragma: no cover - process-wide hook
-    """Refuse a write that would land in the repository being read.
+    """Refuse an `open` for writing that would land in the repository.
 
-    Only armed while `_reading_from` is running, and only for `open`, so
-    every other call in the process pays one comparison against None.
+    The mirror `_reading_from` builds keeps every directory on its own side,
+    so a path cannot traverse into their checkout; only the leaf files point
+    at theirs. That leaves one way to change a file they already have, which
+    is to open it for writing through its link, and this refuses it.
+
+    That is the whole of what this owns, and it is why the list is short.
+    `os.remove`, `os.rename`, `os.rmdir` and `os.mkdir` are not here: each
+    raises its own event, and answering them one at a time would be a list
+    that grows with the standard library and still ends in a hole. The
+    directories close that class instead, so what is left is the two ways
+    ordinary Python writes bytes into a file it did not create here.
+
+    Not covered: a mode change or a timestamp, which do not alter what a read
+    returns, and native code, which raises no event at all. The process
+    boundary in `isolate.py` is what stands between a repository and the run.
     """
 
-    if _GUARDED is None or event != "open" or len(arguments) < 2:
+    if _GUARDED is None or len(arguments) < 2:
         return
-    target, mode = arguments[0], arguments[1]
-    if not mode or not any(letter in str(mode) for letter in _WRITING):
+    if event == "open":
+        target, mode = arguments[0], arguments[1]
+        if mode is None:
+            # `os.open` reports flags here and leaves the mode empty.
+            flags = arguments[2] if len(arguments) > 2 else 0
+            if not isinstance(flags, int) or not flags & _WRITING_FLAGS:
+                return
+        elif not any(letter in str(mode) for letter in _WRITING):
+            return
+    elif event == "os.truncate":
+        target = arguments[0]
+        if isinstance(target, int):
+            # A descriptor, which the `open` that produced it already answered.
+            return
+    else:
         return
     mirror, protected = _GUARDED
     try:
@@ -1098,6 +1130,31 @@ def _inside(where: Path, root: Path) -> bool:
     return True
 
 
+def _mirror_into(source: Path, destination: Path) -> None:
+    """Rebuild `source`'s directories under `destination` and link its files.
+
+    A directory is made, not linked, so that every path a module writes
+    resolves to this side. A file is linked, so a relative read gets their
+    bytes without copying a checkout that may run to gigabytes. One of their
+    own symlinks is linked as it stands, whatever it points at.
+    """
+
+    try:
+        entries = sorted(source.iterdir())
+    except OSError:
+        return
+    for entry in entries:
+        target = destination / entry.name
+        try:
+            if entry.is_symlink() or not entry.is_dir():
+                os.symlink(entry, target)
+            else:
+                target.mkdir()
+                _mirror_into(entry, target)
+        except OSError:
+            continue
+
+
 @contextlib.contextmanager
 def _reading_from(folder: Path):
     """Work from a throwaway copy of the module's own folder, not from it.
@@ -1114,32 +1171,38 @@ def _reading_from(folder: Path):
     loader's rule is that student writes land in scratch, and discovery may
     not modify a tree it was asked to read.
 
-    So the working directory is a temporary directory whose top-level entries
-    are symlinks to theirs. A relative read at any depth resolves through
-    those links to the real file; a relative write creates a new entry here
-    and the repository never sees it. A write that would still resolve into
-    their folder -- truncating a file they already have, or creating one
-    inside a linked subdirectory -- is refused by `_write_guard` rather than
-    performed, because there is no copy of it to write into.
+    So the working directory is a temporary directory that repeats their
+    directory structure and symlinks their files. A relative read at any
+    depth resolves through a file link to the real bytes; a relative write,
+    rename, delete or mkdir lands on a directory this function made, and the
+    repository never sees it.
 
-    Top-level entries only. Mirroring the tree would be one symlink per file
-    in a checkout that runs to gigabytes, for a case a directory link already
-    covers.
+    The first draft linked the top-level entries only, directories included.
+    A directory link is a doorway: `os.remove("data/stale.pkl")` through one
+    resolves into their checkout and deletes their file, and so do rename,
+    rmdir, mkdir and rmtree. Measured on a disposable fixture, six ordinary
+    operations reached the original tree and only `open(..., "w")` was
+    refused, because `open` was the one event the hook read. Rebuilding the
+    directories removes the doorway instead of growing that list, which
+    matters because `os.truncate` reports a file descriptor rather than a
+    path and a C extension reports nothing.
+
+    What remains is the file links themselves: opening one for writing would
+    change their file, and `_write_guard` refuses that. Native code that
+    writes without going through Python is not contained here; the process
+    boundary in `isolate.py` is what stands between a repository and the
+    rest of the run.
+
+    Their own symlinks are copied as symlinks rather than followed, so a link
+    that points out of the tree still points where they aimed it, and a cycle
+    cannot make this walk forever.
     """
 
     global _GUARDED, _GUARD_INSTALLED
 
     with tempfile.TemporaryDirectory(prefix="cogworks-import-") as temporary:
         mirror = Path(temporary).resolve()
-        try:
-            entries = sorted(folder.iterdir())
-        except OSError:
-            entries = []
-        for entry in entries:
-            try:
-                os.symlink(entry, mirror / entry.name)
-            except OSError:
-                continue
+        _mirror_into(folder, mirror)
         if not _GUARD_INSTALLED:
             sys.addaudithook(_write_guard)
             _GUARD_INSTALLED = True
