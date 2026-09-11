@@ -156,9 +156,12 @@ def _query_plan(case: Any) -> RecognitionQueryPlan:
     one side; the local driver split each person's own. Same lifecycle, and the
     same submission could score two numbers depending on where it ran.
 
-    Imported inside the function, like the other two benchmark imports in this
-    module, so the half of it that encodes still runs where the benchmark is
-    not installed.
+    Imported inside the function, like the other benchmark imports in this
+    module, so importing this module still works where the benchmark is not
+    installed. Encoding a recognition case does not: this import and
+    ``_canonical_query_images`` both run under ``encode_cases``, so that path
+    now needs the benchmark the way decoding always has. Clustering is
+    unaffected. Every caller that encodes recognition already installs it.
     """
 
     from facial_recognition_benchmark.drivers import query_phases

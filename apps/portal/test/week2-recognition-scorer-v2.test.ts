@@ -20,19 +20,33 @@ import { fileURLToPath } from "node:url";
  * records what actually scored each run, so a v1 result has to stay v1 after
  * a v2 catalog row exists, or the leaderboard would claim numbers were
  * measured under a lifecycle that did not exist when they were taken.
+ *
+ * Unlike the `freshDb` helpers elsewhere in this directory, this one replays
+ * `0002_seed.sql` too. Those tests skip it to start from an empty database;
+ * this one needs the rows it creates, because they are exactly what the bump
+ * must not touch: `vision-recognition@1` and nine runs recorded against it.
+ * A reviewer showed that without them, dropping `AND version = 2` from the
+ * migration still passed every assertion here.
  */
 
 const MIGRATIONS = join(dirname(fileURLToPath(import.meta.url)), "..", "migrations");
+const BUMP = "0039_week2_recognition_v2.sql";
 
-function migrated(): DatabaseSync {
-  const sqlite = new DatabaseSync(":memory:");
-  for (const file of readdirSync(MIGRATIONS)
+function migrationFiles(): string[] {
+  return readdirSync(MIGRATIONS)
     .filter((name) => name.endsWith(".sql"))
-    .sort()
-    .filter((name) => !/^(0002_seed|0016_backfill)/.test(name))) {
+    .sort();
+}
+
+function replay(files: string[], sqlite = new DatabaseSync(":memory:")): DatabaseSync {
+  for (const file of files) {
     sqlite.exec(readFileSync(join(MIGRATIONS, file), "utf8"));
   }
   return sqlite;
+}
+
+function migrated(): DatabaseSync {
+  return replay(migrationFiles());
 }
 
 function scorerVersions(sqlite: DatabaseSync): Record<string, string> {
@@ -46,6 +60,14 @@ function scorerVersions(sqlite: DatabaseSync): Record<string, string> {
   return found;
 }
 
+function runVersions(sqlite: DatabaseSync): Array<{ id: string; scorer_version: string }> {
+  return sqlite
+    .prepare(
+      "SELECT id, scorer_version FROM runs WHERE benchmark_id = 'vision-recognition' ORDER BY id",
+    )
+    .all() as Array<{ id: string; scorer_version: string }>;
+}
+
 test("the recognition catalog row scores as recognition-v2", () => {
   const found = scorerVersions(migrated());
 
@@ -55,6 +77,10 @@ test("the recognition catalog row scores as recognition-v2", () => {
 test("the bump moves that row and nothing else", () => {
   const found = scorerVersions(migrated());
 
+  // v1 is the same benchmark id and is the row a migration missing its version
+  // clause would also hit. It was retired by 0013 and still carries the scorer
+  // version that scored against it.
+  assert.equal(found["vision-recognition@1"], "1");
   // Clustering shares the Week 2 submodule and its own v2 bump landed in
   // 0026; nothing about this lifecycle change touches it. Week 1 and Week 3
   // are named so a future catalog-wide UPDATE cannot pass this file.
@@ -64,7 +90,16 @@ test("the bump moves that row and nothing else", () => {
 });
 
 test("a run scored under the old lifecycle keeps the version that scored it", () => {
-  const sqlite = migrated();
+  // Everything up to but not including the bump, so the run below is inserted
+  // into a database that still says recognition-v1 and the bump then runs for
+  // the first time against it. Applying the bump and only then inserting would
+  // test a replay, which is the one case where there is nothing to rewrite.
+  const files = migrationFiles();
+  const at = files.indexOf(BUMP);
+  assert.ok(at > 0, `${BUMP} is missing from ${MIGRATIONS}`);
+  const sqlite = replay(files.slice(0, at));
+
+  assert.equal(scorerVersions(sqlite)["vision-recognition@2"], "recognition-v1");
 
   sqlite.exec(
     `INSERT INTO cohorts (id, slug, name, join_code, active)
@@ -83,15 +118,13 @@ test("a run scored under the old lifecycle keeps the version that scored it", ()
                'recognition-v1')`,
     )
     .run();
-  // Re-running the bump must not reach into history. Applying it twice is
-  // also what a replayed migration does.
-  sqlite.exec(
-    readFileSync(join(MIGRATIONS, "0039_week2_recognition_v2.sql"), "utf8"),
-  );
+  const before = runVersions(sqlite);
 
-  const row = sqlite
-    .prepare("SELECT scorer_version FROM runs WHERE id = 'run_old'")
-    .get() as { scorer_version: string };
+  replay(files.slice(at), sqlite);
 
-  assert.equal(row.scorer_version, "recognition-v1");
+  assert.equal(scorerVersions(sqlite)["vision-recognition@2"], "recognition-v2");
+  // Every recognition run, the one above and the nine the seed records against
+  // v1, still says what scored it.
+  assert.deepEqual(runVersions(sqlite), before);
+  assert.ok(before.some((row) => row.id === "run_old" && row.scorer_version === "recognition-v1"));
 });
