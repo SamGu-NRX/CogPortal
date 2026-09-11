@@ -163,10 +163,16 @@ function SetupGuide({
                 href={environment.prereqsUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex items-center gap-1 text-ink underline decoration-rule underline-offset-4 hover:decoration-ink"
+                className="text-ink underline decoration-rule underline-offset-4 hover:decoration-ink"
               >
                 {benchmarkTitle} prerequisites
-                <HugeiconsIcon icon={ArrowUpRight01Icon} size={12} strokeWidth={1.8} aria-hidden="true" />
+                <HugeiconsIcon
+                  icon={ArrowUpRight01Icon}
+                  size={12}
+                  strokeWidth={1.8}
+                  className="inline-block align-[-0.1em]"
+                  aria-hidden="true"
+                />
               </a>
               :
             </>

@@ -85,10 +85,16 @@ export function Landing() {
                   href={`https://github.com/${template}`}
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex items-center gap-1 font-mono text-[13px] text-ink underline decoration-rule underline-offset-4 hover:decoration-ink"
+                  className="font-mono text-[13px] text-ink underline decoration-rule underline-offset-4 hover:decoration-ink"
                 >
                   github.com/{template}
-                  <HugeiconsIcon icon={ArrowUpRight01Icon} size={12} strokeWidth={1.8} aria-hidden="true" />
+                  <HugeiconsIcon
+                    icon={ArrowUpRight01Icon}
+                    size={12}
+                    strokeWidth={1.8}
+                    className="inline-block align-[-0.1em]"
+                    aria-hidden="true"
+                  />
                 </a>
                 , or connect a repository your team already has.
               </p>

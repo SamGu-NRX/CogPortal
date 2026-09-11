@@ -104,7 +104,7 @@ export function Code({
         type="button"
         onClick={copy}
         title={copied ? "Copied" : "Copy command"}
-        className="u-pressable absolute top-1.5 right-1.5 flex min-h-7 min-w-7 items-center justify-center border border-transparent bg-paper-sunken/90 transition-colors duration-150 hover:border-rule"
+        className="u-pressable u-hit-44 absolute top-1.5 right-1.5 flex min-h-7 min-w-7 items-center justify-center border border-transparent bg-paper-sunken/90 transition-colors duration-150 hover:border-rule"
       >
         <HugeiconsIcon
           icon={copied ? Tick02Icon : Copy01Icon}

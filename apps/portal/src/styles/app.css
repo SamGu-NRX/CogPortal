@@ -113,6 +113,17 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Keeps a small control's touch target at 44px without growing the control.
+   For a button that floats over content, like the code block's copy, where a
+   44px box would cover the thing being copied. */
+@utility u-hit-44 {
+  &::after {
+    content: "";
+    position: absolute;
+    inset: -8px;
+  }
+}
+
 @utility u-pressable {
   transition: transform 120ms var(--ease-out-quart);
   &:active {
