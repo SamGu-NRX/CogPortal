@@ -91,8 +91,8 @@ class Week3PayloadTest(unittest.TestCase):
         np.testing.assert_array_equal(cases[1].descriptors, _cases()[1].descriptors)
 
     def test_extract_and_attach_gold_roundtrip(self):
+        from language_search_benchmark.datasets import attach_gold
         from cogworks_runner.week3_payload import (
-            attach_gold,
             decode_payload,
             encode_payload,
             extract_gold,
@@ -103,17 +103,14 @@ class Week3PayloadTest(unittest.TestCase):
         _, _, stripped = decode_payload(
             encode_payload("language-search", original, showcase=False)
         )
-        restored = attach_gold(stripped, gold)
+        restored = attach_gold(stripped, **gold)
         self.assertEqual(restored[0].group_rows, [0, 0, 1])
         self.assertEqual(restored[1].gold_rows, [0, 2])
         self.assertEqual(restored[2].gold_image_ids, [10, 30])
 
     def test_attach_gold_count_mismatch_fails(self):
-        from cogworks_runner.week3_payload import (
-            attach_gold,
-            decode_payload,
-            encode_payload,
-        )
+        from language_search_benchmark.datasets import attach_gold
+        from cogworks_runner.week3_payload import decode_payload, encode_payload
 
         _, _, stripped = decode_payload(
             encode_payload("language-search", _cases(), showcase=False)
@@ -121,11 +118,9 @@ class Week3PayloadTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             attach_gold(
                 stripped,
-                {
-                    "text_group_rows": [0],
-                    "retrieval_gold_rows": [0, 2],
-                    "search_gold_image_ids": [10, 30],
-                },
+                text_group_rows=[0],
+                retrieval_gold_rows=[0, 2],
+                search_gold_image_ids=[10, 30],
             )
 
 
@@ -218,15 +213,16 @@ class RungCasesSurviveTheBoundary(unittest.TestCase):
         class does not have, so giving every rung `gold_image_ids` fails
         outright once retrieval rungs exist."""
 
+        from language_search_benchmark.datasets import attach_gold
         from cogworks_runner.week3_payload import (
-            attach_gold, decode_payload, encode_payload, extract_gold,
+            decode_payload, encode_payload, extract_gold,
         )
 
         cases = self._cases()
         _id, _showcase, rebuilt = decode_payload(
             encode_payload("language-search", cases, showcase=False)
         )
-        restored = attach_gold(rebuilt, extract_gold(cases))
+        restored = attach_gold(rebuilt, **extract_gold(cases))
         from language_search_benchmark import perturb
 
         retrievals = [c for c in restored if c.kind == "retrieval"]
@@ -358,15 +354,16 @@ class RungCasesSurviveTheBoundary(unittest.TestCase):
         fields it is not changing by reference. If that ever stopped holding,
         the index guard would break after scoring re-attached cases."""
 
+        from language_search_benchmark.datasets import attach_gold
         from cogworks_runner.week3_payload import (
-            attach_gold, decode_payload, encode_payload, extract_gold,
+            decode_payload, encode_payload, extract_gold,
         )
 
         cases = self._cases()
         _id, _showcase, rebuilt = decode_payload(
             encode_payload("language-search", cases, showcase=False)
         )
-        restored = attach_gold(rebuilt, extract_gold(cases))
+        restored = attach_gold(rebuilt, **extract_gold(cases))
         searches = [c for c in restored if c.kind == "search"]
         verbatim = next(c for c in searches if c.rung == "verbatim")
         for case in searches:
@@ -376,15 +373,16 @@ class RungCasesSurviveTheBoundary(unittest.TestCase):
     def test_attach_gold_gives_every_rung_the_same_answers(self):
         """The rewrites change the query text, never which image is correct."""
 
+        from language_search_benchmark.datasets import attach_gold
         from cogworks_runner.week3_payload import (
-            attach_gold, decode_payload, encode_payload, extract_gold,
+            decode_payload, encode_payload, extract_gold,
         )
 
         cases = self._cases()
         _id, _showcase, rebuilt = decode_payload(
             encode_payload("language-search", cases, showcase=False)
         )
-        restored = attach_gold(rebuilt, extract_gold(cases))
+        restored = attach_gold(rebuilt, **extract_gold(cases))
         from language_search_benchmark import perturb
 
         searches = [c for c in restored if c.kind == "search"]

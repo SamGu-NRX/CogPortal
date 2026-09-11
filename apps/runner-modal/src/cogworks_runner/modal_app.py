@@ -1213,7 +1213,9 @@ def _week3_cases(job: Dict[str, Any], benchmark: Any) -> List[Any]:
                 "Public Week 3 data could not be prepared.",
                 True,
             ) from error
-    from cogworks_runner.week3_payload import attach_gold, decode_payload
+    from language_search_benchmark.datasets import attach_gold
+
+    from cogworks_runner.week3_payload import decode_payload
 
     root = Path("/hidden") / job["benchmark"]["id"] / job["benchmark"]["datasetVersion"]
     try:
@@ -1221,7 +1223,12 @@ def _week3_cases(job: Dict[str, Any], benchmark: Any) -> List[Any]:
         if payload_id != job["benchmark"]["id"]:
             raise ValueError("Official payload benchmark mismatch.")
         gold = json.loads((root / "gold.json").read_text(encoding="utf-8"))
-        return attach_gold(cases, gold)
+        return attach_gold(
+            cases,
+            text_group_rows=gold["text_group_rows"],
+            retrieval_gold_rows=gold["retrieval_gold_rows"],
+            search_gold_image_ids=gold["search_gold_image_ids"],
+        )
     except (OSError, ValueError, KeyError) as error:
         raise RunnerFailure(
             "data_download",
@@ -1784,11 +1791,18 @@ def _check_predictions(benchmark: Any, predictions: List[Any], case_count: int) 
     """
 
     if len(predictions) != case_count:
+        # Says what happened and stops. It used to tell the student to look for
+        # "a case your code skipped", which under the v2 contract is not
+        # something they can do: the benchmark's own driver walks the case list
+        # and calls their functions once per case. The one time this fired for
+        # real, the platform had handed the sandbox a shorter list than it
+        # scored, and the message sent the student looking through their own
+        # code for it.
         raise _refuse_output(
             "Your submission returned {} results for {} cases. Scoring pairs "
-            "them up in order, so it needs exactly one result per case. Look "
-            "for a case your code skipped, or a filter that dropped "
-            "some.".format(len(predictions), case_count)
+            "them up in order, so it needs one per case. The driver calls your "
+            "code once per case, so if you did not build this list yourself, "
+            "tell course staff.".format(len(predictions), case_count)
         )
 
     if getattr(benchmark, "contract_version", None) != "cogworks.submissions.v2":

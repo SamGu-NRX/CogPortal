@@ -10,7 +10,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 BENCHMARK = ROOT / "benchmarks" / "week3"
-REVIEWED_COMMIT = "b166f5c15e950baccc3785839cdcc660ffe01bb4"
+# Moved from b166f5c, which built the case grid in two places. d9dbc8b gives
+# the benchmark one `build_cases`, which the sandbox decoder now calls instead
+# of assembling the grid itself, and declares the three rewritten retrieval
+# metrics the scorer already returned. No version in PLUGIN_EXPECTATIONS moves:
+# a complete grid scores identically, so this is not a scorer bump and needs no
+# migration.
+REVIEWED_COMMIT = "d9dbc8b5c77290032cdabb618b957a8f42011b79"
 
 PLUGIN_EXPECTATIONS = {
     'benchmark_id = "language-search"': "benchmark id",
