@@ -1244,12 +1244,7 @@ class TheOwnFolderRetryNeverWritesIntoTheCheckout(unittest.TestCase):
         self.assertEqual(found.modules[0].cwd_hint, self.tmp)
 
     def _entries(self) -> set:
-        # `__pycache__` is CPython's, written by the import machinery for any
-        # module imported from a path. This is about what the student's own
-        # code wrote, which is the part discovery decides.
-        return {
-            path.name for path in self.tmp.iterdir() if path.name != "__pycache__"
-        }
+        return {path.name for path in self.tmp.iterdir()}
 
     def test_and_the_repository_is_exactly_as_it_was(self):
         self._repository()
@@ -1279,6 +1274,134 @@ class TheOwnFolderRetryNeverWritesIntoTheCheckout(unittest.TestCase):
         self.assertEqual(
             (self.tmp / "keep.txt").read_text(encoding="utf-8"), "theirs\n"
         )
+
+    def _nested(self, housekeeping: str) -> None:
+        """A module that tidies up before it reads, which is ordinary.
+
+        The first import runs from scratch and fails on `data.txt`, which is
+        what turns the own-folder retry on. The housekeeping line then runs a
+        second time with the mirror as the working directory, and that is the
+        moment the first draft reached their checkout.
+        """
+
+        (self.tmp / "data.txt").write_text("samples\n", encoding="utf-8")
+        (self.tmp / "cache").mkdir()
+        (self.tmp / "cache" / "stale.pkl").write_text("theirs\n", encoding="utf-8")
+        (self.tmp / "cache" / "empty").mkdir()
+        (self.tmp / "pipeline.py").write_text(
+            "import os, shutil\n"
+            "from pathlib import Path\n"
+            "try:\n    {}\nexcept Exception:\n    pass\n"
+            "SAMPLES = open('data.txt').read()\n"
+            "def peaks(spec):\n    return []\n".format(housekeeping),
+            encoding="utf-8",
+        )
+
+    def test_a_nested_path_cannot_delete_rename_or_create_in_their_tree(self):
+        """A link to a directory is a doorway, and a relative path walks
+        straight through it. Each of these reached the original tree while the
+        mirror linked top-level entries, and none of them opens a file, so the
+        audit hook never saw one."""
+
+        for housekeeping, gone in (
+            ("os.remove('cache/stale.pkl')", "cache/stale.pkl"),
+            ("Path('cache/stale.pkl').unlink()", "cache/stale.pkl"),
+            ("os.rename('cache/stale.pkl', 'cache/moved.pkl')", "cache/stale.pkl"),
+            ("os.rmdir('cache/empty')", "cache/empty"),
+            ("shutil.rmtree('cache')", "cache/stale.pkl"),
+        ):
+            with self.subTest(housekeeping):
+                shutil.rmtree(self.tmp, ignore_errors=True)
+                self.tmp.mkdir(parents=True)
+                self._nested(housekeeping)
+
+                found = discover(self.tmp)
+
+                self.assertEqual([e.name for e in found.modules], ["pipeline"])
+                self.assertTrue((self.tmp / gone).exists())
+                self.assertFalse((self.tmp / "cache" / "moved.pkl").exists())
+
+    def test_a_nested_write_lands_in_scratch_not_in_their_tree(self):
+        self._nested("os.mkdir('cache/created')")
+
+        discover(self.tmp)
+
+        self.assertFalse((self.tmp / "cache" / "created").exists())
+
+    def test_their_bytes_survive_the_two_writes_that_skip_open(self):
+        """`os.truncate` takes a path, and `os.open` reports flags where a
+        mode string would be, so the guard read it as "no mode, not a write"
+        and let it past. Both end at a file they already have."""
+
+        for housekeeping in (
+            "os.truncate('cache/stale.pkl', 0)",
+            "os.write(os.open('cache/stale.pkl', os.O_WRONLY | os.O_TRUNC), b'z')",
+        ):
+            with self.subTest(housekeeping):
+                shutil.rmtree(self.tmp, ignore_errors=True)
+                self.tmp.mkdir(parents=True)
+                self._nested(housekeeping)
+
+                discover(self.tmp)
+
+                self.assertEqual(
+                    (self.tmp / "cache" / "stale.pkl").read_text(encoding="utf-8"),
+                    "theirs\n",
+                )
+
+    def test_a_link_of_their_own_into_the_tree_is_not_a_way_back_in(self):
+        """A checkout that keeps `cache -> real_cache` had the doorway back,
+        because linking their link as it stood pointed through their tree. No
+        repository in the 2026 corpus holds one, which is why this is a test
+        and not a paragraph."""
+
+        (self.tmp / "data.txt").write_text("samples\n", encoding="utf-8")
+        (self.tmp / "real_cache").mkdir()
+        (self.tmp / "real_cache" / "stale.pkl").write_text("theirs\n", encoding="utf-8")
+        os.symlink("real_cache", self.tmp / "cache")
+        (self.tmp / "pipeline.py").write_text(
+            "import os\n"
+            "try:\n    os.remove('cache/stale.pkl')\nexcept OSError:\n    pass\n"
+            "SAMPLES = open('data.txt').read()\n"
+            "def peaks(spec):\n    return []\n",
+            encoding="utf-8",
+        )
+
+        found = discover(self.tmp)
+
+        self.assertEqual([e.name for e in found.modules], ["pipeline"])
+        self.assertTrue((self.tmp / "real_cache" / "stale.pkl").exists())
+
+    def test_reading_a_repository_leaves_no_pycache_behind(self):
+        """Importing writes `__pycache__` next to the module. That is the
+        platform changing a tree it was asked to read, and it made `git
+        status` dirty in a checkout that had only run `cogworks check`."""
+
+        (self.tmp / "pipeline.py").write_text(
+            "def peaks(spec):\n    return []\n", encoding="utf-8"
+        )
+
+        discover(self.tmp)
+
+        self.assertEqual(self._entries(), {"pipeline.py"})
+
+    def test_a_relative_read_at_depth_still_finds_their_file(self):
+        """The retry exists for this. Closing the doorway may not close it."""
+
+        (self.tmp / "data.txt").write_text("samples\n", encoding="utf-8")
+        nested = self.tmp / "data" / "audio"
+        nested.mkdir(parents=True)
+        (nested / "trumpet.wav").write_bytes(b"RIFF-pretend")
+        (self.tmp / "pipeline.py").write_text(
+            "AUDIO = open('data/audio/trumpet.wav', 'rb').read()\n"
+            "SAMPLES = open('data.txt').read()\n"
+            "def peaks(spec):\n    return []\n",
+            encoding="utf-8",
+        )
+
+        found = discover(self.tmp)
+
+        self.assertEqual(found.modules[0].module.AUDIO, b"RIFF-pretend")
 
 
 class AFileShadowedByTheRootIsReadUnderItsFolderName(unittest.TestCase):
