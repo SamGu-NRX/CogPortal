@@ -14,6 +14,8 @@ sys.path.insert(0, str(ROOT / "python" / "cogbench" / "src"))
 from cogbench import discover as discover_module  # noqa: E402
 from cogbench.discover import (  # noqa: E402
     ROOT_HINTED,
+    SkippedModule,
+    owner_of_skip,
     STUBBED_MODULES,
     WEEK_SCOPED_ROOTS,
     candidate_roots,
@@ -2346,6 +2348,283 @@ class ASyntaxErrorNamesTheFileItIsIn(_Fixture):
         self.assertIn("bad_syntax.py", blamed.detail)
         itself = [entry for entry in found.skipped if entry.name == "bad_syntax"][0]
         self.assertNotIn("of ", itself.detail)
+
+
+class _Submission(_Fixture):
+    """A repository whose function imports its sibling when it is called."""
+
+    LAZY = {
+        "database.py": "WHICH = {which!r}\n\n\ndef store():\n    return WHICH\n",
+        "search.py": (
+            "def identify(clip):\n"
+            "    import database\n"
+            "    return database.store() + ':' + clip\n"
+        ),
+    }
+
+    def submission(self, name, which):
+        root = self.tmp / name
+        root.mkdir(parents=True)
+        for rel, text in self.LAZY.items():
+            (root / rel).write_text(text.format(which=which))
+        return discover(root)
+
+    def caller(self, found):
+        return self._module(found, "search").identify
+
+
+class AReturnedSubmissionCanStillImportItsOwnModules(_Submission):
+    """Discovery puts the process back as it found it when it leaves, because
+    a module left behind shadows the next repository and because evicting one
+    does not unload a C extension it brought in. That teardown also takes away
+    the names a returned function needs when it imports a sibling inside its
+    own body, which happens when a benchmark calls it, long after discovery
+    finished. Measured before this existed: `ModuleNotFoundError`, unreported,
+    because discovery was over."""
+
+    def test_the_lazy_import_fails_outside_the_context_and_works_inside(self):
+        found = self.submission("one", "repo-one")
+        identify = self.caller(found)
+
+        with self.assertRaises(ModuleNotFoundError):
+            identify("clip")
+        with found.imports():
+            self.assertEqual(identify("clip"), "repo-one:clip")
+
+    def test_two_submissions_with_the_same_file_names_stay_apart(self):
+        one, two = self.submission("a", "repo-a"), self.submission("b", "repo-b")
+        call_one, call_two = self.caller(one), self.caller(two)
+
+        seen = []
+        for _ in range(2):
+            with one.imports():
+                seen.append(call_one("x"))
+            with two.imports():
+                seen.append(call_two("x"))
+
+        self.assertEqual(seen, ["repo-a:x", "repo-b:x"] * 2)
+
+    def test_nesting_one_inside_the_other_gives_each_its_own(self):
+        one, two = self.submission("a", "repo-a"), self.submission("b", "repo-b")
+        call_one, call_two = self.caller(one), self.caller(two)
+
+        with one.imports():
+            first = call_one("x")
+            with two.imports():
+                inner = call_two("x")
+            after = call_one("x")
+
+        self.assertEqual((first, inner, after), ("repo-a:x", "repo-b:x", "repo-a:x"))
+
+    def test_a_third_party_module_is_never_touched(self):
+        """Evicting one does not unload its C extension, so it must be loaded
+        once and left alone."""
+
+        import json as theirs
+
+        found = self.submission("third", "repo-third")
+        with found.imports():
+            self.assertIs(sys.modules["json"], theirs)
+        self.assertIs(sys.modules["json"], theirs)
+
+    def test_the_process_is_left_as_it_was_found(self):
+        found = self.submission("clean", "repo-clean")
+        call = self.caller(found)
+        before, path = set(sys.modules), list(sys.path)
+
+        with found.imports():
+            call("x")
+
+        self.assertEqual(set(sys.modules) - before, set())
+        self.assertEqual(sys.path, path)
+
+    def test_an_empty_discovery_gives_a_usable_context(self):
+        (self.tmp / "notes.txt").write_text("no python here\n")
+
+        found = discover(self.tmp)
+
+        with found.imports():
+            pass
+        self.assertFalse(bool(found.imports()))
+
+
+class APackageIsNamedForItsOwnDirectory(_Fixture):
+    """Their own code writes the directory's name. A member doing `import
+    core.store` at call time reached a package named `_cogbench_pkg_0_core`
+    under no name it could ask for, so the ordinary import system read the
+    same file a second time into a second module, and the call appended to a
+    list the benchmark was not holding."""
+
+    def _core(self):
+        core = self.tmp / "core"
+        core.mkdir()
+        (core / "__init__.py").write_text("")
+        (core / "store.py").write_text(self._records("ROWS = []\n"))
+        (core / "query.py").write_text(
+            "def add(x):\n"
+            "    import core.store\n"
+            "    core.store.ROWS.append(x)\n"
+            "    return core.store.ROWS\n"
+        )
+        return core
+
+    def test_their_absolute_import_at_call_time_reaches_one_module(self):
+        self._core()
+
+        found = discover(self.tmp)
+        with found.imports():
+            appended = self._module(found, "query").add("one")
+
+        self.assertEqual(self._times_run(), 1)
+        self.assertIs(appended, self._module(found, "store").ROWS)
+        self.assertEqual(self._module(found, "store").ROWS, ["one"])
+
+    def test_a_member_is_an_attribute_of_its_package(self):
+        """Python sets `pkg.member` when the member is imported, and
+        everything written against a package relies on it. Discovery runs a
+        member through its loader directly, so nothing set it."""
+
+        self._core()
+
+        found = discover(self.tmp)
+
+        package = self._module(found, "__init__")
+        self.assertIs(getattr(package, "store"), self._module(found, "store"))
+
+    def test_the_candidate_label_is_the_directory_name(self):
+        from cogbench.pipeline import callables_in
+
+        core = self.tmp / "core"
+        core.mkdir()
+        (core / "detector.py").write_text("class Detector:\n    pass\n")
+        (core / "__init__.py").write_text(
+            "from .detector import Detector\n\n\ndef find_peaks(x):\n    return x\n"
+        )
+
+        found = discover(self.tmp)
+
+        self.assertIn("core.find_peaks", [c.label for c in callables_in(found.namespace)])
+
+
+class ADirectoryDoesNotTakeANameSomethingElseOwns(_Fixture):
+    """A package takes its directory's name only when nothing else here owns
+    it. `ImportContext` puts these names back for the length of every scored
+    call, so a directory called `json` taking `json` would hand a student's
+    folder to the benchmark's own imports."""
+
+    def test_two_directories_of_the_same_name_stay_apart(self):
+        for where, who in ((self.tmp / "core", "top"), (self.tmp / "sub" / "core", "sub")):
+            where.mkdir(parents=True)
+            (where / "__init__.py").write_text("")
+            (where / "m.py").write_text("def who():\n    return {!r}\n".format(who))
+        (self.tmp / "sub" / "helper.py").write_text("V = 1\n")
+
+        found = discover(self.tmp)
+
+        said = sorted(
+            entry.module.who() for entry in found.modules if hasattr(entry.module, "who")
+        )
+        self.assertEqual(said, ["sub", "top"])
+
+    def test_an_installed_name_is_left_to_the_installed_package(self):
+        import json as theirs
+
+        theirs_dir = self.tmp / "json"
+        theirs_dir.mkdir()
+        (theirs_dir / "__init__.py").write_text("")
+        (theirs_dir / "tool.py").write_text("def mine():\n    return 'student tool'\n")
+        (self.tmp / "main.py").write_text("import json\nUSED = json.dumps({'a': 1})\n")
+
+        found = discover(self.tmp)
+
+        self.assertEqual(self._module(found, "main").USED, '{"a": 1}')
+        self.assertIs(sys.modules["json"], theirs)
+
+
+class AFileNoNameCanBeFoundForIsStillReported(_Fixture):
+    """A file that is never read and never mentioned is the mystery this
+    report exists to remove. The reason is ours: every name it could have been
+    read under is already owned by something else in this process."""
+
+    def test_it_is_skipped_with_a_reason_that_does_not_blame_them(self):
+        import json.tool  # noqa: F401 - makes `json.tool` a name we may not take
+
+        (self.tmp / "tool.py").write_text("def a():\n    return 1\n")
+        theirs = self.tmp / "json"
+        theirs.mkdir()
+        (theirs / "tool.py").write_text("def mine():\n    return 'theirs'\n")
+
+        found = discover(self.tmp)
+
+        clash = [entry for entry in found.skipped if entry.reason == "name_taken"]
+        self.assertEqual(len(clash), 1)
+        self.assertEqual(owner_of_skip(clash[0]), "ours")
+
+
+class AnUnknownBenchmarkDoesNotEndTheReport(_Fixture):
+    """`track_for` answers "" for a benchmark it does not know, and that went
+    straight into `TRACKS[""]`."""
+
+    def test_it_falls_back_to_the_union_rather_than_raising(self):
+        skip = SkippedModule(
+            "m", self.tmp / "m.py", "missing_dependency", "imports numpy", "numpy"
+        )
+
+        self.assertEqual(owner_of_skip(skip, "not-a-benchmark"), "ours")
+        self.assertEqual(owner_of_skip(skip, ""), "ours")
+
+
+class ADefaultExpressionIsNotAnAnnotation(_Fixture):
+    """The postponed-annotation retry reads the innermost traceback frame. A
+    default value on the `def` line can call a helper that raises a NameError
+    of its own, and that frame is in the helper's file at a line that happens
+    to fall inside a `def` here. Recompiling for it would postpone annotations
+    to hide an error their code really has."""
+
+    def test_the_module_is_reported_rather_than_quietly_recompiled(self):
+        (self.tmp / "helpers.py").write_text(
+            "def boom():\n    return MISSING_IN_HELPER\n"
+        )
+        (self.tmp / "user.py").write_text(
+            "from helpers import boom\n\n\ndef f(x, y=boom()):\n    return x\n"
+        )
+
+        found = discover(self.tmp)
+
+        self.assertNotIn("user", [entry.name for entry in found.modules])
+        failure = [entry for entry in found.skipped if entry.name == "user"][0]
+        self.assertEqual(failure.reason, "raised")
+        self.assertIn("MISSING_IN_HELPER", failure.detail)
+
+    def test_a_real_annotation_is_still_recovered(self):
+        (self.tmp / "m.py").write_text("def f(x: Missing) -> int:\n    return 1\n")
+
+        found = discover(self.tmp)
+
+        entry = [item for item in found.modules if item.name == "m"][0]
+        self.assertTrue(entry.future_annotations)
+
+
+class ASalvagedSurveyKeepsWhatItMeasured(_Fixture):
+    """A survey whose child dies is rebuilt from what it wrote. It was writing
+    three fields per module while a completed record carries what it took to
+    read one, so the salvage lost exactly the notes a reader needs most."""
+
+    def test_the_recovery_notes_and_the_stub_list_survive(self):
+        (self.tmp / "a_ann.py").write_text("def f(x: Missing) -> int:\n    return 1\n")
+        (self.tmp / "z_die.py").write_text("import os\nos._exit(23)\n")
+
+        found = survey(self.tmp)
+
+        if found.ok:
+            self.skipTest("this platform ran the survey in-process")
+        self.assertFalse(found.looked)
+        recovered = [
+            entry for entry in found.record["modules"] if entry["name"] == "a_ann"
+        ]
+        self.assertEqual(len(recovered), 1)
+        self.assertTrue(recovered[0]["futureAnnotations"])
+        self.assertIn("microphone", found.record["stubbed"])
 
 
 if __name__ == "__main__":

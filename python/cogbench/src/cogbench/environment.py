@@ -339,7 +339,12 @@ def missing_here(modules: Sequence[str]) -> Tuple[str, ...]:
     for name in modules:
         try:
             found = importlib.util.find_spec(name)
-        except (ImportError, ValueError, AttributeError, TypeError):
+        except Exception:  # noqa: BLE001 - any finder on the path may raise
+            # Every exception, not a list of four. A finder already on
+            # `sys.meta_path` raising `OSError` ended the caller, and what a
+            # third-party finder raises is not ours to enumerate. The answer
+            # is unchanged either way: a package this cannot confirm is
+            # reported as missing rather than assumed present.
             found = None
         if found is None:
             absent.append(name)

@@ -296,7 +296,8 @@ class SkippedModule:
 
     name: str
     path: Path
-    #: ``"missing_dependency"``, ``"raised"``, ``"timeout"``, or ``"syntax"``.
+    #: ``"missing_dependency"``, ``"raised"``, ``"too_slow"``, ``"syntax"``,
+    #: or ``"name_taken"``.
     reason: str
     detail: str
     #: The import that was not satisfiable, when that is what went wrong.
@@ -315,18 +316,34 @@ def owner_of_skip(entry: "SkippedModule", benchmark: str = "") -> str:
 
     ``benchmark`` selects the graded environment, because there are three and
     they differ: Week 2 runs on Python 3.11 with torch and opencv, Week 1 and
-    Week 3 on a pinned 3.8 with their own package sets. Without it, the union
-    is used, which errs toward calling a skip ours. That is the safe
-    direction: it withholds a verdict rather than asserting a wrong one.
+    Week 3 on a pinned 3.8 with their own package sets. A benchmark this does
+    not recognise falls back to the union rather than raising a ``KeyError``
+    out of the report, which is the same safe direction as supplying none.
+
+    A known limit of ``"environment"``: the catalogs list what each image
+    installs directly, and a package can be in an image without being on one.
+    Week 2 installs sklearn and skimage, which bring scipy, so scipy is in
+    that image and in no catalog. Locally that produces ``"environment"`` for
+    a package the graded run imports fine. ``gap_note`` already tells a
+    student running locally that this report describes less of their
+    repository than the graded run will read, and in the graded run itself
+    the answer is right, so this is left rather than guessed at: the fix is
+    the image's resolved package set, which this process cannot see.
     """
 
+    if entry.reason == "name_taken":
+        # Nothing to do with their file. Something else in this process
+        # already owns every name it could have been read under.
+        return "ours"
     if entry.reason == "missing_dependency" and entry.missing:
         from . import environment
 
-        if benchmark:
-            graded = environment.student_modules(environment.track_for(benchmark))
-        else:
-            graded = environment.all_student_modules()
+        track = environment.track_for(benchmark) if benchmark else ""
+        graded = (
+            environment.student_modules(track)
+            if track
+            else environment.all_student_modules()
+        )
         root = entry.missing.split(".", 1)[0]
         return "ours" if root in graded else "environment"
     return "theirs"
@@ -370,6 +387,21 @@ class Discovery:
     #: the packages it was willing to. A listed package that turned out to be
     #: installed is not stubbed and must not be reported as though it were.
     stubbed: List[str] = field(default_factory=list)
+    #: What their code needs back in `sys.modules` in order to run. Empty on a
+    #: discovery replayed from a journal rather than performed here, which is
+    #: why `imports()` is safe to use without asking.
+    context: "ImportContext" = field(default_factory=lambda: ImportContext())
+
+    def imports(self) -> "ImportContext":
+        """Their import context, for the length of one call.
+
+        ``with found.imports(): their_function(x)``. A function that imports a
+        sibling inside its own body does that when it is called, which is
+        after discovery has put the process back as it found it. This puts
+        exactly their names back for the call and takes them out again.
+        """
+
+        return self.context
 
     @property
     def namespace(self) -> List[ModuleType]:
@@ -1050,32 +1082,13 @@ class _PackageLoader(importlib.machinery.SourceFileLoader):
     and ``SyntaxError`` line numbers all stay exactly as they were.
     """
 
-    #: The module this file had already produced, when it had. Recorded in
-    #: `create_module` because that is the last moment the two can be told
-    #: apart: by `exec_module` the import machinery has given the new module
-    #: this file's `__file__` as well.
-    _reused: Optional[ModuleType] = None
-
     def create_module(self, spec):
-        # One module object per source file, the rule `_import_one` applies.
-        # This loader is the other place a repository file is executed. A
-        # member reached first by a sibling's `import core.b`, which the
-        # ordinary import system serves under the directory's own name, is
-        # reached again as `<synthetic>.b` by a relative import, and running
-        # it twice gave the directory two copies with independent globals.
-        self._reused = _already_executed(Path(self.path))
         module = ModuleType(spec.name.rpartition(".")[2])
         # The dotted parent is what a leading dot resolves against.
         module.__package__ = spec.parent
         return module
 
     def exec_module(self, module) -> None:
-        if self._reused is not None:
-            # The import machinery re-reads `sys.modules[spec.name]` once this
-            # returns, which is how a loader hands back the object that
-            # already exists instead of a second copy of it.
-            sys.modules[self.name] = self._reused
-            return
         # self.name, not module.__name__: the base class checks the code it
         # hands back against the name the loader was built with, and the bare
         # stem fails that check with "loader cannot handle database".
@@ -1110,28 +1123,53 @@ class _PackageFinder:
         )
 
 
-def _register_package(directory: Path) -> str:
+def _name_is_free(name: str, directories: Sequence[Path]) -> bool:
+    """Whether a top-level module name belongs to nobody else in this process.
+
+    ``_PREEXISTING`` covers what was imported before discovery and
+    ``sys.modules`` covers what this run has registered, but neither sees a
+    package that is installed and has simply not been imported yet. Taking
+    ``requests`` for a directory called ``requests`` would hand a student's
+    folder to anything importing it afterwards, including the benchmark,
+    because `ImportContext` puts these names back for the length of every
+    scored call.
+
+    The repository's own directories come off the path for the probe, since
+    ``find_spec`` would otherwise find the very directory being named and
+    report every name as taken.
+    """
+
+    if not name.isidentifier() or name in _PREEXISTING or name in sys.modules:
+        return False
+    ours = {str(directory) for directory in directories}
+    held = list(sys.path)
+    sys.path[:] = [entry for entry in held if entry not in ours]
+    try:
+        return importlib.util.find_spec(name) is None
+    except Exception:  # noqa: BLE001 - any finder on the path may raise
+        # Same reasoning as `_install_stubs`: a name this process cannot
+        # answer for is not a name worth taking.
+        return False
+    finally:
+        sys.path[:] = held
+
+
+def _register_package(directory: Path, directories: Sequence[Path] = ()) -> str:
     """Create the package object a directory's modules will belong to.
 
-    The package's own ``__name__`` is synthetic so that a directory called
-    ``core`` cannot take the top-level name ``core`` from something installed,
-    and so that two directories of that name in one repository stay apart.
+    The package takes its directory's own name when nothing else in this
+    process owns that name, and a counter-suffixed synthetic one otherwise.
+    Their name is the one their own code writes: a member doing ``import
+    core.store`` at call time then reaches this package, instead of sending
+    the ordinary import system to read the same file a second time into a
+    second module. It is also the name a student reads in a wiring log.
 
-    A note about the measurement that used to be recorded here: changing
-    ``__name__`` alone to ``core`` did raise ``ModuleNotFoundError: No module
-    named 'core'``, because CPython resolves ``from . import sibling`` by
-    formatting ``"{}.{}".format(package.__name__, "sibling")`` while the
-    ``sys.modules`` key and the finder still answered for the synthetic name.
-    That is a half-change and it had to fail; it is not evidence that a
-    directory's own name cannot be used. Changing the key, the spec and the
-    finder together works, and a reviewer prototyped it against this suite
-    with identical results. It is not done here because it would rewrite how
-    every package in this file is named, which is a larger change than the
-    repairs this commit is making.
-
-    The cost of keeping the synthetic name: a function defined directly in an
-    ``__init__.py`` carries it into the candidate label a student reads.
-    Re-exports do not, because they keep their defining module's name.
+    An earlier note here recorded that a friendly ``__name__`` had been
+    measured to fail with ``ModuleNotFoundError: No module named 'core'``.
+    That measurement moved ``__name__`` alone while the ``sys.modules`` key
+    and the finder still answered for the synthetic name, which is a half
+    change and had to fail. Here the name, the key, the spec and the finder
+    move together.
 
     An ``__init__.py`` is executed as the package body, so a package whose
     setup lives there gets that setup. A failure there is deliberately not
@@ -1139,9 +1177,15 @@ def _register_package(directory: Path) -> str:
     and the directory's modules are then imported without it.
     """
 
-    package = "{}{}_{}".format(
-        _PACKAGE_PREFIX, next(_package_counter), _safe_suffix(directory.name)
-    )
+    package = _safe_suffix(directory.name)
+    if not _name_is_free(package, directories):
+        # Two directories called `core` in one repository, a directory named
+        # for something installed, or a name the process already holds. The
+        # counter is never restarted, so no two packages in one interpreter
+        # can collide.
+        package = "{}{}_{}".format(
+            _PACKAGE_PREFIX, next(_package_counter), _safe_suffix(directory.name)
+        )
     module = ModuleType(package)
     spec = importlib.machinery.ModuleSpec(package, None, is_package=True)
     spec.submodule_search_locations = [str(directory)]
@@ -1205,26 +1249,47 @@ def _live_package(directory: Path) -> Optional[str]:
     package name rather than two.
     """
 
-    wanted = os.path.realpath(str(directory))
-    for name, module in list(sys.modules.items()):
-        if name in _PREEXISTING or module is None:
-            continue
-        try:
-            namespace = getattr(module, "__dict__", None)
-            locations = namespace.get("__path__") if isinstance(namespace, dict) else None
-            if not locations:
-                continue
-            entries = [str(entry) for entry in locations]
-        except Exception:  # noqa: BLE001 - anything can be put in sys.modules
-            continue
-        # Exactly this directory, not merely among its locations. A package
-        # with no ``__init__.py`` is a namespace package, and Python merges
-        # every ``core/`` it finds across ``sys.path`` into one ``__path__``.
-        # Adopting it for each of them in turn filed two different files under
-        # one dotted name, and the second overwrote the first.
-        if len(entries) == 1 and os.path.realpath(entries[0]) == wanted:
-            return name
+    name = _safe_suffix(directory.name)
+    module = sys.modules.get(name)
+    if not name.isidentifier() or name in _PREEXISTING or module is None:
+        return None
+    try:
+        namespace = getattr(module, "__dict__", None)
+        locations = namespace.get("__path__") if isinstance(namespace, dict) else None
+        if not locations:
+            return None
+        entries = [str(entry) for entry in locations]
+    except Exception:  # noqa: BLE001 - anything can be put in sys.modules
+        return None
+    # Exactly this directory, not merely among its locations. A package with
+    # no ``__init__.py`` is a namespace package, and Python merges every
+    # ``core/`` it finds across ``sys.path`` into one ``__path__``. Adopting it
+    # for each of them in turn filed two different files under one dotted
+    # name, and the second overwrote the first.
+    if len(entries) == 1 and os.path.realpath(entries[0]) == os.path.realpath(str(directory)):
+        return name
     return None
+
+
+def _attach(package: Optional[str], path: Path, module: ModuleType) -> None:
+    """Hang a member on its package, the way an ordinary import would.
+
+    Python sets ``pkg.member`` when ``pkg.member`` is imported, and everything
+    written against a package relies on it: ``import core.store`` binds the
+    name ``core`` and then reads ``.store`` off it. Discovery executes a
+    member through its loader directly rather than through the import system,
+    so nothing set that attribute, and a package built here was missing a link
+    every real package has. Their own ``import core.store`` at call time then
+    raised ``AttributeError: module 'core' has no attribute 'store'``, because
+    the member was already in ``sys.modules`` and the import took the short
+    path that skips the assignment.
+    """
+
+    if package is None:
+        return
+    owner = sys.modules.get(package)
+    if owner is not None:
+        setattr(owner, path.stem, module)
 
 
 def _dotted_name(package: str, stem: str) -> str:
@@ -1618,6 +1683,7 @@ def _execute(
             sys.modules.setdefault(name, module)
             with _quiet_import(), _deadline(timeout, name):
                 spec.loader.exec_module(module)
+            _attach(package, path, module)
             return module, None, None
 
         # A notebook module is built from lifted definitions rather than
@@ -1640,6 +1706,7 @@ def _execute(
         if package is not None:
             module.__package__ = package
             sys.modules[_dotted(package, path)] = module
+            _attach(package, path, module)
         sys.modules.setdefault(name, module)
         flags = __future__.annotations.compiler_flag if future_annotations else 0
         # `dont_inherit` because this file declares `from __future__ import
@@ -1899,9 +1966,20 @@ def _annotation_only(
     trace = error.__traceback__
     if trace is None:
         return False
-    while trace.tb_next is not None:
+    # The innermost frame in this file, not the innermost frame anywhere. A
+    # default-value expression on a `def` line can call a helper that raises
+    # a NameError of its own, and the absolute innermost frame is then in the
+    # helper's file at a line number that happens to fall inside a `def`
+    # here. Recompiling for that would postpone annotations to hide an error
+    # their code really has.
+    here = os.path.realpath(str(path))
+    lineno = None
+    while trace is not None:
+        if os.path.realpath(trace.tb_frame.f_code.co_filename) == here:
+            lineno = trace.tb_lineno
         trace = trace.tb_next
-    lineno = trace.tb_lineno
+    if lineno is None:
+        return False
     text = source
     if text is None:
         try:
@@ -2475,6 +2553,7 @@ def load_modules(
     import_timeout: float = IMPORT_TIMEOUT_SECONDS,
     journal: Optional[Callable[[str, object], None]] = None,
     resource_files: Optional[Mapping[str, Path]] = None,
+    keep: Optional["ImportContext"] = None,
 ) -> Tuple[List[LoadedModule], List[SkippedModule], List[str]]:
     """Import every module in ``root``, then in each of ``extra``.
 
@@ -2509,7 +2588,7 @@ def load_modules(
     """
 
     calls: List[str] = []
-    _install_stubs(calls)
+    _note(journal, "stubs", _install_stubs(calls))
     directories = [root] + [path for path in extra if path != root]
     redirects = _Redirects(resource_files or {})
     redirects.enter()
@@ -2535,7 +2614,7 @@ def load_modules(
         if is_package_directory(directory):
             live = _live_package(directory)
             adopted = live is not None
-            package = live if adopted else _register_package(directory)
+            package = live if adopted else _register_package(directory, directories)
 
         files = _python_files(directory)
         if package is not None:
@@ -2598,6 +2677,23 @@ def load_modules(
                     # table by the time its file is reached, and reading the
                     # live table skipped the one encoder that loads their
                     # weights.
+                    #
+                    # Reported rather than dropped. A file that is never read
+                    # and never mentioned is the mystery this report exists to
+                    # remove, and the reason is ours: every name it could have
+                    # been read under is already owned by something else in
+                    # this process.
+                    clash = SkippedModule(
+                        path.stem,
+                        path,
+                        "name_taken",
+                        "another file here is already read as {}, and {} is a "
+                        "name this process already uses".format(
+                            path.stem, name or "its folder-qualified name"
+                        ),
+                    )
+                    skipped.append(clash)
+                    _note(journal, "skipped", clash)
                     continue
             # Announced before the attempt, not after. A module that takes the
             # interpreter down produces no outcome at all, so this line is the
@@ -2666,6 +2762,10 @@ def load_modules(
                 _consume(directory)
     finally:
         notebooks.withdraw()
+        if keep is not None:
+            # Handed over here rather than collected by `_entered`, which
+            # runs after this and cannot see a finder already withdrawn.
+            keep.retain_finder(notebooks)
         redirects.leave()
 
     return loaded, skipped, calls
@@ -2711,6 +2811,190 @@ def _searches_inside(module: object, directories: Sequence[Path]) -> bool:
     )
 
 
+def _belongs_to(name: str, module: object, directories: Sequence[Path]) -> bool:
+    """Whether this ``sys.modules`` entry came out of this repository.
+
+    Three ways to be one, because a module can be missing the evidence for the
+    others. A synthetic package is recognised by its name, since a package
+    built for a directory with no ``__init__.py`` has no ``__file__`` to test.
+    Anything else is recognised by the file it was read from, or by a search
+    path that points into the repository.
+
+    Deciding must not be the thing that ends a run, so an entry that answers
+    attribute access with an exception is treated as not ours. That is the
+    same outcome as not recognising it.
+    """
+
+    if name.startswith(_PACKAGE_PREFIX):
+        return True
+    try:
+        return any(
+            _is_student_module(module, directory) for directory in directories
+        ) or _searches_inside(module, directories)
+    except Exception:  # noqa: BLE001 - anything can be in sys.modules
+        return False
+
+
+class ImportContext:
+    """The names one repository's code needs in ``sys.modules`` in order to run.
+
+    Discovery imports a repository and then puts the process back as it found
+    it: their modules come out of ``sys.modules``, their directories come off
+    ``sys.path``. That is not tidiness. Evicting a module does not unload a C
+    extension it brought in, and re-importing one is what makes numba raise
+    and soxr abort the interpreter outright, so the next repository scored in
+    the same process must not find this one's names.
+
+    The same teardown takes away the names a returned function needs when it
+    imports a sibling lazily, inside its own body, at the moment a benchmark
+    calls it. Measured: that call raises ``ModuleNotFoundError``, and because
+    discovery has already finished, nothing reports it.
+
+    This is what discovery kept, so it can put exactly those names back for
+    the length of one call and take them out again afterwards. Only this
+    repository's own names are ever involved. A module the interpreter already
+    had is not installed, evicted or restored, so a C extension is loaded once
+    and stays loaded. Two repositories that each hold a ``database.py`` each
+    get their own, because each context installs its own names and puts back
+    whatever it displaced.
+
+    Reusable and re-entrant: nesting is counted, so an inner block does not
+    take the names away from the outer one.
+
+    What this is not: it does not restore ``_Redirects``. Those patch
+    ``builtins.open`` and the course loaders, and re-entering that during a
+    scored call would answer the benchmark's own reads from the student's
+    map, not just theirs. A module that only loaded because of a redirect is
+    kept as an object; a lazy import that would need one fails.
+    ``LoadedModule.redirected`` names the modules that were affected.
+    """
+
+    def __init__(self, directories: Sequence[Path] = ()) -> None:
+        self.directories: Tuple[Path, ...] = tuple(directories)
+        self._modules: Dict[str, ModuleType] = {}
+        self._finders: List[object] = []
+        self._depth = 0
+        self._installed = False
+        # Only meaningful while installed, declared here so the whole of this
+        # object's state is in one place.
+        self._displaced: Dict[str, ModuleType] = {}
+        self._added: List[object] = []
+        self._before: set = set()
+        self._held_path: List[str] = []
+        self._held_preexisting: set = set()
+        self._held_displaced: Dict[str, ModuleType] = {}
+
+    def __bool__(self) -> bool:
+        """Whether entering this would put anything back.
+
+        Their modules, not the finders. A discovery that loaded nothing still
+        built a notebook finder, and installing that alone answers for
+        notebooks no returned function exists to ask about.
+        """
+
+        return bool(self._modules)
+
+    @property
+    def modules(self) -> Dict[str, ModuleType]:
+        """Every module of theirs this holds, by the name it is filed under.
+
+        A copy, so a caller reading it cannot change what gets installed.
+        Includes anything their code imported during an earlier block, which
+        is why it is the inventory to key against rather than a second scan.
+        """
+
+        return dict(self._modules)
+
+    @property
+    def files(self) -> Tuple[str, ...]:
+        """The resolved source files behind those modules, deduplicated."""
+
+        seen = []
+        for module in self._modules.values():
+            namespace = getattr(module, "__dict__", None)
+            origin = namespace.get("__file__") if isinstance(namespace, dict) else None
+            if origin:
+                where = os.path.realpath(str(origin))
+                if where not in seen:
+                    seen.append(where)
+        return tuple(seen)
+
+    def retain(self, name: str, module: ModuleType) -> None:
+        """Keep one of their modules under the name it was filed under."""
+
+        self._modules.setdefault(name, module)
+
+    def retain_finder(self, finder: object) -> None:
+        """Keep one finder, by identity.
+
+        The exact object, never an equivalent one. A synthetic package name
+        comes from a counter that is never restarted, so a rebuilt finder
+        would answer for a name no module is registered under, and every
+        member's ``__package__`` would stop resolving.
+        """
+
+        if finder not in self._finders:
+            self._finders.append(finder)
+
+    def __enter__(self) -> "ImportContext":
+        self._depth += 1
+        if self._depth > 1 or not self:
+            return self
+        self._displaced = {}
+        self._held_path = list(sys.path)
+        # Read before their names go in, so the reuse check judges a file
+        # against what the process held rather than against this repository.
+        self._held_preexisting = set(_PREEXISTING)
+        _PREEXISTING.clear()
+        _PREEXISTING.update(sys.modules)
+        self._held_displaced = dict(_DISPLACED)
+        _DISPLACED.clear()
+        for name, module in self._modules.items():
+            if name in sys.modules:
+                self._displaced[name] = sys.modules[name]
+            sys.modules[name] = module
+        self._added = [
+            finder for finder in self._finders if finder not in sys.meta_path
+        ]
+        for finder in reversed(self._added):
+            sys.meta_path.insert(0, finder)
+        for directory in reversed(self.directories):
+            sys.path.insert(0, str(directory))
+        self._before = set(sys.modules)
+        self._installed = True
+        return self
+
+    def __exit__(self, *_exc) -> None:
+        self._depth -= 1
+        if self._depth > 0 or not self._installed:
+            return
+        self._installed = False
+        sys.path[:] = self._held_path
+        # Whatever their code imported while it ran is theirs too, so it is
+        # kept for the next call and taken out with the rest. Deepest name
+        # first: a nested package resolves its search path by looking its
+        # parent up in the table being emptied.
+        for name in sorted(set(sys.modules) - self._before, reverse=True):
+            module = sys.modules.get(name)
+            if module is not None and _belongs_to(name, module, self.directories):
+                self.retain(name, module)
+                sys.modules.pop(name, None)
+        for name in sorted(self._modules, reverse=True):
+            if sys.modules.get(name) is self._modules[name]:
+                sys.modules.pop(name, None)
+        for name, original in _DISPLACED.items():
+            sys.modules[name] = original
+        _DISPLACED.clear()
+        _DISPLACED.update(self._held_displaced)
+        for name, original in self._displaced.items():
+            sys.modules[name] = original
+        sys.meta_path[:] = [
+            finder for finder in sys.meta_path if finder not in self._added
+        ]
+        _PREEXISTING.clear()
+        _PREEXISTING.update(self._held_preexisting)
+
+
 @contextlib.contextmanager
 def _entered(
     root: Path, *, working: Optional[Path] = None, also: Sequence[Path] = ()
@@ -2750,6 +3034,7 @@ def _entered(
     that does nothing stranger than importing librosa.
     """
 
+    kept = ImportContext((root, *also))
     previous_cwd = Path.cwd()
     previous_path = list(sys.path)
     previous_backend = os.environ.get("MPLBACKEND")
@@ -2781,7 +3066,7 @@ def _entered(
     for directory in reversed([root, *also]):
         sys.path.insert(0, str(directory))
     try:
-        yield
+        yield kept
     finally:
         os.chdir(previous_cwd)
         sys.dont_write_bytecode = previous_bytecode
@@ -2802,31 +3087,23 @@ def _entered(
             module = sys.modules.get(name)
             if module is None:
                 continue
-            # Matched by name rather than by file, because a package built for
-            # a directory with no __init__.py has no __file__ for
-            # _is_student_module to test.
-            if name.startswith(_PACKAGE_PREFIX):
+            if _belongs_to(name, module, (root, *also)):
+                # Kept rather than dropped. The eviction is what a second
+                # repository in this process needs; the module object is what
+                # a returned function needs when it imports a sibling at the
+                # moment it is called. See `ImportContext`.
+                kept.retain(name, module)
                 sys.modules.pop(name, None)
-                continue
-            try:
-                theirs = any(
-                    _is_student_module(module, directory)
-                    for directory in (root, *also)
-                ) or _searches_inside(module, (root, *also))
-            except Exception:  # noqa: BLE001 - anything can be in sys.modules
-                # Deciding whether to evict must not be the thing that ends
-                # the run. An entry that refuses to answer is left alone,
-                # which is the same outcome as not recognising it.
-                continue
-            if theirs:
-                sys.modules.pop(name, None)
-        sys.meta_path[:] = [
+        withdrawn = [
             finder
             for finder in sys.meta_path
-            if not (
-                isinstance(finder, _PackageFinder)
-                and finder.package not in sys.modules
-            )
+            if isinstance(finder, _PackageFinder)
+            and finder.package not in sys.modules
+        ]
+        for finder in withdrawn:
+            kept.retain_finder(finder)
+        sys.meta_path[:] = [
+            finder for finder in sys.meta_path if finder not in withdrawn
         ]
 
 
@@ -2892,24 +3169,26 @@ def discover(
     # one session left db.pkl and songs.pkl in this checkout. Their code is
     # right about wanting a working directory; it does not get to be this one.
     if scratch is not None:
-        with _entered(root.path, working=Path(scratch), also=extra):
+        with _entered(root.path, working=Path(scratch), also=extra) as kept:
             modules, skipped, calls = load_modules(
                 root.path,
                 extra=extra,
                 import_timeout=import_timeout,
                 journal=journal,
                 resource_files=resource_files,
+                keep=kept,
             )
             stubbed = stubbed_now()
     else:
         with tempfile.TemporaryDirectory(prefix="cogworks-import-") as temporary:
-            with _entered(root.path, working=Path(temporary), also=extra):
+            with _entered(root.path, working=Path(temporary), also=extra) as kept:
                 modules, skipped, calls = load_modules(
                     root.path,
                     extra=extra,
                     import_timeout=import_timeout,
                     journal=journal,
                     resource_files=resource_files,
+                    keep=kept,
                 )
                 stubbed = stubbed_now()
     return Discovery(
@@ -2918,6 +3197,7 @@ def discover(
         skipped=skipped,
         stub_calls=calls,
         stubbed=stubbed,
+        context=kept,
     )
 
 
@@ -3042,6 +3322,12 @@ def survey(
             "considered": salvaged.get("considered", []),
             "modules": salvaged.get("modules", []),
             "skipped": salvaged.get("skipped", []),
+            # What this run was standing in for, journaled when the stubs went
+            # in, so a reader can tell a module that failed on a stub from one
+            # that failed on its own. `stubCalls` is not here: those accumulate
+            # as modules import, and this run ended before it could report
+            # them.
+            "stubbed": salvaged.get("stubbed", []),
             # Both are true and neither implies the other: the repository was
             # not fully read, and here is the part that was. A caller that
             # reports a count from this without saying so is claiming an
@@ -3079,12 +3365,21 @@ def _journal_line(kind: str, entry: object) -> Dict[str, object]:
         # been executed, so there is no outcome to describe.
         return {"kind": "reading", "path": str(entry)}
     if kind == "module":
-        return {
-            "kind": "module",
-            "name": str(getattr(entry, "name", "")),
-            "path": str(getattr(entry, "path", "")),
-            "origin": str(getattr(entry, "origin", "file")),
-        }
+        # The completed record itself, not three of its fields. This wrote
+        # name, path and origin while `_module_record` also carries what it
+        # took to read the module, so a salvaged survey lost exactly the
+        # recovery notes a reader needs most: `importedFrom`,
+        # `futureAnnotations` and `redirected`.
+        record = dict(_module_record(entry))  # type: ignore[arg-type]
+        record["kind"] = "module"
+        return record
+    if kind == "stubs":
+        # Known as soon as the stubs go in, so a run that dies later still
+        # says which packages it was standing in for. The calls those stubs
+        # recorded are not here: they accumulate as modules import, and a
+        # line per call would put one in the trail for every attribute a
+        # stubbed package is asked for.
+        return {"kind": "stubs", "stubbed": [str(name) for name in entry or ()]}
     return {
         "kind": "skipped",
         "name": str(getattr(entry, "name", "")),
@@ -3119,7 +3414,7 @@ def _replay_journal(trail: Path) -> Dict[str, object]:
         if not isinstance(record, dict):
             continue
         kind = record.pop("kind", "")
-        if kind == "root":
+        if kind in ("root", "stubs"):
             salvaged.update(record)
         elif kind == "reading":
             salvaged["lastAttempted"] = record.get("path", "")
