@@ -125,6 +125,7 @@ export async function serializeRunDetail(
 
   return {
     ...summary,
+    surfaceId: row.surfaceId,
     contractVersion: row.contractVersion,
     parentRunId: row.parentRunId,
     repo: {

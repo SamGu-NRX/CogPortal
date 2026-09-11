@@ -8,6 +8,7 @@ import {
   sqliteTable,
   text,
   uniqueIndex,
+  type AnySQLiteColumn,
 } from "drizzle-orm/sqlite-core";
 
 export const cohorts = sqliteTable("cohorts", {
@@ -326,6 +327,9 @@ export const runs = sqliteTable("runs", {
   sha: text("sha").notNull(),
   repositoryId: integer("repository_id"),
   parentRunId: text("parent_run_id"),
+  retryOfRunId: text("retry_of_run_id").references((): AnySQLiteColumn => runs.id),
+  /** Original dispatch inputs, including weight digests, for exact-source Retry. */
+  dispatchJobJson: text("dispatch_job_json"),
   attemptNumber: integer("attempt_number"),
   failureCategory: text("failure_category", {
     enum: [
@@ -381,6 +385,11 @@ export const runs = sqliteTable("runs", {
   lastEventSequence: integer("last_event_sequence").notNull().default(-1),
   surfaceId: text("surface_id"),
 }, (table) => [
+  uniqueIndex("runs_retry_of_unique").on(table.retryOfRunId),
+  // Each mode starts one chain; failed executions can each have one successor.
+  uniqueIndex("runs_surface_mode_unique")
+    .on(table.surfaceId, table.mode)
+    .where(sql`${table.retryOfRunId} IS NULL`),
   // Enforce the quota check across concurrent run starts (migration 0015).
   uniqueIndex("runs_one_active_per_team_benchmark")
     .on(table.teamId, table.benchmarkId)

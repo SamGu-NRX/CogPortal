@@ -34,6 +34,8 @@ import {
   publishOfficialRun,
   startPracticeRun,
   rerunHostedSurface,
+  retryRun,
+  performRunSurfaceMutation,
   type RunActor,
 } from "../worker/services/run-actions.ts";
 
@@ -216,6 +218,110 @@ async function seedPromotion(db: Database): Promise<RunActor> {
     role: "write",
   };
 }
+
+for (const mode of ["practice", "official"] as const) {
+  test(`${mode} Retry keeps its console and inputs, with one successor per failed execution`, async () => {
+    const { db, binding } = freshDb();
+    const actor = await seedPromotion(db);
+    const failedId = mode === "official" ? await seedOfficial(db, "failed") : PRACTICE_RUN_ID;
+    await db.update(runs).set({
+      status: "failed", provider: "fixture", finishedAt: NOW + 2_000,
+      failureCategory: "student_runtime", failureDetail: "Original failure", diagnosticsJson: '["old finding"]',
+    }).where(eq(runs.id, failedId));
+    const before = await buildRunSurfaceSnapshot(env(binding, "fixture"), SURFACE_ID);
+    assert.ok(before.actions.includes("retry"));
+    const snapshots = await Promise.all(Array.from({ length: 4 }, () => performRunSurfaceMutation(
+      env(binding, "fixture"), actor, SURFACE_ID, "retry", { runId: failedId },
+    )));
+    const successors = await db.select().from(runs).where(eq(runs.retryOfRunId, failedId));
+    assert.equal(successors.length, 1);
+    const next = successors[0];
+    assert.ok(next);
+    assert.equal(next.mode, mode);
+    assert.equal(next.surfaceId, SURFACE_ID);
+    assert.equal(next.sha, "a".repeat(40));
+    assert.equal(next.repositoryId, FIXTURE_REPO.repositoryId);
+    assert.equal(next.parentRunId, mode === "official" ? PRACTICE_RUN_ID : null);
+    assert.equal(next.failureCategory, null);
+    assert.equal(next.diagnosticsJson, null);
+    assert.equal(next.refundedAt, null);
+    for (const snapshot of snapshots) {
+      assert.equal(snapshot.id, SURFACE_ID);
+      assert.equal(mode === "official" ? snapshot.officialRunId : snapshot.practiceRunId, next.id);
+      assert.equal(snapshot.executionGeneration, before.executionGeneration + 1);
+      assert.equal(snapshot.actions.includes("retry"), false);
+      assert.equal(snapshot.executionHistory.find((run) => run.id === failedId)?.status, "failed");
+    }
+    if (mode === "official") {
+      assert.equal(next.attemptNumber, 1);
+      const claims = await db.select().from(officialAttempts);
+      assert.equal(claims.length, 1);
+      assert.equal(claims[0]?.runId, next.id);
+    }
+    await db.update(runs).set({ status: "failed", finishedAt: Date.now() }).where(eq(runs.id, next.id));
+    await retryRun(env(binding, "fixture"), actor, SURFACE_ID, failedId);
+    assert.equal((await db.select().from(runs).where(eq(runs.surfaceId, SURFACE_ID))).length, before.executionGeneration + 1);
+    await retryRun(env(binding, "fixture"), actor, SURFACE_ID, next.id);
+    const [last] = await db.select().from(runs).where(eq(runs.retryOfRunId, next.id));
+    assert.ok(last);
+    await db.update(runs).set({ status: "succeeded", finishedAt: Date.now() }).where(eq(runs.id, last.id));
+    const accounting = await readRunAccounting(db, {
+      teamId: actor.team.id, benchmarkId: BENCHMARK_ID, benchmarkVersion: 1,
+    });
+    assert.equal(mode === "official" ? accounting.officialUsed : accounting.practiceUsed, 1);
+    const final = await buildRunSurfaceSnapshot(env(binding, "fixture"), SURFACE_ID);
+    assert.equal(mode === "official" ? final.officialRunId : final.practiceRunId, last.id);
+    assert.equal(final.status, "succeeded");
+    const [original] = await db.select().from(runs).where(eq(runs.id, failedId));
+    assert.equal(original?.status, "failed");
+    assert.equal(original?.failureDetail, "Original failure");
+  });
+}
+
+for (const mode of ["practice", "official"] as const) {
+  test(`${mode} Retry cannot exceed completed quota or displace another active execution`, async () => {
+    const { db, binding } = freshDb();
+    const actor = await seedPromotion(db);
+    const failedId = mode === "official" ? await seedOfficial(db, "failed") : PRACTICE_RUN_ID;
+    await db.update(runs).set({ status: "failed", provider: "fixture" }).where(eq(runs.id, failedId));
+    const [failed] = await db.select().from(runs).where(eq(runs.id, failedId));
+    assert.ok(failed);
+    const competitor = { ...failed, id: "run_other_candidate", status: "queued" as const, createdAt: Date.now(), finishedAt: null, surfaceId: null, benchmarkVersion: 99 };
+    const raced = await Promise.allSettled([
+      retryRun(env(binding, "fixture"), actor, SURFACE_ID, failedId),
+      insertRunWithCapacity(db, competitor),
+    ]);
+    const active = (await db.select().from(runs)).filter((run) => RUN_PHASES.some((phase) => phase === run.status));
+    assert.equal(active.length, 1);
+    assert.equal(raced.filter((result) => result.status === "fulfilled").length, 1);
+    const admitted = active[0];
+    assert.ok(admitted);
+    await db.update(runs).set({ status: "failed" }).where(eq(runs.id, admitted.id));
+    // Use a fresh failure when Retry won the race, so this is admission, not replay.
+    const target = admitted.retryOfRunId === failedId ? admitted.id : failedId;
+    for (let index = 0; index < (mode === "official" ? 3 : 10); index += 1) {
+      await db.insert(runs).values({
+        ...failed, id: `run_completed_${index}`, status: "succeeded", refundedAt: null,
+        surfaceId: null, finishedAt: NOW + 1_000,
+      });
+    }
+    await assert.rejects(retryRun(env(binding, "fixture"), actor, SURFACE_ID, target), /quota is exhausted/);
+    assert.equal((await db.select().from(runs).where(eq(runs.retryOfRunId, target))).length, 0);
+  });
+}
+
+test("Retry refuses changed provider, repository, configuration, and nonfailed executions", async () => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  await assert.rejects(retryRun(env(binding, "fixture"), actor, SURFACE_ID, PRACTICE_RUN_ID), /Only a failed/);
+  await db.update(runs).set({ status: "failed" }).where(eq(runs.id, PRACTICE_RUN_ID));
+  await assert.rejects(retryRun(env(binding, "fixture"), actor, SURFACE_ID, PRACTICE_RUN_ID), /source is no longer/);
+  await db.update(runs).set({ provider: "fixture", repositoryId: 999 }).where(eq(runs.id, PRACTICE_RUN_ID));
+  await assert.rejects(retryRun(env(binding, "fixture"), actor, SURFACE_ID, PRACTICE_RUN_ID), /source is no longer/);
+  await db.update(runs).set({ repositoryId: FIXTURE_REPO.repositoryId, scorerVersion: "changed" }).where(eq(runs.id, PRACTICE_RUN_ID));
+  await assert.rejects(retryRun(env(binding, "fixture"), actor, SURFACE_ID, PRACTICE_RUN_ID), /configuration has changed/);
+  assert.equal((await db.select().from(runs)).length, 1);
+});
 
 async function seedOfficial(
   db: Database,
