@@ -8,7 +8,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { Hono } from "hono";
 import { maintainPlatform } from "../worker/execution/maintenance.ts";
-import { hmacSignature } from "../worker/execution/runner.ts";
+import { buildRunJob, hmacSignature } from "../worker/execution/runner.ts";
 import { registerRunnerEventRoutes } from "../worker/routes/runner-events.ts";
 import { appendRunStreamEvent, buildRunSurfaceSnapshot, publishRunSurface } from "../worker/services/run-surfaces.ts";
 import { runSurfaceHubs } from "./fixtures/run-surface-hub.ts";
@@ -398,6 +398,39 @@ async function authenticatedPromotion(db: Database, binding: unknown) {
   return { runtime, app, cookie, promote: (authenticated = true) => app.fetch(new Request(`http://localhost:5173/runs/${PRACTICE_RUN_ID}/promote`, {
     method: "POST", headers: authenticated ? { cookie } : {},
   }), runtime) };
+}
+
+for (const change of ["unknown contract", "changed contract", "changed scorer", "changed runtime", "missing inputs", "malformed inputs", "changed protocol"] as const) {
+  test(`Retry admission matches the projected ${change} refusal and inserts no successor`, async () => {
+    const { db, binding } = freshDb();
+    const actor = await seedPromotion(db);
+    const runtime = env(binding, "modal");
+    const [run] = await db.select().from(runs).where(eq(runs.id, PRACTICE_RUN_ID));
+    const [catalog] = await db.select().from(benchmarks).where(and(eq(benchmarks.id, BENCHMARK_ID), eq(benchmarks.version, run.benchmarkVersion)));
+    const job = buildRunJob(runtime, run, actor.team, catalog);
+    if (change === "unknown contract") catalog.sandboxContract = null;
+    if (change === "changed contract") catalog.sandboxContract = 2;
+    if (change === "changed scorer") catalog.scorerVersion = "changed";
+    if (change === "changed runtime") catalog.runtimeVersion = "changed";
+    const recordedJobJson = JSON.stringify(change === "changed protocol" ? { ...job, protocolVersion: "2" } : job);
+    await db.update(benchmarks).set(catalog).where(and(eq(benchmarks.id, catalog.id), eq(benchmarks.version, catalog.version)));
+    await db.update(runs).set({ status: "failed", refusalJson: JSON.stringify({ headline: "Historical failure explanation" }),
+      dispatchJobJson: change === "missing inputs" ? null : change === "malformed inputs" ? "{" : recordedJobJson,
+    }).where(eq(runs.id, run.id));
+    const before = await db.select().from(runs);
+    const snapshot = await buildRunSurfaceSnapshot(runtime, SURFACE_ID);
+    assert.equal(snapshot.status, "failed");
+    assert.equal(snapshot.refusalHeadline, "Historical failure explanation");
+    assert.equal(snapshot.actions.includes("retry"), false);
+    assert.ok(snapshot.retryRefusal);
+    await assert.rejects(retryRun(runtime, actor, SURFACE_ID, run.id), (error) => {
+      assert.ok(error instanceof ApiHttpError);
+      assert.equal(error.status, 409);
+      assert.equal(error.message, snapshot.retryRefusal);
+      return true;
+    });
+    assert.deepEqual(await db.select().from(runs), before);
+  });
 }
 
 test("a null catalog sandbox contract pauses hosted practice before inserting an execution", async () => {
