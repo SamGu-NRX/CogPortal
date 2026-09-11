@@ -19,7 +19,9 @@ export function CopyBlock({
    *  crowds out the page. Off by default. */
   wrap?: boolean;
 }) {
-  const [copied, setCopied] = useState(false);
+  const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
+  const copying = useRef(false);
+  const copied = copyStatus === "copied";
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(
@@ -30,18 +32,24 @@ export function CopyBlock({
   );
 
   const copy = async () => {
+    // Suppress overlapping writes without disabling the focused button.
+    if (copying.current) return;
+    copying.current = true;
+    if (timer.current) clearTimeout(timer.current);
+    setCopyStatus("idle");
     try {
       await navigator.clipboard.writeText(text);
-      setCopied(true);
-      if (timer.current) clearTimeout(timer.current);
-      timer.current = setTimeout(() => setCopied(false), 1400);
+      setCopyStatus("copied");
+      timer.current = setTimeout(() => setCopyStatus("idle"), 1400);
     } catch {
-      /* ignore */
+      setCopyStatus("failed");
+    } finally {
+      copying.current = false;
     }
   };
 
   return (
-    <div className={`flex items-stretch gap-0 ${className}`}>
+    <div className={`flex flex-wrap items-stretch gap-0 ${className}`}>
       <code
         // A scrolling box has to be reachable by keyboard to be scrollable by
         // one, the way the run console's log is. A wrapped block scrolls
@@ -60,7 +68,7 @@ export function CopyBlock({
       <button
         type="button"
         onClick={copy}
-        title={copied ? "Copied" : "Copy command"}
+        title="Copy command"
         className="u-pressable flex min-w-11 items-center justify-center border border-l-0 border-rule bg-paper-raised px-3 transition-colors duration-150 hover:border-ink-secondary"
       >
         <HugeiconsIcon
@@ -70,8 +78,11 @@ export function CopyBlock({
           className={copied ? "text-verify" : "text-ink-faint"}
           aria-hidden="true"
         />
-        <span className="sr-only">{copied ? "Copied" : "Copy command"}</span>
+        <span className="sr-only">Copy command</span>
       </button>
+      <p role="status" className={copyStatus === "failed" ? "mt-2 w-full text-[13px] text-detect-deep" : "sr-only"}>
+        {copyStatus === "failed" ? "Couldn't copy. Select the command and copy it manually." : copied ? "Copied." : ""}
+      </p>
     </div>
   );
 }

@@ -58,7 +58,9 @@ export function Code({
   wrap?: boolean;
 }) {
   const [html, setHtml] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
+  const copying = useRef(false);
+  const copied = copyStatus === "copied";
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -73,13 +75,19 @@ export function Code({
   }, [code, lang]);
 
   const copy = async () => {
+    // Suppress overlapping writes without disabling the focused button.
+    if (copying.current) return;
+    copying.current = true;
+    if (timer.current) clearTimeout(timer.current);
+    setCopyStatus("idle");
     try {
       await navigator.clipboard.writeText(code);
-      setCopied(true);
-      if (timer.current) clearTimeout(timer.current);
-      timer.current = setTimeout(() => setCopied(false), 1400);
+      setCopyStatus("copied");
+      timer.current = setTimeout(() => setCopyStatus("idle"), 1400);
     } catch {
-      /* ignore */
+      setCopyStatus("failed");
+    } finally {
+      copying.current = false;
     }
   };
 
@@ -97,13 +105,11 @@ export function Code({
         // not resize under the reader when it does.
         <pre className="text-[12.5px] leading-[1.65] text-ink">{code}</pre>
       )}
-      {/* The icon is the control, the way the join code's copy is on the admin
-          page. Colour carries the confirmation; the accessible name carries it
-          for anyone not looking at the colour. */}
+      {/* Keep the action's name stable; the status below announces its result. */}
       <button
         type="button"
         onClick={copy}
-        title={copied ? "Copied" : "Copy command"}
+        title="Copy command"
         className="u-pressable u-hit-44 absolute top-1.5 right-1.5 flex min-h-7 min-w-7 items-center justify-center border border-transparent bg-paper-sunken/90 transition-colors duration-150 hover:border-rule"
       >
         <HugeiconsIcon
@@ -113,8 +119,11 @@ export function Code({
           className={copied ? "text-verify" : "text-ink-faint"}
           aria-hidden="true"
         />
-        <span className="sr-only">{copied ? "Copied" : "Copy command"}</span>
+        <span className="sr-only">Copy command</span>
       </button>
+      <p role="status" className={copyStatus === "failed" ? "mt-2 font-sans text-[13px] text-detect-deep" : "sr-only"}>
+        {copyStatus === "failed" ? "Couldn't copy. Select the command and copy it manually." : copied ? "Copied." : ""}
+      </p>
     </div>
   );
 }
