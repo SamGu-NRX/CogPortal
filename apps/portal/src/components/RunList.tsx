@@ -59,7 +59,7 @@ export function RunList({
                 <StatusChip status={run.status} />
                 <span className="font-mono text-[11px] text-ink-faint">
                   {run.branch} · {run.shortSha}
-                  {run.repo?.fullName !== connectedFullName && (
+                  {(!run.repo || run.repo.fullName !== connectedFullName) && (
                     // Same weight as the rest of the line. A renamed
                     // repository keeps its old name here and is still the same
                     // repository, so this names the source rather than warning
