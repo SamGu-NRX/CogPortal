@@ -53,6 +53,7 @@ function snapshot(overrides: Partial<RunSurfaceSnapshot> = {}): RunSurfaceSnapsh
     published: false,
     refusalHeadline: null,
     promotionRefusal: null,
+    retryRefusal: null,
     nextOfficialAttempt: 2,
     events: [],
     actions: ["open_console", "open_portal"],

@@ -684,6 +684,9 @@ export const RunSurfaceSnapshotSchema = z.object({
   refusalHeadline: z.string().max(600).nullable().default(null),
   // A successful practice can lack a reusable environment without losing its findings.
   promotionRefusal: z.string().max(600).nullable().default(null),
+  /** Deterministic recorded-input refusal only. Null does not establish
+   * authorization, capacity, or provider/weight availability. */
+  retryRefusal: z.string().max(600).nullable().default(null),
   events: z.array(RunStreamEventSchema).max(250),
   actions: z.array(RunSurfaceActionSchema),
   simulated: z.boolean(),
