@@ -350,11 +350,8 @@ export const runs = sqliteTable("runs", {
   failureConsumedAttempt: integer("failure_consumed_attempt", { mode: "boolean" })
     .notNull()
     .default(false),
-  /** When this run's official attempt was given back because the failure was
-   *  ours (migration 0029). Null for every run that was never refunded,
-   *  including every run from before the column existed. Counting these per
-   *  team and benchmark is what the refund cap reads; see
-   *  worker/execution/refunds.ts. */
+  /** Historical refund record. Retained so previously refunded successes do
+   *  not acquire a charge or publication eligibility under the current policy. */
   refundedAt: integer("refunded_at"),
   log: text("log"),
   /** Scorer diagnostics from the succeeded event: the benchmark's own
@@ -390,13 +387,6 @@ export const runs = sqliteTable("runs", {
     .where(
       sql`${table.status} IN ('queued','preparing','installing','contract_check','evaluating','scoring')`,
     ),
-  // The refund cap counts refunds per team and benchmark on every
-  // platform-caused official failure (migration 0029). Partial, because
-  // refunds are a small minority of runs and the count never asks about the
-  // nulls.
-  index("runs_refunded_team_benchmark_idx")
-    .on(table.teamId, table.benchmarkId, table.benchmarkVersion)
-    .where(sql`${table.refundedAt} IS NOT NULL`),
 ]);
 
 export const templateSources = sqliteTable("template_sources", {
@@ -471,6 +461,8 @@ export const localReports = sqliteTable("local_reports", {
   diagnosticsJson: text("diagnostics_json").notNull(),
   /** Paths discovery read while producing this local report. */
   weightsUsedJson: text("weights_used_json").notNull().default("[]"),
+  /** Required uploads; NULL preserves unknown provenance on legacy reports. */
+  weightsUploadedJson: text("weights_uploaded_json"),
   syncedAt: integer("synced_at").notNull(),
 });
 

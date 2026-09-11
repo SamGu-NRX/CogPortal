@@ -1,8 +1,8 @@
 import type { Context, Hono } from "hono";
-import { and, eq, lt } from "drizzle-orm";
+import { and, eq, exists, lt, ne, notInArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { RunEventV1Schema, type RunEventV1 } from "@cogworks/contracts/protocol";
-import type { FailureCategory, RunPhase, RunStreamEventCode } from "@cogworks/contracts/schema";
+import type { RunPhase, RunStreamEventCode } from "@cogworks/contracts/schema";
 import type { AppEnv } from "../env";
 import { getDb } from "../db/client";
 import {
@@ -14,7 +14,6 @@ import {
   runs,
 } from "../db/schema";
 import { hmacSignature } from "../execution/runner";
-import { refundOfficialAttempt, withRefundCapNotice } from "../execution/refunds";
 import { ApiHttpError } from "../http/errors";
 import { respond } from "../http/respond";
 import { constantTimeTextEqual } from "../util/crypto";
@@ -22,22 +21,6 @@ import { appendRunStreamEvent, runnerFailureCode } from "../services/run-surface
 
 const OkSchema = z.object({ ok: z.literal(true), duplicate: z.boolean() });
 const MAX_CLOCK_SKEW_SECONDS = 300;
-const CONSUMING_FAILURES = new Set<FailureCategory>([
-  "student_runtime",
-  "timeout",
-  "memory_limit",
-  "output_invalid",
-]);
-
-function failureConsumesAttempt(runMode: string, event: Extract<RunEventV1, { type: "failed" }>) {
-  return (
-    runMode === "official" &&
-    !event.failure.infrastructure &&
-    (event.failure.phase === "evaluating" || event.failure.phase === "scoring") &&
-    CONSUMING_FAILURES.has(event.failure.category)
-  );
-}
-
 export async function verifyRunnerSignature(
   c: Context<AppEnv>,
   payload: string,
@@ -84,67 +67,84 @@ async function applyEvent(env: AppEnv["Bindings"], event: RunEventV1): Promise<v
   const db = getDb(env);
   const [run] = await db.select().from(runs).where(eq(runs.id, event.runId)).limit(1);
   if (!run) throw new ApiHttpError(404, "not_found", "Run not found.");
-  if (["succeeded", "failed", "cancelled"].includes(run.status)) return;
+  const lateCompletion = event.type === "completed" && run.status === "failed";
+  if (["succeeded", "failed", "cancelled"].includes(run.status) && !lateCompletion) return;
   if (event.sequence <= run.lastEventSequence) return;
 
   if (event.type === "status") {
     const phase = event.status;
-    if (run.status !== phase) {
-      const previous = previousPhase(phase);
-      await db
-        .update(runPhases)
-        .set({ startedAt: event.occurredAt })
-        .where(and(eq(runPhases.runId, run.id), eq(runPhases.phase, phase)));
-      if (previous) {
-        await db
-          .update(runPhases)
-          .set({ endedAt: event.occurredAt })
-          .where(and(eq(runPhases.runId, run.id), eq(runPhases.phase, previous)));
-      }
-    }
-    if (run.mode === "official" && phase === "evaluating") {
-      await db.update(officialAttempts).set({ consumed: true }).where(eq(officialAttempts.runId, run.id));
-    }
-    await db
-      .update(runs)
-      .set({ status: phase, lastEventSequence: event.sequence })
-      .where(and(eq(runs.id, run.id), lt(runs.lastEventSequence, event.sequence)));
+    const previous = previousPhase(phase);
+    const eligible = and(
+      eq(runs.id, run.id),
+      notInArray(runs.status, ["succeeded", "failed", "cancelled"]),
+      lt(runs.lastEventSequence, event.sequence),
+    );
+    const phaseChanged = exists(db.select({ id: runs.id }).from(runs)
+      .where(and(eligible, ne(runs.status, phase))));
+    // The reaper can fail this run after the initial read. Gate
+    // every write on persisted state in one D1 transaction, with the run update
+    // last so all statements see the same status and sequence eligibility.
+    await db.batch([
+      db.update(runPhases).set({ startedAt: event.occurredAt }).where(and(
+        eq(runPhases.runId, run.id), eq(runPhases.phase, phase), phaseChanged,
+      )),
+      ...(previous ? [
+        db.update(runPhases).set({ endedAt: event.occurredAt }).where(and(
+          eq(runPhases.runId, run.id), eq(runPhases.phase, previous), phaseChanged,
+        )),
+      ] : []),
+      db.update(runs).set({ status: phase, lastEventSequence: event.sequence }).where(eligible),
+    ]);
     return;
   }
 
-  // Set by the failure branch below, read by the terminal write after it. The
-  // two are separated by the outbox insert, which both branches share.
-  let refundCapped = false;
+  const active = and(
+    eq(runs.id, run.id),
+    notInArray(runs.status, ["succeeded", "failed", "cancelled"]),
+    lt(runs.lastEventSequence, event.sequence),
+  );
+  const activeExists = exists(db.select({ id: runs.id }).from(runs).where(active));
+  const terminalNotice = db.insert(outboxEvents).select(db.select({
+    id: sql<string>`${`outbox_${event.eventId}`}`.as("id"),
+    topic: sql<string>`'run.terminal'`.as("topic"),
+    aggregateId: sql<string>`${run.id}`.as("aggregateId"),
+    payloadJson: sql<string>`${JSON.stringify({ runId: run.id, teamId: run.teamId, status: event.type })}`.as("payloadJson"),
+    createdAt: sql<number>`${Date.now()}`.as("createdAt"),
+    deliveredAt: sql<number | null>`null`.as("deliveredAt"),
+    attempts: sql<number>`0`.as("attempts"),
+    nextAttemptAt: sql<number>`${Date.now()}`.as("nextAttemptAt"),
+  }).from(runs).where(active)).onConflictDoNothing();
 
   if (event.type === "completed") {
-    if (
-      event.result.benchmarkId !== run.benchmarkId ||
-      event.result.benchmarkVersion !== run.benchmarkVersion
-    ) {
+    if (event.result.benchmarkId !== run.benchmarkId || event.result.benchmarkVersion !== run.benchmarkVersion) {
       throw new ApiHttpError(400, "invalid_request", "Runner result does not match the run benchmark.");
     }
-    // The scorer's own account of what went wrong. Without this a student
-    // whose adapter returns the wrong shape sees a number near chance and no
-    // reason for it, which is the failure mode the course ethos rules out.
-    await db
-      .update(runs)
-      .set({
-        diagnosticsJson: JSON.stringify(event.result.diagnostics ?? []),
-        // Which of their functions ran. Absent when they declared a
-        // submission, because then nothing was inferred.
-        wiringJson: event.result.wiring ? JSON.stringify(event.result.wiring) : null,
-        sweepJson: event.result.sweep ? JSON.stringify(event.result.sweep) : null,
-        ...(event.result.weightsSupplied === undefined
-          ? {}
-          : { weightsSuppliedJson: JSON.stringify(event.result.weightsSupplied) }),
-      })
-      .where(eq(runs.id, run.id));
-    for (const metric of event.result.metrics) {
-      await db
-        .insert(runMetrics)
-        .values({
-          runId: run.id,
-          key: metric.key,
+    // Failure is terminal. A later result belongs to this execution's history,
+    // never to a new attempt or a successful current state.
+    const acceptsEvidence = and(
+      eq(runs.id, run.id),
+      notInArray(runs.status, ["succeeded", "cancelled"]),
+      lt(runs.lastEventSequence, event.sequence),
+    );
+    const evidenceExists = exists(db.select({ id: runs.id }).from(runs).where(acceptsEvidence));
+    await db.batch([
+      terminalNotice,
+      db.delete(runMetrics).where(and(eq(runMetrics.runId, run.id), evidenceExists)),
+      ...event.result.metrics.map((metric) => db.insert(runMetrics).select(db.select({
+        runId: sql<string>`${run.id}`.as("runId"),
+        key: sql<string>`${metric.key}`.as("key"),
+        label: sql<string>`${metric.label}`.as("label"),
+        value: sql<number>`${metric.value}`.as("value"),
+        unit: sql<string | null>`${metric.unit}`.as("unit"),
+        higherIsBetter: sql<boolean>`${Number(metric.higherIsBetter)}`.as("higherIsBetter"),
+        isPrimary: sql<boolean>`${Number(metric.primary)}`.as("isPrimary"),
+        precision: sql<number>`${metric.precision}`.as("precision"),
+        help: sql<string | null>`${metric.help ?? null}`.as("help"),
+        role: sql<typeof runMetrics.$inferInsert.role>`${metric.role ?? null}`.as("role"),
+        relatesTo: sql<string | null>`${metric.relatesTo ?? null}`.as("relatesTo"),
+      }).from(runs).where(acceptsEvidence)).onConflictDoUpdate({
+        target: [runMetrics.runId, runMetrics.key],
+        set: {
           label: metric.label,
           value: metric.value,
           unit: metric.unit,
@@ -152,89 +152,53 @@ async function applyEvent(env: AppEnv["Bindings"], event: RunEventV1): Promise<v
           isPrimary: metric.primary,
           precision: metric.precision,
           help: metric.help ?? null,
-          // Explicit nulls on both branches, so a result declaring no role
-          // stores "none recorded" rather than inheriting an earlier write.
-          // The conflict branch only ever sees a retry of the same event
-          // today, since applyEvent returns early on a terminal run.
           role: metric.role ?? null,
           relatesTo: metric.relatesTo ?? null,
-        })
-        .onConflictDoUpdate({
-          target: [runMetrics.runId, runMetrics.key],
-          set: {
-            label: metric.label,
-            value: metric.value,
-            unit: metric.unit,
-            higherIsBetter: metric.higherIsBetter,
-            isPrimary: metric.primary,
-            precision: metric.precision,
-            help: metric.help ?? null,
-            role: metric.role ?? null,
-            relatesTo: metric.relatesTo ?? null,
-          },
-        });
-    }
-    await db
-      .update(runPhases)
-      .set({ endedAt: event.occurredAt })
-      .where(and(eq(runPhases.runId, run.id), eq(runPhases.phase, "scoring")));
-  } else if (!failureConsumesAttempt(run.mode, event)) {
-    // The failure was ours, so the attempt goes back, up to the per-team,
-    // per-benchmark cap in execution/refunds.ts. Past the cap the run still
-    // fails and the attempt stays spent; the terminal write below has to say
-    // so, because a team that silently lost an attempt to our failure cannot
-    // tell that from a bug.
-    refundCapped = (await refundOfficialAttempt(db, run, Date.now())) === "capped";
-  }
-
-  await db
-    .insert(outboxEvents)
-    .values({
-      id: `outbox_${event.eventId}`,
-      topic: "run.terminal",
-      aggregateId: run.id,
-      payloadJson: JSON.stringify({ runId: run.id, teamId: run.teamId, status: event.type }),
-      createdAt: Date.now(),
-      deliveredAt: null,
-      attempts: 0,
-      nextAttemptAt: Date.now(),
-    })
-    .onConflictDoNothing();
-
-  if (event.type === "completed") {
-    await db
-      .update(runs)
-      .set({
-        status: "succeeded",
-        finishedAt: event.occurredAt,
+        },
+      })),
+      db.update(runs).set({
+        diagnosticsJson: JSON.stringify(event.result.diagnostics ?? []),
+        wiringJson: event.result.wiring ? JSON.stringify(event.result.wiring) : null,
+        sweepJson: event.result.sweep ? JSON.stringify(event.result.sweep) : null,
+        ...(event.result.weightsSupplied === undefined
+          ? {}
+          : { weightsSuppliedJson: JSON.stringify(event.result.weightsSupplied) }),
         preparedArtifactId: event.preparedArtifactId,
         environmentDigest: event.environmentDigest,
         log: run.mode === "practice" ? event.sanitizedLog : null,
+      }).where(acceptsEvidence),
+      db.update(runPhases).set({ endedAt: event.occurredAt }).where(and(
+        eq(runPhases.runId, run.id), eq(runPhases.phase, "scoring"), activeExists,
+      )),
+      db.update(runs).set({
+        status: "succeeded",
+        failureCategory: null,
+        failurePhase: null,
+        failureDetail: null,
+        failureConsumedAttempt: false,
+        refusalJson: null,
+        finishedAt: event.occurredAt,
         lastEventSequence: event.sequence,
-      })
-      .where(and(eq(runs.id, run.id), lt(runs.lastEventSequence, event.sequence)));
+      }).where(active),
+      db.update(runs).set({ lastEventSequence: event.sequence }).where(and(
+        acceptsEvidence, eq(runs.status, "failed"),
+      )),
+    ]);
   } else {
-    // Past the cap the attempt is genuinely spent, and `consumedAttempt` is
-    // documented as the authoritative answer to "did this cost an attempt"
-    // (packages/contracts/src/failures.ts), so it has to report that.
-    const consumedAttempt = failureConsumesAttempt(run.mode, event) || refundCapped;
-    await db
-      .update(runs)
-      .set({
+    await db.batch([
+      terminalNotice,
+      db.delete(officialAttempts).where(and(eq(officialAttempts.runId, run.id), activeExists)),
+      db.update(runs).set({
         status: "failed",
         finishedAt: event.occurredAt,
         failureCategory: event.failure.category,
         failurePhase: event.failure.phase,
-        failureDetail: refundCapped
-          ? withRefundCapNotice(event.failure.detail)
-          : event.failure.detail,
-        // The full verdict, when the failure was "nothing here to score".
-        // The capped detail above is for a log; this is what a student reads.
+        failureDetail: event.failure.detail,
         refusalJson: event.failure.refusal ? JSON.stringify(event.failure.refusal) : null,
-        failureConsumedAttempt: consumedAttempt,
+        failureConsumedAttempt: false,
         lastEventSequence: event.sequence,
-      })
-      .where(and(eq(runs.id, run.id), lt(runs.lastEventSequence, event.sequence)));
+      }).where(active),
+    ]);
   }
 }
 
@@ -283,12 +247,8 @@ export function registerRunnerEventRoutes(app: Hono<AppEnv>): void {
     // record with nothing behind it, and every retry after that is told the
     // result is in while the run sits unfinished.
     //
-    // What this relies on is narrower than "every write is idempotent".
-    // Re-applying the same event rewrites the same values, and the two things
-    // that must not happen twice are guarded where they live: the terminal
-    // writes are conditional on `lastEventSequence`, and the refund is decided
-    // in execution/refunds.ts, which returns "not_applicable" once
-    // `refunded_at` is set.
+    // Result writes and failure release share a transaction. Sequence and
+    // persisted terminal-state guards make replay safe after an interrupted reply.
     await applyEvent(c.env, event);
     const inserted = await db
       .insert(runEvents)
@@ -311,7 +271,10 @@ export function registerRunnerEventRoutes(app: Hono<AppEnv>): void {
     // phase costs a progress line rather than a score, and it behaved this way
     // before the ordering changed. Worth naming rather than implying the
     // surface has seen everything the record has.
-    if (!duplicate && updated?.surfaceId) {
+    if (!duplicate && updated?.surfaceId && updated.lastEventSequence === event.sequence &&
+        (event.type !== "completed" || updated.status === "succeeded") &&
+        (event.type !== "failed" || updated.status === "failed") &&
+        (event.type !== "status" || !["succeeded", "failed", "cancelled"].includes(updated.status))) {
       const code =
         event.type === "status"
           ? runnerSurfaceStatusCode(event)

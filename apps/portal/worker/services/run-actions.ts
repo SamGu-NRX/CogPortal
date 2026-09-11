@@ -4,7 +4,6 @@ import {
   OFFICIAL_LIMIT,
   PRACTICE_LIMIT,
   RUN_PHASES,
-  isTerminal,
 } from "@cogworks/contracts/schema";
 import type { AuthState } from "../auth/session";
 import { createAuth, getGithubToken } from "../auth/better-auth";
@@ -33,6 +32,8 @@ import { ApiHttpError } from "../http/errors";
 import { newId, randomHex } from "../util/id";
 import { sha256Hex } from "../util/crypto";
 import { publishRunSurface } from "./run-surfaces";
+import { canPublishOfficialRun } from "./run-eligibility";
+import { insertRunWithCapacity, nextOfficialClaimSlot, readRunAccounting, releaseExcludedOfficialClaims } from "./run-accounting";
 
 export interface RunActor {
   userId: string;
@@ -120,20 +121,18 @@ async function activeBenchmark(env: Env, benchmarkId: string, version?: number):
   return rows[0];
 }
 
-function hasActive(rowsForTeam: RunRow[]): boolean {
-  return rowsForTeam.some((run) => !isTerminal(run.status));
-}
-
 function isUniqueConstraintError(error: unknown): boolean {
   return error instanceof Error && /unique constraint failed/i.test(error.message);
 }
 
 function existingOfficialPromotion(run: RunRow, surfaceId: string) {
-  if (run.status === "failed") {
+  if (run.status === "failed" || run.refundedAt !== null) {
     throw new ApiHttpError(
       409,
       "not_promotable",
-      "That official attempt already ran and failed. Start a new practice run to create the next candidate to promote.",
+      run.status === "failed"
+        ? "That official attempt already ran and failed. Start a new practice run to create the next candidate to promote."
+        : "That official attempt was refunded. Start a new practice run to create the next candidate to promote.",
     );
   }
   return { runId: run.id, surfaceId };
@@ -153,13 +152,8 @@ async function dispatch(env: Env, runId: string, team: TeamRow, benchmark: Bench
     await enqueueRun(env, run, team, benchmark);
   } catch (error) {
     if (error instanceof DispatchUnacknowledged) {
-      // Nobody knows whether this run started. `submit_job` spawns before it
-      // replies, so a request that timed out may be executing right now, and
-      // failing the row would overwrite a live run and hand back an official
-      // attempt that is being spent. Leave it queued: the stale-run reaper
-      // owns a run that never reports, and it refunds through the counted
-      // path. The cost is that a genuine outage looks like a slow start for
-      // up to ten minutes, which is the honest way round.
+      // submit_job spawns before replying. Keep the active reservation until
+      // a callback or the stale-run reaper resolves uncertain acceptance.
       console.warn(JSON.stringify({ evt: "dispatch_unacknowledged", runId }));
       return;
     }
@@ -171,16 +165,19 @@ async function dispatch(env: Env, runId: string, team: TeamRow, benchmark: Bench
     // above its -1 default. So the repair carries that condition, and how many
     // rows it changed is the answer to whether the run had started.
     //
-    // Both statements carry it, and they commit together, because either half
-    // alone is a lie: a failed run keeping its claim silently spends an
-    // attempt, and a released claim on a live run leaves a claimless run
-    // holding the active-run index.
+    // Commit failure and compatibility-claim release together. Both writes
+    // require the execution to remain unstarted, so a callback wins safely.
     const db = getDb(env);
     const unstarted = and(
       eq(runs.id, runId),
       eq(runs.status, "queued"),
       eq(runs.lastEventSequence, -1),
     );
+    // Weight validation provides a safe resync instruction. Keep it in both
+    // the failed run and the response rather than suggesting a blind retry.
+    const inputError = error instanceof ApiHttpError && error.code === "invalid_request"
+      ? error
+      : null;
     const failRun = db
       .update(runs)
       .set({
@@ -188,21 +185,12 @@ async function dispatch(env: Env, runId: string, team: TeamRow, benchmark: Bench
         finishedAt: Date.now(),
         failureCategory: "provider",
         failurePhase: "queued",
-        failureDetail: "The run could not be queued for Modal.",
+        failureDetail: inputError?.message ?? "The run could not be queued for Modal.",
       })
       .where(unstarted);
     let changed: number;
     if (run.mode === "official") {
-      // Deleted outright rather than routed through `refundOfficialAttempt`,
-      // and deliberately so. That helper counts against REFUND_CAP and stamps
-      // `refundedAt`, which is the right accounting for a run that started and
-      // then died on us. This run never started: the provider refused it
-      // before any sandbox existed, so there is nothing to refund and no
-      // reason the team's fifth failed dispatch should cost them the ability
-      // to be refunded a real infrastructure failure later. Triage item B-24
-      // reads this as a cap bypass; the premise is what is wrong, not this.
-      //
-      // Released first, so it reads the run before the update rewrites it.
+      // Release first while the unstarted predicate still matches.
       const [, failed] = await db.batch([
         db.delete(officialAttempts).where(
           and(
@@ -220,6 +208,7 @@ async function dispatch(env: Env, runId: string, team: TeamRow, benchmark: Bench
     // Modal has the job. Nothing above matched, so nothing was changed; leave
     // the run alone and let the run page follow it.
     if (changed === 0) return;
+    if (inputError) throw inputError;
     throw new ApiHttpError(502, "provider_unconfigured", "The run could not be queued. Try again.");
   }
 }
@@ -248,12 +237,14 @@ export async function startPracticeRun(
       .limit(1);
     if (existing) return { runId: existing.id, surfaceId: options.surfaceId };
   }
-  const teamRuns = await syncTeamRuns(db, actor.team.id, benchmark.id);
-  if (hasActive(teamRuns)) throw new ApiHttpError(409, "active_run_exists", "A run is already active for this benchmark.");
-  const practiceUsed = teamRuns.filter(
-    (run) => run.mode === "practice" && run.benchmarkVersion === benchmark.version,
-  ).length;
-  if (practiceUsed >= PRACTICE_LIMIT) throw new ApiHttpError(409, "quota_exhausted", "The practice-run quota is exhausted.");
+  await syncTeamRuns(db, actor.team.id, benchmark.id);
+  const accounting = await readRunAccounting(db, {
+    teamId: actor.team.id, benchmarkId: benchmark.id, benchmarkVersion: benchmark.version,
+  });
+  if (accounting.activeRuns) throw new ApiHttpError(409, "active_run_exists", "A run is already active for this benchmark.");
+  if (accounting.practiceUsed + accounting.practiceReserved >= PRACTICE_LIMIT) {
+    throw new ApiHttpError(409, "quota_exhausted", "The practice-run quota is exhausted.");
+  }
   if (env.EXECUTION_PROVIDER === "modal") assertModalConfigured(env);
 
   const fixtureRepository = actor.team.repoFullName === FIXTURE_REPO.fullName;
@@ -321,7 +312,7 @@ export async function startPracticeRun(
     .onConflictDoNothing();
   const runId = `run_${randomHex(5)}`;
   try {
-    await db.insert(runs).values({
+    const inserted = await insertRunWithCapacity(db, {
       id: runId,
       teamId: actor.team.id,
       benchmarkId: benchmark.id,
@@ -352,6 +343,7 @@ export async function startPracticeRun(
       lastEventSequence: -1,
       surfaceId,
     });
+    if (!inserted.meta.changes) throw new ApiHttpError(409, "quota_exhausted", "The practice-run quota is exhausted.");
   } catch (error) {
     const [existing] = await db
       .select()
@@ -385,7 +377,7 @@ export async function promotePracticeRun(
     .limit(1);
   if (!parentRow) throw new ApiHttpError(404, "not_found", "Run not found.");
   const parent = await syncRun(db, parentRow);
-  if (parent.mode !== "practice" || parent.status !== "succeeded" || !parent.surfaceId) {
+  if (parent.mode !== "practice" || parent.status !== "succeeded" || parent.refundedAt !== null || !parent.surfaceId) {
     throw new ApiHttpError(409, "not_promotable", "Only a succeeded hosted run can be promoted.");
   }
   const [existing] = await db
@@ -395,19 +387,13 @@ export async function promotePracticeRun(
     .limit(1);
   if (existing) return existingOfficialPromotion(existing, parent.surfaceId);
   const benchmark = await activeBenchmark(env, parent.benchmarkId, parent.benchmarkVersion);
-  const teamRuns = await syncTeamRuns(db, actor.team.id, parent.benchmarkId);
-  if (hasActive(teamRuns)) throw new ApiHttpError(409, "active_run_exists", "A run is already active for this benchmark.");
-  const claims = await db
-    .select()
-    .from(officialAttempts)
-    .where(
-      and(
-        eq(officialAttempts.teamId, actor.team.id),
-        eq(officialAttempts.benchmarkId, parent.benchmarkId),
-        eq(officialAttempts.benchmarkVersion, parent.benchmarkVersion),
-      ),
-    );
-  if (claims.length >= OFFICIAL_LIMIT) throw new ApiHttpError(409, "quota_exhausted", "The official-attempt quota is exhausted.");
+  await syncTeamRuns(db, actor.team.id, parent.benchmarkId);
+  const scope = { teamId: actor.team.id, benchmarkId: parent.benchmarkId, benchmarkVersion: parent.benchmarkVersion };
+  const accounting = await readRunAccounting(db, scope);
+  if (accounting.activeRuns) throw new ApiHttpError(409, "active_run_exists", "A run is already active for this benchmark.");
+  if (accounting.officialUsed + accounting.officialReserved >= OFFICIAL_LIMIT) {
+    throw new ApiHttpError(409, "quota_exhausted", "The official-attempt quota is exhausted.");
+  }
   if (env.EXECUTION_PROVIDER === "modal") {
     assertModalConfigured(env);
     if (!parent.preparedArtifactId) {
@@ -416,15 +402,13 @@ export async function promotePracticeRun(
   }
   const runId = `run_${randomHex(5)}`;
   const now = Date.now();
-  const attemptNumber = claims.length + 1;
   try {
-    await db.insert(runs).values({
+    const insertRun = insertRunWithCapacity(db, {
       ...parent,
       id: runId,
       mode: "official",
       status: "queued",
       parentRunId: parent.id,
-      attemptNumber,
       failureCategory: null,
       failurePhase: null,
       failureDetail: null,
@@ -439,25 +423,29 @@ export async function promotePracticeRun(
       lastEventSequence: -1,
       surfaceId: parent.surfaceId,
     });
-    await db.insert(officialAttempts).values({
-      id: newId("attempt_"),
-      teamId: actor.team.id,
-      benchmarkId: parent.benchmarkId,
-      benchmarkVersion: parent.benchmarkVersion,
-      runId,
-      attemptNumber,
-      consumed: false,
-      claimedAt: now,
-    });
-  } catch {
-    await db.delete(runs).where(eq(runs.id, runId));
+    // A rejected conditional insert creates no compatibility claim. D1 batches
+    // roll back the run as well if the claim insert hits a concurrent conflict.
+    const insertClaim = db.insert(officialAttempts).select(sql`
+      select ${newId("attempt_")}, ${actor.team.id}, ${parent.benchmarkId},
+        ${parent.benchmarkVersion}, ${runId}, ${nextOfficialClaimSlot(scope)}, 0, ${now}
+      where exists (select 1 from ${runs} where ${runs.id} = ${runId})
+    `);
+    const [, inserted] = await db.batch([
+      releaseExcludedOfficialClaims(db, scope), insertRun, insertClaim,
+    ]);
+    if (!inserted.meta.changes) throw new ApiHttpError(409, "quota_exhausted", "The official-attempt quota is exhausted.");
+  } catch (error) {
     const [raced] = await db
       .select()
       .from(runs)
       .where(and(eq(runs.surfaceId, parent.surfaceId), eq(runs.mode, "official")))
       .limit(1);
     if (raced) return existingOfficialPromotion(raced, parent.surfaceId);
-    throw new ApiHttpError(409, "quota_exhausted", "The official attempt could not be claimed.");
+    if (error instanceof ApiHttpError) throw error;
+    if (isUniqueConstraintError(error)) {
+      throw new ApiHttpError(409, "active_run_exists", "A run is already active for this benchmark.");
+    }
+    throw error;
   }
   await insertPhaseSkeleton(env, runId);
   await dispatch(env, runId, actor.team, benchmark);
@@ -475,8 +463,10 @@ export async function publishOfficialRun(env: Env, actor: RunActor, runId: strin
     .limit(1);
   if (!row) throw new ApiHttpError(404, "not_found", "Run not found.");
   const run = await syncRun(db, row);
-  if (run.mode !== "official" || run.status !== "succeeded") {
-    throw new ApiHttpError(409, "not_selectable", "Only a succeeded official run can be published.");
+  if (!canPublishOfficialRun(run)) {
+    throw new ApiHttpError(409, "not_selectable", run.refundedAt !== null
+      ? "This attempt was refunded, so its findings can't be published. Choose another official run."
+      : "Only a succeeded official run can be published.");
   }
   await db
     .insert(leaderboardSelections)

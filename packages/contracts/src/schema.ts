@@ -278,6 +278,7 @@ export const RunDetailSchema = RunSummarySchema.extend({
   log: z.string().nullable(),
   /** Official runs: currently published on the leaderboard. */
   selected: z.boolean(),
+  publishable: z.boolean(),
 });
 export type RunDetail = z.infer<typeof RunDetailSchema>;
 
@@ -485,8 +486,24 @@ export const LocalReportInputSchema = z.object({
    */
   diagnostics: z.array(z.string().max(240)).max(32),
   weightsUsed: z.array(z.string().min(1).max(500)).max(32),
+  // Required uploads, not completed uploads. Missing provenance stays unknown for old reports.
+  weightsUploaded: z.array(z.object({
+    path: z.string().min(1).max(500),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/),
+  })).max(32).nullish(),
 });
 export type LocalReportInput = z.infer<typeof LocalReportInputSchema>;
+
+export const LocalReportWeightsSchema = LocalReportInputSchema.pick({
+  weightsUsed: true,
+  weightsUploaded: true,
+}).refine(
+  (report) => report.weightsUploaded == null || (
+    report.weightsUploaded.every((weight) => report.weightsUsed.includes(weight.path)) &&
+    new Set(report.weightsUploaded.map((weight) => weight.path)).size === report.weightsUploaded.length
+  ),
+  { path: ["weightsUploaded"], message: "weightsUploaded must name each required path in weightsUsed once." },
+);
 
 export const LocalReportSchema = LocalReportInputSchema.extend({
   author: z.object({

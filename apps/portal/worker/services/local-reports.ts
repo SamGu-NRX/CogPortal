@@ -2,6 +2,7 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import {
   type LocalReportInput,
   LocalReportSchema,
+  LocalReportWeightsSchema,
   MetricSchema,
   type LocalReport,
 } from "@cogworks/contracts/schema";
@@ -32,6 +33,9 @@ function parseReportRow(row: {
     metrics: MetricSchema.array().parse(JSON.parse(row.report.metricsJson)),
     diagnostics: JSON.parse(row.report.diagnosticsJson),
     weightsUsed: JSON.parse(row.report.weightsUsedJson),
+    weightsUploaded: row.report.weightsUploadedJson == null
+      ? null
+      : JSON.parse(row.report.weightsUploadedJson),
     author: { login: row.login ?? row.email.split("@")[0], name: row.name },
     syncedAt: row.report.syncedAt,
     trust: "local_self_reported",
@@ -116,6 +120,10 @@ export async function upsertLocalReport(
   userId: string,
   body: LocalReportInput,
 ): Promise<{ report: LocalReport; created: boolean }> {
+  const provenance = LocalReportWeightsSchema.safeParse(body);
+  if (!provenance.success) {
+    throw new ApiHttpError(400, "invalid_request", "weightsUploaded must name paths from weightsUsed with SHA-256 digests, or be null.");
+  }
   const db = getDb(env);
   const [existing] = await db
     .select({ userId: localReports.userId })
@@ -142,6 +150,7 @@ export async function upsertLocalReport(
     metricsJson: JSON.stringify(body.metrics),
     diagnosticsJson: JSON.stringify(body.diagnostics),
     weightsUsedJson: JSON.stringify(body.weightsUsed),
+    weightsUploadedJson: body.weightsUploaded == null ? null : JSON.stringify(body.weightsUploaded),
     syncedAt: Date.now(),
   };
   if (existing) {
@@ -202,16 +211,19 @@ export async function getWeightUploadTarget(
   return { repositoryFullName: report.repositoryFullName, sha: report.sha };
 }
 
-export async function getLatestTeamWeightPaths(
+export async function getLatestTeamWeights(
   env: Env,
   teamId: string,
   repositoryFullName: string,
   sha: string,
-): Promise<string[]> {
+): Promise<Pick<LocalReportInput, "weightsUsed" | "weightsUploaded">> {
   const memberUserIds = await teamMemberUserIds(env, teamId);
-  if (memberUserIds.length === 0) return [];
+  if (memberUserIds.length === 0) return { weightsUsed: [], weightsUploaded: null };
   const [report] = await getDb(env)
-    .select({ weightsUsedJson: localReports.weightsUsedJson })
+    .select({
+      weightsUsedJson: localReports.weightsUsedJson,
+      weightsUploadedJson: localReports.weightsUploadedJson,
+    })
     .from(localReports)
     .where(
       and(
@@ -222,10 +234,15 @@ export async function getLatestTeamWeightPaths(
     )
     .orderBy(desc(localReports.syncedAt))
     .limit(1);
-  if (!report) return [];
-  const weights = JSON.parse(report.weightsUsedJson) as unknown;
-  if (!Array.isArray(weights) || !weights.every((path) => typeof path === "string")) {
-    throw new ApiHttpError(409, "invalid_request", "The newest synced report has an invalid weight manifest.");
+  if (!report) return { weightsUsed: [], weightsUploaded: null };
+  const weights = LocalReportWeightsSchema.safeParse({
+    weightsUsed: JSON.parse(report.weightsUsedJson),
+    weightsUploaded: report.weightsUploadedJson == null
+      ? null
+      : JSON.parse(report.weightsUploadedJson),
+  });
+  if (!weights.success) {
+    throw new ApiHttpError(409, "invalid_request", "The newest synced report has invalid weight provenance; sync the report again.");
   }
-  return weights;
+  return weights.data;
 }
