@@ -65,6 +65,26 @@ class DescribeTests(unittest.TestCase):
 
         self.assertEqual(describe([]), "an empty list")
 
+    def test_a_broken_repr_does_not_break_the_report(self):
+        class Broken:
+            def __repr__(self):
+                raise ValueError("not printable")
+
+        self.assertEqual(describe(Broken()), "Broken (description unavailable)")
+        self.assertEqual(describe([Broken()]), "list (description unavailable)")
+
+    def test_a_broken_shape_does_not_break_the_report(self):
+        class Broken:
+            @property
+            def shape(self):
+                raise SystemExit(1)
+
+        self.assertEqual(describe(Broken()), "Broken (description unavailable)")
+        self.assertEqual(describe([Broken()]), "list (description unavailable)")
+
+    def test_a_set_has_no_first_entry(self):
+        self.assertEqual(describe({"alpha", "beta"}), "a set of 2")
+
     def test_a_long_value_is_cut_rather_than_wrapped(self):
         self.assertLessEqual(len(describe("x" * 500)), 160)
 

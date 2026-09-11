@@ -96,7 +96,11 @@ def message_of(error: BaseException) -> str:
     ``KeyError: 'song_list'`` says what happened.
     """
 
-    text = str(error).strip().splitlines()
+    try:
+        text = str(error).strip().splitlines()
+    except BaseException:
+        # A student's __str__ must not replace the error we are reporting.
+        text = []
     head = text[0] if text else ""
     whole = "{}: {}".format(type(error).__name__, head) if head else type(error).__name__
     return whole[:MESSAGE_LIMIT]
