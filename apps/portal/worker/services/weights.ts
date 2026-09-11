@@ -1,4 +1,5 @@
 import { MAX_WEIGHT_BYTES, type WeightFile } from "@cogworks/contracts/protocol";
+import { LocalReportWeightsSchema, type LocalReportInput } from "@cogworks/contracts/schema";
 import { ApiHttpError } from "../http/errors";
 
 export { MAX_WEIGHT_BYTES };
@@ -93,11 +94,15 @@ export async function uploadWeight(
 }
 
 export async function weightManifest(
-  bucket: R2Bucket,
+  bucket: Pick<R2Bucket, "head"> | undefined,
   repositoryFullName: string,
   sha: string,
   paths: string[],
+  weightsUploaded?: LocalReportInput["weightsUploaded"],
 ): Promise<WeightFile[]> {
+  if (!LocalReportWeightsSchema.safeParse({ weightsUsed: paths, weightsUploaded }).success) {
+    throw new ApiHttpError(409, "invalid_request", "The report has invalid weight provenance; sync the report again.");
+  }
   // The 2026 corpus has at most three candidate weight files in one repository,
   // and discovery loads one. Eight catches a broken report before dispatch.
   if (paths.length > 8) {
@@ -108,12 +113,24 @@ export async function weightManifest(
     );
   }
 
+  if (weightsUploaded == null && paths.length > 0) {
+    throw new ApiHttpError(409, "invalid_request", "This report doesn't identify its uploaded weights; update the CLI and sync the report again.");
+  }
+  if (!bucket && weightsUploaded?.length) {
+    throw new ApiHttpError(501, "provider_unconfigured", "Weight storage is not configured.");
+  }
+  if (!bucket) return [];
   const weights: WeightFile[] = [];
-  for (const path of paths) {
+  // Explicit provenance excludes committed paths even if R2 has an older override.
+  for (const { path, sha256 } of weightsUploaded ?? []) {
     const object = await bucket.head(weightObjectKey(repositoryFullName, sha, path));
-    // A missing object was committed at the report's revision and travels in
-    // the repository archive, so only R2-backed files belong in this manifest.
-    if (!object) continue;
+    if (!object) {
+      throw new ApiHttpError(
+        409,
+        "invalid_request",
+        `Required weight ${path} has not been uploaded; sync the report again.`,
+      );
+    }
     if (object.size > MAX_WEIGHT_BYTES) {
       throw new ApiHttpError(413, "invalid_request", "A stored weight file exceeds 100 MiB.");
     }
@@ -125,7 +142,10 @@ export async function weightManifest(
         `Stored weight ${path} has no SHA-256 checksum; sync the report again.`,
       );
     }
-    weights.push({ path, size: object.size, sha256: hex(digest) });
+    if (hex(digest) !== sha256) {
+      throw new ApiHttpError(409, "invalid_request", `Stored weight ${path} does not match this report; sync the report again.`);
+    }
+    weights.push({ path, size: object.size, sha256 });
   }
   return weights;
 }

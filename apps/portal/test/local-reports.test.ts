@@ -16,10 +16,14 @@ import {
 } from "../worker/db/schema.ts";
 import type { Env } from "../worker/env.ts";
 import {
-  getLatestTeamWeightPaths,
+  getLatestTeamWeights,
   getWeightUploadTarget,
   listTeamLocalReports,
+  getLocalReport,
+  upsertLocalReport,
 } from "../worker/services/local-reports.ts";
+import { LocalReportInputSchema, LocalReportWeightsSchema } from "@cogworks/contracts/schema";
+import { weightManifest } from "../worker/services/weights.ts";
 
 /**
  * A benchmark bump keeps the id and raises the version. The team list
@@ -225,7 +229,82 @@ test("the newest matching team report supplies the run weight paths", async () =
     },
   ]);
 
-  assert.deepEqual(await getLatestTeamWeightPaths(env, "team_1", REPO, sha), [
-    "models/current.pkl",
-  ]);
+  assert.deepEqual(await getLatestTeamWeights(env, "team_1", REPO, sha), {
+    weightsUsed: ["models/current.pkl"],
+    weightsUploaded: null,
+  });
+});
+
+test("legacy reports remain readable and upsertable without declaring committed weights", async () => {
+  const { env, db } = await seededDb();
+  const sha = "a".repeat(40);
+  await db.insert(localReports).values({
+    ...reportRow("report_legacy", 1), sha, weightsUsedJson: '["model.pkl"]',
+  });
+  const report = await getLocalReport(env, "report_legacy");
+  assert.ok(report);
+  assert.equal(report.weightsUploaded, null);
+  const { weightsUploaded: _unknown, ...legacy } = report;
+  const saved = await upsertLocalReport(env, "user_1", legacy);
+  assert.equal(saved.created, false);
+  assert.equal(saved.report.weightsUploaded, null);
+  const weights = await getLatestTeamWeights(env, "team_1", REPO, sha);
+  await assert.rejects(
+    weightManifest({ head: async () => null }, REPO, sha, weights.weightsUsed, weights.weightsUploaded),
+    /doesn't identify its uploaded weights/,
+  );
+  assert.deepEqual(await getWeightUploadTarget(env, "user_1", report.reportId, "model.pkl"), {
+    repositoryFullName: REPO, sha,
+  });
+});
+
+test("report upload requirements survive upsert and dispatch selection", async () => {
+  const { env, db } = await seededDb();
+  const sha = "a".repeat(40);
+  await db.insert(localReports).values({
+    ...reportRow("report_upload", 1), sha, weightsUsedJson: '["model.pkl", "committed.pkl"]',
+  });
+  const report = await getLocalReport(env, "report_upload");
+  assert.ok(report);
+  const saved = await upsertLocalReport(env, "user_1", { ...report, weightsUploaded: [{ path: "model.pkl", sha256: "a".repeat(64) }] });
+  assert.deepEqual(saved.report.weightsUploaded, [{ path: "model.pkl", sha256: "a".repeat(64) }]);
+  const weights = await getLatestTeamWeights(env, "team_1", REPO, sha);
+  assert.deepEqual(weights, {
+    weightsUsed: ["model.pkl", "committed.pkl"], weightsUploaded: [{ path: "model.pkl", sha256: "a".repeat(64) }],
+  });
+  const stored: R2Object = {
+    key: "model.pkl", version: "1", size: 3, etag: "etag", httpEtag: '"etag"',
+    uploaded: new Date(),
+    checksums: { sha256: new Uint8Array(32).fill(0xbb).buffer, toJSON: () => ({}) },
+    storageClass: "Standard", writeHttpMetadata: () => {},
+  };
+  const bucket = { head: async () => stored };
+  await assert.rejects(
+    weightManifest(bucket, REPO, sha, weights.weightsUsed, weights.weightsUploaded),
+    /does not match this report; sync the report again/,
+  );
+  stored.checksums.sha256 = new Uint8Array(32).fill(0xaa).buffer;
+  assert.deepEqual(
+    await weightManifest(bucket, REPO, sha, weights.weightsUsed, weights.weightsUploaded),
+    [{ path: "model.pkl", sha256: "a".repeat(64), size: 3 }],
+  );
+  await assert.rejects(
+    upsertLocalReport(env, "user_1", { ...report, weightsUploaded: [{ path: "other.pkl", sha256: "a".repeat(64) }] }),
+    /weightsUploaded must name paths from weightsUsed with SHA-256 digests/,
+  );
+  const committed = await upsertLocalReport(env, "user_1", { ...report, weightsUploaded: [] });
+  assert.deepEqual(committed.report.weightsUploaded, []);
+  // Old CLIs still authorize uploads through weightsUsed.
+  await getWeightUploadTarget(env, "user_1", report.reportId, "model.pkl");
+});
+
+test("malformed provenance is rejected at the report boundary", () => {
+  for (const weightsUploaded of ["model.pkl", [1], ["other.pkl"], {},
+    [{ path: "model.pkl" }], [{ path: "model.pkl", sha256: "invalid" }],
+    [{ path: "other.pkl", sha256: "a".repeat(64) }]]) {
+    assert.equal(LocalReportWeightsSchema.safeParse({
+      weightsUsed: ["model.pkl"], weightsUploaded,
+    }).success, false);
+  }
+  assert.equal(LocalReportInputSchema.shape.weightsUploaded.safeParse([1]).success, false);
 });

@@ -115,6 +115,7 @@ function dispatcherCallbackUrl(origin = PORTAL_ORIGIN): string {
       id: "run_test",
       mode: "practice",
       preparedArtifactId: null,
+      repositoryId: 1,
       sha: "a".repeat(40),
     } as never,
     {
@@ -130,6 +131,7 @@ function dispatcherCallbackUrl(origin = PORTAL_ORIGIN): string {
       pluginVersion: "1.0.0",
       datasetVersion: "eval-v1",
       scorerVersion: "1.0.0",
+      sandboxContract: 1,
     } as never,
   );
   return job.callback.url;
@@ -138,7 +140,7 @@ function dispatcherCallbackUrl(origin = PORTAL_ORIGIN): string {
 test("the callback URL Modal is given reaches the runner-events handler", async () => {
   const job = buildRunJob(
     { PUBLIC_ORIGIN: PORTAL_ORIGIN, EXECUTION_PROVIDER: "modal" } as never,
-    { id: "run_test", mode: "practice", preparedArtifactId: null, sha: "a".repeat(40) } as never,
+    { id: "run_test", mode: "practice", preparedArtifactId: null, repositoryId: 1, sha: "a".repeat(40) } as never,
     { repoOwner: "course", repoName: "team-fork", repoFullName: "course/team-fork", repoId: 1 } as never,
     {
       id: "audio-identification",
@@ -147,6 +149,7 @@ test("the callback URL Modal is given reaches the runner-events handler", async 
       pluginVersion: "1.0.0",
       datasetVersion: "eval-v1",
       scorerVersion: "1.0.0",
+      sandboxContract: 1,
     } as never,
   );
 

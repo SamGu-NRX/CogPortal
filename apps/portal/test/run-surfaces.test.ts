@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import * as React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { StaticRouter, Routes, Route } from "react-router";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { RunDetailPage } from "../src/routes/RunDetailPage.tsx";
+import { api } from "../src/lib/api.ts";
 import {
+  RunDetailSchema,
   RunStreamEventSchema,
   type RunSurfaceSnapshot,
 } from "@cogworks/contracts/schema";
@@ -8,7 +15,98 @@ import { effectiveDiscordChannelPermissions } from "../worker/services/discord.t
 import { runSurfaceMessage } from "../worker/services/discord-messages.ts";
 import { runnerSurfaceStatusCode } from "../worker/routes/runner-events.ts";
 
+Object.assign(globalThis, { React });
+
 const VIEW_AND_SEND = String((1n << 10n) | (1n << 11n));
+
+function renderOfficialDetail(publishable: boolean, selected = false): string {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const run = RunDetailSchema.parse({
+    id: "run_refunded",
+    mode: "official",
+    status: "succeeded",
+    benchmarkId: "vision-recognition",
+    benchmarkVersion: 1,
+    contractVersion: "cogworks.submissions.v1",
+    branch: "main",
+    sha: "a".repeat(40),
+    shortSha: "aaaaaaa",
+    createdAt: 1_780_000_000_000,
+    finishedAt: 1_780_000_060_000,
+    attemptNumber: 1,
+    primaryMetric: null,
+    parentRunId: null,
+    failure: null,
+    repo: { owner: "course", name: "team", fullName: "course/team", url: "https://github.com/course/team", defaultBranch: "main" },
+    phases: [],
+    metrics: [],
+    diagnostics: ["The image stage returned no embeddings."],
+    log: null,
+    selected,
+    publishable,
+  });
+  client.setQueryData(["run", run.id], run);
+  try {
+    return renderToStaticMarkup(React.createElement(QueryClientProvider, { client },
+      React.createElement(StaticRouter, { location: `/runs/${run.id}` },
+        React.createElement(Routes, null,
+          React.createElement(Route, { path: "/runs/:runId", element: React.createElement(RunDetailPage) }),
+        ),
+      ),
+    ));
+  } finally {
+    client.clear();
+  }
+}
+
+test("browser Retry posts the supplied execution ID on every replay", async (t) => {
+  const latest = snapshot("failed");
+  const calls: Array<{ path: string; init?: RequestInit }> = [];
+  t.mock.method(globalThis, "fetch", async (path: string, init?: RequestInit) => {
+    calls.push({ path, init });
+    return Response.json(latest);
+  });
+  const target = { runId: "run_0123456789" };
+  for (let replay = 0; replay < 2; replay += 1) {
+    const result = await api.mutateRunSurface(latest.id, "retry", target);
+    assert.equal(result.id, latest.id);
+  }
+  for (const call of calls) {
+    assert.equal(call.path, `/api/run-surfaces/${latest.id}/actions/retry`);
+    assert.equal(call.init?.method, "POST");
+    assert.equal(call.init?.credentials, "same-origin");
+    assert.equal(call.init?.body, JSON.stringify(target));
+  }
+  assert.throws(() => Reflect.apply(api.mutateRunSurface, undefined, [latest.id, "retry"]));
+  assert.equal(calls.length, 2, "missing execution ID must fail before fetch");
+  await api.mutateRunSurface(latest.id, "verify_hosted");
+  assert.equal(calls[2]?.path, `/api/run-surfaces/${latest.id}/actions/verify_hosted`);
+  assert.equal(calls[2]?.init?.body, undefined);
+});
+
+test("run detail requires the server's publication decision", () => {
+  assert.equal(RunDetailSchema.shape.publishable.safeParse(undefined).success, false);
+});
+
+test("a refunded official result keeps its finding and explains why Publish is absent", () => {
+  const html = renderOfficialDetail(false);
+  assert.match(html, /The image stage returned no embeddings/);
+  assert.match(html, /ATTEMPT REFUNDED/);
+  assert.match(html, /stopped hearing from this run and returned your attempt before/);
+  assert.match(html, /its results arrived/);
+  assert.match(html, /findings are preserved above/);
+  assert.doesNotMatch(html, /Publish to leaderboard|Confirm, make this the public result|PROMOTE/);
+});
+
+test("an eligible official result still offers Publish and a selected result links to the leaderboard", () => {
+  const eligible = renderOfficialDetail(true);
+  assert.match(eligible, /Publish to leaderboard/);
+  assert.doesNotMatch(eligible, /ATTEMPT REFUNDED/);
+  const selected = renderOfficialDetail(true, true);
+  assert.match(selected, /PUBLISHED/);
+  assert.match(selected, /See it on the leaderboard/);
+  assert.doesNotMatch(selected, /Publish to leaderboard|ATTEMPT REFUNDED/);
+});
 
 test("private team-channel permissions honor role overwrites", () => {
   const permissions = effectiveDiscordChannelPermissions(
@@ -40,6 +138,20 @@ test("member deny wins after role allows", () => {
   );
   assert.equal(permissions & (1n << 10n), 1n << 10n);
   assert.equal(permissions & (1n << 11n), 0n);
+});
+
+test("Discord recovery buttons retain the failed physical execution ID", () => {
+  for (const stage of ["hosted", "official"] as const) {
+    const value = snapshot("failed");
+    value.stage = stage;
+    value.practiceRunId = "run_0123456789";
+    value.officialRunId = stage === "official" ? "run_9876543210" : null;
+    value.actions = ["open_console", "open_portal", "retry", "rerun_hosted"];
+    const retry = buttonsOf(value).find((button) => button.label === "Retry");
+    assert.ok(retry);
+    assert.equal(retry.style, 1);
+    assert.equal(retry.custom_id, `cog:surface:${value.id}:retry:${value.officialRunId ?? value.practiceRunId}`);
+  }
 });
 
 function snapshot(status: RunSurfaceSnapshot["status"] = "running"): RunSurfaceSnapshot {
@@ -77,6 +189,9 @@ function snapshot(status: RunSurfaceSnapshot["status"] = "running"): RunSurfaceS
     officialRunId: null,
     published: false,
     nextOfficialAttempt: 2,
+    refusalHeadline: null,
+    executionHistory: [],
+    executionGeneration: 0,
     events: [0, 1, 2, 3].map((sequence) => ({
       eventId: `stream_event_${sequence}`,
       source: "local" as const,
