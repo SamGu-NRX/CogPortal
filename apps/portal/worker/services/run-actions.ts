@@ -77,6 +77,26 @@ export async function discordRunActor(env: Env, discordUserId: string): Promise<
   };
 }
 
+/**
+ * The actor with its team re-read at mutation time.
+ *
+ * `requireTeam` resolves the team when the request arrives, and an admin can
+ * change the repository between then and the write. Re-reading narrows that
+ * window for both the permission check and the source rule, which previously
+ * both trusted the same snapshot. It does not close it: D1 has no interactive
+ * transaction, so a switch landing between this read and the write still wins.
+ * That is the pre-existing model for the permission check, and this at least
+ * stops the two disagreeing with the row they are about to write against.
+ */
+async function withCurrentTeam(env: Env, actor: RunActor): Promise<RunActor> {
+  const [team] = await getDb(env)
+    .select()
+    .from(teams)
+    .where(eq(teams.id, actor.team.id))
+    .limit(1);
+  return team ? { ...actor, team } : actor;
+}
+
 function requireRunSource(
   actor: RunActor,
   source: { repositoryId: number | null } | null | undefined,
@@ -391,6 +411,7 @@ export async function promotePracticeRun(
   actor: RunActor,
   practiceRunId: string,
 ): Promise<{ runId: string; surfaceId: string }> {
+  actor = await withCurrentTeam(env, actor);
   await requireCurrentRepositoryPermission(env, actor);
   const db = getDb(env);
   const [parentRow] = await db
@@ -484,6 +505,7 @@ export async function promotePracticeRun(
 }
 
 export async function publishOfficialRun(env: Env, actor: RunActor, runId: string) {
+  actor = await withCurrentTeam(env, actor);
   await requireCurrentRepositoryPermission(env, actor);
   const db = getDb(env);
   const [row] = await db
@@ -521,6 +543,7 @@ export async function publishOfficialRun(env: Env, actor: RunActor, runId: strin
 }
 
 export async function rerunHostedSurface(env: Env, actor: RunActor, surfaceId: string) {
+  actor = await withCurrentTeam(env, actor);
   const successorId = `surface_${(await sha256Hex(`rerun:${surfaceId}`)).slice(0, 20)}`;
   const [practice] = await getDb(env)
     .select()
@@ -555,6 +578,7 @@ export async function performRunSurfaceMutation(
   surfaceId: string,
   action: RunSurfaceMutation,
 ) {
+  actor = await withCurrentTeam(env, actor);
   const surface = await getDb(env)
     .select()
     .from(runSurfaces)

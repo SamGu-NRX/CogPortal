@@ -60,7 +60,11 @@ export function RunList({
                 <span className="font-mono text-[11px] text-ink-faint">
                   {run.branch} · {run.shortSha}
                   {run.repo?.fullName !== connectedFullName && (
-                    <span className="text-detect-deep">
+                    // Same weight as the rest of the line. A renamed
+                    // repository keeps its old name here and is still the same
+                    // repository, so this names the source rather than warning
+                    // about it; eligibility is decided on the id, not this.
+                    <span>
                       {" "}
                       · {run.repo ? run.repo.fullName : "source not recorded"}
                     </span>
