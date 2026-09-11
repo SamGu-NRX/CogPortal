@@ -56,6 +56,12 @@ jobs:
       - run: python -m pip install --upgrade pip build
       - run: python -m pip install -e python/cogbench
       - run: python -m unittest discover -s python/cogbench/tests -p 'test_*.py'
+      # These tests build week 2 and week 3 payloads, and payloads carry
+      # arrays. The version is the one the graded images pin
+      # (modal_app.py:92, 146, 192), so the lane encodes against the numpy the
+      # payloads are decoded with.
+      - if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
+        run: python -m pip install "numpy==1.24.4"
       - if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
         run: python -m unittest discover -s apps/runner-modal/tests -p 'test_*.py'
       - run: python template-catalog/validate.py
