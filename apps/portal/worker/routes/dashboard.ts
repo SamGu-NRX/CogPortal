@@ -1,6 +1,6 @@
 import type { Hono } from "hono";
 import { and, desc, eq } from "drizzle-orm";
-import { DashboardSchema, OFFICIAL_LIMIT, PRACTICE_LIMIT } from "@cogworks/contracts/schema";
+import { DashboardSchema, OFFICIAL_LIMIT, PRACTICE_LIMIT, runSource } from "@cogworks/contracts/schema";
 import type { AppEnv } from "../env";
 import { requireTeam } from "../auth/session";
 import { getDb } from "../db/client";
@@ -20,6 +20,7 @@ import {
   serializeTeam,
 } from "../http/serializers";
 import { respond } from "../http/respond";
+import { runSourceRefusal } from "../services/run-source";
 
 export function registerDashboardRoutes(app: Hono<AppEnv>): void {
   app.get("/dashboard", async (c) => {
@@ -87,6 +88,7 @@ export function registerDashboardRoutes(app: Hono<AppEnv>): void {
       if (selectedRun && primary) {
         selection = {
           runId: selectedRun.id,
+          source: runSource(selectedRun.repositoryFullName),
           selectedAt: selectionRow.selectedAt,
           primaryMetric: serializeMetric(primary),
           shortSha: selectedRun.sha.slice(0, 7),
@@ -122,7 +124,12 @@ export function registerDashboardRoutes(app: Hono<AppEnv>): void {
           ? undefined
           : allRuns.find((run) => run.repositoryId === auth.team.repoId)?.sha) ?? null,
       activeRun: active ? await serializeRunSummary(db, active) : null,
-      latestCandidate: candidate ? await serializeRunSummary(db, candidate) : null,
+      latestCandidate: candidate
+        ? {
+            ...await serializeRunSummary(db, candidate),
+            sourceRefusal: runSourceRefusal(auth.team, candidate, "promote it"),
+          }
+        : null,
       selection,
       runs: summaries,
     });

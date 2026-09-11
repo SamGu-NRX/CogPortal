@@ -9,6 +9,7 @@ import {
   type RunSummary,
   type Team,
 } from "@cogworks/contracts/schema";
+import { runSourceRefusal } from "../services/run-source";
 import type { Database } from "../db/client";
 import {
   leaderboardSelections,
@@ -76,6 +77,9 @@ export async function serializeRunSummary(db: Database, row: RunRow): Promise<Ru
 
   return {
     id: row.id,
+    // The run's own source, so a commit in a list can be attributed. Detail
+    // spreads this summary, so both answer from the same place.
+    repo: runSource(row.repositoryFullName),
     mode: row.mode,
     status: row.status,
     benchmarkId: row.benchmarkId,
@@ -102,11 +106,17 @@ export async function serializeRunSummary(db: Database, row: RunRow): Promise<Ru
 /**
  * A run, in full, from the run's own row.
  *
- * It used to take the team as well, only to build the repository block from
- * it. Nothing here needs the team now, and not having it is the point: the
- * current team is what this was mistakenly reporting.
+ * The team is here for one question only: whether a new promotion of this run
+ * could still be authorised, which is genuinely about the team as it is now.
+ * What the run *was* still comes from the run. Those two were the same
+ * expression once, and that is what made every old run claim the team's
+ * current repository.
  */
-export async function serializeRunDetail(db: Database, row: RunRow): Promise<RunDetail> {
+export async function serializeRunDetail(
+  db: Database,
+  row: RunRow,
+  team: { repoId: number | null; repoFullName: string },
+): Promise<RunDetail> {
   const [summary, phases, metrics, selection] = await Promise.all([
     serializeRunSummary(db, row),
     db.select().from(runPhases).where(eq(runPhases.runId, row.id)).orderBy(asc(runPhases.phase)),
@@ -129,11 +139,7 @@ export async function serializeRunDetail(db: Database, row: RunRow): Promise<Run
     ...summary,
     contractVersion: row.contractVersion,
     parentRunId: row.parentRunId,
-    // The run's own source, not the team's current one. These used to be the
-    // same expression, which meant a team that changed its repository rewrote
-    // what every earlier run claimed: the new repository's name above the old
-    // repository's commit (B-06).
-    repo: runSource(row.repositoryFullName),
+    sourceRefusal: runSourceRefusal(team, row, "promote it"),
     phases: phases
       .sort((a, b) => (phaseOrder.get(a.phase) ?? 0) - (phaseOrder.get(b.phase) ?? 0))
       .map((phase) => ({

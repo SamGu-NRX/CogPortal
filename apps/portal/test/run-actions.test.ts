@@ -4,23 +4,44 @@ import { DatabaseSync } from "node:sqlite";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { and, eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { FIXTURE_REPO } from "@cogworks/contracts/fixtures";
+import { DashboardSchema, type Dashboard } from "@cogworks/contracts/schema";
+import { Hono } from "hono";
+import * as React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { StaticRouter } from "react-router";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { DashboardPage } from "../src/routes/DashboardPage.tsx";
+import { createAuth } from "../worker/auth/better-auth.ts";
+import { registerDashboardRoutes } from "../worker/routes/dashboard.ts";
+import { buildRunSurfaceSnapshot } from "../worker/services/run-surfaces.ts";
+import { serializeRunDetail } from "../worker/http/serializers.ts";
+import type { AppEnv } from "../worker/env.ts";
 import type { Database } from "../worker/db/client.ts";
 import {
   benchmarks,
+  cliDevices,
   cohorts,
+  leaderboardSelections,
+  localRunSessions,
   officialAttempts,
   runs,
   runSurfaces,
+  runMetrics,
+  teamMembers,
   teams,
   users,
 } from "../worker/db/schema.ts";
 import type { Env } from "../worker/env.ts";
 import { ApiHttpError } from "../worker/http/errors.ts";
+import { runSourceRefusal } from "../worker/services/run-source.ts";
 import {
+  performRunSurfaceMutation,
   promotePracticeRun,
+  publishOfficialRun,
+  rerunHostedSurface,
   startPracticeRun,
   type RunActor,
 } from "../worker/services/run-actions.ts";
@@ -91,6 +112,10 @@ function freshDb(): Harness {
   return { db: drizzle(binding as never), binding };
 }
 
+/** Counts snapshot publications, so a refusal can be shown to have had no
+ *  observable effect rather than only to have thrown. */
+let hubPublications = 0;
+
 function env(binding: unknown, provider: "fixture" | "modal", queue?: { send(): Promise<void> }): Env {
   return {
     DB: binding,
@@ -105,7 +130,12 @@ function env(binding: unknown, provider: "fixture" | "modal", queue?: { send(): 
     // dispatch could survive its own rejection, no test here got that far.
     RUN_SURFACES: {
       idFromName: (name: string) => name,
-      get: () => ({ fetch: async () => new Response(null, { status: 200 }) }),
+      get: () => ({
+        fetch: async () => {
+          hubPublications += 1;
+          return new Response(null, { status: 200 });
+        },
+      }),
     },
   } as unknown as Env;
 }
@@ -485,4 +515,342 @@ test("a practice run records the repository it is starting from", async () => {
   assert.ok(row);
   assert.equal(row.repositoryFullName, FIXTURE_REPO.fullName);
   assert.equal(row.repositoryId, FIXTURE_REPO.repositoryId, "the id and the name disagree");
+});
+
+/* ── Acting on a run after the repository changed ─────────────────────── */
+
+/**
+ * A team has one connected repository and every write is authorised against
+ * it, so a new promotion, rerun or publication has to be about that
+ * repository. History stays readable and an existing selection stays selected;
+ * only new mutations are refused. Matched on the id, so a rename keeps working.
+ */
+
+/**
+ * Leave the run recording a repository the team is not connected to.
+ *
+ * Equivalent to the team having moved on, and isolated from it on purpose: the
+ * permission check ahead of this rule short-circuits only for the fixture
+ * repository, so moving the team would fail on GitHub access first and never
+ * reach the rule under test. The real end-to-end switch is exercised through
+ * POST /team/repository in the browser.
+ */
+async function runCameFromElsewhere(db: Database, runId: string): Promise<void> {
+  await db
+    .update(runs)
+    .set({
+      repositoryId: FIXTURE_REPO.repositoryId + 1,
+      repositoryFullName: "some-student/week3-capstone",
+    })
+    .where(eq(runs.id, runId));
+}
+
+test("a run from a repository the team has left cannot be promoted", async () => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  await runCameFromElsewhere(db, PRACTICE_RUN_ID);
+
+  await assert.rejects(
+    promotePracticeRun(env(binding, "fixture"), actor, PRACTICE_RUN_ID),
+    (error: unknown) => error instanceof ApiHttpError && error.code === "source_changed",
+  );
+
+  // Nothing was written: no official row, and no attempt claimed against the
+  // team's budget for a run it refused.
+  const official = await db.select().from(runs).where(eq(runs.mode, "official"));
+  assert.equal(official.length, 0);
+  assert.equal((await db.select().from(officialAttempts)).length, 0);
+});
+
+test("a run with no recorded repository cannot be promoted either", async () => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  await db.update(runs).set({ repositoryId: null }).where(eq(runs.id, PRACTICE_RUN_ID));
+
+  await assert.rejects(
+    promotePracticeRun(env(binding, "fixture"), actor, PRACTICE_RUN_ID),
+    (error: unknown) => error instanceof ApiHttpError && error.code === "source_changed",
+  );
+  assert.equal((await db.select().from(officialAttempts)).length, 0);
+});
+
+test("a renamed repository keeps the same id, so its runs stay actionable", async () => {
+  // The seeded practice run records a different NAME from the team's, with the
+  // same id: exactly what a rename leaves behind. It has to keep working.
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  const [parent] = await db.select().from(runs).where(eq(runs.id, PRACTICE_RUN_ID));
+  assert.notEqual(parent!.repositoryFullName, actor.team.repoFullName, "fixture no longer covers a rename");
+  assert.equal(parent!.repositoryId, actor.team.repoId);
+
+  const promoted = await promotePracticeRun(env(binding, "fixture"), actor, PRACTICE_RUN_ID);
+  assert.ok(promoted.runId);
+});
+
+test("publishing a result from a repository the team has left is refused, and the selection stands", async () => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  const officialId = await seedOfficial(db, "succeeded");
+  await db.insert(leaderboardSelections).values({
+    teamId: "team_test",
+    benchmarkId: BENCHMARK_ID,
+    benchmarkVersion: 1,
+    runId: officialId,
+    selectedAt: 1,
+  });
+  await runCameFromElsewhere(db, officialId);
+
+  await assert.rejects(
+    publishOfficialRun(env(binding, "fixture"), actor, officialId),
+    (error: unknown) => error instanceof ApiHttpError && error.code === "source_changed",
+  );
+
+  // What is already published stays published. The refusal is about choosing
+  // a new one, not about withdrawing the old.
+  const [selection] = await db.select().from(leaderboardSelections);
+  assert.equal(selection!.runId, officialId);
+  assert.equal(selection!.selectedAt, 1, "the refused publication rewrote the selection");
+});
+
+test("rerunning a run from a repository the team has left is refused, with no new run", async () => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  const [parent] = await db.select().from(runs).where(eq(runs.id, PRACTICE_RUN_ID));
+  await runCameFromElsewhere(db, PRACTICE_RUN_ID);
+  const before = (await db.select().from(runs)).length;
+
+  await assert.rejects(
+    rerunHostedSurface(env(binding, "fixture"), actor, parent!.surfaceId!),
+    (error: unknown) => error instanceof ApiHttpError && error.code === "source_changed",
+  );
+  assert.equal((await db.select().from(runs)).length, before, "a refused rerun still created a run");
+});
+
+test("the shared boundary refuses before it publishes anything", async () => {
+  // Every client arrives here: Portal HTTP, the Activity and CogBot RPC. A
+  // refusal must not reach the realtime hub, which broadcasts a snapshot and
+  // can wake a Discord update.
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  await runCameFromElsewhere(db, PRACTICE_RUN_ID);
+  hubPublications = 0;
+
+  for (const action of ["promote_official", "rerun_hosted"] as const) {
+    await assert.rejects(
+      performRunSurfaceMutation(env(binding, "fixture"), actor, SURFACE_ID, action),
+      (error: unknown) => error instanceof ApiHttpError && error.code === "source_changed",
+      action,
+    );
+  }
+
+  assert.equal(hubPublications, 0, "a refused mutation published a snapshot");
+  assert.equal((await db.select().from(officialAttempts)).length, 0);
+});
+
+test("hosted verification of a local run from another repository is refused", async () => {
+  // verify_hosted resolves the local session's commit against the connected
+  // repository, so it is a rerun by another name and takes the same rule.
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  await db.insert(cliDevices).values({
+    id: "device_1",
+    userId: actor.userId,
+    name: "laptop",
+    tokenHash: "hash",
+    createdAt: 1,
+    expiresAt: Date.now() + 86_400_000,
+    lastUsedAt: null,
+    revokedAt: null,
+  } as never);
+  await db.insert(localRunSessions).values({
+    id: "local_1",
+    teamId: "team_test",
+    userId: actor.userId,
+    deviceId: "device_1",
+    benchmarkId: BENCHMARK_ID,
+    benchmarkVersion: 1,
+    repositoryId: FIXTURE_REPO.repositoryId + 1,
+    repositoryFullName: "some-student/week3-capstone",
+    sha: "c".repeat(40),
+    branch: "main",
+    dirty: false,
+    status: "succeeded",
+    phase: "complete",
+    createdAt: 1,
+    updatedAt: 2,
+    lastEventSequence: 0,
+  } as never);
+  await db
+    .update(runSurfaces)
+    .set({ localRunId: "local_1" })
+    .where(eq(runSurfaces.id, SURFACE_ID));
+
+  await assert.rejects(
+    performRunSurfaceMutation(env(binding, "fixture"), actor, SURFACE_ID, "verify_hosted"),
+    (error: unknown) => error instanceof ApiHttpError && error.code === "source_changed",
+  );
+});
+
+async function seedLocalSource(db: Database): Promise<void> {
+  await db.insert(cliDevices).values({
+    id: "device_source", userId: "user_test", name: "laptop", tokenHash: "source-hash",
+    createdAt: NOW, expiresAt: NOW + 86_400_000,
+  });
+  await db.insert(localRunSessions).values({
+    id: "local_source", teamId: "team_test", userId: "user_test", deviceId: "device_source",
+    benchmarkId: BENCHMARK_ID, benchmarkVersion: 1,
+    repositoryId: FIXTURE_REPO.repositoryId, repositoryFullName: "old-name/local-source",
+    sha: "a".repeat(40), branch: "main", dirty: false, status: "succeeded", phase: "complete",
+    createdAt: NOW, updatedAt: NOW + 1_000, finishedAt: NOW + 1_000,
+  });
+  await db.update(runSurfaces).set({ localRunId: "local_source" }).where(eq(runSurfaces.id, SURFACE_ID));
+}
+
+test("local-only console keeps recorded source and uses the verification refusal after a repository change", async () => {
+  const { db, binding } = freshDb();
+  await seedPromotion(db);
+  await seedLocalSource(db);
+  await db.delete(runs).where(eq(runs.id, PRACTICE_RUN_ID));
+
+  const matching = await buildRunSurfaceSnapshot(env(binding, "modal"), SURFACE_ID);
+  assert.equal(matching.source?.fullName, "old-name/local-source");
+  assert.equal(matching.sha, "a".repeat(40));
+  assert.equal(matching.sourceRefusal, null);
+  assert.ok(matching.actions.includes("verify_hosted"));
+
+  await db.update(teams).set({ repoId: FIXTURE_REPO.repositoryId + 1 }).where(eq(teams.id, "team_test"));
+  const changed = await buildRunSurfaceSnapshot(env(binding, "modal"), SURFACE_ID);
+  assert.deepEqual(changed.source, matching.source);
+  assert.match(changed.sourceRefusal ?? "", /verify it here/);
+  assert.ok(!changed.actions.includes("verify_hosted"));
+
+  await db.update(localRunSessions).set({ repositoryId: null }).where(eq(localRunSessions.id, "local_source"));
+  const unknown = await buildRunSurfaceSnapshot(env(binding, "modal"), SURFACE_ID);
+  assert.deepEqual(unknown.source, matching.source);
+  assert.match(unknown.sourceRefusal ?? "", /predates/);
+  assert.ok(!unknown.actions.includes("verify_hosted"));
+});
+
+test("a hosted console pairs its current stage's source and commit without borrowing local metadata", async () => {
+  const { db, binding } = freshDb();
+  await seedPromotion(db);
+  await seedLocalSource(db);
+  // Distinct metadata makes a mixed-stage projection detectable even though
+  // normal verification preserves the local commit.
+  await db.update(runs).set({ sha: "b".repeat(40), branch: "hosted-branch" }).where(eq(runs.id, PRACTICE_RUN_ID));
+  const snapshot = await buildRunSurfaceSnapshot(env(binding, "modal"), SURFACE_ID);
+  assert.equal(snapshot.stage, "hosted");
+  assert.equal(snapshot.source?.fullName, "some-org/the-repository-it-ran-from");
+  assert.equal(snapshot.sha, "b".repeat(40));
+  assert.equal(snapshot.shortSha, "b".repeat(7));
+  assert.equal(snapshot.branch, "hosted-branch");
+  assert.equal(snapshot.sourceRefusal, null);
+
+  // Legacy verification accepted local sessions before their source was known.
+  await db.update(localRunSessions).set({ repositoryId: null }).where(eq(localRunSessions.id, "local_source"));
+  const legacyHosted = await buildRunSurfaceSnapshot(env(binding, "modal"), SURFACE_ID);
+  assert.equal(legacyHosted.sourceRefusal, null);
+  assert.ok(legacyHosted.actions.includes("promote_official"));
+  assert.ok(legacyHosted.actions.includes("rerun_hosted"));
+  await db.update(runs).set({ mode: "official" }).where(eq(runs.id, PRACTICE_RUN_ID));
+  const legacyOfficial = await buildRunSurfaceSnapshot(env(binding, "modal"), SURFACE_ID);
+  assert.equal(legacyOfficial.stage, "official");
+  assert.equal(legacyOfficial.sourceRefusal, null);
+  assert.ok(legacyOfficial.actions.includes("publish_result"));
+});
+
+test("missing hosted stages reject mutations before realtime publication", async () => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  hubPublications = 0;
+  await assert.rejects(
+    performRunSurfaceMutation(env(binding, "fixture"), actor, SURFACE_ID, "publish_result"),
+    (error: unknown) => error instanceof ApiHttpError && error.code === "not_selectable",
+  );
+  await seedLocalSource(db);
+  await db.delete(runs).where(eq(runs.id, PRACTICE_RUN_ID));
+  for (const [action, code] of [["promote_official", "not_promotable"], ["rerun_hosted", "not_found"], ["publish_result", "not_selectable"]] as const) {
+    await assert.rejects(
+      performRunSurfaceMutation(env(binding, "fixture"), actor, SURFACE_ID, action),
+      (error: unknown) => error instanceof ApiHttpError && error.code === code,
+    );
+  }
+  assert.equal(hubPublications, 0);
+});
+
+function renderDashboard(dashboard: Dashboard): string {
+  (globalThis as typeof globalThis & { React: typeof React }).React = React;
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+  client.setQueryData(["benchmarks"], [dashboard.benchmark]);
+  client.setQueryData(["dashboard", dashboard.benchmark.id], dashboard);
+  client.setQueryData(["local-reports", dashboard.benchmark.id], []);
+  client.setQueryData(["repositories"], []);
+  return renderToStaticMarkup(React.createElement(QueryClientProvider, { client },
+    React.createElement(StaticRouter, { location: "/dashboard" }, React.createElement(DashboardPage))));
+}
+
+test("dashboard API and rendered candidate agree with detail for unknown, changed and renamed sources", async () => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  await db.update(benchmarks).set({ active: false }).where(and(eq(benchmarks.id, BENCHMARK_ID), ne(benchmarks.version, 1)));
+  await db.insert(runMetrics).values({ runId: PRACTICE_RUN_ID, key: "accuracy", label: "Accuracy",
+    value: 0.8, unit: null, higherIsBetter: true, isPrimary: true, precision: 2 });
+  const testEnv = { ...env(binding, "modal"), DEV_AUTH: "enabled" as const,
+    BETTER_AUTH_SECRET: "a-secure-development-secret-32-chars", BETTER_AUTH_URL: "http://localhost:5173" };
+  const signedIn = await createAuth(testEnv).api.signUpEmail({
+    body: { email: "dashboard-source@example.test", password: "cogportal-local-dev-password", name: "Source reader" },
+    returnHeaders: true,
+  });
+  await db.insert(teamMembers).values({ teamId: actor.team.id, userId: signedIn.response.user.id, role: "admin" });
+  const cookie = signedIn.headers.getSetCookie().map((value) => value.split(";")[0]).join("; ");
+  const app = new Hono<AppEnv>();
+  registerDashboardRoutes(app);
+  for (const repositoryId of [null, FIXTURE_REPO.repositoryId + 1, FIXTURE_REPO.repositoryId]) {
+    await db.update(runs).set({ repositoryId }).where(eq(runs.id, PRACTICE_RUN_ID));
+    const response = await app.fetch(new Request(`http://localhost:5173/dashboard?benchmark=${BENCHMARK_ID}`, { headers: { cookie } }), testEnv);
+    assert.equal(response.status, 200);
+    const dashboard = DashboardSchema.parse(await response.json());
+    const [row] = await db.select().from(runs).where(eq(runs.id, PRACTICE_RUN_ID));
+    assert.ok(row);
+    const detail = await serializeRunDetail(db, row, actor.team);
+    assert.equal(dashboard.latestCandidate?.id, PRACTICE_RUN_ID);
+    assert.equal(dashboard.latestCandidate?.sourceRefusal, detail.sourceRefusal);
+    assert.equal(dashboard.latestCandidate?.repo?.fullName, "some-org/the-repository-it-ran-from");
+    const html = renderDashboard(dashboard);
+    if (repositoryId === FIXTURE_REPO.repositoryId) {
+      assert.equal(dashboard.latestCandidate?.sourceRefusal, null, "a same-ID rename remains eligible");
+      assert.match(html, /Candidate ready/);
+      assert.match(html, /Promote to official/);
+      assert.match(renderDashboard({ ...dashboard, quota: { ...dashboard.quota, officialUsed: dashboard.quota.officialLimit } }), /disabled=""[^>]*>Promote to official/);
+    } else {
+      assert.match(html, /Previous result/);
+      assert.ok(detail.sourceRefusal);
+      assert.ok(html.includes(detail.sourceRefusal));
+      assert.doesNotMatch(html, /Promote to official/);
+      assert.doesNotMatch(html, /Candidate ready/);
+    }
+  }
+  await db.update(runs).set({ mode: "official", attemptNumber: 1 }).where(eq(runs.id, PRACTICE_RUN_ID));
+  await db.insert(leaderboardSelections).values({
+    teamId: actor.team.id, benchmarkId: BENCHMARK_ID, benchmarkVersion: 1,
+    runId: PRACTICE_RUN_ID, selectedAt: NOW,
+  });
+  const response = await app.fetch(new Request(`http://localhost:5173/dashboard?benchmark=${BENCHMARK_ID}`, { headers: { cookie } }), testEnv);
+  assert.equal(response.status, 200);
+  const published = DashboardSchema.parse(await response.json());
+  assert.equal(published.selection?.source?.fullName, "some-org/the-repository-it-ran-from");
+  assert.equal(published.selection?.runId, PRACTICE_RUN_ID);
+  assert.match(renderDashboard(published), /PUBLISHED RESULT[\s\S]*some-org\/the-repository-it-ran-from/);
+});
+
+test("the rule answers every combination of missing and differing ids", () => {
+  const team = { repoId: 7, repoFullName: "owner/connected" };
+  assert.equal(runSourceRefusal(team, { repositoryId: 7 }, "act"), null);
+  assert.match(runSourceRefusal(team, { repositoryId: 8 }, "act") ?? "", /no longer connected/);
+  assert.match(runSourceRefusal(team, { repositoryId: null }, "act") ?? "", /predates/);
+  assert.match(runSourceRefusal(team, null, "act") ?? "", /predates/);
+  // A team with no recorded repository cannot authorise anything against one.
+  const unknownTeam = { repoId: null, repoFullName: "owner/connected" };
+  assert.match(runSourceRefusal(unknownTeam, { repositoryId: 7 }, "act") ?? "", /no longer connected/);
+  assert.match(runSourceRefusal(unknownTeam, { repositoryId: null }, "act") ?? "", /predates/);
 });

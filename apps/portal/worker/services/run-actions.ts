@@ -30,6 +30,7 @@ import { syncRun, syncTeamRuns } from "../execution/sync";
 import { DispatchUnacknowledged, assertModalConfigured, enqueueRun } from "../execution/runner";
 import { FixtureGitHubClient, RealGitHubClient } from "../github/client";
 import { ApiHttpError } from "../http/errors";
+import { runSourceRefusal } from "./run-source";
 import { newId, randomHex } from "../util/id";
 import { sha256Hex } from "../util/crypto";
 import { publishRunSurface } from "./run-surfaces";
@@ -74,6 +75,35 @@ export async function discordRunActor(env: Env, discordUserId: string): Promise<
     team: membership.team,
     role: membership.role as RunActor["role"],
   };
+}
+
+/**
+ * The actor with its team re-read at mutation time.
+ *
+ * `requireTeam` resolves the team when the request arrives, and an admin can
+ * change the repository between then and the write. Re-reading narrows that
+ * window for both the permission check and the source rule, which previously
+ * both trusted the same snapshot. It does not close it: D1 has no interactive
+ * transaction, so a switch landing between this read and the write still wins.
+ * That is the pre-existing model for the permission check, and this at least
+ * stops the two disagreeing with the row they are about to write against.
+ */
+async function withCurrentTeam(env: Env, actor: RunActor): Promise<RunActor> {
+  const [team] = await getDb(env)
+    .select()
+    .from(teams)
+    .where(eq(teams.id, actor.team.id))
+    .limit(1);
+  return team ? { ...actor, team } : actor;
+}
+
+function requireRunSource(
+  actor: RunActor,
+  source: { repositoryId: number | null } | null | undefined,
+  action: string,
+): void {
+  const refusal = runSourceRefusal(actor.team, source, action);
+  if (refusal) throw new ApiHttpError(409, "source_changed", refusal);
 }
 
 export async function requireCurrentRepositoryPermission(
@@ -381,6 +411,7 @@ export async function promotePracticeRun(
   actor: RunActor,
   practiceRunId: string,
 ): Promise<{ runId: string; surfaceId: string }> {
+  actor = await withCurrentTeam(env, actor);
   await requireCurrentRepositoryPermission(env, actor);
   const db = getDb(env);
   const [parentRow] = await db
@@ -393,6 +424,9 @@ export async function promotePracticeRun(
   if (parent.mode !== "practice" || parent.status !== "succeeded" || !parent.surfaceId) {
     throw new ApiHttpError(409, "not_promotable", "Only a succeeded hosted run can be promoted.");
   }
+  // Before any attempt is claimed: an official attempt is a claim about the
+  // connected repository, and this run may not be from it.
+  requireRunSource(actor, parent, "promote it");
   const [existing] = await db
     .select()
     .from(runs)
@@ -471,6 +505,7 @@ export async function promotePracticeRun(
 }
 
 export async function publishOfficialRun(env: Env, actor: RunActor, runId: string) {
+  actor = await withCurrentTeam(env, actor);
   await requireCurrentRepositoryPermission(env, actor);
   const db = getDb(env);
   const [row] = await db
@@ -483,6 +518,9 @@ export async function publishOfficialRun(env: Env, actor: RunActor, runId: strin
   if (run.mode !== "official" || run.status !== "succeeded") {
     throw new ApiHttpError(409, "not_selectable", "Only a succeeded official run can be published.");
   }
+  // A published result is the team's public claim about its connected
+  // repository. An existing selection is left alone; this refuses a new one.
+  requireRunSource(actor, run, "publish a result");
   await db
     .insert(leaderboardSelections)
     .values({
@@ -505,6 +543,7 @@ export async function publishOfficialRun(env: Env, actor: RunActor, runId: strin
 }
 
 export async function rerunHostedSurface(env: Env, actor: RunActor, surfaceId: string) {
+  actor = await withCurrentTeam(env, actor);
   const successorId = `surface_${(await sha256Hex(`rerun:${surfaceId}`)).slice(0, 20)}`;
   const [practice] = await getDb(env)
     .select()
@@ -512,6 +551,9 @@ export async function rerunHostedSurface(env: Env, actor: RunActor, surfaceId: s
     .where(and(eq(runs.surfaceId, surfaceId), eq(runs.mode, "practice"), eq(runs.teamId, actor.team.id)))
     .limit(1);
   if (!practice) throw new ApiHttpError(404, "not_found", "Hosted run not found.");
+  // A rerun resolves the old commit against the connected repository, which is
+  // a different repository's commit unless this run came from it.
+  requireRunSource(actor, practice, "run it again");
   return startPracticeRun(env, actor, {
     benchmarkId: practice.benchmarkId,
     branch: practice.branch === "detached" ? null : practice.branch,
@@ -536,6 +578,7 @@ export async function performRunSurfaceMutation(
   surfaceId: string,
   action: RunSurfaceMutation,
 ) {
+  actor = await withCurrentTeam(env, actor);
   const surface = await getDb(env)
     .select()
     .from(runSurfaces)
@@ -559,6 +602,10 @@ export async function performRunSurfaceMutation(
     if (local.dirty) {
       throw new ApiHttpError(409, "not_promotable", "Commit your changes before hosted verification.");
     }
+    // Hosted verification resolves this session's commit against the connected
+    // repository, so it is a rerun by another name and needs the same rule. A
+    // session recorded before the team moved is about the old repository.
+    requireRunSource(actor, local, "verify it here");
     await startPracticeRun(env, actor, {
       benchmarkId: local.benchmarkId,
       branch: local.branch,
@@ -566,6 +613,30 @@ export async function performRunSurfaceMutation(
       surfaceId,
     });
     return publishRunSurface(env, surfaceId);
+  }
+
+  // Eligibility before publication. `publishRunSurface` writes a snapshot to
+  // the realtime hub and can wake a Discord update, so refusing after it means
+  // a rejected request still had an observable effect.
+  const [surfacePractice] = await getDb(env)
+    .select({ repositoryId: runs.repositoryId })
+    .from(runs)
+    .where(and(eq(runs.surfaceId, surfaceId), eq(runs.mode, "practice")))
+    .limit(1);
+  const [surfaceOfficial] = await getDb(env)
+    .select({ repositoryId: runs.repositoryId })
+    .from(runs)
+    .where(and(eq(runs.surfaceId, surfaceId), eq(runs.mode, "official")))
+    .limit(1);
+  if (action === "promote_official" || action === "rerun_hosted") {
+    if (!surfacePractice) {
+      if (action === "rerun_hosted") throw new ApiHttpError(404, "not_found", "Hosted run not found.");
+      throw new ApiHttpError(409, "not_promotable", "Verify this run first.");
+    }
+    requireRunSource(actor, surfacePractice, "act on it");
+  } else if (action === "publish_result") {
+    if (!surfaceOfficial) throw new ApiHttpError(409, "not_selectable", "No official result is ready.");
+    requireRunSource(actor, surfaceOfficial, "publish a result");
   }
 
   const snapshot = await publishRunSurface(env, surfaceId);

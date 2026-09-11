@@ -181,6 +181,9 @@ export function runSource(fullName: string | null | undefined): RunSource | null
 
 export const RunSummarySchema = z.object({
   id: z.string(),
+  /** The repository this run ran from, or null when it predates the recorded
+   *  name. A commit with no repository beside it cannot be attributed. */
+  repo: RunSourceSchema.nullable(),
   mode: RunModeSchema,
   status: RunStatusSchema,
   benchmarkId: z.string(),
@@ -203,6 +206,10 @@ export const RunDetailSchema = RunSummarySchema.extend({
   /** Null when the run predates the recorded name. Never the team's current
    *  repository standing in for an unknown one. */
   repo: RunSourceSchema.nullable(),
+  /** Why a new promotion is refused, when the reason is that this run is not
+   *  about the repository the team is connected to. Null when it is. The page
+   *  shows this instead of a control the server would refuse. */
+  sourceRefusal: z.string().nullable(),
   phases: z.array(PhaseTimingSchema),
   metrics: z.array(MetricSchema),
   /** The scorer's own notes on this run: which component scored zero and why.
@@ -689,6 +696,12 @@ export const RunSurfaceSnapshotSchema = z.object({
    */
   refusalHeadline: z.string().max(600).nullable().default(null),
   events: z.array(RunStreamEventSchema).max(250),
+  /** Repository of the current stage, paired with its commit. Null when
+   *  that run predates the recorded name. */
+  source: RunSourceSchema.nullable(),
+  /** Why promotion, rerun and publication are absent from `actions`, when the
+   *  reason is that this run is not about the connected repository. */
+  sourceRefusal: z.string().nullable(),
   actions: z.array(RunSurfaceActionSchema),
   simulated: z.boolean(),
 });
@@ -808,6 +821,7 @@ export type DeviceStatus = z.infer<typeof DeviceStatusSchema>;
 
 export const SelectionSchema = z.object({
   runId: z.string(),
+  source: RunSourceSchema.nullable(),
   selectedAt: z.number(),
   primaryMetric: MetricSchema,
   shortSha: z.string(),
@@ -822,8 +836,8 @@ export const DashboardSchema = z.object({
   quota: QuotaSchema,
   lastResolvedSha: z.string().nullable(),
   activeRun: RunSummarySchema.nullable(),
-  /** Most recent succeeded practice run (the promotable candidate). */
-  latestCandidate: RunSummarySchema.nullable(),
+  /** Most recent succeeded practice run, retained even when its source prevents promotion. */
+  latestCandidate: RunSummarySchema.extend({ sourceRefusal: z.string().nullable() }).nullable(),
   selection: SelectionSchema.nullable(),
   runs: z.array(RunSummarySchema),
 });
@@ -1368,6 +1382,9 @@ export const API_ERROR_CODES = [
   "active_run_exists",
   "not_promotable",
   "not_selectable",
+  /** The run is not about the repository the team is connected to, so a new
+   *  promotion, rerun or publication cannot be authorised against it. */
+  "source_changed",
   "provider_unconfigured",
   "link_expired",
   "link_conflict",
