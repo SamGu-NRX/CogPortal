@@ -1080,16 +1080,27 @@ def _write_guard(event: str, arguments) -> None:  # pragma: no cover - process-w
     at theirs. That leaves one way to change a file they already have, which
     is to open it for writing through its link, and this refuses it.
 
-    That is the whole of what this owns, and it is why the list is short.
-    `os.remove`, `os.rename`, `os.rmdir` and `os.mkdir` are not here: each
-    raises its own event, and answering them one at a time would be a list
-    that grows with the standard library and still ends in a hole. The
-    directories close that class instead, so what is left is the two ways
-    ordinary Python writes bytes into a file it did not create here.
+    The list is short because the directories did the rest. `os.remove`,
+    `os.rename`, `os.rmdir` and `os.mkdir` act on a directory, and every
+    directory the retry can reach is one `_mirror_into` made, so none of them
+    needs an answer here. What acts on a file is what is left, and through a
+    link that set is closed: `open` for writing in either form, and the path
+    form of `truncate`.
 
-    Not covered: a mode change or a timestamp, which do not alter what a read
-    returns, and native code, which raises no event at all. The process
-    boundary in `isolate.py` is what stands between a repository and the run.
+    Covered, then, is anything reaching `builtins.open` or `os.open`, which
+    includes `numpy.save`, `pickle`, `torch.save` and Pillow. Not covered is
+    a writer that opens the file in C and raises no event, and this course
+    supplies several: `soundfile.write` in week 1, `cv2.imwrite` in week 2,
+    `h5py`, `sqlite3`. Nor a mode or timestamp change, which does not alter
+    what a read returns. Nor an `os.link` they make here, which gives their
+    bytes a second name on this side that these path tests then approve.
+    Chasing those with more entries here is the list that grows with the
+    standard library, and the hardlink one would want inode identity rather
+    than a path; none of it is worth starting for code no student writes at
+    import scope.
+
+    `isolate.py` is a different promise. It keeps a crash or a hang inside a
+    child process; it does not keep that child out of the checkout.
     """
 
     if _GUARDED is None or len(arguments) < 2:
@@ -1117,8 +1128,16 @@ def _write_guard(event: str, arguments) -> None:  # pragma: no cover - process-w
         return
     if _inside(where, mirror) or not _inside(where, protected):
         return
+    try:
+        named = where.relative_to(protected)
+    except ValueError:  # pragma: no cover - `where` is inside by this point
+        named = where
+    # Their report shows this as the reason the module was skipped, so it says
+    # what happened and what to do, and names their file the way they wrote it.
     raise PermissionError(
-        "cogbench does not write into a repository it is reading: {}".format(where)
+        "this module was run from a copy of its folder, so writing "
+        "{} would have changed your repository. Write it from a function "
+        "rather than at import, or write to a new name.".format(named)
     )
 
 
@@ -1135,24 +1154,48 @@ def _mirror_into(source: Path, destination: Path) -> None:
 
     A directory is made, not linked, so that every path a module writes
     resolves to this side. A file is linked, so a relative read gets their
-    bytes without copying a checkout that may run to gigabytes. One of their
-    own symlinks is linked as it stands, whatever it points at.
+    bytes without copying a checkout that can run to gigabytes: the largest
+    2026 capstone is 1.8 GB, nearly all of it committed audio.
+
+    One of their own links to a directory inside the tree is rebuilt too,
+    because linking it as it stands would point back through their checkout
+    and `os.remove("cache/stale.pkl")` would land there again. A link out of
+    the tree stays a link, pointing where they aimed it.
+
+    The walk is a loop rather than a recursion because a deep tree would
+    otherwise raise `RecursionError` past about 990 directories, and the
+    caller catches only `OSError`, so one repository would end the survey
+    instead of one module. `seen` is what keeps a cycle of their own links
+    from walking forever.
     """
 
-    try:
-        entries = sorted(source.iterdir())
-    except OSError:
-        return
-    for entry in entries:
-        target = destination / entry.name
+    root = source.resolve()
+    seen = {root}
+    pending = [(source, destination)]
+    while pending:
+        here, mirror = pending.pop()
         try:
-            if entry.is_symlink() or not entry.is_dir():
-                os.symlink(entry, target)
-            else:
-                target.mkdir()
-                _mirror_into(entry, target)
+            entries = sorted(here.iterdir())
         except OSError:
             continue
+        for entry in entries:
+            target = mirror / entry.name
+            try:
+                if entry.is_dir():
+                    resolved = entry.resolve()
+                    inside = resolved == root or _inside(resolved, root)
+                    if entry.is_symlink() and not inside:
+                        os.symlink(entry, target)
+                        continue
+                    if resolved in seen:
+                        continue
+                    seen.add(resolved)
+                    target.mkdir()
+                    pending.append((entry, target))
+                else:
+                    os.symlink(entry, target)
+            except OSError:
+                continue
 
 
 @contextlib.contextmanager
@@ -1173,9 +1216,11 @@ def _reading_from(folder: Path):
 
     So the working directory is a temporary directory that repeats their
     directory structure and symlinks their files. A relative read at any
-    depth resolves through a file link to the real bytes; a relative write,
-    rename, delete or mkdir lands on a directory this function made, and the
-    repository never sees it.
+    depth resolves through a file link to the real bytes. A relative rename,
+    delete or mkdir, and a write to a name they do not already have, land on
+    a directory this function made. A write to a file they do have would go
+    through its link, so `_write_guard` refuses it and the module is skipped
+    with that as the reason.
 
     The first draft linked the top-level entries only, directories included.
     A directory link is a doorway: `os.remove("data/stale.pkl")` through one
@@ -1183,19 +1228,19 @@ def _reading_from(folder: Path):
     rmdir, mkdir and rmtree. Measured on a disposable fixture, six ordinary
     operations reached the original tree and only `open(..., "w")` was
     refused, because `open` was the one event the hook read. Rebuilding the
-    directories removes the doorway instead of growing that list, which
-    matters because `os.truncate` reports a file descriptor rather than a
-    path and a C extension reports nothing.
+    directories removes the doorway instead of growing that list, which is
+    the better trade because `f.truncate()` carries only a descriptor and a
+    C extension raises no event at all.
 
-    What remains is the file links themselves: opening one for writing would
-    change their file, and `_write_guard` refuses that. Native code that
-    writes without going through Python is not contained here; the process
-    boundary in `isolate.py` is what stands between a repository and the
-    rest of the run.
+    What remains is the file links themselves, and `_write_guard` says what
+    it does and does not cover there.
 
-    Their own symlinks are copied as symlinks rather than followed, so a link
-    that points out of the tree still points where they aimed it, and a cycle
-    cannot make this walk forever.
+    What this does not change is the reach of an absolute path. A module that
+    builds one from `__file__`, or calls `os.chdir` to its own folder, writes
+    where it says, on this attempt exactly as on the first one. The rule the
+    retry holds is narrower than "the repository is untouched": it is that
+    the retry hands student code no path into the checkout that the ordinary
+    import did not already hand it.
     """
 
     global _GUARDED, _GUARD_INSTALLED
@@ -2233,6 +2278,13 @@ def _entered(
     # the same variable; this is the same protection for every other place
     # discovery runs, including a student's own laptop.
     os.environ["MPLBACKEND"] = "Agg"
+    # And no `.pyc` files. Importing a module writes `__pycache__` next to it,
+    # which is the platform, not the student, changing a tree it was asked to
+    # read: `git status` in a 2026 checkout that ran `cogworks check` came back
+    # with untracked `Week2/__pycache__/`. Discovery imports each file once, so
+    # the cache it writes is never read back and buys nothing.
+    previous_bytecode = sys.dont_write_bytecode
+    sys.dont_write_bytecode = True
     os.chdir(working if working is not None else root)
     # Root first: it owns precedence when two directories hold the same name.
     for directory in reversed([root, *also]):
@@ -2241,6 +2293,7 @@ def _entered(
         yield
     finally:
         os.chdir(previous_cwd)
+        sys.dont_write_bytecode = previous_bytecode
         sys.path[:] = previous_path
         if previous_backend is None:
             os.environ.pop("MPLBACKEND", None)

@@ -1222,12 +1222,7 @@ class TheOwnFolderRetryNeverWritesIntoTheCheckout(unittest.TestCase):
         self.assertEqual(found.modules[0].cwd_hint, self.tmp)
 
     def _entries(self) -> set:
-        # `__pycache__` is CPython's, written by the import machinery for any
-        # module imported from a path. This is about what the student's own
-        # code wrote, which is the part discovery decides.
-        return {
-            path.name for path in self.tmp.iterdir() if path.name != "__pycache__"
-        }
+        return {path.name for path in self.tmp.iterdir()}
 
     def test_and_the_repository_is_exactly_as_it_was(self):
         self._repository()
@@ -1331,6 +1326,42 @@ class TheOwnFolderRetryNeverWritesIntoTheCheckout(unittest.TestCase):
                     (self.tmp / "cache" / "stale.pkl").read_text(encoding="utf-8"),
                     "theirs\n",
                 )
+
+    def test_a_link_of_their_own_into_the_tree_is_not_a_way_back_in(self):
+        """A checkout that keeps `cache -> real_cache` had the doorway back,
+        because linking their link as it stood pointed through their tree. No
+        repository in the 2026 corpus holds one, which is why this is a test
+        and not a paragraph."""
+
+        (self.tmp / "data.txt").write_text("samples\n", encoding="utf-8")
+        (self.tmp / "real_cache").mkdir()
+        (self.tmp / "real_cache" / "stale.pkl").write_text("theirs\n", encoding="utf-8")
+        os.symlink("real_cache", self.tmp / "cache")
+        (self.tmp / "pipeline.py").write_text(
+            "import os\n"
+            "try:\n    os.remove('cache/stale.pkl')\nexcept OSError:\n    pass\n"
+            "SAMPLES = open('data.txt').read()\n"
+            "def peaks(spec):\n    return []\n",
+            encoding="utf-8",
+        )
+
+        found = discover(self.tmp)
+
+        self.assertEqual([e.name for e in found.modules], ["pipeline"])
+        self.assertTrue((self.tmp / "real_cache" / "stale.pkl").exists())
+
+    def test_reading_a_repository_leaves_no_pycache_behind(self):
+        """Importing writes `__pycache__` next to the module. That is the
+        platform changing a tree it was asked to read, and it made `git
+        status` dirty in a checkout that had only run `cogworks check`."""
+
+        (self.tmp / "pipeline.py").write_text(
+            "def peaks(spec):\n    return []\n", encoding="utf-8"
+        )
+
+        discover(self.tmp)
+
+        self.assertEqual(self._entries(), {"pipeline.py"})
 
     def test_a_relative_read_at_depth_still_finds_their_file(self):
         """The retry exists for this. Closing the doorway may not close it."""
