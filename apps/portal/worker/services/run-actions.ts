@@ -332,6 +332,11 @@ export async function startPracticeRun(
       branch: options.branch || (options.exactSha ? "detached" : actor.team.defaultBranch),
       sha,
       repositoryId: actor.team.repoId,
+      // Read from the same team snapshot as the id above, so the two always
+      // describe one repository. Promotion inherits both by spreading the
+      // parent run, which is what keeps an official attempt pointing at the
+      // repository its practice run used.
+      repositoryFullName: actor.team.repoFullName,
       parentRunId: null,
       attemptNumber: null,
       failureCategory: null,

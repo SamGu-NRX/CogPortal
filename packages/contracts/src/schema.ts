@@ -134,6 +134,51 @@ export const RepoRefSchema = z.object({
 });
 export type RepoRef = z.infer<typeof RepoRefSchema>;
 
+/**
+ * The repository a finished run actually ran from.
+ *
+ * Narrower than `RepoRef` on purpose: a run has no default branch, it has the
+ * branch it ran. Everything here is derived from the one name the run recorded
+ * at creation, so there is nothing to keep in step with the team.
+ */
+export const RunSourceSchema = z.object({
+  owner: z.string(),
+  name: z.string(),
+  fullName: z.string(),
+  url: z.string(),
+});
+export type RunSource = z.infer<typeof RunSourceSchema>;
+
+/**
+ * A run's recorded repository name, as something a page can link to.
+ *
+ * `null` in, `null` out: a run from before the name was recorded has an
+ * unknown source, and saying so is the point. Callers must not substitute the
+ * team's current repository for it.
+ *
+ * The URL is built rather than stored because GitHub's `html_url` is always
+ * `https://github.com/{full_name}` (the fixture repository included), so
+ * storing it too would be the same fact written twice, free to drift. A
+ * repository renamed on GitHub keeps redirecting from the old name, which is
+ * the behaviour this wants: the link names what the run used.
+ */
+export function runSource(fullName: string | null | undefined): RunSource | null {
+  // Stricter than the wire regex elsewhere in this file, because the result
+  // becomes a URL. GitHub owners are alphanumeric and hyphens, repositories add
+  // dots and underscores; anything else ("owner/repo/extra",
+  // "owner/repo?tab=readme") would build a link pointing somewhere the run
+  // never used. A repository named only of dots would resolve above itself.
+  if (!fullName || !/^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/.test(fullName)) return null;
+  const slash = fullName.indexOf("/");
+  if (/^\.+$/.test(fullName.slice(slash + 1))) return null;
+  return {
+    owner: fullName.slice(0, slash),
+    name: fullName.slice(slash + 1),
+    fullName,
+    url: `https://github.com/${fullName}`,
+  };
+}
+
 export const RunSummarySchema = z.object({
   id: z.string(),
   mode: RunModeSchema,
@@ -155,7 +200,9 @@ export type RunSummary = z.infer<typeof RunSummarySchema>;
 export const RunDetailSchema = RunSummarySchema.extend({
   contractVersion: z.string(),
   parentRunId: z.string().nullable(),
-  repo: RepoRefSchema,
+  /** Null when the run predates the recorded name. Never the team's current
+   *  repository standing in for an unknown one. */
+  repo: RunSourceSchema.nullable(),
   phases: z.array(PhaseTimingSchema),
   metrics: z.array(MetricSchema),
   /** The scorer's own notes on this run: which component scored zero and why.

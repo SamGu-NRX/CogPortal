@@ -1,8 +1,9 @@
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
-import type {
-  FamilyLeaderboard,
-  Leaderboard,
-  LeaderboardEntry,
+import {
+  runSource,
+  type FamilyLeaderboard,
+  type Leaderboard,
+  type LeaderboardEntry,
 } from "@cogworks/contracts/schema";
 import type { Env } from "../env";
 import { getDb } from "../db/client";
@@ -80,7 +81,16 @@ export async function getLeaderboardReadModel(
       // An archive row is labeled anonymized on the page. The repository link
       // names a GitHub account and a commit SHA resolves to its repository
       // through GitHub search, so neither leaves the server for those rows.
-      repoUrl: row.team.provenance === "archive" ? null : row.team.repoUrl,
+      //
+      // Otherwise the link names the repository this run used, which is not
+      // always the one the team has now. Pairing the team's current repository
+      // with a published run's commit sent a reader to a repository that never
+      // held it. Null when the run predates the recorded name; the page
+      // already omits the row rather than showing a guess.
+      repoUrl:
+        row.team.provenance === "archive"
+          ? null
+          : (runSource(row.run.repositoryFullName)?.url ?? null),
       sha: row.team.provenance === "archive" ? "" : row.run.sha,
       shortSha: row.team.provenance === "archive" ? "" : row.run.sha.slice(0, 7),
       primaryMetric: serializeMetric(primary),
@@ -200,7 +210,16 @@ export async function getFamilyLeaderboardReadModel(
       // An archive row is labeled anonymized on the page. The repository link
       // names a GitHub account and a commit SHA resolves to its repository
       // through GitHub search, so neither leaves the server for those rows.
-      repoUrl: row.team.provenance === "archive" ? null : row.team.repoUrl,
+      //
+      // Otherwise the link names the repository this run used, which is not
+      // always the one the team has now. Pairing the team's current repository
+      // with a published run's commit sent a reader to a repository that never
+      // held it. Null when the run predates the recorded name; the page
+      // already omits the row rather than showing a guess.
+      repoUrl:
+        row.team.provenance === "archive"
+          ? null
+          : (runSource(row.run.repositoryFullName)?.url ?? null),
       sha: row.team.provenance === "archive" ? "" : row.run.sha,
       shortSha: row.team.provenance === "archive" ? "" : row.run.sha.slice(0, 7),
       primaryMetric: {
