@@ -13,6 +13,8 @@ import {
   runSurfaceCurrentRunId,
 } from "@cogworks/contracts/schema";
 import type { StreamState } from "@/lib/run-surface-stream";
+import type { RunSurfaceMutationInput } from "@/lib/api";
+import { Veil } from "./Veil";
 
 type Mutation = "verify_hosted" | "promote_official" | "publish_result" | "rerun_hosted";
 
@@ -119,6 +121,7 @@ export function RunConsole({
   streamState,
   onAction,
   onOpenPortal,
+  onOpenRun,
   busyAction = null,
   error = null,
   embedded = false,
@@ -126,13 +129,17 @@ export function RunConsole({
 }: {
   snapshot: RunSurfaceSnapshot;
   streamState: StreamState;
-  onAction?: (action: Mutation) => void | Promise<void>;
+  onAction?: (input: RunSurfaceMutationInput) => void | Promise<void>;
   onOpenPortal?: () => void;
-  busyAction?: Mutation | null;
+  onOpenRun?: (runId: string) => void;
+  busyAction?: Mutation | "retry" | null;
   error?: string | null;
   embedded?: boolean;
   compact?: boolean;
 }) {
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const retryFocusedRef = useRef(false);
+  const retryInFlightRef = useRef(false);
   const logRef = useRef<HTMLUListElement>(null);
   const logFocusedRef = useRef(false);
   const historyToggleRef = useRef<HTMLButtonElement>(null);
@@ -152,6 +159,24 @@ export function RunConsole({
   const terminal = snapshot.status !== "running";
   const timelineEvents = collapseRepeatedRunEvents(currentEvents);
   const failed = snapshot.status === "failed";
+  const retryOffered = snapshot.actions.includes("retry") && currentRunId !== null && Boolean(onAction);
+
+  const retry = async () => {
+    if (!retryOffered || !onAction || !currentRunId || retryInFlightRef.current || busyAction) return;
+    retryInFlightRef.current = true;
+    try {
+      await onAction({ surfaceId: snapshot.id, action: "retry", runId: currentRunId });
+    } finally {
+      retryInFlightRef.current = false;
+    }
+  };
+
+  useLayoutEffect(() => {
+    if (!retryOffered && retryFocusedRef.current) {
+      headingRef.current?.focus();
+      retryFocusedRef.current = false;
+    }
+  }, [retryOffered]);
   const failureEvent = [...currentEvents].reverse().find((event) => event.code.startsWith("run.failed."));
   const failureReason = snapshot.refusalHeadline || (failureEvent ? EVENT_COPY[failureEvent.code] : null);
   const visibleEvents = terminal && !historyExpanded ? timelineEvents.slice(-3) : timelineEvents;
@@ -261,7 +286,7 @@ export function RunConsole({
         </div>
         <div className={`${compact ? "mt-3" : "mt-5"} grid gap-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-end`}>
           <div className="min-w-0">
-            <h1 className="text-[clamp(1.55rem,4vw,2.45rem)]">{snapshot.benchmark.title}</h1>
+            <h1 ref={headingRef} tabIndex={-1} className="text-[clamp(1.55rem,4vw,2.45rem)]">{snapshot.benchmark.title}</h1>
             <p className={`${compact ? "mt-1" : "mt-2"} flex flex-wrap gap-x-3 gap-y-1 text-[13px] text-ink-secondary`}>
               <span>{snapshot.team.name}</span><span aria-hidden="true">·</span>
               <span>@{snapshot.actor.login}</span><span aria-hidden="true">·</span>
@@ -279,6 +304,22 @@ export function RunConsole({
         {failed && failureReason && (
           <p className="mt-3 max-w-prose break-words text-[13px] text-ink-secondary">{failureReason}</p>
         )}
+        {retryOffered && (
+          <div className="mt-4">
+            <button
+              type="button"
+              className="u-pressable min-h-11 border border-ink bg-ink px-5 text-[13px] font-medium text-paper-raised aria-disabled:opacity-60"
+              aria-disabled={busyAction !== null}
+              onFocus={() => { retryFocusedRef.current = true; }}
+              onBlur={() => { retryFocusedRef.current = false; }}
+              onClick={() => { void retry(); }}
+            >
+              {busyAction === "retry" ? "Retrying…" : "Retry"}
+            </button>
+            <p className="mt-2 text-[12px] text-ink-secondary">Runs the same submission again.</p>
+          </div>
+        )}
+        {error && <p role="alert" className="mt-4 border-l-2 border-detect pl-3 text-[12px] text-detect-deep">{error}</p>}
         {snapshot.status === "running" && (
           <div className="mt-4 border-t border-rule-soft pt-3" role="status" aria-live="polite">
             <div className="mb-2 flex min-w-0 items-center justify-between gap-3">
@@ -340,7 +381,7 @@ export function RunConsole({
               </button>
             )}
           </div>
-          {failed && historyExpanded && (
+          {failed && historyExpanded && recordedMetrics.length > 0 && (
             <div className="space-y-2 border-b border-rule-soft px-4 py-3 text-[12px] text-ink-secondary">
               <p>Saved results</p>
               {recordedMetrics.map((metric) => (
@@ -404,7 +445,6 @@ export function RunConsole({
             </p>
           )}
           <div className="mt-6 grid gap-2">
-            {/* No current action retries a failed execution in this view. */}
             {snapshot.actions.filter((action) => !failed && ACTION_COPY[action]).map((action) => (
               <button
                 key={action}
@@ -432,9 +472,26 @@ export function RunConsole({
               </button>
             )}
           </div>
-          {error && <p role="alert" className="mt-4 border-l-2 border-detect pl-3 text-[12px] text-detect-deep">{error}</p>}
         </aside>
       </div>
+      )}
+
+      {snapshot.executionHistory.length > 0 && (
+        <div className="border-t border-rule px-4 py-3 sm:px-6">
+          <Veil count={snapshot.executionHistory.length} peek={0} moreLabel="Show run history" fewerLabel="Hide run history">
+            <ol className="divide-y divide-rule-soft" aria-label="Run history">
+              {snapshot.executionHistory.map((run) => (
+                <li key={run.id} className="flex flex-wrap items-center justify-between gap-2 py-3 text-[12px]">
+                  <div>
+                    <p className="capitalize">{run.mode} · {run.status.replaceAll("_", " ")}{run.id === currentRunId ? " · Current" : ""}</p>
+                    <time className="text-ink-faint" dateTime={new Date(run.createdAt).toISOString()}>{new Date(run.createdAt).toLocaleString()}</time>
+                  </div>
+                  {onOpenRun && <button type="button" className="min-h-11 px-2 underline decoration-rule underline-offset-4" onClick={() => onOpenRun(run.id)}>View details<span className="sr-only"> for {run.mode} run from {new Date(run.createdAt).toLocaleString()}</span></button>}
+                </li>
+              ))}
+            </ol>
+          </Veil>
+        </div>
       )}
 
       {(pendingAction || showCommand) && (
@@ -456,7 +513,7 @@ export function RunConsole({
                 <button type="button" className="min-h-11 bg-detect px-4 text-[13px] font-medium text-paper-raised" onClick={() => {
                   const action = pendingAction;
                   setPendingAction(null);
-                  void onAction?.(action);
+                  void onAction?.({ surfaceId: snapshot.id, action });
                 }}>Confirm</button>
               )}
             </div>

@@ -99,6 +99,12 @@ export function RunDetailPage() {
         ← Dashboard
       </Link>
 
+      {run.surfaceId && (
+        <Link to={`/run-surfaces/${encodeURIComponent(run.surfaceId)}`} className="ml-4 inline-flex min-h-11 items-center text-[13px] text-ink underline decoration-rule underline-offset-4">
+          Open current run
+        </Link>
+      )}
+
       {/* ── Masthead ── */}
       <header className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2">
         <h1 className="font-serif text-3xl font-semibold">
@@ -187,8 +193,6 @@ export function RunDetailPage() {
       {/* ── Failure ── */}
       {run.status === "failed" && (
         <div className="mt-4">
-          {/* A new practice run changes execution and may resolve another commit.
-              TODO: wire Retry only after the server supplies same-view authorization. */}
           <FailureCard
             key={run.id}
             failure={run.failure}

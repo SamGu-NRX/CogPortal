@@ -397,7 +397,7 @@ export function GalleryPage() {
 
       <section className="mt-10 space-y-3">
         <h2 className="font-serif text-xl font-semibold text-ink">Failed execution with recorded findings</h2>
-        <p className="text-[13px] text-ink-faint">Presentation fixture. Retry has no server contract yet.</p>
+        <p className="text-[13px] text-ink-faint">Saved failure details. Recovery actions belong to the current run console.</p>
         <FailureCard
           failure={{ category: "provider", phase: "evaluating", detail: "Runner stopped reporting before completion.", consumedAttempt: false }}
           mode="official"

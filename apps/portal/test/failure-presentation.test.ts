@@ -9,12 +9,15 @@ import { Window } from "happy-dom";
 import { RunSurfaceSnapshotSchema, type RunDetail } from "@cogworks/contracts/schema";
 import { RunConsole } from "../src/components/RunConsole.tsx";
 import { RunDetailPage } from "../src/routes/RunDetailPage.tsx";
+import { RunSurfacePage } from "../src/routes/RunSurfacePage.tsx";
+import { useRunSurfaceStream } from "../src/lib/run-surface-stream.ts";
+import type { RunSurfaceMutationInput } from "../src/lib/api.ts";
 
 function run(overrides: Partial<RunDetail> = {}): RunDetail {
   return {
     id: "run_failed_123", mode: "practice", status: "failed",
     benchmarkId: "audio-identification", benchmarkVersion: 1,
-    contractVersion: "1", parentRunId: null,
+    contractVersion: "1", parentRunId: null, surfaceId: null,
     repo: { owner: "recorded", name: "source", fullName: "recorded/source", url: "https://github.com/recorded/source" },
     sourceRefusal: null, branch: "detached", sha: "b".repeat(40), shortSha: "bbbbbbb",
     createdAt: 1_750_000_000_000, finishedAt: 1_750_000_008_000,
@@ -194,4 +197,197 @@ test("console failure ignores late completion in its summary, retaining it only 
   elsewhere.focus();
   await act(async () => root.render(element(snapshot)));
   assert.equal(window.document.activeElement, elsewhere);
+});
+
+function retrySnapshot(mode: "practice" | "official" = "practice") {
+  return RunSurfaceSnapshotSchema.parse({
+    id: `surface_${"a".repeat(20)}`, team: { id: "team_1", name: "Team" },
+    benchmark: { id: "language-search", version: 1, title: "Semantic Image Search" },
+    actor: { login: "ada", name: null }, sha: "b".repeat(40), shortSha: "bbbbbbb",
+    branch: "detached", dirty: false, source: null, sourceRefusal: null,
+    stage: mode === "official" ? "official" : "hosted", status: "failed", phase: "failed",
+    createdAt: 1000, updatedAt: 9000, finishedAt: 8000, elapsedMs: 7000,
+    progress: null, primaryMetric: null, localRunId: null,
+    practiceRunId: mode === "practice" ? "physical_failed" : "physical_practice",
+    officialRunId: mode === "official" ? "physical_failed" : null,
+    executionGeneration: 1,
+    executionHistory: [{ id: "physical_failed", mode, status: "failed", retryOfRunId: null, createdAt: 1000, finishedAt: 8000 }],
+    published: false, nextOfficialAttempt: 1, actions: ["retry"], simulated: true,
+    events: [{ eventId: "failure_event_123", source: mode, sourceRunId: "physical_failed", sourceSequence: 1,
+      phase: "evaluating", code: "run.failed.runtime", occurredAt: 8000, elapsedMs: 7000, progress: null }],
+  });
+}
+
+for (const mode of ["practice", "official"] as const) {
+  for (const compact of [false, true]) {
+    test(`${mode} Retry in compact=${compact} binds one request and preserves focus and history`, async (t) => {
+      const snapshot = retrySnapshot(mode);
+      const requests: RunSurfaceMutationInput[] = [];
+      const opened: string[] = [];
+      let release!: () => void;
+      const pending = new Promise<void>((resolve) => { release = resolve; });
+      const onAction = async (input: RunSurfaceMutationInput) => { requests.push(input); await pending; };
+      const element = (value = snapshot, busy = false) => React.createElement(RunConsole, {
+        snapshot: value, streamState: "closed", compact, onAction,
+        busyAction: busy ? "retry" : null, onOpenRun: (id: string) => { opened.push(id); },
+      });
+      const { container, root, window } = await mount(t, element());
+      const retry = [...container.querySelectorAll("button")].find((button) => button.textContent === "Retry");
+      assert.ok(retry, "submission-runtime categories must not suppress server-eligible Retry");
+      retry.focus();
+      await act(async () => { retry.click(); retry.click(); });
+      assert.deepEqual(requests, [{ surfaceId: snapshot.id, action: "retry", runId: "physical_failed" }]);
+      await act(async () => root.render(element(snapshot, true)));
+      assert.equal(retry.disabled, false);
+      assert.equal(retry.getAttribute("aria-disabled"), "true");
+      assert.equal(window.document.activeElement, retry);
+      await act(async () => retry.click());
+      assert.equal(requests.length, 1);
+      const next = RunSurfaceSnapshotSchema.parse({
+        ...snapshot, status: "running", phase: "queued", executionGeneration: 2, actions: [],
+        practiceRunId: mode === "practice" ? "physical_retry" : snapshot.practiceRunId,
+        officialRunId: mode === "official" ? "physical_retry" : null,
+        executionHistory: [...snapshot.executionHistory, { id: "physical_retry", mode, status: "queued", retryOfRunId: "physical_failed", createdAt: 9000, finishedAt: null }],
+      });
+      await act(async () => { root.render(element(next)); release(); await pending; });
+      assert.equal(window.document.activeElement, container.querySelector("h1"));
+      assert.doesNotMatch(container.textContent, /Submission stopped during evaluation/);
+      const history = container.querySelector('[aria-label="Run history"]');
+      assert.ok(history?.closest('[aria-hidden="true"][inert]'));
+      const toggle = [...container.querySelectorAll("button")].find((button) => button.textContent === "Show run history");
+      assert.ok(toggle);
+      toggle.focus();
+      await act(async () => toggle.click());
+      assert.equal(history.closest('[aria-hidden="true"]'), null);
+      const detail = [...history.querySelectorAll("button")][0];
+      assert.ok(detail);
+      await act(async () => detail.click());
+      assert.deepEqual(opened, ["physical_failed"]);
+      await act(async () => root.render(element({ ...next, updatedAt: 10000 })));
+      assert.equal(window.document.activeElement, toggle, "live updates must not move unrelated focus");
+    });
+  }
+}
+
+test("server refusal keeps recovery absent and physical details link only to recorded consoles", async (t) => {
+  const snapshot = { ...retrySnapshot(), actions: [], sourceRefusal: "The recorded repository is no longer connected." };
+  const { container } = await mount(t, React.createElement(RunConsole, { snapshot, streamState: "closed", onAction: async () => { throw new Error("must not run"); } }));
+  assert.doesNotMatch(container.textContent, /Retry|Run again|Rerun hosted/);
+  assert.match(container.textContent, /no longer connected/);
+});
+
+for (const surfaceId of [null, `surface_${"a".repeat(20)}`]) {
+  test(`physical history uses nullable recorded surfaceId=${surfaceId}`, async (t) => {
+    const { container } = await mount(t, page(t, run({ surfaceId })));
+    const link = [...container.querySelectorAll("a")].find((node) => node.textContent === "Open current run");
+    assert.equal(link?.getAttribute("href") ?? null, surfaceId ? `/run-surfaces/${surfaceId}` : null);
+  });
+}
+
+test("console route sends the failed run ID, retains rejected Retry focus, and accepts one successor", async (t) => {
+  const snapshot = retrySnapshot();
+  const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, gcTime: Infinity, retry: false } } });
+  client.setQueryData(["run-surface", snapshot.id], snapshot);
+  class Socket extends EventTarget { close() { this.dispatchEvent(new Event("close")); } }
+  const socketDescriptor = Object.getOwnPropertyDescriptor(globalThis, "WebSocket");
+  Object.defineProperty(globalThis, "WebSocket", { configurable: true, value: Socket });
+  const previousFetch = globalThis.fetch;
+  const requests: RequestInit[] = [];
+  let resolveResponse!: (response: Response) => void;
+  globalThis.fetch = async (url, init) => {
+    assert.equal(url, `/api/run-surfaces/${snapshot.id}/actions/retry`);
+    assert.ok(init);
+    requests.push(init);
+    return new Promise<Response>((resolve) => { resolveResponse = resolve; });
+  };
+  t.after(() => {
+    client.clear();
+    globalThis.fetch = previousFetch;
+    if (socketDescriptor) Object.defineProperty(globalThis, "WebSocket", socketDescriptor);
+    else Reflect.deleteProperty(globalThis, "WebSocket");
+  });
+  const { container, window } = await mount(t,
+    React.createElement(QueryClientProvider, { client },
+      React.createElement(MemoryRouter, { initialEntries: [`/run-surfaces/${snapshot.id}`] },
+        React.createElement(Routes, null,
+          React.createElement(Route, { path: "/run-surfaces/:surfaceId", element: React.createElement(RunSurfacePage) })))));
+  const retry = [...container.querySelectorAll("button")].find((button) => button.textContent === "Retry");
+  assert.ok(retry);
+  retry.focus();
+  await act(async () => { retry.click(); retry.click(); });
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].method, "POST");
+  assert.equal(requests[0].credentials, "same-origin");
+  assert.deepEqual(JSON.parse(String(requests[0].body)), { runId: "physical_failed" });
+  await act(async () => {
+    resolveResponse(Response.json({ error: { code: "active_run_exists", message: "Another run is already active." } }, { status: 409 }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  assert.equal(container.querySelector('[role="alert"]')?.textContent, "Another run is already active.");
+  assert.equal(window.document.activeElement, retry);
+  assert.equal(retry.getAttribute("aria-disabled"), "false");
+  await act(async () => retry.click());
+  assert.equal(requests.length, 2);
+  assert.deepEqual(JSON.parse(String(requests[1].body)), { runId: "physical_failed" });
+  const next = RunSurfaceSnapshotSchema.parse({
+    ...snapshot, status: "running", phase: "queued", executionGeneration: 2, finishedAt: null,
+    practiceRunId: "physical_retry", actions: [],
+    executionHistory: [...snapshot.executionHistory, {
+      id: "physical_retry", mode: "practice", status: "queued",
+      retryOfRunId: "physical_failed", createdAt: 9000, finishedAt: null,
+    }],
+  });
+  await act(async () => {
+    resolveResponse(Response.json(next));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  // The cache changes before Query's scheduled observer notification commits the
+  // successor. Wait for that render, not just the response's first timer turn.
+  const renderDeadline = Date.now() + 1_000;
+  while (retry.isConnected && Date.now() < renderDeadline) {
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+  }
+  assert.ok(!retry.isConnected, "the successor render removes the failed execution's Retry button");
+  assert.equal(client.getQueryData<typeof snapshot>(["run-surface", snapshot.id])?.practiceRunId, "physical_retry");
+  assert.equal(container.querySelector('[role="alert"]'), null);
+  // Compare identity without asking Node to format Happy DOM's cyclic object
+  // graph if focus is wrong; the object diff can obscure the assertion failure.
+  assert.ok(window.document.activeElement === container.querySelector("h1"), "the successor heading receives Retry focus");
+  assert.equal(container.querySelector("h1")?.textContent, snapshot.benchmark.title);
+});
+
+test("live hook rejects old generations, old responses and closed-console frames", async (t) => {
+  class Socket extends EventTarget {
+    static opened: Socket[] = [];
+    constructor(readonly url: string) { super(); Socket.opened.push(this); }
+    close() { this.dispatchEvent(new Event("close")); }
+    frame(value: unknown) { this.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(value) })); }
+  }
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, "WebSocket");
+  Object.defineProperty(globalThis, "WebSocket", { configurable: true, value: Socket });
+  t.after(() => { if (descriptor) Object.defineProperty(globalThis, "WebSocket", descriptor); else Reflect.deleteProperty(globalThis, "WebSocket"); });
+  const first = retrySnapshot();
+  function Probe({ initial }: { initial: typeof first }) {
+    const { snapshot } = useRunSurfaceStream(initial, `/api/run-surfaces/${initial.id}/stream`);
+    return React.createElement("output", null, JSON.stringify(snapshot));
+  }
+  const { container, root } = await mount(t, React.createElement(Probe, { initial: first }));
+  const current = () => RunSurfaceSnapshotSchema.parse(JSON.parse(container.textContent));
+  const socket = Socket.opened[0];
+  const next = { ...first, status: "running" as const, phase: "queued", executionGeneration: 2, practiceRunId: "physical_retry", actions: [] };
+  await act(async () => { root.render(React.createElement(Probe, { initial: next })); });
+  await act(async () => socket.frame({ ...first, updatedAt: 99999 }));
+  assert.equal(current().practiceRunId, "physical_retry");
+  await act(async () => root.render(React.createElement(Probe, { initial: { ...first, updatedAt: 99999 } })));
+  assert.equal(current().executionGeneration, 2);
+  const done = { ...next, status: "succeeded" as const, updatedAt: 12000 };
+  await act(async () => socket.frame(done));
+  await act(async () => socket.frame({ ...next, updatedAt: 13000 }));
+  assert.equal(current().status, "succeeded");
+  await act(async () => socket.frame({ ...done, updatedAt: 11000, branch: "wrong" }));
+  assert.equal(current().branch, "detached");
+  const other = { ...first, id: `surface_${"c".repeat(20)}` };
+  await act(async () => root.render(React.createElement(Probe, { initial: other })));
+  await act(async () => socket.frame({ ...done, executionGeneration: 99 }));
+  assert.equal(current().id, other.id);
 });

@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import { RunSurfaceSnapshotSchema, type RunSurfaceSnapshot } from "@cogworks/contracts/schema";
+import { RunSurfaceSnapshotSchema, shouldReplaceRunSurfaceSnapshot, type RunSurfaceSnapshot } from "@cogworks/contracts/schema";
 import type { Env } from "../env";
 import { ApiHttpError } from "../http/errors";
 import { DiscordRequestError, syncRunSurfaceMessage } from "../services/discord-messages";
@@ -13,16 +13,23 @@ export class RunSurfaceHub extends DurableObject<Env> {
     this.ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
   }
 
-  private async broadcast(snapshot: RunSurfaceSnapshot): Promise<void> {
-    const payload = JSON.stringify(snapshot);
-    await this.ctx.storage.put("latest", payload);
-    for (const socket of this.ctx.getWebSockets()) {
-      try {
-        socket.send(payload);
-      } catch {
-        // A subsequent hibernation callback will clean up the closed socket.
+  private async broadcast(snapshot: RunSurfaceSnapshot): Promise<boolean> {
+    return this.ctx.blockConcurrencyWhile(async () => {
+      const latest = await this.ctx.storage.get<string>("latest");
+      if (latest && !shouldReplaceRunSurfaceSnapshot(
+        RunSurfaceSnapshotSchema.parse(JSON.parse(latest)), snapshot,
+      )) return false;
+      const payload = JSON.stringify(snapshot);
+      await this.ctx.storage.put("latest", payload);
+      for (const socket of this.ctx.getWebSockets()) {
+        try {
+          socket.send(payload);
+        } catch {
+          // A subsequent hibernation callback will clean up the closed socket.
+        }
       }
-    }
+      return true;
+    });
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -30,7 +37,7 @@ export class RunSurfaceHub extends DurableObject<Env> {
     if (url.pathname === "/publish" && request.method === "POST") {
       const snapshot = RunSurfaceSnapshotSchema.parse(await request.json());
       await this.ctx.storage.put("surfaceId", snapshot.id);
-      await this.broadcast(snapshot);
+      if (!await this.broadcast(snapshot)) return Response.json({ ok: true });
       const currentAlarm = await this.ctx.storage.getAlarm();
       const next = Date.now() + (snapshot.status === "running" ? 250 : 1);
       if (currentAlarm == null || next < currentAlarm) await this.ctx.storage.setAlarm(next);
@@ -53,7 +60,7 @@ export class RunSurfaceHub extends DurableObject<Env> {
     let snapshot: RunSurfaceSnapshot;
     try {
       snapshot = await buildRunSurfaceSnapshot(this.env, surfaceId);
-      await this.broadcast(snapshot);
+      if (!await this.broadcast(snapshot)) return;
       await syncRunSurfaceMessage(this.env, snapshot);
     } catch (error) {
       if (error instanceof ApiHttpError && error.status === 404) {
