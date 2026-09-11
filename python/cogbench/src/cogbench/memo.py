@@ -7,14 +7,14 @@ bad one for ``cogworks check``, which a student wants to use as a ten-second
 loop while they are fixing something.
 
 So the answer is written down, under a key made from the bytes of every file
-the search read. Editing any of those files changes the key and the search
-runs again. This is the part that has to be right: a cache that returned a
-stale binding would score code the student has already replaced, and they
-would have no way to tell.
+the search read and the current inputs the caller supplies. Changing either
+changes the key and the search runs again. This is the part that has to be
+right: a cache that returned a stale binding would score code the student
+has already replaced, and they would have no way to tell.
 
-Only the names are stored. Rebinding those names is an import and a lookup,
-which is fast, and it means a cache entry can never contain a live function
-from a previous version of their code.
+Only binding descriptions are stored, never live functions. The resolver
+looks up those names in current code and reruns the current acceptance test
+before treating the entry as a hit.
 
 Nothing here fails loudly. A cache that cannot be read or written is a slow
 check, not a broken one, so every error path falls through to searching.
@@ -24,9 +24,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Set
 
 from .pipeline import _under_clock
 from .storage import workspace_dir
@@ -68,36 +69,102 @@ __all__ = ["fingerprint", "read", "write", "cache_path"]
 #: 11: state snapshots and reader probes now preserve different candidate
 #: state during search. Those changes can select different bindings, so a
 #: version 10 decision must be searched again rather than replayed.
-FORMAT = 11
+#: 12: the key now includes current input identity. Source bytes alone do
+#: not distinguish searches given different fixtures, tunings, or resources.
+FORMAT = 12
 
 
 def cache_path(repository: Path) -> Path:
     return Path(repository) / ".cogbench" / "resolved.json"
 
 
-def fingerprint(paths: Sequence[Path], *, benchmark: str) -> str:
-    """A key that changes when anything the search read changes.
+def _field(digest: Any, tag: bytes, payload: bytes) -> None:
+    # Length framing keeps embedded separators from merging distinct values.
+    digest.update(tag + str(len(payload)).encode("ascii") + b":")
+    digest.update(payload)
 
-    Contents, not modification times: a checkout, a branch switch, and a
-    ``git stash`` all rewrite timestamps without changing code, and all three
-    happen constantly while a student works. Paths are included and sorted, so
-    renaming or deleting a file is a change too.
+
+def _inputs(digest: Any, value: Any, active: Set[int]) -> None:
+    """Hash exact builtin values without invoking student serialization hooks."""
+
+    kind = type(value)
+    if value is None:
+        digest.update(b"n")
+    elif kind is bool:
+        digest.update(b"b1" if value else b"b0")
+    elif kind is int:
+        # Binary magnitude also handles ints beyond Python's decimal digit limit.
+        magnitude = abs(value)
+        _field(digest, b"i-" if value < 0 else b"i+", magnitude.to_bytes(
+            (magnitude.bit_length() + 7) // 8, "big",
+        ))
+    elif kind is float:
+        if not math.isfinite(value):
+            raise ValueError("nonfinite memo input")
+        _field(digest, b"f", value.hex().encode("ascii"))
+    elif kind is str:
+        _field(digest, b"s", value.encode("utf-8", "surrogatepass"))
+    elif kind is bytes:
+        _field(digest, b"y", value)
+    elif kind is list or kind is tuple or kind is dict:
+        identity = id(value)
+        if identity in active:
+            raise ValueError("shared or cyclic mutable memo input")
+        active.add(identity)
+        try:
+            tag = b"d" if kind is dict else b"l" if kind is list else b"t"
+            digest.update(tag + str(len(value)).encode("ascii") + b":")
+            if kind is dict:
+                # Search code can iterate inputs, so insertion order is identity.
+                for key, item in value.items():
+                    if type(key) is not str:
+                        raise ValueError("memo input keys must be exact strings")
+                    _inputs(digest, key, active)
+                    _inputs(digest, item, active)
+            else:
+                for item in value:
+                    _inputs(digest, item, active)
+        finally:
+            # Equal contents do not identify shared mutable inputs. Rather
+            # than encode object graphs, skip those inputs too. Tuples can be
+            # shared safely, but remain tracked during traversal for cycles.
+            if kind is tuple:
+                active.remove(identity)
+    else:
+        raise ValueError("unsupported memo input type")
+
+
+def fingerprint(paths: Sequence[Path], *, benchmark: str, inputs: Any = None) -> str:
+    """Hash file paths, their bytes, and explicitly represented search inputs.
+
+    Contents, not modification times: checkouts and branch switches rewrite
+    timestamps without changing code. Paths are sorted; input dicts are not.
+    Unsupported inputs or unreadable files return an empty key so the caller
+    can skip the optional memo. Omitting inputs is equivalent to passing None.
     """
 
-    digest = hashlib.sha256()
-    digest.update("{}\x00{}\x00".format(FORMAT, benchmark).encode("utf-8"))
-    for path in sorted(Path(p) for p in paths):
-        digest.update(str(path).encode("utf-8", "replace"))
-        digest.update(b"\x00")
-        try:
-            digest.update(path.read_bytes())
-        except OSError:
-            # A file that vanished between discovery and hashing is itself a
-            # change, and recording that it could not be read makes the key
-            # differ from the run where it could.
-            digest.update(b"<unreadable>")
-        digest.update(b"\x00")
-    return digest.hexdigest()
+    try:
+        digest = hashlib.sha256()
+        _field(digest, b"v", str(FORMAT).encode("ascii"))
+        _field(digest, b"b", benchmark.encode("utf-8"))
+        _inputs(digest, inputs, set())
+        for path in sorted(Path(p) for p in paths):
+            if not path.is_file():
+                return ""
+            _field(digest, b"p", str(path).encode("utf-8", "surrogatepass"))
+            contents = hashlib.sha256()
+            # Resource/model files can be large; never allocate the whole file.
+            with path.open("rb") as stream:
+                while True:
+                    chunk = stream.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    contents.update(chunk)
+            _field(digest, b"c", contents.digest())
+        return digest.hexdigest()
+    except Exception:
+        # Missing bytes or an unrepresentable input cannot identify a search.
+        return ""
 
 
 def read(repository: Path, key: str) -> Optional[Dict[str, Any]]:

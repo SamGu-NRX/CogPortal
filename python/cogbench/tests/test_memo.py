@@ -89,14 +89,14 @@ class KeyTests(unittest.TestCase):
         with mock.patch.object(memo, "FORMAT", 10):
             old_key = memo.fingerprint([self.file], benchmark="w1")
         memo.write(self.tmp, old_key, {"enroll": "a.b"})
-        self.assertEqual(memo.FORMAT, 11)
+        self.assertEqual(memo.FORMAT, 12)
         new_key = memo.fingerprint([self.file], benchmark="w1")
         self.assertNotEqual(new_key, old_key)
         self.assertIsNone(memo.read(self.tmp, new_key))
 
-    def test_a_file_that_could_not_be_read_still_makes_a_key(self):
+    def test_a_file_that_could_not_be_read_skips_the_memo(self):
         missing = self.tmp / "gone.py"
-        self.assertTrue(memo.fingerprint([self.file, missing], benchmark="w1"))
+        self.assertEqual(memo.fingerprint([self.file, missing], benchmark="w1"), "")
 
 
 class StoreTests(unittest.TestCase):
@@ -447,7 +447,7 @@ class ReuseTests(unittest.TestCase):
 
 
 def _key(repository: Path) -> str:
-    return memo.fingerprint(memo.source_paths(discover(repository)), benchmark="mini")
+    return json.loads(memo.cache_path(repository).read_text())["key"]
 
 
 class ARememberedTuningIsReplayed(unittest.TestCase):
@@ -505,7 +505,7 @@ class ARememberedTuningIsReplayed(unittest.TestCase):
         self.assertTrue(first.ready)
         self.assertEqual(first.chain[0].tuning, 2)
 
-        stored = memo.read(self.tmp, memo.fingerprint([self.tmp / "theirs.py"], benchmark=""))
+        stored = memo.read(self.tmp, _key(self.tmp))
         self.assertEqual(stored["tunings"], [2])
 
         second = self._resolve()
@@ -628,9 +628,7 @@ class ARememberedHandoffIsReplayed(unittest.TestCase):
         self.assertTrue(first.ready)
         self.assertEqual(first.chain[1].handoff, "element:1")
 
-        stored = memo.read(
-            self.tmp, memo.fingerprint([self.tmp / "fused.py"], benchmark="")
-        )
+        stored = memo.read(self.tmp, _key(self.tmp))
         self.assertEqual(stored["handoffs"], [None, "element:1"])
 
         second = self._resolve()

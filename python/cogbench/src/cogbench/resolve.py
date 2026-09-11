@@ -556,11 +556,11 @@ def resolve(
     a ranking, and `get_sorted_songs` turns that into song ids -- three of
     their functions deep, all theirs, none of them ours to write.
 
-    ``remember`` writes the binding into the repository and reuses it while
-    their code is unchanged. It is off by default, because a graded run should
-    search: the point of an official score is that it was computed, not
-    recalled. ``cogworks check`` turns it on, since that is the command a
-    student runs every few minutes.
+    ``remember`` writes the binding into the repository. A hit requires
+    unchanged identified inputs and a fully answered current acceptance test.
+    Opaque inputs skip the memo; a hit avoids searching alternative bindings,
+    not running their code. It is off by default for graded runs.
+    ``cogworks check`` turns it on for repeated local checks.
     """
 
     # Keep deferred imports and candidate calls under the same course-file
@@ -638,24 +638,43 @@ def resolve(
             return Submission(nothing_here(repository.name), discovery=found)
 
         key = (
-            memo.fingerprint(memo.source_paths(found), benchmark=benchmark)
-            if remember
-            else ""
-        )
-        if key:
-            recalled = _replay(
-                memo.read(repository, key),
-                found,
-                chain_role,
-                arrangements,
-                fixture=fixture,
-                extras=extras,
-                identities=identities,
-                resource_files=resource_files,
+            _memo_key(
+                found, benchmark=benchmark, chain_role=chain_role, fixture=fixture,
+                extras=extras, identities=identities, resource_files=resource_files,
+                weights_used=weights_used, readers=readers, max_attempts=max_attempts,
+                arrangements=arrangements is not None, factories=factories is not None,
             )
-            if recalled is not None:
-                watcher.done()
-                return recalled
+            if remember else ""
+        )
+        stored = memo.read(repository, key) if key else None
+        if stored:
+            # Validation runs project code. Its namespace and mutable supplied
+            # values must not become the returned submission or a cold search.
+            try:
+                with _scratch_cwd():
+                    validation_found = discover(
+                        repository, hints=hints, declared_root=declared_root,
+                        resource_files=resource_files,
+                    )
+                    validation = _under_clock(lambda: _replay(
+                        deepcopy(stored), validation_found, chain_role, arrangements,
+                        fixture=deepcopy(fixture), extras=deepcopy(extras),
+                        identities=deepcopy(identities), resource_files=resource_files,
+                    ))
+            except BaseException:  # copying or constructing an optional replay may fail
+                validation = None
+            if validation is not None and _valid_replay(
+                validation, accepts, fixture, factories=factories, readers=readers,
+            ):
+                recalled = _replay(
+                    stored, found, chain_role, arrangements, fixture=fixture,
+                    extras=extras, identities=identities, resource_files=resource_files,
+                )
+                if recalled is not None:
+                    watcher.done()
+                    # The current call validated one binding, not the original
+                    # search's remembered attempt count.
+                    return replace(recalled, attempts_tried=1)
 
         watcher.phase("Looking for the functions that do the work")
         # What the week's test said about the last chain it rejected, kept so a
@@ -1691,6 +1710,91 @@ def _safely(predicate: Callable[[Candidate], bool], candidate: Candidate) -> boo
         return bool(predicate(candidate))
     except BaseException:  # noqa: BLE001 - a week's predicate must not break the search
         return False
+
+
+def _valid_replay(
+    submission: Submission, accepts: Callable[..., Tuple[Any, str]],
+    fixture: Sequence[Any], *, factories: Optional[Callable[[Candidate], bool]],
+    readers: int,
+) -> bool:
+    """A remembered binding is only a suggestion to the current acceptance test.
+
+    A partial grade cannot establish that it is still the best pairing, so
+    only a fully answered validation can avoid the search.
+    """
+
+    if len(submission._readers) > readers:
+        return False
+    try:
+        with _scratch_cwd():
+            def validate():
+                if submission._factory is not None and (
+                    factories is None or not _safely(factories, submission._factory)
+                ):
+                    return False
+                # _replay already built this validation-only submission.
+                if submission.attempt is None:
+                    grade, _detail = accepts(submission.chain, *deepcopy(fixture))
+                else:
+                    grade, _detail = accepts(submission.chain, submission.enroll, submission.query)
+                return float(grade) >= FULLY_ANSWERED
+
+            return _under_clock(validate)
+    except BaseException:  # a failed cache validation is a miss, not a refusal
+        return False
+
+
+def _memo_key(
+    found: Discovery, *, benchmark: str, chain_role: Role, fixture: Sequence[Any],
+    extras: Optional[Dict[str, Any]], identities: Sequence[Any],
+    resource_files: Optional[Dict[str, Path]], weights_used: Sequence[str],
+    readers: int, max_attempts: int, arrangements: bool, factories: bool,
+) -> str:
+    """Identify supported search inputs; opaque inputs deliberately skip caching.
+
+    Acceptance callbacks are rerun, not identified by their source or repr:
+    closures and module variables can change without changing either string.
+    Declared model and course files participate by contents alongside source.
+    """
+
+    # Branch/fit replay is unsupported already. Do not try to identify its
+    # dynamically computed fixtures or retain a record that cannot be reused.
+    if chain_role.branches or any(stage.fit for stage in chain_role.stages):
+        return ""
+    paths = memo.source_paths(found)
+    try:
+        root = found.root.path.resolve()
+        for name in weights_used:
+            path = root / name
+            path.resolve().relative_to(root)
+            if Path(name).is_absolute():
+                return ""
+            paths.append(path)
+        resources = []
+        for name, path in sorted((resource_files or {}).items()):
+            paths.append(Path(path))
+            resources.append((name, str(path)))
+    except (OSError, TypeError, ValueError):
+        return ""
+    inputs = {
+        "role": chain_role.name,
+        "stages": [
+            {name: value for name, value in vars(stage).items()
+             if name not in ("accepts", "produces")}
+            for stage in chain_role.stages
+        ],
+        "fixture": tuple(fixture) if type(fixture) is Fixtures else fixture,
+        "forms": type(fixture) is Fixtures,
+        "extras": extras if extras is not None else {},
+        "identities": identities,
+        "resources": resources,
+        "weights": tuple(weights_used),
+        "readers": readers,
+        "maxAttempts": max_attempts,
+        "arrangements": arrangements,
+        "factories": factories,
+    }
+    return memo.fingerprint(paths, benchmark=benchmark, inputs=inputs)
 
 
 def _remembered(chain) -> Dict[str, Any]:
