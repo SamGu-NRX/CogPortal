@@ -370,7 +370,7 @@ export async function promotePracticeRun(
   if (existing) return existingOfficialPromotion(existing, parent.surfaceId);
   const benchmark = await activeBenchmark(env, parent.benchmarkId, parent.benchmarkVersion);
   if (env.EXECUTION_PROVIDER === "modal") {
-    const eligibility = savedEnvironmentEligibility(parent, benchmark, actor.team.repoFullName);
+    const eligibility = savedEnvironmentEligibility(parent, benchmark, actor.team);
     if (!eligibility.eligible) throw new ApiHttpError(409, "not_promotable", eligibility.reason);
   }
   await syncTeamRuns(db, actor.team.id, parent.benchmarkId);

@@ -421,7 +421,7 @@ test("a null catalog sandbox contract pauses hosted practice before inserting an
   assert.deepEqual(await db.select().from(runSurfaces), surfacesBefore);
 });
 
-for (const proof of ["compatible", "missing", "tampered"] as const) {
+for (const proof of ["compatible", "missing", "tampered", "replaced-repository", "unknown-repository"] as const) {
   test(`${proof} saved evidence has one refusal across the surface, dashboard and run detail without changing success`, async () => {
     const { db, binding } = freshDb();
     const actor = await seedPromotion(db);
@@ -431,12 +431,27 @@ for (const proof of ["compatible", "missing", "tampered"] as const) {
       ...PREPARED, ...(proof === "tampered" ? { artifactId: "another-snapshot" } : {}),
     });
     await db.update(runs).set({ preparedEnvironmentJson }).where(eq(runs.id, PRACTICE_RUN_ID));
+    if (proof === "replaced-repository" || proof === "unknown-repository") {
+      const repoId = proof === "replaced-repository" ? 999_999_999 : null;
+      assert.notEqual(repoId, actor.team.repoId);
+      await db.update(teams).set({ repoId }).where(eq(teams.id, actor.team.id));
+    }
+    const [team] = await db.select().from(teams).where(eq(teams.id, actor.team.id));
+    assert.equal(team.repoFullName, actor.team.repoFullName);
     const [before] = await db.select().from(runs).where(eq(runs.id, PRACTICE_RUN_ID));
     const [benchmark] = await db.select().from(benchmarks).where(eq(benchmarks.id, BENCHMARK_ID));
-    const eligibility = savedEnvironmentEligibility(before, benchmark, actor.team.repoFullName);
+    const eligibility = savedEnvironmentEligibility(before, benchmark, team);
     assert.equal(eligibility.eligible, proof === "compatible");
     const expectedReason = eligibility.eligible ? null : eligibility.reason;
-    const { app, runtime, cookie } = await authenticatedPromotion(db, binding);
+    const { app, runtime, cookie, promote } = await authenticatedPromotion(db, binding);
+    if (proof !== "compatible") {
+      const response = await promote();
+      assert.equal(response.status, 409);
+      const body = await response.json() as { error: { code: string; message: string } };
+      assert.equal(body.error.code, "not_promotable");
+      assert.equal(body.error.message, expectedReason);
+      assert.equal((await db.select().from(runs)).length, 1);
+    }
     const snapshot = await buildRunSurfaceSnapshot(runtime, SURFACE_ID);
     assert.equal(snapshot.status, "succeeded");
     assert.equal(snapshot.promotionRefusal, expectedReason);

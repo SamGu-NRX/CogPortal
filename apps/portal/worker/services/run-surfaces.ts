@@ -318,7 +318,7 @@ export async function buildRunSurfaceSnapshot(
   );
 
   const promotionEligibility = practice && env.EXECUTION_PROVIDER === "modal"
-    ? savedEnvironmentEligibility(practice, benchmark, team.repoFullName)
+    ? savedEnvironmentEligibility(practice, benchmark, team)
     : null;
   const promotionRefusal = stage === "hosted" && status === "succeeded" && promotionEligibility?.eligible === false
     ? promotionEligibility.reason : null;

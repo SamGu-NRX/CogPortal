@@ -1,5 +1,5 @@
 import { PreparedEnvironmentV1Schema, type PreparedEnvironmentV1 } from "@cogworks/contracts/protocol";
-import type { BenchmarkRow, RunRow } from "../db/schema";
+import type { BenchmarkRow, RunRow, TeamRow } from "../db/schema";
 
 type SavedRun = Pick<RunRow,
   "preparedArtifactId" | "preparedEnvironmentJson" | "benchmarkId" | "repositoryId" | "sha"
@@ -25,8 +25,13 @@ export function preparedEnvironmentMatchesRun(
 export function savedEnvironmentEligibility(
   run: SavedRun,
   benchmark: Pick<BenchmarkRow, "id" | "sandboxContract">,
-  repositoryFullName: string,
+  team: Pick<TeamRow, "repoFullName" | "repoId">,
 ): EnvironmentEligibility {
+  // A repository can be replaced under the same owner/name. Reuse requires
+  // the connected repository's immutable ID, not just its current name.
+  if (team.repoId === null || team.repoId !== run.repositoryId) {
+    return { eligible: false, reason: "The saved environment can't be matched to the connected repository." };
+  }
   let value: unknown;
   try {
     value = run.preparedEnvironmentJson ? JSON.parse(run.preparedEnvironmentJson) : null;
@@ -37,7 +42,7 @@ export function savedEnvironmentEligibility(
   if (!parsed.success) {
     return { eligible: false, reason: "The saved environment's compatibility is unknown." };
   }
-  if (!preparedEnvironmentMatchesRun(parsed.data, run, repositoryFullName) || benchmark.id !== run.benchmarkId) {
+  if (!preparedEnvironmentMatchesRun(parsed.data, run, team.repoFullName) || benchmark.id !== run.benchmarkId) {
     return { eligible: false, reason: "The saved environment doesn't match this run's source and artifact." };
   }
   // Scorer, image and runtime labels describe different facts. Only the
