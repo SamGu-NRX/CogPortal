@@ -550,10 +550,6 @@ def _compositions(total, parts):
             yield (first,) + rest
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 @unittest.skipIf(
     np is None
     or find_spec("PIL") is None
@@ -708,3 +704,7 @@ class OnlyTheControllerCanDealTheHostedOrder(unittest.TestCase):
 
         self.assertTrue(payload)
         self.assertEqual(plans, [])
+
+
+if __name__ == "__main__":
+    unittest.main()

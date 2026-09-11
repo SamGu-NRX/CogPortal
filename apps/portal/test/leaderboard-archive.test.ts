@@ -100,6 +100,7 @@ async function seeded() {
       benchmarkId: "audio-identification",
       benchmarkVersion: 1,
       contractVersion: "cogworks.submissions.v2",
+      scorerVersion: "identification-v1",
       mode: "official",
       status: "succeeded",
       branch: "main",

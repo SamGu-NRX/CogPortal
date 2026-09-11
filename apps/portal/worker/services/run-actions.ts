@@ -478,6 +478,18 @@ export async function publishOfficialRun(env: Env, actor: RunActor, runId: strin
   if (run.mode !== "official" || run.status !== "succeeded") {
     throw new ApiHttpError(409, "not_selectable", "Only a succeeded official run can be published.");
   }
+  const [benchmark] = await db
+    .select({ scorerVersion: benchmarks.scorerVersion })
+    .from(benchmarks)
+    .where(and(eq(benchmarks.id, run.benchmarkId), eq(benchmarks.version, run.benchmarkVersion)))
+    .limit(1);
+  if (!benchmark || run.scorerVersion !== benchmark.scorerVersion) {
+    throw new ApiHttpError(
+      409,
+      "not_selectable",
+      "This run used different scoring rules and can't appear in the current ranking.",
+    );
+  }
   await db
     .insert(leaderboardSelections)
     .values({
