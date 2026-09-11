@@ -811,8 +811,13 @@ try:
         with contextlib.redirect_stdout(buffer), contextlib.redirect_stderr(buffer):
             factory, course_files = load_student(benchmark_id, "cogworks.submissions.v2")
             with course_files:
-                predictions = benchmark.run(factory, resources, cases)
-        predictions = list(predictions)
+                # Materialized inside both scopes, not after them. `benchmark.run`
+                # may return a generator, and a generator runs its body at
+                # iteration: listing it once the scopes had closed executed the
+                # submission against the restored course loader, which downloads
+                # and cannot reach the network here, and sent its output past the
+                # capture buffer.
+                predictions = list(benchmark.run(factory, resources, cases))
         if len(predictions) != len(cases):
             raise RuntimeError("Submission returned the wrong number of case outputs.")
     elif pathlib.Path("/tmp/cog-week3-payload.zip").exists():
@@ -837,8 +842,13 @@ try:
         with contextlib.redirect_stdout(buffer), contextlib.redirect_stderr(buffer):
             factory, course_files = load_student(benchmark_id, "cogworks.submissions.v2")
             with course_files:
-                predictions = benchmark.run(factory, resources, cases)
-        predictions = list(predictions)
+                # Materialized inside both scopes, not after them. `benchmark.run`
+                # may return a generator, and a generator runs its body at
+                # iteration: listing it once the scopes had closed executed the
+                # submission against the restored course loader, which downloads
+                # and cannot reach the network here, and sent its output past the
+                # capture buffer.
+                predictions = list(benchmark.run(factory, resources, cases))
         if len(predictions) != len(cases):
             raise RuntimeError("Submission returned the wrong number of component outputs.")
     elif pathlib.Path("/tmp/cog-v2-payload.zip").exists():
@@ -853,8 +863,13 @@ try:
         with contextlib.redirect_stdout(buffer), contextlib.redirect_stderr(buffer):
             factory, course_files = load_student(benchmark_id, "cogworks.submissions.v2")
             with course_files:
-                predictions = benchmark.run(factory, model, cases)
-        predictions = list(predictions)
+                # Materialized inside both scopes, not after them. `benchmark.run`
+                # may return a generator, and a generator runs its body at
+                # iteration: listing it once the scopes had closed executed the
+                # submission against the restored course loader, which downloads
+                # and cannot reach the network here, and sent its output past the
+                # capture buffer.
+                predictions = list(benchmark.run(factory, model, cases))
         if len(predictions) != len(cases):
             raise RuntimeError("Submission returned the wrong number of scenario outputs.")
     else:
@@ -865,8 +880,7 @@ try:
         if not callable(predictor):
             raise RuntimeError("Submission adapter must be callable or expose predict(inputs).")
         with contextlib.redirect_stdout(buffer), contextlib.redirect_stderr(buffer), course_files:
-            predictions = predictor(inputs)
-        predictions = list(predictions)
+            predictions = list(predictor(inputs))
         if len(predictions) != len(inputs):
             raise RuntimeError("Submission returned the wrong number of predictions.")
 except Exception as error:
