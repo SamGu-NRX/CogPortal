@@ -304,6 +304,17 @@ export function RunConsole({
         {failed && failureReason && (
           <p className="mt-3 max-w-prose break-words text-[13px] text-ink-secondary">{failureReason}</p>
         )}
+        {failed && snapshot.stage === "local" && snapshot.actions.includes("run_again") && (
+          <div className="mt-4">
+            <button
+              type="button"
+              className="u-pressable min-h-11 border border-ink bg-ink px-5 text-[13px] font-medium text-paper-raised"
+              onClick={() => ask("run_again")}
+            >
+              Run again
+            </button>
+          </div>
+        )}
         {retryOffered && (
           <div className="mt-4">
             <button

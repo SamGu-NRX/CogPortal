@@ -129,6 +129,12 @@ export function RunDetailPage() {
       </div>
 
       <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 font-mono text-[12px] text-ink-secondary">
+        {run.status === "failed" && (
+          <>
+            <span>{runNumberLabel(run.id)}</span>
+            <span aria-hidden="true" className="text-rule">|</span>
+          </>
+        )}
         <span>
           {run.benchmarkId} / v{run.benchmarkVersion}
         </span>

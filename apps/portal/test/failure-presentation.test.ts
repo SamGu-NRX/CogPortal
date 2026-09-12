@@ -75,6 +75,8 @@ for (const mode of ["practice", "official"] as const) {
     assert.match(container.textContent, /Your code raised an exception/);
     assert.match(container.textContent, /recorded\/source/);
     assert.match(container.textContent, /detached/);
+    assert.match(container.textContent, /RUN _123/);
+    assert.doesNotMatch(container.querySelector("h1")?.textContent ?? "", /RUN _123/);
     assert.doesNotMatch(container.textContent, /consumed|refund|Run practice again|Retry/);
     const detail = [...container.querySelectorAll("pre")].find((node) => node.textContent.includes("fixture exception"));
     assert.ok(detail?.closest('[aria-hidden="true"][inert]'));
@@ -155,7 +157,7 @@ test("console failure ignores late completion in its summary, retaining it only 
     progress: null, primaryMetric: { key: "accuracy", label: "Late accuracy", value: 0.1, precision: 3, primary: true, unit: null, higherIsBetter: true },
     localRunId: null, practiceRunId: "physical_failed", officialRunId: null,
     published: false, nextOfficialAttempt: 1, source: null, sourceRefusal: null,
-    actions: ["run_again", "rerun_hosted"], simulated: true,
+    actions: ["rerun_hosted"], simulated: true,
     events: ["run.failed.provider", "run.completed"].map((code, index) => ({
       eventId: `stream_event_${index}`, source: "practice", sourceRunId: "physical_failed", sourceSequence: index,
       phase: "scoring", code, occurredAt: 8000 + index, elapsedMs: 7000 + index, progress: null,
@@ -215,6 +217,33 @@ function retrySnapshot(mode: "practice" | "official" = "practice") {
     published: false, nextOfficialAttempt: 1, actions: ["retry"], simulated: true,
     events: [{ eventId: "failure_event_123", source: mode, sourceRunId: "physical_failed", sourceSequence: 1,
       phase: "evaluating", code: "run.failed.runtime", occurredAt: 8000, elapsedMs: 7000, progress: null }],
+  });
+}
+
+for (const compact of [false, true]) {
+  test(`failed local console offers its local command with compact=${compact}`, async (t) => {
+    const snapshot = {
+      ...retrySnapshot(), stage: "local" as const, localRunId: "localrun_failed",
+      practiceRunId: null, officialRunId: null, executionHistory: [], events: [],
+      actions: ["open_console", "open_portal", "run_again"] as const,
+    };
+    const { container, root } = await mount(t, React.createElement(RunConsole, {
+      snapshot: { ...snapshot, actions: [...snapshot.actions] }, streamState: "closed", compact,
+    }));
+    const again = [...container.querySelectorAll("button")].filter((button) => button.textContent === "Run again");
+    assert.equal(again.length, 1);
+    assert.doesNotMatch(container.textContent, /Retry|Rerun hosted/);
+    await act(async () => again[0].click());
+    assert.equal(container.querySelector("dialog")?.open, true);
+    assert.match(container.querySelector("dialog")?.textContent ?? "", /cogworks run --benchmark language-search --live/);
+    const close = [...container.querySelectorAll("dialog button")].find((button) => button.textContent === "Close");
+    assert.ok(close);
+    await act(async () => close.click());
+    assert.equal(container.querySelector("dialog"), null);
+    await act(async () => root.render(React.createElement(RunConsole, {
+      snapshot: { ...snapshot, actions: [] }, streamState: "closed", compact,
+    })));
+    assert.doesNotMatch(container.textContent, /Run again|Retry/);
   });
 }
 
