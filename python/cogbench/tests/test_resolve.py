@@ -937,6 +937,78 @@ class WhatTheRepositoryItselfSuppliesIsReadOnceTheRootIsKnown(unittest.TestCase)
         self.assertEqual([item["path"] for item in captured], ["data/a.npy", "data/b.npy"])
         self.assertEqual([item["size"] for item in captured], [len(b"first"), len(b"second")])
 
+    def _resolve_twice(self, prepare, **extra):
+        """Search once so the memo is written, then resolve again onto it."""
+
+        first = resolve(
+            self.tmp,
+            chain_role=self.role,
+            fixture=([1, 2],),
+            accepts=lambda chain, *_: (chain[0].bound([1]) == [3], ""),
+            arrangements=None,
+            prepare=prepare,
+            remember=True,
+            benchmark="week3",
+            **extra
+        )
+        second = resolve(
+            self.tmp,
+            chain_role=self.role,
+            fixture=([1, 2],),
+            accepts=lambda chain, *_: (chain[0].bound([1]) == [3], ""),
+            arrangements=None,
+            prepare=prepare,
+            remember=True,
+            benchmark="week3",
+            **extra
+        )
+        return first, second
+
+    def test_a_replayed_run_still_names_the_weights_this_resolution_used(self):
+        """The memo remembers the binding, not the weights. A recalled chain
+        used to come back with none at all, so a second run reported as
+        though the repository had no weights in it."""
+
+        first, second = self._resolve_twice(
+            lambda root, modules: {"W": 3, "weights_used": ["data/a.npy"]}
+        )
+
+        self.assertTrue(first.ready, first.verdict.headline)
+        self.assertTrue(second.ready, second.verdict.headline)
+        self.assertTrue(second.recalled, "the second resolution did not replay")
+        self.assertEqual(second.weights_used, ("data/a.npy",))
+        self.assertIsNone(second.weights_captured)
+        self.assertEqual(second.to_dict()["weightsUsed"], ["data/a.npy"])
+        self.assertIsNone(second.to_dict()["weightsCaptured"])
+
+    def test_a_replayed_run_publishes_the_receipts_this_resolution_captured(self):
+        weights = self.tmp / "data"
+        weights.mkdir(exist_ok=True)
+        (weights / "a.npy").write_bytes(b"first")
+
+        def prepare(root, modules, capture=None):
+            capture(root / "data" / "a.npy")
+            return {"W": 3}
+
+        first, second = self._resolve_twice(
+            prepare, weights_consumed=lambda submission: True
+        )
+
+        self.assertTrue(second.recalled, "the second resolution did not replay")
+        self.assertEqual(second.weights_used, ("data/a.npy",))
+        self.assertEqual(
+            [item["path"] for item in second.weights_captured], ["data/a.npy"]
+        )
+        self.assertEqual(second.weights_captured, first.weights_captured)
+
+    def test_a_replayed_no_weight_run_still_has_no_weights(self):
+        first, second = self._resolve_twice(lambda root, modules: {"W": 3})
+
+        self.assertTrue(second.recalled, "the second resolution did not replay")
+        self.assertEqual(second.weights_used, ())
+        self.assertEqual(second.weights_captured, ())
+        self.assertEqual(second.to_dict()["weightsCaptured"], [])
+
     def test_a_hook_that_captures_and_also_names_weights_is_refused(self):
         """Two answers to one question. Dropping the list would hide the
         disagreement instead of settling it."""
