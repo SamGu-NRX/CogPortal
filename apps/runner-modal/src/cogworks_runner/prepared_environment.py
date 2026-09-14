@@ -24,16 +24,15 @@ from typing import Any, Dict, Optional
 # test_prepared_environment.py. Language 1 has one text, one retrieval and four
 # search cases. Scorer-only changes do not change this sandbox contract.
 #
-# Clustering 2 means the decoder preserves `scored` and `scenario_key` from
-# each case record; contract 1 has no fields for them and returns the
-# dataclass defaults. This is a statement about the decoder in the image, not
-# about scoring: the sandbox runs every decoded case and reads neither field,
-# and the controller scores its own gold-bearing cases. Recognition's record
-# shape did not change, so it stays 1.
+# Clustering's additive scored/scenario_key fields do not change required
+# sandbox execution. Only the controller scorer reads them, from its retained
+# cases. test_saved_contract_pairs verifies old/current execution equivalence
+# on an expanded official fixture, including nonzero stability findings.
+# Advance a contract when required execution behavior becomes incompatible.
 SANDBOX_CONTRACTS = {
     "audio-identification": 1,
     "vision-recognition": 1,
-    "vision-clustering": 2,
+    "vision-clustering": 1,
     "language-search": 1,
 }
 

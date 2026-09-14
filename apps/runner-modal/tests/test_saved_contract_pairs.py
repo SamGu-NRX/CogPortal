@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -45,75 +46,103 @@ class SavedContractPairs(unittest.TestCase):
         if contract == 2:
             self.assertNotEqual(len(old_cases), len(current_cases))
 
-    def test_old_clustering_decoder_drops_the_fields_contract_2_preserves(self):
-        """What clustering contract 2 asserts, and what refuses contract 1.
+    def test_old_clustering_decoder_scores_the_official_bundle_identically(self):
+        """Compare execution despite the old decoder's missing metadata.
 
-        The contract is field preservation: the current decoder returns
-        `scored` and `scenario_key` as the record set them, and the preserved
-        one returns the dataclass defaults. Neither field changes what the
-        sandbox does with a case, so the refusal below is what keeps an image
-        from claiming a decoder it does not contain.
+        The real materializer supplies base cases and stability repetitions.
+        Both execution paths are scored against the controller's retained cases.
         """
         require_benchmark("vision-clustering")
-        import numpy as np
-        from facial_recognition_benchmark.drivers import ClusteringScenario
-        from cogworks_runner.week2_payload import decode_cases, encode_cases
-        from cogworks_runner.prepared_environment import (
-            INCOMPATIBLE, SANDBOX_CONTRACTS, validate_prepared_environment,
+        from facial_recognition_benchmark.drivers import run_clustering_scenario
+        from facial_recognition_benchmark.plugins import ClusteringBenchmark
+        from cogworks_runner.week2_payload import (
+            attach_clustering_labels, decode_cases, encode_cases,
         )
+        from cogworks_runner.prepared_environment import (
+            BINDING_MISMATCH, SANDBOX_CONTRACTS, validate_prepared_environment,
+        )
+        from test_week2_official_format import OfficialClusteringFormatTests
 
-        images = [np.full((2, 2, 3), value, dtype=np.uint8) for value in range(3)]
-        cases = [
-            ClusteringScenario(images=images, expected_labels=[0, 0, 1], seed=5,
-                               scored=True, scenario_key="four-people"),
-            ClusteringScenario(images=images, expected_labels=[0, 0, 1], seed=42,
-                               scored=False, scenario_key="four-people"),
-        ]
-        payload, _ = encode_cases("vision-clustering", cases)
+        base_seed = 42
+        with tempfile.TemporaryDirectory() as directory:
+            original, payload, gold = OfficialClusteringFormatTests("check_round_trip").materialize(
+                Path(directory), base_seed
+            )
+        self.assertEqual((sum(case.scored for case in original), len(original)), (3, 12))
 
-        _, current = decode_cases(payload)
-        self.assertEqual([(case.seed, case.scored, case.scenario_key) for case in current],
-                         [(5, True, "four-people"), (42, False, "four-people")])
+        # What the controller holds, and what it re-encodes for every run.
+        _, decoded = decode_cases(payload)
+        attached = attach_clustering_labels(decoded, gold)
+        reencoded, plans = encode_cases("vision-clustering", attached)
+        self.assertEqual(plans, [])
 
         old = saved("saved_clustering_payload", "pr8_week2_payload.py")
-        _, decoded = old.decode_cases(payload)
-        self.assertEqual([case.seed for case in decoded], [5, 42],
-                         "The old decoder reads the payload rather than refusing it")
-        self.assertEqual([(case.scored, case.scenario_key) for case in decoded],
-                         [(True, None), (True, None)],
-                         "Both fields come back as defaults rather than as the record set them")
-        self.assertEqual(SANDBOX_CONTRACTS["vision-clustering"], 2,
-                         "A decoder that preserves these fields is not contract 1")
+        _, current_cases = decode_cases(reencoded)
+        _, old_cases = old.decode_cases(reencoded)
+        # The one difference, stated so this test is not mistaken for a claim
+        # that the two decoders return equal objects.
+        self.assertEqual([(case.scored, case.scenario_key) for case in current_cases[:2]],
+                         [(True, "scenario-0"), (False, "scenario-0")])
+        self.assertEqual([(case.scored, case.scenario_key) for case in old_cases[:2]],
+                         [(True, None), (True, None)])
 
-        # The evidence is written as a literal because it is one: a record an
-        # old image left behind, which today's probe would not produce.
+        class Clusterer:
+            """Correct under the manifest seed, degenerate under any other.
+
+            The fixture encodes identity as pixel parity, so this scores 1.0 on
+            the scored cases and moves the seed spread off zero on the
+            repetitions. It reads images and seed, never the two fields.
+            """
+
+            def __init__(self, model):
+                pass
+
+            def cluster(self, images, *, seed):
+                if seed == base_seed:
+                    return [int(image[0, 0, 0]) % 2 for image in images]
+                return [0] * len(images)
+
+        def run_all(cases):
+            return [run_clustering_scenario(Clusterer, object(), case) for case in cases]
+
+        current_outputs, old_outputs = run_all(current_cases), run_all(old_cases)
+        self.assertEqual(current_outputs, old_outputs)
+
+        current_metrics = ClusteringBenchmark().score(current_outputs, attached)
+        scorer = ClusteringBenchmark()
+        old_metrics = scorer.score(old_outputs, attached)
+        self.assertEqual(current_metrics, old_metrics)
+        # Pinned rather than merely equal: two identically broken runs would
+        # also be equal, and the spread is what the repetitions exist to report.
+        self.assertEqual(current_metrics["clustering_pairwise_f1"], 1.0)
+        self.assertEqual(current_metrics["adjusted_rand_index"], 1.0)
+        self.assertGreater(current_metrics["clustering_seed_spread"], 0.3)
+        self.assertTrue(scorer.last_diagnostics)
+        self.assertEqual(SANDBOX_CONTRACTS["vision-clustering"], 1)
+
+        # Compatible execution still requires matching artifact and source evidence.
         source = {"repositoryId": 42, "fullName": "course/team", "sha": "a" * 40}
-
-        def saved_at(benchmark_id, contract=1):
-            return {
-                "schemaVersion": 1, "artifactId": "im-saved", "benchmarkId": benchmark_id,
-                "source": source, "baseImageId": "im-base", "sandboxContract": contract,
-                "pythonVersion": "3.11.9", "sdkVersion": "0.2.0",
-                "modules": [{"name": "cogbench", "path": "/opt/cogbench/__init__.py",
-                             "sha256": "c" * 64}],
-                "weights": [],
-            }
-
-        def reuse(benchmark_id, catalog_contract):
-            return {"preparedArtifactId": "im-saved", "source": source, "weights": [],
-                    "benchmark": {"id": benchmark_id, "sandboxContract": catalog_contract}}
-
-        clustering = saved_at("vision-clustering")
-        self.assertEqual(validate_prepared_environment(reuse("vision-clustering", 2), clustering),
-                         INCOMPATIBLE)
-        # A catalog still seeded at 1 is refused as well, so the image and the
-        # catalog have to move together rather than one admitting work early.
-        self.assertEqual(validate_prepared_environment(reuse("vision-clustering", 1), clustering),
-                         INCOMPATIBLE)
-        # Recognition shares the image and is unaffected: same saved contract,
-        # its own catalog row, and reuse stays available.
-        self.assertIsNone(validate_prepared_environment(
-            reuse("vision-recognition", 1), saved_at("vision-recognition")))
+        evidence = {
+            "schemaVersion": 1, "artifactId": "im-saved", "benchmarkId": "vision-clustering",
+            "source": source, "baseImageId": "im-base", "sandboxContract": 1,
+            "pythonVersion": "3.11.9", "sdkVersion": "0.2.0",
+            "modules": [{"name": "cogbench", "path": "/opt/cogbench/__init__.py",
+                         "sha256": "c" * 64}],
+            "weights": [],
+        }
+        request = {"preparedArtifactId": "im-saved", "source": source, "weights": [],
+                   "benchmark": {"id": "vision-clustering", "sandboxContract": 1}}
+        self.assertIsNone(validate_prepared_environment(request, evidence))
+        for key, value in (("artifactId", "im-other"), ("benchmarkId", "vision-recognition")):
+            self.assertEqual(
+                validate_prepared_environment(request, dict(evidence, **{key: value})),
+                BINDING_MISMATCH,
+            )
+        self.assertEqual(
+            validate_prepared_environment(
+                request, dict(evidence, source=dict(source, sha="b" * 40))),
+            BINDING_MISMATCH,
+        )
 
     def test_old_vision_driver_honors_current_shuffled_lifecycle(self):
         require_benchmark("vision-recognition")

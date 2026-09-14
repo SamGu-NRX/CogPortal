@@ -58,60 +58,6 @@ print(json.dumps(contracts))
   }
 });
 
-test("the clustering contract bump moves one catalog row and no recorded result", () => {
-  const migrations = new URL("../migrations/", import.meta.url);
-  const files = readdirSync(migrations).filter((name) => name.endsWith(".sql")).sort();
-  const bumpAt = files.indexOf("0045_week2_clustering_contract2.sql");
-  assert.ok(bumpAt >= 0, "the clustering contract migration is missing");
-  const sqlite = new DatabaseSync(":memory:");
-  try {
-    const apply = (file: string) => sqlite.exec(readFileSync(new URL(file, migrations), "utf8"));
-    const contracts = () => Object.fromEntries(sqlite
-      .prepare("SELECT id, version, sandbox_contract AS contract FROM benchmarks").all()
-      .map((row) => [`${row.id}@${row.version}`, row.contract]));
-    // Replaying in filename order is the point: 0042 seeds every track at 1,
-    // and the bump has to be the thing that moves clustering off it.
-    files.slice(0, bumpAt).forEach(apply);
-    const seeded = contracts();
-    assert.deepEqual(new Set(Object.values(seeded)), new Set([1, null]));
-    // `0002_seed` records no clustering run at all, so without this the
-    // preservation assertions below would pass over the only affected track.
-    sqlite.exec(
-      `INSERT INTO runs (id, team_id, benchmark_id, benchmark_version, contract_version,
-                         mode, status, branch, sha, created_at, finished_at, scorer_version)
-       VALUES ('run_clustering_published', 'team_demo', 'vision-clustering', 2,
-               'cogworks.submissions.v2', 'official', 'succeeded', 'main',
-               '0123456789abcdef0123456789abcdef01234567', 1780000000000, 1780000060000,
-               'clustering-v2');
-       INSERT INTO run_metrics (run_id, key, label, value, higher_is_better, is_primary, precision)
-       VALUES ('run_clustering_published', 'clustering_pairwise_f1', 'Pairwise F1', 0.8125, 1, 1, 4),
-              ('run_clustering_published', 'seed_spread', 'Seed spread', 0.0375, 0, 0, 4);
-       INSERT INTO leaderboard_selections (team_id, benchmark_id, benchmark_version, run_id, selected_at)
-       VALUES ('team_demo', 'vision-clustering', 2, 'run_clustering_published', 1780000090000);`,
-    );
-    const results = sqlite.prepare("SELECT * FROM runs ORDER BY id").all();
-    const published = sqlite.prepare("SELECT * FROM leaderboard_selections ORDER BY run_id").all();
-    const measured = () => sqlite.prepare(
-      "SELECT key, value, is_primary FROM run_metrics WHERE run_id = ? ORDER BY key")
-      .all("run_clustering_published");
-    const metrics = measured();
-    assert.equal(metrics.length, 2);
-
-    files.slice(bumpAt).forEach(apply);
-    // A published clustering number was measured by a scorer. A contract names
-    // which decoder an image contains, so it may not reach a recorded result.
-    assert.deepEqual(sqlite.prepare("SELECT * FROM runs ORDER BY id").all(), results);
-    assert.deepEqual(sqlite.prepare("SELECT * FROM leaderboard_selections ORDER BY run_id").all(), published);
-    assert.deepEqual(measured(), metrics);
-    const after = contracts();
-    assert.deepEqual(Object.keys(after).filter((key) => after[key] !== seeded[key]),
-      ["vision-clustering@2"]);
-    assert.equal(after["vision-clustering@2"], 2);
-  } finally {
-    sqlite.close();
-  }
-});
-
 test("Audio and Language match evaluation's Python requirement without requiring the build patch", () => {
   const modal = readFileSync(new URL("../../runner-modal/src/cogworks_runner/modal_app.py", import.meta.url), "utf8");
   const script = modal.split('EVALUATE_SCRIPT = r"""')[1].split('"""')[0];
