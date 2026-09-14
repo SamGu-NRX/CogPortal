@@ -247,3 +247,33 @@ test("a run from another repository gets one sentence, not two", () => {
   assert.match(html, /no longer connected to/);
   assert.doesNotMatch(html, /matched to the connected repository/);
 });
+
+test("Discord's tile sizes the lifecycle row from the console, not the window", () => {
+  // `compact` is how wide the console is. A 768px window around a 352px tile
+  // satisfied `sm:`, which turned the four stage labels on inside it; the
+  // section is overflow-hidden, so they were cut off with nothing to scroll.
+  // Measured at 352px client against 362px scroll width before this.
+  const lifecycle = (compact: boolean) => {
+    const html = renderToStaticMarkup(React.createElement(RunConsole, {
+      snapshot: snapshot("running"),
+      streamState: "live",
+      compact,
+    }));
+    const start = html.indexOf('aria-label="Run lifecycle"');
+    assert.notEqual(start, -1, "the lifecycle row is always rendered");
+    return html.slice(start, html.indexOf("</ol>", start));
+  };
+
+  const tile = lifecycle(true);
+  assert.doesNotMatch(tile, /sm:|min-\[/, "no viewport breakpoint decides a tile's layout");
+  // The labels are hidden at every width. `hidden` is CSS, so the names stay
+  // in the markup; the state a screen reader needs is on its own span.
+  assert.match(tile, /class="hidden text-\[11px\]/);
+  assert.match(tile, /class="sr-only">active</);
+
+  // The full-width console is unchanged: it fills the viewport, so the
+  // viewport is the right thing for it to measure.
+  const full = lifecycle(false);
+  assert.match(full, /sm:justify-start sm:px-4/);
+  assert.match(full, /class="hidden min-\[420px\]:inline text-\[11px\]/);
+});

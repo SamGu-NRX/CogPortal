@@ -366,6 +366,11 @@ export function RunConsole({
         )}
       </header>
 
+      {/* `compact` is how wide the console is, not how wide the window is, so
+          nothing in this row may consult a viewport breakpoint. On a 768px
+          screen `sm:` turned the labels on inside a 352px Discord tile, and
+          the section clips rather than scrolls, so four stage names were cut
+          off with no way to read them. */}
       <ol className="grid grid-cols-4 border-b border-rule" aria-label="Run lifecycle">
         {STAGES.map((stage) => {
           const mark = stageMark(snapshot, stage.id);
@@ -373,10 +378,10 @@ export function RunConsole({
             <li
               key={stage.id}
               aria-current={stage.id === snapshot.stage ? "step" : undefined}
-              className={`flex items-center justify-center gap-2 border-r border-rule-soft px-2 last:border-r-0 sm:justify-start sm:px-4 ${compact ? "min-h-11" : "min-h-14"}`}
+              className={`flex items-center justify-center gap-2 border-r border-rule-soft px-2 last:border-r-0 ${compact ? "min-h-11" : "min-h-14 sm:justify-start sm:px-4"}`}
             >
               <span className={`font-mono text-[15px] ${mark === "×" ? "text-detect" : mark === "○" ? "text-ink-faint" : "text-verify"}`} aria-hidden="true">{mark}</span>
-              <span className={`${compact ? "hidden sm:inline" : "hidden min-[420px]:inline"} text-[11px] font-medium uppercase tracking-[0.05em]`}>{stage.label}</span>
+              <span className={`${compact ? "hidden" : "hidden min-[420px]:inline"} text-[11px] font-medium uppercase tracking-[0.05em]`}>{stage.label}</span>
               <span className="sr-only">{mark === "✓" ? "complete" : mark === "●" ? "active" : mark === "×" ? "failed" : "pending"}</span>
             </li>
           );
