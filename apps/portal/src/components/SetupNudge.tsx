@@ -45,36 +45,41 @@ export function SetupNudge() {
   // the setup page is where the failure is reported and retried.
   if (setupState.isError || connections.isError) return null;
 
-  const { verified, total } = setupCommandProgress(
-    setupCommandsForTeam({
-      repo: team.data.repo,
-      benchmark: track.benchmark,
-      benchmarkId: track.benchmarkId,
-      verifiedSteps: setupState.data?.verified,
-      verifiedStepsForBenchmark: setupState.data?.verifiedByBenchmark[track.benchmarkId],
-      cliDeviceCount: connections.data?.cliDevices.length ?? 0,
-      portalOrigin: window.location.origin,
-    }),
-  );
-  if (verified >= total) return null;
+  const lines = setupCommandsForTeam({
+    repo: team.data.repo,
+    benchmark: track.benchmark,
+    benchmarkId: track.benchmarkId,
+    verifiedSteps: setupState.data?.verified,
+    verifiedStepsForBenchmark: setupState.data?.verifiedByBenchmark[track.benchmarkId],
+    checkedSteps: setupState.data?.checked,
+    checkedStepsForBenchmark: setupState.data?.checkedByBenchmark[track.benchmarkId],
+    cliDeviceCount: connections.data?.cliDevices.length ?? 0,
+    portalOrigin: window.location.origin,
+  });
+  const { done, total } = setupCommandProgress(lines);
+  if (done >= total) return null;
 
   return (
     <div className="anim-rise mt-6 flex flex-wrap items-center gap-x-5 gap-y-2 border border-rule bg-paper-raised px-4 py-3">
       <span className="u-kicker">Getting set up</span>
 
       <span aria-hidden="true" className="flex items-center gap-1">
-        {Array.from({ length: total }, (_, i) => (
+        {lines.map((line) => (
           <span
-            key={i}
+            key={line.id}
             className={`size-2 transition-colors duration-150 ${
-              i < verified ? "bg-verify" : "border border-rule bg-paper-sunken"
+              line.verified
+                ? "bg-verify"
+                : line.selfChecked
+                  ? "bg-ink"
+                  : "border border-rule bg-paper-sunken"
             }`}
           />
         ))}
       </span>
 
       <span className="text-[13px] text-ink-secondary">
-        {verified} of {total} verified
+        {done} of {total} done
       </span>
 
       <span className="ml-auto flex items-center gap-1">

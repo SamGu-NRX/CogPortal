@@ -1,13 +1,10 @@
 import { Link, useNavigate, useParams } from "react-router";
 import { ApiRequestError } from "@/lib/api";
-import { FAILURE_CATALOG } from "@cogworks/contracts/failures";
 import { OFFICIAL_LIMIT, isTerminal } from "@cogworks/contracts/schema";
-import { Button } from "@/components/Button";
 import { ConfirmButton } from "@/components/ConfirmButton";
 import { FailureCard } from "@/components/FailureCard";
 import { LoadingMark, QueryError } from "@/components/Feedback";
 import { LogView } from "@/components/LogView";
-import { RefusalCard } from "@/components/RefusalCard";
 import { Finding } from "@/components/Finding";
 import { PrimaryMetric, SupportingMetrics } from "@/components/MetricBlock";
 import { SweepTrace } from "@/components/SweepTrace";
@@ -30,9 +27,8 @@ import {
   useRun,
   useSelectResult,
   useSession,
-  useStartPractice,
 } from "@/lib/queries";
-import { PHASE_LABELS, QUEUED_WAIT_NOTE, STATUS_LABELS } from "@/lib/run-meta";
+import { QUEUED_WAIT_NOTE, STATUS_LABELS } from "@/lib/run-meta";
 
 /**
  * Run detail (plan §8): the phase rail, then exactly one of: live progress,
@@ -44,29 +40,18 @@ export function RunDetailPage() {
   const { runId = "" } = useParams();
   const runQuery = useRun(runId);
   const { data: sessionData } = useSession();
-  // Quota, retry, and failure copy all belong to *this run's* benchmark, not
+  // Quota and failure copy belong to *this run's* benchmark, not
   // to whichever track the dashboard happens to default to. The fallback only
   // covers the first render, before the run record arrives.
   const runBenchmarkId = runQuery.data?.benchmarkId ?? DEFAULT_BENCHMARK;
   const benchmarks = useBenchmarks();
-  const runModule = benchmarks.data?.find((b) => b.id === runBenchmarkId)?.module;
+  const runBenchmark = benchmarks.data?.find((b) => b.id === runBenchmarkId);
+  const runModule = runBenchmark?.module;
   // Cached alongside the dashboard: supplies quota and selection context.
   const dashboard = useDashboard(runBenchmarkId, Boolean(runQuery.data));
   const promote = usePromote();
   const select = useSelectResult();
-  const retry = useStartPractice(runBenchmarkId);
   const navigate = useNavigate();
-  // A local run from a detached HEAD records no branch, and the page shows
-  // "detached" for it. Passing that word to startPractice asked GitHub for
-  // a ref called `detached`. Omitting the branch lets the server use the
-  // team's default, which is the only branch it can resolve for that run.
-  // And the run the retry starts is the one to look at, so go there: the
-  // old page kept its button, and pressing it again returned
-  // active_run_exists.
-  const retryFrom = (branch: string | null) =>
-    retry.mutate(branch && branch !== "detached" ? branch : undefined, {
-      onSuccess: ({ runId: started }) => navigate(`/runs/${started}`),
-    });
 
   if (runQuery.isPending) return <LoadingMark label="Reading run record" />;
   if (runQuery.isError) {
@@ -85,7 +70,6 @@ export function RunDetailPage() {
   const run = runQuery.data;
   const quota = dashboard.data?.quota;
   const live = !isTerminal(run.status);
-  const failureCopy = run.failure ? FAILURE_CATALOG[run.failure.category] : null;
   const primary = run.metrics.find((m) => m.primary) ?? null;
   // A floor of the primary belongs beside the primary. It cannot fold into a
   // supporting row, because the primary is not in that list, so without this
@@ -101,6 +85,8 @@ export function RunDetailPage() {
   // portal kept `role` has none, and a floor is then indistinguishable from a
   // scored metric, so nothing on the page claims a direction for it.
   const rolesRecorded = run.metrics.some((m) => m.role != null);
+  const hasRecordedFindings = run.diagnostics.length > 0 || run.sweep != null || run.wiring.length > 0 || run.metrics.length > 0;
+  const practiceLog = run.mode === "practice" ? run.log : null;
   const duration =
     run.finishedAt != null ? formatDurationMs(run.finishedAt - run.createdAt) : null;
 
@@ -113,10 +99,16 @@ export function RunDetailPage() {
         ← Dashboard
       </Link>
 
+      {run.surfaceId && (
+        <Link to={`/run-surfaces/${encodeURIComponent(run.surfaceId)}`} className="ml-4 inline-flex min-h-11 items-center text-[13px] text-ink underline decoration-rule underline-offset-4">
+          Open current run
+        </Link>
+      )}
+
       {/* ── Masthead ── */}
       <header className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2">
         <h1 className="font-serif text-3xl font-semibold">
-          {runNumberLabel(run.id)}
+          {run.status === "failed" ? runBenchmark?.title ?? "Run" : runNumberLabel(run.id)}
         </h1>
         <span
           className={`border px-2 py-0.5 font-mono text-[10.5px] font-medium tracking-[0.09em] uppercase ${
@@ -137,9 +129,33 @@ export function RunDetailPage() {
       </div>
 
       <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 font-mono text-[12px] text-ink-secondary">
+        {run.status === "failed" && (
+          <>
+            <span>{runNumberLabel(run.id)}</span>
+            <span aria-hidden="true" className="text-rule">|</span>
+          </>
+        )}
         <span>
           {run.benchmarkId} / v{run.benchmarkVersion}
         </span>
+        <span aria-hidden="true" className="text-rule">|</span>
+        {/* The repository this run used, which is not always the one the team
+            is connected to now. Without it a commit sits here with nothing
+            saying which repository it belongs to. */}
+        {run.repo ? (
+          <a
+            href={run.repo.url}
+            target="_blank"
+            rel="noreferrer"
+            className="text-ink underline decoration-rule underline-offset-4 hover:decoration-ink"
+          >
+            {run.repo.fullName}
+          </a>
+        ) : (
+          <span className="text-ink-faint" title="This run predates the recorded repository name.">
+            repository not recorded
+          </span>
+        )}
         <span aria-hidden="true" className="text-rule">|</span>
         <span>{run.branch}</span>
         <ShaChip sha={run.sha} shortSha={run.shortSha} />
@@ -181,71 +197,33 @@ export function RunDetailPage() {
       </Panel>
 
       {/* ── Failure ── */}
-      {run.failure && failureCopy && (
-        <div className="mt-4 space-y-4">
-          {/* A refusal is written in the team's own function names and module
-              names, and the failure card beside it is the same event in the
-              generic. So the refusal leads and the card collapses to the three
-              things it alone carries: which failure, which mode, what it cost.
-              Every other failure has a traceback, keeps its full card, and
-              sends the reader to the log. */}
-          {run.refusal ? (
-            <RefusalCard
-              refusal={run.refusal}
-              benchmarkId={run.benchmarkId}
-              stage={PHASE_LABELS[run.failure.phase]}
-              aside={
-                <FailureCard
-                  failure={run.failure}
-                  mode={run.mode}
-                  benchmarkId={run.benchmarkId}
-                  module={runModule}
-                  collapsed
-                />
-              }
-            />
-          ) : (
-            <FailureCard
-              failure={run.failure}
-              mode={run.mode}
-              benchmarkId={run.benchmarkId}
-              module={runModule}
-            />
-          )}
-          {run.mode === "practice" && failureCopy.retryable && (
-            <Button
-              variant="ghost"
-              busy={retry.isPending}
-              onClick={() => retryFrom(run.branch)}
-            >
-              Run practice again on {run.branch ?? "the default branch"}
-            </Button>
-          )}
-          {/* A failed official run occupies its surface, so promoting the
-              same candidate again is refused by the server every time. The
-              real recovery is a fresh practice run: it opens a new surface
-              whose success becomes the next promotable candidate. */}
-          {run.mode === "official" && !run.failure.consumedAttempt && (
-            <div className="flex flex-wrap items-center gap-3">
-              <Button
-                variant="ghost"
-                busy={retry.isPending}
-                onClick={() => retryFrom(run.branch)}
-              >
-                Run practice again on {run.branch ?? "the default branch"}
-              </Button>
-              <span className="font-mono text-[11px] text-ink-faint">
-                attempt not consumed; a fresh practice run creates the next candidate to promote
-              </span>
-            </div>
-          )}
-          {retry.error && (
-            <p role="alert" className="mt-3 text-[13px] text-detect-deep">
-              {retry.error instanceof ApiRequestError
-                ? retry.error.message
-                : "The action couldn't be completed. Try again."}
-            </p>
-          )}
+      {run.status === "failed" && (
+        <div className="mt-4">
+          <FailureCard
+            key={run.id}
+            failure={run.failure}
+            mode={run.mode}
+            benchmarkId={run.benchmarkId}
+            module={runModule}
+            refusal={run.refusal}
+          >
+            {(hasRecordedFindings || practiceLog) && (
+              <>
+                {hasRecordedFindings && (
+                  <div className="space-y-4 border-t border-rule-soft pt-4">
+                    <p className="text-[13px] text-ink-secondary">Saved results</p>
+                    {run.diagnostics.length > 0 && (
+                      <Finding sentence={run.diagnostics[0]} supporting={run.diagnostics.slice(1)} />
+                    )}
+                    {run.sweep && <SweepTrace sweep={run.sweep} />}
+                    {run.wiring.length > 0 && <WiringTrace steps={run.wiring} />}
+                    {run.metrics.length > 0 && <SupportingMetrics metrics={run.metrics} rolesRecorded={rolesRecorded} />}
+                  </div>
+                )}
+                {practiceLog && <LogView log={practiceLog} />}
+              </>
+            )}
+          </FailureCard>
         </div>
       )}
 
@@ -336,6 +314,16 @@ export function RunDetailPage() {
       {/* ── Next action ── */}
       {run.status === "succeeded" && run.mode === "practice" && (
         <Panel label="PROMOTE" className="mt-4">
+          {/* The server refuses a promotion of a run that is not about the
+              connected repository, or whose saved environment can no longer be
+              reused, so the control is not offered. Saying why beats a button
+              that fails. The source answer comes first on the server. */}
+          {(run.sourceRefusal ?? run.promotionRefusal) ? (
+            <p className="max-w-prose text-[14px] text-ink-secondary">
+              {run.sourceRefusal ?? run.promotionRefusal}
+            </p>
+          ) : (
+          <>
           <p className="max-w-prose text-[14px] text-ink-secondary">
             Re-runs <span className="font-mono text-[13px]">{run.shortSha}</span>{" "}
             against the hidden official inputs. Logs are suppressed.
@@ -346,9 +334,7 @@ export function RunDetailPage() {
               confirmLabel={`Confirm, uses attempt ${(quota?.officialUsed ?? 0) + 1} of ${OFFICIAL_LIMIT}`}
               onConfirm={() =>
                 promote.mutate(run.id, {
-                  // The official run is the one to watch, and nothing on this
-                  // page links to it. The retry path above navigates for the
-                  // same reason.
+                  // Promotion creates a separate official run to watch.
                   onSuccess: ({ runId: started }) => navigate(`/runs/${started}`),
                 })
               }
@@ -384,16 +370,8 @@ export function RunDetailPage() {
                 : "The promotion couldn't be started. Try again."}
             </p>
           )}
-        </Panel>
-      )}
-
-      {run.status === "succeeded" && run.mode === "official" && !run.publishable && (
-        <Panel label="ATTEMPT REFUNDED" className="mt-4">
-          <p className="max-w-prose text-[14px] leading-relaxed text-ink-secondary">
-            We stopped hearing from this run and returned your attempt before
-            its results arrived. The findings are preserved above, but this
-            result can't be published.
-          </p>
+          </>
+          )}
         </Panel>
       )}
 
@@ -433,7 +411,7 @@ export function RunDetailPage() {
       )}
 
       {/* ── Log (practice only) ── */}
-      {run.mode === "practice" && run.log && (
+      {run.status !== "failed" && run.mode === "practice" && run.log && (
         <Panel label="LOG · CAPPED" className="mt-4">
           <LogView log={run.log} />
         </Panel>

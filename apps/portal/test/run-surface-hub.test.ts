@@ -9,6 +9,7 @@ function snapshot(revision: number, generation = 1): RunSurfaceSnapshot {
     benchmark: { id: "vision-recognition", version: 1, title: "Vision Recognition" },
     actor: { login: "ada", name: "Ada" },
     sha: "a".repeat(40), shortSha: "aaaaaaa", branch: "main", dirty: false,
+    source: null, sourceRefusal: null,
     stage: "hosted", status: "running", phase: "queued",
     createdAt: 1_780_000_000_000, updatedAt: 1_780_000_001_000,
     finishedAt: null, elapsedMs: 1_000, progress: null, primaryMetric: null,

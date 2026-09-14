@@ -13,7 +13,12 @@ import { benchmarks, leaderboardSelections, officialAttempts, runMetrics, runs, 
 import type { AppEnv, Env } from "../worker/env.ts";
 import { handleError } from "../worker/http/errors.ts";
 import { registerAdminRoutes } from "../worker/routes/admin.ts";
-import { PRACTICE_LIMIT, OFFICIAL_LIMIT } from "@cogworks/contracts/schema";
+import {
+  AdminOverviewSchema,
+  PRACTICE_LIMIT,
+  OFFICIAL_LIMIT,
+  type AdminOverview,
+} from "@cogworks/contracts/schema";
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -341,4 +346,78 @@ test("admin totals span benchmarks and versions without per-version quota denomi
   client.clear();
   assert.equal(team.published?.benchmarkName, "Face recognition");
   assert.equal(team.published?.benchmarkVersion, 2);
+});
+
+/**
+ * Two phone defects the native pass measured at `8c5a2f4`.
+ *
+ * Both are rendering decisions off the overview payload, so they render the
+ * page from a parsed overview rather than a database: the schema is the same
+ * contract the route answers with, and parsing it here keeps the fixture from
+ * drifting into a shape the server cannot send.
+ */
+
+function overviewFixture(over: Partial<AdminOverview> = {}): AdminOverview {
+  return AdminOverviewSchema.parse({
+    scope: "owner",
+    cohort: { slug: "bwsi-2026", name: "CogWorks 2026", joinCode: "VISION26", active: true },
+    teams: [],
+    unassigned: [],
+    ...over,
+  });
+}
+
+const TEAM = {
+  id: "team_cosine",
+  name: "Cosine Similarity Club",
+  provenance: "live",
+  repoFullName: "cogworks-demo/cosine-similarity-club",
+  members: [],
+  tas: [],
+  practiceUsed: 3,
+  officialUsed: 1,
+  refundsGiven: 0,
+  published: null,
+};
+
+function renderAdmin(overview: AdminOverview): string {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  client.setQueryData(["admin", "overview"], overview);
+  const html = renderToStaticMarkup(React.createElement(
+    QueryClientProvider, { client }, React.createElement(AdminPage),
+  ));
+  client.clear();
+  return html;
+}
+
+test("a team row gives its identity the whole width before it gives any to counts", () => {
+  // Measured at 390px: the first column computed to 0px, so the name and
+  // repository were the only things a phone could not see. Three auto-sized
+  // fields and their gaps had taken the row.
+  const html = renderAdmin(overviewFixture({ teams: [TEAM] }));
+
+  // Narrow: two columns, identity alone on the first row, counts beneath it.
+  assert.match(html, /grid-cols-\[minmax\(0,1fr\)_1\.5rem\]/);
+  assert.match(html, /col-start-1 row-start-1 min-w-0/, "identity does not hold the first row");
+  // Wide: the grid the native pass recorded at 768px and above, unchanged.
+  assert.match(html, /sm:grid-cols-\[minmax\(0,1fr\)_auto_auto_1\.5rem\]/);
+  assert.match(html, /sm:col-start-2 sm:row-start-1/, "the run state does not return to the desktop row");
+  assert.match(html, /sm:col-start-3 sm:row-start-1/, "the counts do not return to the desktop row");
+
+  // The data itself is untouched at every width.
+  assert.match(html, /Cosine Similarity Club/);
+  assert.match(html, /cogworks-demo\/cosine-similarity-club/);
+  assert.match(html, /3 practice runs · 1 official attempts/);
+});
+
+test("staff with no assignments is not told the cohort is empty", () => {
+  // A rostered TA saw "No teams yet." beside seven existing teams, because
+  // the scoped list shared the owner's sentence.
+  const staff = renderAdmin(overviewFixture({ scope: "ta" }));
+  assert.match(staff, /No teams assigned to you yet\./);
+  assert.doesNotMatch(staff, /No teams yet\./);
+
+  const owner = renderAdmin(overviewFixture());
+  assert.match(owner, /No teams yet\./);
+  assert.doesNotMatch(owner, /No teams assigned to you yet\./);
 });

@@ -2,7 +2,8 @@ import { PreparedEnvironmentV1Schema, type PreparedEnvironmentV1 } from "@cogwor
 import type { BenchmarkRow, RunRow, TeamRow } from "../db/schema";
 
 type SavedRun = Pick<RunRow,
-  "preparedArtifactId" | "preparedEnvironmentJson" | "benchmarkId" | "repositoryId" | "sha"
+  "preparedArtifactId" | "preparedEnvironmentJson" | "benchmarkId" | "repositoryId"
+  | "repositoryFullName" | "sha"
 >;
 type EnvironmentEligibility =
   | { eligible: true; environment: PreparedEnvironmentV1 }
@@ -42,7 +43,12 @@ export function savedEnvironmentEligibility(
   if (!parsed.success) {
     return { eligible: false, reason: "The saved environment's compatibility is unknown." };
   }
-  if (!preparedEnvironmentMatchesRun(parsed.data, run, team.repoFullName) || benchmark.id !== run.benchmarkId) {
+  // The name the run recorded, not the team's current one. A rename keeps
+  // repoId, and the dispatch job carries the recorded name, so `recordedJob`
+  // compares the environment against that. Comparing against the team here
+  // left the two checks unsatisfiable at once for any renamed repository.
+  const repositoryFullName = run.repositoryFullName ?? team.repoFullName;
+  if (!preparedEnvironmentMatchesRun(parsed.data, run, repositoryFullName) || benchmark.id !== run.benchmarkId) {
     return { eligible: false, reason: "The saved environment doesn't match this run's source and artifact." };
   }
   // Scorer, image and runtime labels describe different facts. Only the

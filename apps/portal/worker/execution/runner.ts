@@ -6,6 +6,7 @@ import {
   type RunJobV1,
   type WeightFile,
 } from "@cogworks/contracts/protocol";
+import { runSource } from "@cogworks/contracts/schema";
 import type { Env } from "../env";
 import { getDb } from "../db/client";
 import type { BenchmarkRow, RunRow, TeamRow } from "../db/schema";
@@ -67,7 +68,19 @@ function buildRunJobInputs(
   benchmark: BenchmarkRow,
   weights: WeightFile[] = [],
 ): Omit<RunJobV1, "jobId" | "callback"> {
-  const fullName = `${encodeURIComponent(team.repoOwner)}/${encodeURIComponent(team.repoName)}`;
+  // The job names the repository the RUN recorded, not the team's current one.
+  // They are the same for anything dispatchable, because a promotion or rerun
+  // of a run from another repository is refused, and a fresh practice run
+  // records the team it started from. Reading it off the run means the job and
+  // the row cannot disagree even if that ever stops holding. The team remains
+  // the fallback for a run predating the recorded name.
+  const source = runSource(run.repositoryFullName) ?? {
+    owner: team.repoOwner,
+    name: team.repoName,
+    fullName: team.repoFullName,
+    url: team.repoUrl,
+  };
+  const path = `${encodeURIComponent(source.owner)}/${encodeURIComponent(source.name)}`;
   if (benchmark.sandboxContract == null || !Number.isSafeInteger(benchmark.sandboxContract) || benchmark.sandboxContract <= 0) {
     throw new ApiHttpError(409, "not_promotable", "The benchmark's execution contract is unknown.");
   }
@@ -84,10 +97,10 @@ function buildRunJobInputs(
     preparedArtifactId: run.preparedArtifactId,
     preparedEnvironment,
     source: {
-      repositoryId: run.repositoryId,
-      fullName: team.repoFullName,
+      repositoryId: run.repositoryId ?? team.repoId,
+      fullName: source.fullName,
       sha: run.sha,
-      archiveUrl: `https://api.github.com/repos/${fullName}/tarball/${run.sha}`,
+      archiveUrl: `https://api.github.com/repos/${path}/tarball/${run.sha}`,
     },
     benchmark: {
       id: benchmark.id,
@@ -252,8 +265,11 @@ export function validateRetryInputs(
   benchmark: BenchmarkRow,
 ): RunJobV1 {
   const saved = recordedJob(failedRun);
+  // The job carries the repository the run recorded, so current identity is
+  // checked here rather than inferred from the rebuilt job. A run and a team
+  // that both record no repository are not a match.
   if (failedRun.status !== "failed" || failedRun.teamId !== team.id ||
-      failedRun.repositoryId !== team.repoId ||
+      failedRun.repositoryId === null || failedRun.repositoryId !== team.repoId ||
       env.EXECUTION_PROVIDER !== failedRun.provider ||
       failedRun.runtimeVersion !== benchmark.runtimeVersion) {
     throw retryInputError("Retry status, team, repository, provider, or runtime version does not match.");
@@ -324,9 +340,12 @@ export async function enqueueRun(
   if (stored.dispatchJobJson === null) {
     let weights: WeightFile[] = [];
     if (!stored.preparedArtifactId) {
-      const report = await getLatestTeamWeights(env, stored.teamId, team.repoFullName, stored.sha);
+      // Weights are stored under the repository and commit they were synced for,
+      // so the lookup must use the same recorded repository as the job's source.
+      const repository = stored.repositoryFullName ?? team.repoFullName;
+      const report = await getLatestTeamWeights(env, stored.teamId, repository, stored.sha);
       weights = await weightManifest(
-        env.ARTIFACTS, team.repoFullName, stored.sha, report.weightsUsed, report.weightsUploaded,
+        env.ARTIFACTS, repository, stored.sha, report.weightsUsed, report.weightsUploaded,
       );
     }
     const candidate = buildRunJob(env, stored, team, benchmark, weights);
