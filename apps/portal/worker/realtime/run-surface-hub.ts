@@ -27,12 +27,42 @@ export class RunSurfaceHub extends DurableObject<Env> {
     return result.value;
   }
 
+  /** Older writers omitted fields now required by the wire contract.
+   * Rebuild unreadable cache entries from the database, losing that cached
+   * ordering baseline rather than inventing source eligibility. */
+  private readCached(surfaceId: string, stored: string): RunSurfaceSnapshot | null {
+    let decoded: unknown;
+    try {
+      decoded = JSON.parse(stored);
+    } catch {
+      return this.discardCached(surfaceId, "malformed_json", []);
+    }
+    const parsed = RunSurfaceSnapshotSchema.safeParse(decoded);
+    if (parsed.success) return parsed.data;
+    return this.discardCached(
+      surfaceId,
+      "schema_mismatch",
+      parsed.error.issues.map((issue) => issue.path.join(".")).slice(0, 8),
+    );
+  }
+
+  /** Field paths only. The payload can carry a team's repository and commit,
+   *  so none of it is logged. */
+  private discardCached(
+    surfaceId: string,
+    reason: "malformed_json" | "schema_mismatch",
+    fields: string[],
+  ): null {
+    console.warn(JSON.stringify({ event: "run_surface_cache_discarded", surfaceId, reason, fields }));
+    return null;
+  }
+
   /** Call only inside blockConcurrencyWhile, including the database read.
    * The multi-key put atomically commits the payload and its revision. The
    * separate counter survives missing-surface cleanup while clients reconnect. */
   private async readAndBroadcast(surfaceId: string): Promise<RunSurfaceSnapshot> {
     const stored = await this.ctx.storage.get<string>("latest");
-    const latest = stored ? RunSurfaceSnapshotSchema.parse(JSON.parse(stored)) : null;
+    const latest = stored ? this.readCached(surfaceId, stored) : null;
     const candidate = RunSurfaceSnapshotSchema.parse({
       ...await readRunSurfaceSnapshot(this.env, surfaceId),
       snapshotRevision: (await this.ctx.storage.get<number>("snapshotRevision") ?? latest?.snapshotRevision ?? 0) + 1,
