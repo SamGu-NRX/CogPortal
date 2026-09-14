@@ -2,12 +2,13 @@ import {
   ArrowDown01Icon,
   Copy01Icon,
   TeacherIcon,
+  Tick02Icon,
   UserAdd01Icon,
   UserRemove01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { AdminTeamSummary } from "@cogworks/contracts/schema";
 import { Button } from "@/components/Button";
 import { ConfirmButton } from "@/components/ConfirmButton";
@@ -66,7 +67,8 @@ export function AdminPage() {
         }
       >
         {teams.length === 0 ? (
-          <EmptyState message="No teams yet." />
+          // Staff sees assigned teams only.
+          <EmptyState message={isOwner ? "No teams yet." : "No teams assigned to you yet."} />
         ) : (
           <ul className="divide-y divide-rule-soft">
             {triageOrder(teams).map((team) => (
@@ -382,17 +384,32 @@ function CohortPanel({
   cohort: { slug: string; name: string; joinCode: string; active: boolean };
 }) {
   const patch = useAdminPatchCohort();
-  const [copied, setCopied] = useState(false);
+  const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
+  const copying = useRef(false);
+  const copied = copyStatus === "copied";
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current);
+    },
+    [],
+  );
+
   const copy = async () => {
+    // Keep the button focusable while suppressing overlapping writes.
+    if (copying.current) return;
+    copying.current = true;
+    if (timer.current) clearTimeout(timer.current);
+    setCopyStatus("idle");
     try {
       await navigator.clipboard.writeText(cohort.joinCode);
-      setCopied(true);
-      if (timer.current) clearTimeout(timer.current);
-      timer.current = setTimeout(() => setCopied(false), 1400);
+      setCopyStatus("copied");
+      timer.current = setTimeout(() => setCopyStatus("idle"), 1400);
     } catch {
-      /* code stays visible */
+      setCopyStatus("failed");
+    } finally {
+      copying.current = false;
     }
   };
 
@@ -416,19 +433,22 @@ function CohortPanel({
           type="button"
           onClick={copy}
           title="Copy join code"
+          aria-label={`Copy join code ${cohort.joinCode}`}
           className="u-pressable inline-flex min-h-9 items-center gap-2 border border-rule bg-paper-sunken px-3 font-mono text-[15px] tracking-[0.25em] text-ink hover:border-ink-secondary"
         >
-          {cohort.joinCode}
+          <span className="select-text">{cohort.joinCode}</span>
           <HugeiconsIcon
-            icon={Copy01Icon}
+            icon={copied ? Tick02Icon : Copy01Icon}
             size={13}
             strokeWidth={1.8}
             className={copied ? "text-verify" : "text-ink-faint"}
             aria-hidden="true"
           />
-          <span className="sr-only">{copied ? "Copied" : "Copy join code"}</span>
         </button>
       </div>
+      <p role="status" className={copyStatus === "failed" ? "mt-2 text-[13px] text-detect-deep" : "sr-only"}>
+        {copyStatus === "failed" ? "Couldn't copy. Select the join code above and copy it manually, or try again." : copied ? "Copied." : ""}
+      </p>
 
       <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-rule-soft pt-4">
         <ConfirmButton
@@ -487,14 +507,16 @@ function TeamRow({ team, canAssignTas }: { team: AdminTeamSummary; canAssignTas:
 
   return (
     <li>
+      {/* On phones the auto-sized count columns consumed the identity column.
+          Put counts below identity until `sm:`. */}
       <button
         type="button"
         aria-expanded={open}
         aria-controls={`team-${team.id}`}
         onClick={() => setOpen((v) => !v)}
-        className="grid w-full grid-cols-[minmax(0,1fr)_auto_auto_1.5rem] items-baseline gap-x-4 py-2.5 text-left hover:bg-paper-sunken/50"
+        className="grid w-full grid-cols-[minmax(0,1fr)_1.5rem] items-baseline gap-x-4 gap-y-1 py-2.5 text-left hover:bg-paper-sunken/50 sm:grid-cols-[minmax(0,1fr)_auto_auto_1.5rem] sm:gap-y-0"
       >
-        <span className="min-w-0">
+        <span className="col-start-1 row-start-1 min-w-0">
           <span className="block truncate text-[14px] font-medium text-ink" title={team.name}>
             {team.name}
           </span>
@@ -506,13 +528,13 @@ function TeamRow({ team, canAssignTas }: { team: AdminTeamSummary; canAssignTas:
             run for, faint on the rest, so forty rows resolve to the handful
             worth opening without reading a single number. */}
         <span
-          className={`font-mono text-[11px] ${
+          className={`col-start-1 row-start-2 font-mono text-[11px] sm:col-start-2 sm:row-start-1 ${
             hostedRuns(team) === 0 ? "text-ink" : "text-ink-faint"
           }`}
         >
           {runState(team)}
         </span>
-        <span className="u-tnum font-mono text-[11px] text-ink-secondary">
+        <span className="u-tnum col-start-1 row-start-3 font-mono text-[11px] text-ink-secondary sm:col-start-3 sm:row-start-1">
           {/* Totals span benchmark versions, so a single version's quota is not a denominator. */}
           {team.practiceUsed} practice runs · {team.officialUsed} official attempts
           {/* Only when there are any. A team that keeps hitting real
@@ -530,7 +552,7 @@ function TeamRow({ team, canAssignTas }: { team: AdminTeamSummary; canAssignTas:
           aria-hidden="true"
           animate={{ rotate: open ? 180 : 0 }}
           transition={reduce ? { duration: 0 } : { duration: 0.15, ease: "easeOut" }}
-          className="justify-self-end self-center text-ink-faint"
+          className="col-start-2 row-start-1 justify-self-end self-center text-ink-faint sm:col-start-4"
         >
           <HugeiconsIcon icon={ArrowDown01Icon} size={14} strokeWidth={1.8} />
         </motion.span>

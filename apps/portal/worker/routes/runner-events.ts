@@ -88,8 +88,13 @@ async function applyEvent(env: AppEnv["Bindings"], event: RunEventV1): Promise<v
           throw new ApiHttpError(400, "invalid_request", "Recorded dispatch source is invalid.");
         }
       } else {
-        const [team] = await db.select().from(teams).where(eq(teams.id, run.teamId)).limit(1);
-        repositoryFullName = team?.repoFullName;
+        // The same rule without a job record: the run's own recorded name, and
+        // today's team only for a row from before that name was recorded.
+        repositoryFullName = run.repositoryFullName ?? undefined;
+        if (!repositoryFullName) {
+          const [team] = await db.select().from(teams).where(eq(teams.id, run.teamId)).limit(1);
+          repositoryFullName = team?.repoFullName;
+        }
       }
       if (!repositoryFullName || !preparedEnvironmentMatchesRun(evidence, {
         ...run, preparedArtifactId: event.preparedArtifactId,

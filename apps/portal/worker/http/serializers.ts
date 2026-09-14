@@ -2,12 +2,14 @@ import { and, asc, eq } from "drizzle-orm";
 import {
   RUN_PHASES,
   RunDetailSchema,
+  runSource,
   type Benchmark,
   type Metric,
   type RunDetail,
   type RunSummary,
   type Team,
 } from "@cogworks/contracts/schema";
+import { runSourceRefusal } from "../services/run-source";
 import type { Database } from "../db/client";
 import { canPublishOfficialRun, savedEnvironmentEligibility } from "../services/run-eligibility";
 import {
@@ -77,6 +79,9 @@ export async function serializeRunSummary(db: Database, row: RunRow): Promise<Ru
 
   return {
     id: row.id,
+    // The run's own source, so a commit in a list can be attributed. Detail
+    // spreads this summary, so both answer from the same place.
+    repo: runSource(row.repositoryFullName),
     mode: row.mode,
     status: row.status,
     benchmarkId: row.benchmarkId,
@@ -101,10 +106,19 @@ export async function serializeRunSummary(db: Database, row: RunRow): Promise<Ru
   };
 }
 
+/**
+ * A run, in full, from the run's own row.
+ *
+ * The team is here for one question only: whether a new promotion of this run
+ * could still be authorised, which is genuinely about the team as it is now.
+ * What the run *was* still comes from the run. Those two were the same
+ * expression once, and that is what made every old run claim the team's
+ * current repository.
+ */
 export async function serializeRunDetail(
   db: Database,
   row: RunRow,
-  team: TeamRow,
+  team: { repoId: number | null; repoFullName: string },
 ): Promise<RunDetail> {
   const [summary, phases, metrics, selection] = await Promise.all([
     serializeRunSummary(db, row),
@@ -138,13 +152,7 @@ export async function serializeRunDetail(
     surfaceId: row.surfaceId,
     contractVersion: row.contractVersion,
     parentRunId: row.parentRunId,
-    repo: {
-      owner: team.repoOwner,
-      name: team.repoName,
-      fullName: team.repoFullName,
-      url: team.repoUrl,
-      defaultBranch: team.defaultBranch,
-    },
+    sourceRefusal: runSourceRefusal(team, row, "promote it"),
     phases: phases
       .sort((a, b) => (phaseOrder.get(a.phase) ?? 0) - (phaseOrder.get(b.phase) ?? 0))
       .map((phase) => ({

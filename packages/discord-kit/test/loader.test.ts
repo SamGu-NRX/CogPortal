@@ -32,6 +32,13 @@ function snapshot(overrides: Partial<RunSurfaceSnapshot> = {}): RunSurfaceSnapsh
     sha: "b".repeat(40),
     shortSha: "bbbbbbb",
     branch: "main",
+    source: {
+      owner: "analytical-engines",
+      name: "vision",
+      fullName: "analytical-engines/vision",
+      url: "https://github.com/analytical-engines/vision",
+    },
+    sourceRefusal: null,
     dirty: false,
     stage: "local",
     status: "running",
