@@ -3138,12 +3138,17 @@ class LeavingABlockHandsControlToWhicheverIsNowInnermost(_Fixture):
 
         with outer.imports():
             self.assertEqual(self._module(outer, "main").load(), 11)
+            loaded = sys.modules["fresh_side"]
             with other.imports():
                 with self.assertRaises(ModuleNotFoundError):
                     self._module(outer, "main").read()
                 with outer.imports():
+                    # The same object, not merely the same value: the point is
+                    # that the submission reaches the module it loaded, rather
+                    # than a second one read from the same file.
                     self.assertEqual(self._module(outer, "main").read(), 11)
-            self.assertEqual(self._module(outer, "main").read(), 11)
+                    self.assertIs(sys.modules["fresh_side"], loaded)
+            self.assertIs(sys.modules["fresh_side"], loaded)
 
     def test_an_empty_discovery_nests_inside_a_real_one(self):
         """A discovery that loaded nothing installs nothing and never joins the

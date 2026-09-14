@@ -3138,10 +3138,14 @@ class ImportContext:
             self._frames.pop()
             return
         if _LIVE and _LIVE[-1] is not self:
-            # Loud rather than silent. `with` cannot produce this; hand-called
-            # entry and exit out of order can, and letting it through left one
-            # submission's modules installed and `sys.path` unrestored with
-            # nothing recording that it had happened.
+            # Loud rather than silent: letting it through left one
+            # submission's modules installed and `sys.path` unrestored, with
+            # nothing recording that it had happened. Reached by hand-called
+            # entry and exit out of order. It was also reached by a correctly
+            # nested empty context until that was excluded above, so this is
+            # what the check catches rather than a claim about what cannot
+            # happen. If an exception is already propagating this replaces it
+            # as the one raised; the original stays on the traceback chain.
             raise RuntimeError(
                 "import contexts must be left innermost first; this one is not "
                 "the block currently open"
