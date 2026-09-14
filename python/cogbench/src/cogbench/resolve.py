@@ -838,7 +838,16 @@ def _resolve(
             )
             if recalled is not None:
                 watcher.done()
-                return recalled
+                # The memo holds the binding, not the weights: `prepare` ran
+                # in this resolution and retained this resolution's file. A
+                # replayed run therefore says what this run measured, never
+                # what the remembered one did, and a memo hit stops meaning a
+                # report with no weights in it.
+                return replace(
+                    recalled,
+                    weights_used=weights_used,
+                    weights_captured=weights_captured,
+                )
 
         watcher.phase("Looking for the functions that do the work")
         # What the week's test said about the last chain it rejected, kept so a
