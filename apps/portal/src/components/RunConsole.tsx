@@ -383,11 +383,12 @@ export function RunConsole({
             <li
               key={stage.id}
               aria-current={stage.id === snapshot.stage ? "step" : undefined}
-              className={`flex flex-col items-center justify-center gap-0.5 border-r border-rule-soft px-2 py-1.5 last:border-r-0 ${compact ? "min-h-11" : "min-h-14 sm:flex-row sm:justify-start sm:gap-2 sm:px-4 sm:py-0"}`}
+              className={`flex flex-col items-center justify-center gap-0.5 border-r border-rule-soft px-1 py-1.5 last:border-r-0 ${compact ? "min-h-11" : "min-h-14 sm:flex-row sm:justify-start sm:gap-2 sm:px-4 sm:py-0"}`}
             >
               <span className={`font-mono text-[15px] leading-none ${mark === "×" ? "text-detect" : mark === "○" ? "text-ink-faint" : "text-verify"}`} aria-hidden="true">{mark}</span>
-              {/* A quarter of a narrow row is about as wide as "Published", so
-                  it breaks rather than clips. */}
+              {/* The gallery's 360px viewport leaves a 277px compact row.
+                  Four-pixel padding keeps "Published" on one line with the
+                  loaded font; narrower rows can still wrap rather than clip. */}
               <span className={`text-center leading-tight font-medium uppercase tracking-[0.05em] [overflow-wrap:anywhere] ${compact ? "text-[10px]" : "text-[10px] sm:text-[11px]"}`}>{stage.label}</span>
               <span className="sr-only">{mark === "✓" ? "complete" : mark === "●" ? "active" : mark === "×" ? "failed" : "pending"}</span>
             </li>
