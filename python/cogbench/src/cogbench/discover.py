@@ -3030,31 +3030,46 @@ class ImportContext:
         # `database.py` this one lacks resolved their lazy `import database`
         # to that other team's module, because nothing displaced a name this
         # context never had.
-        for other in _LIVE:
-            if other is self:
-                continue
+        others = [other for other in _LIVE if other is not self]
+        for other in others:
             for name in other._modules:
                 if name not in self._modules:
                     take(name)
-            # Whatever that block has imported since it opened is theirs as
-            # well, and its inventory will not hold it until it leaves. An
-            # outer submission that loaded a file at call time was still
-            # answering for that name inside this one.
+        # Whatever those blocks have imported since they opened is theirs as
+        # well, and their inventories will not hold it until they leave: an
+        # outer submission that loaded a file at call time was still answering
+        # for that name inside this one.
+        arrived = set()
+        for other in others:
             opened = next((held for held in other._frames if held), None)
-            if opened is None:
+            if opened is not None:
+                arrived |= set(sys.modules) - opened["before"]  # type: ignore[operator]
+        for name in sorted(arrived, reverse=True):
+            module = sys.modules.get(name)
+            if module is None:
                 continue
-            since = set(sys.modules) - opened["before"]  # type: ignore[operator]
-            for name in sorted(since, reverse=True):
-                if name in self._modules:
-                    continue
-                module = sys.modules.get(name)
-                if module is not None and _belongs_to(name, module, other.directories):
-                    # Into their inventory as well. Their exit is what normally
-                    # records this, and they have not exited; without it, a
-                    # block re-entered inside this one could not reinstall a
-                    # module it had loaded itself and was still using.
-                    other.retain(name, module)
-                    take(name)
+            # The innermost block whose repository holds it, not the first one
+            # asked. Two discoveries of one checkout share directories, so
+            # containment alone handed a module to whichever context the loop
+            # reached first, which retained another block's live module and
+            # left its real owner unable to reinstall it.
+            owner = next(
+                (
+                    other
+                    for other in reversed(others)
+                    if _belongs_to(name, module, other.directories)
+                ),
+                None,
+            )
+            if owner is None:
+                continue
+            # Recorded for its owner even when this block has a name of its own
+            # to install over it. The install loop below puts the displaced
+            # value in this frame, which restores it on the way out, but the
+            # owner still needs it to reinstall on a nested re-entry.
+            owner.retain(name, module)
+            if name not in self._modules:
+                take(name)
         # Their directories come off the path too. Taking the name alone was
         # not enough: the outer block's root is still on `sys.path`, so the
         # inner submission's `import helper` simply read the outer team's

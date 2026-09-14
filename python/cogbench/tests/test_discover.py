@@ -3150,6 +3150,73 @@ class LeavingABlockHandsControlToWhicheverIsNowInnermost(_Fixture):
                     self.assertIs(sys.modules["fresh_side"], loaded)
             self.assertIs(sys.modules["fresh_side"], loaded)
 
+    _LOADER = (
+        "import importlib.util\n"
+        "import sys\n"
+        "from pathlib import Path\n\n\n"
+        "def load(alias, value):\n"
+        "    spec = importlib.util.spec_from_file_location(\n"
+        "        alias, str(Path(__file__).with_name('side.py')))\n"
+        "    made = importlib.util.module_from_spec(spec)\n"
+        "    sys.modules[alias] = made\n"
+        "    spec.loader.exec_module(made)\n"
+        "    made.V = value\n"
+        "    return made\n\n\n"
+        "def read(alias):\n"
+        "    import importlib\n"
+        "    return importlib.import_module(alias).V\n"
+    )
+
+    def test_a_call_time_module_belongs_to_the_block_that_loaded_it(self):
+        """Ownership was decided by whichever open block's directories held the
+        file, asked outermost first. Two discoveries of one checkout share
+        directories, so the outer one was handed a module the inner one had
+        loaded and was still using: it went into the wrong inventory, came out
+        of `sys.modules` before its real owner was reached, and ended up
+        retained by both."""
+
+        root = self.tmp / "shared"
+        root.mkdir()
+        (root / "side.py").write_text("V = 0\n")
+        (root / "main.py").write_text(self._LOADER)
+        outer, inner = discover(root), discover(root)
+        third = self._repo("otherC", {"e.py": "V = 1\n"})
+
+        with outer.imports():
+            with inner.imports():
+                self._module(inner, "main").load("fresh_side", 22)
+                with third.imports():
+                    self.assertIn("fresh_side", inner.context.modules)
+                    self.assertNotIn("fresh_side", outer.context.modules)
+                    with inner.imports():
+                        self.assertEqual(
+                            self._module(inner, "main").read("fresh_side"), 22
+                        )
+
+        self.assertIn("fresh_side", inner.context.modules)
+        self.assertNotIn("fresh_side", outer.context.modules)
+
+    def test_a_colliding_call_time_name_still_reaches_its_owner(self):
+        """Retention was skipped whenever the entering block had a name of its
+        own to install. Its own module then displaced the outer one correctly,
+        but the outer block had no retained copy and could not reinstall it on
+        a nested re-entry."""
+
+        root = self.tmp / "colX"
+        root.mkdir()
+        (root / "side.py").write_text("V = 0\n")
+        (root / "main.py").write_text(self._LOADER)
+        outer = discover(root)
+        inner = self._repo("colY", {"entry.py": "V = 99\n"})
+
+        with outer.imports():
+            self._module(outer, "main").load("entry", 11)
+            with inner.imports():
+                self.assertEqual(sys.modules["entry"].V, 99)
+                with outer.imports():
+                    self.assertEqual(self._module(outer, "main").read("entry"), 11)
+            self.assertEqual(self._module(outer, "main").read("entry"), 11)
+
     def test_an_empty_discovery_nests_inside_a_real_one(self):
         """A discovery that loaded nothing installs nothing and never joins the
         open-block list, so it has no place in the ordering check. Asking it
