@@ -20,6 +20,7 @@ that gives up says how hard it looked.
 
 from __future__ import annotations
 
+import functools
 import inspect
 import sys
 from collections.abc import Mapping as _MappingABC
@@ -617,11 +618,13 @@ def resolve(repository: Path, *arguments: Any, **keywords: Any) -> "Submission":
 
     Wrapping rather than deciding at each return keeps every path through the
     search, including the memo's, on one answer, and keeps the capture
-    accumulator separate from what the report is allowed to say.
+    accumulator separate from what the report is allowed to say. `wraps`
+    keeps the typed signature callers read.
     """
 
     hook = keywords.pop("weights_consumed", None)
     return _publish_weights(_resolve(repository, *arguments, **keywords), hook)
+
 
 
 def _resolve(
@@ -647,6 +650,10 @@ def _resolve(
     readers: int = 0,
     prepare: Optional[Callable[[Path, Sequence[Any]], Mapping[str, Any]]] = None,
     expects: Optional[str] = None,
+    # Consumed by the `resolve` wrapper above, which settles what may be
+    # published before returning. Declared here so the public signature
+    # `wraps` exposes names it.
+    weights_consumed: Optional[Callable[["Submission"], bool]] = None,
 ) -> Submission:
     """Resolve one repository against one week's task.
 
@@ -2230,3 +2237,8 @@ def _listed(items: Sequence[str]) -> str:
     if len(items) == 2:
         return "{} and {}".format(*items)
     return "{}, and {}".format(", ".join(items[:-1]), items[-1])
+
+
+# Applied here because `_resolve` is defined below the wrapper. Signature
+# only; the wrapper's behaviour is unchanged.
+resolve = functools.wraps(_resolve)(resolve)
