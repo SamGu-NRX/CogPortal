@@ -180,7 +180,9 @@ class Submission:
     #: ``{"path", "sha256", "size"}``, measured from the bytes retained before
     #: the week loaded them. The report carries these so `cogworks sync`
     #: uploads what was scored rather than whatever the file holds later.
-    weights_captured: Tuple[Dict[str, Any], ...] = ()
+    #: ``None`` when this run scored with weights whose consumption the
+    #: week could not establish: the names stay, the receipts do not exist.
+    weights_captured: Optional[Tuple[Dict[str, Any], ...]] = ()
 
     #: The candidates behind ``enroll`` and ``query``, kept so a scoring run
     #: can start from an empty database. Not part of the record.
@@ -342,7 +344,10 @@ class Submission:
         # The receipts travel with the names. `check --json` and the process
         # boundary both read this record, and a name without its digest is
         # the half-answer this design exists to stop producing.
-        record["weightsCaptured"] = [dict(item) for item in self.weights_captured]
+        record["weightsCaptured"] = (
+            None if self.weights_captured is None
+            else [dict(item) for item in self.weights_captured]
+        )
         supplied = _supplied_by(self)
         if supplied:
             # Everything the benchmark handed their code that did not come out
@@ -553,6 +558,7 @@ def from_spec(repository: Path, spec: Any, **overrides: Any) -> Submission:
         "readers": int(getattr(spec, "readers", 0) or 0),
         "prepare": getattr(spec, "prepare", None),
         "expects": getattr(spec, "expects", None),
+        "weights_consumed": getattr(spec, "weights_consumed", None),
     }
     arguments.update(overrides)
     return resolve(repository, **arguments)
@@ -578,7 +584,45 @@ def _coverage_of(found, benchmark: str = ""):
     )
 
 
-def resolve(
+def _publish_weights(
+    submission: "Submission", hook: Optional[Callable[["Submission"], bool]]
+) -> "Submission":
+    """Decide what this run may claim about the weights it scored with.
+
+    Three states, and the middle one is the point: no weights at all, weights
+    whose consumption the week established, and weights it could not. The
+    third keeps its names and publishes no receipt, because a receipt is a
+    statement about which bytes were read and nothing here can make it.
+
+    The week answers only for the bindings it supports. A true answer is
+    honoured only when capture actually produced receipts, so a mistaken hook
+    cannot mint provenance for a run that retained nothing.
+    """
+
+    if not submission.weights_used:
+        return submission
+    established = False
+    if submission.weights_captured and hook is not None:
+        try:
+            established = bool(hook(submission))
+        except Exception:  # noqa: BLE001 - a week's hook must not fail a score
+            established = False
+    return submission if established else replace(submission, weights_captured=None)
+
+
+def resolve(repository: Path, *arguments: Any, **keywords: Any) -> "Submission":
+    """Resolve, then settle what may be published about its weights.
+
+    Wrapping rather than deciding at each return keeps every path through the
+    search, including the memo's, on one answer, and keeps the capture
+    accumulator separate from what the report is allowed to say.
+    """
+
+    hook = keywords.pop("weights_consumed", None)
+    return _publish_weights(_resolve(repository, *arguments, **keywords), hook)
+
+
+def _resolve(
     repository: Path,
     *,
     chain_role: Role,
@@ -723,12 +767,15 @@ def resolve(
                     )
                     weights_used = tuple(item["path"] for item in weights_captured)
                 elif declared:
-                    raise storage.RetentionError(
-                        "This benchmark scores weights but does not retain them. Its "
-                        "`prepare` hook must take a `capture` argument and load "
-                        "through it, so the report describes the bytes that were "
-                        "scored: {}".format(", ".join(sorted(declared)))
-                    )
+                    # A week that names weights without retaining them still
+                    # scores locally. The names are canonicalised against the
+                    # project the same way a captured one is, by path only,
+                    # and the run publishes no receipt for them.
+                    weights_used = tuple(sorted(
+                        storage.canonical_weight_path(repository, found.root.path / name)
+                        for name in declared
+                    ))
+                    weights_captured = None
             except Exception as error:  # noqa: BLE001 - the week's hook may refuse
                 watcher.done()
                 return Submission(

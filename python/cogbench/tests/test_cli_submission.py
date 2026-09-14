@@ -41,7 +41,7 @@ class WhichCodeIsScored(unittest.TestCase):
         cli.resolve_submission = lambda *a, **k: ("theirs", "file", "submission.py")
         cli._discover = lambda *a, **k: (_ready(), None, None)
 
-        adapter, weights = cli._submission_for("b", _Benchmark(), self.tmp, as_json=False)
+        adapter, names, weights = cli._submission_for("b", _Benchmark(), self.tmp, as_json=False)
 
         self.assertEqual(adapter, "theirs")
         self.assertEqual(weights, [])
@@ -57,7 +57,7 @@ class WhichCodeIsScored(unittest.TestCase):
         )
         cli._discover = lambda *a, **k: (_ready(), None, None)
 
-        adapter, weights = cli._submission_for("b", _Benchmark(), self.tmp, as_json=False)
+        adapter, names, weights = cli._submission_for("b", _Benchmark(), self.tmp, as_json=False)
 
         self.assertNotEqual(adapter, "somebody else's")
         self.assertEqual(adapter()[0], "discovered")
@@ -75,10 +75,11 @@ class WhichCodeIsScored(unittest.TestCase):
 
         cli._discover = lambda *a, **k: (_Found(), None, None)
 
-        adapter, weights = cli._submission_for("b", _Benchmark(), self.tmp, as_json=False)
+        adapter, names, weights = cli._submission_for("b", _Benchmark(), self.tmp, as_json=False)
 
         self.assertEqual(adapter()[0], "discovered")
         # The receipts travel, not bare names: the report needs the digest.
+        self.assertEqual(names, ["models/search.pkl"])
         self.assertEqual(
             weights, [{"path": "models/search.pkl", "sha256": "c" * 64, "size": 7}]
         )

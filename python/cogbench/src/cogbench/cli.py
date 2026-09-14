@@ -335,9 +335,13 @@ class _Scoreable(NamedTuple):
     """
 
     factory: Optional[Callable[..., Any]]
-    #: One capture receipt per scored weight: ``{"path", "sha256", "size"}``.
-    #: Empty for a week that declares none, which is every week but Language.
-    weights: List[Dict[str, Any]]
+    #: The scored weight names, always.
+    weight_names: List[str]
+    #: One receipt per name, or ``None`` when consumption was not established.
+    #: Carried beside the names rather than derived from them: in that state
+    #: there are names and no receipts, and deriving one from the other would
+    #: report the run as having scored no weights.
+    weights: Optional[List[Dict[str, Any]]]
     #: What would actually be scored: "file", "discovery", or None.
     source: Optional[str]
     #: The live resolution, for a caller in the same process. None when
@@ -383,7 +387,7 @@ def _scoreable(name: str, benchmark, project_root: Path, *, as_json: bool, spec=
         )
         if declared_source == "file":
             return _Scoreable(
-                factory, [], "file", None, None, declared_source, declared_detail
+                factory, [], [], "file", None, None, declared_source, declared_detail
             )
     except PluginError as error:
         declared_error = str(error)
@@ -396,14 +400,16 @@ def _scoreable(name: str, benchmark, project_root: Path, *, as_json: bool, spec=
     build = getattr(benchmark, "submission_from_discovery", None)
     if submission is None or not submission.ready or not callable(build):
         return _Scoreable(
-            None, [], None, submission, survey,
+            None, [], [], None, submission, survey,
             declared_source, declared_detail, declared_error, unavailable,
         )
     # The receipts, not the names: the report has to carry the digest and the
     # length that were measured when the bytes were retained.
-    weights = [dict(receipt) for receipt in submission.weights_captured]
+    captured = submission.weights_captured
+    weights = None if captured is None else [dict(item) for item in captured]
     return _Scoreable(
         (lambda *args, **kwargs: build(submission)),
+        [str(name) for name in submission.weights_used],
         weights,
         "discovery",
         submission,
@@ -426,7 +432,7 @@ def _submission_for(name: str, benchmark, project_root: Path, *, as_json: bool, 
             "Nothing in this repository could be scored yet. Run "
             "`cogworks check --benchmark {}` to see what was found.".format(name)
         )
-    return scoreable.factory, scoreable.weights
+    return scoreable.factory, scoreable.weight_names, scoreable.weights
 
 
 def _check_view(name: str, project_root: Path, as_json: bool) -> dict:
@@ -829,7 +835,7 @@ def _run_view(args: argparse.Namespace, project_root: Path) -> str:
         # owns resolves to its validated copy, including attribute reads while
         # scoring. The spec and mapping are built here, never sent across exec.
         with _Redirects(dict(getattr(spec, "resource_files", {}) or {})):
-            adapter, weights = _submission_for(
+            adapter, weight_names, weights = _submission_for(
                 args.benchmark, benchmark, project_root, as_json=args.json, spec=spec,
                 spec_error=spec_error
             )
@@ -844,6 +850,7 @@ def _run_view(args: argparse.Namespace, project_root: Path) -> str:
                 project_root,
                 smoke=args.command == "test",
                 progress=live.progress if live else None,
+                weight_names=weight_names,
                 weights=weights,
             )
             if live:
@@ -1019,8 +1026,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             receipts = report.weights_uploaded
             if receipts is None and report.weights_used:
                 raise PortalError(
-                    "This report names weights but predates the capture that records "
-                    "them. Run the benchmark again, then sync."
+                    "This report doesn't establish which weight bytes were used. "
+                    "Use an explicit weight input or the retained model loader, "
+                    "then run again before uploading or verifying weights."
                 )
             for receipt in receipts or []:
                 try:
