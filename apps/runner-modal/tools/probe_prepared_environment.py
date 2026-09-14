@@ -38,6 +38,7 @@ import json
 import os
 import re
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -259,14 +260,54 @@ def reserve_receipt(path: Optional[Path]) -> None:
 
 
 def write_receipt(path: Path, receipt: Dict[str, Any]) -> None:
-    """Create the receipt exclusively, so a concurrent probe cannot lose one."""
+    """Publish a complete receipt without replacing an existing destination.
 
-    path.parent.mkdir(parents=True, exist_ok=True)
+    A same-directory hard link creates the final name exclusively after writing
+    finishes. Cleanup removes only the temporary name, never the destination,
+    which another process could replace before cleanup.
+    """
+
+    body = json.dumps(receipt, indent=2, sort_keys=True) + "\n"
+    directory = path.parent
     try:
-        with open(str(path), "x", encoding="utf-8") as handle:
-            handle.write(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+        directory.mkdir(parents=True, exist_ok=True)
+        handle, temporary = tempfile.mkstemp(
+            dir=str(directory), prefix=".{}.".format(path.name), suffix=".part"
+        )
+    except OSError as error:
+        raise ProbeError("Could not prepare {}: {}.".format(path, error)) from None
+
+    try:
+        with os.fdopen(handle, "w", encoding="utf-8") as stream:
+            stream.write(body)
+        os.link(temporary, str(path))
     except FileExistsError:
-        raise ProbeError("{} appeared while this probe was running; nothing was written.".format(path)) from None
+        residue = _discard(temporary)
+        raise ProbeError(
+            "{} appeared while this probe was running; nothing was written to it.{}".format(path, residue)
+        ) from None
+    except OSError as error:
+        residue = _discard(temporary)
+        raise ProbeError(
+            "Could not write {}: {}.{}".format(path, error, residue)
+        ) from None
+    residue = _discard(temporary)
+    if residue:
+        print("probe warning: receipt is complete." + residue, file=sys.stderr)
+
+
+def _discard(temporary: str) -> str:
+    """Remove this call's own temporary file, reporting residue rather than raising.
+
+    A cleanup failure must not replace the failure that caused it, so this
+    returns a sentence to append instead of raising one.
+    """
+
+    try:
+        os.unlink(temporary)
+    except OSError as error:
+        return " A temporary file remains at {}: {}.".format(temporary, error)
+    return ""
 
 
 def load_json(raw: str, what: str) -> Any:
