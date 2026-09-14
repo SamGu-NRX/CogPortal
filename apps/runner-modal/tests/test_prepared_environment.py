@@ -1,4 +1,4 @@
-"""Contract-1 decoder/driver goldens and controller evidence validation.
+"""Decoder/driver goldens for each declared contract, and evidence validation.
 
 The wire fixtures below are built independently of the current encoders, so a
 matching encoder/decoder edit cannot silently redefine an existing contract.
@@ -108,10 +108,12 @@ class DependencyGateTest(unittest.TestCase):
 
 
 class EvidenceTest(unittest.TestCase):
-    def test_contract_map_is_the_pr8_baseline(self):
+    def test_declared_contracts_match_the_released_decoders(self):
+        # Clustering left the PR8 baseline when its records gained `scored` and
+        # `scenario_key`; the golden below is the decoder that preserves them.
         self.assertEqual(env.SANDBOX_CONTRACTS, {
             "audio-identification": 1, "vision-recognition": 1,
-            "vision-clustering": 1, "language-search": 1,
+            "vision-clustering": 2, "language-search": 1,
         })
 
     def test_binding_uses_only_source_identity_and_requested_digests(self):
@@ -200,12 +202,15 @@ class EvidenceTest(unittest.TestCase):
         self.assertEqual(env.validate_prepared_environment(request, result), env.INCOMPATIBLE)
 
     def test_python38_requirement_is_only_for_audio_and_language(self):
-        for benchmark_id in env.SANDBOX_CONTRACTS:
+        for benchmark_id, contract in env.SANDBOX_CONTRACTS.items():
             request = job()
-            request["benchmark"]["id"] = benchmark_id
+            # The contract is a prerequisite here, not the subject: match it so
+            # the only thing that can refuse a case below is the interpreter.
+            request["benchmark"].update(id=benchmark_id, sandboxContract=contract)
             for version in ("3.7.17", "3.8.19", "3.8.20", "3.8.21", "3.9.20", "3.11.15", "3.80.1", "3.8", "3.8.invalid"):
                 observed, result = observation(), evidence()
                 observed["pythonVersion"] = result["pythonVersion"] = version
+                observed["sandboxContract"] = result["sandboxContract"] = contract
                 result["benchmarkId"] = benchmark_id
                 accepted = benchmark_id.startswith("vision-") or version in ("3.8.19", "3.8.20", "3.8.21")
                 with self.subTest(benchmark=benchmark_id, version=version):
@@ -292,8 +297,9 @@ class ProbeTest(unittest.TestCase):
         require_benchmark(benchmark_id)
         import cogbench
 
+        declared = env.SANDBOX_CONTRACTS[benchmark_id]
         observed = env.probe(benchmark_id)
-        self.assertEqual(observed["sandboxContract"], 1)
+        self.assertEqual(observed["sandboxContract"], declared)
         self.assertEqual(observed["pythonVersion"], platform.python_version())
         self.assertEqual(observed["sdkVersion"], cogbench.__version__)
         names = {row["name"] for row in observed["modules"]}
@@ -302,7 +308,9 @@ class ProbeTest(unittest.TestCase):
         self.assertIn("cogbench.discover", names)
         self.assertIn("cogbench.resolve", names)
         request = job()
-        request["benchmark"]["id"] = benchmark_id
+        # The job carries the catalog's contract and the probe reports the
+        # image's; a correctly released pair agrees, which is what this checks.
+        request["benchmark"].update(id=benchmark_id, sandboxContract=declared)
         if benchmark_id in ("audio-identification", "language-search") and sys.version_info[:2] != (3, 8):
             with self.assertRaisesRegex(env.PreparedEnvironmentError, "Python 3.8 requirement"):
                 env.validate_observation(request, observed)
@@ -494,26 +502,31 @@ class DecoderDriverGoldenTest(unittest.TestCase):
         self.assertEqual(calls, ["factory", ("enroll", "known"), ("recognize", 2),
                                  ("enroll", "new"), ("recognize", 2)])
 
-    def test_vision_clustering_contract1_forwards_seed_without_gold(self):
+    def test_vision_clustering_contract2_preserves_scored_and_scenario_key(self):
         require_benchmark("vision-clustering")
         import numpy as np
         from facial_recognition_benchmark.adapters import AdapterContractError
         from facial_recognition_benchmark.drivers import run_clustering_scenario
         from cogworks_runner.week2_payload import decode_cases
 
+        self.assertEqual(env.SANDBOX_CONTRACTS["vision-clustering"], 2,
+                         "sandboxContract must describe the decoder this asserts")
         arrays = {"images/{:04d}.npy".format(i): np.full((2, 2, 3), i, dtype=np.uint8)
                   for i in range(3)}
         wire = payload({"benchmark_id": "vision-clustering", "cases": [
-            # Contract 1 does not carry these controller-only fields through
-            # decoding. Preserving them later requires a new contract fixture.
-            {"images": [0, 1, 2], "seed": 7, "scored": False, "scenario_key": "sweep"},
+            # A base and its repetition exercise both scored values and grouping.
+            {"images": [0, 1, 2], "seed": 7, "scored": True, "scenario_key": "base"},
+            {"images": [0, 1, 2], "seed": 11, "scored": False, "scenario_key": "base"},
         ]}, arrays)
         benchmark_id, cases = decode_cases(wire)
-        self.assertEqual((benchmark_id, len(cases)), ("vision-clustering", 1))
-        self.assertEqual(cases[0].expected_labels, [])
-        self.assertEqual(cases[0].seed, 7)
-        self.assertTrue(cases[0].scored)
-        self.assertIsNone(cases[0].scenario_key)
+        self.assertEqual((benchmark_id, len(cases)), ("vision-clustering", 2))
+        base, repetition = cases
+        self.assertEqual([base.expected_labels, repetition.expected_labels], [[], []])
+        self.assertEqual((base.seed, base.scored, base.scenario_key), (7, True, "base"))
+        self.assertEqual((repetition.seed, repetition.scored, repetition.scenario_key),
+                         (11, False, "base"))
+        # The driver takes one scenario and reads neither field, so the rest of
+        # this runs a single case.
         seen = []
 
         class Adapter:
@@ -521,7 +534,7 @@ class DecoderDriverGoldenTest(unittest.TestCase):
                 seen.append((seed, [int(image[0, 0, 0]) for image in images]))
                 return [np.int64(9), np.int64(9), "other"]
 
-        self.assertEqual(run_clustering_scenario(lambda model: Adapter(), object(), cases[0]), [9, 9, "other"])
+        self.assertEqual(run_clustering_scenario(lambda model: Adapter(), object(), base), [9, 9, "other"])
         self.assertEqual(seen, [(7, [0, 1, 2])])
 
         class Broken:
@@ -529,7 +542,7 @@ class DecoderDriverGoldenTest(unittest.TestCase):
                 return [0]
 
         with self.assertRaisesRegex(AdapterContractError, "returned 1 labels for 3 images"):
-            run_clustering_scenario(lambda model: Broken(), object(), cases[0])
+            run_clustering_scenario(lambda model: Broken(), object(), base)
 
     def test_language_contract1_has_six_cases_and_one_shared_preparation(self):
         require_benchmark("language-search")

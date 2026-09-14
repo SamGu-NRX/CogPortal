@@ -23,10 +23,17 @@ from typing import Any, Dict, Optional
 # Release declarations, checked against concrete decoder/driver fixtures in
 # test_prepared_environment.py. Language 1 has one text, one retrieval and four
 # search cases. Scorer-only changes do not change this sandbox contract.
+#
+# Clustering 2 means the decoder preserves `scored` and `scenario_key` from
+# each case record; contract 1 has no fields for them and returns the
+# dataclass defaults. This is a statement about the decoder in the image, not
+# about scoring: the sandbox runs every decoded case and reads neither field,
+# and the controller scores its own gold-bearing cases. Recognition's record
+# shape did not change, so it stays 1.
 SANDBOX_CONTRACTS = {
     "audio-identification": 1,
     "vision-recognition": 1,
-    "vision-clustering": 1,
+    "vision-clustering": 2,
     "language-search": 1,
 }
 

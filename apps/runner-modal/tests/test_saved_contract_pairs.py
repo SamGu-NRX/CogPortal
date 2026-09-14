@@ -45,6 +45,76 @@ class SavedContractPairs(unittest.TestCase):
         if contract == 2:
             self.assertNotEqual(len(old_cases), len(current_cases))
 
+    def test_old_clustering_decoder_drops_the_fields_contract_2_preserves(self):
+        """What clustering contract 2 asserts, and what refuses contract 1.
+
+        The contract is field preservation: the current decoder returns
+        `scored` and `scenario_key` as the record set them, and the preserved
+        one returns the dataclass defaults. Neither field changes what the
+        sandbox does with a case, so the refusal below is what keeps an image
+        from claiming a decoder it does not contain.
+        """
+        require_benchmark("vision-clustering")
+        import numpy as np
+        from facial_recognition_benchmark.drivers import ClusteringScenario
+        from cogworks_runner.week2_payload import decode_cases, encode_cases
+        from cogworks_runner.prepared_environment import (
+            INCOMPATIBLE, SANDBOX_CONTRACTS, validate_prepared_environment,
+        )
+
+        images = [np.full((2, 2, 3), value, dtype=np.uint8) for value in range(3)]
+        cases = [
+            ClusteringScenario(images=images, expected_labels=[0, 0, 1], seed=5,
+                               scored=True, scenario_key="four-people"),
+            ClusteringScenario(images=images, expected_labels=[0, 0, 1], seed=42,
+                               scored=False, scenario_key="four-people"),
+        ]
+        payload, _ = encode_cases("vision-clustering", cases)
+
+        _, current = decode_cases(payload)
+        self.assertEqual([(case.seed, case.scored, case.scenario_key) for case in current],
+                         [(5, True, "four-people"), (42, False, "four-people")])
+
+        old = saved("saved_clustering_payload", "pr8_week2_payload.py")
+        _, decoded = old.decode_cases(payload)
+        self.assertEqual([case.seed for case in decoded], [5, 42],
+                         "The old decoder reads the payload rather than refusing it")
+        self.assertEqual([(case.scored, case.scenario_key) for case in decoded],
+                         [(True, None), (True, None)],
+                         "Both fields come back as defaults rather than as the record set them")
+        self.assertEqual(SANDBOX_CONTRACTS["vision-clustering"], 2,
+                         "A decoder that preserves these fields is not contract 1")
+
+        # The evidence is written as a literal because it is one: a record an
+        # old image left behind, which today's probe would not produce.
+        source = {"repositoryId": 42, "fullName": "course/team", "sha": "a" * 40}
+
+        def saved_at(benchmark_id, contract=1):
+            return {
+                "schemaVersion": 1, "artifactId": "im-saved", "benchmarkId": benchmark_id,
+                "source": source, "baseImageId": "im-base", "sandboxContract": contract,
+                "pythonVersion": "3.11.9", "sdkVersion": "0.2.0",
+                "modules": [{"name": "cogbench", "path": "/opt/cogbench/__init__.py",
+                             "sha256": "c" * 64}],
+                "weights": [],
+            }
+
+        def reuse(benchmark_id, catalog_contract):
+            return {"preparedArtifactId": "im-saved", "source": source, "weights": [],
+                    "benchmark": {"id": benchmark_id, "sandboxContract": catalog_contract}}
+
+        clustering = saved_at("vision-clustering")
+        self.assertEqual(validate_prepared_environment(reuse("vision-clustering", 2), clustering),
+                         INCOMPATIBLE)
+        # A catalog still seeded at 1 is refused as well, so the image and the
+        # catalog have to move together rather than one admitting work early.
+        self.assertEqual(validate_prepared_environment(reuse("vision-clustering", 1), clustering),
+                         INCOMPATIBLE)
+        # Recognition shares the image and is unaffected: same saved contract,
+        # its own catalog row, and reuse stays available.
+        self.assertIsNone(validate_prepared_environment(
+            reuse("vision-recognition", 1), saved_at("vision-recognition")))
+
     def test_old_vision_driver_honors_current_shuffled_lifecycle(self):
         require_benchmark("vision-recognition")
         import numpy as np
