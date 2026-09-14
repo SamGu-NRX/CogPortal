@@ -522,3 +522,51 @@ test("enqueue retains a recorded job through queue failure and rejects changed s
     assert.ok(!queries.some((query) => /local_reports|team_members/.test(query)));
   } finally { sqlite.close(); }
 });
+
+/**
+ * The fixture console and fixture admission read one rule.
+ *
+ * `retryRun` has always refused a fixture retry whose recorded labels no
+ * longer match the catalog, but the snapshot only ran Modal's check, so the
+ * console offered a Retry that answered 409 on the press.
+ */
+const FIXTURE_DRIFT: Record<string, Partial<BenchmarkRow>> = {
+  contract: { contractVersion: "cogworks.submissions.v2" },
+  scorer: { scorerVersion: "changed" },
+  runtime: { runtimeVersion: "changed" },
+  dataset: { datasetVersion: "official-v2" },
+};
+
+for (const [name, drift] of Object.entries(FIXTURE_DRIFT)) {
+  test(`a fixture run whose ${name} version moved is refused, not advertised`, async () => {
+    // Official mode, because dataset drift is only visible to a run that used
+    // the catalog's dataset; practice pins "practice-v1" whatever it says.
+    const { run, env } = original("official");
+    run.provider = "fixture";
+    run.dispatchJobJson = null;
+    env.EXECUTION_PROVIDER = "fixture";
+    const catalog = { ...benchmark, ...drift };
+    const harness = await snapshotDatabase(run, env, catalog);
+    try {
+      const snapshot = await harness.snapshot();
+      assert.equal(snapshot.actions.includes("retry"), false, "the console offered a refused Retry");
+      assert.equal(snapshot.retryRefusal, "The recorded benchmark configuration has changed. Start a new candidate.");
+      // The same sentence the server answers with, from the same function.
+      assert.equal(snapshot.status, "failed");
+      assert.equal(snapshot.refusalHeadline, null);
+    } finally { harness.sqlite.close(); }
+  });
+}
+
+test("an unchanged fixture run is still advertised and still carries no refusal", async () => {
+  const { run, env } = original("official");
+  run.provider = "fixture";
+  run.dispatchJobJson = null;
+  env.EXECUTION_PROVIDER = "fixture";
+  const harness = await snapshotDatabase(run, env, { ...benchmark });
+  try {
+    const snapshot = await harness.snapshot();
+    assert.equal(snapshot.actions.includes("retry"), true);
+    assert.equal(snapshot.retryRefusal, null);
+  } finally { harness.sqlite.close(); }
+});

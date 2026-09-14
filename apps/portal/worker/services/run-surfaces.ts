@@ -36,7 +36,7 @@ import { syncRun } from "../execution/sync";
 import { validateRetryInputs } from "../execution/runner";
 import { serializeMetric } from "../http/serializers";
 import { ApiHttpError } from "../http/errors";
-import { canPublishOfficialRun, currentSurfaceRun, savedEnvironmentEligibility } from "./run-eligibility";
+import { canPublishOfficialRun, currentSurfaceRun, fixtureRetryRefusal, savedEnvironmentEligibility } from "./run-eligibility";
 import { acceptedRunPredicate, readRunAccounting } from "./run-accounting";
 
 const MAX_SURFACE_EVENTS = 250;
@@ -369,13 +369,19 @@ export async function readRunSurfaceSnapshot(
   const occupied = accounting.officialUsed + accounting.officialReserved;
   const nextAttempt = occupied < OFFICIAL_LIMIT ? occupied + 1 : null;
   const execution = official ?? practice;
+  // Each provider's own admission check, so neither advertises a Retry the
+  // server would refuse. A fixture has no recorded job to validate.
   let retryRefusal: string | null = null;
-  if (execution?.status === "failed" && execution.provider === "modal") {
-    try {
-      validateRetryInputs(env, execution, team, benchmark);
-    } catch (error) {
-      if (!(error instanceof ApiHttpError) || error.status !== 409) throw error;
-      retryRefusal = error.message;
+  if (execution?.status === "failed") {
+    if (execution.provider === "modal") {
+      try {
+        validateRetryInputs(env, execution, team, benchmark);
+      } catch (error) {
+        if (!(error instanceof ApiHttpError) || error.status !== 409) throw error;
+        retryRefusal = error.message;
+      }
+    } else {
+      retryRefusal = fixtureRetryRefusal(execution, benchmark);
     }
   }
   const retryCapacity = execution?.mode === "official"
