@@ -694,6 +694,25 @@ def _operation_child() -> None:
 
 
 def _collect(pid, read_fd, timeout_seconds, memory_bytes) -> Outcome:
+    """Wait for the child and describe what became of it.
+
+    Known open defect, and the reason to read this before changing it. The
+    deadline here is three mechanisms rather than one: a `SIGALRM` on the main
+    thread, a timer thread off it, and blocking reaps that neither can
+    interrupt. Ownership of "has the child been waited on" is therefore split
+    across paths, and the containment owner has reproduced a window between
+    the kernel reaping the child and this seeing it, in which the timer can
+    signal a number that is no longer ours.
+
+    Successive locking has not closed that and is not expected to: holding the
+    lock across a blocking reap stops the timer from terminating at all, which
+    trades one failure for a worse one. The agreed replacement is a single
+    parent-thread monotonic deadline checked by the `select` loop already here
+    and by non-blocking `waitpid` polling, with no caller signal handler and no
+    timer thread. That removes both races rather than synchronizing them. It
+    is not done here.
+    """
+
     outcome = None
     fired = False
     reason = None
@@ -715,6 +734,12 @@ def _collect(pid, read_fd, timeout_seconds, memory_bytes) -> Outcome:
     # `reaped` and send a signal to a number the kernel has already freed.
     lifecycle = threading.Lock()
     closed = False
+    #: Whether the child has been waited on, so its number is no longer ours
+    #: to signal. Deliberately not `reaped`: that one means the child exited
+    #: before we killed it, which is the evidence a published payload is
+    #: judged against. Sharing one flag for both let a child that published
+    #: and then had to be killed keep its result.
+    harvested = False
 
     def expire():
         # The wall-clock deadline for a caller that cannot have SIGALRM. The
@@ -732,7 +757,7 @@ def _collect(pid, read_fd, timeout_seconds, memory_bytes) -> Outcome:
             if closed:
                 return
             fired = True
-            _terminate(pid, reaped=reaped)
+            _terminate(pid, reaped=harvested)
 
     watchdog = None
     if not armed and timeout_seconds is not None and timeout_seconds > 0:
@@ -741,7 +766,7 @@ def _collect(pid, read_fd, timeout_seconds, memory_bytes) -> Outcome:
         watchdog.start()
 
     def exited():
-        nonlocal status, reaped
+        nonlocal status, reaped, harvested
         with lifecycle:
             if not reaped:
                 while True:
@@ -751,7 +776,7 @@ def _collect(pid, read_fd, timeout_seconds, memory_bytes) -> Outcome:
                     except InterruptedError:
                         continue
                 if done:
-                    status, reaped = observed, True
+                    status, reaped, harvested = observed, True, True
             return reaped
 
     try:
@@ -779,6 +804,11 @@ def _collect(pid, read_fd, timeout_seconds, memory_bytes) -> Outcome:
                 # ordering. The alarm can therefore land inside this wait, and
                 # that is a real timeout rather than a lost status, so it falls
                 # through to the cleanup path with `fired` set.
+                # Deliberately not under `lifecycle`: these block, and the
+                # watchdog has to be able to terminate while they do. That
+                # leaves a window between the kernel reaping the child and the
+                # flag being set, which the containment owner reproduced. It
+                # is not closed by more locking; see `_collect`'s note.
                 try:
                     observed = (_reap_exact(pid) if armed
                                 else _reap_bounded(pid, UNBOUNDED_REAP_SECONDS))
@@ -786,7 +816,7 @@ def _collect(pid, read_fd, timeout_seconds, memory_bytes) -> Outcome:
                     fired, observed = True, None
                 if observed is not None:
                     with lifecycle:
-                        status, reaped = observed, True
+                        status, reaped, harvested = observed, True, True
         except _Alarm:
             fired, outcome = True, None
             reason = reason or "alarm"
@@ -829,22 +859,26 @@ def _collect(pid, read_fd, timeout_seconds, memory_bytes) -> Outcome:
                     except OSError:
                         done = 0
                     if done:
-                        reaped, status = True, observed
+                        reaped, status, harvested = True, observed, True
         finally:
             with lifecycle:
                 # Closed here, after the last signal this operation sends and
                 # while holding the lock a running callback would hold: a
                 # callback mid-flight finishes before this is taken, and one
                 # dispatched later finds `closed` and does nothing.
-                _terminate(pid, reaped=reaped)
+                _terminate(pid, reaped=harvested)
                 if not reaped:
                     final_status = _reap(pid)[1]
+                    # Waited on, so the number is no longer ours to signal.
+                    # `reaped` stays False: this death is one we caused, and
+                    # it is not evidence that a payload the child published
+                    # can be trusted.
+                    harvested = True
                 # A different signal or ordinary exit could arrive between
                 # WNOHANG and cleanup. Those cannot have come from our SIGKILL.
                     if final_status is not None and not (os.WIFSIGNALED(final_status)
                             and os.WTERMSIG(final_status) == signal.SIGKILL):
                         status = final_status
-                    reaped = True
                 closed = True
     # A result is only trustworthy if the child exited on its own. The result
     # descriptor is reachable from the child, so code running there can write a
