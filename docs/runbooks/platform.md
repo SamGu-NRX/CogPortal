@@ -260,10 +260,11 @@ The evidence for that sequence comes from the migration review; accepting it is
 the lead's, and approving the rollout is root's. The production database's
 recorded ledger is far behind this migrations directory.
 
-Duplicate numeric prefixes appear only once the portal and hosted branches are
-assembled. This branch's `migrations/` holds 43 files with no repeated number;
-the combined candidate carries 45, with two files at `0039` and two at `0040`.
-Nothing here says that combined tree is accepted.
+The preserved assembly `ecf6cfc` carries 46 migration files, including
+`0044_week2_recognition_v2.sql`. Preserve both `0039_setup_check_source.sql` and
+`0039_weight_upload_provenance.sql`, and both `0040_remove_refund_cap_index.sql`
+and `0040_run_repository_name.sql`. These file identities are part of the
+reviewed source; rollout approval and the exact applied sequence remain root's.
 
 Two mechanics for when it is assembled, because the duplicates look more
 alarming than they are. Wrangler sorts by the integer before the first
@@ -459,41 +460,21 @@ there. Development currently reads `audio-identification` as active, which is a
 development decision. Turning Audio on in production is an explicit accepted
 setting for the rehearsal, named by the owner, not a byproduct of migrating.
 
-The direction the lead has accepted, to be carried out only with root approval
-and not during preparation:
+Use the [production closure worksheet](production-closure.md) and reversible
+[configuration patch](production-closure.patch) for root review. The
+conditionally accepted method denies both custom domains, disables workers.dev
+and preview URLs, empties cron, and preserves those settings through build and
+deployment. It requires invocation drain and a fresh exhaustive empty production
+Durable Object inventory before the final export/bookmark and migrations.
+Development had 11 stored objects; shared runner or image-name changes still need
+its separate drain. No closure command has been executed.
 
-1. Close known intake with `active = 0` and let physically dispatched jobs and
-   any queued work drain. Development shares the runner, so its intake has to
-   be closed and drained too even though its own writes continue.
-2. Hold the door shut for the duration of the migration set with something
-   stronger than a catalog flag. That is a full production outage and root has
-   to accept it as one.
-3. Apply the full migration set while it is held.
-4. Deploy the accepted product build with intake still closed.
-5. Reopen in stages, with a fresh Audio activation as an explicit decision.
-
-Step 2 is the unresolved one, and the obvious version of it does not work.
-`worker/index.ts:66-80` exports `RunWorkflow`, `PortalRpc` and `RunSurfaceHub`
-alongside a default with `fetch`, `queue` and `scheduled`. A wrapper that
-answers 503 from `fetch` and makes `scheduled` a no-op while re-exporting the
-original classes is **not** a no-write state: the queue consumer still runs,
-`PortalRpc` is still callable over the bot's service binding, and the Durable
-Object and Workflow are still reachable and still write. Calling that
-"maintenance" would be claiming a closure that is not there, which is worse
-than an honest outage.
-
-The entry also cannot simply drop those exports. The Durable Object binding
-needs its class present in the deployed script, and the configuration has to
-keep the same name, bindings and `migrations` tag list; getting that wrong
-risks the Durable Object rather than just the deploy.
-
-**Decision needed from root**, and this is why the configuration PR is prepared
-rather than deploy-ready: whether to accept a full production outage, and a
-reviewed entry point that demonstrably closes *every* path that writes, not
-only HTTP. Portal has cleared source ownership of such an entry and its tests;
-the architecture is not approved and nothing is written yet. Rolling back to a
-prior compatible version is the alternative to reopening on the old fixture
-Worker, which must not be the resting state because it fabricates runs.
+This replaces the proposed maintenance entry point. The actual deployed writer
+inventory, not a wrapper around `fetch`, supports the conditional procedure.
+If the writer set changes or any production object appears, stop and establish
+its drain. Preserve the existing classes, bindings and migration tags; the
+patch adds no handler or new infrastructure. Native, installer, image and
+provider prerequisites remain separate release gates.
 
 ### A stale build can redirect a deploy to the wrong configuration
 
@@ -511,11 +492,13 @@ that way in preparation for this change reported staging origins, the staging
 database and no R2 binding, none of which was in the configuration being
 reviewed.
 
-Always deploy through `pnpm --filter @cogworks/portal run deploy:production`,
-which sets `CLOUDFLARE_ENV`
-for the build as well as the deploy so the generated config is the production
-one. If you need to inspect the real file, read `wrangler.jsonc`, or rebuild
-first; a `dist/` from another environment is not evidence about either.
+For an ordinary authorized deployment,
+`pnpm --filter @cogworks/portal run deploy:production` selects production for both
+build and deploy. During the
+closed release window, use the worksheet instead: apply the closure patch,
+build with `CLOUDFLARE_ENV=production`, inspect the freshly generated config,
+then deploy that exact flattened file with explicit `--config`. A source-file
+inspection or a stale `dist/` is not evidence of the settings being deployed.
 
 **Callback direction.** Before the first production dispatch, confirm the
 portal can receive a runner event. `preflight_dispatch.py --deployed <origin>`
