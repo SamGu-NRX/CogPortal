@@ -44,16 +44,6 @@ def _progress(callback: Callable[..., None], phase: str, current: Optional[int] 
         callback(phase)
 
 
-def _weight_paths(weights: Optional[List[Dict[str, Any]]]) -> Optional[List[str]]:
-    """The scored weight names, read off their capture receipts.
-
-    One list is built from the other so a report cannot name a weight it has
-    no receipt for, or carry a receipt for a weight it did not score.
-    """
-
-    return None if weights is None else [str(item["path"]) for item in weights]
-
-
 def _predict(adapter: Any, inputs: List[Any]) -> List[Any]:
     predictor = getattr(adapter, "predict", adapter if callable(adapter) else None)
     if not callable(predictor):
@@ -78,10 +68,13 @@ def execute(
     cwd: Path,
     smoke: bool = False,
     progress: Optional[Callable[..., None]] = None,
+    weight_names: Optional[List[str]] = None,
     weights: Optional[List[Dict[str, Any]]] = None,
 ) -> LocalReport:
     if str(getattr(benchmark, "contract_version", "")) == "cogworks.submissions.v2":
-        return _execute_v2(benchmark, adapter, cwd, smoke, progress, weights)
+        return _execute_v2(
+            benchmark, adapter, cwd, smoke, progress, weight_names, weights
+        )
     if progress:
         _progress(progress, "contract_check")
     cases = list(benchmark.public_cases())
@@ -114,7 +107,10 @@ def execute(
         metrics=list(metrics),
         diagnostics=list(diagnostics),
         predictions=predictions,
-        weights_used=_weight_paths(weights),
+        # The names and the receipts travel separately. A run whose weight
+        # provenance was not established has names and no receipts, and
+        # deriving either from the other would lose one of them.
+        weights_used=None if weight_names is None else [str(n) for n in weight_names],
         weights_uploaded=None if weights is None else [dict(item) for item in weights],
     )
 
@@ -208,6 +204,7 @@ def _execute_v2(
     cwd: Path,
     smoke: bool,
     progress: Optional[Callable[..., None]],
+    weight_names: Optional[List[str]] = None,
     weights: Optional[List[Dict[str, Any]]] = None,
     model_factory: Callable[[], Any] = _facenet_model,
 ) -> LocalReport:
@@ -293,7 +290,10 @@ def _execute_v2(
         metrics=metrics,
         diagnostics=list(getattr(benchmark, "last_diagnostics", [])),
         predictions=outputs,
-        weights_used=_weight_paths(weights),
+        # The names and the receipts travel separately. A run whose weight
+        # provenance was not established has names and no receipts, and
+        # deriving either from the other would lose one of them.
+        weights_used=None if weight_names is None else [str(n) for n in weight_names],
         weights_uploaded=None if weights is None else [dict(item) for item in weights],
     )
 

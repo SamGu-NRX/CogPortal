@@ -12,6 +12,7 @@ import json
 import os
 import sys
 import unittest
+from dataclasses import dataclass
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -19,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from cogbench import storage  # noqa: E402
 from cogbench.models import LocalReport, Metric, RepositoryState  # noqa: E402
+from cogbench import resolve as resolve_module  # noqa: E402
 from cogbench.resolve import _accepts_capture  # noqa: E402
 
 ORIGINAL = b"the bytes that were scored"
@@ -249,6 +251,54 @@ class ASavedReceiptIsNotTrustedBlindly(unittest.TestCase):
             with self.assertRaises(storage.RetentionError):
                 storage.retain_input(self.root, source)
             self.assertFalse(target.exists())
+
+
+class WhatMayBePublishedAboutAScoredWeight(unittest.TestCase):
+    """`_publish_weights` is the one place a receipt becomes publishable."""
+
+    def _submission(self, used, captured):
+        @dataclass
+        class _S:
+            weights_used: tuple = ()
+            weights_captured: object = ()
+
+        return _S(
+            weights_used=tuple(used),
+            weights_captured=tuple(captured) if captured is not None else None,
+        )
+
+    def test_a_no_weight_run_is_untouched(self):
+        before = self._submission((), ())
+        self.assertIs(resolve_module._publish_weights(before, None), before)
+
+    def test_an_absent_hook_leaves_the_receipts_unpublished(self):
+        before = self._submission(("W.npy",), ({"path": "W.npy"},))
+        after = resolve_module._publish_weights(before, None)
+        self.assertIsNone(after.weights_captured)
+        self.assertEqual(after.weights_used, ("W.npy",))
+
+    def test_a_false_hook_leaves_them_unpublished(self):
+        before = self._submission(("W.npy",), ({"path": "W.npy"},))
+        after = resolve_module._publish_weights(before, lambda s: False)
+        self.assertIsNone(after.weights_captured)
+
+    def test_a_raising_hook_does_not_fail_the_score(self):
+        before = self._submission(("W.npy",), ({"path": "W.npy"},))
+        def angry(submission):
+            raise RuntimeError("the week's hook is broken")
+        after = resolve_module._publish_weights(before, angry)
+        self.assertIsNone(after.weights_captured)
+        self.assertEqual(after.weights_used, ("W.npy",))
+
+    def test_a_true_hook_cannot_mint_a_receipt_without_a_capture(self):
+        before = self._submission(("W.npy",), None)
+        after = resolve_module._publish_weights(before, lambda s: True)
+        self.assertIsNone(after.weights_captured)
+
+    def test_a_true_hook_publishes_real_receipts(self):
+        before = self._submission(("W.npy",), ({"path": "W.npy"},))
+        after = resolve_module._publish_weights(before, lambda s: True)
+        self.assertEqual(after.weights_captured, ({"path": "W.npy"},))
 
 
 class OptingIntoCaptureIsExplicit(unittest.TestCase):

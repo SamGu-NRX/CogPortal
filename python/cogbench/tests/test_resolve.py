@@ -927,6 +927,7 @@ class WhatTheRepositoryItselfSuppliesIsReadOnceTheRootIsKnown(unittest.TestCase)
             accepts=lambda chain, *_: (chain[0].bound([1]) == [3], ""),
             arrangements=None,
             prepare=prepare,
+            weights_consumed=lambda submission: True,
         )
 
         self.assertTrue(submission.ready, submission.verdict.headline)
@@ -960,8 +961,9 @@ class WhatTheRepositoryItselfSuppliesIsReadOnceTheRootIsKnown(unittest.TestCase)
         self.assertFalse(submission.ready)
         self.assertIn("Capture is the declaration", submission.verdict.headline)
 
-    def test_a_hook_that_names_weights_without_capturing_them_is_refused(self):
-        """Reporting a weight nobody retained would describe unknown bytes."""
+    def test_a_legacy_hook_still_scores_and_publishes_no_receipt(self):
+        """It named a weight nobody retained, so the run keeps the name and
+        says nothing about which bytes it was. It still scores locally."""
 
         submission = resolve(
             self.tmp,
@@ -972,8 +974,10 @@ class WhatTheRepositoryItselfSuppliesIsReadOnceTheRootIsKnown(unittest.TestCase)
             prepare=lambda root, modules: {"W": 3, "weights_used": ["data/a.npy"]},
         )
 
-        self.assertFalse(submission.ready)
-        self.assertIn("does not retain them", submission.verdict.headline)
+        self.assertTrue(submission.ready, submission.verdict.headline)
+        self.assertEqual(submission.weights_used, ("data/a.npy",))
+        self.assertIsNone(submission.weights_captured)
+        self.assertIsNone(submission.to_dict()["weightsCaptured"])
 
     def test_the_benchmarks_own_extras_win_over_the_repositorys(self):
         submission = resolve(

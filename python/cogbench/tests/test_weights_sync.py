@@ -218,13 +218,13 @@ class SyncUploadsEveryScoredWeight(unittest.TestCase):
         upload.assert_not_called()
         self.assertIn("no longer matches the report", err)
 
-    def test_a_report_predating_capture_is_refused_rather_than_guessed_at(self):
+    def test_a_report_that_cannot_say_which_bytes_is_refused(self):
         code, _, upload, _, err = self._sync(
             self._report([self.receipt.path], None)
         )
         self.assertEqual(code, 2)
         upload.assert_not_called()
-        self.assertIn("predates the capture", err)
+        self.assertIn("doesn't establish which weight bytes", err)
 
 
 class UploadWeightDigestHeaderTest(unittest.TestCase):
