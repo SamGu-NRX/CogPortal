@@ -30,21 +30,19 @@ export interface BenchmarkPackage {
  * reaches that through this page, which serves whichever pin its own deploy
  * carries, but `--portal` at an older deployment does.
  *
- * This pin carries the macOS execution boundary, so a student on a Mac runs
- * their code in a fresh interpreter rather than a fork that aborts inside
- * system APIs, and it carries the JSON result boundary that replaced the
- * pickle. It also carries the four repairs a security review blocked the
- * boundary on: a killed run can no longer report `completed`, resource limits
- * are confirmed installed before student code runs, `test` and `run` can no
- * longer hang with no deadline armed, and a repository that declares its own
- * submission no longer needs a warm course cache. Installed into a clean
- * 3.8.20 venv from this exact commit on 2026-09-10: `direct_url.json` names
- * it, `run_operation` is present, the boundary contains no pickle, reports
- * carry metric roles, and all four guards are in the installed source. CI was
- * green on all 24 check-runs at this commit before it was pinned.
+ * Preserves `094a6f1a`'s execution protections, including the macOS fresh
+ * interpreter and JSON result boundary. Its child `b8ae7ce2` fixes saved metric
+ * roles; `1b7fc261` then removes ten stale generated SDK copies that made an
+ * untouched export build from a 0.1.0 tree.
+ *
+ * Measured on 2026-09-14 against the untouched published archive: the install
+ * reports 0.2.0, all 23 modules byte-match the source, saved Audio roles and
+ * weights survive a round trip, and three installed tests pass. That is a
+ * bounded 3.11.15 case. Live authenticated sync, scoring, and a fresh 3.8
+ * install are unproven and belong to the native rehearsal.
  */
 export const COGBENCH_SOURCE =
-  "git+https://github.com/SamGu-NRX/CogPortal.git@094a6f1ac109716014492a57a81157e71b70f7ab#subdirectory=python/cogbench";
+  "git+https://github.com/SamGu-NRX/CogPortal.git@1b7fc261abfe0ff006a4a678d936e75002e5bb39#subdirectory=python/cogbench";
 
 const WEEK1_AUDIO: BenchmarkPackage = {
   distribution: "cogworks-week1-audio-benchmark",

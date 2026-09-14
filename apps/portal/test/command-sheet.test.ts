@@ -69,6 +69,8 @@ test("the tool is installed from a commit, like every other package here", () =>
   );
   assert.doesNotMatch(tool, /CogPortal\.git@main/);
   assert.doesNotMatch(tool, /test\.pypi\.org/);
+  // Restate the accepted release pin so a typo or unreviewed move fails CI.
+  assert.match(tool, /@1b7fc261abfe0ff006a4a678d936e75002e5bb39#/);
   // --force-reinstall, not just --upgrade. The version stays 0.2.0 across
   // pins, so pip treats an equal version as already satisfied: measured, an
   // --upgrade between two pins exited zero and left the older commit

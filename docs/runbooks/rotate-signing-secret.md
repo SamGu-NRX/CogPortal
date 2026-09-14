@@ -56,10 +56,14 @@ $ curl -X POST https://cogportal-dev.sillion.app/api/internal/v1/runner/events \
 {"error":{"code":"provider_unconfigured","message":"Runner signing is not configured."}}
 ```
 
-`https://cogportal.sillion.app` answers identically. Both also run with
-`EXECUTION_PROVIDER` set to `"fixture"` in `apps/portal/wrangler.jsonc`, in
-both the top-level `vars` block and `env.production.vars`, so neither dispatches
-anything today regardless.
+`https://cogportal.sillion.app` answered identically on that date.
+
+That snapshot has since moved and should be re-checked rather than trusted.
+`apps/portal/wrangler.jsonc` now carries `EXECUTION_PROVIDER: "modal"` in both
+the top-level `vars` block and `env.production.vars`, and the September 14 read
+found `RUNNER_SIGNING_SECRET` present on the development worker but not on
+production. Configuration is not deployment, so what a given environment is
+actually running is a question for `wrangler versions list`, not for this file.
 
 ---
 
@@ -93,17 +97,38 @@ starts where it does.
 
 ### Step 0. Drain, if anything is running
 
-Skip this if `EXECUTION_PROVIDER` is `"fixture"` everywhere, which is currently
-true of both deployed environments (section 2). Nothing is in flight, so there
-is nothing to drain.
+Do not decide this by whether an environment "looks idle". Ask each database
+whether any run is still in flight, and get an empty result from both. Both
+portals share one runner, so **both** have to be drained, not only the one
+being rotated:
 
-Otherwise: set `EXECUTION_PROVIDER` to `"fixture"` in `apps/portal/wrangler.jsonc`
-for the environment you are rotating and deploy it. New starts stop dispatching
-immediately. Then wait for the runs already dispatched to reach a terminal
-status. A run carries its provider on its own row (the `provider` column in
+```sh
+pnpm --filter @cogworks/portal exec wrangler d1 execute DB --remote --json \
+  --command "SELECT id, status, provider FROM runs WHERE status NOT IN ('succeeded','failed','cancelled');"
+```
+
+Repeat with `--env production`. Those three are `TERMINAL_STATUSES` in
+`packages/contracts/src/schema.ts:40`; anything else is a run that can still
+post a callback. A non-empty result means step 3 would strand it for
+`RUN_STALE_AFTER_SECONDS`, currently one hour.
+
+**Do not close the door by switching `EXECUTION_PROVIDER` to `"fixture"`.** An
+earlier version of this step said to, and it was wrong. Fixture does not stop
+execution, it fabricates it: the fixture provider advances runs from a wall
+clock and writes simulated metrics, so a rotation done that way leaves invented
+runs in the database that somebody then has to tell apart from real ones.
+
+Close intake instead. On a steady deployment, setting the benchmark
+`active = 0` makes `startRun` refuse a new run before it creates a row or
+reserves quota. During the release that is not sufficient on its own, and the
+closure that would be is an open decision; read
+`docs/runbooks/platform.md`, "Closing intake across the pending migrations",
+before doing this as part of the rollout.
+
+Then wait for the runs already dispatched to reach a terminal status. A run
+carries its provider on its own row (the `provider` column in
 `worker/db/schema.ts`), so runs already sent to Modal keep behaving as Modal
-runs and keep posting
-callbacks; flipping the variable does not strand them.
+runs and keep posting callbacks; closing intake does not strand them.
 
 If you cannot drain (an incident where the secret is known to be compromised is
 the real case), rotate anyway and read section 6 for the ordering that costs the
