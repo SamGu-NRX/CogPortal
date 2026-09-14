@@ -407,6 +407,19 @@ class _Receiver:
 
 
 @dataclass(frozen=True)
+class _FitProvenance:
+    """Locate the declaring fixture before fit stages are removed from a role.
+
+    Branch-local stage names can repeat. Replay needs the role path and original
+    index to select the benchmark's pristine input, not the probed fixture.
+    """
+
+    role_path: Tuple[str, ...]
+    stage_index: int
+    export_attribute: Optional[str] = None
+
+
+@dataclass(frozen=True)
 class Candidate:
     """One callable that might serve one stage."""
 
@@ -532,6 +545,10 @@ class Candidate:
     _runtime_call: Optional[Callable[..., Any]] = field(
         default=None, compare=False, repr=False,
     )
+
+    #: Present only on selected fits. Module-value fits identify their export
+    #: together with `module`, without inspecting the search-time closure.
+    _fit_provenance: Optional[_FitProvenance] = field(default=None, repr=False)
 
     @property
     def bound(self) -> Callable[..., Any]:
@@ -2478,6 +2495,7 @@ def resolve_chain(
     fixture: Sequence[Any],
     *,
     verify: Optional[Callable[[Sequence[Candidate]], bool]] = None,
+    verify_binding: Optional[Callable[[Binding], bool]] = None,
     beam: int = BEAM_WIDTH,
     seed: int = 0,
     extras: Optional[Dict[str, Any]] = None,
@@ -2487,18 +2505,26 @@ def resolve_chain(
 
     Search is a beam over real values: probe the first stage with the fixture,
     then extend each surviving partial chain by feeding its actual output
-    forward. ``verify`` is the only thing that can accept a complete chain, and
-    it is expected to run the benchmark's own end-to-end case.
+    forward. The verifier is expected to run the benchmark's own end-to-end
+    case. ``verify`` receives the legacy chain argument; ``verify_binding``
+    instead receives a tentative Binding with its selected fits and evidence.
+    Passing both raises ValueError before any student code runs.
 
     ``extras`` is the benchmark's own resources, by name, for stages that
     declare them. A role made of branches resolves each branch over this same
     pool, and hands ``verify`` a dict of branch name to bound chain rather
-    than one chain.
+    than one chain. A branch ``verify_binding`` call sees all visible branches
+    in binding order, with root fits followed by accepted branch fits and the
+    tentative branch's fits. Its steps, observations, and _value describe that
+    tentative branch; _reach includes methods reached by the selected chains.
 
     Returns the binding, or a refusal naming the furthest point reached.
     """
 
     global _THEIR_ROOT
+
+    if verify is not None and verify_binding is not None:
+        raise ValueError("pass only one of verify and verify_binding")
 
     with _scratch_cwd():
         _THEIR_ROOT = _their_root(modules)
@@ -2508,6 +2534,8 @@ def resolve_chain(
             modules,
             fixture,
             verify=verify,
+            verify_binding=verify_binding,
+            role_path=(role.name,),
             beam=beam,
             seed=seed,
             extras=extras,
@@ -2563,6 +2591,8 @@ class _Attempt:
     order: List[str]
     values: Dict[str, Any]
     branch_fits: Dict[str, List[Tuple[str, Candidate]]]
+    #: Complete reached-method evidence per branch. Search separately keeps only
+    #: the first candidate per label; verification must retain distinct owners.
     carried: Dict[str, List[Candidate]]
 
 
@@ -2572,6 +2602,8 @@ def _resolve_branches(
     fixture: Sequence[Any],
     *,
     verify: Optional[Callable[[Dict[str, Sequence[Candidate]]], bool]] = None,
+    verify_binding: Optional[Callable[[Binding], bool]] = None,
+    role_path: Optional[Tuple[str, ...]] = None,
     beam: int = BEAM_WIDTH,
     seed: int = 0,
     extras: Optional[Dict[str, Any]] = None,
@@ -2603,6 +2635,9 @@ def _resolve_branches(
     answers nothing the benchmark asked for.
     """
 
+    if verify is not None and verify_binding is not None:
+        raise ValueError("pass only one of verify and verify_binding")
+    role_path = (role.name,) if role_path is None else role_path
     pool: Dict[str, Any] = dict(extras or {})
     carried: List[Candidate] = []
     chains: Dict[str, Tuple[Candidate, ...]] = {}
@@ -2611,7 +2646,10 @@ def _resolve_branches(
     # would compute it again per branch and, worse, let two branches bind two
     # different tables.
     candidates = callables_in(modules) + constructors_in(modules)
-    fits, missing = _fits_of(role, candidates, pool, identities, values_in(modules))
+    fits, missing = _fits_of(
+        role, candidates, pool, identities, values_in(modules),
+        role_path=role_path,
+    )
     if missing is not None:
         return None, Refusal(
             role.name,
@@ -2643,6 +2681,12 @@ def _resolve_branches(
         branch_fits: Dict[str, List[Tuple[str, Candidate]]] = {}
         carried_by: Dict[str, List[Candidate]] = {}
         order: List[str] = []
+
+        def carry_for_search(reached: Sequence[Candidate]) -> None:
+            for candidate in reached:
+                if not any(held.label == candidate.label for held in carried_now):
+                    carried_now.append(candidate)
+
         if keep is not None and before is not None:
             for name in keep.order:
                 if name == before:
@@ -2654,7 +2698,7 @@ def _resolve_branches(
                 branch_fits[name] = list(keep.branch_fits[name])
                 fits_now.extend(keep.branch_fits[name])
                 carried_by[name] = list(keep.carried[name])
-                carried_now.extend(keep.carried[name])
+                carry_for_search(keep.carried[name])
                 order.append(name)
         pending = [branch for branch in role.branches if branch.name not in chains_now]
         refusals: Dict[str, Refusal] = {}
@@ -2697,18 +2741,27 @@ def _resolve_branches(
                 # loose width check; the test refused it (409-d against
                 # 200-d text) and the role was reported as ran-but-wrong
                 # while their `descriptor_to_embedding` was never asked.
-                def _judge(steps: Sequence[Candidate], _name: str = branch.name) -> bool:
-                    if verify is None:
-                        return True
+                def _judge(tentative: Binding, _name: str = branch.name) -> bool:
                     trial = dict(chains_now)
-                    trial[_name] = tuple(steps)
-                    return bool(verify(trial))
+                    trial[_name] = tentative.steps
+                    if verify_binding is not None:
+                        return bool(verify_binding(replace(
+                            tentative,
+                            role=role.name,
+                            branches=trial,
+                            fits=tuple(fits_now) + tentative.fits,
+                            _reach=tuple(
+                                step for name in order for step in carried_by[name]
+                            ) + tentative._reach,
+                        )))
+                    return verify is None or bool(verify(trial))
 
                 binding, refusal = _resolve_chain(
                     branch,
                     modules,
                     own,
-                    verify=_judge,
+                    verify_binding=_judge,
+                    role_path=role_path + (branch.name,),
                     beam=beam,
                     seed=seed,
                     extras=pool_now,
@@ -2718,6 +2771,8 @@ def _resolve_branches(
                     # whose owners this independent branch never calls itself.
                     verification_context=tuple(
                         step for chain in chains_now.values() for step in chain
+                    ) + tuple(step for _name, step in fits_now) + tuple(
+                        step for name in order for step in carried_by[name]
                     ),
                     skip_forms=banned.get(branch.name, frozenset()),
                 )
@@ -2747,13 +2802,9 @@ def _resolve_branches(
                 # What this branch built, handed to the next one: only what
                 # a constructor stage actually produced, and only after the
                 # branch was accepted.
-                mine: List[Candidate] = []
-                for reached in binding._reach:
-                    if not any(held.label == reached.label for held in carried_now):
-                        stamped = replace(reached, branch=branch.name)
-                        carried_now.append(stamped)
-                        mine.append(stamped)
+                mine = [replace(reached, branch=branch.name) for reached in binding._reach]
                 carried_by[branch.name] = mine
+                carry_for_search(mine)
                 order.append(branch.name)
             pending = waiting
             if not progressed:
@@ -2854,6 +2905,9 @@ def _resolve_branches(
             _stage_names=tuple(best.chains),
             _received=tuple("" for _ in best.chains),
             _returned=tuple("" for _ in best.chains),
+            _reach=tuple(
+                step for name in best.order for step in best.carried[name]
+            ),
         ),
         None,
     )
@@ -2944,6 +2998,8 @@ def _fits_of(
     pool: Dict[str, Any],
     identities: Sequence[Any],
     values: Sequence[Tuple[str, str, Any]] = (),
+    *,
+    role_path: Optional[Tuple[str, ...]] = None,
 ) -> Tuple[List[Tuple[str, Candidate]], Optional[str]]:
     """Run this role's fit stages into the pool, or name the one that failed.
 
@@ -2953,7 +3009,8 @@ def _fits_of(
     """
 
     found: List[Tuple[str, Candidate]] = []
-    for stage in role.stages:
+    role_path = (role.name,) if role_path is None else role_path
+    for stage_index, stage in enumerate(role.stages):
         if not stage.fit:
             continue
         hit = _fit(stage, candidates, pool, identities, values)
@@ -2961,7 +3018,10 @@ def _fits_of(
             if stage.optional:
                 continue
             return found, stage.name
-        candidate, value = hit
+        candidate, value, export_attribute = hit
+        candidate = replace(candidate, _fit_provenance=_FitProvenance(
+            role_path, stage_index, export_attribute,
+        ))
         pool[stage.name] = value
         found.append((stage.name, candidate))
     return found, None
@@ -2973,7 +3033,7 @@ def _fit(
     pool: Dict[str, Any],
     identities: Sequence[Any],
     values: Sequence[Tuple[str, str, Any]] = (),
-) -> Optional[Tuple[Candidate, Any]]:
+) -> Optional[Tuple[Candidate, Any, Optional[str]]]:
     """Run the one of their functions that produces this side input.
 
     Probed exactly like a first stage, against this stage's own fixture. It
@@ -2991,7 +3051,8 @@ def _fit(
         stage, candidates, stage.fixture, extras=pool, identities=identities
     )
     if hits:
-        return hits[0]
+        candidate, value = hits[0]
+        return candidate, value, None
     # No function of theirs produces it. A value their module built when it
     # loaded may be the same table (see `values_in`); it is offered only
     # after every function has been tried, so a team with a function is
@@ -3016,6 +3077,7 @@ def _fit(
                 supplied={"value": note},
             ),
             value,
+            label[len(module_name) + 1:],
         )
     return None
 
@@ -3185,6 +3247,7 @@ def _resolve_chain(
     fixture: Sequence[Any],
     *,
     verify: Optional[Callable[[Sequence[Candidate]], bool]] = None,
+    verify_binding: Optional[Callable[[Binding], bool]] = None,
     beam: int = BEAM_WIDTH,
     seed: int = 0,
     extras: Optional[Dict[str, Any]] = None,
@@ -3192,7 +3255,11 @@ def _resolve_chain(
     carried: Optional[List[Candidate]] = None,
     verification_context: Sequence[Candidate] = (),
     skip_forms: FrozenSet[int] = frozenset(),
+    role_path: Optional[Tuple[str, ...]] = None,
 ) -> Resolution:
+    if verify is not None and verify_binding is not None:
+        raise ValueError("pass only one of verify and verify_binding")
+    role_path = (role.name,) if role_path is None else role_path
     random.seed(seed)
     pool: Dict[str, Any] = dict(extras or {})
     candidates = callables_in(modules)
@@ -3215,7 +3282,10 @@ def _resolve_chain(
     # The side inputs their own code computes, once, before anything else
     # runs. Each joins the pool under its stage's name, which is how a later
     # stage asks for it (`Stage.extras`).
-    fits, missing = _fits_of(role, candidates, pool, identities, values_in(modules))
+    fits, missing = _fits_of(
+        role, candidates, pool, identities, values_in(modules),
+        role_path=role_path,
+    )
     if missing is not None:
         return None, Refusal(
             role.name,
@@ -3626,6 +3696,16 @@ def _resolve_chain(
         if key in asked:
             continue
         asked.add(key)
+        tentative = Binding(
+            role.name,
+            partial.chain,
+            fits=tuple(fits),
+            _stage_names=partial.stages,
+            _received=partial.received,
+            _returned=partial.returned,
+            _reach=partial.reach,
+            _value=partial.value,
+        )
         try:
             # Verifiers replay constructors on their own cases. Keep those
             # publications out of the probe owners later branches still need.
@@ -3633,28 +3713,22 @@ def _resolve_chain(
             # This restores associations, not mutations to the objects themselves.
             receivers = {
                 step.receiver: step.receiver.get()
-                for step in tuple(verification_context) + partial.chain
+                for step in (
+                    tuple(verification_context) + tentative.steps + tentative._reach
+                    + tuple(step for _name, step in tentative.fits)
+                )
                 if step.receiver is not None
             }
             with runtime_pool(receivers):
-                accepted = verify is None or bool(verify(partial.chain))
+                if verify_binding is not None:
+                    accepted = bool(verify_binding(tentative))
+                else:
+                    accepted = verify is None or bool(verify(partial.chain))
         except BaseException:
             # Verification can call student code or inspect its malformed answer.
             continue
         if accepted:
-            return (
-                Binding(
-                    role.name,
-                    partial.chain,
-                    fits=tuple(fits),
-                    _stage_names=partial.stages,
-                    _received=partial.received,
-                    _returned=partial.returned,
-                    _reach=partial.reach,
-                    _value=partial.value,
-                ),
-                None,
-            )
+            return tentative, None
 
     return None, Refusal(
         role.name,
