@@ -701,16 +701,30 @@ def _collect(pid, read_fd, timeout_seconds, memory_bytes) -> Outcome:
     reaped = False
     armed = (timeout_seconds is not None and hasattr(signal, "SIGALRM")
              and hasattr(signal, "alarm")
-             # `signal.signal` raises off the main thread, and it raised out of
-             # here rather than returning an Outcome, so a caller running this
-             # on a worker got an exception where every other failure gives it
-             # a result. The deadline stays finite without this: `_child`
-             # applies the same `timeout_seconds` inside the child, so what is
-             # lost is the parent's second guard, not the limit.
+             # `signal.signal` raises off the main thread, and it raised out
+             # of here rather than returning an Outcome, so a caller running
+             # this on a worker got an exception where every other failure
+             # gives it a result. A worker gets the watchdog below instead.
              and threading.current_thread() is threading.main_thread())
     previous = None
     pending = 0
     armed_at = 0.0
+
+    def expire():
+        # The wall-clock deadline for a caller that cannot have SIGALRM. The
+        # child's own limit is RLIMIT_CPU, which a sleeping or blocked child
+        # never spends: measured on a worker thread, `sleep(3)` under
+        # `timeout_seconds=1` returned COMPLETED after 3.01 seconds. So this
+        # is the deadline off the main thread, not a second guard.
+        nonlocal fired
+        fired = True
+        _terminate(pid)
+
+    watchdog = None
+    if not armed and timeout_seconds is not None and timeout_seconds > 0:
+        watchdog = threading.Timer(timeout_seconds, expire)
+        watchdog.daemon = True
+        watchdog.start()
 
     def exited():
         nonlocal status, reaped
@@ -760,6 +774,8 @@ def _collect(pid, read_fd, timeout_seconds, memory_bytes) -> Outcome:
             reason = reason or "alarm"
     finally:
         try:
+            if watchdog is not None:
+                watchdog.cancel()
             if armed:
                 signal.alarm(0)
                 # None denotes a handler installed outside Python. It cannot
@@ -767,12 +783,15 @@ def _collect(pid, read_fd, timeout_seconds, memory_bytes) -> Outcome:
                 if previous is not None:
                     signal.signal(signal.SIGALRM, previous)
                 if pending:
-                    # Give the caller back what is left of theirs. `alarm` has
-                    # one-second granularity, so a timer restored here can be
-                    # up to a second late, and one whose moment passed while
-                    # the child ran fires immediately rather than never.
+                    # Give the caller back what is left of theirs. `alarm`
+                    # counts whole seconds, so the remainder is rounded up
+                    # rather than down: firing a fraction of a second late is
+                    # a delay, firing early is a deadline the caller did not
+                    # set. One whose moment passed while the child ran gets
+                    # the minimum of one second, so it arrives promptly
+                    # rather than never; it cannot be made to arrive now.
                     left = pending - (time.monotonic() - armed_at)
-                    signal.alarm(max(1, int(left)))
+                    signal.alarm(max(1, int(math.ceil(left))))
             try:
                 os.close(read_fd)
             except OSError:
@@ -839,7 +858,10 @@ def _terminate(pid: int, reaped: bool = False) -> None:
     number is free for the kernel to hand to someone else, and signalling it
     then is at best addressed to nobody and at worst to an unrelated process.
     The group signal is kept in that case: a descendant can outlive the child,
-    and it is the only thing that reaches one.
+    and it is the only thing that reaches one. That is a narrower risk than
+    signalling the child's own number, not none: a process-group id can be
+    reused as well, so this is the best available reach for a descendant
+    rather than a proof that nothing else receives it.
 
     Known limit, not a defect to be fixed here. A descendant that leaves the
     group, by calling `setsid` or being started detached, is not reachable

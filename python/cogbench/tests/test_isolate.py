@@ -486,6 +486,7 @@ class AWorkerThreadGetsAnOutcomeLikeEveryOtherCaller(unittest.TestCase):
     `run_isolated` rather than returning. A caller that handles a crash, a
     timeout and a memory limit as results was taken down by this one alone."""
 
+    @unittest.skipUnless(hasattr(os, "fork"), "needs fork")
     def test_running_off_the_main_thread_returns_rather_than_raises(self):
         result = {}
 
@@ -505,10 +506,38 @@ class AWorkerThreadGetsAnOutcomeLikeEveryOtherCaller(unittest.TestCase):
         self.assertEqual(result["outcome"].value, 2)
 
     @unittest.skipUnless(hasattr(os, "fork"), "needs fork")
-    def test_the_deadline_is_still_finite_there(self):
-        """The parent's alarm is what a worker thread cannot have. The limit
-        itself survives, because the child applies the same number."""
+    def test_a_sleeping_child_on_a_worker_still_hits_its_deadline(self):
+        """The first fix here skipped the parent's alarm off the main thread
+        and claimed the child's own limit covered it. That was wrong: the
+        child's limit is RLIMIT_CPU, which a sleeping or blocked child never
+        spends. The containment owner measured it, `sleep(3)` under a
+        one-second budget returning COMPLETED after 3.01 seconds. A worker
+        gets a watchdog instead, so the wall-clock deadline is real."""
 
+        result = {}
+
+        def sleeper():
+            time.sleep(6)
+            return 42
+
+        def work():
+            result["outcome"] = run_isolated(
+                sleeper, timeout_seconds=1, memory_bytes=None
+            )
+
+        worker = threading.Thread(target=work)
+        started = time.monotonic()
+        worker.start()
+        worker.join(timeout=60)
+        elapsed = time.monotonic() - started
+
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(result["outcome"].status, TIMED_OUT)
+        self.assertIsNone(result["outcome"].value)
+        self.assertLess(elapsed, 5)
+
+    @unittest.skipUnless(hasattr(os, "fork"), "needs fork")
+    def test_a_spinning_child_on_a_worker_also_stops(self):
         result = {}
 
         def work():
