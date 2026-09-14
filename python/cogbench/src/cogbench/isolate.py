@@ -451,6 +451,11 @@ def _read_payload(
                     if not select.select([read_fd], [], [], 0)[0]:
                         raise _PayloadError("child_exited_before_payload")
                     break
+        # After the poll as well. A body that becomes readable once the
+        # deadline has passed was read and decoded, and the run came back
+        # `completed` at a clock past its own budget.
+        if deadline is not None and time.monotonic() >= deadline:
+            raise _Alarm()
         return os.read(read_fd, size)
 
     header = b""
@@ -772,8 +777,10 @@ def _collect(pid, read_fd, timeout_seconds, memory_bytes) -> Outcome:
                 left = (UNBOUNDED_REAP_SECONDS if deadline is None
                         else max(0.0, deadline - time.monotonic()))
                 observed = _reap_bounded(pid, left)
-                if observed is None and deadline is not None \
-                        and time.monotonic() >= deadline:
+                # Expiry is authoritative whatever the reap returned. A status
+                # collected after the budget ran out is still a run that took
+                # longer than the caller allowed.
+                if deadline is not None and time.monotonic() >= deadline:
                     fired = True
                 if observed is not None:
                     status, reaped, harvested = observed, True, True
@@ -893,6 +900,10 @@ def _reap_bounded(pid: int, seconds: float):
 
     deadline = time.monotonic() + seconds
     while True:
+        if seconds <= 0 and time.monotonic() >= deadline:
+            # Nothing left to wait with. Asking `waitpid` first let an already
+            # waitable child answer a wait that had no time in it.
+            return None
         try:
             done, status = os.waitpid(pid, os.WNOHANG)
         except InterruptedError:

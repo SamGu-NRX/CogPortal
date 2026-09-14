@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import signal
+import struct
 import sys
 import threading
 import tempfile
@@ -613,6 +614,10 @@ class TheDeadlineHasOneOwner(unittest.TestCase):
 
     @unittest.skipUnless(hasattr(os, "fork"), "needs fork to reach _collect")
     def test_no_timer_thread_is_started_for_a_deadline(self):
+        """Run from a worker, because that is the only place the old code
+        built one. Asserting it from the main thread passed against the
+        version that still had the timer."""
+
         started = []
         held = isolate_module.threading.Timer
 
@@ -622,10 +627,19 @@ class TheDeadlineHasOneOwner(unittest.TestCase):
                 super(Watched, self).__init__(*arguments, **named)
 
         isolate_module.threading.Timer = Watched
+        result = {}
         try:
-            outcome = run_isolated(lambda: 5, timeout_seconds=2)
+            worker = threading.Thread(
+                target=lambda: result.update(
+                    got=run_isolated(lambda: 5, timeout_seconds=2)
+                )
+            )
+            worker.start()
+            worker.join(timeout=30)
         finally:
             isolate_module.threading.Timer = held
+        self.assertFalse(worker.is_alive())
+        outcome = result["got"]
 
         self.assertEqual(outcome.status, COMPLETED)
         self.assertEqual(started, [])
@@ -667,18 +681,20 @@ class TheDeadlineHasOneOwner(unittest.TestCase):
         poll never blocks. A deadline checked only inside that poll would
         never be reached."""
 
-        def chatty():
-            end = time.monotonic() + 8
-            while time.monotonic() < end:
-                sys.stdout.write("x" * 512)
-                sys.stdout.flush()
-            return 1
-
-        started = time.monotonic()
-        outcome = run_isolated(chatty, timeout_seconds=2)
-
-        self.assertNotEqual(outcome.status, COMPLETED)
-        self.assertLess(time.monotonic() - started, 7)
+        read_fd, write_fd = os.pipe()
+        # Always readable, so `select` returns at once every time and the
+        # check inside the poll loop is never reached. What this pins is that
+        # some check outside that loop exists; either the one before the poll
+        # or the one after it catches this, and removing both does not.
+        os.write(write_fd, b"x" * 4096)
+        try:
+            with self.assertRaises(isolate_module._Alarm):
+                isolate_module._read_payload(
+                    read_fd, None, time.monotonic() - 1
+                )
+        finally:
+            os.close(read_fd)
+            os.close(write_fd)
 
 
 if __name__ == "__main__":
