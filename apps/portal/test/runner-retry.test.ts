@@ -201,6 +201,69 @@ test("retry refuses current source, benchmark, runtime, and provider drift", asy
     { ...benchmark, datasetVersion: "changed" }, "run_retry"), conflict);
 });
 
+const RENAMED: TeamRow = {
+  ...team,
+  repoName: "renamed", repoFullName: "course/renamed",
+  repoUrl: "https://github.com/course/renamed",
+};
+
+/**
+ * The rename the drift test above deliberately does not cover.
+ *
+ * Those cases move the team's name on a run that recorded none, so the job is
+ * rebuilt from the team and the rename shows up as changed inputs. A run that
+ * did record its name is the opposite case: GitHub keeps the repository id
+ * through a rename, the run still belongs to the team, and Retry has to send
+ * the inputs it saved rather than the ones today's team implies.
+ *
+ * This is the positive half. Nothing here reaches Modal: `validateRetryInputs`
+ * performs no IO, and neither mode carries weights, so no bucket is consulted.
+ */
+for (const mode of ["practice", "official"] as const) {
+  test(`a renamed repository retries its recorded ${mode} inputs`, async () => {
+    const { env, run, job } = original(mode);
+    // The name at run time, which is the team's name before the rename, so the
+    // recorded job already carries it and this changes no input.
+    run.repositoryFullName = team.repoFullName;
+    assert.equal(job.source.fullName, team.repoFullName);
+    assert.notEqual(RENAMED.repoFullName, team.repoFullName, "the rename has to be real");
+    assert.equal(RENAMED.repoId, team.repoId, "a rename keeps the repository id");
+    if (mode === "official") assert.ok(job.preparedEnvironment, "the official run carries provisioning evidence");
+
+    assert.deepEqual(validateRetryInputs(env, run, RENAMED, benchmark), job);
+
+    const retry = await prepareRetryJob(env, run, RENAMED, benchmark, "run_retry");
+    assert.deepEqual({ ...retry, jobId: job.jobId, runId: job.runId, callback: job.callback }, job);
+    assert.equal(retry.runId, "run_retry");
+    assert.notEqual(retry.jobId, job.jobId);
+    // The one input an operator would notice: it fetches the old path, which
+    // GitHub redirects, rather than a path assembled from today's name.
+    assert.match(retry.source.archiveUrl, /repos\/course\/team\/tarball\//);
+
+    // Same rename, same team, no recorded name: the job is rebuilt from the
+    // team instead and the inputs no longer match. Without this the assertions
+    // above would pass on a rename that changed nothing.
+    const legacy = original(mode);
+    legacy.run.repositoryFullName = null;
+    await assert.rejects(prepareRetryJob(legacy.env, legacy.run, RENAMED, benchmark, "run_retry"), conflict);
+  });
+}
+
+test("a renamed repository still advertises Retry on the console, with no refusal", async () => {
+  const { env, run, job } = original("official");
+  run.repositoryFullName = team.repoFullName;
+  const harness = await snapshotDatabase(run, env);
+  try {
+    await harness.db.update(teams).set(RENAMED).where(eq(teams.id, team.id));
+    const snapshot = await harness.snapshot();
+    assert.equal(snapshot.retryRefusal, null);
+    assert.equal(snapshot.sourceRefusal, null, "the repository id is unchanged");
+    assert.equal(snapshot.actions.includes("retry"), true);
+    // The console reports the repository the run came from, not today's name.
+    assert.equal(snapshot.source?.fullName, job.source.fullName);
+  } finally { harness.sqlite.close(); }
+});
+
 test("retry rechecks saved weight size and digest at the original object key", async () => {
   const { env, run, job } = original("practice", true);
   const keys: string[] = [];
