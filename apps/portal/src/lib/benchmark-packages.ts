@@ -1,9 +1,9 @@
 /**
  * Which benchmark distribution a track installs, and where pip resolves it.
  *
- * The revisions are the submodule commits recorded in `.gitmodules`; they move
- * when the submodules move. A student's install matches the graded run only
- * while the two agree, so a submodule bump is also an edit here.
+ * Pins follow the accepted release's benchmark gitlinks and source repositories.
+ * Update these with each accepted benchmark revision so local installation and
+ * hosted scoring use the same source.
  *
  * Each source is a PEP 508 direct reference pinned to a commit rather than a
  * branch: `@main` would silently change what a student installed between two
@@ -55,13 +55,13 @@ const WEEK1_AUDIO: BenchmarkPackage = {
 const WEEK2_VISION: BenchmarkPackage = {
   distribution: "cogworks-week2-vision-benchmark",
   source:
-    "git+https://github.com/iReynaldo/ComputerVisionBenchmark.git@c177cf23cdd4f8dbe55401a2eb4bada4c64d37c2",
+    "git+https://github.com/SamGu-NRX/cogworks-week2-vision-benchmark.git@b9055031bf25a18594651d89610f3fbcd7462db8",
 };
 
 const WEEK3_LANGUAGE: BenchmarkPackage = {
   distribution: "cogworks-week3-language-benchmark",
   source:
-    "git+https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git@b166f5c15e950baccc3785839cdcc660ffe01bb4",
+    "git+https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git@1004766b66a4405ceda1a1b014a0438098a6570e",
 };
 
 export const BENCHMARK_PACKAGES: Readonly<Record<string, BenchmarkPackage>> = {
