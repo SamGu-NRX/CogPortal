@@ -275,9 +275,11 @@ test("Discord's tile sizes the lifecycle row from the console, not the window", 
   }
   assert.match(tile, /class="sr-only">active</);
 
-  // The full-width console is unchanged: it fills the viewport, so the
-  // viewport is the right thing for it to measure.
+  // The full-width console still measures the viewport, which is the right
+  // thing for it: it fills the window. Under 420px it stops drawing the names
+  // for the same reason the tile does, so it hides them the same way.
   const full = lifecycle(false);
   assert.match(full, /sm:justify-start sm:px-4/);
-  assert.match(full, /class="hidden min-\[420px\]:inline text-\[11px\]/);
+  assert.match(full, /class="sr-only min-\[420px\]:not-sr-only text-\[11px\]/);
+  assert.doesNotMatch(full, /class="hidden/, "display:none would unname every stage under 420px");
 });

@@ -372,10 +372,12 @@ export function RunConsole({
           the section clips rather than scrolls, so four stage names were cut
           off with no way to read them.
 
-          The tile hides them with `sr-only`, not `display:none`: the mark is
-          decorative, so removing the name would leave four rows announcing
-          only "complete" or "pending" with nothing saying which stage. sr-only
-          is out of flow, so the icons-only layout is the same either way. */}
+          Wherever a name is not drawn it is hidden with `sr-only`, never
+          `display:none`: the mark beside it is decorative, so removing the
+          name leaves four rows announcing only "complete" or "pending" with
+          nothing saying which stage. That is the tile at every width, and the
+          full console under 420px. sr-only is out of flow, so no layout
+          changes either way. */}
       <ol className="grid grid-cols-4 border-b border-rule" aria-label="Run lifecycle">
         {STAGES.map((stage) => {
           const mark = stageMark(snapshot, stage.id);
@@ -386,7 +388,7 @@ export function RunConsole({
               className={`flex items-center justify-center gap-2 border-r border-rule-soft px-2 last:border-r-0 ${compact ? "min-h-11" : "min-h-14 sm:justify-start sm:px-4"}`}
             >
               <span className={`font-mono text-[15px] ${mark === "×" ? "text-detect" : mark === "○" ? "text-ink-faint" : "text-verify"}`} aria-hidden="true">{mark}</span>
-              <span className={`${compact ? "sr-only" : "hidden min-[420px]:inline"} text-[11px] font-medium uppercase tracking-[0.05em]`}>{stage.label}</span>
+              <span className={`${compact ? "sr-only" : "sr-only min-[420px]:not-sr-only"} text-[11px] font-medium uppercase tracking-[0.05em]`}>{stage.label}</span>
               <span className="sr-only">{mark === "✓" ? "complete" : mark === "●" ? "active" : mark === "×" ? "failed" : "pending"}</span>
             </li>
           );
