@@ -420,18 +420,32 @@ MAX_PAYLOAD_BYTES = 8 * 1024 * 1024
 _READ_CHUNK = 64 * 1024
 
 
-def _read_payload(read_fd: int, exited: Optional[Callable[[], bool]] = None) -> Outcome:
+def _read_payload(
+    read_fd: int,
+    exited: Optional[Callable[[], bool]] = None,
+    deadline: Optional[float] = None,
+) -> Outcome:
     child_exited = False
 
     def read(size):
         nonlocal child_exited
-        if exited is not None:
-            # Polling avoids a busy wait, without imposing a work deadline.
-            # Once exit is observed, even this polling delay is unnecessary.
+        # Before the poll, not only inside it. A child writing steadily keeps
+        # the descriptor readable, so `select` returns at once every time and
+        # a check living only in the loop below would never run: continual
+        # output would buy unlimited wall time.
+        if deadline is not None and time.monotonic() >= deadline:
+            raise _Alarm()
+        if exited is not None or deadline is not None:
+            # Polling avoids a busy wait. Once exit is observed, even this
+            # polling delay is unnecessary.
             while not select.select([read_fd], [], [], 0 if child_exited else 0.05)[0]:
-                # There is no deadline while the direct child works. After
-                # its exit, publication is over: drain bytes already present,
-                # but do not wait for EOF withheld by an inherited writer.
+                if deadline is not None and time.monotonic() >= deadline:
+                    raise _Alarm()
+                if exited is None:
+                    continue
+                # After the child's exit, publication is over: drain bytes
+                # already present, but do not wait for EOF withheld by an
+                # inherited writer.
                 child_exited = child_exited or exited()
                 if child_exited:
                     if not select.select([read_fd], [], [], 0)[0]:
@@ -696,21 +710,25 @@ def _operation_child() -> None:
 def _collect(pid, read_fd, timeout_seconds, memory_bytes) -> Outcome:
     """Wait for the child and describe what became of it.
 
-    Known open defect, and the reason to read this before changing it. The
-    deadline here is three mechanisms rather than one: a `SIGALRM` on the main
-    thread, a timer thread off it, and blocking reaps that neither can
-    interrupt. Ownership of "has the child been waited on" is therefore split
-    across paths, and the containment owner has reproduced a window between
-    the kernel reaping the child and this seeing it, in which the timer can
-    signal a number that is no longer ours.
+One deadline, owned by this thread. It used to be three: a `SIGALRM` on
+    the main thread, a timer thread off it, and blocking reaps that neither
+    could interrupt. Nothing owned "has the child been waited on", so the
+    timer could signal a number the kernel had already freed, and four rounds
+    of adding locks each closed one race and opened another. Locking harder
+    was not the answer; having one owner is.
 
-    Successive locking has not closed that and is not expected to: holding the
-    lock across a blocking reap stops the timer from terminating at all, which
-    trades one failure for a worse one. The agreed replacement is a single
-    parent-thread monotonic deadline checked by the `select` loop already here
-    and by non-blocking `waitpid` polling, with no caller signal handler and no
-    timer thread. That removes both races rather than synchronizing them. It
-    is not done here.
+    So there is a monotonic deadline, checked by the `select` loop in
+    `_read_payload` and by the non-blocking `waitpid` polling in
+    `_reap_bounded`. No handler is installed in the caller's process, which
+    removes the whole class of alarm interference rather than compensating for
+    it, and there is no second thread, which removes the callback races the
+    same way. `timeout_seconds=None` means no deadline and stays unbounded;
+    the child's own CPU limits are untouched.
+
+    Two flags, not one. `harvested` means the child has been waited on, so its
+    number is no longer ours to signal. `reaped` means it exited before we
+    killed it, which is the evidence a published payload is judged against.
+    Merging them let a forced kill count as a clean exit.
     """
 
     outcome = None
@@ -718,22 +736,9 @@ def _collect(pid, read_fd, timeout_seconds, memory_bytes) -> Outcome:
     reason = None
     status = None
     reaped = False
-    armed = (timeout_seconds is not None and hasattr(signal, "SIGALRM")
-             and hasattr(signal, "alarm")
-             # `signal.signal` raises off the main thread, and it raised out
-             # of here rather than returning an Outcome, so a caller running
-             # this on a worker got an exception where every other failure
-             # gives it a result. A worker gets the watchdog below instead.
-             and threading.current_thread() is threading.main_thread())
-    previous = None
-    pending = 0
-    armed_at = 0.0
+    deadline = (None if timeout_seconds is None
+                else time.monotonic() + timeout_seconds)
 
-    # One owner for reaping and termination. Every site that reaps the child
-    # or signals it takes this, so the watchdog below cannot read a stale
-    # `reaped` and send a signal to a number the kernel has already freed.
-    lifecycle = threading.Lock()
-    closed = False
     #: Whether the child has been waited on, so its number is no longer ours
     #: to signal. Deliberately not `reaped`: that one means the child exited
     #: before we killed it, which is the evidence a published payload is
@@ -741,57 +746,23 @@ def _collect(pid, read_fd, timeout_seconds, memory_bytes) -> Outcome:
     #: and then had to be killed keep its result.
     harvested = False
 
-    def expire():
-        # The wall-clock deadline for a caller that cannot have SIGALRM. The
-        # child's own limit is RLIMIT_CPU, which a sleeping or blocked child
-        # never spends: measured on a worker thread, `sleep(3)` under
-        # `timeout_seconds=1` returned COMPLETED after 3.01 seconds. So this
-        # is the deadline off the main thread, not a second guard.
-        nonlocal fired
-        with lifecycle:
-            # `Timer.cancel` does not stop a callback already dispatched, so
-            # one can arrive here after `_collect` has returned and signal a
-            # process the operation no longer owns. `closed` is set under this
-            # same lock once cleanup is done, which makes a late callback a
-            # no-op and makes cancelling effectively a join.
-            if closed:
-                return
-            fired = True
-            _terminate(pid, reaped=harvested)
-
-    watchdog = None
-    if not armed and timeout_seconds is not None and timeout_seconds > 0:
-        watchdog = threading.Timer(timeout_seconds, expire)
-        watchdog.daemon = True
-        watchdog.start()
-
     def exited():
         nonlocal status, reaped, harvested
-        with lifecycle:
-            if not reaped:
-                while True:
-                    try:
-                        done, observed = os.waitpid(pid, os.WNOHANG)
-                        break
-                    except InterruptedError:
-                        continue
-                if done:
-                    status, reaped, harvested = observed, True, True
-            return reaped
+        if not reaped:
+            while True:
+                try:
+                    done, observed = os.waitpid(pid, os.WNOHANG)
+                    break
+                except InterruptedError:
+                    continue
+            if done:
+                status, reaped, harvested = observed, True, True
+        return reaped
 
     try:
-        if armed:
-            previous = signal.signal(signal.SIGALRM, _on_alarm)
-            # What the caller already had pending. `signal.alarm` returns it,
-            # and discarding it silently cancelled their timer: a caller with
-            # four seconds left got none, with nothing raised to say so.
-            # Read after the call, not before: the two are sampled together,
-            # so a pause between them cannot be counted twice.
-            pending = signal.alarm(timeout_seconds)
-            armed_at = time.monotonic()
         try:
             try:
-                outcome = _read_payload(read_fd, exited)
+                outcome = _read_payload(read_fd, exited, deadline)
             except _PayloadError as error:
                 reason = str(error)
             except OSError as error:
@@ -804,82 +775,49 @@ def _collect(pid, read_fd, timeout_seconds, memory_bytes) -> Outcome:
                 # ordering. The alarm can therefore land inside this wait, and
                 # that is a real timeout rather than a lost status, so it falls
                 # through to the cleanup path with `fired` set.
-                # Deliberately not under `lifecycle`: these block, and the
-                # watchdog has to be able to terminate while they do. That
-                # leaves a window between the kernel reaping the child and the
-                # flag being set, which the containment owner reproduced. It
-                # is not closed by more locking; see `_collect`'s note.
-                try:
-                    observed = (_reap_exact(pid) if armed
-                                else _reap_bounded(pid, UNBOUNDED_REAP_SECONDS))
-                except _Alarm:
-                    fired, observed = True, None
+                # Bounded by the same deadline, so this cannot outlast the
+                # budget the caller set. With none it gets the cleanup
+                # allowance, which is what it always had.
+                left = (UNBOUNDED_REAP_SECONDS if deadline is None
+                        else max(0.0, deadline - time.monotonic()))
+                observed = _reap_bounded(pid, left)
+                if observed is None and deadline is not None \
+                        and time.monotonic() >= deadline:
+                    fired = True
                 if observed is not None:
-                    with lifecycle:
-                        status, reaped, harvested = observed, True, True
+                    status, reaped, harvested = observed, True, True
         except _Alarm:
             fired, outcome = True, None
             reason = reason or "alarm"
     finally:
         try:
-            if watchdog is not None:
-                # Stops one not yet dispatched. One already dispatched is
-                # handled by `closed` below, under the shared lock.
-                watchdog.cancel()
-            if armed:
-                signal.alarm(0)
             try:
                 os.close(read_fd)
             except OSError:
                 pass
-            if armed:
-                # Only now. Restoring delivery before this let a caller's
-                # handler raise out of the middle of cleanup and leave the
-                # result descriptor open; measured, it did. None denotes a
-                # handler installed outside Python, which cannot be passed
-                # back to `signal.signal`.
-                if previous is not None:
-                    signal.signal(signal.SIGALRM, previous)
-                if pending:
-                    # Give the caller back what is left of theirs. `alarm`
-                    # counts whole seconds, so the remainder is rounded up
-                    # rather than down: firing a fraction of a second late is
-                    # a delay, firing early is a deadline the caller did not
-                    # set. One whose moment passed while the child ran gets
-                    # the minimum of one second, so it arrives promptly
-                    # rather than never; it cannot be made to arrive now.
-                    left = pending - (time.monotonic() - armed_at)
-                    signal.alarm(max(1, int(math.ceil(left))))
             # Capture an already-dead child's status before cleanup. If the
             # pipe closed while it was alive, cleanup's SIGKILL proves no cause.
-            with lifecycle:
-                if not reaped:
-                    try:
-                        done, observed = os.waitpid(pid, os.WNOHANG)
-                    except OSError:
-                        done = 0
-                    if done:
-                        reaped, status, harvested = True, observed, True
+            if not reaped:
+                try:
+                    done, observed = os.waitpid(pid, os.WNOHANG)
+                except OSError:
+                    done = 0
+                if done:
+                    reaped, status, harvested = True, observed, True
         finally:
-            with lifecycle:
-                # Closed here, after the last signal this operation sends and
-                # while holding the lock a running callback would hold: a
-                # callback mid-flight finishes before this is taken, and one
-                # dispatched later finds `closed` and does nothing.
-                _terminate(pid, reaped=harvested)
-                if not reaped:
-                    final_status = _reap(pid)[1]
-                    # Waited on, so the number is no longer ours to signal.
-                    # `reaped` stays False: this death is one we caused, and
-                    # it is not evidence that a payload the child published
-                    # can be trusted.
-                    harvested = True
+            _terminate(pid, reaped=harvested)
+            if not reaped:
+                final_status = _reap(pid)[1]
+                # Waited on, so the number is no longer ours to signal.
+                # `reaped` stays False: this death is one we caused, and it is
+                # not evidence that a payload the child published can be
+                # trusted.
+                harvested = True
                 # A different signal or ordinary exit could arrive between
                 # WNOHANG and cleanup. Those cannot have come from our SIGKILL.
-                    if final_status is not None and not (os.WIFSIGNALED(final_status)
-                            and os.WTERMSIG(final_status) == signal.SIGKILL):
-                        status = final_status
-                closed = True
+                if final_status is not None and not (os.WIFSIGNALED(final_status)
+                        and os.WTERMSIG(final_status) == signal.SIGKILL):
+                    status = final_status
     # A result is only trustworthy if the child exited on its own. The result
     # descriptor is reachable from the child, so code running there can write a
     # correctly framed "completed" envelope, close it, and hang: the parent

@@ -603,62 +603,80 @@ class AFailedForkIsReportedLikeAnyOtherFailure(unittest.TestCase):
         self.assertEqual(outcome.timeout_seconds, 2)
         self.assertIsNotNone(outcome.memory_bytes)
 
-class TheWatchdogCannotActAfterTheOperationCloses(unittest.TestCase):
-    """`Timer.cancel` does not stop a callback already dispatched, so one
-    could arrive after `_collect` returned and signal a process the operation
-    no longer owned. `closed` is set at the end of cleanup under the same lock
-    a running callback holds, which makes a late callback a no-op.
-
-    Deterministic by replacing the timer rather than racing a real one. An
-    earlier version of this test ran real children for about ten seconds and
-    passed against the unfixed source, so it pinned nothing; the independent
-    reviewer pointed out that capturing the callback is reachable from
-    outside, which is what this does instead.
+class TheDeadlineHasOneOwner(unittest.TestCase):
+    """There is no watchdog thread and no caller signal handler any more, so
+    the races that needed synchronizing cannot occur: a callback cannot
+    outlive the collector if there is no callback, and a caller's alarm cannot
+    be discarded if none is installed. This asserts the machinery is gone and
+    that the deadline still holds, rather than rebuilding a timer to test one.
     """
 
-    def test_a_callback_dispatched_after_the_return_signals_nothing(self):
-        captured = []
-        sent = []
+    def test_no_timer_thread_is_started_for_a_deadline(self):
+        started = []
+        held = isolate_module.threading.Timer
 
-        class Captured(object):
-            def __init__(self, seconds, callback):
-                captured.append(callback)
+        class Watched(held):  # pragma: no cover - records if it is ever used
+            def __init__(self, *arguments, **named):
+                started.append(arguments)
+                super(Watched, self).__init__(*arguments, **named)
 
-            def start(self):
-                pass
-
-            def cancel(self):
-                pass
-
-            daemon = True
-
-        def record(pid, reaped=False):
-            sent.append(reaped)
-
-        held_timer = isolate_module.threading.Timer
-        held_terminate = isolate_module._terminate
-        held_read = isolate_module._read_payload
-        isolate_module.threading.Timer = Captured
-        isolate_module._terminate = record
-        isolate_module._read_payload = lambda *a, **k: isolate_module.Outcome(
-            COMPLETED, value=42
-        )
+        isolate_module.threading.Timer = Watched
         try:
-            worker = threading.Thread(
-                target=lambda: isolate_module._collect(99999999, -1, 1, None)
-            )
-            worker.start()
-            worker.join(timeout=15)
-            self.assertFalse(worker.is_alive())
-            during = len(sent)
-            self.assertTrue(captured, "the watchdog timer was never armed")
-            captured[0]()
+            outcome = run_isolated(lambda: 5, timeout_seconds=2)
         finally:
-            isolate_module.threading.Timer = held_timer
-            isolate_module._terminate = held_terminate
-            isolate_module._read_payload = held_read
+            isolate_module.threading.Timer = held
 
-        self.assertEqual(len(sent), during, "a late callback signalled anyway")
+        self.assertEqual(outcome.status, COMPLETED)
+        self.assertEqual(started, [])
+
+    @unittest.skipUnless(hasattr(signal, "alarm"), "needs SIGALRM")
+    def test_no_handler_is_installed_in_the_callers_process(self):
+        """The caller's alarm used to be discarded and then restored. Nothing
+        touches it now, so there is nothing to restore and nothing to lose."""
+
+        fired = []
+        previous = signal.signal(signal.SIGALRM, lambda *_: fired.append(True))
+        signal.alarm(4)
+        try:
+            installed = []
+
+            def watch(number, handler):
+                installed.append(number)
+                return previous
+
+            held = signal.signal
+            signal.signal = watch
+            try:
+                outcome = run_isolated(lambda: 6, timeout_seconds=2)
+            finally:
+                signal.signal = held
+            left = signal.alarm(0)
+        finally:
+            signal.signal(signal.SIGALRM, previous)
+
+        self.assertEqual(outcome.status, COMPLETED)
+        self.assertEqual(installed, [])
+        self.assertEqual(fired, [])
+        self.assertGreaterEqual(left, 1)
+
+    @unittest.skipUnless(hasattr(os, "fork"), "needs fork")
+    def test_steady_output_does_not_buy_unlimited_time(self):
+        """A child writing constantly keeps the descriptor readable, so the
+        poll never blocks. A deadline checked only inside that poll would
+        never be reached."""
+
+        def chatty():
+            end = time.monotonic() + 8
+            while time.monotonic() < end:
+                sys.stdout.write("x" * 512)
+                sys.stdout.flush()
+            return 1
+
+        started = time.monotonic()
+        outcome = run_isolated(chatty, timeout_seconds=2)
+
+        self.assertNotEqual(outcome.status, COMPLETED)
+        self.assertLess(time.monotonic() - started, 7)
 
 
 if __name__ == "__main__":
