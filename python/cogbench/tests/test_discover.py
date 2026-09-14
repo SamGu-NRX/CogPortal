@@ -3217,6 +3217,60 @@ class LeavingABlockHandsControlToWhicheverIsNowInnermost(_Fixture):
                     self.assertEqual(self._module(outer, "main").read("entry"), 11)
             self.assertEqual(self._module(outer, "main").read("entry"), 11)
 
+    def test_a_block_re_entered_inside_itself_owns_what_it_loaded(self):
+        """Ownership was inferred afterwards from which directories held the
+        file, and the candidates excluded the context doing the entering, so
+        in A, B, A, A the module the third block loaded was given to B. Both
+        then retained the same live object, and a later standalone B block
+        imported A's module. Ownership is recorded when a block stops running
+        now, because the block that was running is the one that loaded it."""
+
+        root = self.tmp / "r8shared"
+        root.mkdir()
+        (root / "side.py").write_text("V = 0\n")
+        (root / "main.py").write_text(self._LOADER)
+        first, second = discover(root), discover(root)
+
+        with first.imports():
+            with second.imports():
+                with first.imports():
+                    loaded = self._module(first, "main").load("fresh_side", 33)
+                    with first.imports():
+                        self.assertEqual(
+                            self._module(first, "main").read("fresh_side"), 33
+                        )
+
+        self.assertIs(first.context.modules.get("fresh_side"), loaded)
+        self.assertIsNone(second.context.modules.get("fresh_side"))
+        with second.imports():
+            with self.assertRaises(ModuleNotFoundError):
+                self._module(second, "main").read("fresh_side")
+
+    def test_a_suspended_blocks_name_does_not_strand_the_real_owner(self):
+        """Entry evicted by name from every suspended block's inventory before
+        working out who owned what was actually occupying that name. A module
+        the inner block had loaded under a name an outer block also uses was
+        gone by the time ownership was decided, so its owner could not
+        reinstall it."""
+
+        static = self._repo("r8A", {"helper.py": "WHO = 'A static'\n"})
+        root = self.tmp / "r8B"
+        root.mkdir()
+        (root / "side.py").write_text("V = 0\n")
+        (root / "main.py").write_text(self._LOADER)
+        loader = discover(root)
+        third = self._repo("r8C", {"e.py": "V = 1\n"})
+
+        with static.imports():
+            with loader.imports():
+                mine = self._module(loader, "main").load("helper", 22)
+                with third.imports():
+                    self.assertIs(loader.context.modules.get("helper"), mine)
+                    with loader.imports():
+                        self.assertEqual(
+                            self._module(loader, "main").read("helper"), 22
+                        )
+
     def test_an_empty_discovery_nests_inside_a_real_one(self):
         """A discovery that loaded nothing installs nothing and never joins the
         open-block list, so it has no place in the ordering check. Asking it

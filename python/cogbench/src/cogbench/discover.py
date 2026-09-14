@@ -2997,6 +2997,14 @@ class ImportContext:
             "wasDisplaced": dict(_DISPLACED),
             "bytecode": sys.dont_write_bytecode,
         }
+        # Whatever appeared in `sys.modules` while the block below was the one
+        # running belongs to it, because it was the only submission executing.
+        # Recording that here is the whole of ownership: inferring an owner
+        # afterwards from which directories hold the file cannot tell two
+        # discoveries of one checkout apart, and four rounds of review found a
+        # new hole in that inference each time.
+        if _LIVE:
+            _LIVE[-1]._suspend()
         # Pushed before anything is installed. Installing first left their
         # modules in the table with no frame to take them back out, and
         # Python does not call `__exit__` for an `__enter__` that raised.
@@ -3009,6 +3017,26 @@ class ImportContext:
             raise
         frame["before"] = set(sys.modules)
         return self
+
+    def _suspend(self, frame: Optional[Dict[str, object]] = None) -> None:
+        """Record what this block imported while it was the one running.
+
+        Called on the block below when another opens, and again by `__exit__`
+        for the block leaving. `_belongs_to` still filters, because a
+        submission's call can import an installed library and that is not
+        theirs, but it is only ever asked about the one block that was
+        executing, so there is no second block for it to confuse this with.
+        """
+
+        if frame is None:
+            frame = self._frames[-1] if self._frames else None
+        if not frame:
+            return
+        before: set = frame["before"]  # type: ignore[assignment]
+        for name in sorted(set(sys.modules) - before, reverse=True):
+            module = sys.modules.get(name)
+            if module is not None and _belongs_to(name, module, self.directories):
+                self.retain(name, module)
 
     def _install(self, frame: Dict[str, object]) -> None:
         """Put this repository's names in, recording what each replaced."""
@@ -3030,51 +3058,19 @@ class ImportContext:
         # `database.py` this one lacks resolved their lazy `import database`
         # to that other team's module, because nothing displaced a name this
         # context never had.
-        others = [other for other in _LIVE if other is not self]
-        for other in others:
-            for name in other._modules:
-                if name not in self._modules:
-                    take(name)
-        # Whatever those blocks have imported since they opened is theirs as
-        # well, and their inventories will not hold it until they leave: an
-        # outer submission that loaded a file at call time was still answering
-        # for that name inside this one.
-        arrived = set()
-        for other in others:
-            opened = next((held for held in other._frames if held), None)
-            if opened is not None:
-                arrived |= set(sys.modules) - opened["before"]  # type: ignore[operator]
-        for name in sorted(arrived, reverse=True):
-            module = sys.modules.get(name)
-            if module is None:
-                continue
-            # The innermost block whose repository holds it, not the first one
-            # asked. Two discoveries of one checkout share directories, so
-            # containment alone handed a module to whichever context the loop
-            # reached first, which retained another block's live module and
-            # left its real owner unable to reinstall it.
-            owner = next(
-                (
-                    other
-                    for other in reversed(others)
-                    if _belongs_to(name, module, other.directories)
-                ),
-                None,
-            )
-            if owner is None:
-                continue
-            # Recorded for its owner even when this block has a name of its own
-            # to install over it. The install loop below puts the displaced
-            # value in this frame, which restores it on the way out, but the
-            # owner still needs it to reinstall on a nested re-entry.
-            owner.retain(name, module)
-            if name not in self._modules:
-                take(name)
+        # Every other open block's names. Each of those blocks was suspended
+        # when the one inside it opened, and suspending is what recorded what
+        # it had imported, so an inventory here is complete.
+        for other in _LIVE:
+            if other is not self:
+                for name in other._modules:
+                    if name not in self._modules:
+                        take(name)
         # Their directories come off the path too. Taking the name alone was
         # not enough: the outer block's root is still on `sys.path`, so the
-        # inner submission's `import helper` simply read the outer team's
-        # file again and got their code under a fresh object. Only the
-        # innermost block's repository is importable while it runs.
+        # inner submission's `import helper` simply read the outer team's file
+        # again and got their code under a fresh object. Only the innermost
+        # block's repository is importable while it runs.
         ours = {str(directory) for directory in self.directories}
         elsewhere = {
             str(directory)
@@ -3084,16 +3080,6 @@ class ImportContext:
         } - ours
         if elsewhere:
             sys.path[:] = [entry for entry in sys.path if entry not in elsewhere]
-        # What the process held that is not this submission's, which is what
-        # the reuse check judges a file against. Taken after the other open
-        # blocks' names have gone and with this one's excluded: two teams whose
-        # notebooks share a name put the outer team's entry in here, and the
-        # reuse check then refused to reuse this team's own module and ran
-        # their notebook a second time into a second class.
-        _PREEXISTING.clear()
-        _PREEXISTING.update(
-            name for name in sys.modules if name not in self._modules
-        )
         for name, module in self._modules.items():
             if name in sys.modules:
                 displaced[name] = sys.modules[name]
@@ -3178,15 +3164,15 @@ class ImportContext:
         sys.path[:] = frame["path"]  # type: ignore[arg-type]
         sys.meta_path[:] = frame["meta"]  # type: ignore[arg-type]
         sys.dont_write_bytecode = bool(frame["bytecode"])
+        # The frame it is leaving, explicitly: it has already been popped, so
+        # asking for the current one would read the block outside this.
+        self._suspend(frame)
         for name in sorted(set(sys.modules) - before, reverse=True):
-            module = sys.modules.get(name)
-            if module is not None and _belongs_to(name, module, self.directories):
-                self.retain(name, module)
-                if not still_open:
-                    # Left installed while an outer block of this same context
-                    # is running: that block did not import it, but it is the
-                    # one that goes on using it.
-                    sys.modules.pop(name, None)
+            if name in self._modules and not still_open:
+                # Left installed while an outer block of this same context is
+                # running: that block did not import it, but it is the one
+                # that goes on using it.
+                sys.modules.pop(name, None)
         if not still_open:
             for name in sorted(self._modules, reverse=True):
                 if sys.modules.get(name) is self._modules[name]:
