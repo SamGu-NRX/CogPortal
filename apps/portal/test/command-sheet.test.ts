@@ -79,15 +79,16 @@ test("the tool is installed from a commit, like every other package here", () =>
   assert.match(tool, /--force-reinstall/);
 });
 
-test("only the tool is force-reinstalled, never a benchmark", () => {
-  // The tool declares no dependencies, so forcing it reinstalls nothing else.
-  // A benchmark brings the course stack (librosa, numba, numpy), and forcing
-  // one of those would rebuild an environment the student spent an afternoon
-  // installing.
-  const forced = lines().filter((line) => line.command.includes("--force-reinstall"));
+test("forced benchmark replacement excludes the course dependencies", () => {
+  // Pins can change without a package version bump. Replace the benchmark,
+  // but do not force replacement of its already-satisfactory dependencies.
+  const benchmark = lines().find((line) => line.id === "benchmark");
+  assert.ok(benchmark);
+  const phases = benchmark.command.split(" && ");
 
-  assert.equal(forced.length, 1, "exactly one command may force a reinstall");
-  assert.match(forced[0].command, /cogworks-benchmark @/);
+  assert.equal(phases.length, 2);
+  assert.doesNotMatch(phases[0], /--force-reinstall|--no-deps/);
+  assert.match(phases[1], /--force-reinstall --no-deps/);
 });
 
 test("the check that claims to update this page carries the flag that does it", () => {
