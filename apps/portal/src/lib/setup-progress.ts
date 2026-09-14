@@ -86,6 +86,11 @@ export interface SetupCommand {
   evidenceSource: "setup-state" | "devices";
 }
 
+/** Explicit origin also works before the CLI has saved its first portal. */
+export function deviceLinkCommand(portalOrigin: string): string {
+  return `cogworks link --portal ${portalOrigin}`;
+}
+
 /**
  * The commands, in run order, for one team's repository and one track.
  *
@@ -152,7 +157,7 @@ export function setupCommandLines(input: {
     {
       id: "link",
       step: null,
-      command: `cogworks link --portal ${input.portalOrigin}`,
+      command: deviceLinkCommand(input.portalOrigin),
       verified: input.deviceLinked,
       selfChecked: false,
       benchmarkScoped: false,

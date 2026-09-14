@@ -2,12 +2,13 @@ import {
   ArrowDown01Icon,
   Copy01Icon,
   TeacherIcon,
+  Tick02Icon,
   UserAdd01Icon,
   UserRemove01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { AdminTeamSummary } from "@cogworks/contracts/schema";
 import { Button } from "@/components/Button";
 import { ConfirmButton } from "@/components/ConfirmButton";
@@ -382,17 +383,32 @@ function CohortPanel({
   cohort: { slug: string; name: string; joinCode: string; active: boolean };
 }) {
   const patch = useAdminPatchCohort();
-  const [copied, setCopied] = useState(false);
+  const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
+  const copying = useRef(false);
+  const copied = copyStatus === "copied";
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current);
+    },
+    [],
+  );
+
   const copy = async () => {
+    // Keep the button focusable while suppressing overlapping writes.
+    if (copying.current) return;
+    copying.current = true;
+    if (timer.current) clearTimeout(timer.current);
+    setCopyStatus("idle");
     try {
       await navigator.clipboard.writeText(cohort.joinCode);
-      setCopied(true);
-      if (timer.current) clearTimeout(timer.current);
-      timer.current = setTimeout(() => setCopied(false), 1400);
+      setCopyStatus("copied");
+      timer.current = setTimeout(() => setCopyStatus("idle"), 1400);
     } catch {
-      /* code stays visible */
+      setCopyStatus("failed");
+    } finally {
+      copying.current = false;
     }
   };
 
@@ -416,19 +432,22 @@ function CohortPanel({
           type="button"
           onClick={copy}
           title="Copy join code"
+          aria-label={`Copy join code ${cohort.joinCode}`}
           className="u-pressable inline-flex min-h-9 items-center gap-2 border border-rule bg-paper-sunken px-3 font-mono text-[15px] tracking-[0.25em] text-ink hover:border-ink-secondary"
         >
-          {cohort.joinCode}
+          <span className="select-text">{cohort.joinCode}</span>
           <HugeiconsIcon
-            icon={Copy01Icon}
+            icon={copied ? Tick02Icon : Copy01Icon}
             size={13}
             strokeWidth={1.8}
             className={copied ? "text-verify" : "text-ink-faint"}
             aria-hidden="true"
           />
-          <span className="sr-only">{copied ? "Copied" : "Copy join code"}</span>
         </button>
       </div>
+      <p role="status" className={copyStatus === "failed" ? "mt-2 text-[13px] text-detect-deep" : "sr-only"}>
+        {copyStatus === "failed" ? "Couldn't copy. Select the join code above and copy it manually, or try again." : copied ? "Copied." : ""}
+      </p>
 
       <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-rule-soft pt-4">
         <ConfirmButton

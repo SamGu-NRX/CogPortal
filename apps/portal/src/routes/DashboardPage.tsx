@@ -443,7 +443,7 @@ function CurrentRunPanel({
         </p>
 
         <div className="mt-5 grid gap-6 sm:grid-cols-2">
-          <div>
+          <div className="min-w-0">
             <h3 className="u-kicker">On your machine</h3>
             {/* These three lines assume an installed tool and a linked
                 machine, which a student who came straight here has not done.
@@ -473,7 +473,7 @@ function CurrentRunPanel({
             </div>
           </div>
 
-          <div>
+          <div className="min-w-0">
             <h3 className="u-kicker">Here, from your pushed commit</h3>
             <p className="mt-2 text-[13px] leading-[1.55] text-ink-secondary">
               {practiceLeft} of {d.quota.practiceLimit} hosted practice runs left,

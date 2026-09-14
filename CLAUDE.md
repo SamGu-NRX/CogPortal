@@ -173,7 +173,9 @@ beats scattered micro-animations. Constants live in
 Check `apps/portal/src/components/` first; most primitives exist and carry
 the conventions: `Panel` (labeled instrument box), `Button`/`ConfirmButton`
 (arm-then-confirm, consequence in the label), `Code` (Shiki, ink-on-paper
-theme; use for any multi-line command), `CopyBlock` (single command),
+theme; use for a command a student is meant to read, whatever its line
+count, and pass `wrap` when the tail matters), `CopyBlock` (a one-line
+command to copy without reading, like a signed token),
 `Veil` (collapsible progressive disclosure), `CornerBrackets`,
 `MemberPalette` (anchored search palette; copy its popover/keyboard
 patterns), `UserMenu` (canonical dropdown motion and focus behavior),
