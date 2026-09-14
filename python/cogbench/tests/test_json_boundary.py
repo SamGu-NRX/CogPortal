@@ -111,10 +111,10 @@ class JsonEnvelope(unittest.TestCase):
         # before reading to isolate envelope rejection from cleanup timing.
         real_read = isolate._read_payload
         status = []
-        def read(fd, exited=None):
+        def read(fd, exited=None, deadline=None):
             pid, observed = os.wait()
             status.append((pid, observed))
-            return real_read(fd, exited)
+            return real_read(fd, exited, deadline)
         real_wait = os.waitpid
         def wait(pid, options):
             if status:
