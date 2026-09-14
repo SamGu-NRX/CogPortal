@@ -710,6 +710,8 @@ def _collect(pid, read_fd, timeout_seconds, memory_bytes) -> Outcome:
     pending = 0
     armed_at = 0.0
 
+    lifecycle = threading.Lock()
+
     def expire():
         # The wall-clock deadline for a caller that cannot have SIGALRM. The
         # child's own limit is RLIMIT_CPU, which a sleeping or blocked child
@@ -717,8 +719,13 @@ def _collect(pid, read_fd, timeout_seconds, memory_bytes) -> Outcome:
         # `timeout_seconds=1` returned COMPLETED after 3.01 seconds. So this
         # is the deadline off the main thread, not a second guard.
         nonlocal fired
-        fired = True
-        _terminate(pid)
+        with lifecycle:
+            # Under the same lock the collector reaps under, and reading the
+            # same flag: a timer firing while the child is being reaped would
+            # otherwise signal a number the kernel is free to reuse, which is
+            # the defect this commit removes elsewhere.
+            fired = True
+            _terminate(pid, reaped=reaped)
 
     watchdog = None
     if not armed and timeout_seconds is not None and timeout_seconds > 0:
@@ -728,16 +735,17 @@ def _collect(pid, read_fd, timeout_seconds, memory_bytes) -> Outcome:
 
     def exited():
         nonlocal status, reaped
-        if not reaped:
-            while True:
-                try:
-                    done, observed = os.waitpid(pid, os.WNOHANG)
-                    break
-                except InterruptedError:
-                    continue
-            if done:
-                status, reaped = observed, True
-        return reaped
+        with lifecycle:
+            if not reaped:
+                while True:
+                    try:
+                        done, observed = os.waitpid(pid, os.WNOHANG)
+                        break
+                    except InterruptedError:
+                        continue
+                if done:
+                    status, reaped = observed, True
+            return reaped
 
     try:
         if armed:
@@ -745,8 +753,10 @@ def _collect(pid, read_fd, timeout_seconds, memory_bytes) -> Outcome:
             # What the caller already had pending. `signal.alarm` returns it,
             # and discarding it silently cancelled their timer: a caller with
             # four seconds left got none, with nothing raised to say so.
-            armed_at = time.monotonic()
+            # Read after the call, not before: the two are sampled together,
+            # so a pause between them cannot be counted twice.
             pending = signal.alarm(timeout_seconds)
+            armed_at = time.monotonic()
         try:
             try:
                 outcome = _read_payload(read_fd, exited)
@@ -778,8 +788,16 @@ def _collect(pid, read_fd, timeout_seconds, memory_bytes) -> Outcome:
                 watchdog.cancel()
             if armed:
                 signal.alarm(0)
-                # None denotes a handler installed outside Python. It cannot
-                # be passed to signal.signal, but our timer must still stop.
+            try:
+                os.close(read_fd)
+            except OSError:
+                pass
+            if armed:
+                # Only now. Restoring delivery before this let a caller's
+                # handler raise out of the middle of cleanup and leave the
+                # result descriptor open; measured, it did. None denotes a
+                # handler installed outside Python, which cannot be passed
+                # back to `signal.signal`.
                 if previous is not None:
                     signal.signal(signal.SIGALRM, previous)
                 if pending:
@@ -792,10 +810,6 @@ def _collect(pid, read_fd, timeout_seconds, memory_bytes) -> Outcome:
                     # rather than never; it cannot be made to arrive now.
                     left = pending - (time.monotonic() - armed_at)
                     signal.alarm(max(1, int(math.ceil(left))))
-            try:
-                os.close(read_fd)
-            except OSError:
-                pass
             # Capture an already-dead child's status before cleanup. If the
             # pipe closed while it was alive, cleanup's SIGKILL proves no cause.
             if not reaped:

@@ -452,9 +452,6 @@ class WindowsDoesNotReplaceItself(unittest.TestCase):
         self.assertEqual(calls, [], "nothing was re-executed")
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class TheCallerKeepsWhatItBroughtIn(unittest.TestCase):
     """`_collect` arms its own `SIGALRM` and used to discard whatever the
@@ -605,3 +602,5 @@ class AFailedForkIsReportedLikeAnyOtherFailure(unittest.TestCase):
         self.assertEqual(outcome.timeout_seconds, 2)
         self.assertIsNotNone(outcome.memory_bytes)
 
+if __name__ == "__main__":
+    unittest.main()
