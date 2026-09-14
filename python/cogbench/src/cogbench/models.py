@@ -233,6 +233,10 @@ class LocalReport:
         if entries is None:
             return None
         used = [str(item) for item in value.get("weightsUsed", [])]
+        if len(set(used)) != len(used):
+            # One name, two receipts to satisfy, and no way to say which
+            # bytes the second one meant.
+            raise ValueError("weightsUsed names a path more than once")
         if not isinstance(entries, list):
             raise ValueError("weightsUploaded must be a list or null")
         receipts = []
