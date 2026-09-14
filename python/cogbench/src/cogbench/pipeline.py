@@ -478,6 +478,18 @@ class Candidate:
     plan: Tuple[str, ...] = ()
     #: Extras passed by keyword instead of by position, by parameter name.
     keywords: Tuple[str, ...] = ()
+    #: Arguments this step passes by keyword, as ``(parameter name, slot)``,
+    #: where the slot is one of the same four `plan` uses, ``extra:<name>``
+    #: included.
+    #:
+    #: `plan` places positional arguments only, so a required keyword-only
+    #: parameter could be filled from `keywords` or not at all, and
+    #: `adj_list(paths, *, threshold)` was never called.
+    #:
+    #: Beside it, `keywords` is only a list of extras to pass under their own
+    #: names. Writing the parameter and its slot down separately is what lets
+    #: a keyword argument hold a tuning or the item's own identity.
+    keyword_plan: Tuple[Tuple[str, str], ...] = ()
     #: What the plan's named slots hold. Not compared and not stored: the
     #: values are the benchmark's own resources, sometimes hundreds of
     #: megabytes, and a replay looks them up again by name.
@@ -565,6 +577,7 @@ class Candidate:
             self.tuning is None
             and not self.plan
             and not self.keywords
+            and not self.keyword_plan
             and not self.per_item
             and self.element is None
             and not self.self_only
@@ -581,6 +594,7 @@ class Candidate:
         plan: Sequence[str],
         supplied: Optional[Dict[str, Any]] = None,
         keywords: Sequence[str] = (),
+        keyword_plan: Sequence[Tuple[str, str]] = (),
     ) -> "Candidate":
         """The same candidate called a different way.
 
@@ -589,6 +603,9 @@ class Candidate:
         carries the note saying so, and building a shape out of it must not
         drop that note: it is the only record that the step the chain ran
         was not one of their functions.
+
+        The call is stated in full each time: a shape that names no keyword
+        arguments has none, rather than inheriting a previous shape's.
         """
 
         merged = dict(self.supplied)
@@ -597,6 +614,7 @@ class Candidate:
             self,
             plan=tuple(plan),
             keywords=tuple(keywords),
+            keyword_plan=tuple((name, slot) for name, slot in keyword_plan),
             supplied=merged,
         )
 
@@ -630,6 +648,45 @@ def _supplied_now(candidate: Candidate, name: str) -> Any:
     return candidate.supplied[name]
 
 
+def _slot_value(
+    candidate: Candidate, slot: str, values: List[Any], index: Optional[int]
+) -> Any:
+    """What one named slot of a recorded call holds, right now.
+
+    The one place a slot becomes a value, so a positional argument and a
+    keyword argument of the same kind are filled from the same line. ``values``
+    is consumed in the order the slots ask for it.
+    """
+
+    if slot == "value":
+        if not values:
+            raise TypeError("the plan asks for more values than there are")
+        return values.pop(0)
+    if slot == "tuning":
+        return candidate.tuning
+    if slot == "identity":
+        # This run's items, not the search's. The identity slot holds the
+        # names of the photos the benchmark is passing, and the search bound
+        # it on the fixture's copies; a scored run writes its own and then
+        # reads the answer back by those names. Measured on week 2's Bagel
+        # repository, whose `Whispers(vectors, names, threshold)` stores each
+        # name on its node and whose `sorted_images` returns the groups keyed
+        # by them: replaying the search's names made every group name a photo
+        # this run had never seen, and placing the answer raised instead of
+        # scoring.
+        identities = (
+            _RUNTIME["identity"]
+            if "identity" in _RUNTIME
+            else candidate.supplied.get("identity", ())
+        )
+        return identities[index] if index is not None else list(identities)
+    if slot.startswith("extra:"):
+        return _supplied_now(candidate, slot[len("extra:"):])
+    raise TypeError(  # pragma: no cover - a plan is built here and nowhere else
+        "unknown argument slot {!r}".format(slot)
+    )
+
+
 def _arguments(candidate: Candidate, positional: Sequence[Any], index: Optional[int] = None):
     """The exact positional arguments and keywords one call is made with.
 
@@ -639,42 +696,20 @@ def _arguments(candidate: Candidate, positional: Sequence[Any], index: Optional[
     builds a graph takes every descriptor and every name.
     """
 
-    if not candidate.plan:
+    if not candidate.plan and not candidate.keyword_plan:
         args = tuple(positional)
         if candidate.tuning is not None:
             args = args + (candidate.tuning,)
         return args, {}
 
     values = list(positional)
-    args: List[Any] = []
-    for slot in candidate.plan:
-        if slot == "value":
-            if not values:
-                raise TypeError("the plan asks for more values than there are")
-            args.append(values.pop(0))
-        elif slot == "tuning":
-            args.append(candidate.tuning)
-        elif slot == "identity":
-            # This run's items, not the search's. The identity slot holds the
-            # names of the photos the benchmark is passing, and the search
-            # bound it on the fixture's copies; a scored run writes its own
-            # and then reads the answer back by those names. Measured on week
-            # 2's Bagel repository, whose `Whispers(vectors, names, threshold)`
-            # stores each name on its node and whose `sorted_images` returns
-            # the groups keyed by them: replaying the search's names made
-            # every group name a photo this run had never seen, and placing
-            # the answer raised instead of scoring.
-            identities = (
-                _RUNTIME["identity"]
-                if "identity" in _RUNTIME
-                else candidate.supplied.get("identity", ())
-            )
-            args.append(identities[index] if index is not None else list(identities))
-        elif slot.startswith("extra:"):
-            args.append(_supplied_now(candidate, slot[len("extra:"):]))
-        else:  # pragma: no cover - a plan is built here and nowhere else
-            raise TypeError("unknown argument slot {!r}".format(slot))
+    args = [_slot_value(candidate, slot, values, index) for slot in candidate.plan]
     keywords = {name: _supplied_now(candidate, name) for name in candidate.keywords}
+    # After the positional slots, so a plan that spends the chain's values
+    # positionally and a plan that spends one of them by keyword read the
+    # arguments in the order they were written down.
+    for name, slot in candidate.keyword_plan:
+        keywords[name] = _slot_value(candidate, slot, values, index)
     return tuple(args), keywords
 
 
@@ -985,6 +1020,50 @@ def _is_probeable(name: str, value: Any, module_name: str) -> bool:
     return not _reaches_outside(value)
 
 
+def _names_of(container: Any) -> List[str]:
+    """The string attribute names of one module or object, in a stable order.
+
+    ``dir`` runs their own ``__dir__`` when they define one, and a repository
+    that generates its exports can define one that raises. The fallback reads
+    the namespace dictionaries instead, so a bug in one of their files does
+    not stop the repository being enumerated.
+
+    A namespace is keyed by anything hashable, and a key that is not a string
+    makes the result unsortable and is not a name `getattr` can be asked for.
+    Dropping those keeps one ``globals()[7] = ...`` from throwing out every
+    export a module has.
+    """
+
+    try:
+        return sorted(name for name in dir(container) if isinstance(name, str))
+    except BaseException:  # noqa: BLE001 - __dir__ is their code
+        pass
+    names = set()
+    for holder in (container,) + tuple(getattr(type(container), "__mro__", ())):
+        try:
+            keys = list(vars(holder))
+        except BaseException:  # noqa: BLE001 - __dict__ can be their property too
+            continue
+        names.update(key for key in keys if isinstance(key, str))
+    return sorted(names)
+
+
+def _attribute_of(container: Any, name: str) -> Any:
+    """One attribute, or None when reading it is what raises.
+
+    A module-level ``__getattr__`` runs for any name ordinary lookup misses,
+    so a name their ``__dir__`` advertised and their ``__getattr__`` refuses
+    raises out of `getattr`, which its default only catches for
+    AttributeError. One unreadable name is not a reason to stop reading the
+    rest.
+    """
+
+    try:
+        return getattr(container, name, None)
+    except BaseException:  # noqa: BLE001 - __getattr__ is their code
+        return None
+
+
 def callables_in(modules: Sequence[Any]) -> List[Candidate]:
     """Every function a stage could plausibly be, in a stable order.
 
@@ -996,8 +1075,8 @@ def callables_in(modules: Sequence[Any]) -> List[Candidate]:
     found: List[Candidate] = []
     for module in modules:
         module_name = getattr(module, "__name__", "?")
-        for name in sorted(dir(module)):
-            value = getattr(module, name, None)
+        for name in _names_of(module):
+            value = _attribute_of(module, name)
             if _is_probeable(name, value, module_name):
                 found.append(
                     Candidate("{}.{}".format(module_name, name), value, module_name)
@@ -1062,8 +1141,8 @@ def instances_in(modules: Sequence[Any]) -> List[Tuple[str, Any]]:
     built: List[Tuple[str, Any]] = []
     for module in modules:
         module_name = getattr(module, "__name__", "?")
-        for name in sorted(dir(module)):
-            value = getattr(module, name, None)
+        for name in _names_of(module):
+            value = _attribute_of(module, name)
             if not isinstance(value, type):
                 continue
             if getattr(value, "__module__", None) != module_name:
@@ -1110,8 +1189,8 @@ def constructors_in(modules: Sequence[Any]) -> List[Candidate]:
     found: List[Candidate] = []
     for module in modules:
         module_name = getattr(module, "__name__", "?")
-        for name in sorted(dir(module)):
-            value = getattr(module, name, None)
+        for name in _names_of(module):
+            value = _attribute_of(module, name)
             if not isinstance(value, type):
                 continue
             if getattr(value, "__module__", None) != module_name:
@@ -1156,8 +1235,8 @@ def folder_readers_in(modules: Sequence[Any]) -> List[Candidate]:
     found: List[Candidate] = []
     for module in modules:
         module_name = getattr(module, "__name__", "?")
-        for name in sorted(dir(module)):
-            value = getattr(module, name, None)
+        for name in _names_of(module):
+            value = _attribute_of(module, name)
             if not isinstance(value, type):
                 continue
             if getattr(value, "__module__", None) != module_name:
@@ -1206,7 +1285,7 @@ def methods_of(
 
     found: List[Candidate] = []
     owner = type(instance)
-    for name in sorted(dir(instance)):
+    for name in _names_of(instance):
         if name.startswith("_") or _named_for_something_else(name):
             continue
         if name not in vars(owner) and not any(name in vars(base) for base in owner.__mro__):
@@ -1455,36 +1534,63 @@ def _call(
         inspect.signature(candidate.call).bind(*args, **keywords)
     except (TypeError, ValueError):
         return False, None
-    # Windows has no SIGALRM. There the per-call clock is not enforced and
-    # a probe that hangs is caught only by the whole-of-discovery wall clock
-    # in `run_isolated`, which Windows also lacks; the CLI already says
-    # discovery is not isolated there. Guarding here keeps the module
-    # importable and the search running on the platforms it can run on.
-    alarm = hasattr(signal, "SIGALRM")
-    previous = signal.signal(signal.SIGALRM, _raise_timeout) if alarm else None
-    if alarm:
-        signal.alarm(CALL_TIMEOUT_SECONDS)
     try:
-        # The alarm is cancelled inside the guarded block, not in the outer
-        # `finally`. A call that returns just as the clock runs out has the
-        # alarm land between the return and the cancel; when the cancel sat
-        # in `finally`, that was outside the `except`, and the `_Timeout`
-        # left this function and ended the whole search. Measured on one
-        # 2026 repository whose constructor probe took ten seconds.
-        try:
-            with _muted():
-                result = _publish(candidate, _rebound(candidate, positional)(*args, **keywords))
-        finally:
-            if alarm:
-                signal.alarm(0)
+        result = _under_clock(
+            lambda: _publish(candidate, _rebound(candidate, positional)(*args, **keywords))
+        )
     except BaseException as error:  # noqa: BLE001 - student code raises anything
         _record_raise(candidate, error)
         return False, None
+    return True, result
+
+
+def _under_clock(call: Callable[..., Any], *args: Any, **keywords: Any) -> Any:
+    """Call one of their callables muted and under the per-call clock.
+
+    Windows has no SIGALRM. There the clock is not enforced and a probe that
+    hangs is caught only by the whole-of-discovery wall clock in
+    `run_isolated`, which Windows also lacks; the CLI already says discovery
+    is not isolated there. Guarding here keeps the module importable and the
+    search running on the platforms it can run on.
+    """
+
+    # A worker thread cannot hold a signal handler: `signal.signal` raises
+    # ValueError off the main thread. That is this process being unable to
+    # offer a clock, not their function failing, and a caller that reads a
+    # raise as "not a reader of this value" would quietly drop a working one.
+    # So it degrades to no clock, which is what a platform without SIGALRM
+    # already gets.
+    # SIGALRM has one timer per process. An enclosing probe or caller already
+    # using it owns its timing, even when longer than our default. Replacing
+    # that timer and cancelling ours would silently remove the caller's clock.
+    alarm = hasattr(signal, "SIGALRM")
+    if alarm and hasattr(signal, "getitimer"):
+        alarm = signal.getitimer(signal.ITIMER_REAL)[0] == 0
+    previous = None
+    if alarm:
+        try:
+            previous = signal.signal(signal.SIGALRM, _raise_timeout)
+        except ValueError:
+            alarm = False
+    try:
+        if alarm:
+            signal.alarm(CALL_TIMEOUT_SECONDS)
+        # The alarm is cancelled inside the guarded block, not in the outer
+        # `finally`. A call that returns just as the clock runs out has the
+        # alarm land between the return and the cancel; when the cancel sat
+        # in `finally`, that was outside the caller's `except`, and the
+        # `_Timeout` left this function and ended the whole search. Measured
+        # on one 2026 repository whose constructor probe took ten seconds.
+        try:
+            with _muted():
+                return call(*args, **keywords)
+        finally:
+            if alarm:
+                signal.alarm(0)
     finally:
         if alarm:
             signal.alarm(0)
             signal.signal(signal.SIGALRM, previous)
-    return True, result
 
 
 class _DiscardedOutput(io.StringIO):
@@ -1665,7 +1771,7 @@ def _bind_one(
             return found
     shapes = _shapes(stage, candidate, len(positional), pool, identities)
     for shape in shapes:
-        if "tuning" in shape.plan:
+        if _holds_tuning(shape):
             # This shape reserved a slot for one of the benchmark's values,
             # so calling it before choosing one passes None into a required
             # argument. Their function may well accept None and return
@@ -2248,6 +2354,88 @@ def _required_parameters(call: Any) -> Optional[List[inspect.Parameter]]:
     ]
 
 
+def _required_keywords(call: Any) -> Optional[List[inspect.Parameter]]:
+    """The keyword-only parameters a call demands, or None if it cannot say.
+
+    Only the ones with no default, for the reason the plain call is tried
+    first everywhere else here: a team who defaulted theirs is calling the
+    same function a shorter way, and the benchmark has nothing to add.
+    """
+
+    try:
+        signature = inspect.signature(call)
+    except (TypeError, ValueError):
+        return None
+    return [
+        parameter
+        for parameter in signature.parameters.values()
+        if parameter.kind is inspect.Parameter.KEYWORD_ONLY
+        and parameter.default is inspect.Parameter.empty
+    ]
+
+
+def _keyword_slots(
+    stage: Stage,
+    candidate: Candidate,
+    pool: Dict[str, Any],
+    identities: Sequence[Any],
+) -> Optional[Tuple[Tuple[str, str], ...]]:
+    """Which slot fills each keyword-only argument this call demands.
+
+    A declared side input first, then the item's own identity where the name
+    asks for one, then the week's tuning for one argument that is neither.
+
+    Order matters because the three overlap. `_asks_for_identity` says yes to
+    `names`, and a week declaring ``extras=("names",)`` has handed over a
+    value under that exact parameter name: what the benchmark named wins over
+    what the search would guess.
+
+    ``None`` when one of them asks for something the benchmark has no slot
+    for. Nothing built here could be called at all, and the plain shape
+    `_shapes` offers first is the honest attempt.
+    """
+
+    required = _required_keywords(candidate.call)
+    if required is None:
+        return None
+    assigned: List[Tuple[str, str]] = []
+    used_tuning = False
+    for parameter in required:
+        if parameter.name in stage.extras and parameter.name in pool:
+            assigned.append((parameter.name, "extra:" + parameter.name))
+        elif stage.identity and identities and _asks_for_identity(parameter.name):
+            assigned.append((parameter.name, "identity"))
+        elif stage.tunings and not used_tuning:
+            assigned.append((parameter.name, "tuning"))
+            used_tuning = True
+        else:
+            return None
+    return tuple(assigned)
+
+
+def _supplied_for(
+    slots: Sequence[Tuple[str, str]], pool: Dict[str, Any], identities: Sequence[Any]
+) -> Dict[str, Any]:
+    """What the named slots of a keyword plan need looked up by name."""
+
+    supplied: Dict[str, Any] = {}
+    for _name, slot in slots:
+        if slot == "identity":
+            supplied["identity"] = tuple(identities)
+        elif slot.startswith("extra:"):
+            extra = slot[len("extra:"):]
+            supplied[extra] = pool[extra]
+    return supplied
+
+
+def _holds_tuning(candidate: Candidate) -> bool:
+    """Whether a shape already reserved a slot for one of the week's tunings."""
+
+    return "tuning" in candidate.plan or any(
+        slot == "tuning" for _name, slot in candidate.keyword_plan
+    )
+
+
 def _shapes(
     stage: Stage,
     candidate: Candidate,
@@ -2260,29 +2448,54 @@ def _shapes(
     The plain call first, always, so a team that defaulted everything is
     unaffected and a week that declares nothing gets exactly the search it
     had. Then the declared side inputs after the value, then before it, then
-    by the names the signature uses. Then, last, the item's identity in any
-    required slot still empty.
+    by the names the signature uses. Then the arguments a signature will only
+    take by keyword. Then, last, the item's identity in any required slot
+    still empty.
     """
 
     shapes: List[Candidate] = [candidate.with_plan(())]
     slots = ["value"] * values
 
+    # Every arrangement of the positional arguments, in the order the search
+    # has always tried them. The first is the values alone, already offered
+    # above as the plain call; it is listed so a keyword argument can be
+    # composed onto it.
+    arrangements: List[Tuple[List[str], Dict[str, Any], List[str]]] = [
+        (list(slots), {}, [])
+    ]
     names = [name for name in stage.extras if name in pool]
     if names:
         supplied = {name: pool[name] for name in names}
         extras = ["extra:" + name for name in names]
-        shapes.append(candidate.with_plan(slots + extras, supplied))
-        shapes.append(candidate.with_plan(extras + slots, supplied))
+        arrangements.append((slots + extras, supplied, []))
+        arrangements.append((extras + slots, supplied, []))
         by_name = [name for name in names if name in _parameter_names(candidate.call)]
         if by_name:
-            shapes.append(
-                candidate.with_plan(
-                    slots, {name: pool[name] for name in by_name}, keywords=by_name
-                )
+            arrangements.append(
+                (list(slots), {name: pool[name] for name in by_name}, by_name)
             )
+    shapes.extend(
+        candidate.with_plan(plan, held, keywords)
+        for plan, held, keywords in arrangements[1:]
+    )
+
+    by_keyword = _keyword_slots(stage, candidate, pool, identities) or ()
+    # Only when a keyword-only argument wants something `keywords` cannot
+    # carry. A keyword-only side input is already covered by the by-name
+    # shape above, and offering the same call twice costs a call per
+    # candidate across the whole search.
+    if any(slot in ("tuning", "identity") for _name, slot in by_keyword):
+        named = _supplied_for(by_keyword, pool, identities)
+        # Onto every arrangement, not only the bare one: a signature that
+        # takes a side input by position and a cutoff by keyword needs one
+        # call filling both, and the two halves offered apart fill neither.
+        for plan, held, keywords in arrangements:
+            merged = dict(held)
+            merged.update(named)
+            shapes.append(candidate.with_plan(plan, merged, keywords, by_keyword))
 
     if stage.identity and identities:
-        shape = _identity_shape(stage, candidate, values, pool, identities)
+        shape = _identity_shape(stage, candidate, values, pool, identities, by_keyword)
         if shape is not None:
             shapes.append(shape)
     return shapes
@@ -2294,6 +2507,7 @@ def _identity_shape(
     values: int,
     pool: Dict[str, Any],
     identities: Sequence[Any],
+    by_keyword: Sequence[Tuple[str, str]] = (),
 ) -> Optional[Candidate]:
     """Fill this call's required slots, offering identity where it is asked for.
 
@@ -2301,6 +2515,10 @@ def _identity_shape(
     argument that wants a name sits in the middle: Bagel's
     `Whispers(vectors, names, threshold)` takes the descriptors, then one
     label per descriptor, then a cutoff.
+
+    ``by_keyword`` is what the same call's keyword-only arguments take,
+    carried through so a signature that splits the two
+    (`Whispers(vectors, names, *, threshold)`) gets one shape filling both.
     """
 
     parameters = _required_parameters(candidate.call)
@@ -2308,8 +2526,9 @@ def _identity_shape(
         return None
     plan: List[str] = ["value"] * values
     supplied: Dict[str, Any] = {"identity": tuple(identities)}
-    used_tuning = False
-    used_identity = False
+    supplied.update(_supplied_for(by_keyword, pool, identities))
+    used_tuning = any(slot == "tuning" for _name, slot in by_keyword)
+    used_identity = any(slot == "identity" for _name, slot in by_keyword)
     for parameter in parameters[values:]:
         if _asks_for_identity(parameter.name):
             plan.append("identity")
@@ -2326,7 +2545,7 @@ def _identity_shape(
         return None
     if not used_identity:
         return None
-    return candidate.with_plan(plan, supplied)
+    return candidate.with_plan(plan, supplied, keyword_plan=by_keyword)
 
 
 def _tuned(candidate: Candidate, tuning: Any) -> Candidate:
@@ -2334,10 +2553,10 @@ def _tuned(candidate: Candidate, tuning: Any) -> Candidate:
 
     A plain call keeps its empty plan, so the tuning lands where it always
     did: appended after the value. A shape that already reserved a slot for
-    one fills that slot instead.
+    one, positional or keyword, fills that slot instead.
     """
 
-    if not candidate.plan or "tuning" in candidate.plan:
+    if _holds_tuning(candidate) or not candidate.plan:
         return replace(candidate, tuning=tuning)
     return replace(candidate, plan=candidate.plan + ("tuning",), tuning=tuning)
 
@@ -2585,8 +2804,6 @@ class _Attempt:
     #: Per bound branch, the fixture form its first step bound with and how
     #: many forms it was offered.
     forms: Dict[str, Tuple[Optional[int], int]]
-    #: Branches whose input existed and were searched, bound or not.
-    searched: set
     #: Bound branches in the order they bound.
     order: List[str]
     values: Dict[str, Any]
@@ -2702,7 +2919,6 @@ def _resolve_branches(
                 order.append(name)
         pending = [branch for branch in role.branches if branch.name not in chains_now]
         refusals: Dict[str, Refusal] = {}
-        searched: set = set()
         while pending:
             progressed = False
             waiting: List[Role] = []
@@ -2730,7 +2946,6 @@ def _resolve_branches(
                     )
                     waiting.append(branch)
                     continue
-                searched.add(branch.name)
 
                 # The week's test judges each branch as it binds, with every
                 # branch bound so far beside it, so a chain the test rejects
@@ -2815,7 +3030,6 @@ def _resolve_branches(
             pending,
             refusals,
             forms_now,
-            searched,
             order,
             values_now,
             branch_fits,
@@ -2847,7 +3061,13 @@ def _resolve_branches(
     attempts = 1
     while stack and attempts < _FORM_ATTEMPTS:
         attempt, forced = stack.pop()
-        if not any(branch.name in attempt.searched for branch in attempt.pending):
+        if not attempt.pending:
+            # Every branch bound, so no other set of forms can cover more.
+            # Anything still pending is worth going back for, including a
+            # branch never searched because its input never appeared: that is
+            # the case another form of a bound branch changes. The test here
+            # used to require a pending branch to have been searched, which
+            # skipped exactly that one.
             continue
         for name in reversed(attempt.order):
             used, total = attempt.forms[name]
@@ -2982,10 +3202,10 @@ def values_in(modules: Sequence[Any]) -> List[Tuple[str, str, Any]]:
     found: List[Tuple[str, str, Any]] = []
     for module in modules:
         module_name = getattr(module, "__name__", "?")
-        for name in sorted(dir(module)):
+        for name in _names_of(module):
             if name.startswith("_"):
                 continue
-            value = getattr(module, name, None)
+            value = _attribute_of(module, name)
             if value is None or callable(value) or inspect.ismodule(value):
                 continue
             found.append(("{}.{}".format(module_name, name), module_name, value))
@@ -3683,6 +3903,7 @@ def _resolve_chain(
                 step.label,
                 step.plan,
                 step.keywords,
+                step.keyword_plan,
                 repr(step.tuning),
                 step.form,
                 step.per_item,

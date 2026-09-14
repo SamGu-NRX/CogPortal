@@ -7,19 +7,25 @@ of a compiler-style line is that the file and the number are right.
 
 from __future__ import annotations
 
+import importlib.machinery
+import importlib.util
+import json
 import sys
 import tempfile
 import tracemalloc
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "python" / "cogbench" / "src"))
 
+from cogbench.pipeline import Candidate  # noqa: E402
 from cogbench.raised import (  # noqa: E402
     Raised,
     message_of,
     root_of_their_code,
+    their_line,
     where_it_raised,
 )
 
@@ -147,6 +153,238 @@ class TracebackLabels(unittest.TestCase):
             namespace["host"]()
         except ValueError as error:
             self.assertEqual(root_of_their_code(error, root / "driver"), root / "team")
+
+
+def _import_from(directory: Path, name: str, body: str):
+    """Real source paths let traceback traversal cross package boundaries."""
+
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / name
+    path.write_text(body)
+    loader = importlib.machinery.SourceFileLoader(path.stem, str(path))
+    spec = importlib.util.spec_from_file_location(path.stem, str(path), loader=loader)
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    return module
+
+
+def _caught(call, *args) -> BaseException:
+    """Keep the traceback that assertRaises clears on leaving its context."""
+
+    try:
+        call(*args)
+    except BaseException as error:
+        return error
+    raise AssertionError("the fixture did not raise")
+
+
+class _DriverAndRepository(unittest.TestCase):
+    """Separate directories keep driver and student ownership unambiguous."""
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name).resolve()
+        self.ours = root / "driver"
+        self.repository = root / "student"
+        self.driver = _import_from(
+            self.ours, "driver.py",
+            "def go(call, *args):\n    return call(*args)\n",
+        )
+
+    def wrapped_error(self, call, *args):
+        candidate = Candidate("fixture", call, call.__module__, in_place=True)
+        bound = candidate.bound
+        self.assertIsNot(bound, call)
+        return _caught(self.driver.go, bound, *args)
+
+    @staticmethod
+    def _innermost_file(error: BaseException) -> str:
+        """Where the raise actually happened, to show which frame is skipped."""
+
+        inner = error.__traceback__
+        while inner.tb_next is not None:
+            inner = inner.tb_next
+        return Path(inner.tb_frame.f_code.co_filename).name
+
+
+class WrappedStudentFrame(_DriverAndRepository):
+    """Candidate's adapter must not send a student to pipeline.py."""
+
+    def test_candidate_wrapper_reports_the_student_file_and_line(self):
+        student = _import_from(
+            self.repository, "entry.py",
+            "def go(value):\n    raise ValueError('no')\n",
+        )
+        error = self.wrapped_error(student.go, 1)
+
+        self.assertEqual(
+            their_line(error, self.ours), "ValueError: no at entry.py:2",
+        )
+        self.assertNotIn("pipeline.py", their_line(error, self.ours))
+        self.assertEqual(root_of_their_code(error, self.ours), self.repository)
+
+
+class WrappedStandardLibraryFailure(_DriverAndRepository):
+    """A library exception should point to the student's call into it."""
+
+    def test_a_library_failure_with_no_student_frame_belongs_to_nobody(self):
+        """No line of theirs ran, so there is no line of theirs to name.
+        Reporting the innermost directory reached sent a student to
+        `json/decoder.py`."""
+
+        error = self.wrapped_error(json.loads, "{")
+        self.assertEqual(self._innermost_file(error), "decoder.py")
+
+        self.assertIsNone(root_of_their_code(error, self.ours))
+        self.assertIsNone(their_line(error, self.ours))
+
+    def test_innermost_library_frame_keeps_the_student_location(self):
+        student = _import_from(
+            self.repository, "parse.py",
+            "import json\ndef go(value):\n    return json.loads(value)\n",
+        )
+        error = self.wrapped_error(student.go, "{")
+        self.assertEqual(self._innermost_file(error), "decoder.py")
+
+        self.assertEqual(
+            their_line(error, self.ours),
+            "{} at parse.py:3".format(message_of(error)),
+        )
+        self.assertEqual(root_of_their_code(error, self.ours), self.repository)
+
+
+class WrappedNestedStudentHelpers(_DriverAndRepository):
+    """The entry directory keeps nested helpers inside the reported repository."""
+
+    def test_nested_helper_reports_its_line_under_the_common_root(self):
+        helper = _import_from(
+            self.repository / "helpers", "match.py",
+            "def go():\n    raise KeyError('song_list')\n",
+        )
+        student = _import_from(
+            self.repository, "entry.py",
+            "def go(helper):\n    return helper.go()\n",
+        )
+        error = self.wrapped_error(student.go, helper)
+
+        self.assertEqual(root_of_their_code(error, self.ours), self.repository)
+        self.assertEqual(
+            their_line(error, self.ours),
+            "KeyError: 'song_list' at helpers/match.py:2",
+        )
+
+
+class DriverOnlyFailures(_DriverAndRepository):
+    """Passing through an adapter does not make a driver's failure the student's."""
+
+    def test_wrong_arity_in_the_driver_has_no_student_location(self):
+        student = _import_from(
+            self.repository, "entry.py", "def go(value):\n    return value\n",
+        )
+        driver = _import_from(
+            self.ours, "arity.py", "def go(call):\n    return call()\n",
+        )
+        direct = _caught(driver.go, student.go)
+        self.assertIsInstance(direct, TypeError)
+        self.assertIsNone(root_of_their_code(direct, self.ours))
+        self.assertIsNone(their_line(direct, self.ours))
+
+        error = self.wrapped_error(driver.go, student.go)
+        self.assertIsInstance(error, TypeError)
+        self.assertIsNone(root_of_their_code(error, self.ours))
+        self.assertIsNone(their_line(error, self.ours))
+
+    def test_pseudo_filename_in_the_driver_has_no_student_location(self):
+        for filename in ("<string>", "<ipython-input-7>"):
+            with self.subTest(filename=filename):
+                driver = _import_from(
+                    self.ours, "pseudo.py",
+                    "def go():\n"
+                    "    exec(compile(\"raise ValueError('no')\", {!r}, 'exec'))\n".format(
+                        filename,
+                    ),
+                )
+                direct = _caught(driver.go)
+                self.assertIsNone(root_of_their_code(direct, self.ours))
+                self.assertIsNone(their_line(direct, self.ours))
+
+                error = self.wrapped_error(driver.go)
+                self.assertIsNone(root_of_their_code(error, self.ours))
+                self.assertIsNone(their_line(error, self.ours))
+
+
+class ExplicitRepository(_DriverAndRepository):
+    """A known checkout path takes precedence over an inferred entry directory."""
+
+    def test_repository_overrides_a_different_inferred_root(self):
+        student = _import_from(
+            self.repository / "src", "entry.py",
+            "def go():\n    raise ValueError('no')\n",
+        )
+        error = _caught(self.driver.go, student.go)
+        self.assertEqual(
+            root_of_their_code(error, self.ours), self.repository / "src",
+        )
+        repository = self.repository / "src" / ".."
+
+        self.assertEqual(
+            root_of_their_code(error, self.ours, repository=repository),
+            self.repository,
+        )
+        self.assertEqual(
+            their_line(error, self.ours, repository=repository),
+            "ValueError: no at src/entry.py:2",
+        )
+
+    def test_it_still_reaches_source_inside_the_interpreters_own_library(self):
+        """Inference skips the interpreter's library so a driver that reaches
+        it without reaching their code names nobody. A caller that knows their
+        checkout is in there says so, and gets their line."""
+
+        student = _import_from(
+            self.repository, "entry.py",
+            "def go():\n    raise ValueError('no')\n",
+        )
+        error = _caught(self.driver.go, student.go)
+
+        with patch("cogbench.raised._INTERPRETER_LIBRARY", (self.repository,)):
+            self.assertIsNone(root_of_their_code(error, self.ours))
+            self.assertIsNone(their_line(error, self.ours))
+            self.assertEqual(
+                root_of_their_code(error, self.ours, repository=self.repository),
+                self.repository,
+            )
+            self.assertEqual(
+                their_line(error, self.ours, repository=self.repository),
+                "ValueError: no at entry.py:2",
+            )
+
+    def test_repository_is_returned_even_without_a_traceback(self):
+        error = ValueError("no traceback")
+        self.assertIsNone(root_of_their_code(error, self.ours))
+        self.assertEqual(
+            root_of_their_code(error, self.ours, repository=self.repository),
+            self.repository,
+        )
+        self.assertIsNone(their_line(error, self.ours, repository=self.repository))
+
+
+class WrappedNotebookFrame(_DriverAndRepository):
+    """Synthesized notebook source has no useful JSON line to send students to."""
+
+    def test_notebook_keeps_its_repository_and_reports_only_the_file(self):
+        # As in Lines, definitions use the notebook path, so their source line
+        # must be suppressed when the location is printed against the .ipynb.
+        student = _import_from(
+            self.repository, "CNN.ipynb",
+            "def go(value):\n    raise AttributeError('no')\n",
+        )
+        error = self.wrapped_error(student.go, 1)
+
+        self.assertEqual(root_of_their_code(error, self.ours), self.repository)
+        self.assertEqual(where_it_raised(error, self.repository), ("CNN.ipynb", 0))
+        self.assertEqual(their_line(error, self.ours), "AttributeError: no at CNN.ipynb")
 
 
 class Messages(unittest.TestCase):
