@@ -8,6 +8,8 @@ import tempfile
 import time
 import tracemalloc
 import unittest
+from collections import ChainMap
+from collections.abc import Mapping, MutableMapping
 from dataclasses import replace
 from pathlib import Path
 from types import ModuleType
@@ -23,8 +25,11 @@ from cogbench.pipeline import (
     Role,
     Stage,
     _MISSING_RECEIVER,
+    _Broken,
     _Receiver,
+    _UNREADY,
     _empty_receivers,
+    _fixture_for,
     _named_for_something_else,
     _reachable,
     _under_clock,
@@ -3720,6 +3725,175 @@ class AModuleThatRefusesToListItself(unittest.TestCase):
 
         self.assertIsNone(binding)
         self.assertEqual(refusal.detail, "no functions to try")
+
+
+class _Watched(Mapping):
+    """A resource pool that records every key read and refuses the guarded ones.
+
+    Stands in for a benchmark that builds each resource the first time it is
+    asked for. Reading a key nobody wanted is the cost this exists to catch,
+    so the guarded keys say so rather than returning quietly.
+    """
+
+    def __init__(self, values, guarded=()):
+        self._values = dict(values)
+        self._guarded = frozenset(guarded)
+        self.read = []
+
+    def __getitem__(self, key):
+        self.read.append(key)
+        if key in self._guarded:
+            raise AssertionError("{!r} was built and nothing asked for it".format(key))
+        return self._values[key]
+
+    def __iter__(self):
+        return iter(self._values)
+
+    def __len__(self):
+        return len(self._values)
+
+
+class _LazyPool(MutableMapping):
+    """A local layer over a source that is expensive to read, with `__copy__`.
+
+    Assignments land locally and lookups fall through to the source. This
+    test double rejects enumeration to detect eager copying at the fixture
+    boundary; it does not restrict what the consumer's mapping may support.
+    """
+
+    def __init__(self, source, local=None):
+        self._source = source
+        self.local = dict(local or {})
+
+    def __copy__(self):
+        return _LazyPool(self._source, self.local)
+
+    def __getitem__(self, key):
+        if key in self.local:
+            return self.local[key]
+        return self._source[key]
+
+    def __setitem__(self, key, value):
+        self.local[key] = value
+
+    def __delitem__(self, key):
+        del self.local[key]
+
+    def __iter__(self):
+        raise AssertionError("the pool was enumerated and nothing needs every key")
+
+    def __len__(self):
+        raise AssertionError("the pool was measured and nothing needs every key")
+
+
+class ABranchFixtureReadsThePoolWithoutEmptyingIt(unittest.TestCase):
+    """A branch fixture is handed the pool so it can read what it needs.
+
+    Copying must preserve lazy lookup and isolate local assignments. These
+    tests also cover ordinary dicts and ChainMap copying, but make no claim
+    about ChainMap enumeration: Python 3.8 reads underlying values while
+    Python 3.13 enumerates only keys.
+    """
+
+    @staticmethod
+    def _branch(fixture):
+        return Role("later", (Stage("use"),), fixture=fixture)
+
+    def test_copying_a_lazy_pool_does_not_read_its_entries(self):
+        source = _Watched(
+            {"text": ["a caption"], "weights": "expensive"}, guarded=("weights",)
+        )
+
+        made = _fixture_for(
+            self._branch(lambda handed, _chains: (handed["text"],)),
+            ("outer",),
+            _LazyPool(source),
+            {},
+        )
+
+        self.assertEqual(made, (["a caption"],))
+        self.assertEqual(source.read, ["text"])
+
+    def test_a_lazy_pools_local_layer_belongs_to_the_copy(self):
+        source = _Watched({"weights": "expensive"}, guarded=("weights",))
+        pool = _LazyPool(source, {"text": ["ours"]})
+
+        def fixture(handed, _chains):
+            handed["text"] = ["theirs"]
+            handed["added"] = True
+            return (handed["text"],)
+
+        made = _fixture_for(self._branch(fixture), ("outer",), pool, {})
+
+        self.assertEqual(made, (["theirs"],))
+        self.assertEqual(pool.local, {"text": ["ours"]})
+        self.assertEqual(source.read, [])
+
+    def test_a_chain_map_pool_builds_only_the_key_the_fixture_reads(self):
+        watched = _Watched(
+            {"text": ["a caption"], "weights": "expensive"}, guarded=("weights",)
+        )
+        pool = ChainMap({}, watched)
+
+        made = _fixture_for(
+            self._branch(lambda handed, _chains: (handed["text"],)),
+            ("outer",),
+            pool,
+            {},
+        )
+
+        self.assertEqual(made, (["a caption"],))
+        self.assertEqual(watched.read, ["text"])
+
+    def test_a_chain_map_pool_keeps_the_callers_top_layer(self):
+        top = {"text": ["ours"]}
+        watched = _Watched({"weights": "expensive"}, guarded=("weights",))
+        pool = ChainMap(top, watched)
+
+        def fixture(handed, _chains):
+            handed["text"] = ["theirs"]
+            handed["added"] = True
+            return (handed["text"],)
+
+        made = _fixture_for(self._branch(fixture), ("outer",), pool, {})
+
+        self.assertEqual(made, (["theirs"],))
+        self.assertEqual(top, {"text": ["ours"]})
+        self.assertEqual(watched.read, [])
+
+    def test_an_ordinary_dict_pool_is_copied_the_way_it_always_was(self):
+        rows = ["shared"]
+        pool = {"text": rows}
+
+        def fixture(handed, _chains):
+            handed["added"] = True
+            return (handed["text"],)
+
+        made = _fixture_for(self._branch(fixture), ("outer",), pool, {})
+
+        # Shallow: the copy holds the same list, so nothing of the
+        # benchmark's is duplicated on the way to a fixture that only reads.
+        self.assertIs(made[0], rows)
+        self.assertEqual(pool, {"text": rows})
+
+    def test_a_key_the_pool_has_not_got_yet_is_still_not_yet(self):
+        made = _fixture_for(
+            self._branch(lambda handed, _chains: (handed["absent"],)),
+            ("outer",),
+            _LazyPool(_Watched({})),
+            {},
+        )
+
+        self.assertIs(made, _UNREADY)
+
+    def test_a_fixture_that_failed_for_its_own_reason_is_still_broken(self):
+        def fixture(_handed, _chains):
+            raise ValueError("the week's own fixture is wrong")
+
+        made = _fixture_for(self._branch(fixture), ("outer",), {}, {})
+
+        self.assertIsInstance(made, _Broken)
+        self.assertIsInstance(made.error, ValueError)
 
 
 if __name__ == "__main__":

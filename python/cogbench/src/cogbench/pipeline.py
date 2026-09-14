@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import ast
 import contextlib
+import copy
 import inspect
 import io
 import os
@@ -50,7 +51,9 @@ import tempfile
 import textwrap
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, Callable, Dict, FrozenSet, List, Optional, Sequence, Tuple
+from typing import (
+    Any, Callable, Dict, FrozenSet, List, Mapping, Optional, Sequence, Tuple,
+)
 
 from .raised import Raised, message_of, where_it_raised
 
@@ -3142,7 +3145,7 @@ _UNREADY = object()
 def _fixture_for(
     branch: Role,
     outer: Sequence[Any],
-    pool: Dict[str, Any],
+    pool: Mapping[str, Any],
     chains: Dict[str, Tuple[Candidate, ...]],
 ) -> Any:
     """This branch's own input, made at the moment the branch is resolved.
@@ -3157,6 +3160,11 @@ def _fixture_for(
     Raising is how the week says "not yet". The pool and the chains are
     copies, so a week that reads them cannot change what the search is
     carrying.
+
+    A dict pool gets a shallow copy. Renewal can supply a lazy mapping whose
+    `__copy__` isolates local assignments without reading its values. Using
+    `dict(pool)` instead would request every resource before the fixture runs,
+    including resources it never uses. Values themselves are not copied here.
     """
 
     own = branch.fixture
@@ -3165,7 +3173,7 @@ def _fixture_for(
     if not callable(own):
         return own
     try:
-        made = own(dict(pool), dict(chains))
+        made = own(copy.copy(pool), dict(chains))
     except (KeyError, LookupError):
         # The pool does not hold what this fixture reads yet. That is the
         # "not yet" this function exists for, and the fixpoint comes back.
