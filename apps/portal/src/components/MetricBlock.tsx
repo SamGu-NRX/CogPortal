@@ -5,8 +5,7 @@ import type { Metric } from "@cogworks/contracts/schema";
 import { formatMetricValue } from "@/lib/format";
 import { CornerBrackets } from "./Brackets";
 
-/** The mark itself. Decorative in both places it appears, because the sentence
- *  it belongs to is always rendered beside it. */
+/** Decorative: the sentence it belongs to is always rendered beside it. */
 function DirectionArrow({ higherIsBetter, size }: { higherIsBetter: boolean; size: number }) {
   return (
     <HugeiconsIcon
@@ -59,9 +58,7 @@ export function claimsDirection(metric: Metric, rolesRecorded: boolean): boolean
   return true;
 }
 
-/** Direction is always explicit — the portal never assumes higher-is-better.
- *  The sentence carries it; the arrow is how you find the sentence. There is
- *  no `title`, because it repeated the words already sitting next to it. */
+/** Direction is always explicit — the portal never assumes higher-is-better. */
 function DirectionMark({ metric }: { metric: Metric }) {
   return (
     <span className="inline-flex items-center gap-1 font-mono text-[11px] text-ink-faint">

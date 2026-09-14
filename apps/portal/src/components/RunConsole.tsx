@@ -366,16 +366,9 @@ export function RunConsole({
         )}
       </header>
 
-      {/* Every stage shows its name at every width. The mark alone reads as
-          four unlabelled statuses, and hiding the name took it out of the
-          accessibility tree too, so narrow rows stack it under the mark
-          instead of dropping it. Only a full console at `sm:` has room for
-          the two side by side.
-
-          `compact` is how wide the console is, not how wide the window is, so
-          the tile stays stacked at every viewport. It used to read `sm:`, and
-          a 768px screen turned the inline labels on inside a 352px tile, which
-          clips rather than scrolls. */}
+      {/* `compact` is the console's own width, not the window's: a 352px tile
+          can sit on a 768px screen, so the tile reads no breakpoint. Names
+          stack under the mark where a quarter of the row cannot hold both. */}
       <ol className="grid grid-cols-4 border-b border-rule" aria-label="Run lifecycle">
         {STAGES.map((stage) => {
           const mark = stageMark(snapshot, stage.id);

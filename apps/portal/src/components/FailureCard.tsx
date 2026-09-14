@@ -68,9 +68,6 @@ export function FailureCard({
             {copy?.reproCommand && (
               <div>
                 <div className="u-kicker">Reproduce locally</div>
-                {/* A command the student reads before running it, so it gets
-                    the same highlighting the setup page uses. `wrap` because
-                    the benchmark name sits at the end of it. */}
                 <div className="mt-1.5">
                   <Code code={copy.reproCommand} lang="bash" wrap />
                 </div>
