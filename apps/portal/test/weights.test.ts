@@ -9,12 +9,53 @@ import {
   validateWeightPath,
   weightManifest,
   weightObjectKey,
+  weightPathFromRoute,
 } from "../worker/services/weights.ts";
 
 const SHA256_ABC = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
 
+/**
+ * `FixedLengthStream` is a workerd global with no Node equivalent, so uploads
+ * cannot be exercised here without one. This stands in for its length
+ * enforcement and its two error messages only, which is enough for the tests
+ * below. It does not reproduce the thing that made it necessary, that R2
+ * refuses a body of unknown length, so nothing here can prove an upload works;
+ * only a run under workerd can.
+ */
+class FixedLengthStreamShim {
+  readonly readable: ReadableStream<Uint8Array>;
+  readonly writable: WritableStream<Uint8Array>;
+
+  constructor(expectedLength: number) {
+    let seen = 0;
+    const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        seen += chunk.byteLength;
+        if (seen > expectedLength) {
+          throw new TypeError("Attempt to write too many bytes through a FixedLengthStream.");
+        }
+        controller.enqueue(chunk);
+      },
+      flush() {
+        if (seen !== expectedLength) {
+          throw new TypeError("FixedLengthStream did not see all expected bytes before close().");
+        }
+      },
+    });
+    this.readable = readable;
+    this.writable = writable;
+  }
+}
+Object.assign(globalThis, { FixedLengthStream: FixedLengthStreamShim });
+
 function stream(body: string): ReadableStream<Uint8Array> {
   return new Blob([body]).stream();
+}
+
+function hexBytes(digest: string): ArrayBuffer {
+  const bytes = digest.match(/../g);
+  assert.ok(bytes, "digest must contain hexadecimal bytes");
+  return Uint8Array.from(bytes.map((byte) => parseInt(byte, 16))).buffer;
 }
 
 function runParts(mode: "practice" | "official" = "practice") {
@@ -61,17 +102,147 @@ test("development and production use separate artifact buckets", async () => {
   assert.match(production, /"bucket_name": "cogportal-artifacts"/);
 });
 
-test("weight paths refuse absolute and traversal paths", () => {
-  assert.throws(() => validateWeightPath("/models/search.pkl"), /stay inside/);
-  assert.throws(() => validateWeightPath("models/../search.pkl"), /stay inside/);
+test("weight paths refuse anything that would need rewriting to be safe", () => {
+  for (const path of [
+    "", "/models/search.pkl", "models/../search.pkl", "..", ".",
+    "models//search.pkl", "models/./search.pkl", "models/search.pkl/", "models\\search.pkl",
+  ]) {
+    assert.throws(() => validateWeightPath(path), /stay inside/, path);
+  }
+  // Canonical, not normalized: the one spelling that is already safe survives.
   assert.equal(validateWeightPath("models/search.pkl"), "models/search.pkl");
+  assert.equal(validateWeightPath("models/final model.pkl"), "models/final model.pkl");
 });
 
-test("weight object keys include repository, revision, and relative path", () => {
-  assert.equal(
-    weightObjectKey("course/team", "a".repeat(40), "models/search.pkl"),
-    `weights/course/team/${"a".repeat(40)}/models/search.pkl`,
+test("the relative path comes from the matched route, not from a wildcard param", () => {
+  // `c.req.param("*")` is always undefined in Hono, so both weight routes read
+  // an empty path and answered 400 for every request.
+  for (const routePath of [
+    "/api/v1/runs/:id/weights/*",
+    "/api/v1/local-reports/:reportId/weights/*",
+  ]) {
+    const prefix = `https://portal.example.com${routePath.slice(0, -1).replace(/:\w+/, "r1")}`;
+    assert.equal(weightPathFromRoute(routePath, `${prefix}models/search.pkl`), "models/search.pkl");
+    // `%2520` names a literal `%20`, not a space.
+    assert.equal(weightPathFromRoute(routePath, `${prefix}final%20model.pkl`), "final model.pkl");
+    assert.equal(weightPathFromRoute(routePath, `${prefix}final%2520model.pkl`), "final%20model.pkl");
+    assert.throws(() => weightPathFromRoute(routePath, prefix), /stay inside/);
+    assert.throws(() => weightPathFromRoute(routePath, `${prefix}a//b.pkl`), /stay inside/);
+    // An encoded separator would otherwise reach a path nobody declared, and a
+    // NUL or a newline would not survive being written to disk.
+    for (const encoded of ["a%2Fb.pkl", "a%2fb.pkl", "model%00.pkl", "model%0A.pkl", "model%zz.pkl"]) {
+      assert.throws(() => weightPathFromRoute(routePath, prefix + encoded), /stay inside/, encoded);
+    }
+  }
+  assert.throws(
+    () => weightPathFromRoute("/api/v1/runs/:id/weights", "https://portal.example.com/api/v1/runs/r1/weights"),
+    /end in a wildcard/,
   );
+});
+
+test("weight object keys name the content, in a namespace of their own", () => {
+  const sha = "a".repeat(40);
+  assert.equal(
+    weightObjectKey("course/team", sha, "models/search.pkl", SHA256_ABC),
+    `weight-objects/course/team/${sha}/${SHA256_ABC}/models/search.pkl`,
+  );
+  // The digest sits above the student's path, so no path can spell another
+  // weight's key, and no key can land in the pre-digest `weights/` namespace.
+  assert.equal(
+    weightObjectKey("course/team", sha, `${SHA256_ABC}/search.pkl`, SHA256_ABC)
+      .startsWith(`weight-objects/course/team/${sha}/${SHA256_ABC}/`),
+    true,
+  );
+  assert.doesNotMatch(weightObjectKey("course/team", sha, "models/search.pkl", SHA256_ABC), /^weights\//);
+  for (const [fullName, revision] of [
+    ["course", sha], ["course/team/extra", sha], ["course/te am", sha],
+    ["course/team", "a".repeat(39)], ["course/team", "A".repeat(40)],
+  ]) {
+    assert.throws(() => weightObjectKey(fullName, revision, "models/search.pkl", SHA256_ABC),
+      /repository and a revision/, `${fullName} ${revision}`);
+  }
+  assert.throws(() => weightObjectKey("course/team", sha, "models/search.pkl", "nope"), /SHA-256 digest/);
+});
+
+test("two uploads at one path are two objects, and each report resolves its own", async () => {
+  const sha = "a".repeat(40);
+  const older = { path: "model.pkl", sha256: SHA256_ABC };
+  const newer = { path: "model.pkl", sha256: "b".repeat(64) };
+  const stored = new Map<string, R2Object>();
+  // SAFETY: uploadWeight supplies a stream and checksum to put; weightManifest
+  // calls head and reads only size/checksums. Other R2 properties are not used.
+  const bucket = {
+    put: async (key: string, value: ReadableStream<Uint8Array>, options: R2PutOptions) => {
+      const body = await new Response(value).arrayBuffer();
+      stored.set(key, {
+        size: body.byteLength,
+        checksums: { sha256: hexBytes(String(options.sha256)) },
+      } as R2Object);
+      return {} as R2Object;
+    },
+    head: async (key: string) => stored.get(key) ?? null,
+  } as unknown as R2Bucket;
+
+  const a = await uploadWeight(bucket, "course/team", sha, older.path, stream("abc"), "3", older.sha256);
+  const b = await uploadWeight(bucket, "course/team", sha, newer.path, stream("defghi"), "6", newer.sha256);
+  assert.notEqual(a.destination, b.destination);
+  assert.equal(stored.size, 2);
+
+  // The older report keeps resolving to the bytes it named after the newer
+  // upload exists, which is the whole point of the digest in the key.
+  assert.deepEqual(await weightManifest(bucket, "course/team", sha, [older.path], [older]),
+    [{ path: "model.pkl", size: 3, sha256: older.sha256 }]);
+  assert.deepEqual(await weightManifest(bucket, "course/team", sha, [newer.path], [newer]),
+    [{ path: "model.pkl", size: 6, sha256: newer.sha256 }]);
+});
+
+test("a manifest falls back to a pre-digest object only when it is the recorded file", async () => {
+  const sha = "a".repeat(40);
+  const legacyKey = `weights/course/team/${sha}/model.pkl`;
+  const required = [{ path: "model.pkl", sha256: SHA256_ABC }];
+  const reads: string[] = [];
+  const bucketFor = (object: R2Object | null) => ({
+    head: async (key: string) => {
+      reads.push(key);
+      return key === legacyKey ? object : null;
+    },
+  });
+
+  assert.deepEqual(
+    await weightManifest(bucketFor({ size: 3, checksums: { sha256: hexBytes(SHA256_ABC) } } as R2Object),
+      "course/team", sha, ["model.pkl"], required),
+    [{ path: "model.pkl", size: 3, sha256: SHA256_ABC }],
+  );
+  assert.deepEqual(reads, [
+    `weight-objects/course/team/${sha}/${SHA256_ABC}/model.pkl`,
+    legacyKey,
+  ]);
+  await assert.rejects(
+    weightManifest(bucketFor({ size: 3, checksums: { sha256: hexBytes("c".repeat(64)) } } as R2Object),
+      "course/team", sha, ["model.pkl"], required),
+    /does not match this report/,
+  );
+  await assert.rejects(
+    weightManifest(bucketFor({ size: 3, checksums: {} } as R2Object),
+      "course/team", sha, ["model.pkl"], required),
+    /has no SHA-256 checksum/,
+  );
+});
+
+test("a content-addressed object that fails its checks is refused, never re-read elsewhere", async () => {
+  const sha = "a".repeat(40);
+  const reads: string[] = [];
+  const bucket = {
+    head: async (key: string) => {
+      reads.push(key);
+      return { size: 3, checksums: {} } as R2Object;
+    },
+  };
+  await assert.rejects(
+    weightManifest(bucket, "course/team", sha, ["model.pkl"], [{ path: "model.pkl", sha256: SHA256_ABC }]),
+    /has no SHA-256 checksum/,
+  );
+  assert.deepEqual(reads, [`weight-objects/course/team/${sha}/${SHA256_ABC}/model.pkl`]);
 });
 
 test("weight upload writes the final key once and lets R2 verify the digest", async () => {
@@ -93,22 +264,19 @@ test("weight upload writes the final key once and lets R2 verify the digest", as
     "a".repeat(40),
     "models/search.pkl",
     stream("abc"),
-    3,
+    "3",
     SHA256_ABC,
   );
 
-  assert.deepEqual(puts, [
-    {
-      key: `weights/course/team/${"a".repeat(40)}/models/search.pkl`,
-      body: "abc",
-      sha256: SHA256_ABC,
-    },
-  ]);
+  // The digest in the key and the digest R2 verifies are the same string, so
+  // an accepted write is what binds this key to these bytes.
+  const key = `weight-objects/course/team/${"a".repeat(40)}/${SHA256_ABC}/models/search.pkl`;
+  assert.deepEqual(puts, [{ key, body: "abc", sha256: SHA256_ABC }]);
   assert.deepEqual(uploaded, {
     path: "models/search.pkl",
     size: 3,
     sha256: SHA256_ABC,
-    destination: `weights/course/team/${"a".repeat(40)}/models/search.pkl`,
+    destination: key,
   });
 });
 
@@ -127,7 +295,7 @@ test("weight upload reports an R2 digest mismatch as a client error", async () =
       "a".repeat(40),
       "models/search.pkl",
       stream("different"),
-      9,
+      "9",
       SHA256_ABC,
     ),
     (error: unknown) =>
@@ -138,66 +306,100 @@ test("weight upload reports an R2 digest mismatch as a client error", async () =
   );
 });
 
-test("weight upload refuses a declared file above 100 MiB before reading", async () => {
-  let stored = false;
+test("an upload that does not declare its length is refused before any read", async () => {
+  // R2 will not take a body whose length it does not know, so there is no cap
+  // left to enforce mid-stream: an undeclared or unusable length has to be
+  // refused here rather than after 100 MiB have already been read.
+  const body = new Blob(["abc"]).stream();
   const bucket = {
     put: async () => {
-      stored = true;
       throw new Error("unexpected put");
     },
-  } as unknown as R2Bucket;
+  };
 
-  await assert.rejects(
-    uploadWeight(
-      bucket,
-      "course/team",
-      "a".repeat(40),
-      "models/search.pkl",
-      new ReadableStream<Uint8Array>(),
-      MAX_WEIGHT_BYTES + 1,
-      "a".repeat(64),
-    ),
-    /may not exceed 100 MiB/,
-  );
-  assert.equal(stored, false);
+  for (const [contentLength, message] of [
+    [undefined, /need a Content-Length header/],
+    [null, /need a Content-Length header/],
+    ["", /whole number of bytes/],
+    ["  3", /whole number of bytes/],
+    ["3.5", /whole number of bytes/],
+    ["-1", /whole number of bytes/],
+    ["1e3", /whole number of bytes/],
+    ["nine", /whole number of bytes/],
+    [String(Number.MAX_SAFE_INTEGER + 2), /whole number of bytes/],
+    [String(MAX_WEIGHT_BYTES + 1), /may not exceed 100 MiB/],
+  ] satisfies Array<[string | null | undefined, RegExp]>) {
+    await assert.rejects(
+      uploadWeight(bucket, "course/team", "a".repeat(40), "models/search.pkl", body, contentLength, SHA256_ABC),
+      message,
+      String(contentLength),
+    );
+  }
+  // Nothing piped the body, so it was never read and never partly stored.
+  assert.equal(body.locked, false);
 });
 
-test("weight upload stops a stream that crosses the 100 MiB cap", async () => {
-  const chunk = new Uint8Array(1024 * 1024);
-  let sent = 0;
+test("a body that does not match Content-Length is a client error, not a stored object", async () => {
+  const stored: string[] = [];
+  const bucket = {
+    put: async (key: string, value: ReadableStream<Uint8Array>) => {
+      await new Response(value).arrayBuffer();
+      stored.push(key);
+      return {} as R2Object;
+    },
+  };
+
+  await assert.rejects(
+    uploadWeight(bucket, "course/team", "a".repeat(40), "models/search.pkl", stream("ab"), "3", SHA256_ABC),
+    (error: unknown) => error instanceof Error && "status" in error && error.status === 400 &&
+      /ended before Content-Length bytes/.test(error.message),
+  );
+  await assert.rejects(
+    uploadWeight(bucket, "course/team", "a".repeat(40), "models/search.pkl", stream("abcd"), "3", SHA256_ABC),
+    (error: unknown) => error instanceof Error && "status" in error && error.status === 400 &&
+      /more bytes than Content-Length/.test(error.message),
+  );
+  // Whether a long body's write lands before the writer notices the extra
+  // bytes is workerd's call, not this shim's. What must hold either way is that
+  // the only key a refused upload can reach is the one its declared digest
+  // names, so a partial write cannot shadow another report's object.
+  const key = `weight-objects/course/team/${"a".repeat(40)}/${SHA256_ABC}/models/search.pkl`;
+  assert.deepEqual(stored.filter((written) => written !== key), []);
+});
+
+test("a storage failure releases the upload and stays an error", async () => {
+  let pulls = 0;
   const body = new ReadableStream<Uint8Array>({
     pull(controller) {
-      if (sent === 101) {
-        controller.close();
-        return;
-      }
-      controller.enqueue(chunk);
-      sent += 1;
+      // Never closes. A writer parked here with nothing draining it outlives
+      // the request unless the read half is released, which is what an aborted
+      // `pipeTo` alone does not do.
+      pulls += 1;
+      controller.enqueue(new Uint8Array(1));
     },
   });
   const bucket = {
-    put: async (_key: string, value: ReadableStream<Uint8Array>) => {
-      const reader = value.getReader();
-      while (!(await reader.read()).done) {
-        // Discard each chunk so the test checks the stream guard without
-        // retaining a 100 MiB response body in memory.
-      }
-      return {} as R2Object;
+    put: async () => {
+      throw new Error("R2 is unavailable");
     },
-  } as unknown as R2Bucket;
+  };
+  const stray: unknown[] = [];
+  const collect = (reason: unknown) => stray.push(reason);
+  process.on("unhandledRejection", collect);
 
-  await assert.rejects(
-    uploadWeight(
-      bucket,
-      "course/team",
-      "a".repeat(40),
-      "models/search.pkl",
-      body,
-      null,
-      "a".repeat(64),
-    ),
-    /may not exceed 100 MiB/,
-  );
+  try {
+    // A storage outage is ours, not the student's, so it keeps its 500.
+    await assert.rejects(
+      uploadWeight(bucket, "course/team", "a".repeat(40), "models/search.pkl", body, "4096", SHA256_ABC),
+      (error: unknown) => error instanceof Error && !("status" in error) && error.message === "R2 is unavailable",
+    );
+    const settled = pulls;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(pulls, settled, "the pump kept reading after the upload failed");
+    assert.deepEqual(stray, []);
+  } finally {
+    process.off("unhandledRejection", collect);
+  }
 });
 
 test("the report paths become a digest-bound R2 manifest", async () => {
@@ -205,10 +407,9 @@ test("the report paths become a digest-bound R2 manifest", async () => {
   const digest = Uint8Array.from({ length: 32 }, (_, index) => index).buffer;
   const objects = new Map<string, R2Object | null>([
     [
-      `weights/course/team/${sha}/models/present.pkl`,
+      `weight-objects/course/team/${sha}/000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f/models/present.pkl`,
       { size: 12, checksums: { sha256: digest } } as R2Object,
     ],
-    [`weights/course/team/${sha}/models/committed.pkl`, null],
   ]);
   const bucket = {
     head: async (key: string) => objects.get(key) ?? null,
