@@ -571,4 +571,8 @@ class AFailedForkIsReportedLikeAnyOtherFailure(unittest.TestCase):
         self.assertEqual(outcome.status, CRASHED)
         self.assertIn("could not start a process", outcome.detail)
         self.assertLessEqual(len(os.listdir("/dev/fd")), before)
+        # The budgets travel with it like every other return from here, so
+        # `diagnostics()` does not report this as an unlimited run.
+        self.assertEqual(outcome.timeout_seconds, 2)
+        self.assertIsNotNone(outcome.memory_bytes)
 

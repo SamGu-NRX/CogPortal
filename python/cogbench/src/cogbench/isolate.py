@@ -592,9 +592,15 @@ def run_isolated(
                     os.close(descriptor)
                 except OSError:
                     pass
+            # The budgets travel with it, as they do on every other return
+            # from here. `diagnostics()` reports them, and a failure that
+            # alone said "no limits were configured" would read as a
+            # different kind of failure than it is.
             return Outcome(
                 CRASHED,
                 detail="could not start a process for this work: {}".format(error),
+                timeout_seconds=timeout_seconds,
+                memory_bytes=memory_bytes,
             )
         if pid == 0:
             os.close(read_fd)
