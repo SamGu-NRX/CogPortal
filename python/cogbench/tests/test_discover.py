@@ -15,6 +15,7 @@ sys.path.insert(0, str(ROOT / "python" / "cogbench" / "src"))
 
 from cogbench import discover as discover_module  # noqa: E402
 from cogbench.discover import (  # noqa: E402
+    Discovery,
     ROOT_HINTED,
     SkippedModule,
     owner_of_skip,
@@ -3107,6 +3108,57 @@ class LeavingABlockHandsControlToWhicheverIsNowInnermost(_Fixture):
 
         self.assertEqual(self._times_run(), read_once)
         self.assertIs(theirs, self._module(inner, "retrieval").Hit)
+
+    def test_re_entering_reaches_a_module_it_loaded_itself(self):
+        """The inner submission correctly hides the outer block's call-time
+        module, but it kept it only in its own restore frame. The outer block
+        has not exited, so its inventory did not have it either, and
+        re-entering that same submission could not reinstall a module it had
+        loaded and was still using."""
+
+        outer = self._repo("reX", {
+            "side.py": "V = 11\n",
+            "main.py": (
+                "import importlib.util\n"
+                "import sys\n"
+                "from pathlib import Path\n\n\n"
+                "def load():\n"
+                "    spec = importlib.util.spec_from_file_location(\n"
+                "        'fresh_side', str(Path(__file__).with_name('side.py')))\n"
+                "    made = importlib.util.module_from_spec(spec)\n"
+                "    sys.modules['fresh_side'] = made\n"
+                "    spec.loader.exec_module(made)\n"
+                "    return made.V\n\n\n"
+                "def read():\n"
+                "    import fresh_side\n"
+                "    return fresh_side.V\n"
+            ),
+        })
+        other = self._repo("reY", {"e.py": "def r():\n    return 'Y'\n"})
+
+        with outer.imports():
+            self.assertEqual(self._module(outer, "main").load(), 11)
+            with other.imports():
+                with self.assertRaises(ModuleNotFoundError):
+                    self._module(outer, "main").read()
+                with outer.imports():
+                    self.assertEqual(self._module(outer, "main").read(), 11)
+            self.assertEqual(self._module(outer, "main").read(), 11)
+
+    def test_an_empty_discovery_nests_inside_a_real_one(self):
+        """A discovery that loaded nothing installs nothing and never joins the
+        open-block list, so it has no place in the ordering check. Asking it
+        there made a correctly nested empty context report the block around it
+        as an out-of-order exit."""
+
+        real = self._repo("emptyA", {"helper.py": "WHO = 'A'\n"})
+        empty = Discovery(root=real.root)
+
+        with real.imports():
+            with empty.imports():
+                pass
+
+        self.assertEqual(empty.imports()._frames, [])
 
     def test_leaving_out_of_order_is_refused_rather_than_silently_wrong(self):
         """`with` cannot produce this. Hand-called entry and exit can, and

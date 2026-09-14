@@ -3049,6 +3049,11 @@ class ImportContext:
                     continue
                 module = sys.modules.get(name)
                 if module is not None and _belongs_to(name, module, other.directories):
+                    # Into their inventory as well. Their exit is what normally
+                    # records this, and they have not exited; without it, a
+                    # block re-entered inside this one could not reinstall a
+                    # module it had loaded itself and was still using.
+                    other.retain(name, module)
                     take(name)
         # Their directories come off the path too. Taking the name alone was
         # not enough: the outer block's root is still on `sys.path`, so the
@@ -3125,6 +3130,13 @@ class ImportContext:
     def __exit__(self, *_exc) -> None:
         if not self._frames:
             return
+        if self._frames[-1] is None:
+            # A discovery that loaded nothing installs nothing and never joins
+            # the open-block list, so it has no place in the ordering check
+            # below: asking it there made a correctly nested empty context
+            # report the block around it as an out-of-order exit.
+            self._frames.pop()
+            return
         if _LIVE and _LIVE[-1] is not self:
             # Loud rather than silent. `with` cannot produce this; hand-called
             # entry and exit out of order can, and letting it through left one
@@ -3137,8 +3149,6 @@ class ImportContext:
         frame = self._frames.pop()
         if _LIVE:
             _LIVE.pop()
-        if frame is None:
-            return
         displaced: Dict[str, ModuleType] = frame["displaced"]  # type: ignore[assignment]
         before: set = frame["before"]  # type: ignore[assignment]
         # Whether this same context is the one control returns to. Asking
