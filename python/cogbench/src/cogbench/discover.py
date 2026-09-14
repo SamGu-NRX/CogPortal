@@ -1082,13 +1082,34 @@ class _PackageLoader(importlib.machinery.SourceFileLoader):
     and ``SyntaxError`` line numbers all stay exactly as they were.
     """
 
+    #: The module this file had already produced, when it had. Recorded in
+    #: `create_module` because that is the last moment the two can be told
+    #: apart: by `exec_module` the import machinery has given the new module
+    #: this file's `__file__` as well.
+    _reused: Optional[ModuleType] = None
+
     def create_module(self, spec):
+        # One module object per source file, the rule `_import_one` applies.
+        # This loader is the other place a repository file is executed. A root
+        # script's bare `import database` loads `core/database.py` under the
+        # top-level name, because the package directory is on the path too,
+        # and a member's `from .database import STORE` then asks this loader
+        # for the same file under the package's name. Running it twice gave
+        # the directory two stores, and the search bound functions to the
+        # empty one.
+        self._reused = _already_executed(Path(self.path))
         module = ModuleType(spec.name.rpartition(".")[2])
         # The dotted parent is what a leading dot resolves against.
         module.__package__ = spec.parent
         return module
 
     def exec_module(self, module) -> None:
+        if self._reused is not None:
+            # The import machinery re-reads `sys.modules[spec.name]` once this
+            # returns, which is how a loader hands back the object that
+            # already exists instead of a second copy of it.
+            sys.modules[self.name] = self._reused
+            return
         # self.name, not module.__name__: the base class checks the code it
         # hands back against the name the loader was built with, and the bare
         # stem fails that check with "loader cannot handle database".
@@ -1706,7 +1727,6 @@ def _execute(
         if package is not None:
             module.__package__ = package
             sys.modules[_dotted(package, path)] = module
-            _attach(package, path, module)
         sys.modules.setdefault(name, module)
         flags = __future__.annotations.compiler_flag if future_annotations else 0
         # `dont_inherit` because this file declares `from __future__ import
@@ -1720,6 +1740,10 @@ def _execute(
                 compile(text, str(path), "exec", flags=flags, dont_inherit=True),
                 module.__dict__,
             )
+        # After the body, not before it. Attaching first left a member that
+        # raised hanging off its package, so `from package import bad` handed
+        # back the half-executed module the skip record said had failed.
+        _attach(package, path, module)
         return module, None, None
     except _ImportTimeout:
         if into is None:
@@ -1966,20 +1990,21 @@ def _annotation_only(
     trace = error.__traceback__
     if trace is None:
         return False
-    # The innermost frame in this file, not the innermost frame anywhere. A
-    # default-value expression on a `def` line can call a helper that raises
-    # a NameError of its own, and the absolute innermost frame is then in the
-    # helper's file at a line number that happens to fall inside a `def`
-    # here. Recompiling for that would postpone annotations to hide an error
-    # their code really has.
-    here = os.path.realpath(str(path))
-    lineno = None
-    while trace is not None:
-        if os.path.realpath(trace.tb_frame.f_code.co_filename) == here:
-            lineno = trace.tb_lineno
+    # An annotation is evaluated in this file's own frame, so a genuine one
+    # raises with no frame below it. A default-value expression on the same
+    # `def` line can call a helper that raises a NameError of its own, and
+    # that traceback runs deeper, into the helper. Requiring the deepest frame
+    # to be this file separates them. Taking the deepest frame that merely
+    # happens to be here instead put the helper's failure back on their `def`
+    # line, and when the missing name also appeared in an annotation the
+    # module was recompiled and the helper run a second time.
+    while trace.tb_next is not None:
         trace = trace.tb_next
-    if lineno is None:
+    if os.path.realpath(trace.tb_frame.f_code.co_filename) != os.path.realpath(
+        str(path)
+    ):
         return False
+    lineno = trace.tb_lineno
     text = source
     if text is None:
         try:
@@ -2825,14 +2850,31 @@ def _belongs_to(name: str, module: object, directories: Sequence[Path]) -> bool:
     same outcome as not recognising it.
     """
 
-    if name.startswith(_PACKAGE_PREFIX):
+    if name.startswith(_PACKAGE_PREFIX) or name in _NOTEBOOK_PACKAGES:
+        # Both are names discovery invents. The `ipynb.fs` shells carry no
+        # file and an empty search path, so neither test below can see them,
+        # and a call that imported a notebook left three of them behind.
         return True
     try:
+        if getattr(module, "__file__", None) and _is_installed(module):  # type: ignore[arg-type]
+            # A checkout can hold the environment running it. Containment
+            # alone then called pip and numpy student source, evicted them and
+            # reinstalled them once per call, which is the native-extension
+            # reload this teardown exists to avoid. Guarded on there being a
+            # file, because a package built for a directory has none and
+            # `_is_installed` answers True for anything file-less.
+            return False
         return any(
             _is_student_module(module, directory) for directory in directories
         ) or _searches_inside(module, directories)
     except Exception:  # noqa: BLE001 - anything can be in sys.modules
         return False
+
+
+#: Every block open right now, innermost last. Entering has to displace the
+#: names of whichever other submissions are mid-call, and only they know what
+#: those are.
+_LIVE: List["ImportContext"] = []
 
 
 class ImportContext:
@@ -2867,22 +2909,26 @@ class ImportContext:
     map, not just theirs. A module that only loaded because of a redirect is
     kept as an object; a lazy import that would need one fails.
     ``LoadedModule.redirected`` names the modules that were affected.
+
+    Two limits a caller has to design around. While a block is open, this
+    repository's top-level names win, so a submission with a ``profile.py``
+    makes ``import cProfile`` inside the block reach theirs; keep a block
+    around the student's call and nothing else. And a submission that invents
+    a new module name on every call, by loading a file under a fresh name
+    through ``importlib``, grows this inventory by one each time, because each
+    of those is genuinely a module of theirs that the next call may want.
     """
 
     def __init__(self, directories: Sequence[Path] = ()) -> None:
         self.directories: Tuple[Path, ...] = tuple(directories)
         self._modules: Dict[str, ModuleType] = {}
         self._finders: List[object] = []
-        self._depth = 0
-        self._installed = False
-        # Only meaningful while installed, declared here so the whole of this
-        # object's state is in one place.
-        self._displaced: Dict[str, ModuleType] = {}
-        self._added: List[object] = []
-        self._before: set = set()
-        self._held_path: List[str] = []
-        self._held_preexisting: set = set()
-        self._held_displaced: Dict[str, ModuleType] = {}
+        #: One entry per live block, innermost last. A stack rather than a
+        #: counter because blocks interleave: entering A, then B, then A again
+        #: has to put A's names back the second time, and a counter that
+        #: treated the second A as already installed left B's modules in place
+        #: and handed A's own function B's state.
+        self._frames: List[Optional[Dict[str, object]]] = []
 
     def __bool__(self) -> bool:
         """Whether entering this would put anything back.
@@ -2937,62 +2983,232 @@ class ImportContext:
             self._finders.append(finder)
 
     def __enter__(self) -> "ImportContext":
-        self._depth += 1
-        if self._depth > 1 or not self:
+        if not self:
+            # Nothing of theirs to put back. A frame is still pushed so that
+            # enter and leave stay balanced for a caller that does not check.
+            self._frames.append(None)
             return self
-        self._displaced = {}
-        self._held_path = list(sys.path)
-        # Read before their names go in, so the reuse check judges a file
-        # against what the process held rather than against this repository.
-        self._held_preexisting = set(_PREEXISTING)
-        _PREEXISTING.clear()
-        _PREEXISTING.update(sys.modules)
-        self._held_displaced = dict(_DISPLACED)
-        _DISPLACED.clear()
-        for name, module in self._modules.items():
-            if name in sys.modules:
-                self._displaced[name] = sys.modules[name]
-            sys.modules[name] = module
-        self._added = [
-            finder for finder in self._finders if finder not in sys.meta_path
-        ]
-        for finder in reversed(self._added):
-            sys.meta_path.insert(0, finder)
-        for directory in reversed(self.directories):
-            sys.path.insert(0, str(directory))
-        self._before = set(sys.modules)
-        self._installed = True
+        frame: Dict[str, object] = {
+            "displaced": {},
+            "before": set(sys.modules),
+            "path": list(sys.path),
+            "meta": list(sys.meta_path),
+            "preexisting": set(_PREEXISTING),
+            "wasDisplaced": dict(_DISPLACED),
+            "bytecode": sys.dont_write_bytecode,
+        }
+        # Whatever appeared in `sys.modules` while the block below was the one
+        # running belongs to it, because it was the only submission executing.
+        # Recording that here is the whole of ownership: inferring an owner
+        # afterwards from which directories hold the file cannot tell two
+        # discoveries of one checkout apart, and four rounds of review found a
+        # new hole in that inference each time.
+        if _LIVE:
+            _LIVE[-1]._suspend()
+        # Pushed before anything is installed. Installing first left their
+        # modules in the table with no frame to take them back out, and
+        # Python does not call `__exit__` for an `__enter__` that raised.
+        self._frames.append(frame)
+        _LIVE.append(self)
+        try:
+            self._install(frame)
+        except BaseException:
+            self.__exit__()
+            raise
+        frame["before"] = set(sys.modules)
         return self
 
-    def __exit__(self, *_exc) -> None:
-        self._depth -= 1
-        if self._depth > 0 or not self._installed:
+    def _suspend(self, frame: Optional[Dict[str, object]] = None) -> None:
+        """Record what this block imported while it was the one running.
+
+        Called on the block below when another opens, and again by `__exit__`
+        for the block leaving. `_belongs_to` still filters, because a
+        submission's call can import an installed library and that is not
+        theirs, but it is only ever asked about the one block that was
+        executing, so there is no second block for it to confuse this with.
+        """
+
+        if frame is None:
+            frame = self._frames[-1] if self._frames else None
+        if not frame:
             return
-        self._installed = False
-        sys.path[:] = self._held_path
-        # Whatever their code imported while it ran is theirs too, so it is
-        # kept for the next call and taken out with the rest. Deepest name
-        # first: a nested package resolves its search path by looking its
-        # parent up in the table being emptied.
-        for name in sorted(set(sys.modules) - self._before, reverse=True):
+        before: set = frame["before"]  # type: ignore[assignment]
+        for name in sorted(set(sys.modules) - before, reverse=True):
             module = sys.modules.get(name)
             if module is not None and _belongs_to(name, module, self.directories):
                 self.retain(name, module)
+
+    def _resume(self) -> None:
+        """Put this block's names back when control returns to it.
+
+        A block leaving restores what it displaced when it entered, and a
+        module the block underneath loaded during a deeper re-entry did not
+        exist then, so nothing put it back. Its owner held it in the inventory
+        and could not see it. Reinstalling from the inventory is what makes
+        resuming mean the same thing as entering.
+        """
+
+        frame = self._frames[-1] if self._frames else None
+        if not frame:
+            return
+        displaced: Dict[str, ModuleType] = frame["displaced"]  # type: ignore[assignment]
+        for name, module in self._modules.items():
+            if sys.modules.get(name) is not module:
+                if name in sys.modules:
+                    displaced.setdefault(name, sys.modules[name])
+                sys.modules[name] = module
+
+    def _install(self, frame: Dict[str, object]) -> None:
+        """Put this repository's names in, recording what each replaced."""
+
+        displaced: Dict[str, ModuleType] = frame["displaced"]  # type: ignore[assignment]
+
+        def take(name: str) -> None:
+            standing = sys.modules.pop(name, None)
+            if standing is not None:
+                displaced.setdefault(name, standing)
+
+        _DISPLACED.clear()
+        # No `.pyc` beside their files. `_entered` does the same, for the same
+        # reason: importing writes `__pycache__` into a tree we were asked to
+        # read, and a lazy import inside a block is still an import.
+        sys.dont_write_bytecode = True
+        # Every other open block's names, not only the ones this context also
+        # holds. A block opened inside another whose repository has a
+        # `database.py` this one lacks resolved their lazy `import database`
+        # to that other team's module, because nothing displaced a name this
+        # context never had.
+        # Every other open block's names. Each of those blocks was suspended
+        # when the one inside it opened, and suspending is what recorded what
+        # it had imported, so an inventory here is complete.
+        for other in _LIVE:
+            if other is not self:
+                for name in other._modules:
+                    if name not in self._modules:
+                        take(name)
+        # Their directories come off the path too. Taking the name alone was
+        # not enough: the outer block's root is still on `sys.path`, so the
+        # inner submission's `import helper` simply read the outer team's file
+        # again and got their code under a fresh object. Only the innermost
+        # block's repository is importable while it runs.
+        ours = {str(directory) for directory in self.directories}
+        elsewhere = {
+            str(directory)
+            for other in _LIVE
+            if other is not self
+            for directory in other.directories
+        } - ours
+        if elsewhere:
+            sys.path[:] = [entry for entry in sys.path if entry not in elsewhere]
+        for name, module in self._modules.items():
+            if name in sys.modules:
+                displaced[name] = sys.modules[name]
+            sys.modules[name] = module
+        # The shells some block built, and every notebook filed under them.
+        # Taking only the four package names left `ipynb.fs.defs.nine` in the
+        # table, so the inner submission's `from ipynb.fs.defs import nine`
+        # was answered from that entry and its own finder was never asked.
+        for name in sorted(sys.modules, reverse=True):
+            if name in self._modules:
+                continue
+            if any(
+                name == package or name.startswith(package + ".")
+                for package in _NOTEBOOK_PACKAGES
+            ):
+                take(name)
+        # Ours in front, moved rather than skipped when already present:
+        # after A, B, A the shared notebook finders sat in the order [B, A]
+        # and a name neither had cached resolved through B. Compared by
+        # identity, because `retain_finder` keeps exact objects and asking a
+        # third-party finder whether it equals ours can raise.
+        sys.meta_path[:] = [
+            live
+            for live in sys.meta_path
+            if not any(live is finder for finder in self._finders)
+        ]
+        for finder in reversed(self._finders):
+            sys.meta_path.insert(0, finder)
+        # And the other open blocks' finders come off. Ours going first is not
+        # enough: when this submission has no `nine.ipynb`, its finder declines
+        # and the outer team's finder loads theirs, because a finder searches
+        # the directory it was built with rather than `sys.path`.
+        elsewhere = [
+            finder
+            for other in _LIVE
+            if other is not self
+            for finder in other._finders
+            if not any(finder is mine for mine in self._finders)
+        ]
+        if elsewhere:
+            sys.meta_path[:] = [
+                live
+                for live in sys.meta_path
+                if not any(live is finder for finder in elsewhere)
+            ]
+        for directory in reversed(self.directories):
+            sys.path.insert(0, str(directory))
+
+    def __exit__(self, *_exc) -> None:
+        if not self._frames:
+            return
+        if self._frames[-1] is None:
+            # A discovery that loaded nothing installs nothing and never joins
+            # the open-block list, so it has no place in the ordering check
+            # below: asking it there made a correctly nested empty context
+            # report the block around it as an out-of-order exit.
+            self._frames.pop()
+            return
+        if _LIVE and _LIVE[-1] is not self:
+            # Loud rather than silent: letting it through left one
+            # submission's modules installed and `sys.path` unrestored, with
+            # nothing recording that it had happened. Reached by hand-called
+            # entry and exit out of order. It was also reached by a correctly
+            # nested empty context until that was excluded above, so this is
+            # what the check catches rather than a claim about what cannot
+            # happen. If an exception is already propagating this replaces it
+            # as the one raised; the original stays on the traceback chain.
+            raise RuntimeError(
+                "import contexts must be left innermost first; this one is not "
+                "the block currently open"
+            )
+        frame = self._frames.pop()
+        if _LIVE:
+            _LIVE.pop()
+        displaced: Dict[str, ModuleType] = frame["displaced"]  # type: ignore[assignment]
+        before: set = frame["before"]  # type: ignore[assignment]
+        # Whether this same context is the one control returns to. Asking
+        # only whether it is open somewhere left A's modules installed while
+        # B resumed, in A, B, A: B is the active submission then, and A's
+        # names have no business answering for it.
+        still_open = bool(_LIVE) and _LIVE[-1] is self
+        sys.path[:] = frame["path"]  # type: ignore[arg-type]
+        sys.meta_path[:] = frame["meta"]  # type: ignore[arg-type]
+        sys.dont_write_bytecode = bool(frame["bytecode"])
+        # The frame it is leaving, explicitly: it has already been popped, so
+        # asking for the current one would read the block outside this.
+        self._suspend(frame)
+        for name in sorted(set(sys.modules) - before, reverse=True):
+            if name in self._modules and not still_open:
+                # Left installed while an outer block of this same context is
+                # running: that block did not import it, but it is the one
+                # that goes on using it.
                 sys.modules.pop(name, None)
-        for name in sorted(self._modules, reverse=True):
-            if sys.modules.get(name) is self._modules[name]:
-                sys.modules.pop(name, None)
+        if not still_open:
+            for name in sorted(self._modules, reverse=True):
+                if sys.modules.get(name) is self._modules[name]:
+                    sys.modules.pop(name, None)
         for name, original in _DISPLACED.items():
             sys.modules[name] = original
         _DISPLACED.clear()
-        _DISPLACED.update(self._held_displaced)
-        for name, original in self._displaced.items():
+        _DISPLACED.update(frame["wasDisplaced"])  # type: ignore[arg-type]
+        # Whatever this block pushed aside, which on a nested entry is the
+        # block outside it rather than the process's own module.
+        for name, original in displaced.items():
             sys.modules[name] = original
-        sys.meta_path[:] = [
-            finder for finder in sys.meta_path if finder not in self._added
-        ]
         _PREEXISTING.clear()
-        _PREEXISTING.update(self._held_preexisting)
+        _PREEXISTING.update(frame["preexisting"])  # type: ignore[arg-type]
+        if _LIVE:
+            _LIVE[-1]._resume()
 
 
 @contextlib.contextmanager

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import shutil
 import sys
+import sysconfig
 import tempfile
 import unittest
 from pathlib import Path
@@ -13,6 +15,7 @@ sys.path.insert(0, str(ROOT / "python" / "cogbench" / "src"))
 
 from cogbench import discover as discover_module  # noqa: E402
 from cogbench.discover import (  # noqa: E402
+    Discovery,
     ROOT_HINTED,
     SkippedModule,
     owner_of_skip,
@@ -822,12 +825,14 @@ class SurveyIsolationTests(unittest.TestCase):
         hasattr(os, "fork"), "requires os.fork process isolation"
     )
     def test_a_repository_whose_reader_dies_says_so_rather_than_saying_empty(self):
-        """os.abort() stands in for the real case: one repository's audio
+        """A hard exit stands in for the real case: one repository's audio
         helper loads a second copy of a native backend and the interpreter
-        dies with a nanobind error no `except` clause can see."""
+        dies with a nanobind error no `except` clause can see. What this
+        needs is a child that ends without reporting, which `os._exit` gives
+        without asking macOS to write a crash report for every run."""
 
         (self.tmp / "a_fine.py").write_text("def peaks(x):\n    return x\n")
-        (self.tmp / "z_fatal.py").write_text("import os\nos.abort()\n")
+        (self.tmp / "z_fatal.py").write_text("import os\nos._exit(23)\n")
 
         result = survey(self.tmp, timeout_seconds=60)
 
@@ -845,7 +850,7 @@ class SurveyIsolationTests(unittest.TestCase):
 
         (self.tmp / "a_fine.py").write_text("def peaks(x):\n    return x\n")
         (self.tmp / "b_missing.py").write_text("import definitely_not_installed\n")
-        (self.tmp / "z_fatal.py").write_text("import os\nos.abort()\n")
+        (self.tmp / "z_fatal.py").write_text("import os\nos._exit(23)\n")
 
         result = survey(self.tmp, timeout_seconds=60)
 
@@ -1720,6 +1725,32 @@ class AFileIsReadOnceHoweverItIsReached(_Fixture):
         self.assertEqual(self._times_run(), 1)
         self.assertEqual(self._module(found, "database").STORE, {"seeded": 1})
 
+    def test_a_bare_import_and_a_relative_one_reach_the_same_module(self):
+        """A package directory is on the path too, so a root script's bare
+        `import database` loads `core/database.py` under the top-level name.
+        A member's `from .database import STORE` then asks the package loader
+        for the same file under the package's name, and running it twice gave
+        the directory two stores, with the search bound to the empty one."""
+
+        core = self.tmp / "core"
+        core.mkdir()
+        (core / "__init__.py").write_text("")
+        (core / "database.py").write_text(self._records("STORE = {}\n"))
+        (core / "extra.py").write_text(
+            "from .database import STORE\n\n\ndef peek():\n    return STORE\n"
+        )
+        (self.tmp / "aaa_main.py").write_text(
+            "import database as d\nd.STORE['seeded'] = 1\n"
+        )
+
+        found = discover(self.tmp)
+
+        self.assertEqual(self._times_run(), 1)
+        self.assertIs(
+            self._module(found, "extra").peek(), self._module(found, "database").STORE
+        )
+        self.assertEqual(self._module(found, "database").STORE, {"seeded": 1})
+
     def test_a_sibling_reached_by_a_relative_import_is_the_same_object(self):
         """The member the student never imported is read under the package
         their own import already made, so its `from .database import STORE`
@@ -2438,6 +2469,72 @@ class AReturnedSubmissionCanStillImportItsOwnModules(_Submission):
 
         self.assertEqual((first, inner, after), ("repo-a:x", "repo-b:x", "repo-a:x"))
 
+    def test_re_entering_one_while_the_other_is_live_restores_it(self):
+        """A counter is not enough. Entering A, then B, then A again has to
+        put A's names back the second time; treating the inner A as already
+        installed left B's modules in place, and A's own function read B's
+        state. Found by the PR7 owner against real files on 3.8."""
+
+        one, two = self.submission("a", "repo-a"), self.submission("b", "repo-b")
+        call_one, call_two = self.caller(one), self.caller(two)
+
+        seen = []
+        with one.imports():
+            seen.append(call_one("x"))
+            with two.imports():
+                seen.append(call_two("x"))
+                with one.imports():
+                    seen.append(call_one("x"))
+                seen.append(call_two("x"))
+            seen.append(call_one("x"))
+
+        self.assertEqual(
+            seen, ["repo-a:x", "repo-b:x", "repo-a:x", "repo-b:x", "repo-a:x"]
+        )
+
+    def test_a_block_that_raises_still_puts_the_process_back(self):
+        found = self.submission("boom", "repo-boom")
+        before, path = set(sys.modules), list(sys.path)
+
+        with self.assertRaises(ValueError):
+            with found.imports():
+                self.caller(found)("x")
+                raise ValueError("their code raised")
+
+        self.assertEqual(set(sys.modules) - before, set())
+        self.assertEqual(sys.path, path)
+
+    def test_two_submissions_notebooks_do_not_answer_for_each_other(self):
+        """The `ipynb.fs` shells carry no file and an empty search path, so
+        neither eviction test could see them and they outlived the block. The
+        surviving shell still held the first team's notebook as an attribute,
+        and the second team's `from ipynb.fs.defs import nine` was answered
+        from it without their finder ever being asked. Found by the
+        acceptance reviewer."""
+
+        submissions = []
+        for name, token in (("nbA", "A"), ("nbB", "B")):
+            root = self.tmp / name
+            root.mkdir()
+            (root / "nine.ipynb").write_text(
+                _notebook("def pick():\n    return {!r}\n".format(token))
+            )
+            (root / "loader.py").write_text(
+                "def run():\n"
+                "    from ipynb.fs.defs import nine\n"
+                "    return nine.pick()\n"
+            )
+            submissions.append(discover(root))
+
+        before = set(sys.modules)
+        seen = []
+        for found in (submissions[0], submissions[1], submissions[0], submissions[1]):
+            with found.imports():
+                seen.append(self._module(found, "loader").run())
+
+        self.assertEqual(seen, ["A", "B", "A", "B"])
+        self.assertEqual(set(sys.modules) - before, set())
+
     def test_a_third_party_module_is_never_touched(self):
         """Evicting one does not unload its C extension, so it must be loaded
         once and left alone."""
@@ -2632,14 +2729,17 @@ class ASalvagedSurveyKeepsWhatItMeasured(_Fixture):
     three fields per module while a completed record carries what it took to
     read one, so the salvage lost exactly the notes a reader needs most."""
 
+    @unittest.skipUnless(hasattr(os, "fork"), "requires os.fork process isolation")
     def test_the_recovery_notes_and_the_stub_list_survive(self):
+        """Guarded, not conditional on the result: without fork the survey
+        runs in this process, and the fixture's `os._exit` would take the test
+        runner down before there was anything to skip on."""
+
         (self.tmp / "a_ann.py").write_text("def f(x: Missing) -> int:\n    return 1\n")
         (self.tmp / "z_die.py").write_text("import os\nos._exit(23)\n")
 
         found = survey(self.tmp)
 
-        if found.ok:
-            self.skipTest("this platform ran the survey in-process")
         self.assertFalse(found.looked)
         recovered = [
             entry for entry in found.record["modules"] if entry["name"] == "a_ann"
@@ -2647,6 +2747,641 @@ class ASalvagedSurveyKeepsWhatItMeasured(_Fixture):
         self.assertEqual(len(recovered), 1)
         self.assertTrue(recovered[0]["futureAnnotations"])
         self.assertIn("microphone", found.record["stubbed"])
+
+
+class OnlyTheInnermostBlocksRepositoryAnswers(_Fixture):
+    """Blocks nest, and while one is open its submission is the only one whose
+    code should resolve. Every failure here was two teams' work running as one:
+    an inner block reading the outer team's file, or a shared notebook shell
+    handing back the wrong notebook."""
+
+    def _notebook_repo(self, name, token):
+        root = self.tmp / name
+        root.mkdir()
+        (root / "nine.ipynb").write_text(
+            _notebook("def pick():\n    return {!r}\n".format(token))
+        )
+        (root / "loader.py").write_text(
+            "def run():\n"
+            "    from ipynb.fs.defs import nine\n"
+            "    return nine.pick()\n"
+        )
+        return discover(root)
+
+    def test_a_nested_first_use_notebook_asks_its_own_finder(self):
+        """The outer block builds the `ipynb.fs` shells and files its notebook
+        under them. An inner submission that has never imported a notebook has
+        no shells of its own to displace those, so its `from ipynb.fs.defs
+        import nine` was answered from the outer team's entry, four times out
+        of four."""
+
+        outer = self._notebook_repo("nbC", "C")
+        inner = self._notebook_repo("nbD", "D")
+
+        seen = []
+        with outer.imports():
+            seen.append(self._module(outer, "loader").run())
+            with inner.imports():
+                seen.append(self._module(inner, "loader").run())
+                with outer.imports():
+                    seen.append(self._module(outer, "loader").run())
+            seen.append(self._module(outer, "loader").run())
+
+        self.assertEqual(seen, ["C", "D", "C", "C"])
+
+    def test_a_name_only_the_outer_submission_has_does_not_resolve_inside(self):
+        """Taking the outer team's module out of `sys.modules` was not enough.
+        Their root was still on `sys.path`, so the inner submission's `import
+        helper` read their file again and ran their code under a new object."""
+
+        outer_root = self.tmp / "onlyA"
+        outer_root.mkdir()
+        (outer_root / "helper.py").write_text("WHO = 'theirs'\n")
+        (outer_root / "entry.py").write_text(
+            "def read():\n    import helper\n    return helper.WHO\n"
+        )
+        inner_root = self.tmp / "onlyB"
+        inner_root.mkdir()
+        (inner_root / "entry.py").write_text(
+            "def read():\n    import helper\n    return helper.WHO\n"
+        )
+        outer, inner = discover(outer_root), discover(inner_root)
+
+        with outer.imports():
+            self.assertEqual(self._module(outer, "entry").read(), "theirs")
+            with inner.imports():
+                with self.assertRaises(ModuleNotFoundError):
+                    self._module(inner, "entry").read()
+
+    def test_a_nested_block_gets_its_own_notebook_not_the_outer_one(self):
+        """Once the outer block has imported its notebook, `ipynb.fs.defs.nine`
+        names that team's module. Taking only the four package shells left
+        that entry standing, so the inner submission's from-import was
+        answered out of it and its own finder was never reached."""
+
+        outer = self._notebook_repo("ordE", "E")
+        inner = self._notebook_repo("ordF", "F")
+
+        with outer.imports():
+            first = self._module(outer, "loader").run()
+            with inner.imports():
+                middle = self._module(inner, "loader").run()
+                with outer.imports():
+                    last = self._module(outer, "loader").run()
+
+        self.assertEqual((first, middle, last), ("E", "F", "E"))
+
+    def test_an_inner_block_keeps_what_the_open_outer_block_needs(self):
+        """A module first imported inside a nested block was evicted when that
+        block left, though the outer block of the same context was still
+        running and about to use it."""
+
+        (self.tmp / "side.py").write_text("V = 11\n")
+        (self.tmp / "main.py").write_text(
+            "def grab():\n    import fresh_side\n    return fresh_side.V\n"
+        )
+        found = discover(self.tmp)
+
+        with found.imports():
+            with found.imports():
+                # The shape that reaches this: a submission loading a file
+                # under a name discovery never filed. An ordinary sibling
+                # import would already be in the inventory both blocks share.
+                spec = importlib.util.spec_from_file_location(
+                    "fresh_side", str(self.tmp / "side.py")
+                )
+                made = importlib.util.module_from_spec(spec)
+                sys.modules["fresh_side"] = made
+                spec.loader.exec_module(made)
+            self.assertIn("fresh_side", sys.modules)
+            self.assertEqual(self._module(found, "main").grab(), 11)
+
+
+class ABlockIsNotAPlaceToLeaveThingsBehind(_Fixture):
+    """What a block does to the process has to be undone whether it finished,
+    raised, or never finished starting."""
+
+    def test_an_entry_that_fails_partway_installs_nothing(self):
+        """Modules went in before the frame that records them, and Python does
+        not call `__exit__` for an `__enter__` that raised, so a failure left
+        their code in `sys.modules` with nothing able to take it out."""
+
+        (self.tmp / "leftover.py").write_text("V = 2\n")
+        found = discover(self.tmp)
+        before, path = set(sys.modules), list(sys.path)
+
+        real = found.context._install
+
+        def half(frame):
+            # Partway through, not before: the frame has to unwind work that
+            # already happened, which is the case that was broken.
+            real(frame)
+            raise RuntimeError("installing failed")
+
+        found.context._install = half
+        try:
+            with self.assertRaises(RuntimeError):
+                with found.imports():
+                    pass
+        finally:
+            del found.context._install
+
+        self.assertEqual(set(sys.modules) - before, set())
+        self.assertEqual(sys.path, path)
+        self.assertEqual(found.context._frames, [])
+
+    def test_a_lazy_import_writes_no_bytecode_into_their_checkout(self):
+        """`_entered` suppresses it during discovery for the same reason: a
+        `__pycache__` is the platform changing a tree it was asked to read,
+        and a lazy import inside a block is still an import."""
+
+        (self.tmp / "deep").mkdir()
+        (self.tmp / "deep" / "cached.py").write_text("V = 9\n")
+        (self.tmp / "go.py").write_text(
+            "def call():\n    import cached\n    return cached.V\n"
+        )
+        found = discover(self.tmp)
+
+        held = sys.dont_write_bytecode
+        sys.dont_write_bytecode = False
+        try:
+            with found.imports():
+                self.assertTrue(sys.dont_write_bytecode)
+                self._module(found, "go").call()
+            self.assertFalse(sys.dont_write_bytecode)
+        finally:
+            sys.dont_write_bytecode = held
+
+        self.assertEqual(list(self.tmp.rglob("__pycache__")), [])
+
+    def test_an_installed_package_inside_the_checkout_is_left_alone(self):
+        """A checkout can hold the environment running it. Deciding ownership
+        by containment alone called pip student source, evicted it and
+        reinstalled it once per call, which is the native-extension reload the
+        teardown exists to avoid."""
+
+        (self.tmp / "thing.py").write_text("V = 1\n")
+        found = discover(self.tmp)
+        # What a virtualenv inside a checkout looks like from here: the
+        # library directory is inside the tree discovery was told to read.
+        found.context.directories = (
+            Path(sysconfig.get_paths()["stdlib"]).resolve(),
+        )
+        name = next(
+            (
+                candidate
+                for candidate in ("wave", "colorsys", "fractions", "statistics", "cmd")
+                if candidate not in sys.modules
+            ),
+            None,
+        )
+        if name is None:
+            self.skipTest("nothing left unimported to probe with")
+
+        with found.imports():
+            importlib.import_module(name)
+
+        self.assertIn(name, sys.modules)
+        self.assertNotIn(name, found.imports().modules)
+
+
+class AFailedMemberIsNotOfferedByItsPackage(_Fixture):
+    """A skip record saying a member failed, while `from package import bad`
+    still handed back the half-executed module, is the platform contradicting
+    its own report."""
+
+    def test_it_is_not_an_attribute_of_its_package(self):
+        """Written against `_execute` because that is where the two disagree.
+        Through the import system a failed member raises again on the next
+        attempt, which hides it; the package object keeps the attribute
+        either way."""
+
+        core = self.tmp / "core"
+        core.mkdir()
+        (core / "bad.py").write_text(
+            "def solve(x):\n    return x\n\n\nraise ValueError('broken')\n"
+        )
+        package = discover_module._register_package(core, (core,))
+        # Registering puts a live package in `sys.modules` under the
+        # directory's own name, and leaving it there makes `core` look taken
+        # to every test that runs after this one.
+        self.addCleanup(
+            lambda: [
+                sys.modules.pop(name, None)
+                for name in list(sys.modules)
+                if name == package or name.startswith(package + ".")
+            ]
+        )
+
+        _module, _skip, failure = discover_module._execute(
+            "bad", core / "bad.py", (core / "bad.py").read_text(), 5, package
+        )
+
+        self.assertIsNotNone(failure)
+        self.assertEqual(failure.reason, "raised")
+        self.assertFalse(hasattr(sys.modules.get(package), "bad"))
+
+
+class ADefaultExpressionIsNeverRetried(_Fixture):
+    """The postponed-annotation retry exists for a name that is only missing
+    because the annotation was evaluated. Reading the deepest traceback frame
+    that merely happened to be in this file put a helper's own failure back on
+    the caller's `def` line, and when the missing name also appeared in an
+    annotation the module was recompiled and the helper run a second time."""
+
+    def test_a_helper_that_fails_once_is_not_called_again(self):
+        (self.tmp / "helpers.py").write_text(
+            "calls = 0\n\n\n"
+            "def boom():\n"
+            "    global calls\n"
+            "    calls += 1\n"
+            "    if calls == 1:\n"
+            "        return Missing\n"
+            "    return 1\n"
+        )
+        (self.tmp / "user.py").write_text(
+            "from helpers import boom\n\n\ndef f(x: Missing = boom()):\n    return x\n"
+        )
+
+        found = discover(self.tmp)
+
+        self.assertEqual(self._module(found, "helpers").calls, 1)
+        self.assertNotIn("user", [entry.name for entry in found.modules])
+        failure = [entry for entry in found.skipped if entry.name == "user"][0]
+        self.assertEqual(failure.reason, "raised")
+
+
+class LeavingABlockHandsControlToWhicheverIsNowInnermost(_Fixture):
+    """A block is left while others are still open, and what happens next is
+    about which submission is now running, not about which contexts exist.
+    Every failure here was the leaving block's code still answering for the
+    one that resumed."""
+
+    def _repo(self, name, files):
+        root = self.tmp / name
+        root.mkdir()
+        for rel, text in files.items():
+            path = root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text)
+        return discover(root)
+
+    def test_leaving_an_inner_block_withdraws_it_from_the_one_that_resumes(self):
+        """Exit asked whether this context was open anywhere, so in A, B, A the
+        inner A left its modules installed and B, which is what control returns
+        to, could still see names only A has."""
+
+        first = self._repo("liveA", {
+            "onlya.py": "V = 'A only'\n",
+            "e.py": "def r():\n    import onlya\n    return onlya.V\n",
+        })
+        second = self._repo("liveB", {"e.py": "def r():\n    return 'B'\n"})
+
+        with first.imports():
+            with second.imports():
+                with first.imports():
+                    pass
+                self.assertNotIn("onlya", sys.modules)
+
+    def test_a_module_the_outer_block_loaded_at_call_time_is_hidden(self):
+        """Entry hid the names in each open block's inventory, and a module
+        first imported during that block is not in its inventory until it
+        leaves. The inner submission read the outer team's module from the
+        cache, which removing their directories cannot prevent."""
+
+        outer = self._repo("freshX", {
+            "side.py": "V = 11\n",
+            "main.py": (
+                "import importlib.util\n"
+                "import sys\n"
+                "from pathlib import Path\n\n\n"
+                "def load():\n"
+                "    spec = importlib.util.spec_from_file_location(\n"
+                "        'fresh_side', str(Path(__file__).with_name('side.py')))\n"
+                "    made = importlib.util.module_from_spec(spec)\n"
+                "    sys.modules['fresh_side'] = made\n"
+                "    spec.loader.exec_module(made)\n"
+                "    return made.V\n"
+            ),
+        })
+        inner = self._repo("freshY", {
+            "e.py": "def r():\n    import fresh_side\n    return fresh_side.V\n"
+        })
+
+        with outer.imports():
+            self.assertEqual(self._module(outer, "main").load(), 11)
+            with inner.imports():
+                with self.assertRaises(ModuleNotFoundError):
+                    self._module(inner, "e").r()
+
+    def test_an_outer_finder_does_not_answer_for_a_notebook_this_one_lacks(self):
+        """Putting this block's finders first was not enough. A finder searches
+        the directory it was built with, so when this submission has no such
+        notebook its finder declines and the outer team's supplies theirs."""
+
+        for name, token in (("fnP", "P"), ("fnQ", "Q")):
+            root = self.tmp / name
+            root.mkdir()
+            (root / "nine.ipynb").write_text(
+                _notebook("def pick():\n    return {!r}\n".format(token))
+            )
+            (root / "l.py").write_text(
+                "def run():\n"
+                "    from ipynb.fs.defs import nine\n"
+                "    return nine.pick()\n"
+            )
+        outer = discover(self.tmp / "fnP")
+        middle = discover(self.tmp / "fnQ")
+        bare = self._repo("fnR", {
+            "e.py": "def r():\n"
+                    "    from ipynb.fs.defs import nine\n"
+                    "    return nine.pick()\n"
+        })
+
+        with outer.imports():
+            with middle.imports():
+                with bare.imports():
+                    with self.assertRaises(ImportError):
+                        self._module(bare, "e").r()
+
+    def test_a_nested_notebook_import_reuses_this_teams_own_module(self):
+        """`_PREEXISTING` was read before this block's names went in, so when
+        two teams' notebooks share a name the outer team's entry was in it. The
+        reuse check then refused to reuse this team's own module and ran their
+        notebook a second time, into a second class."""
+
+        for name, token in (("idG", "G"), ("idH", "H")):
+            root = self.tmp / name
+            root.mkdir()
+            (root / "retrieval.ipynb").write_text(
+                _notebook(self._records("class Hit:\n    WHO = {!r}\n".format(token)))
+            )
+            (root / "q.py").write_text(
+                "def go():\n"
+                "    from ipynb.fs.full import retrieval\n"
+                "    return retrieval.Hit\n"
+            )
+        outer = discover(self.tmp / "idG")
+        inner = discover(self.tmp / "idH")
+        read_once = self._times_run()
+
+        with outer.imports():
+            self._module(outer, "q").go()
+            with inner.imports():
+                theirs = self._module(inner, "q").go()
+
+        self.assertEqual(self._times_run(), read_once)
+        self.assertIs(theirs, self._module(inner, "retrieval").Hit)
+
+    def test_re_entering_reaches_a_module_it_loaded_itself(self):
+        """The inner submission correctly hides the outer block's call-time
+        module, but it kept it only in its own restore frame. The outer block
+        has not exited, so its inventory did not have it either, and
+        re-entering that same submission could not reinstall a module it had
+        loaded and was still using."""
+
+        outer = self._repo("reX", {
+            "side.py": "V = 11\n",
+            "main.py": (
+                "import importlib.util\n"
+                "import sys\n"
+                "from pathlib import Path\n\n\n"
+                "def load():\n"
+                "    spec = importlib.util.spec_from_file_location(\n"
+                "        'fresh_side', str(Path(__file__).with_name('side.py')))\n"
+                "    made = importlib.util.module_from_spec(spec)\n"
+                "    sys.modules['fresh_side'] = made\n"
+                "    spec.loader.exec_module(made)\n"
+                "    return made.V\n\n\n"
+                "def read():\n"
+                "    import fresh_side\n"
+                "    return fresh_side.V\n"
+            ),
+        })
+        other = self._repo("reY", {"e.py": "def r():\n    return 'Y'\n"})
+
+        with outer.imports():
+            self.assertEqual(self._module(outer, "main").load(), 11)
+            loaded = sys.modules["fresh_side"]
+            with other.imports():
+                with self.assertRaises(ModuleNotFoundError):
+                    self._module(outer, "main").read()
+                with outer.imports():
+                    # The same object, not merely the same value: the point is
+                    # that the submission reaches the module it loaded, rather
+                    # than a second one read from the same file.
+                    self.assertEqual(self._module(outer, "main").read(), 11)
+                    self.assertIs(sys.modules["fresh_side"], loaded)
+            self.assertIs(sys.modules["fresh_side"], loaded)
+
+    _LOADER = (
+        "import importlib.util\n"
+        "import sys\n"
+        "from pathlib import Path\n\n\n"
+        "def load(alias, value):\n"
+        "    spec = importlib.util.spec_from_file_location(\n"
+        "        alias, str(Path(__file__).with_name('side.py')))\n"
+        "    made = importlib.util.module_from_spec(spec)\n"
+        "    sys.modules[alias] = made\n"
+        "    spec.loader.exec_module(made)\n"
+        "    made.V = value\n"
+        "    return made\n\n\n"
+        "def read(alias):\n"
+        "    import importlib\n"
+        "    return importlib.import_module(alias).V\n"
+    )
+
+    def test_a_call_time_module_belongs_to_the_block_that_loaded_it(self):
+        """Ownership was decided by whichever open block's directories held the
+        file, asked outermost first. Two discoveries of one checkout share
+        directories, so the outer one was handed a module the inner one had
+        loaded and was still using: it went into the wrong inventory, came out
+        of `sys.modules` before its real owner was reached, and ended up
+        retained by both."""
+
+        root = self.tmp / "shared"
+        root.mkdir()
+        (root / "side.py").write_text("V = 0\n")
+        (root / "main.py").write_text(self._LOADER)
+        outer, inner = discover(root), discover(root)
+        third = self._repo("otherC", {"e.py": "V = 1\n"})
+
+        with outer.imports():
+            with inner.imports():
+                self._module(inner, "main").load("fresh_side", 22)
+                with third.imports():
+                    self.assertIn("fresh_side", inner.context.modules)
+                    self.assertNotIn("fresh_side", outer.context.modules)
+                    with inner.imports():
+                        self.assertEqual(
+                            self._module(inner, "main").read("fresh_side"), 22
+                        )
+
+        self.assertIn("fresh_side", inner.context.modules)
+        self.assertNotIn("fresh_side", outer.context.modules)
+
+    def test_a_colliding_call_time_name_still_reaches_its_owner(self):
+        """Retention was skipped whenever the entering block had a name of its
+        own to install. Its own module then displaced the outer one correctly,
+        but the outer block had no retained copy and could not reinstall it on
+        a nested re-entry."""
+
+        root = self.tmp / "colX"
+        root.mkdir()
+        (root / "side.py").write_text("V = 0\n")
+        (root / "main.py").write_text(self._LOADER)
+        outer = discover(root)
+        inner = self._repo("colY", {"entry.py": "V = 99\n"})
+
+        with outer.imports():
+            self._module(outer, "main").load("entry", 11)
+            with inner.imports():
+                self.assertEqual(sys.modules["entry"].V, 99)
+                with outer.imports():
+                    self.assertEqual(self._module(outer, "main").read("entry"), 11)
+            self.assertEqual(self._module(outer, "main").read("entry"), 11)
+
+    def test_a_block_re_entered_inside_itself_owns_what_it_loaded(self):
+        """Ownership was inferred afterwards from which directories held the
+        file, and the candidates excluded the context doing the entering, so
+        in A, B, A, A the module the third block loaded was given to B. Both
+        then retained the same live object, and a later standalone B block
+        imported A's module. Ownership is recorded when a block stops running
+        now, because the block that was running is the one that loaded it."""
+
+        root = self.tmp / "r8shared"
+        root.mkdir()
+        (root / "side.py").write_text("V = 0\n")
+        (root / "main.py").write_text(self._LOADER)
+        first, second = discover(root), discover(root)
+
+        with first.imports():
+            with second.imports():
+                with first.imports():
+                    loaded = self._module(first, "main").load("fresh_side", 33)
+                    with first.imports():
+                        self.assertEqual(
+                            self._module(first, "main").read("fresh_side"), 33
+                        )
+
+        self.assertIs(first.context.modules.get("fresh_side"), loaded)
+        self.assertIsNone(second.context.modules.get("fresh_side"))
+        with second.imports():
+            with self.assertRaises(ModuleNotFoundError):
+                self._module(second, "main").read("fresh_side")
+
+    def test_a_suspended_blocks_name_does_not_strand_the_real_owner(self):
+        """Entry evicted by name from every suspended block's inventory before
+        working out who owned what was actually occupying that name. A module
+        the inner block had loaded under a name an outer block also uses was
+        gone by the time ownership was decided, so its owner could not
+        reinstall it."""
+
+        static = self._repo("r8A", {"helper.py": "WHO = 'A static'\n"})
+        root = self.tmp / "r8B"
+        root.mkdir()
+        (root / "side.py").write_text("V = 0\n")
+        (root / "main.py").write_text(self._LOADER)
+        loader = discover(root)
+        third = self._repo("r8C", {"e.py": "V = 1\n"})
+
+        with static.imports():
+            with loader.imports():
+                mine = self._module(loader, "main").load("helper", 22)
+                with third.imports():
+                    self.assertIs(loader.context.modules.get("helper"), mine)
+                    with loader.imports():
+                        self.assertEqual(
+                            self._module(loader, "main").read("helper"), 22
+                        )
+
+    def test_a_resumed_block_regains_what_its_deeper_re_entry_loaded(self):
+        """Leaving restores what that block displaced when it entered, and a
+        module the block underneath loaded during a deeper re-entry did not
+        exist then, so nothing put it back. Its owner held it in the inventory
+        and could not see it: the read raised, and only starting a fresh block
+        repaired it."""
+
+        root = self.tmp / "resA"
+        root.mkdir()
+        (root / "side.py").write_text("V = 0\n")
+        (root / "main.py").write_text(self._LOADER)
+        outer = discover(root)
+        other = self._repo("resB", {"e.py": "V = 1\n"})
+
+        with outer.imports():
+            with other.imports():
+                with outer.imports():
+                    loaded = self._module(outer, "main").load("fresh_side", 44)
+                    self.assertEqual(
+                        self._module(outer, "main").read("fresh_side"), 44
+                    )
+                self.assertNotIn("fresh_side", sys.modules)
+            self.assertEqual(self._module(outer, "main").read("fresh_side"), 44)
+            self.assertIs(sys.modules["fresh_side"], loaded)
+
+    def test_an_empty_discovery_nests_inside_a_real_one(self):
+        """A discovery that loaded nothing installs nothing and never joins the
+        open-block list, so it has no place in the ordering check. Asking it
+        there made a correctly nested empty context report the block around it
+        as an out-of-order exit."""
+
+        real = self._repo("emptyA", {"helper.py": "WHO = 'A'\n"})
+        empty = Discovery(root=real.root)
+
+        with real.imports():
+            with empty.imports():
+                pass
+
+        self.assertEqual(empty.imports()._frames, [])
+
+    def test_leaving_out_of_order_is_refused_rather_than_silently_wrong(self):
+        """`with` cannot produce this. Hand-called entry and exit can, and
+        letting it through left one submission's modules installed and
+        `sys.path` unrestored with nothing recording that it had happened."""
+
+        first = self._repo("lifoM", {"m.py": "V = 1\n"})
+        second = self._repo("lifoN", {"n.py": "V = 2\n"})
+        before, path = set(sys.modules), list(sys.path)
+
+        first.imports().__enter__()
+        second.imports().__enter__()
+        try:
+            with self.assertRaises(RuntimeError):
+                first.imports().__exit__()
+        finally:
+            second.imports().__exit__()
+            first.imports().__exit__()
+
+        self.assertEqual(set(sys.modules) - before, set())
+        self.assertEqual(sys.path, path)
+
+
+class ADirectoryNamedForSomethingNotYetImported(_Fixture):
+    """`_PREEXISTING` and `sys.modules` only see what has been imported.
+    Reserving a name also has to ask whether one is installed and simply
+    unopened, because the context puts these names back during every call."""
+
+    def test_it_does_not_take_that_name(self):
+        spare = next(
+            (
+                candidate
+                for candidate in ("wave", "colorsys", "fractions", "cmd", "shelve")
+                if candidate not in sys.modules
+                and importlib.util.find_spec(candidate) is not None
+            ),
+            None,
+        )
+        if spare is None:
+            self.skipTest("nothing installed and unimported to name a folder after")
+        theirs = self.tmp / spare
+        theirs.mkdir()
+        (theirs / "inner.py").write_text("V = 1\n")
+
+        found = discover(self.tmp)
+
+        self.assertIn("inner", [entry.name for entry in found.modules])
+        self.assertNotIn(spare, found.context.modules)
 
 
 if __name__ == "__main__":
