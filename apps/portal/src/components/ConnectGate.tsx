@@ -1,5 +1,12 @@
+import { ArrowUpRight01Icon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@/components/Button";
 import type { GateOutcome, GatePhase, GateVariant } from "@/lib/activity-gate";
+
+/** Both actions that leave for the browser carry it; the check stays here. */
+const LeavesForBrowser = () => (
+  <HugeiconsIcon icon={ArrowUpRight01Icon} size={12} strokeWidth={1.8} aria-hidden="true" />
+);
 
 const COPY: Record<
   GateVariant,
@@ -18,20 +25,20 @@ const COPY: Record<
     kicker: "One connection",
     title: "Link Cog*Portal to see your team's bench.",
     body: "Cog*Portal knows you by your GitHub sign-in, which lives in your browser, so the link happens there.",
-    open: "Link Cog*Portal ↗",
+    open: "Link Cog*Portal",
     waitingTitle: "Once you've linked it in the browser, check here.",
     check: "Check the link",
-    reopen: "Open the link again ↗",
+    reopen: "Open the link again",
     unchanged: "Discord isn't linked to a portal account yet. Finish in the browser, then check again.",
   },
   team: {
     kicker: "One step left",
     title: "You're linked, but not on a team yet.",
     body: "Connect your fork in the browser to join or start your team.",
-    open: "Finish team setup ↗",
+    open: "Finish team setup",
     waitingTitle: "Once you're on a team, check here.",
     check: "Check for your team",
-    reopen: "Open team setup again ↗",
+    reopen: "Open team setup again",
     unchanged: "You're linked, but we don't see a team for you yet. Finish in the browser, then check again.",
   },
 };
@@ -86,15 +93,17 @@ export function ConnectGate({
         onClick={waiting ? onCheck : onOpen}
       >
         {waiting ? (phase === "checking" ? "Checking…" : copy.check) : copy.open}
+        {!waiting && <LeavesForBrowser />}
       </Button>
       {waiting && !compact && (
         <p className="mt-4">
           <button
             type="button"
-            className="text-[12px] text-ink-secondary underline underline-offset-2"
+            className="inline-flex items-center gap-1.5 text-[12px] text-ink-secondary underline underline-offset-2"
             onClick={onOpen}
           >
             {copy.reopen}
+            <LeavesForBrowser />
           </button>
         </p>
       )}
