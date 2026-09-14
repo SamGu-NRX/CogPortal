@@ -86,10 +86,25 @@ export interface SetupCommand {
   evidenceSource: "setup-state" | "devices";
 }
 
-/** Explicit origin also works before the CLI has saved its first portal. */
-export function deviceLinkCommand(portalOrigin: string): string {
+/**
+ * The one place this command is written. Setup's rail and the Connections
+ * device panel both offer it, and a device request only reaches the right
+ * portal if the two agree on the origin. The explicit origin also works before
+ * the CLI has saved its first portal.
+ */
+export function linkCommand(portalOrigin: string): string {
   return `cogworks link --portal ${portalOrigin}`;
 }
+
+/**
+ * Second name for `linkCommand`, reached by `DroppedLinkNotice`.
+ *
+ * Two branches wrote this helper independently with identical bodies. Keeping
+ * one implementation and aliasing the other name is the merge-safe resolution:
+ * no caller moves and the command has a single source. Collapsing to one name
+ * is a rename across portal-owned files, so it is left to that owner.
+ */
+export const deviceLinkCommand = linkCommand;
 
 /**
  * The commands, in run order, for one team's repository and one track.
@@ -156,8 +171,10 @@ export function setupCommandLines(input: {
   lines.push(
     {
       id: "link",
+      // `step: null` is required by SetupLine and is what marks the device
+      // link as evidenced by the device list rather than a recorded step.
       step: null,
-      command: deviceLinkCommand(input.portalOrigin),
+      command: linkCommand(input.portalOrigin),
       verified: input.deviceLinked,
       selfChecked: false,
       benchmarkScoped: false,
