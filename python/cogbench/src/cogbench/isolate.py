@@ -710,7 +710,7 @@ def _operation_child() -> None:
 def _collect(pid, read_fd, timeout_seconds, memory_bytes) -> Outcome:
     """Wait for the child and describe what became of it.
 
-One monotonic deadline, held by this thread and checked where the work
+    One monotonic deadline, held by this thread and checked where the work
     already waits: the `select` loop in `_read_payload` and the non-blocking
     `waitpid` polling in `_reap_bounded`. `timeout_seconds=None` means no
     deadline; the child's own CPU limits are separate and untouched.
