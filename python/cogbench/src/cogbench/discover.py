@@ -3038,6 +3038,26 @@ class ImportContext:
             if module is not None and _belongs_to(name, module, self.directories):
                 self.retain(name, module)
 
+    def _resume(self) -> None:
+        """Put this block's names back when control returns to it.
+
+        A block leaving restores what it displaced when it entered, and a
+        module the block underneath loaded during a deeper re-entry did not
+        exist then, so nothing put it back. Its owner held it in the inventory
+        and could not see it. Reinstalling from the inventory is what makes
+        resuming mean the same thing as entering.
+        """
+
+        frame = self._frames[-1] if self._frames else None
+        if not frame:
+            return
+        displaced: Dict[str, ModuleType] = frame["displaced"]  # type: ignore[assignment]
+        for name, module in self._modules.items():
+            if sys.modules.get(name) is not module:
+                if name in sys.modules:
+                    displaced.setdefault(name, sys.modules[name])
+                sys.modules[name] = module
+
     def _install(self, frame: Dict[str, object]) -> None:
         """Put this repository's names in, recording what each replaced."""
 
@@ -3187,6 +3207,8 @@ class ImportContext:
             sys.modules[name] = original
         _PREEXISTING.clear()
         _PREEXISTING.update(frame["preexisting"])  # type: ignore[arg-type]
+        if _LIVE:
+            _LIVE[-1]._resume()
 
 
 @contextlib.contextmanager

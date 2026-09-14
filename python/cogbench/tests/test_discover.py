@@ -825,12 +825,14 @@ class SurveyIsolationTests(unittest.TestCase):
         hasattr(os, "fork"), "requires os.fork process isolation"
     )
     def test_a_repository_whose_reader_dies_says_so_rather_than_saying_empty(self):
-        """os.abort() stands in for the real case: one repository's audio
+        """A hard exit stands in for the real case: one repository's audio
         helper loads a second copy of a native backend and the interpreter
-        dies with a nanobind error no `except` clause can see."""
+        dies with a nanobind error no `except` clause can see. What this
+        needs is a child that ends without reporting, which `os._exit` gives
+        without asking macOS to write a crash report for every run."""
 
         (self.tmp / "a_fine.py").write_text("def peaks(x):\n    return x\n")
-        (self.tmp / "z_fatal.py").write_text("import os\nos.abort()\n")
+        (self.tmp / "z_fatal.py").write_text("import os\nos._exit(23)\n")
 
         result = survey(self.tmp, timeout_seconds=60)
 
@@ -848,7 +850,7 @@ class SurveyIsolationTests(unittest.TestCase):
 
         (self.tmp / "a_fine.py").write_text("def peaks(x):\n    return x\n")
         (self.tmp / "b_missing.py").write_text("import definitely_not_installed\n")
-        (self.tmp / "z_fatal.py").write_text("import os\nos.abort()\n")
+        (self.tmp / "z_fatal.py").write_text("import os\nos._exit(23)\n")
 
         result = survey(self.tmp, timeout_seconds=60)
 
@@ -3270,6 +3272,31 @@ class LeavingABlockHandsControlToWhicheverIsNowInnermost(_Fixture):
                         self.assertEqual(
                             self._module(loader, "main").read("helper"), 22
                         )
+
+    def test_a_resumed_block_regains_what_its_deeper_re_entry_loaded(self):
+        """Leaving restores what that block displaced when it entered, and a
+        module the block underneath loaded during a deeper re-entry did not
+        exist then, so nothing put it back. Its owner held it in the inventory
+        and could not see it: the read raised, and only starting a fresh block
+        repaired it."""
+
+        root = self.tmp / "resA"
+        root.mkdir()
+        (root / "side.py").write_text("V = 0\n")
+        (root / "main.py").write_text(self._LOADER)
+        outer = discover(root)
+        other = self._repo("resB", {"e.py": "V = 1\n"})
+
+        with outer.imports():
+            with other.imports():
+                with outer.imports():
+                    loaded = self._module(outer, "main").load("fresh_side", 44)
+                    self.assertEqual(
+                        self._module(outer, "main").read("fresh_side"), 44
+                    )
+                self.assertNotIn("fresh_side", sys.modules)
+            self.assertEqual(self._module(outer, "main").read("fresh_side"), 44)
+            self.assertIs(sys.modules["fresh_side"], loaded)
 
     def test_an_empty_discovery_nests_inside_a_real_one(self):
         """A discovery that loaded nothing installs nothing and never joins the
