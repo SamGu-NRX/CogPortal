@@ -81,6 +81,7 @@ import itertools
 import json
 import os
 import sys
+import threading
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -998,26 +999,46 @@ class _ImportTimeout(BaseException):
 
 @contextlib.contextmanager
 def _deadline(seconds: float, name: str):
-    """Interrupt an import that will not finish.
+    """Bound the import stack running on this thread.
 
-    Uses a timer that raises in the thread running the import. It cannot stop
-    a call that never returns to the interpreter, such as one blocked in a C
-    extension, so it is a limit on ordinary Python work rather than a
-    guarantee. `cogbench.isolate` is the guarantee, and the hosted runner puts
-    the whole resolution inside it.
+    One owner, not one per block. Imports nest: `_execute` reaches
+    `_NotebookFsFinder.create_module`, which reaches `_import_one`, which
+    reaches `_execute` again. Each level used to arm its own timer, and two
+    timers on one thread can interleave. The schedule that breaks it, found by
+    an independent review and reproduced on 3.8.20 and 3.13.12: the outer
+    timer fires while the inner block is inside its own cleanup, before the
+    inner has marked itself over or cancelled. The outer timeout propagates,
+    the inner cleanup never finishes, and the inner timer is still armed with
+    nothing to stop it. It fires after both blocks have exited and the
+    exception lands in whatever runs next, which for discovery is the
+    `_notebooks` enumeration in `_consume`.
 
-    The thread is read here rather than assumed to be the main one. It raised
-    into `threading.main_thread()` before, so a caller that ran discovery on a
-    worker got the worst of both: the slow import carried on, and the main
-    thread was interrupted wherever it happened to be, which for a caller
-    waiting on `join` was inside `join`.
+    No arrangement of guards inside a block fixes that, because the thing
+    interrupting the cleanup is the other deadline. So a nested block arms
+    nothing and shares what is left of the budget already running. There is
+    one timer per thread, so there is no second callback to interleave with.
+
+    What this still cannot do is stop a call that never returns to the
+    interpreter, such as one blocked in a C extension. `cogbench.isolate` is
+    the guarantee; this is a limit on ordinary Python work.
     """
 
     import ctypes
     import threading
 
+    running = getattr(_IMPORT_DEADLINE, "state", None)
+    if running is not None:
+        # Nested. The budget is the outer one's remainder, and this level owns
+        # no timer, so an interrupted cleanup here leaves nothing armed.
+        running["depth"] += 1
+        try:
+            yield
+        finally:
+            running["depth"] -= 1
+        return
+
     guard = threading.Lock()
-    state = {"over": False, "injected": False}
+    state = {"over": False, "injected": False, "depth": 1}
     importing = threading.current_thread().ident or 0
 
     def _interrupt() -> None:
@@ -1032,28 +1053,34 @@ def _deadline(seconds: float, name: str):
 
     timer = threading.Timer(seconds, _interrupt)
     timer.daemon = True
+    _IMPORT_DEADLINE.state = state
     timer.start()
     try:
         yield
     finally:
-        # Under the lock the timer injects under, so the two cannot interleave:
-        # either it injected while this was still open, or it finds `over` and
-        # does not. A bare flag checked before the injection could not do that.
-        with guard:
-            state["over"] = True
-            injected = state["injected"]
-        timer.cancel()
-        if injected:
-            # `PyThreadState_SetAsyncExc` makes the exception *pending*: it is
-            # raised at the importing thread's next bytecode boundary, which
-            # may be after this block. An injection this block did not observe
-            # is therefore still in flight and has to be taken back, or it
-            # lands in whatever runs next. Evidence it does: a Windows CI run
-            # raised `_ImportTimeout` inside `pathlib.glob`, called from
-            # `_notebooks`, which is outside any deadline.
-            ctypes.pythonapi.PyThreadState_SetAsyncExc(
-                ctypes.c_ulong(importing), ctypes.c_void_p(0)
-            )
+        try:
+            # Taking the guard settles it: either the timer injected before
+            # this, which `injected` records, or it finds `over` and does not.
+            with guard:
+                state["over"] = True
+                injected = state["injected"]
+            timer.cancel()
+            if injected:
+                # `PyThreadState_SetAsyncExc` makes the exception pending, so
+                # one decided on but not yet delivered is still in flight and
+                # would land after this block. Take it back.
+                ctypes.pythonapi.PyThreadState_SetAsyncExc(
+                    ctypes.c_ulong(importing), ctypes.c_void_p(0)
+                )
+        finally:
+            # Always, even if the clearing above is itself interrupted: a
+            # thread that kept this would treat its next import as nested.
+            _IMPORT_DEADLINE.state = None
+
+
+#: The deadline owning this thread's import stack, if one is running. Nested
+#: imports read it rather than arming their own.
+_IMPORT_DEADLINE = threading.local()
 
 
 #: Prefix for the synthetic package names discovery invents. A student file

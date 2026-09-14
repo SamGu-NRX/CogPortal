@@ -8,6 +8,7 @@ import sys
 import sysconfig
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 
@@ -3449,6 +3450,38 @@ class AnImportDeadlineStaysInsideItsOwnBlock(_Fixture):
     CI traceback and on `PyThreadState_SetAsyncExc` being documented as
     pending rather than immediate.
     """
+
+    def test_a_nested_import_arms_no_timer_of_its_own(self):
+        """The property that makes the interleaving impossible, rather than a
+        race to be caught. Two timers on one thread can interleave: an
+        independent review reproduced an outer timer firing while the inner
+        block was inside its own cleanup, before the inner had marked itself
+        over or cancelled, leaving the inner timer armed with nothing to stop
+        it. One owner per import stack means there is no second callback.
+
+        Imports really do nest here: `_execute` reaches
+        `_NotebookFsFinder.create_module`, which reaches `_import_one`, which
+        reaches `_execute` again.
+        """
+
+        armed = []
+        real = threading.Timer
+
+        class Counted(real):
+            def __init__(self, *arguments, **named):
+                armed.append(arguments[0])
+                super(Counted, self).__init__(*arguments, **named)
+
+        threading.Timer = Counted
+        try:
+            with discover_module._deadline(30, "outer"):
+                with discover_module._deadline(30, "inner"):
+                    with discover_module._deadline(30, "deeper"):
+                        pass
+        finally:
+            threading.Timer = real
+
+        self.assertEqual(len(armed), 1, "one timer for the whole stack")
 
     def test_the_deadline_still_interrupts_what_it_is_for(self):
         (self.tmp / "slow.py").write_text("import time\ntime.sleep(6)\nV = 1\n")
