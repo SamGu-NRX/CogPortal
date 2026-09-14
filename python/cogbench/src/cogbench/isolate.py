@@ -37,6 +37,7 @@ import signal
 import struct
 import sys
 import tempfile
+import threading
 import time
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -577,7 +578,24 @@ def run_isolated(
         # the parent's pending output a second time.
         sys.stdout.flush()
         sys.stderr.flush()
-        pid = os.fork()
+        try:
+            pid = os.fork()
+        except OSError as error:
+            # A machine out of processes is a condition to report, not an
+            # exception to propagate: every other way this can fail returns an
+            # Outcome, and a caller that handles those would be taken down by
+            # this one alone. The pipe is closed here because nothing else
+            # will; measured before this, two descriptors leaked per attempt,
+            # which is the shape that turns one exhausted fork into many.
+            for descriptor in (read_fd, write_fd):
+                try:
+                    os.close(descriptor)
+                except OSError:
+                    pass
+            return Outcome(
+                CRASHED,
+                detail="could not start a process for this work: {}".format(error),
+            )
         if pid == 0:
             os.close(read_fd)
             _child(work, write_fd, workspace, memory_bytes, timeout_seconds)
@@ -676,8 +694,17 @@ def _collect(pid, read_fd, timeout_seconds, memory_bytes) -> Outcome:
     status = None
     reaped = False
     armed = (timeout_seconds is not None and hasattr(signal, "SIGALRM")
-             and hasattr(signal, "alarm"))
+             and hasattr(signal, "alarm")
+             # `signal.signal` raises off the main thread, and it raised out of
+             # here rather than returning an Outcome, so a caller running this
+             # on a worker got an exception where every other failure gives it
+             # a result. The deadline stays finite without this: `_child`
+             # applies the same `timeout_seconds` inside the child, so what is
+             # lost is the parent's second guard, not the limit.
+             and threading.current_thread() is threading.main_thread())
     previous = None
+    pending = 0
+    armed_at = 0.0
 
     def exited():
         nonlocal status, reaped
@@ -695,7 +722,11 @@ def _collect(pid, read_fd, timeout_seconds, memory_bytes) -> Outcome:
     try:
         if armed:
             previous = signal.signal(signal.SIGALRM, _on_alarm)
-            signal.alarm(timeout_seconds)
+            # What the caller already had pending. `signal.alarm` returns it,
+            # and discarding it silently cancelled their timer: a caller with
+            # four seconds left got none, with nothing raised to say so.
+            armed_at = time.monotonic()
+            pending = signal.alarm(timeout_seconds)
         try:
             try:
                 outcome = _read_payload(read_fd, exited)
@@ -729,6 +760,13 @@ def _collect(pid, read_fd, timeout_seconds, memory_bytes) -> Outcome:
                 # be passed to signal.signal, but our timer must still stop.
                 if previous is not None:
                     signal.signal(signal.SIGALRM, previous)
+                if pending:
+                    # Give the caller back what is left of theirs. `alarm` has
+                    # one-second granularity, so a timer restored here can be
+                    # up to a second late, and one whose moment passed while
+                    # the child ran fires immediately rather than never.
+                    left = pending - (time.monotonic() - armed_at)
+                    signal.alarm(max(1, int(left)))
             try:
                 os.close(read_fd)
             except OSError:
@@ -743,7 +781,7 @@ def _collect(pid, read_fd, timeout_seconds, memory_bytes) -> Outcome:
                 if done:
                     reaped, status = True, observed
         finally:
-            _terminate(pid)
+            _terminate(pid, reaped=reaped)
             if not reaped:
                 final_status = _reap(pid)[1]
                 # A different signal or ordinary exit could arrive between
@@ -785,10 +823,31 @@ def _on_alarm(signum, frame):  # noqa: ARG001 - signal handler shape
     raise _Alarm()
 
 
-def _terminate(pid: int) -> None:
-    """Take down the child and anything it started."""
+def _terminate(pid: int, reaped: bool = False) -> None:
+    """Take down the child and anything it started.
 
-    for target, sig in ((-pid, signal.SIGKILL), (pid, signal.SIGKILL)):
+    The group first, because that is what reaches anything the child started
+    and is the descendant cleanup this must not lose.
+
+    The child itself only while it is still ours. Once it has been reaped the
+    number is free for the kernel to hand to someone else, and signalling it
+    then is at best addressed to nobody and at worst to an unrelated process.
+    The group signal is kept in that case: a descendant can outlive the child,
+    and it is the only thing that reaches one.
+
+    Known limit, not a defect to be fixed here. A descendant that leaves the
+    group, by calling `setsid` or being started detached, is not reachable
+    from either signal and survives this. Catching it would need a process
+    supervisor or a cgroup, and the scope this was built for is ordinary
+    student code that did not mean to outlive its run, not code written to
+    escape. What this promises is that a crash or a hang stays inside the
+    child and its group; it does not promise that nothing can leave.
+    """
+
+    targets = [(-pid, signal.SIGKILL)]
+    if not reaped:
+        targets.append((pid, signal.SIGKILL))
+    for target, sig in targets:
         try:
             os.kill(target, sig)
         except OSError:

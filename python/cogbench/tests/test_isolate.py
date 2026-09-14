@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import signal
 import sys
+import threading
 import tempfile
 import time
 import unittest
@@ -453,3 +454,121 @@ class WindowsDoesNotReplaceItself(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TheCallerKeepsWhatItBroughtIn(unittest.TestCase):
+    """`_collect` arms its own `SIGALRM` and used to discard whatever the
+    caller already had pending. Measured before this: a caller holding four
+    seconds got zero back and its handler never ran, with nothing raised to
+    say the timer had gone."""
+
+    @unittest.skipUnless(hasattr(signal, "alarm"), "needs SIGALRM")
+    def test_an_alarm_the_caller_already_had_is_given_back(self):
+        fired = []
+        previous = signal.signal(signal.SIGALRM, lambda *_: fired.append(True))
+        signal.alarm(4)
+        try:
+            outcome = run_isolated(lambda: 1, timeout_seconds=2)
+            left = signal.alarm(0)
+        finally:
+            signal.signal(signal.SIGALRM, previous)
+
+        self.assertEqual(outcome.status, COMPLETED)
+        self.assertEqual(fired, [])
+        # One second of slack: `alarm` counts in whole seconds, so what comes
+        # back is the remainder rounded down, not the exact figure.
+        self.assertGreaterEqual(left, 1)
+        self.assertLessEqual(left, 4)
+
+
+class AWorkerThreadGetsAnOutcomeLikeEveryOtherCaller(unittest.TestCase):
+    """`signal.signal` raises off the main thread, and it raised out of
+    `run_isolated` rather than returning. A caller that handles a crash, a
+    timeout and a memory limit as results was taken down by this one alone."""
+
+    def test_running_off_the_main_thread_returns_rather_than_raises(self):
+        result = {}
+
+        def work():
+            try:
+                result["outcome"] = run_isolated(lambda: 2, timeout_seconds=5)
+            except BaseException as error:  # noqa: BLE001 - reported, not raised
+                result["raised"] = "{}: {}".format(type(error).__name__, error)
+
+        worker = threading.Thread(target=work)
+        worker.start()
+        worker.join(timeout=30)
+
+        self.assertFalse(worker.is_alive())
+        self.assertNotIn("raised", result)
+        self.assertEqual(result["outcome"].status, COMPLETED)
+        self.assertEqual(result["outcome"].value, 2)
+
+    @unittest.skipUnless(hasattr(os, "fork"), "needs fork")
+    def test_the_deadline_is_still_finite_there(self):
+        """The parent's alarm is what a worker thread cannot have. The limit
+        itself survives, because the child applies the same number."""
+
+        result = {}
+
+        def work():
+            result["outcome"] = run_isolated(_spin, timeout_seconds=2)
+
+        worker = threading.Thread(target=work)
+        worker.start()
+        worker.join(timeout=60)
+
+        self.assertFalse(worker.is_alive())
+        self.assertNotEqual(result["outcome"].status, COMPLETED)
+        self.assertTrue(result["outcome"].detail)
+
+
+class AReapedChildIsNotSignalledAgain(unittest.TestCase):
+    """Cleanup fired at the child's own pid whether or not it had been reaped.
+    A reaped number is free for the kernel to hand to someone else, so that
+    signal is addressed to nobody at best and to an unrelated process at
+    worst. The group signal stays: a descendant can outlive the child and
+    nothing else reaches one."""
+
+    @unittest.skipUnless(hasattr(os, "fork"), "needs fork")
+    def test_cleanup_after_a_clean_exit_signals_only_the_group(self):
+        sent = []
+        real = os.kill
+
+        def watch(pid, number):
+            sent.append(pid)
+            return real(pid, number)
+
+        os.kill = watch
+        try:
+            outcome = run_isolated(lambda: 3, timeout_seconds=5)
+        finally:
+            os.kill = real
+
+        self.assertEqual(outcome.status, COMPLETED)
+        self.assertTrue(all(pid < 0 for pid in sent), sent)
+
+
+class AFailedForkIsReportedLikeAnyOtherFailure(unittest.TestCase):
+    """A machine out of processes is a condition to report, not an exception
+    to propagate. It also leaked the result pipe, two descriptors per attempt,
+    which is the shape that turns one exhausted fork into many."""
+
+    @unittest.skipUnless(hasattr(os, "fork"), "needs fork")
+    def test_it_returns_an_outcome_and_closes_its_pipe(self):
+        before = len(os.listdir("/dev/fd"))
+        real = os.fork
+
+        def refuse():
+            raise OSError(35, "Resource temporarily unavailable")
+
+        os.fork = refuse
+        try:
+            outcome = run_isolated(lambda: 4, timeout_seconds=2)
+        finally:
+            os.fork = real
+
+        self.assertEqual(outcome.status, CRASHED)
+        self.assertIn("could not start a process", outcome.detail)
+        self.assertLessEqual(len(os.listdir("/dev/fd")), before)
+
