@@ -9,7 +9,13 @@ import { SweepTrace } from "@/components/SweepTrace";
 import { WiringTrace, type WiredStep } from "@/components/WiringTrace";
 import type { GateOutcome, GatePhase, GateVariant } from "@/lib/activity-gate";
 import { setupCommandLines, stepState } from "@/lib/setup-progress";
-import type { Metric, RunDetail as RunDetailType } from "@cogworks/contracts/schema";
+import { RunConsole } from "@/components/RunConsole";
+import {
+  RunSurfaceSnapshotSchema,
+  type Metric,
+  type RunDetail as RunDetailType,
+  type RunSurfaceSnapshot,
+} from "@cogworks/contracts/schema";
 
 /**
  * Every state of the surfaces that are hard to reach, on one page.
@@ -322,6 +328,95 @@ function SetupRailFixture({
   );
 }
 
+/**
+ * A console snapshot, parsed by the contract rather than cast to it, so a
+ * fixture that drifts from the schema fails here instead of rendering a state
+ * the server can never send.
+ */
+function surface(over: Partial<RunSurfaceSnapshot> = {}): RunSurfaceSnapshot {
+  return RunSurfaceSnapshotSchema.parse({
+    id: "surface_0a1b2c3d4e5f60718293",
+    team: { id: "team_gallery", name: "Gallery" },
+    benchmark: { id: "audio-identification", version: 1, title: "Audio" },
+    actor: { login: "student", name: "Student" },
+    sha: "a".repeat(40),
+    shortSha: "a".repeat(7),
+    branch: "main",
+    dirty: false,
+    stage: "hosted",
+    status: "failed",
+    phase: "evaluating",
+    createdAt: 1_780_000_000_000,
+    updatedAt: 1_780_000_060_000,
+    finishedAt: 1_780_000_060_000,
+    elapsedMs: 60_000,
+    progress: null,
+    primaryMetric: null,
+    localRunId: null,
+    practiceRunId: "run_gallery_practice",
+    officialRunId: null,
+    published: false,
+    nextOfficialAttempt: 1,
+    events: [],
+    source: { owner: "cogworks-demo", name: "face-finder", fullName: "cogworks-demo/face-finder", url: "https://github.com/cogworks-demo/face-finder" },
+    sourceRefusal: null,
+    actions: ["open_console", "open_portal"],
+    simulated: false,
+    ...over,
+  });
+}
+
+const CONSOLES: { title: string; caption: string; snapshot: RunSurfaceSnapshot; compact?: boolean }[] = [
+  {
+    title: "Hosted failure · Retry refused",
+    caption: "The recorded inputs cannot be sent again, so Retry is gone and the server's sentence takes its place. Nothing here claims the student has quota or access.",
+    snapshot: surface({
+      refusalHeadline: "The benchmark could not score this run.",
+      retryRefusal: "Repository or benchmark/runtime configuration changed since this run.",
+    }),
+  },
+  {
+    title: "Hosted failure · Retry refused, picture-in-picture",
+    caption: "The same sentence on Discord's tile, where the sidebar is gone and the header carries everything.",
+    compact: true,
+    snapshot: surface({
+      refusalHeadline: "The benchmark could not score this run.",
+      retryRefusal: "Repository or benchmark/runtime configuration changed since this run.",
+    }),
+  },
+  {
+    title: "Hosted failure · Retry offered",
+    caption: "The same failure with its inputs intact. No refusal sentence, because there is nothing to refuse.",
+    snapshot: surface({
+      refusalHeadline: "The benchmark could not score this run.",
+      actions: ["open_console", "open_portal", "retry"],
+    }),
+  },
+  {
+    title: "Succeeded · promotion refused",
+    caption: "The findings stand; only the saved environment is gone. Promote is absent from the sidebar and the reason sits where it was.",
+    snapshot: surface({
+      status: "succeeded",
+      phase: "complete",
+      primaryMetric: metric(),
+      metrics: [metric()],
+      promotionRefusal: "The saved environment isn't compatible with this benchmark's current execution contract.",
+      actions: ["open_console", "open_portal", "rerun_hosted"],
+    }),
+  },
+  {
+    title: "Local failure",
+    caption: "A run on the student's own machine. Run again, not Retry: there is nothing hosted to send a second time.",
+    snapshot: surface({
+      stage: "local",
+      practiceRunId: null,
+      localRunId: "localrun_" + "b".repeat(32),
+      refusalHeadline: "embed_text returned an array with 1 dimensions; expected a 2-D (rows, D) matrix.",
+      actions: ["open_console", "open_portal", "run_again"],
+    }),
+  },
+];
+
 const GATES: {
   title: string;
   caption: string;
@@ -409,6 +504,27 @@ export function GalleryPage() {
           <SupportingMetrics metrics={[metric()]} rolesRecorded={false} />
         </FailureCard>
       </section>
+
+      <h2 className="mt-12 font-serif text-xl font-semibold text-ink">Run console refusals</h2>
+      <p className="mb-2 max-w-prose text-[13px] text-ink-faint">
+        Each of these needs a specific run to reach: a changed benchmark
+        contract, a repository that moved, a broken adapter. The buttons are
+        inert here.
+      </p>
+      {CONSOLES.map((example) => (
+        <section key={example.title} className="mt-6">
+          <div className="u-kicker">{example.title}</div>
+          <p className="mb-2 max-w-prose text-[13px] text-ink-faint">{example.caption}</p>
+          <div className={example.compact ? "w-[380px] max-w-full overflow-hidden border border-rule bg-paper p-3" : ""}>
+            <RunConsole
+              snapshot={example.snapshot}
+              streamState="closed"
+              compact={example.compact}
+              onAction={() => undefined}
+            />
+          </div>
+        </section>
+      ))}
 
       <h2 className="mt-12 font-serif text-xl font-semibold text-ink">Activity connect gate</h2>
       <p className="mb-2 max-w-prose text-[13px] text-ink-faint">

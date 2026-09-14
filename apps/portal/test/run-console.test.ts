@@ -39,6 +39,8 @@ function snapshot(status: RunSurfaceSnapshot["status"]): RunSurfaceSnapshot {
     metrics: [],
     teamBest: null,
     refusalHeadline: null,
+    promotionRefusal: null,
+    retryRefusal: null,
     source: null,
     sourceRefusal: null,
     localRunId: "localrun_123",
@@ -138,4 +140,110 @@ test("hosted stage never presents the completed local event tail as current work
   }));
   assert.match(html, /Fetching repository/);
   assert.doesNotMatch(html, /Run complete/);
+});
+
+/**
+ * What the console says when a control is missing.
+ *
+ * Both sentences come from the server and are rendered only where their button
+ * would have been. The console writes no refusal of its own: it has no view of
+ * quota, sign-in or provider availability, and a second opinion about
+ * eligibility is how a client ends up offering what the server refuses.
+ */
+
+function failedHosted(over: Partial<RunSurfaceSnapshot> = {}): RunSurfaceSnapshot {
+  return {
+    ...snapshot("failed"),
+    stage: "hosted",
+    localRunId: null,
+    practiceRunId: "run_hosted_123",
+    refusalHeadline: "The benchmark could not score this run.",
+    events: [],
+    ...over,
+  };
+}
+
+const CHANGED_INPUTS = "Repository or benchmark/runtime configuration changed since this run.";
+
+test("a failed run with no Retry says why, in the place Retry would have been", () => {
+  const html = renderToStaticMarkup(React.createElement(RunConsole, {
+    snapshot: failedHosted({ retryRefusal: CHANGED_INPUTS }),
+    streamState: "closed",
+    onAction: () => undefined,
+  }));
+  assert.match(html, /Repository or benchmark\/runtime configuration changed since this run\./);
+  // The historical failure is a different sentence and both belong.
+  assert.match(html, /The benchmark could not score this run\./);
+  assert.doesNotMatch(html, />Retry</);
+});
+
+test("the same sentence survives Discord's tile, where there is no sidebar", () => {
+  const html = renderToStaticMarkup(React.createElement(RunConsole, {
+    snapshot: failedHosted({ retryRefusal: CHANGED_INPUTS }),
+    streamState: "closed",
+    compact: true,
+    onAction: () => undefined,
+  }));
+  assert.doesNotMatch(html, /Run reference/);
+  assert.match(html, /Repository or benchmark\/runtime configuration changed since this run\./);
+});
+
+test("an offered Retry carries no refusal beside it", () => {
+  // The server sends the sentence and the action together only when they
+  // disagree, but the console must not print both even then.
+  const html = renderToStaticMarkup(React.createElement(RunConsole, {
+    snapshot: failedHosted({ retryRefusal: CHANGED_INPUTS, actions: ["open_console", "open_portal", "retry"] }),
+    streamState: "closed",
+    onAction: () => undefined,
+  }));
+  assert.match(html, />Retry</);
+  assert.doesNotMatch(html, /configuration changed since this run/);
+});
+
+test("no retry refusal means no sentence, not a promise that Retry would work", () => {
+  // Quota, sign-in and provider availability all withhold Retry without
+  // sending a refusal, so silence here is the only honest rendering.
+  const html = renderToStaticMarkup(React.createElement(RunConsole, {
+    snapshot: failedHosted(),
+    streamState: "closed",
+    onAction: () => undefined,
+  }));
+  assert.doesNotMatch(html, />Retry</);
+  assert.doesNotMatch(html, /you can retry|try again|available/i);
+});
+
+test("a succeeded run that cannot be promoted says so where Promote was", () => {
+  const html = renderToStaticMarkup(React.createElement(RunConsole, {
+    snapshot: failedHosted({
+      status: "succeeded",
+      phase: "complete",
+      refusalHeadline: null,
+      promotionRefusal: "The saved environment is not compatible with this benchmark's current execution contract.",
+      actions: ["open_console", "open_portal", "rerun_hosted"],
+    }),
+    streamState: "closed",
+    onAction: () => undefined,
+  }));
+  assert.match(html, /Run reference/);
+  assert.match(html, /The saved environment is not compatible with this benchmark/);
+  assert.doesNotMatch(html, /Promote to official/);
+});
+
+test("a run from another repository gets one sentence, not two", () => {
+  // Both refusals are true at once for a replaced repository, and the source
+  // one is what the server answers first, so it is the one that applies.
+  const html = renderToStaticMarkup(React.createElement(RunConsole, {
+    snapshot: failedHosted({
+      status: "succeeded",
+      phase: "complete",
+      refusalHeadline: null,
+      sourceRefusal: "This run came from a repository your team is no longer connected to.",
+      promotionRefusal: "The saved environment can't be matched to the connected repository.",
+      actions: ["open_console", "open_portal"],
+    }),
+    streamState: "closed",
+    onAction: () => undefined,
+  }));
+  assert.match(html, /no longer connected to/);
+  assert.doesNotMatch(html, /matched to the connected repository/);
 });

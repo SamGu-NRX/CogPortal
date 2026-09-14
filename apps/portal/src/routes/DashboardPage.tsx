@@ -339,6 +339,12 @@ function CurrentRunPanel({
   const startPractice = useStartPractice(d.benchmark.id);
   const promote = usePromote();
   const [branch, setBranch] = useState(d.team.repo?.defaultBranch ?? "main");
+  // Why the candidate cannot be promoted: which repository it came from, or
+  // whether its saved environment can still be reused. The server answers the
+  // source first, so that sentence is the one that applies.
+  const candidateRefusal = d.latestCandidate
+    ? d.latestCandidate.sourceRefusal ?? d.promotionRefusal
+    : null;
 
   const active = d.activeRun;
 
@@ -510,8 +516,8 @@ function CurrentRunPanel({
         <div className="mt-6 border-t border-rule pt-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <div className={`u-kicker ${d.latestCandidate.sourceRefusal ? "text-ink-secondary" : "text-verify-deep"}`}>
-                {d.latestCandidate.sourceRefusal ? "Previous result" : "Candidate ready"}
+              <div className={`u-kicker ${candidateRefusal ? "text-ink-secondary" : "text-verify-deep"}`}>
+                {candidateRefusal ? "Previous result" : "Candidate ready"}
               </div>
               <p className="mt-1 text-[14px]">
                 <Link
@@ -530,7 +536,7 @@ function CurrentRunPanel({
                 {d.latestCandidate.repo?.fullName ?? "source not recorded"}
               </p>
             </div>
-            {!d.latestCandidate.sourceRefusal && (
+            {!candidateRefusal && (
               <ConfirmButton
                 label="Promote to official"
                 confirmLabel={`Confirm, uses attempt ${d.quota.officialUsed + 1} of ${OFFICIAL_LIMIT}`}
@@ -540,9 +546,9 @@ function CurrentRunPanel({
               />
             )}
           </div>
-          {d.latestCandidate.sourceRefusal ? (
+          {candidateRefusal ? (
             <p className="mt-2 text-[13px] leading-relaxed text-ink-secondary">
-              {d.latestCandidate.sourceRefusal}
+              {candidateRefusal}
             </p>
           ) : (
             <p className="mt-2 font-mono text-[11px] leading-relaxed text-ink-faint">

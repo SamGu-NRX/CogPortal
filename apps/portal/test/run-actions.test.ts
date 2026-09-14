@@ -562,6 +562,34 @@ for (const proof of ["compatible", "missing", "tampered", "replaced-repository",
   });
 }
 
+test("a candidate whose saved environment cannot be reused loses Promote and says why", async () => {
+  // The dashboard carries two refusals now. This one is the artifact's, with
+  // the run's repository untouched, and it has to survive the whole path: the
+  // eligibility check, the response, and the panel the student reads.
+  const { db, binding } = freshDb();
+  await seedPromotion(db);
+  await db.update(benchmarks).set({ active: false }).where(and(eq(benchmarks.id, BENCHMARK_ID), ne(benchmarks.version, 1)));
+  await db.insert(runMetrics).values({ runId: PRACTICE_RUN_ID, key: "accuracy", label: "Accuracy",
+    value: 0.8, unit: null, higherIsBetter: true, isPrimary: true, precision: 2 });
+  await db.update(runs).set({ preparedEnvironmentJson: JSON.stringify({ ...PREPARED, sandboxContract: 2 }) })
+    .where(eq(runs.id, PRACTICE_RUN_ID));
+  const { app, cookie, runtime } = await authenticatedPromotion(db, binding);
+
+  const response = await app.fetch(new Request(`http://localhost:5173/dashboard?benchmark=${BENCHMARK_ID}`, { headers: { cookie } }), runtime);
+  assert.equal(response.status, 200);
+  const dashboard = DashboardSchema.parse(await response.json());
+  assert.equal(dashboard.latestCandidate?.sourceRefusal, null, "the repository is still the connected one");
+  assert.ok(dashboard.promotionRefusal);
+
+  const html = renderDashboard(dashboard);
+  // The whole sentence, not a fragment of it. React escapes the apostrophe in
+  // "isn't", which is the only difference between the two.
+  assert.ok(html.includes(dashboard.promotionRefusal.replaceAll("'", "&#x27;")));
+  assert.match(html, /Previous result/);
+  assert.doesNotMatch(html, /Candidate ready/);
+  assert.doesNotMatch(html, /Promote to official/);
+});
+
 test("authenticated completion, promotion and signed dispatch preserve provisioning across a scorer change", async () => {
   const { db, binding } = freshDb();
   await seedPromotion(db);
