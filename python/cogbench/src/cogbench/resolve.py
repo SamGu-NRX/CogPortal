@@ -179,7 +179,9 @@ class Submission:
     #: One receipt per entry in ``weights_used``, in the same order:
     #: ``{"path", "sha256", "size"}``, measured from the bytes retained before
     #: the week loaded them. The report carries these so `cogworks sync`
-    #: uploads what was scored rather than whatever the file holds later.
+    #: uploads the retained bytes rather than whatever the file holds later.
+    #: Present only where the week established that its binding consumed
+    #: them; ``None`` otherwise, and never a claim about every read.
     #: ``None`` when this run scored with weights whose consumption the
     #: week could not establish: the names stay, the receipts do not exist.
     weights_captured: Optional[Tuple[Dict[str, Any], ...]] = ()
@@ -729,7 +731,8 @@ def _resolve(
                 bytes scoring reads are the bytes the report describes. Load
                 from the returned path: the original stays writable, and
                 anything that rewrites or deletes it afterwards no longer
-                changes what was scored or what sync uploads.
+                changes the retained bytes or what sync uploads. It does not
+                redirect a read their own code makes by path.
                 """
 
                 resolved = Path(original).resolve()

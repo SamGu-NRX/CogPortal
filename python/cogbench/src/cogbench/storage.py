@@ -182,9 +182,9 @@ def retain_input(root: Path, source: Path) -> RetainedInput:
     """Copy one selected input before anything loads it, and measure the copy.
 
     The digest and the length come from the bytes written here, so the
-    receipt describes what scoring actually read. Reading the original again
-    later would describe whatever it holds then, which is the defect this
-    exists to remove.
+    receipt describes the copy that was handed to the week. Reading the
+    original again later would describe whatever it holds then, which is the
+    defect this exists to remove.
 
     The destination keeps the file's own name below the digest, because the
     loaders route on it: ``load_weight_file`` picks ``np.load`` from a
