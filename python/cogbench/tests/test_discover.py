@@ -7,6 +7,7 @@ import shutil
 import sys
 import sysconfig
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
@@ -3360,6 +3361,73 @@ class ADirectoryNamedForSomethingNotYetImported(_Fixture):
 
         self.assertIn("inner", [entry.name for entry in found.modules])
         self.assertNotIn(spare, found.context.modules)
+
+
+class AHintNamesTheFolderTheWayAPersonWouldWriteIt(_Fixture):
+    """`Week 3`, `week-3` and `week_3` are one folder to whoever names it.
+    The directory's name was flattened before comparing and the hint was not,
+    so `week 3` never matched `Week 3/` and the caller got the repository root
+    instead of the directory they asked for."""
+
+    def test_spacing_and_punctuation_do_not_decide_the_match(self):
+        (self.tmp / "README.md").write_text("# capstone\n")
+        wanted = self.tmp / "Week 3"
+        wanted.mkdir()
+        (wanted / "encoder.py").write_text("def embed(x):\n    return x\n")
+        elsewhere = self.tmp / "other"
+        elsewhere.mkdir()
+        (elsewhere / "util.py").write_text("V = 1\n")
+
+        for hint in ("week 3", "week-3", "Week_3", "week3"):
+            chosen = choose_root(self.tmp, hints=(hint,))
+            self.assertEqual(chosen.path, wanted, "hint {!r}".format(hint))
+            self.assertEqual(chosen.kind, ROOT_HINTED)
+
+
+class AnAnnotationOutsideADefIsStillAnAnnotation(_Fixture):
+    """`VALUE: Missing = 3` at module or class scope is evaluated where it is
+    written, with no `def` anywhere near it. The retry only recognised
+    function-definition lines, so a module whose single unresolved name was
+    there was skipped rather than recompiled with postponed annotations."""
+
+    def test_a_module_scope_annotation_is_recovered(self):
+        (self.tmp / "m.py").write_text(
+            "VALUE: Missing = 3\n\n\ndef f():\n    return VALUE\n"
+        )
+
+        found = discover(self.tmp)
+
+        entry = [item for item in found.modules if item.name == "m"][0]
+        self.assertTrue(entry.future_annotations)
+        self.assertEqual(entry.module.VALUE, 3)
+
+
+class TheImportDeadlineReachesTheThreadDoingTheImport(_Fixture):
+    """It raised into `threading.main_thread()`. A caller running discovery on
+    a worker got the worst of both: the slow import carried on, and the main
+    thread was interrupted wherever it happened to be, which for a caller
+    waiting on `join` was inside `join`."""
+
+    def test_a_slow_import_on_a_worker_stops_without_hitting_the_caller(self):
+        (self.tmp / "slow.py").write_text("import time\ntime.sleep(6)\nV = 1\n")
+        outcome = {}
+
+        def work():
+            try:
+                found = discover(self.tmp, import_timeout=1)
+                outcome["skipped"] = [
+                    (entry.name, entry.reason) for entry in found.skipped
+                ]
+            except BaseException as error:  # noqa: BLE001 - reported, not raised
+                outcome["raised"] = "{}: {}".format(type(error).__name__, error)
+
+        worker = threading.Thread(target=work)
+        worker.start()
+        worker.join(timeout=25)
+
+        self.assertFalse(worker.is_alive())
+        self.assertNotIn("raised", outcome)
+        self.assertEqual(outcome.get("skipped"), [("slow", "too_slow")])
 
 
 if __name__ == "__main__":
