@@ -870,7 +870,9 @@ class SurveyIsolationTests(unittest.TestCase):
         from cogbench.report import render_survey
 
         (self.tmp / "a_fine.py").write_text("def peaks(x):\n    return x\n")
-        (self.tmp / "z_fatal.py").write_text("import os\nos.abort()\n")
+        # End the child without opening macOS's crash reporter. This tests
+        # early-exit reporting, not classification of a particular signal.
+        (self.tmp / "z_fatal.py").write_text("import os\nos._exit(23)\n")
         died = survey(self.tmp, timeout_seconds=60)
 
         empty_repository = Path(tempfile.mkdtemp()).resolve()
