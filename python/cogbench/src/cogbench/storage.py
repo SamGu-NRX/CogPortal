@@ -6,7 +6,7 @@ import os
 import tempfile
 import time
 from dataclasses import dataclass
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 from .models import LocalReport
@@ -72,18 +72,28 @@ class RetainedInput:
 
 
 def weights_dir(root: Path) -> Path:
-    return workspace_dir(root) / "weights"
+    """Where retained inputs live. Names the path; creates nothing.
+
+    Reading a retained copy must not write to the checkout, and the creating
+    form went through `workspace_dir`, which writes a `.gitignore`.
+    """
+
+    return Path(root) / ".cogbench" / "weights"
 
 
 def _usable_name(name: str) -> bool:
-    """Whether this is a path the report, the R2 key and the URL can carry."""
+    """Whether this is a path the report, the R2 key and the URL can carry.
+
+    The raw segments, not `PurePosixPath.parts`: that collapses `a//b` and
+    `a/./b` and drops a trailing slash, so a name would validate in a shape
+    it was never stored or keyed under.
+    """
 
     if not name or len(name) > MAX_WEIGHT_PATH:
         return False
-    parts = PurePosixPath(name).parts
-    if not parts or PurePosixPath(name).is_absolute():
+    if name.startswith("/"):
         return False
-    for part in parts:
+    for part in name.split("/"):
         if part in ("", ".", ".."):
             return False
         # DEL is a control character too, and PR24 rejects it.
@@ -135,7 +145,16 @@ def _verified_weights_dir(root: Path) -> Path:
                 "Refusing to use {}: the workspace contains a symlink.".format(current)
             )
         current.mkdir(parents=True, exist_ok=True)
-    workspace_dir(root)  # keeps the self-ignoring .gitignore in place
+    # `workspace_dir` writes the self-ignoring `.gitignore` when it is absent,
+    # and a dangling symlink reads as absent, so the write would follow it out
+    # of the workspace. Checked here rather than there, because this is the
+    # path that creates the directory.
+    ignore = Path(root) / ".cogbench" / ".gitignore"
+    if ignore.is_symlink():
+        raise RetentionError(
+            "Refusing to use {}: the workspace contains a symlink.".format(ignore)
+        )
+    workspace_dir(root)
     return current
 
 
@@ -191,12 +210,11 @@ def retain_input(root: Path, source: Path) -> RetainedInput:
     # so it cannot already be a link either.
     directory = _verified_weights_dir(root)
     handle, staging_name = tempfile.mkstemp(prefix=".incomplete-", dir=str(directory))
-    os.close(handle)
     staging = Path(staging_name)
     digest = hashlib.sha256()
     size = 0
     try:
-        with source.open("rb") as reader, staging.open("wb") as writer:
+        with source.open("rb") as reader, os.fdopen(handle, "wb") as writer:
             while True:
                 chunk = reader.read(_READ_CHUNK)
                 if not chunk:
