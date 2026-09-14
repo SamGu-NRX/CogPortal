@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import importlib.util
 import json
 import os
@@ -8,6 +9,7 @@ import sys
 import sysconfig
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 
@@ -2687,6 +2689,24 @@ class AnUnknownBenchmarkDoesNotEndTheReport(_Fixture):
     """`track_for` answers "" for a benchmark it does not know, and that went
     straight into `TRACKS[""]`."""
 
+    def test_a_dependency_it_could_not_import_is_never_called_the_environment(self):
+        """A direct-install catalog lists what an image installs directly, so
+        absence from one does not demonstrate absence from the image: Week 2
+        installs sklearn and skimage, which bring scipy, and scipy is in that
+        image and in no catalog. Answering `"environment"` for it claimed the
+        graded run fails the same way, about a machine this cannot see."""
+
+        catalogued = SkippedModule(
+            "m", self.tmp / "m.py", "missing_dependency", "imports numpy", "numpy"
+        )
+        transitive = SkippedModule(
+            "m", self.tmp / "m.py", "missing_dependency", "imports scipy", "scipy"
+        )
+
+        for entry in (catalogued, transitive):
+            self.assertEqual(owner_of_skip(entry, "vision-recognition"), "ours")
+            self.assertEqual(owner_of_skip(entry), "ours")
+
     def test_it_falls_back_to_the_union_rather_than_raising(self):
         skip = SkippedModule(
             "m", self.tmp / "m.py", "missing_dependency", "imports numpy", "numpy"
@@ -3452,6 +3472,184 @@ class TheImportDeadlineReachesTheThreadDoingTheImport(_Fixture):
         self.assertFalse(worker.is_alive())
         self.assertNotIn("raised", outcome)
         self.assertEqual(outcome.get("skipped"), [("slow", "too_slow")])
+
+
+class AnImportDeadlineStaysInsideItsOwnBlock(_Fixture):
+    """`PyThreadState_SetAsyncExc` makes the exception pending, not immediate:
+    it is raised at the importing thread's next bytecode boundary, which can
+    be after `_deadline` has exited. The flag the timer checked was read
+    before the injection, so it could not prevent one already decided on.
+
+    Evidence this escapes: a Windows CI run raised `_ImportTimeout` inside
+    `pathlib.glob`, called from `_notebooks`, which is discovery machinery
+    outside any deadline. The traceback is in the phase evidence file.
+
+    No test here pins the take-back. Reaching the state it guards means an
+    injection decided on by the timer and not yet delivered, and forcing that
+    window from a test needs the timer thread stopped between its own two
+    steps. A test that injects directly instead does not go through the timer,
+    so the guard does not apply to it and it proves nothing. What is pinned
+    below is that the deadline still does its job; the take-back rests on the
+    CI traceback and on `PyThreadState_SetAsyncExc` being documented as
+    pending rather than immediate.
+    """
+
+    @contextlib.contextmanager
+    def _timers(self):
+        """Capture every timer armed and record starts and cancels as they
+        happen, so concurrency is observed rather than reconstructed."""
+
+        armed = []
+        events = []
+        real = threading.Timer
+
+        class Held(object):
+            def __init__(self, seconds, callback):
+                self.callback, self.cancelled = callback, False
+                armed.append(self)
+
+            def start(self):
+                events.append(1)
+
+            def cancel(self):
+                if not self.cancelled:
+                    self.cancelled = True
+                    events.append(-1)
+
+        threading.Timer = Held
+        try:
+            yield armed, events
+        finally:
+            threading.Timer = real
+
+    def test_a_deadline_that_fails_to_start_does_not_keep_ownership(self):
+        """Ownership was installed and the timer started before the cleanup
+        `try`. A budget already spent can deliver its timeout during startup,
+        and raising there left ownership behind: every later import on this
+        thread then read itself as nested and armed no deadline at all, so
+        nothing was bounded again for the life of that thread."""
+
+        try:
+            with discover_module._deadline(0, "already spent"):
+                pass
+        except discover_module._ImportTimeout:
+            pass
+
+        self.assertIsNone(
+            getattr(discover_module._IMPORT_DEADLINE, "state", None),
+            "ownership survived a failed start",
+        )
+        with self.assertRaises(discover_module._ImportTimeout):
+            with discover_module._deadline(0.01, "the next one"):
+                time.sleep(0.05)
+
+    def test_the_real_notebook_path_arms_one_timer(self):
+        """Not a synthetic nesting: `_execute` reaches the notebook finder,
+        which reaches `_import_one`, which reaches `_execute` again."""
+
+        (self.tmp / "helpers.ipynb").write_text(
+            _notebook("def widen(x):\n    return x * 2\n")
+        )
+        (self.tmp / "user.py").write_text(
+            "from ipynb.fs.defs.helpers import widen\n\nVALUE = widen(21)\n"
+        )
+
+        with self._timers() as (armed, events):
+            found = discover(self.tmp)
+
+        self.assertEqual(self._module(found, "user").VALUE, 42)
+        self.assertTrue(armed, "discovery armed no deadline at all")
+        # Starts and cancels in the order they happened. Reading the final
+        # cancelled flags instead reconstructs at most one live timer whatever
+        # the implementation did, so that version passed the two-owner code as
+        # well and measured nothing.
+        live = 0
+        most = 0
+        for step in events:
+            live += step
+            most = max(most, live)
+        self.assertEqual(most, 1, "two deadlines were live on one thread")
+
+    def test_a_slow_import_on_a_worker_thread_is_still_bounded(self):
+        (self.tmp / "slow.py").write_text("import time\ntime.sleep(6)\nV = 1\n")
+        outcome = {}
+
+        def work():
+            try:
+                found = discover(self.tmp, import_timeout=1)
+                outcome["skipped"] = [
+                    (entry.name, entry.reason) for entry in found.skipped
+                ]
+            except BaseException as error:  # noqa: BLE001 - reported, not raised
+                outcome["raised"] = "{}: {}".format(type(error).__name__, error)
+
+        worker = threading.Thread(target=work)
+        worker.start()
+        worker.join(timeout=40)
+
+        self.assertFalse(worker.is_alive())
+        self.assertNotIn("raised", outcome)
+        self.assertEqual(outcome.get("skipped"), [("slow", "too_slow")])
+
+    def test_a_c_call_runs_to_completion_before_the_timeout_lands(self):
+        """The limit this mechanism has, pinned so it is not mistaken for a
+        defect. The exception arrives at a bytecode boundary, so a single C
+        call finishes first. `cogbench.isolate` is what covers that."""
+
+        started = time.monotonic()
+        with self.assertRaises(discover_module._ImportTimeout):
+            with discover_module._deadline(0.05, "sleeping"):
+                time.sleep(0.4)
+        slept = time.monotonic() - started
+
+        # Far past the budget, not equal to the sleep: `time.monotonic` has
+        # about 16 ms of granularity on Windows, where a 0.4 s sleep measured
+        # 0.390 and failed a tighter assertion. What this has to show is that
+        # the 0.05 s deadline did not cut the C call short, and a quarter of a
+        # second of margin shows it without depending on the clock.
+        self.assertGreater(slept, 0.25)
+
+    def test_a_nested_import_arms_no_timer_of_its_own(self):
+        """The property that makes the interleaving impossible, rather than a
+        race to be caught. Two timers on one thread can interleave: an
+        independent review reproduced an outer timer firing while the inner
+        block was inside its own cleanup, before the inner had marked itself
+        over or cancelled, leaving the inner timer armed with nothing to stop
+        it. One owner per import stack means there is no second callback.
+
+        Imports really do nest here: `_execute` reaches
+        `_NotebookFsFinder.create_module`, which reaches `_import_one`, which
+        reaches `_execute` again.
+        """
+
+        armed = []
+        real = threading.Timer
+
+        class Counted(real):
+            def __init__(self, *arguments, **named):
+                armed.append(arguments[0])
+                super(Counted, self).__init__(*arguments, **named)
+
+        threading.Timer = Counted
+        try:
+            with discover_module._deadline(30, "outer"):
+                with discover_module._deadline(30, "inner"):
+                    with discover_module._deadline(30, "deeper"):
+                        pass
+        finally:
+            threading.Timer = real
+
+        self.assertEqual(len(armed), 1, "one timer for the whole stack")
+
+    def test_the_deadline_still_interrupts_what_it_is_for(self):
+        (self.tmp / "slow.py").write_text("import time\ntime.sleep(6)\nV = 1\n")
+
+        found = discover(self.tmp, import_timeout=1)
+
+        self.assertEqual(
+            [(entry.name, entry.reason) for entry in found.skipped],
+            [("slow", "too_slow")],
+        )
 
 
 if __name__ == "__main__":

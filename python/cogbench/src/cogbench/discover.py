@@ -81,6 +81,7 @@ import itertools
 import json
 import os
 import sys
+import threading
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -305,47 +306,28 @@ class SkippedModule:
 
 
 def owner_of_skip(entry: "SkippedModule", benchmark: str = "") -> str:
-    """Whose problem a skipped module is: ours, the environment's, or theirs.
+    """Whose problem a skipped module is: ours or theirs.
 
-    The distinction decides what the platform is allowed to say. A module we
-    could not read because this machine lacks a package the graded run
-    installs is an absence we manufactured, and a verdict blaming the
-    repository for it is false. One genuinely absent from the graded run too
-    is worth naming, because the graded run fails the same way. A syntax
-    error is theirs.
+    A module this could not read because a dependency would not import is an
+    absence this run manufactured, so a verdict blaming the repository for it
+    is false. A syntax error or a raising module is theirs. A file no
+    available name could be read under is ours.
 
-    ``benchmark`` selects the graded environment, because there are three and
-    they differ: Week 2 runs on Python 3.11 with torch and opencv, Week 1 and
-    Week 3 on a pinned 3.8 with their own package sets. A benchmark this does
-    not recognise falls back to the union rather than raising a ``KeyError``
-    out of the report, which is the same safe direction as supplying none.
+    ``"environment"`` is never returned. Claiming a package is absent from the
+    graded image needs that image's resolved package set, which this process
+    cannot see: a direct-install catalog lists what an image installs
+    directly, and Week 2's sklearn and skimage bring scipy, which is in the
+    image and in no catalog.
 
-    A known limit of ``"environment"``: the catalogs list what each image
-    installs directly, and a package can be in an image without being on one.
-    Week 2 installs sklearn and skimage, which bring scipy, so scipy is in
-    that image and in no catalog. Locally that produces ``"environment"`` for
-    a package the graded run imports fine. ``gap_note`` already tells a
-    student running locally that this report describes less of their
-    repository than the graded run will read, and in the graded run itself
-    the answer is right, so this is left rather than guessed at: the fix is
-    the image's resolved package set, which this process cannot see.
+    ``benchmark`` is accepted and unused. It selected a per-track catalog for
+    the claim above, and removing it from the signature would break callers.
+
+    Whether enough was read to draw a conclusion is the consumer's decision,
+    not this one's.
     """
 
-    if entry.reason == "name_taken":
-        # Nothing to do with their file. Something else in this process
-        # already owns every name it could have been read under.
+    if entry.reason in ("name_taken", "missing_dependency"):
         return "ours"
-    if entry.reason == "missing_dependency" and entry.missing:
-        from . import environment
-
-        track = environment.track_for(benchmark) if benchmark else ""
-        graded = (
-            environment.student_modules(track)
-            if track
-            else environment.all_student_modules()
-        )
-        root = entry.missing.split(".", 1)[0]
-        return "ours" if root in graded else "environment"
     return "theirs"
 
 
@@ -998,43 +980,83 @@ class _ImportTimeout(BaseException):
 
 @contextlib.contextmanager
 def _deadline(seconds: float, name: str):
-    """Interrupt an import that will not finish.
+    """Bound the import stack running on this thread.
 
-    Uses a timer that raises in the thread running the import. It cannot stop
-    a call that never returns to the interpreter, such as one blocked in a C
-    extension, so it is a limit on ordinary Python work rather than a
-    guarantee. `cogbench.isolate` is the guarantee, and the hosted runner puts
-    the whole resolution inside it.
+    One owner, not one per block. Imports nest: `_execute` reaches
+    `_NotebookFsFinder.create_module`, which reaches `_import_one`, which
+    reaches `_execute` again. Two timers on one thread can interleave, and the
+    one that loses is the inner block's cleanup: interrupted before it marks
+    itself over, it leaves its own timer armed with nothing left to stop it,
+    and that timer fires after every block has exited. So a nested block arms
+    nothing and shares what is left of the budget already running.
 
-    The thread is read here rather than assumed to be the main one. It raised
-    into `threading.main_thread()` before, so a caller that ran discovery on a
-    worker got the worst of both: the slow import carried on, and the main
-    thread was interrupted wherever it happened to be, which for a caller
-    waiting on `join` was inside `join`.
+    That budget is the outermost one's remainder. An inner notebook import
+    cannot buy the stack more time than the module that started it was given.
+
+    What this cannot do is interrupt a call that never returns to the
+    interpreter. The exception is delivered at a bytecode boundary, so a
+    single C call such as `time.sleep` or a native decoder runs to completion
+    first. `cogbench.isolate` is the guarantee; this is a limit on ordinary
+    Python work.
     """
 
     import ctypes
     import threading
 
-    done = threading.Event()
+    if getattr(_IMPORT_DEADLINE, "state", None) is not None:
+        # Nested. Owning no timer is the point: a cleanup interrupted here
+        # leaves nothing armed.
+        yield
+        return
+
+    guard = threading.Lock()
+    state = {"over": False, "injected": False}
     importing = threading.current_thread().ident or 0
 
     def _interrupt() -> None:
-        if done.is_set():
-            return
-        ctypes.pythonapi.PyThreadState_SetAsyncExc(
-            ctypes.c_ulong(importing),
-            ctypes.py_object(_ImportTimeout),
-        )
+        with guard:
+            if state["over"]:
+                return
+            state["injected"] = True
+            ctypes.pythonapi.PyThreadState_SetAsyncExc(
+                ctypes.c_ulong(importing),
+                ctypes.py_object(_ImportTimeout),
+            )
 
     timer = threading.Timer(seconds, _interrupt)
     timer.daemon = True
-    timer.start()
+    _IMPORT_DEADLINE.state = state
     try:
+        # Inside, not before. Starting a timer whose interval has already
+        # elapsed can deliver the timeout during startup, and raising there
+        # left ownership installed with no cleanup to take it out: every
+        # later import on this thread then read itself as nested and armed
+        # no deadline at all.
+        timer.start()
         yield
     finally:
-        done.set()
-        timer.cancel()
+        try:
+            # Taking the guard settles it: either the timer injected before
+            # this, which `injected` records, or it finds `over` and does not.
+            with guard:
+                state["over"] = True
+                injected = state["injected"]
+            timer.cancel()
+            if injected:
+                # The injection is pending rather than delivered, so one this
+                # block did not observe would land after it. Take it back.
+                ctypes.pythonapi.PyThreadState_SetAsyncExc(
+                    ctypes.c_ulong(importing), ctypes.c_void_p(0)
+                )
+        finally:
+            # Always: a thread that kept this would treat its next import as
+            # nested and never arm a deadline again.
+            _IMPORT_DEADLINE.state = None
+
+
+#: The deadline owning this thread's import stack, if one is running. Nested
+#: imports read it rather than arming their own.
+_IMPORT_DEADLINE = threading.local()
 
 
 #: Prefix for the synthetic package names discovery invents. A student file
@@ -3537,11 +3559,13 @@ def survey(
 
         backend = isolate._isolation_backend()
         if backend is None:
-            # Windows has no fork, so there is no isolation to offer. Running
-            # the same work here is what the platform can do: the caller loses
-            # the protection above, and gains a report. Refusing instead told
-            # every Windows student their repository could not be read, which
-            # is a sentence about their code that nothing observed.
+            # Without fork there is no isolation to offer, so the imports run
+            # here. Known limit: a module that aborts the interpreter takes
+            # this process with it instead of returning the crash report above.
+            # The hosted runner forks, so the graded path is unaffected; the
+            # exposure is a Windows student's own `cogworks check`. Refusing
+            # instead told them their repository could not be read, which is a
+            # claim about their code that nothing observed.
             return Survey("ok", _work())
         if backend is isolate.run_operation:
             outcome = backend("survey", {
