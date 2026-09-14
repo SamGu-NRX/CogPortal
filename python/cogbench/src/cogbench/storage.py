@@ -1,12 +1,22 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 from .models import LocalReport
+
+#: A weight path is reported, stored and uploaded under this spelling, so it
+#: has to survive a URL, an R2 key and a JSON field. 500 is the portal's own
+#: limit (`LocalReportInputSchema`); the rest are characters that would make
+#: one of those three mean something other than a file in the repository.
+MAX_WEIGHT_PATH = 500
+
+_READ_CHUNK = 1024 * 1024
 
 
 def workspace_dir(root: Path) -> Path:
@@ -39,6 +49,167 @@ def save_report(report: LocalReport, cwd: Path) -> Path:
     path = directory / "{}.json".format(report.report_id)
     path.write_text(report.to_json() + "\n", encoding="utf-8")
     return path
+
+
+class RetentionError(OSError):
+    """A scored input could not be retained, or a retained one is not intact."""
+
+
+@dataclass(frozen=True)
+class RetainedInput:
+    """One scored input, copied before it was loaded.
+
+    ``path`` is the repository-relative name the report carries; ``sha256``
+    and ``size`` are measured from the bytes that were copied, never from the
+    original afterwards. ``retained`` is where those bytes now live.
+    """
+
+    path: str
+    sha256: str
+    size: int
+    retained: Path
+
+
+def weights_dir(root: Path) -> Path:
+    return workspace_dir(root) / "weights"
+
+
+def canonical_weight_path(root: Path, source: Path) -> str:
+    """The repository-relative name for ``source``, or raise.
+
+    Relative to the project root the command was given, not to whichever
+    nested directory discovery chose to search: the report, the upload key
+    and the hosted checkout all describe the repository.
+    """
+
+    root = Path(root).resolve()
+    resolved = Path(source).resolve()
+    try:
+        relative = resolved.relative_to(root)
+    except ValueError:
+        raise RetentionError(
+            "Weight file is outside the project: {}".format(source)
+        ) from None
+    name = relative.as_posix()
+    if not name or name == "." or len(name) > MAX_WEIGHT_PATH:
+        raise RetentionError("Weight path is not a usable name: {!r}".format(name))
+    for part in relative.parts:
+        if part in ("", ".", "..") or "\\" in part or any(ord(c) < 32 for c in part):
+            raise RetentionError("Weight path is not a usable name: {!r}".format(name))
+    return name
+
+
+def _refuse_symlinks(root: Path, path: Path) -> None:
+    """No component under the workspace may be a symlink, reading or writing.
+
+    The workspace belongs to this tool, so a link inside it is either a
+    mistake or an attempt to make us write through it. Either way the honest
+    answer is to stop rather than to follow it.
+    """
+
+    # Built from the same unresolved root the caller used, because resolving
+    # one side and not the other makes every path look foreign on a platform
+    # where the temporary directory is itself a link.
+    current = Path(root)
+    for part in path.relative_to(current).parts:
+        current = current / part
+        if current.is_symlink():
+            raise RetentionError(
+                "Refusing to use {}: the workspace contains a symlink.".format(current)
+            )
+
+
+def retain_input(root: Path, source: Path) -> RetainedInput:
+    """Copy one selected input before anything loads it, and measure the copy.
+
+    The digest and the length come from the bytes written here, so the
+    receipt describes what scoring actually read. Reading the original again
+    later would describe whatever it holds then, which is the defect this
+    exists to remove.
+
+    The destination keeps the file's own name below the digest, because the
+    loaders route on it: ``load_weight_file`` picks ``np.load`` from a
+    ``.npy`` suffix, and a team's own ``load`` may inspect the name too.
+    """
+
+    source = Path(source)
+    # `prepare` runs from a scratch directory, so a relative name here would
+    # resolve against that instead of the project and retain the wrong file,
+    # or nothing. The week knows the absolute path; it has to pass it.
+    if not source.is_absolute():
+        raise RetentionError(
+            "Weight file must be given as an absolute path: {}".format(source)
+        )
+    if source.is_symlink():
+        raise RetentionError("Weight file is a symlink: {}".format(source))
+    if not source.is_file():
+        raise RetentionError("Weight file does not exist: {}".format(source))
+    name = canonical_weight_path(root, source)
+
+    directory = weights_dir(root)
+    directory.mkdir(parents=True, exist_ok=True)
+    staging = directory / ".incomplete-{}".format(os.getpid())
+    digest = hashlib.sha256()
+    size = 0
+    try:
+        with source.open("rb") as reader, staging.open("wb") as writer:
+            while True:
+                chunk = reader.read(_READ_CHUNK)
+                if not chunk:
+                    break
+                digest.update(chunk)
+                size += len(chunk)
+                writer.write(chunk)
+        checksum = digest.hexdigest()
+        destination = directory / checksum / name
+        _refuse_symlinks(root, destination.parent)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        _refuse_symlinks(root, destination)
+        # Always the bytes just hashed, even when something is already at this
+        # address. Keeping whatever is there would mean serving a cached file
+        # nothing in this run verified, and the digest would then be a claim
+        # about bytes this run never read.
+        os.replace(str(staging), str(destination))
+    finally:
+        # Only an interrupted write of our own is cleaned up here. Retained
+        # inputs stay until the student removes the workspace.
+        try:
+            staging.unlink()
+        except OSError:
+            pass
+    return RetainedInput(path=name, sha256=checksum, size=size, retained=destination)
+
+
+def retained_input(root: Path, path: str, sha256: str, size: int) -> Path:
+    """The retained copy named by a saved receipt, verified against it.
+
+    A mismatch is a failure, never a reason to adopt whatever is there now:
+    the report already published this digest, and uploading different bytes
+    under it would make the report a false statement about the run.
+    """
+
+    destination = weights_dir(root) / sha256 / path
+    _refuse_symlinks(root, destination)
+    if not destination.is_file():
+        raise RetentionError(
+            "The retained copy of {} is missing from this workspace; "
+            "run the benchmark again to recapture it.".format(path)
+        )
+    actual_size = destination.stat().st_size
+    digest = hashlib.sha256()
+    with destination.open("rb") as stream:
+        while True:
+            chunk = stream.read(_READ_CHUNK)
+            if not chunk:
+                break
+            digest.update(chunk)
+    actual = digest.hexdigest()
+    if actual_size != size or actual != sha256:
+        raise RetentionError(
+            "The retained copy of {} no longer matches the report "
+            "({} bytes, {}); run the benchmark again.".format(path, actual_size, actual)
+        )
+    return destination
 
 
 def latest_report(cwd: Path) -> Optional[Path]:

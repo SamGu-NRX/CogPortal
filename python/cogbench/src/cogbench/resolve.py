@@ -20,6 +20,7 @@ that gives up says how hard it looked.
 
 from __future__ import annotations
 
+import inspect
 import sys
 from collections.abc import Mapping as _MappingABC
 from dataclasses import dataclass, field, replace
@@ -27,6 +28,7 @@ from pathlib import Path
 from typing import Mapping, Any, Callable, Dict, FrozenSet, List, Optional, Sequence, Tuple
 
 from . import memo
+from . import storage
 from .discover import Discovery, discover, _Redirects
 from .isolate import hash_seed_in_effect as _hash_seed_in_effect
 from .progress import Progress
@@ -170,8 +172,15 @@ class Submission:
     #: Recorded here rather than left in the extras pool because `cogworks
     #: sync` uploads exactly these files so the hosted run can fetch them,
     #: and the upload must name the files discovery actually used, not the
-    #: files a directory listing happens to contain.
+    #: files a directory listing happens to contain. Relative to the project
+    #: root the command was given, even when discovery searched below it.
     weights_used: Tuple[str, ...] = ()
+
+    #: One receipt per entry in ``weights_used``, in the same order:
+    #: ``{"path", "sha256", "size"}``, measured from the bytes retained before
+    #: the week loaded them. The report carries these so `cogworks sync`
+    #: uploads what was scored rather than whatever the file holds later.
+    weights_captured: Tuple[Dict[str, Any], ...] = ()
 
     #: The candidates behind ``enroll`` and ``query``, kept so a scoring run
     #: can start from an empty database. Not part of the record.
@@ -330,6 +339,10 @@ class Submission:
         if self.discovery is not None:
             record["discovery"] = self.discovery.to_dict()
         record["weightsUsed"] = list(self.weights_used)
+        # The receipts travel with the names. `check --json` and the process
+        # boundary both read this record, and a name without its digest is
+        # the half-answer this design exists to stop producing.
+        record["weightsCaptured"] = [dict(item) for item in self.weights_captured]
         supplied = _supplied_by(self)
         if supplied:
             # Everything the benchmark handed their code that did not come out
@@ -371,6 +384,24 @@ class Submission:
         # boolean alone could not.
         record["hashSeed"] = _hash_seed_in_effect()
         return record
+
+
+def _accepts_capture(hook: Callable[..., Any]) -> bool:
+    """Whether this week's `prepare` wants the retention callback.
+
+    A week that declares no weights never asks for it and is called exactly
+    as before, so offering the argument does not disturb the other three.
+
+    Opting in means naming the parameter. A `**kwargs` hook does not count:
+    it would swallow the callback without loading through it, and the run
+    would then describe bytes that nothing retained.
+    """
+
+    try:
+        parameters = inspect.signature(hook).parameters
+    except (TypeError, ValueError):
+        return False
+    return "capture" in parameters
 
 
 def _leading(call: Callable[..., Any], held: Any) -> Callable[..., Any]:
@@ -635,7 +666,28 @@ def resolve(
             resource_files=resource_files,
         )
         weights_used: Tuple[str, ...] = ()
+        weights_captured: Tuple[Dict[str, Any], ...] = ()
         if prepare is not None:
+            # The one declaration of what this run scored. What was captured
+            # is what is reported: there is no second list to agree with.
+            retained: Dict[Path, storage.RetainedInput] = {}
+
+            def capture(original: Path) -> Path:
+                """Retain one selected input, and answer where to load it from.
+
+                The week decides which file it wants; this decides that the
+                bytes scoring reads are the bytes the report describes. Load
+                from the returned path: the original stays writable, and
+                anything that rewrites or deletes it afterwards no longer
+                changes what was scored or what sync uploads.
+                """
+
+                resolved = Path(original).resolve()
+                if resolved not in retained:
+                    retained[resolved] = storage.retain_input(repository, original)
+                return retained[resolved].retained
+
+            offered = {"capture": capture} if _accepts_capture(prepare) else {}
             # What this repository itself supplies to the search: week 3's
             # trained projection, read off the chosen root. Merged under the
             # benchmark's own extras so a week cannot be overridden by a file.
@@ -644,7 +696,25 @@ def resolve(
                 # the hook runs their code (a model's constructor and loader),
                 # and their code writes relative files.
                 with _scratch_cwd():
-                    from_repository = dict(prepare(found.root.path, found.namespace) or {})
+                    from_repository = dict(
+                        prepare(found.root.path, found.namespace, **offered) or {}
+                    )
+                declared = [str(p) for p in from_repository.pop("weights_used", ())]
+                if offered:
+                    # Capture is the declaration. Anything the hook also named
+                    # would be a second answer to the same question.
+                    weights_captured = tuple(
+                        {"path": item.path, "sha256": item.sha256, "size": item.size}
+                        for item in sorted(retained.values(), key=lambda r: r.path)
+                    )
+                    weights_used = tuple(item["path"] for item in weights_captured)
+                elif declared:
+                    raise storage.RetentionError(
+                        "This benchmark scores weights but does not retain them. Its "
+                        "`prepare` hook must take a `capture` argument and load "
+                        "through it, so the report describes the bytes that were "
+                        "scored: {}".format(", ".join(sorted(declared)))
+                    )
             except Exception as error:  # noqa: BLE001 - the week's hook may refuse
                 watcher.done()
                 return Submission(
@@ -653,9 +723,8 @@ def resolve(
                         "{}: {}".format(type(error).__name__, str(error)[:200]),
                     ),
                     discovery=found,
-                    weights_used=weights_used,
+                    weights_used=weights_used, weights_captured=weights_captured,
                 )
-            weights_used = tuple(sorted(str(p) for p in from_repository.pop("weights_used", ())))
             extras = dict(from_repository, **(extras or {}))
         if found.modules:
             watcher.note(
@@ -677,7 +746,7 @@ def resolve(
                         next_step=_next_step_for(worst.reason, worst.missing, benchmark),
                     ),
                     discovery=found,
-                    weights_used=weights_used,
+                    weights_used=weights_used, weights_captured=weights_captured,
                 )
             return Submission(nothing_here(repository.name), discovery=found)
 
@@ -814,7 +883,7 @@ def resolve(
                         coverage=_coverage_of(found, benchmark),
                     ),
                     discovery=found,
-                    weights_used=weights_used,
+                    weights_used=weights_used, weights_captured=weights_captured,
                     chain=paired.get("steps", ()),
                     attempts_tried=paired["tried"],
                 )
@@ -835,7 +904,7 @@ def resolve(
                         ),
                     ),
                     discovery=found,
-                    weights_used=weights_used,
+                    weights_used=weights_used, weights_captured=weights_captured,
                 )
             return Submission(
                 not_wired(
@@ -849,7 +918,7 @@ def resolve(
                     errors=refusal.errors,
                 ),
                 discovery=found,
-                weights_used=weights_used,
+                weights_used=weights_used, weights_captured=weights_captured,
             )
 
         for step, stage in zip(chain.steps, chain_role.stages):
@@ -862,7 +931,7 @@ def resolve(
             return Submission(
                 _scored_placeholder(chain),
                 discovery=found,
-                weights_used=weights_used,
+                weights_used=weights_used, weights_captured=weights_captured,
                 chain=chain.steps,
                 branches=dict(chain.branches),
                 fits=chain.fits,
@@ -906,7 +975,7 @@ def resolve(
         return Submission(
             _scored_placeholder(chain),
             discovery=found,
-            weights_used=weights_used,
+            weights_used=weights_used, weights_captured=weights_captured,
             chain=chain.steps,
             branches=dict(chain.branches),
             fits=chain.fits,

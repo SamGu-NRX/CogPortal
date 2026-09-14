@@ -6,7 +6,7 @@ import json
 import os
 import time
 from pathlib import Path
-from typing import Any, Callable, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from . import __version__
 from .models import LocalReport, Metric
@@ -44,6 +44,16 @@ def _progress(callback: Callable[..., None], phase: str, current: Optional[int] 
         callback(phase)
 
 
+def _weight_paths(weights: Optional[List[Dict[str, Any]]]) -> Optional[List[str]]:
+    """The scored weight names, read off their capture receipts.
+
+    One list is built from the other so a report cannot name a weight it has
+    no receipt for, or carry a receipt for a weight it did not score.
+    """
+
+    return None if weights is None else [str(item["path"]) for item in weights]
+
+
 def _predict(adapter: Any, inputs: List[Any]) -> List[Any]:
     predictor = getattr(adapter, "predict", adapter if callable(adapter) else None)
     if not callable(predictor):
@@ -68,7 +78,7 @@ def execute(
     cwd: Path,
     smoke: bool = False,
     progress: Optional[Callable[..., None]] = None,
-    weights: Optional[List[str]] = None,
+    weights: Optional[List[Dict[str, Any]]] = None,
 ) -> LocalReport:
     if str(getattr(benchmark, "contract_version", "")) == "cogworks.submissions.v2":
         return _execute_v2(benchmark, adapter, cwd, smoke, progress, weights)
@@ -104,7 +114,8 @@ def execute(
         metrics=list(metrics),
         diagnostics=list(diagnostics),
         predictions=predictions,
-        weights_used=weights,
+        weights_used=_weight_paths(weights),
+        weights_uploaded=None if weights is None else [dict(item) for item in weights],
     )
 
 
@@ -197,7 +208,7 @@ def _execute_v2(
     cwd: Path,
     smoke: bool,
     progress: Optional[Callable[..., None]],
-    weights: Optional[List[str]] = None,
+    weights: Optional[List[Dict[str, Any]]] = None,
     model_factory: Callable[[], Any] = _facenet_model,
 ) -> LocalReport:
     tier = "test" if smoke else "evaluation"
@@ -282,7 +293,8 @@ def _execute_v2(
         metrics=metrics,
         diagnostics=list(getattr(benchmark, "last_diagnostics", [])),
         predictions=outputs,
-        weights_used=weights,
+        weights_used=_weight_paths(weights),
+        weights_uploaded=None if weights is None else [dict(item) for item in weights],
     )
 
 

@@ -20,6 +20,7 @@ sys.path.insert(0, str(ROOT / "python" / "cogbench" / "src"))
 from cogbench.models import LocalReport, Metric, RepositoryState
 from cogbench.cli import main
 from cogbench.client import upload_weight
+from cogbench import storage
 
 
 class LocalReportWithWeightsTests(unittest.TestCase):
@@ -103,113 +104,29 @@ class LocalReportWithWeightsTests(unittest.TestCase):
         self.assertEqual(report.weights_used, [])
 
 
-class CliTrackedWeightSkipTest(unittest.TestCase):
+class SyncUploadsEveryScoredWeight(unittest.TestCase):
+    """Sync reads the retained copy, never the file in the working tree.
+
+    The old contract asked Git whether a weight had changed since the report
+    commit and skipped the ones that had not. That question is about the
+    working tree, not about what was scored, so it is gone: every declared
+    weight is captured at load time and uploaded from that capture.
+    """
+
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp()).resolve()
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.source = self.tmp / "trained_weights.npz"
+        self.source.write_bytes(b"fake numpy data")
+        self.receipt = storage.retain_input(self.tmp, self.source)
 
-    def test_sync_skips_tracked_weight_files(self):
-        # Create a git repo with a tracked weight file
-        subprocess.run(["git", "init"], cwd=str(self.tmp), check=True, capture_output=True)
-        subprocess.run(
-            ["git", "config", "user.email", "test@example.com"],
-            cwd=str(self.tmp),
-            check=True,
-            capture_output=True,
-        )
-        subprocess.run(
-            ["git", "config", "user.name", "Test User"],
-            cwd=str(self.tmp),
-            check=True,
-            capture_output=True,
-        )
-
-        # Create and track a weight file
-        weight_path = self.tmp / "model.pkl"
-        weight_path.write_bytes(b"fake pickle data")
-        subprocess.run(["git", "add", "model.pkl"], cwd=str(self.tmp), check=True, capture_output=True)
-        subprocess.run(["git", "commit", "-m", "Add model"], cwd=str(self.tmp), check=True, capture_output=True)
-        report_sha = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=str(self.tmp),
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout.strip()
-
-        # Create a report with the tracked weight
-        report = LocalReport(
-            report_id="local_test123",
-            benchmark_id="language-search",
-            benchmark_version=1,
-            contract_version="cogworks.submissions.v2",
-            sdk_version="0.1.0",
-            plugin_version="0.1.0",
-            repository=RepositoryState(None, "test/repo", report_sha, False),
-            started_at=1,
-            finished_at=2,
-            metrics=[Metric("mrr", "MRR", 0.75, None, True, True, 3)],
-            diagnostics=[],
-            output_digest="x" * 64,
-            weights_used=["model.pkl"],
-        )
-
-        # Save report
-        report_file = self.tmp / "report.json"
-        report_file.write_text(report.to_json(), encoding="utf-8")
-
-        # Mock the sync_report and upload_weight calls
-        with patch("cogbench.cli.sync_report") as mock_sync:
-            with patch("cogbench.cli.upload_weight") as mock_upload:
-                with patch("cogbench.cli.token_for", return_value="test_token"):
-                    with patch("cogbench.cli._resolve_report", return_value=report_file):
-                        with patch("cogbench.cli._portal", return_value="http://example.com"):
-                            # Mock Path.cwd to return our temp directory
-                            with patch("cogbench.cli.Path.cwd", return_value=self.tmp):
-                                stdout = io.StringIO()
-                                with redirect_stdout(stdout):
-                                    result = main(["sync", str(report_file)])
-
-        self.assertEqual(result, 0)
-        mock_sync.assert_called_once()
-        # Verify upload was NOT called for tracked file
-        mock_upload.assert_not_called()
-        # Verify output mentions the tracked file
-        self.assertIn("is committed and travels with the repository", stdout.getvalue())
-
-
-class CliUntrackedWeightUploadTest(unittest.TestCase):
-    def setUp(self):
-        self.tmp = Path(tempfile.mkdtemp()).resolve()
-        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
-
-    def test_sync_uploads_untracked_weight_files(self):
-        # Create a git repo
-        subprocess.run(["git", "init"], cwd=str(self.tmp), check=True, capture_output=True)
-        subprocess.run(
-            ["git", "config", "user.email", "test@example.com"],
-            cwd=str(self.tmp),
-            check=True,
-            capture_output=True,
-        )
-        subprocess.run(
-            ["git", "config", "user.name", "Test User"],
-            cwd=str(self.tmp),
-            check=True,
-            capture_output=True,
-        )
-
-        # Create an untracked weight file
-        weight_path = self.tmp / "trained_weights.npz"
-        weight_path.write_bytes(b"fake numpy data")
-
-        # Create a report with the untracked weight
-        report = LocalReport(
+    def _report(self, weights_used, weights_uploaded):
+        return LocalReport(
             report_id="local_test456",
             benchmark_id="language-search",
             benchmark_version=1,
             contract_version="cogworks.submissions.v2",
-            sdk_version="0.1.0",
+            sdk_version="0.2.0",
             plugin_version="0.1.0",
             repository=RepositoryState(None, "test/repo", "a" * 40, False),
             started_at=1,
@@ -217,219 +134,108 @@ class CliUntrackedWeightUploadTest(unittest.TestCase):
             metrics=[Metric("mrr", "MRR", 0.75, None, True, True, 3)],
             diagnostics=[],
             output_digest="x" * 64,
-            weights_used=["trained_weights.npz"],
+            weights_used=weights_used,
+            weights_uploaded=weights_uploaded,
         )
 
-        # Save report
+    def _sync(self, report):
         report_file = self.tmp / "report.json"
         report_file.write_text(report.to_json(), encoding="utf-8")
+        with patch("cogbench.cli.sync_report") as sync, \
+                patch("cogbench.cli.upload_weight") as upload, \
+                patch("cogbench.cli.token_for", return_value="test_token"), \
+                patch("cogbench.cli._resolve_report", return_value=report_file), \
+                patch("cogbench.cli._portal", return_value="http://example.com"), \
+                patch("cogbench.cli.Path.cwd", return_value=self.tmp):
+            out, err = io.StringIO(), io.StringIO()
+            with redirect_stdout(out), redirect_stderr(err):
+                code = main(["sync", str(report_file)])
+        return code, sync, upload, out.getvalue(), err.getvalue()
 
-        # Mock the sync_report and upload_weight calls
-        with patch("cogbench.cli.sync_report") as mock_sync:
-            with patch("cogbench.cli.upload_weight") as mock_upload:
-                with patch("cogbench.cli.token_for", return_value="test_token"):
-                    with patch("cogbench.cli._resolve_report", return_value=report_file):
-                        with patch("cogbench.cli._portal", return_value="http://example.com"):
-                            # Mock Path.cwd to return our temp directory
-                            with patch("cogbench.cli.Path.cwd", return_value=self.tmp):
-                                stdout = io.StringIO()
-                                with redirect_stdout(stdout):
-                                    result = main(["sync", str(report_file)])
+    def _receipts(self):
+        return [{
+            "path": self.receipt.path,
+            "sha256": self.receipt.sha256,
+            "size": self.receipt.size,
+        }]
 
-        self.assertEqual(result, 0)
-        mock_sync.assert_called_once()
-        # Verify upload WAS called for untracked file
-        mock_upload.assert_called_once()
-        # Check the arguments to upload_weight
-        call_args = mock_upload.call_args
-        self.assertEqual(call_args[0][0], "http://example.com")  # portal
-        self.assertEqual(call_args[0][1], "test_token")  # token
-        self.assertEqual(call_args[0][2], "local_test456")  # report_id
-        self.assertEqual(call_args[0][3], "trained_weights.npz")  # rel_path
-        # Verify output mentions upload
-        self.assertIn("uploaded to", stdout.getvalue())
-        self.assertIn("15 bytes", stdout.getvalue())
-
-
-class CliMissingWeightFileFailsTest(unittest.TestCase):
-    def setUp(self):
-        self.tmp = Path(tempfile.mkdtemp()).resolve()
-        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
-
-    def test_sync_fails_on_missing_untracked_weight_file(self):
-        # Create a git repo
-        subprocess.run(["git", "init"], cwd=str(self.tmp), check=True, capture_output=True)
-        subprocess.run(
-            ["git", "config", "user.email", "test@example.com"],
-            cwd=str(self.tmp),
-            check=True,
-            capture_output=True,
+    def test_a_scored_weight_is_uploaded_from_its_capture(self):
+        code, sync, upload, out, _ = self._sync(
+            self._report([self.receipt.path], self._receipts())
         )
-        subprocess.run(
-            ["git", "config", "user.name", "Test User"],
-            cwd=str(self.tmp),
-            check=True,
-            capture_output=True,
+        self.assertEqual(code, 0)
+        sync.assert_called_once()
+        upload.assert_called_once()
+        arguments = upload.call_args
+        self.assertEqual(arguments[0][3], "trained_weights.npz")
+        # The bytes come from the retained copy, not from the project file.
+        self.assertEqual(arguments[0][4], self.receipt.retained)
+        self.assertEqual(arguments[1]["expected_sha256"], self.receipt.sha256)
+        self.assertEqual(arguments[1]["size"], self.receipt.size)
+        self.assertIn("uploaded to", out)
+        self.assertIn("15 bytes", out)
+
+    def test_a_replaced_source_still_uploads_what_was_scored(self):
+        self.source.write_bytes(b"completely different bytes")
+        code, _, upload, _, _ = self._sync(
+            self._report([self.receipt.path], self._receipts())
+        )
+        self.assertEqual(code, 0)
+        self.assertEqual(upload.call_args[1]["expected_sha256"], self.receipt.sha256)
+        self.assertEqual(
+            upload.call_args[0][4].read_bytes(), b"fake numpy data"
         )
 
-        # Create a report referencing a weight file that does not exist
-        report = LocalReport(
-            report_id="local_test789",
-            benchmark_id="language-search",
-            benchmark_version=1,
-            contract_version="cogworks.submissions.v2",
-            sdk_version="0.1.0",
-            plugin_version="0.1.0",
-            repository=RepositoryState(None, "test/repo", "a" * 40, False),
-            started_at=1,
-            finished_at=2,
-            metrics=[Metric("mrr", "MRR", 0.75, None, True, True, 3)],
-            diagnostics=[],
-            output_digest="x" * 64,
-            weights_used=["missing_weights.pkl"],
+    def test_a_deleted_source_still_uploads_what_was_scored(self):
+        self.source.unlink()
+        code, _, upload, _, _ = self._sync(
+            self._report([self.receipt.path], self._receipts())
         )
+        self.assertEqual(code, 0)
+        self.assertEqual(upload.call_args[1]["expected_sha256"], self.receipt.sha256)
 
-        # Save report
-        report_file = self.tmp / "report.json"
-        report_file.write_text(report.to_json(), encoding="utf-8")
+    def test_a_run_with_no_weights_uploads_nothing_and_succeeds(self):
+        code, sync, upload, _, _ = self._sync(self._report([], []))
+        self.assertEqual(code, 0)
+        sync.assert_called_once()
+        upload.assert_not_called()
 
-        # Mock the sync_report call
-        with patch("cogbench.cli.sync_report") as mock_sync:
-            with patch("cogbench.cli.token_for", return_value="test_token"):
-                with patch("cogbench.cli._resolve_report", return_value=report_file):
-                    with patch("cogbench.cli._portal", return_value="http://example.com"):
-                        # Mock Path.cwd to return our temp directory
-                        with patch("cogbench.cli.Path.cwd", return_value=self.tmp):
-                            stderr = io.StringIO()
-                            with redirect_stderr(stderr):
-                                result = main(["sync", str(report_file)])
-
-        self.assertEqual(result, 2)
-        mock_sync.assert_called_once()
-        self.assertIn("does not exist", stderr.getvalue())
-
-
-class CliTrackedModifiedWeightUploadTest(unittest.TestCase):
-    def setUp(self):
-        self.tmp = Path(tempfile.mkdtemp()).resolve()
-        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
-        subprocess.run(["git", "init"], cwd=str(self.tmp), check=True, capture_output=True)
-        subprocess.run(
-            ["git", "config", "user.email", "test@example.com"],
-            cwd=str(self.tmp),
-            check=True,
-            capture_output=True,
+    def test_a_missing_capture_stops_the_sync(self):
+        self.receipt.retained.unlink()
+        code, _, upload, _, err = self._sync(
+            self._report([self.receipt.path], self._receipts())
         )
-        subprocess.run(
-            ["git", "config", "user.name", "Test User"],
-            cwd=str(self.tmp),
-            check=True,
-            capture_output=True,
+        self.assertEqual(code, 2)
+        upload.assert_not_called()
+        self.assertIn("run the benchmark again", err)
+
+    def test_a_corrupted_capture_stops_the_sync(self):
+        self.receipt.retained.write_bytes(b"tampered")
+        code, _, upload, _, err = self._sync(
+            self._report([self.receipt.path], self._receipts())
         )
+        self.assertEqual(code, 2)
+        upload.assert_not_called()
+        self.assertIn("no longer matches the report", err)
 
-    def test_sync_uploads_a_tracked_weight_that_differs_from_the_report_commit(self):
-        weight_path = self.tmp / "model.pkl"
-        weight_path.write_bytes(b"committed")
-        subprocess.run(["git", "add", "model.pkl"], cwd=str(self.tmp), check=True)
-        subprocess.run(["git", "commit", "-m", "Add model"], cwd=str(self.tmp), check=True, capture_output=True)
-        report_sha = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=str(self.tmp),
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout.strip()
-        weight_path.write_bytes(b"modified after report")
-        report = LocalReport(
-            report_id="local_modified",
-            benchmark_id="language-search",
-            benchmark_version=1,
-            contract_version="cogworks.submissions.v2",
-            sdk_version="0.1.0",
-            plugin_version="0.1.0",
-            repository=RepositoryState(None, "test/repo", report_sha, False),
-            started_at=1,
-            finished_at=2,
-            metrics=[Metric("mrr", "MRR", 0.75, None, True, True, 3)],
-            diagnostics=[],
-            output_digest="x" * 64,
-            weights_used=["model.pkl"],
+    def test_a_report_predating_capture_is_refused_rather_than_guessed_at(self):
+        code, _, upload, _, err = self._sync(
+            self._report([self.receipt.path], None)
         )
-        report_file = self.tmp / "report.json"
-        report_file.write_text(report.to_json(), encoding="utf-8")
-
-        with patch("cogbench.cli.sync_report"), patch(
-            "cogbench.cli.upload_weight", return_value="weights/test/repo/model.pkl"
-        ) as mock_upload, patch(
-            "cogbench.cli.token_for", return_value="test_token"
-        ), patch(
-            "cogbench.cli._resolve_report", return_value=report_file
-        ), patch(
-            "cogbench.cli._portal", return_value="http://example.com"
-        ), patch(
-            "cogbench.cli.Path.cwd", return_value=self.tmp
-        ):
-            stdout = io.StringIO()
-            with redirect_stdout(stdout):
-                result = main(["sync", str(report_file)])
-
-        self.assertEqual(result, 0)
-        mock_upload.assert_called_once()
-        self.assertIn("differs from the report commit", stdout.getvalue())
-
-
-class CliUnsafeWeightPathTest(unittest.TestCase):
-    def setUp(self):
-        self.tmp = Path(tempfile.mkdtemp()).resolve()
-        self.outside = Path(tempfile.mkdtemp()).resolve()
-        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
-        self.addCleanup(shutil.rmtree, self.outside, ignore_errors=True)
-        subprocess.run(["git", "init"], cwd=str(self.tmp), check=True, capture_output=True)
-
-    def test_sync_refuses_a_symlink_to_a_file_outside_the_repository(self):
-        outside_weight = self.outside / "secret.pkl"
-        outside_weight.write_bytes(b"outside")
-        (self.tmp / "model.pkl").symlink_to(outside_weight)
-        report = LocalReport(
-            report_id="local_symlink",
-            benchmark_id="language-search",
-            benchmark_version=1,
-            contract_version="cogworks.submissions.v2",
-            sdk_version="0.1.0",
-            plugin_version="0.1.0",
-            repository=RepositoryState(None, "test/repo", "a" * 40, False),
-            started_at=1,
-            finished_at=2,
-            metrics=[Metric("mrr", "MRR", 0.75, None, True, True, 3)],
-            diagnostics=[],
-            output_digest="x" * 64,
-            weights_used=["model.pkl"],
-        )
-        report_file = self.tmp / "report.json"
-        report_file.write_text(report.to_json(), encoding="utf-8")
-
-        with patch("cogbench.cli.sync_report"), patch(
-            "cogbench.cli.upload_weight"
-        ) as mock_upload, patch(
-            "cogbench.cli.token_for", return_value="test_token"
-        ), patch(
-            "cogbench.cli._resolve_report", return_value=report_file
-        ), patch(
-            "cogbench.cli._portal", return_value="http://example.com"
-        ), patch(
-            "cogbench.cli.Path.cwd", return_value=self.tmp
-        ):
-            stderr = io.StringIO()
-            with redirect_stderr(stderr):
-                result = main(["sync", str(report_file)])
-
-        self.assertEqual(result, 2)
-        mock_upload.assert_not_called()
-        self.assertIn("regular file inside the repository", stderr.getvalue())
+        self.assertEqual(code, 2)
+        upload.assert_not_called()
+        self.assertIn("predates the capture", err)
 
 
 class UploadWeightDigestHeaderTest(unittest.TestCase):
-    def test_upload_sends_the_sha256_header(self):
+    """The headers come from the report's receipt, not from the file on disk.
+
+    The portal checks the stream against the digest the report published, so
+    sending a freshly measured one would let a changed file upload cleanly
+    under a report that describes different bytes.
+    """
+
+    def test_upload_sends_the_receipts_digest_and_length(self):
         with tempfile.TemporaryDirectory() as directory:
             weight_path = Path(directory) / "model.pkl"
             weight_path.write_bytes(b"trained weights")
@@ -456,6 +262,8 @@ class UploadWeightDigestHeaderTest(unittest.TestCase):
                     "local_digest",
                     "model.pkl",
                     weight_path,
+                    expected_sha256=hashlib.sha256(b"trained weights").hexdigest(),
+                    size=len(b"trained weights"),
                 )
 
         self.assertEqual(destination, "weights/test/repo/model.pkl")

@@ -5,7 +5,6 @@ import json
 import os
 import platform
 import queue
-import subprocess
 import sys
 import threading
 import time
@@ -47,6 +46,7 @@ from .progress import TerminalProgress
 from .project import repository_state
 from .report import render_check
 from .runner import ContractError, execute, model_cache_status
+from . import storage
 from .storage import active_portal, latest_report, save_report, save_token, token_for
 
 PROGRAM = "cogworks"
@@ -335,7 +335,9 @@ class _Scoreable(NamedTuple):
     """
 
     factory: Optional[Callable[..., Any]]
-    weights: List[str]
+    #: One capture receipt per scored weight: ``{"path", "sha256", "size"}``.
+    #: Empty for a week that declares none, which is every week but Language.
+    weights: List[Dict[str, Any]]
     #: What would actually be scored: "file", "discovery", or None.
     source: Optional[str]
     #: The live resolution, for a caller in the same process. None when
@@ -397,7 +399,9 @@ def _scoreable(name: str, benchmark, project_root: Path, *, as_json: bool, spec=
             None, [], None, submission, survey,
             declared_source, declared_detail, declared_error, unavailable,
         )
-    weights = [str(path) for path in submission.weights_used]
+    # The receipts, not the names: the report has to carry the digest and the
+    # length that were measured when the bytes were retained.
+    weights = [dict(receipt) for receipt in submission.weights_captured]
     return _Scoreable(
         (lambda *args, **kwargs: build(submission)),
         weights,
@@ -597,6 +601,7 @@ def _check(benchmark: str, as_json: bool, project_root: Path) -> int:
             hosted_python=checks["canonicalHostedPython"],
             benchmark_ready=bool(checks["benchmarkLoadable"]),
             repository=checks["repositoryFullName"],
+            git_checkout=bool(checks["gitRepository"]),
             submission=submission,
             survey=survey,
             local_gap_note=gap_note(benchmark, checks["localGap"]),
@@ -1007,81 +1012,40 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 raise PortalError("This portal is not linked. Run `cogworks link` first.")
             path = _resolve_report(args.path, project_root)
             report = LocalReport.from_json(path.read_text(encoding="utf-8"))
+            # The report goes first: it names the digest each upload is checked
+            # against, so the portal can refuse bytes that are not the ones
+            # this run scored.
             sync_report(portal, token, json.loads(report.to_json()))
-            for relative_path in report.weights_used:
-                if Path(relative_path).is_absolute() or ".." in Path(relative_path).parts:
-                    raise PortalError("Weight path must stay inside the repository: {}".format(relative_path))
-                source = project_root / relative_path
-                project_resolved = project_root.resolve()
-                source_resolved = source.resolve()
-                if source.is_symlink() or (
-                    source_resolved != project_resolved
-                    and project_resolved not in source_resolved.parents
-                ):
-                    raise PortalError(
-                        "Weight path must be a regular file inside the repository: {}".format(
-                            relative_path
-                        )
+            receipts = report.weights_uploaded
+            if receipts is None and report.weights_used:
+                raise PortalError(
+                    "This report names weights but predates the capture that records "
+                    "them. Run the benchmark again, then sync."
+                )
+            for receipt in receipts or []:
+                try:
+                    source = storage.retained_input(
+                        project_root, receipt["path"], receipt["sha256"], receipt["size"]
                     )
-                if not source.is_file():
-                    raise PortalError("Weight file does not exist: {}".format(relative_path))
-
-                tracked = subprocess.run(
-                    ["git", "ls-files", "--error-unmatch", "--", relative_path],
-                    cwd=str(project_root),
-                    capture_output=True,
-                ).returncode == 0
-                if tracked:
-                    if not report.repository.sha:
-                        raise PortalError(
-                            "The report has no commit to compare weight {} against.".format(
-                                relative_path
-                            )
-                        )
-                    comparison = subprocess.run(
-                        ["git", "diff", "--quiet", report.repository.sha, "--", relative_path],
-                        cwd=str(project_root),
-                        capture_output=True,
-                    )
-                    if comparison.returncode == 0:
-                        print(
-                            "weights: {} is committed and travels with the repository".format(
-                                relative_path
-                            )
-                        )
-                        continue
-                    if comparison.returncode != 1:
-                        raise PortalError(
-                            "Could not compare weight {} with report commit {}.".format(
-                                relative_path, report.repository.sha
-                            )
-                        )
-                    print(
-                        "weights: {} differs from the report commit; uploading it".format(
-                            relative_path
-                        )
-                    )
-
-                # Workers caps request bodies at 100 MB on Free and Pro plans,
-                # and this account's plan is not established. The largest 2026
-                # corpus weight is 411 KB; Week 3's 200 MiB probe is separate.
-                max_weight_bytes = 100 * 1024 * 1024
-                size = source.stat().st_size
-                if size > max_weight_bytes:
-                    raise PortalError(
-                        "Weight files may not exceed 100 MiB: {}".format(relative_path)
-                    )
+                except storage.RetentionError as error:
+                    raise PortalError(str(error)) from error
                 try:
                     destination = upload_weight(
-                        portal, token, report.report_id, relative_path, source
+                        portal,
+                        token,
+                        report.report_id,
+                        receipt["path"],
+                        source,
+                        expected_sha256=receipt["sha256"],
+                        size=receipt["size"],
                     )
                 except PortalError as error:
                     raise PortalError(
-                        "Failed to sync weight {}: {}".format(relative_path, error)
+                        "Failed to sync weight {}: {}".format(receipt["path"], error)
                     ) from error
                 print(
                     "weights: {} ({} bytes) uploaded to {}".format(
-                        relative_path, size, destination
+                        receipt["path"], receipt["size"], destination
                     )
                 )
             print("Synced {} as LOCAL · SELF-REPORTED.".format(report.report_id))

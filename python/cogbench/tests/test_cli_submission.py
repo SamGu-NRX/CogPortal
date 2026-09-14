@@ -69,13 +69,19 @@ class WhichCodeIsScored(unittest.TestCase):
         class _Found:
             ready = True
             weights_used = ("models/search.pkl",)
+            weights_captured = (
+                {"path": "models/search.pkl", "sha256": "c" * 64, "size": 7},
+            )
 
         cli._discover = lambda *a, **k: (_Found(), None, None)
 
         adapter, weights = cli._submission_for("b", _Benchmark(), self.tmp, as_json=False)
 
         self.assertEqual(adapter()[0], "discovered")
-        self.assertEqual(weights, ["models/search.pkl"])
+        # The receipts travel, not bare names: the report needs the digest.
+        self.assertEqual(
+            weights, [{"path": "models/search.pkl", "sha256": "c" * 64, "size": 7}]
+        )
 
     def test_an_empty_repository_refuses_rather_than_scoring_something(self):
         cli.resolve_submission = lambda *a, **k: (None, "entry_point", "")
@@ -111,6 +117,7 @@ def _ready():
     class _S:
         ready = True
         weights_used = ()
+        weights_captured = ()
 
     return _S()
 
