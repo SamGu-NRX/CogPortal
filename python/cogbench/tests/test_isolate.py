@@ -456,10 +456,12 @@ class WindowsDoesNotReplaceItself(unittest.TestCase):
 
 
 class TheCallerKeepsWhatItBroughtIn(unittest.TestCase):
-    """`_collect` arms its own `SIGALRM` and used to discard whatever the
-    caller already had pending. Measured before this: a caller holding four
-    seconds got zero back and its handler never ran, with nothing raised to
-    say the timer had gone."""
+    """`_collect` installs no handler at all now, so a caller's own alarm is
+    not something it can lose. It used to arm `SIGALRM` and discard whatever
+    was pending: a caller holding four seconds got zero back and its handler
+    never ran, with nothing raised to say the timer had gone. This keeps
+    watching that, because the guarantee outlives the mechanism that broke
+    it."""
 
     @unittest.skipUnless(hasattr(signal, "alarm"), "needs SIGALRM")
     def test_an_alarm_the_caller_already_had_is_given_back(self):
@@ -506,12 +508,13 @@ class AWorkerThreadGetsAnOutcomeLikeEveryOtherCaller(unittest.TestCase):
 
     @unittest.skipUnless(hasattr(os, "fork"), "needs fork")
     def test_a_sleeping_child_on_a_worker_still_hits_its_deadline(self):
-        """The first fix here skipped the parent's alarm off the main thread
-        and claimed the child's own limit covered it. That was wrong: the
-        child's limit is RLIMIT_CPU, which a sleeping or blocked child never
-        spends. The containment owner measured it, `sleep(3)` under a
-        one-second budget returning COMPLETED after 3.01 seconds. A worker
-        gets a watchdog instead, so the wall-clock deadline is real."""
+        """A worker thread gets the same deadline as any other caller: one
+        monotonic value checked where the collector already waits. An earlier
+        attempt skipped the parent's alarm off the main thread and claimed the
+        child's own limit covered it, which was wrong, because that limit is
+        RLIMIT_CPU and a sleeping or blocked child never spends it. The
+        containment owner measured `sleep(3)` under a one-second budget
+        returning COMPLETED after 3.01 seconds."""
 
         result = {}
 
@@ -605,12 +608,12 @@ class AFailedForkIsReportedLikeAnyOtherFailure(unittest.TestCase):
         self.assertIsNotNone(outcome.memory_bytes)
 
 class TheDeadlineHasOneOwner(unittest.TestCase):
-    """There is no watchdog thread and no caller signal handler any more, so
-    the races that needed synchronizing cannot occur: a callback cannot
-    outlive the collector if there is no callback, and a caller's alarm cannot
-    be discarded if none is installed. This asserts the machinery is gone and
-    that the deadline still holds, rather than rebuilding a timer to test one.
-    """
+    """One monotonic deadline, checked where the collector already waits.
+    There is no timer thread and no caller signal handler, so the races that
+    needed synchronizing cannot occur: a callback cannot outlive the collector
+    if there is no callback, and a caller's alarm cannot be discarded if none
+    is installed. These assert the machinery is absent and the deadline still
+    holds, rather than rebuilding a timer to test one."""
 
     def test_an_expired_deadline_is_not_even_polled(self):
         """The reviewer's suggestion, and it pins the other half. The existing
