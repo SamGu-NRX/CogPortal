@@ -3536,7 +3536,12 @@ class AnImportDeadlineStaysInsideItsOwnBlock(_Fixture):
                 time.sleep(0.4)
         slept = time.monotonic() - started
 
-        self.assertGreaterEqual(slept, 0.4)
+        # Far past the budget, not equal to the sleep: `time.monotonic` has
+        # about 16 ms of granularity on Windows, where a 0.4 s sleep measured
+        # 0.390 and failed a tighter assertion. What this has to show is that
+        # the 0.05 s deadline did not cut the C call short, and a quarter of a
+        # second of margin shows it without depending on the clock.
+        self.assertGreater(slept, 0.25)
 
     def test_a_nested_import_arms_no_timer_of_its_own(self):
         """The property that makes the interleaving impossible, rather than a
