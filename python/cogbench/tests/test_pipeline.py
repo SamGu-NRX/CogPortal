@@ -11,10 +11,12 @@ import unittest
 from dataclasses import replace
 from pathlib import Path
 from types import ModuleType
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "python" / "cogbench" / "src"))
 
+from cogbench import pipeline
 from cogbench.pipeline import (
     Candidate,
     Fixtures,
@@ -25,6 +27,7 @@ from cogbench.pipeline import (
     _empty_receivers,
     _named_for_something_else,
     _reachable,
+    _under_clock,
     callables_in,
     constructors_in,
     extend,
@@ -3170,6 +3173,553 @@ class OptionalFitStageTests(unittest.TestCase):
         found, failed = _fits_of(role, [], {}, [])
         self.assertEqual(found, [])
         self.assertEqual(failed, "idfs")
+
+
+class ClockOwnershipTests(unittest.TestCase):
+    """The per-call clock is one timer in a process that has one timer.
+
+    SIGALRM is process-wide, so a probe that installs its own handler and
+    cancels its own alarm cancels whatever the caller was timing, whether that
+    is a runner's deadline or an enclosing probe's.
+    """
+
+    def setUp(self):
+        if not hasattr(signal, "SIGALRM") or not hasattr(signal, "getitimer"):
+            self.skipTest("clock ownership requires POSIX interval timers")
+        if signal.getitimer(signal.ITIMER_REAL)[0]:
+            self.skipTest("the test runner already owns an alarm")
+        self.previous_handler = signal.getsignal(signal.SIGALRM)
+        self.addCleanup(signal.signal, signal.SIGALRM, self.previous_handler)
+        self.addCleanup(signal.setitimer, signal.ITIMER_REAL, 0)
+
+    def test_a_callers_timer_and_handler_survive_success_and_failure(self):
+        def caller_handler(signum, frame):
+            self.fail("the caller's twelve-second timer expired during a short test")
+
+        for raises in (False, True):
+            with self.subTest(raises=raises):
+                signal.signal(signal.SIGALRM, caller_handler)
+                signal.setitimer(signal.ITIMER_REAL, 12, 0.25)
+
+                def call():
+                    self.assertIs(signal.getsignal(signal.SIGALRM), caller_handler)
+                    remaining, interval = signal.getitimer(signal.ITIMER_REAL)
+                    self.assertGreater(remaining, 1)
+                    self.assertEqual(interval, 0.25)
+                    if raises:
+                        raise ValueError("their call failed")
+                    return "answer"
+
+                with patch("cogbench.pipeline.CALL_TIMEOUT_SECONDS", 1):
+                    if raises:
+                        with self.assertRaisesRegex(ValueError, "their call failed"):
+                            _under_clock(call)
+                    else:
+                        self.assertEqual(_under_clock(call), "answer")
+                self.assertIs(signal.getsignal(signal.SIGALRM), caller_handler)
+                remaining, interval = signal.getitimer(signal.ITIMER_REAL)
+                self.assertGreater(remaining, 1)
+                self.assertEqual(interval, 0.25)
+                signal.setitimer(signal.ITIMER_REAL, 0)
+
+    def test_nested_probes_do_not_cancel_the_outer_deadline(self):
+        for raises in (False, True):
+            with self.subTest(raises=raises):
+                def outer():
+                    before = signal.getitimer(signal.ITIMER_REAL)[0]
+                    handler = signal.getsignal(signal.SIGALRM)
+
+                    def inner():
+                        if raises:
+                            raise ValueError("inner failure")
+
+                    if raises:
+                        with self.assertRaisesRegex(ValueError, "inner failure"):
+                            _under_clock(inner)
+                    else:
+                        _under_clock(inner)
+                    after = signal.getitimer(signal.ITIMER_REAL)[0]
+                    self.assertGreater(after, 0)
+                    self.assertLessEqual(after, before)
+                    self.assertIs(signal.getsignal(signal.SIGALRM), handler)
+
+                _under_clock(outer)
+                self.assertEqual(signal.getitimer(signal.ITIMER_REAL)[0], 0)
+                self.assertIs(signal.getsignal(signal.SIGALRM), self.previous_handler)
+
+
+def _keep(items):
+    return list(items)
+
+
+def _use(items):
+    return "-".join(str(item) for item in items)
+
+
+class ABranchThatNeverGotItsInputIsStillWorthGoingBackFor(unittest.TestCase):
+    """A branch waiting on another branch's value is the reason to try another
+    form of that branch.
+
+    A branch whose fixture reads an upstream value is never searched while
+    that value is missing, and the form search skipped any attempt with no
+    searched pending branch. So a first branch that bound on the form
+    producing nothing stranded the second one on every pass.
+    """
+
+    @staticmethod
+    def _later(pool, _chains):
+        value = pool.get("first")
+        return (value,) if value else None
+
+    def _role(self, forms):
+        return Role(
+            "week",
+            (),
+            branches=(
+                Role(
+                    "first",
+                    (Stage("keep", produces=lambda v: isinstance(v, list)),),
+                    fixture=Fixtures(forms),
+                ),
+                Role(
+                    "later",
+                    (Stage("use", produces=lambda v: isinstance(v, str) and v),),
+                    fixture=self._later,
+                    optional=True,
+                ),
+            ),
+        )
+
+    @staticmethod
+    def _modules():
+        return [_module("theirs", keep=_keep, use=_use)]
+
+    def test_another_form_of_the_bound_branch_is_offered(self):
+        role = self._role(((([],), ([1, 2],))))
+
+        binding, refusal = self._resolve(role)
+
+        self.assertIsNone(refusal, refusal.detail if refusal else "")
+        self.assertIn("later", binding.branches)
+        self.assertEqual(binding.branches["first"][0].form, 1)
+        self.assertEqual(binding.missing, {})
+
+    def test_a_complete_attempt_does_not_go_back_for_another_form(self):
+        """Every branch bound, so no other set of forms can cover more. Going
+        back would re-run the whole fixpoint for a result that cannot win."""
+
+        role = self._role((([1, 2],), ([],)))
+        original = pipeline._resolve_chain
+        searched = []
+
+        def counted(branch, *args, **keywords):
+            searched.append(branch.name)
+            return original(branch, *args, **keywords)
+
+        pipeline._resolve_chain = counted
+        self.addCleanup(setattr, pipeline, "_resolve_chain", original)
+
+        binding, refusal = self._resolve(role)
+
+        self.assertIsNone(refusal)
+        self.assertEqual(searched, ["first", "later"])
+        self.assertEqual(binding.branches["first"][0].form, 0)
+
+    def test_a_role_whose_branches_all_wait_on_each_other_still_answers(self):
+        """Nothing was ever searched, so there is no bound branch to offer
+        another form of. The search has to end rather than circle."""
+
+        waiting = Role(
+            "week",
+            (),
+            branches=(
+                Role(
+                    "one",
+                    (Stage("use", produces=lambda v: isinstance(v, str)),),
+                    fixture=lambda pool, _chains: pool.get("missing"),
+                ),
+                Role(
+                    "two",
+                    (Stage("use", produces=lambda v: isinstance(v, str)),),
+                    fixture=lambda pool, _chains: pool.get("absent"),
+                ),
+            ),
+        )
+
+        binding, refusal = self._resolve(waiting)
+
+        self.assertIsNone(binding)
+        self.assertEqual(refusal.role, "week.one")
+        self.assertIn("not produced by any other branch", refusal.detail)
+
+    def _resolve(self, role):
+        return resolve_chain(role, self._modules(), ([1, 2],))
+
+
+class AKeywordOnlyArgumentCanHoldATuningOrAnIdentity(unittest.TestCase):
+    """`plan` names positional arguments only, so a week's tuning values and
+    the item's own identity had no route to a keyword-only parameter.
+
+    The shapes built for them appended a positional argument the signature
+    would not take, so `adj_list(paths, *, threshold)` was never called and
+    the repository was reported as having nothing that accepted the input.
+    """
+
+    @staticmethod
+    def _bind(stage, call, fixture, identities=()):
+        module = _module("theirs", build=call)
+        found = probe_sources(
+            stage, callables_in([module]), fixture, identities=identities
+        )
+        return found[0] if found else (None, None)
+
+    def test_a_keyword_only_tuning_is_offered_the_weeks_values(self):
+        def build(paths, *, threshold):
+            return [p for p in paths if p > threshold]
+
+        stage = Stage(
+            "group",
+            produces=lambda v: isinstance(v, list) and len(v) == 1,
+            tunings=(1, 3),
+        )
+
+        candidate, value = self._bind(stage, build, ([1, 5],))
+
+        self.assertIsNotNone(candidate)
+        self.assertEqual(candidate.keyword_plan, (("threshold", "tuning"),))
+        self.assertEqual(candidate.plan, ("value",))
+        self.assertEqual(candidate.tuning, 1)
+        self.assertEqual(value, [5])
+
+    def test_a_keyword_only_identity_is_offered_the_items_own_names(self):
+        def build(vectors, *, names):
+            return ["{}={}".format(name, vector) for name, vector in zip(names, vectors)]
+
+        stage = Stage(
+            "group",
+            produces=lambda v: isinstance(v, list) and v and isinstance(v[0], str),
+            identity=True,
+        )
+
+        candidate, value = self._bind(stage, build, ([1, 2],), identities=("a", "b"))
+
+        self.assertIsNotNone(candidate)
+        self.assertEqual(candidate.keyword_plan, (("names", "identity"),))
+        self.assertEqual(candidate.supplied["identity"], ("a", "b"))
+        self.assertEqual(value, ["a=1", "b=2"])
+
+    def test_a_call_that_wants_both_by_keyword_gets_both(self):
+        def build(vectors, *, names, threshold):
+            return [
+                "{}={}".format(name, vector)
+                for name, vector in zip(names, vectors)
+                if vector > threshold
+            ]
+
+        stage = Stage(
+            "group",
+            produces=lambda v: isinstance(v, list) and len(v) == 1,
+            identity=True,
+            tunings=(1, 3),
+        )
+
+        candidate, value = self._bind(stage, build, ([1, 5],), identities=("a", "b"))
+
+        self.assertIsNotNone(candidate)
+        self.assertEqual(
+            candidate.keyword_plan,
+            (("names", "identity"), ("threshold", "tuning")),
+        )
+        self.assertEqual(candidate.tuning, 1)
+        self.assertEqual(value, ["b=5"])
+
+    def test_a_signature_that_splits_them_fills_both_halves(self):
+        """Bagel's `Whispers(vectors, names, threshold)` with the cutoff moved
+        behind a star. The positional walk fills the names and has to know the
+        cutoff is already spoken for."""
+
+        def build(vectors, names, *, threshold):
+            return [
+                "{}={}".format(name, vector)
+                for name, vector in zip(names, vectors)
+                if vector > threshold
+            ]
+
+        stage = Stage(
+            "group",
+            produces=lambda v: isinstance(v, list) and len(v) == 1,
+            identity=True,
+            tunings=(1, 3),
+        )
+
+        candidate, value = self._bind(stage, build, ([1, 5],), identities=("a", "b"))
+
+        self.assertIsNotNone(candidate)
+        self.assertEqual(candidate.plan, ("value", "identity"))
+        self.assertEqual(candidate.keyword_plan, (("threshold", "tuning"),))
+        self.assertEqual(candidate.tuning, 1)
+        self.assertEqual(value, ["b=5"])
+
+    def test_a_keyword_only_argument_with_a_default_is_left_alone(self):
+        """The plain call first, everywhere. A team who defaulted theirs is
+        calling the same function a shorter way."""
+
+        def build(paths, *, threshold=0):
+            return [p for p in paths if p > threshold]
+
+        stage = Stage(
+            "group",
+            produces=lambda v: isinstance(v, list) and len(v) == 2,
+            tunings=(1, 3),
+        )
+
+        candidate, value = self._bind(stage, build, ([1, 5],))
+
+        self.assertIsNotNone(candidate)
+        self.assertEqual(candidate.keyword_plan, ())
+        self.assertEqual(candidate.plan, ())
+        self.assertIsNone(candidate.tuning)
+        self.assertEqual(value, [1, 5])
+
+    def test_a_declared_side_input_wins_over_the_identity_slot(self):
+        """`names` asks for an identity by its name and is also what this week
+        declared as a side input. The benchmark chose the value it handed
+        over; reading the name as an identity instead ran their function on
+        data nobody chose, and it answered."""
+
+        def build(rows, *, names, threshold):
+            return [
+                "{}:{}".format(name, row)
+                for name, row in zip(names, rows)
+                if row > threshold
+            ]
+
+        stage = Stage(
+            "group",
+            produces=lambda v: isinstance(v, list) and len(v) == 1,
+            extras=("names",),
+            identity=True,
+            tunings=(1, 3),
+        )
+        module = _module("theirs", build=build)
+
+        found = probe_sources(
+            stage,
+            callables_in([module]),
+            ([1, 5],),
+            extras={"names": ("given-a", "given-b")},
+            identities=("guessed-a", "guessed-b"),
+        )
+
+        self.assertTrue(found)
+        candidate, value = found[0]
+        self.assertEqual(
+            candidate.keyword_plan,
+            (("names", "extra:names"), ("threshold", "tuning")),
+        )
+        self.assertEqual(value, ["given-b:5"])
+
+    def test_a_side_input_by_position_and_a_cutoff_by_keyword_compose(self):
+        """Their function takes the week's resource positionally and the
+        cutoff behind a star. Offered apart, the positional shapes left the
+        cutoff empty and the keyword shape left the resource empty."""
+
+        def build(rows, weights, *, threshold):
+            return [
+                row * weight
+                for row, weight in zip(rows, weights)
+                if row > threshold
+            ]
+
+        stage = Stage(
+            "group",
+            produces=lambda v: isinstance(v, list) and len(v) == 1,
+            extras=("weights",),
+            tunings=(1,),
+        )
+        module = _module("theirs", build=build)
+
+        found = probe_sources(
+            stage, callables_in([module]), ([1, 5],), extras={"weights": [10, 20]},
+        )
+
+        self.assertTrue(found)
+        candidate, value = found[0]
+        self.assertEqual(candidate.plan, ("value", "extra:weights"))
+        self.assertEqual(candidate.keyword_plan, (("threshold", "tuning"),))
+        self.assertEqual(candidate.tuning, 1)
+        self.assertEqual(value, [100])
+
+    def test_the_identity_slot_holds_this_runs_items_not_the_searchs(self):
+        made = []
+
+        def build(vector, *, name):
+            made.append((vector, name))
+            return "{}={}".format(name, vector)
+
+        candidate = Candidate(
+            "theirs.build",
+            build,
+            "theirs",
+            plan=("value",),
+            keyword_plan=(("name", "identity"),),
+            per_item=True,
+            supplied={"identity": ("search-a", "search-b")},
+        )
+
+        with runtime_pool({"identity": ("run-a", "run-b")}):
+            answered = candidate.bound([7, 8])
+
+        self.assertEqual(made, [(7, "run-a"), (8, "run-b")])
+        self.assertEqual(answered, ["run-a=7", "run-b=8"])
+
+    def test_a_replay_makes_the_one_call_the_search_made(self):
+        """The handoff, the extras, the tuning and the keyword arguments in
+        one call, because a step re-called differently is a different
+        program."""
+
+        made = []
+
+        def build(vector, glove, *, name, threshold):
+            made.append((vector, glove, name, threshold))
+            return "ok"
+
+        candidate = Candidate(
+            "theirs.build",
+            build,
+            "theirs",
+            plan=("value", "extra:glove"),
+            keyword_plan=(("name", "identity"), ("threshold", "tuning")),
+            tuning=0.4,
+            handoff="element:1",
+            supplied={"identity": ("a",), "glove": "vectors"},
+        )
+
+        self.assertEqual(candidate.bound(("skip", "take")), "ok")
+        self.assertEqual(made, [("take", "vectors", ["a"], 0.4)])
+
+
+class AModuleThatRefusesToListItself(unittest.TestCase):
+    """A module can define `__dir__` and `__getattr__`, and one that generates
+    its exports can define them badly.
+
+    Either raises out of the enumeration and takes the whole search with it.
+    One unreadable name is a bug in one of their files, not a reason to stop
+    reading the repository.
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def _module(self, name, source):
+        path = self.tmp / (name + ".py")
+        path.write_text(source, encoding="utf-8")
+        self.addCleanup(sys.modules.pop, name, None)
+        return _imported(name, path)
+
+    def test_a_name_that_cannot_be_read_does_not_hide_the_rest(self):
+        module = self._module(
+            "advertised",
+            "def real(value):\n"
+            "    return [value]\n"
+            "def __dir__():\n"
+            "    return ['ghost', 'real']\n"
+            "def __getattr__(name):\n"
+            "    raise RuntimeError('the generated exports are not ready')\n",
+        )
+
+        self.assertEqual(
+            [candidate.label for candidate in callables_in([module])],
+            ["advertised.real"],
+        )
+
+    def test_a_listing_that_raises_falls_back_to_what_the_module_bound(self):
+        module = self._module(
+            "unlistable",
+            "def real(value):\n"
+            "    return [value]\n"
+            "def __dir__():\n"
+            "    raise RuntimeError('this module refuses to list itself')\n",
+        )
+
+        self.assertEqual(
+            [candidate.label for candidate in callables_in([module])],
+            ["unlistable.real"],
+        )
+
+    def test_a_namespace_key_that_is_not_a_name_keeps_the_real_exports(self):
+        """A module dictionary is keyed by anything hashable, and one key that
+        is not a string makes the fallback unsortable, so a single
+        `globals()[7] = ...` threw out every export the module had."""
+
+        module = self._module(
+            "mixedkeys",
+            "def real(value):\n"
+            "    return [value]\n"
+            "globals()[7] = 'not a name'\n"
+            "def __dir__():\n"
+            "    raise RuntimeError('this module refuses to list itself')\n",
+        )
+
+        self.assertEqual(
+            [candidate.label for candidate in callables_in([module])],
+            ["mixedkeys.real"],
+        )
+
+    def test_a_listing_of_things_that_are_not_names_enumerates_nothing(self):
+        """Their `__dir__` answered, so it is honoured, and what it named
+        cannot be asked of `getattr`. Nothing is found and the search goes on,
+        rather than ending on an AttributeError over a name that was never
+        one."""
+
+        module = self._module(
+            "numberlisting",
+            "def real(value):\n"
+            "    return [value]\n"
+            "def __dir__():\n"
+            "    return [7, 8]\n",
+        )
+
+        self.assertEqual(callables_in([module]), [])
+
+    def test_a_constructor_is_still_found_and_a_static_method_still_is_not(self):
+        """A function parked inside a class as a static method is deliberately
+        not a candidate, and a module that cannot list itself must not become
+        the way one gets in."""
+
+        module = self._module(
+            "silent",
+            "class Store:\n"
+            "    def __init__(self, rows):\n"
+            "        self.rows = list(rows)\n"
+            "    @staticmethod\n"
+            "    def helper(rows):\n"
+            "        return list(rows)\n"
+            "def __dir__():\n"
+            "    raise RuntimeError('no listing')\n",
+        )
+
+        self.assertEqual(
+            [candidate.label for candidate in constructors_in([module])],
+            ["silent.Store"],
+        )
+        self.assertEqual(callables_in([module]), [])
+
+    def test_a_module_that_gives_up_nothing_refuses_rather_than_raises(self):
+        module = self._module(
+            "opaque",
+            "def __dir__():\n"
+            "    raise RuntimeError('no listing')\n"
+            "def __getattr__(name):\n"
+            "    raise RuntimeError('nothing here')\n",
+        )
+        role = Role("week", (Stage("only"),))
+
+        binding, refusal = resolve_chain(role, [module], ([1],))
+
+        self.assertIsNone(binding)
+        self.assertEqual(refusal.detail, "no functions to try")
 
 
 if __name__ == "__main__":
