@@ -248,11 +248,12 @@ test("a run from another repository gets one sentence, not two", () => {
   assert.doesNotMatch(html, /matched to the connected repository/);
 });
 
-test("Discord's tile sizes the lifecycle row from the console, not the window", () => {
-  // `compact` is how wide the console is. A 768px window around a 352px tile
-  // satisfied `sm:`, which turned the four stage labels on inside it; the
-  // section is overflow-hidden, so they were cut off with nothing to scroll.
-  // Measured at 352px client against 362px scroll width before this.
+test("every lifecycle stage is named at every width, and the tile ignores the window", () => {
+  // Two failures at one site. A 768px window around a 352px tile satisfied
+  // `sm:`, turning the inline labels on inside it; the section is
+  // overflow-hidden, so they were clipped, measured at 352px client against
+  // 362px scroll. Hiding them instead left four unlabelled statuses. Stacking
+  // the name under the mark is what fits, so nothing has to be dropped.
   const lifecycle = (compact: boolean) => {
     const html = renderToStaticMarkup(React.createElement(RunConsole, {
       snapshot: snapshot("running"),
@@ -265,21 +266,28 @@ test("Discord's tile sizes the lifecycle row from the console, not the window", 
   };
 
   const tile = lifecycle(true);
-  assert.doesNotMatch(tile, /sm:|min-\[/, "no viewport breakpoint decides a tile's layout");
-  // Out of sight, not out of the accessibility tree. `display:none` drops the
-  // stage name, and the mark beside it is aria-hidden, so the four rows would
-  // announce "complete", "active", "pending" with nothing saying of what.
-  assert.doesNotMatch(tile, /class="hidden/, "display:none would unname every stage");
-  for (const label of ["Local", "Hosted", "Official", "Published"]) {
-    assert.match(tile, new RegExp(`class="sr-only text-\\[11px\\][^"]*">${label}<`), label);
-  }
-  assert.match(tile, /class="sr-only">active</);
+  assert.doesNotMatch(tile, /sm:|min-\[420px\]/, "no viewport breakpoint decides a tile's layout");
 
-  // The full-width console still measures the viewport, which is the right
-  // thing for it: it fills the window. Under 420px it stops drawing the names
-  // for the same reason the tile does, so it hides them the same way.
+  // Every stage is named, drawn and not merely announced. The mark beside it
+  // is aria-hidden, so a hidden name leaves four unlabelled statuses.
+  for (const label of ["Local", "Hosted", "Official", "Published"]) {
+    assert.match(tile, new RegExp(`>${label}<`), label);
+  }
+  assert.doesNotMatch(tile, /class="(hidden|sr-only)[^"]*">(Local|Hosted|Official|Published)</);
+  assert.match(tile, /class="sr-only">active</, "the state stays on its own span");
+  // Stacked, because a quarter of a tile does not fit a mark and a word in a
+  // row. This is the class that keeps them from being clipped.
+  assert.match(tile, /flex flex-col/);
+
+  // The full console fills the window, so the window is the right thing for it
+  // to measure. It stacks the same way when narrow and takes the inline row at
+  // `sm:`, which is the first width where a quarter of it fits mark and name
+  // side by side.
   const full = lifecycle(false);
-  assert.match(full, /sm:justify-start sm:px-4/);
-  assert.match(full, /class="sr-only min-\[420px\]:not-sr-only text-\[11px\]/);
-  assert.doesNotMatch(full, /class="hidden/, "display:none would unname every stage under 420px");
+  assert.match(full, /flex flex-col/);
+  assert.match(full, /sm:flex-row sm:justify-start sm:gap-2 sm:px-4 sm:py-0/);
+  for (const label of ["Local", "Hosted", "Official", "Published"]) {
+    assert.match(full, new RegExp(`>${label}<`), label);
+  }
+  assert.doesNotMatch(full, /class="(hidden|sr-only)[^"]*">(Local|Hosted|Official|Published)</);
 });
