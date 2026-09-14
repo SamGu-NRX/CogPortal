@@ -47,12 +47,8 @@ def _install_modal_stubs() -> None:
             CALLS.append(("publish", name, self.object_id))
 
     modal.enable_output = enable_output
-    modal.App.lookup = staticmethod(
-        lambda name, create_if_missing=False: CALLS.append(("lookup", name)) or object()
-    )
-    modal.Image.from_id = staticmethod(
-        lambda image_id: CALLS.append(("from_id", image_id)) or Published(image_id)
-    )
+    modal.App.lookup = lambda name, create_if_missing=False: CALLS.append(("lookup", name)) or object()
+    modal.Image.from_id = lambda image_id: CALLS.append(("from_id", image_id)) or Published(image_id)
 
     runner = types.ModuleType("modal.runner")
     runner.deploy_app = lambda application: CALLS.append(("deploy_app",))

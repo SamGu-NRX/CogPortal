@@ -160,7 +160,9 @@ export function setupCommandLines(input: {
       // directly instead.
       id: "benchmark",
       step: "project",
-      command: `python -m pip install "${pkg.distribution} @ ${pkg.source}"`,
+      // Resolve dependencies first, then replace the same-version benchmark
+      // without force-reinstalling its NumPy/Pillow dependencies too.
+      command: `python -m pip install "${pkg.distribution} @ ${pkg.source}" && python -m pip install --force-reinstall --no-deps "${pkg.distribution} @ ${pkg.source}"`,
       verified: input.verified("project"),
       selfChecked: input.selfChecked?.("project") ?? false,
       benchmarkScoped: isBenchmarkScopedStep("project"),
