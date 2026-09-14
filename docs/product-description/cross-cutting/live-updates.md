@@ -178,7 +178,7 @@ So a student can never stop a hosted run, and four pieces of copy exist for a st
 
 **The team owns it.** A surface belongs to a team, and every member watching sees the same frames. The actor's login appears on the console, which is the only per-person thing on it, and it is a name rather than a number.
 
-**Credit.** Nothing here spends or refunds anything. A run that consumes credit does so when it starts, before the first frame. See [`credit-and-quota.md`](credit-and-quota.md).
+**Credit.** Watching a run uses no quota. Admission reserves capacity; only a completed evaluation counts. See [credit and quota](credit-and-quota.md).
 
 **What the portal claims.** A live frame carries phase names and, once scored, metrics. No claim is made about the repository until the run settles. See [`foundations/what-the-portal-claims.md`](../foundations/what-the-portal-claims.md).
 
@@ -215,4 +215,4 @@ So a student can never stop a hosted run, and four pieces of copy exist for a st
 - The console renders an em dash for an unknown elapsed time (`RunConsole.tsx:106`), against `docs/design/voice.md`. Small, but it is on the most-watched screen in the product.
 - The run page has no staleness indicator when its polls fail, unlike the console's status word. Whether students notice was not observed. **Unverified.**
 
-Verified against Cog\*Portal commit `f74e087`.
+Verified against Cog\*Portal commit `a0e8eac` for quota policy; unchanged descriptions retain their earlier references.

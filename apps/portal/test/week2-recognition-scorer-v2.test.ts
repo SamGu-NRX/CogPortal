@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
  * Week 2's recognition catalog row after every migration has run.
  *
  * The scorer version is what tells a run page whether two numbers answer the
- * same question, and 0039 moves it because the lifecycle now asks about the
+ * same question, and 0044 moves it because the lifecycle now asks about the
  * people already enrolled on both sides of the stranger's enrollment. This
  * replays the real migration directory into SQLite and reads the row back,
  * rather than matching the file with a pattern: a migration that is present
@@ -30,7 +30,7 @@ import { fileURLToPath } from "node:url";
  */
 
 const MIGRATIONS = join(dirname(fileURLToPath(import.meta.url)), "..", "migrations");
-const BUMP = "0039_week2_recognition_v2.sql";
+const BUMP = "0044_week2_recognition_v2.sql";
 
 function migrationFiles(): string[] {
   return readdirSync(MIGRATIONS)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 import urllib.error
@@ -161,10 +162,9 @@ def upload_weight(
     report_id: str,
     rel_path: str,
     weight_path: Path,
+    expected_sha256: Optional[str] = None,
 ) -> str:
     """Upload one repository-relative file without retrying it."""
-
-    import hashlib
 
     # Workers caps request bodies at 100 MB on Free and Pro plans, and this
     # account's plan is not established. The largest 2026 corpus weight is
@@ -174,13 +174,13 @@ def upload_weight(
     if file_size > max_weight_bytes:
         raise PortalError("Weight files may not exceed 100 MiB: {}".format(rel_path))
 
-    digest = hashlib.sha256()
-    with weight_path.open("rb") as stream:
-        while True:
-            chunk = stream.read(1024 * 1024)
-            if not chunk:
-                break
-            digest.update(chunk)
+    if expected_sha256 is None:
+        digest = hashlib.sha256()
+        with weight_path.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+        expected_sha256 = digest.hexdigest()
+    # R2 checks the stream against the report's digest, including changes after POST.
 
     encoded_path = quote(rel_path, safe="/")
     headers = {
@@ -188,7 +188,7 @@ def upload_weight(
         "User-Agent": USER_AGENT,
         "Authorization": "Bearer {}".format(token),
         "Content-Length": str(file_size),
-        "X-Cogworks-Weight-SHA256": digest.hexdigest(),
+        "X-Cogworks-Weight-SHA256": expected_sha256,
     }
 
     url = normalize_portal(portal) + "/api/v1/local-reports/{}/weights/{}".format(

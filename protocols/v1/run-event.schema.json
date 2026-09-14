@@ -87,6 +87,9 @@
         "preparedArtifactId": {
           "type": "string"
         },
+        "preparedEnvironment": {
+          "anyOf": [{ "$ref": "run-job.schema.json#/$defs/preparedEnvironment" }, { "type": "null" }]
+        },
         "environmentDigest": {
           "type": "string",
           "pattern": "^[a-f0-9]{64}$"

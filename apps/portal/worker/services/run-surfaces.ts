@@ -2,6 +2,7 @@ import { and, asc, desc, eq, inArray, isNull, ne, or } from "drizzle-orm";
 import {
   MetricSchema,
   OFFICIAL_LIMIT,
+  PRACTICE_LIMIT,
   RUN_PHASES,
   RunStreamEventSchema,
   RunSurfaceSnapshotSchema,
@@ -19,7 +20,6 @@ import {
   leaderboardSelections,
   localReports,
   localRunSessions,
-  officialAttempts,
   runMetrics,
   runPhases,
   runs,
@@ -31,8 +31,11 @@ import {
   type RunSurfaceRow,
 } from "../db/schema";
 import { syncRun } from "../execution/sync";
+import { validateRetryInputs } from "../execution/runner";
 import { serializeMetric } from "../http/serializers";
 import { ApiHttpError } from "../http/errors";
+import { canPublishOfficialRun, currentSurfaceRun, savedEnvironmentEligibility } from "./run-eligibility";
+import { acceptedRunPredicate, readRunAccounting } from "./run-accounting";
 
 const MAX_SURFACE_EVENTS = 250;
 
@@ -207,7 +210,7 @@ async function teamBestMetric(
         eq(runs.teamId, teamId),
         eq(runs.benchmarkId, benchmarkId),
         eq(runs.benchmarkVersion, benchmarkVersion),
-        eq(runs.status, "succeeded"),
+        acceptedRunPredicate(),
         eq(runMetrics.isPrimary, true),
         // SQL `NULL != value` is unknown, so include legacy successful runs
         // that predate run surfaces as well as runs on a different surface.
@@ -234,7 +237,9 @@ export async function getRunSurfaceRow(env: Env, surfaceId: string): Promise<Run
   return surface;
 }
 
-export async function buildRunSurfaceSnapshot(
+/** Internal DO read only. These separate DB reads and wall-clock elapsed time
+ * are eventually consistent, not a point-in-time database transaction. */
+export async function readRunSurfaceSnapshot(
   env: Env,
   surfaceId: string,
 ): Promise<RunSurfaceSnapshot> {
@@ -270,8 +275,8 @@ export async function buildRunSurfaceSnapshot(
     .where(eq(runStreamEvents.surfaceId, surface.id))
     .orderBy(desc(runStreamEvents.occurredAt), desc(runStreamEvents.sourceSequence))
     .limit(MAX_SURFACE_EVENTS);
-  const practice = syncedRuns.find((row) => row.mode === "practice") ?? null;
-  const official = syncedRuns.find((row) => row.mode === "official") ?? null;
+  const practice = currentSurfaceRun(syncedRuns, "practice");
+  const official = currentSurfaceRun(syncedRuns, "official");
   const local = localRows[0] ?? null;
   const selected = official
     ? await db
@@ -287,7 +292,7 @@ export async function buildRunSurfaceSnapshot(
         )
         .limit(1)
     : [];
-  const published = selected.length > 0;
+  const published = selected.length > 0 && official !== null && canPublishOfficialRun(official);
   const stage = published ? "published" : official ? "official" : practice ? "hosted" : "local";
   const current: RunRow | typeof local = official ?? practice ?? local;
   if (!current) throw new ApiHttpError(404, "not_found", "Run surface has no run.");
@@ -315,28 +320,51 @@ export async function buildRunSurfaceSnapshot(
     surface.id,
   );
 
+  const promotionEligibility = practice && env.EXECUTION_PROVIDER === "modal"
+    ? savedEnvironmentEligibility(practice, benchmark, team)
+    : null;
+  const promotionRefusal = stage === "hosted" && status === "succeeded" && promotionEligibility?.eligible === false
+    ? promotionEligibility.reason : null;
   const actions: RunSurfaceAction[] = ["open_console", "open_portal"];
   if (stage === "local" && status !== "running") {
     actions.push("run_again");
     if (status === "succeeded" && !local?.dirty) actions.splice(2, 0, "verify_hosted");
   } else if (stage === "hosted" && status !== "running") {
     actions.push("rerun_hosted");
-    if (status === "succeeded") actions.splice(2, 0, "promote_official");
-  } else if (stage === "official" && status === "succeeded") {
-    actions.push("publish_result");
+    if (status === "succeeded" && practice?.refundedAt === null &&
+        promotionEligibility?.eligible !== false) {
+      actions.splice(2, 0, "promote_official");
+    }
+  } else if (stage === "official" && official) {
+    if (canPublishOfficialRun(official)) actions.push("publish_result");
+    // Failed executions and historical refunds cannot be promoted again here.
+    if (status === "failed" || (status !== "running" && official.refundedAt !== null)) actions.push("rerun_hosted");
   }
 
-  const claims = await db
-    .select({ id: officialAttempts.id })
-    .from(officialAttempts)
-    .where(
-      and(
-        eq(officialAttempts.teamId, surface.teamId),
-        eq(officialAttempts.benchmarkId, surface.benchmarkId),
-        eq(officialAttempts.benchmarkVersion, surface.benchmarkVersion),
-      ),
-    );
-  const nextAttempt = claims.length < OFFICIAL_LIMIT ? claims.length + 1 : null;
+  const accounting = await readRunAccounting(db, {
+    teamId: surface.teamId, benchmarkId: surface.benchmarkId, benchmarkVersion: surface.benchmarkVersion,
+  });
+  const occupied = accounting.officialUsed + accounting.officialReserved;
+  const nextAttempt = occupied < OFFICIAL_LIMIT ? occupied + 1 : null;
+  const execution = official ?? practice;
+  let retryRefusal: string | null = null;
+  if (execution?.status === "failed" && execution.provider === "modal") {
+    try {
+      validateRetryInputs(env, execution, team, benchmark);
+    } catch (error) {
+      if (!(error instanceof ApiHttpError) || error.status !== 409) throw error;
+      retryRefusal = error.message;
+    }
+  }
+  const retryCapacity = execution?.mode === "official"
+    ? occupied < OFFICIAL_LIMIT
+    : accounting.practiceUsed + accounting.practiceReserved < PRACTICE_LIMIT;
+  if (execution?.status === "failed" && benchmark.active && !accounting.activeRuns
+    && retryCapacity && execution.provider === env.EXECUTION_PROVIDER
+    && execution.repositoryId !== null && execution.repositoryId === team.repoId
+    && retryRefusal === null) {
+    actions.splice(2, 0, "retry");
+  }
 
   return RunSurfaceSnapshotSchema.parse({
     id: surface.id,
@@ -361,12 +389,23 @@ export async function buildRunSurfaceSnapshot(
     localRunId: local?.id ?? null,
     practiceRunId: practice?.id ?? null,
     officialRunId: official?.id ?? null,
+    executionGeneration: syncedRuns.length,
+    executionHistory: syncedRuns.map((run) => ({
+      id: run.id,
+      mode: run.mode,
+      status: run.status,
+      retryOfRunId: run.retryOfRunId,
+      createdAt: run.createdAt,
+      finishedAt: run.finishedAt,
+    })),
     published,
     nextOfficialAttempt: nextAttempt,
     // The run that failed, if one did. A refusal explains itself; every other
     // failure has a traceback and belongs in the log rather than in a chat
     // message.
     refusalHeadline: refusalHeadlineOf(official ?? practice),
+    promotionRefusal,
+    retryRefusal,
     events,
     actions,
     simulated: env.EXECUTION_PROVIDER === "fixture",
@@ -429,16 +468,32 @@ export async function appendRunStreamEvent(
   return { duplicate };
 }
 
-export async function publishRunSurface(env: Env, surfaceId: string): Promise<RunSurfaceSnapshot> {
-  const snapshot = await buildRunSurfaceSnapshot(env, surfaceId);
+async function requestRunSurfaceSnapshot(
+  env: Env,
+  surfaceId: string,
+  operation: "snapshot" | "publish",
+): Promise<RunSurfaceSnapshot> {
   const stub = env.RUN_SURFACES.get(env.RUN_SURFACES.idFromName(surfaceId));
-  const response = await stub.fetch("https://run-surface.internal/publish", {
+  const response = await stub.fetch(`https://run-surface.internal/${operation}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(snapshot),
+    body: JSON.stringify({ surfaceId }),
   });
+  if (response.status === 404) throw new ApiHttpError(404, "not_found", await response.text());
   if (!response.ok) throw new Error("The realtime run surface could not be updated.");
+  const snapshot = RunSurfaceSnapshotSchema.parse(await response.json());
+  if (snapshot.id !== surfaceId || snapshot.snapshotRevision === 0) {
+    throw new Error("The realtime run surface returned an unstamped or mismatched snapshot.");
+  }
   return snapshot;
+}
+
+export async function buildRunSurfaceSnapshot(env: Env, surfaceId: string): Promise<RunSurfaceSnapshot> {
+  return requestRunSurfaceSnapshot(env, surfaceId, "snapshot");
+}
+
+export async function publishRunSurface(env: Env, surfaceId: string): Promise<RunSurfaceSnapshot> {
+  return requestRunSurfaceSnapshot(env, surfaceId, "publish");
 }
 
 export function defaultLocalEventCode(phase: string): RunStreamEventCode {

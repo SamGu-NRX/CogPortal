@@ -14,7 +14,7 @@ import { getFamilyLeaderboardReadModel, getLeaderboardReadModel } from "../worke
 import { publishOfficialRun, type RunActor } from "../worker/services/run-actions.ts";
 
 const MIGRATIONS = join(dirname(fileURLToPath(import.meta.url)), "..", "migrations");
-const UPGRADE = "0039_week2_recognition_v2.sql";
+const UPGRADE = "0044_week2_recognition_v2.sql";
 const RECOGNITION = "vision-recognition";
 const CLUSTERING = "vision-clustering";
 

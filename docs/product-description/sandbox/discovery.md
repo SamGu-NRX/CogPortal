@@ -219,8 +219,7 @@ that succeeded, above the metrics.
 | The thing being measured changes | The commit is resolved before the archive is fetched. | No effect. Both searches, the prepare one and the evaluate one, read the same unpacked bytes. |
 | Refused, or out of credit | Quota was settled before the run started. | Not reachable. The search spends nothing and consults nothing. A refusal produced here is a verdict about the repository, not a quota decision. |
 
-A search that ends in a refusal still costs the practice slot: that was spent when the run row
-was written, and `adapter_missing` is not marked as the platform's fault, so nothing is refunded.
+A discovery refusal leaves a failed execution and uses no quota.
 
 ## Interactions with other systems
 
@@ -231,8 +230,7 @@ trace for whoever reads it.
 functions rather than people. That is what keeps it inside the no-per-person-numbers rule: it says
 what ran, never who wrote it.
 
-**Credit.** The search neither spends nor refunds. Its verdict decides which failure category
-prepare raises, and that decides the refund; see
+**Credit.** Discovery explains whether the submission can be run. A failure uses no quota; see
 [`../cross-cutting/credit-and-quota.md`](../cross-cutting/credit-and-quota.md).
 
 **What the portal claims.** Discovery produces most of the platform's vocabulary: the five
@@ -301,4 +299,4 @@ schema (`packages/contracts/src/protocol.ts:126`), and the refusal (`modal_app.p
 - Nothing about the search was observed running: the wiring panel, the refusal card, and every
   headline above are read from source, not from a browser. **Unverified.**
 
-Verified against Cog\*Portal commit `f74e087`.
+Verified against Cog\*Portal commit `a0e8eac` for quota policy; unchanged descriptions retain their earlier references.

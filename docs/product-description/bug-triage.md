@@ -38,7 +38,7 @@ Four entries describe work that landed during the drafting pass and may already 
 | B-09b | Discord tells a student a hosted practice run is free | high | discord | fix |
 | B-09c | The admin console counts quota differently from the quota | high | portal | fix |
 | B-10 | `cogworks check` can exit 0 on a repository `cogworks run` refuses | high | terminal | fix |
-| B-11 | Week 2 never attributes a timeout, so a killed run spends an attempt under the wrong category | high | sandbox | fix |
+| B-11 | Week 2 never attributes a timeout, so a killed run receives the wrong failure explanation | high | sandbox | fix |
 | B-12 | `/cog view:connect` for an already-linked student is a dead end | high | discord | fix |
 | B-13 | An interrupted `--live` run leaves the session running and the team's bubble frozen forever | high | terminal, discord | fix |
 | B-14 | One member's expired GitHub token blanks the team's process panel for thirty minutes | high | portal | fix |
@@ -52,7 +52,7 @@ Four entries describe work that landed during the drafting pass and may already 
 | B-21 | A plugin version mismatch is reported to the student as missing benchmark data | medium | sandbox | fix |
 | B-22 | The evaluation progress counter never moves | medium | sandbox, portal | fix |
 | B-23 | Promote is clickable while the quota is still loading | medium | portal | fix |
-| B-24 | The refund cap is bypassed when Modal dispatch fails | medium | portal | fix |
+| B-24 | The refund cap is bypassed when Modal dispatch fails | medium | portal | superseded by recovery policy |
 | B-25 | The Week 3 timeout message is Week 1's copy, about songs | medium | sandbox | fix |
 | B-26 | Floors print as ordinary scores in the terminal | medium | terminal | fix |
 | B-27 | A batch of live events applies partially and reports failure | medium | portal | fix |
@@ -187,19 +187,19 @@ Four entries describe work that landed during the drafting pass and may already 
 
 ### B-09b: Discord tells a student a hosted practice run is free
 
-- **Where the user meets it:** A student presses "Verify hosted" in Discord and reads a confirmation saying it costs nothing. It costs one of ten.
-- **What happens / what was expected:** The confirmation reads "The hosted bench runs this exact commit, so the score is observed, not self-reported. It's practice and spends nothing." The action calls `startPracticeRun`, which the ten-run practice quota counts. The browser's equivalent control says the opposite, correctly. Expected: the two surfaces agree, and neither calls an action free when it is not.
+- **Where the user meets it:** A student reads the hosted verification confirmation in Discord. A completed evaluation counts toward practice quota; a failure does not.
+- **What happens / what was expected:** The earlier confirmation called hosted practice free without qualification. Completed hosted evaluations count toward quota. The confirmation must state that consequence without implying that admission or failure uses quota.
 - **Reproduce:** Run `/cog`, choose "Verify hosted", read the confirmation, and compare the dashboard's practice counter before and after.
-- **Why (from the code):** `apps/discord-bot/src/commands.ts:514`; the quota is counted at `apps/portal/worker/services/run-actions.ts:206`.
+- **Why (from the code):** The earlier confirmation was in `apps/discord-bot/src/commands.ts:514`. Current usage comes from completed executions in `apps/portal/worker/services/run-accounting.ts`.
 - **Severity:** `high`. A confirmation dialog that misstates the cost of the thing it is confirming, on the surface where the student is least able to see the counter.
-- **Status:** *repaired in source, not observed in a guild.* `apps/discord-bot/src/commands.ts` now names the practice run it spends, and the promotion confirmation says the environment is reused while the code is scored again on the hidden set. A third confirmation, `rerun_hosted`, had the same defect and was repaired with it. Covered by `apps/discord-bot/test/commands.test.ts`. No Discord client, guild or message was exercised, so this is a source repair awaiting observation.
+- **Status:** The earlier source repair remains unverified in a guild. Recheck its confirmation against the completed-only policy at `a0e8eac`; this documentation correction does not certify Discord presentation.
 - **Decision needed:** `fix`.
 - **Raised by:** [`cross-cutting/credit-and-quota.md`](cross-cutting/credit-and-quota.md#open-questions-and-verification), [`discord/commands.md`](discord/commands.md#open-questions-and-verification)
 
 ### B-09c: The admin console counts quota differently from the quota
 
 - **Where the user meets it:** An instructor opens the admin page and reads a team's usage as "11/10".
-- **What happens / what was expected:** The admin overview counts every practice run and every official attempt a team has made, across all benchmarks and all versions. The limits it prints them against are per team per benchmark version. A team six runs into Recognition and five into Clustering displays eleven against a limit of ten. Expected: numerator and denominator measure the same thing. The denominators are also hardcoded, which is B-35.
+- **What happens / what was expected:** The admin overview counts completed practice and official evaluations across all benchmarks and versions. The limits it prints them against are per team per benchmark version. A team with six completed evaluations in Recognition and five in Clustering displays eleven against a limit of ten. Expected: numerator and denominator measure the same thing. The denominators are also hardcoded, which is B-35.
 - **Reproduce:** Give one team runs on two benchmarks in the same week and open `/admin`.
 - **Why (from the code):** `apps/portal/worker/routes/admin.ts:76` and `:80` count without grouping; the limits are applied per benchmark version at `apps/portal/worker/services/run-actions.ts:206` and `:347`.
 - **Severity:** `high`. It is the first number an instructor reads about a team, it can exceed its own maximum, and an instructor acting on it would draw the wrong conclusion about who is stuck.
@@ -218,13 +218,13 @@ Four entries describe work that landed during the drafting pass and may already 
 - **Fixed on `fix/demo-readiness`:** both commands read one decision, `_scoreable` (`python/cogbench/src/cogbench/cli.py:323`), and an installed entry point is reported without being counted as readiness. Covered by `python/cogbench/tests/test_cli_readiness.py`.
 - **Raised by:** [`terminal/check.md`](terminal/check.md#open-questions-and-verification)
 
-### B-11: Week 2 never attributes a timeout, so a killed run spends an attempt under the wrong category
+### B-11: Week 2 never attributes a timeout, so a killed run receives the wrong failure explanation
 
-- **Where the user meets it:** A Week 2 team's official run is killed at the fifteen-minute ceiling. They are shown a generic evaluation failure with a truncated stderr tail, and the attempt is spent.
+- **Where the user meets it:** A Week 2 team's official run is killed at the fifteen-minute ceiling. They are shown a generic evaluation failure with a truncated stderr tail. The failure uses no quota.
 - **What happens / what was expected:** `_evaluate_week1` and `_evaluate_week3` record a start time and call `_timed_out` before falling through to `student_runtime`. `_evaluate_v2` and `_evaluate` do neither, so a SIGKILL at the budget is reported as an ordinary runtime failure. Expected: the same attribution every other lane performs, which exists specifically to give the student the timeout message with its advice about work that grows with the catalog.
 - **Reproduce:** Submit a Week 2 repository whose evaluation exceeds 900 seconds and read the failure card.
 - **Why (from the code):** `apps/runner-modal/src/cogworks_runner/modal_app.py` `_evaluate_v2` and `_evaluate` against `_evaluate_week1` and `_evaluate_week3`; `_timed_out` is the function they skip. `apps/runner-modal/tests/test_limit_attribution.py` asserts every `_evaluate*` path classifies both limits, which is worth re-reading, because either the test or the code is wrong.
-- **Severity:** `high`. Both outcomes spend the attempt, so the cost is identical, but the student is denied the one message that would tell them what to change.
+- **Severity:** `high`. Neither outcome uses quota, but the student is denied the one message that would tell them what to change.
 - **Decision needed:** `fix`.
 - **Raised by:** [`sandbox/timeouts-and-limits.md`](sandbox/timeouts-and-limits.md#open-questions-and-verification)
 
@@ -329,7 +329,7 @@ Four entries describe work that landed during the drafting pass and may already 
 - **Where the user meets it:** A run fails with "Benchmark data is not ready" and an explanation about a data bundle that could not be downloaded or did not match its checksum, when the real problem is that the deployed plugin and the run job disagree about a version.
 - **What happens / what was expected:** The contract check raises the mismatch under the `data_download` category, which maps to that copy. Expected: `contract_invalid` or `provider`, either of which is true.
 - **Why (from the code):** `apps/runner-modal/src/cogworks_runner/modal_app.py:926`; the copy is in `packages/contracts/src/failures.ts`. `apps/runner-modal/tests/test_preflight_dispatch.py:402` documents this drift being seen in production.
-- **Severity:** `medium`. The run is refunded either way, so nothing is lost but the student's and the instructor's time chasing the wrong thing.
+- **Severity:** `medium`. The failure uses no quota either way, so nothing is lost but the student's and the instructor's time chasing the wrong thing.
 - **Decision needed:** `fix`.
 - **Raised by:** [`sandbox/scoring-and-refusals.md`](sandbox/scoring-and-refusals.md#open-questions-and-verification), [`foundations/the-run.md`](foundations/the-run.md#open-questions-and-verification)
 
@@ -353,12 +353,8 @@ Four entries describe work that landed during the drafting pass and may already 
 
 ### B-24: The refund cap is bypassed when Modal dispatch fails
 
-- **Where the user meets it:** Invisibly, in the accounting. A team whose runs keep failing to dispatch gets unlimited free attempts, and the admin console's refund count does not show them.
-- **What happens / what was expected:** A pre-acceptance dispatch failure deletes the official attempt row directly, without stamping `refundedAt`, so it is invisible both to the cap calculation and to the staff view. Expected: every refund goes through the one function that counts them.
-- **Why (from the code):** `apps/portal/worker/services/run-actions.ts:172` against `apps/portal/worker/execution/refunds.ts:122`.
-- **Severity:** `medium`. It favours the student, so nobody is harmed, but the cap exists for a reason and this path ignores it.
-- **Decision needed:** ~~`fix`~~. **Not a defect; the premise is wrong.** REFUND_CAP limits how many times a team may be given back an attempt that a real run consumed. A dispatch the provider refused before any sandbox existed consumed nothing, so there is no refund to count and charging one against the cap would let five refused dispatches cost a team the ability to be refunded a genuine infrastructure failure. The direct delete is correct for this path and now says so at the site (`apps/portal/worker/services/run-actions.ts`). Unknown acceptance is a different case and is not released at all: the run stays queued for the stale sweep, which refunds through the counted path.
-- **Raised by:** [`cross-cutting/credit-and-quota.md`](cross-cutting/credit-and-quota.md#open-questions-and-verification)
+- **Status:** superseded by accepted recovery policy at `a0e8eac`. Failed executions use no quota, and the refund cap and runtime attempt ledger have been removed. No cap repair is required. This retires the old policy question, not a browser verification item.
+- **Raised by:** [credit and quota](cross-cutting/credit-and-quota.md).
 
 ### B-25: The Week 3 timeout message is Week 1's copy, about songs
 
