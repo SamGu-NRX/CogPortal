@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router";
+import { Link, useNavigate, useSearchParams } from "react-router";
 import { Button } from "@/components/Button";
+import { CopyBlock } from "@/components/CopyBlock";
 import { LoadingMark, QueryError } from "@/components/Feedback";
 import { Panel } from "@/components/Panel";
 import { ApiRequestError } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
+import { deviceLinkCommand } from "@/lib/setup-progress";
 import {
   useApproveDevice,
   useConfirmDiscordLink,
@@ -130,8 +132,9 @@ export function ConnectionsPage() {
           <h2 className="text-xl">You’re connected.</h2>
           <p className="mt-2 max-w-lg text-[13px] text-ink-secondary">
             Cog is now connected to <strong className="font-medium text-ink">{linkedDiscord}</strong>.
-            Return to Discord and choose <strong className="font-medium text-ink">I’ve connected</strong>. Your
-            team bench will appear in the same message.
+            Discord is still showing what it knew before you linked, so choose{" "}
+            <strong className="font-medium text-ink">Check the link</strong> in the Activity, or run{" "}
+            <strong className="font-medium text-ink">/cog</strong> again.
           </p>
         </Panel>
       )}
@@ -240,10 +243,23 @@ export function ConnectionsPage() {
 
         <Panel label="COGWORKS CLI DEVICES">
           {connections.data.cliDevices.length === 0 ? (
-            <p className="text-[13px] text-ink-secondary">
-              No linked devices. Run <code>cogworks link</code> in your project when you want to sync a
-              local report.
-            </p>
+            <>
+              <p className="text-[13px] text-ink-secondary">
+                No linked devices. Linking one lets you upload a local report from your project. Run
+                this there, then approve the code it prints.
+              </p>
+              {/* The complete command, not the bare verb. A fresh CLI has no saved
+                  portal and refuses `cogworks link` outright, which used to send a
+                  first-time student to Setup to find the rest of it. */}
+              <CopyBlock className="mt-3" text={deviceLinkCommand(window.location.origin)} />
+              <p className="mt-3 text-[13px] text-ink-secondary">
+                Don't have the tool yet?{" "}
+                <Link to="/setup" className="text-ink underline underline-offset-4">
+                  Setup
+                </Link>{" "}
+                has the whole sequence.
+              </p>
+            </>
           ) : (
             <ul className="divide-y divide-rule-soft">
               {connections.data.cliDevices.map((device) => (

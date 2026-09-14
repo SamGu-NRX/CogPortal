@@ -86,7 +86,12 @@ export interface SetupCommand {
   evidenceSource: "setup-state" | "devices";
 }
 
-/** Explicit origin also works before the CLI has saved its first portal. */
+/**
+ * The one place this command is written. The setup rail, the Connections
+ * device panel and the dropped-link notice all offer it, and a device request
+ * only reaches the right portal if all three agree on the origin. `--portal`
+ * is explicit because a machine that has never linked has no saved one.
+ */
 export function deviceLinkCommand(portalOrigin: string): string {
   return `cogworks link --portal ${portalOrigin}`;
 }
