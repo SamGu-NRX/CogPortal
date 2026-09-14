@@ -3454,28 +3454,52 @@ class AnImportDeadlineStaysInsideItsOwnBlock(_Fixture):
 
     @contextlib.contextmanager
     def _timers(self):
-        """Capture every timer armed, and fire none of them by itself."""
+        """Capture every timer armed and record starts and cancels as they
+        happen, so concurrency is observed rather than reconstructed."""
 
         armed = []
+        events = []
         real = threading.Timer
 
         class Held(object):
             def __init__(self, seconds, callback):
                 self.callback, self.cancelled = callback, False
-                self.order = len(armed)
                 armed.append(self)
 
             def start(self):
-                pass
+                events.append(1)
 
             def cancel(self):
-                self.cancelled = True
+                if not self.cancelled:
+                    self.cancelled = True
+                    events.append(-1)
 
         threading.Timer = Held
         try:
-            yield armed
+            yield armed, events
         finally:
             threading.Timer = real
+
+    def test_a_deadline_that_fails_to_start_does_not_keep_ownership(self):
+        """Ownership was installed and the timer started before the cleanup
+        `try`. A budget already spent can deliver its timeout during startup,
+        and raising there left ownership behind: every later import on this
+        thread then read itself as nested and armed no deadline at all, so
+        nothing was bounded again for the life of that thread."""
+
+        try:
+            with discover_module._deadline(0, "already spent"):
+                pass
+        except discover_module._ImportTimeout:
+            pass
+
+        self.assertIsNone(
+            getattr(discover_module._IMPORT_DEADLINE, "state", None),
+            "ownership survived a failed start",
+        )
+        with self.assertRaises(discover_module._ImportTimeout):
+            with discover_module._deadline(0.01, "the next one"):
+                time.sleep(0.05)
 
     def test_the_real_notebook_path_arms_one_timer(self):
         """Not a synthetic nesting: `_execute` reaches the notebook finder,
@@ -3488,20 +3512,20 @@ class AnImportDeadlineStaysInsideItsOwnBlock(_Fixture):
             "from ipynb.fs.defs.helpers import widen\n\nVALUE = widen(21)\n"
         )
 
-        with self._timers() as armed:
+        with self._timers() as (armed, events):
             found = discover(self.tmp)
 
         self.assertEqual(self._module(found, "user").VALUE, 42)
         self.assertTrue(armed, "discovery armed no deadline at all")
-        # The real question is concurrency, not the total: a nested import
-        # must not add a second live timer on top of the one already running.
+        # Starts and cancels in the order they happened. Reading the final
+        # cancelled flags instead reconstructs at most one live timer whatever
+        # the implementation did, so that version passed the two-owner code as
+        # well and measured nothing.
         live = 0
         most = 0
-        for event in sorted(armed, key=lambda t: t.order):
-            live += 1
+        for step in events:
+            live += step
             most = max(most, live)
-            if event.cancelled:
-                live -= 1
         self.assertEqual(most, 1, "two deadlines were live on one thread")
 
     def test_a_slow_import_on_a_worker_thread_is_still_bounded(self):

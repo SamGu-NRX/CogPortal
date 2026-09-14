@@ -1045,8 +1045,13 @@ def _deadline(seconds: float, name: str):
     timer = threading.Timer(seconds, _interrupt)
     timer.daemon = True
     _IMPORT_DEADLINE.state = state
-    timer.start()
     try:
+        # Inside, not before. Starting a timer whose interval has already
+        # elapsed can deliver the timeout during startup, and raising there
+        # left ownership installed with no cleanup to take it out: every
+        # later import on this thread then read itself as nested and armed
+        # no deadline at all.
+        timer.start()
         yield
     finally:
         try:
