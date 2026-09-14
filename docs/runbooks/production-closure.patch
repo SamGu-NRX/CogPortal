@@ -1,0 +1,26 @@
+Local production config only. Apply before building; reverse after the approved
+window. Neither operation changes provider state. Custom domains still require
+the separate block in docs/runbooks/production-closure.md.
+
+--- a/apps/portal/wrangler.jsonc
++++ b/apps/portal/wrangler.jsonc
+@@ -142,6 +142,9 @@
+   // ─────────────────────────────────────────────────────────────────────────
+   "env": {
+     "production": {
++      // Explicit closure overrides survive production build and deployment.
++      "workers_dev": false,
++      "preview_urls": false,
+       "routes": [
+         { "pattern": "cogportal.sillion.app", "custom_domain": true },
+         { "pattern": "cogactivity.sillion.app", "custom_domain": true }
+@@ -167,7 +170,8 @@
+       "durable_objects": {
+         "bindings": [{ "name": "RUN_SURFACES", "class_name": "RunSurfaceHub" }]
+       },
+-      "triggers": { "crons": ["*/5 * * * *"] },
++      // Omitting triggers would inherit the top-level schedule.
++      "triggers": { "crons": [] },
+       "vars": {
+         "ENVIRONMENT": "production",
+         "DEV_AUTH": "disabled",
