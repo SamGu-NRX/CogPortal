@@ -30,19 +30,15 @@ export interface BenchmarkPackage {
  * reaches that through this page, which serves whichever pin its own deploy
  * carries, but `--portal` at an older deployment does.
  *
- * Preserves `094a6f1a`'s execution protections, including the macOS fresh
- * interpreter and JSON result boundary. Its child `b8ae7ce2` fixes saved metric
- * roles; `1b7fc261` then removes ten stale generated SDK copies that made an
- * untouched export build from a 0.1.0 tree.
- *
- * Measured on 2026-09-14 against the untouched published archive: the install
- * reports 0.2.0, all 23 modules byte-match the source, saved Audio roles and
- * weights survive a round trip, and three installed tests pass. That is a
- * bounded 3.11.15 case. Live authenticated sync, scoring, and a fresh 3.8
- * install are unproven and belong to the native rehearsal.
+ * The retained-input SDK and Week3 pin move together: reports name captured
+ * bytes and sync uploads those retained files, rather than rereading changed
+ * project weights. The accepted local contract/storage and memo checks cover
+ * supported adapters; they do not establish weighted course compatibility.
+ * `d9405278` preserves that implementation and repairs its CI fixtures and
+ * strict Week3 validator. Final combined live rehearsal remains separate.
  */
 export const COGBENCH_SOURCE =
-  "git+https://github.com/SamGu-NRX/CogPortal.git@1b7fc261abfe0ff006a4a678d936e75002e5bb39#subdirectory=python/cogbench";
+  "git+https://github.com/SamGu-NRX/CogPortal.git@d9405278aac8268cd340e589f36dbad766d1e2a0#subdirectory=python/cogbench";
 
 const WEEK1_AUDIO: BenchmarkPackage = {
   distribution: "cogworks-week1-audio-benchmark",
@@ -61,7 +57,7 @@ const WEEK2_VISION: BenchmarkPackage = {
 const WEEK3_LANGUAGE: BenchmarkPackage = {
   distribution: "cogworks-week3-language-benchmark",
   source:
-    "git+https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git@1004766b66a4405ceda1a1b014a0438098a6570e",
+    "git+https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git@fff786537567939936bf65042c09cdea27c90798",
 };
 
 export const BENCHMARK_PACKAGES: Readonly<Record<string, BenchmarkPackage>> = {

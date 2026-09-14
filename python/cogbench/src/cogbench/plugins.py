@@ -16,7 +16,18 @@ class BenchmarkInstall(NamedTuple):
     source: str
 
 
-# These pins are the submodule commits in .gitmodules and must move with them.
+# What to tell a student whose benchmark package is missing. The CLI is
+# installed as a package and cannot read the parent checkout, so the commands
+# are written out here.
+#
+# These are the distributions students install, which is not the same list as
+# `.gitmodules`: Week 2 is developed in one repository and published from
+# another, so its advice names the published fork rather than the submodule
+# URL. Treating the two as one table is what left this advice pointing at
+# commits no student could install.
+#
+# Moving a pin here is a coordinated change: the portal's own installer copy
+# and the benchmark catalog restate the same versions and are owned elsewhere.
 BENCHMARK_INSTALLS: Dict[str, BenchmarkInstall] = {
     "audio-identification": BenchmarkInstall(
         "cogworks-week1-audio-benchmark",
@@ -25,18 +36,18 @@ BENCHMARK_INSTALLS: Dict[str, BenchmarkInstall] = {
     ),
     "vision-recognition": BenchmarkInstall(
         "cogworks-week2-vision-benchmark",
-        "git+https://github.com/iReynaldo/ComputerVisionBenchmark.git"
-        "@c177cf23cdd4f8dbe55401a2eb4bada4c64d37c2",
+        "git+https://github.com/SamGu-NRX/cogworks-week2-vision-benchmark.git"
+        "@b9055031bf25a18594651d89610f3fbcd7462db8",
     ),
     "vision-clustering": BenchmarkInstall(
         "cogworks-week2-vision-benchmark",
-        "git+https://github.com/iReynaldo/ComputerVisionBenchmark.git"
-        "@c177cf23cdd4f8dbe55401a2eb4bada4c64d37c2",
+        "git+https://github.com/SamGu-NRX/cogworks-week2-vision-benchmark.git"
+        "@b9055031bf25a18594651d89610f3fbcd7462db8",
     ),
     "language-search": BenchmarkInstall(
         "cogworks-week3-language-benchmark",
         "git+https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git"
-        "@b166f5c15e950baccc3785839cdcc660ffe01bb4",
+        "@fff786537567939936bf65042c09cdea27c90798",
     ),
 }
 

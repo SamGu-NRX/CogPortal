@@ -43,7 +43,7 @@ class ReportRoundTrips(unittest.TestCase):
             started_at=1, finished_at=2, metrics=metrics,
             diagnostics=['The findings remain available.'], output_digest='b' * 64,
             weights_used=['model.pkl'],
-            weights_uploaded=[{'path': 'model.pkl', 'sha256': 'c' * 64}],
+            weights_uploaded=[{'path': 'model.pkl', 'sha256': 'c' * 64, 'size': 16}],
         )
         restored = LocalReport.from_json(report.to_json())
         self.assertEqual(restored, report)
