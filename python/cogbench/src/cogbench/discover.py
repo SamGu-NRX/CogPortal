@@ -1003,42 +1003,33 @@ def _deadline(seconds: float, name: str):
 
     One owner, not one per block. Imports nest: `_execute` reaches
     `_NotebookFsFinder.create_module`, which reaches `_import_one`, which
-    reaches `_execute` again. Each level used to arm its own timer, and two
-    timers on one thread can interleave. The schedule that breaks it, found by
-    an independent review and reproduced on 3.8.20 and 3.13.12: the outer
-    timer fires while the inner block is inside its own cleanup, before the
-    inner has marked itself over or cancelled. The outer timeout propagates,
-    the inner cleanup never finishes, and the inner timer is still armed with
-    nothing to stop it. It fires after both blocks have exited and the
-    exception lands in whatever runs next, which for discovery is the
-    `_notebooks` enumeration in `_consume`.
+    reaches `_execute` again. Two timers on one thread can interleave, and the
+    one that loses is the inner block's cleanup: interrupted before it marks
+    itself over, it leaves its own timer armed with nothing left to stop it,
+    and that timer fires after every block has exited. So a nested block arms
+    nothing and shares what is left of the budget already running.
 
-    No arrangement of guards inside a block fixes that, because the thing
-    interrupting the cleanup is the other deadline. So a nested block arms
-    nothing and shares what is left of the budget already running. There is
-    one timer per thread, so there is no second callback to interleave with.
+    That budget is the outermost one's remainder. An inner notebook import
+    cannot buy the stack more time than the module that started it was given.
 
-    What this still cannot do is stop a call that never returns to the
-    interpreter, such as one blocked in a C extension. `cogbench.isolate` is
-    the guarantee; this is a limit on ordinary Python work.
+    What this cannot do is interrupt a call that never returns to the
+    interpreter. The exception is delivered at a bytecode boundary, so a
+    single C call such as `time.sleep` or a native decoder runs to completion
+    first. `cogbench.isolate` is the guarantee; this is a limit on ordinary
+    Python work.
     """
 
     import ctypes
     import threading
 
-    running = getattr(_IMPORT_DEADLINE, "state", None)
-    if running is not None:
-        # Nested. The budget is the outer one's remainder, and this level owns
-        # no timer, so an interrupted cleanup here leaves nothing armed.
-        running["depth"] += 1
-        try:
-            yield
-        finally:
-            running["depth"] -= 1
+    if getattr(_IMPORT_DEADLINE, "state", None) is not None:
+        # Nested. Owning no timer is the point: a cleanup interrupted here
+        # leaves nothing armed.
+        yield
         return
 
     guard = threading.Lock()
-    state = {"over": False, "injected": False, "depth": 1}
+    state = {"over": False, "injected": False}
     importing = threading.current_thread().ident or 0
 
     def _interrupt() -> None:
@@ -1066,15 +1057,14 @@ def _deadline(seconds: float, name: str):
                 injected = state["injected"]
             timer.cancel()
             if injected:
-                # `PyThreadState_SetAsyncExc` makes the exception pending, so
-                # one decided on but not yet delivered is still in flight and
-                # would land after this block. Take it back.
+                # The injection is pending rather than delivered, so one this
+                # block did not observe would land after it. Take it back.
                 ctypes.pythonapi.PyThreadState_SetAsyncExc(
                     ctypes.c_ulong(importing), ctypes.c_void_p(0)
                 )
         finally:
-            # Always, even if the clearing above is itself interrupted: a
-            # thread that kept this would treat its next import as nested.
+            # Always: a thread that kept this would treat its next import as
+            # nested and never arm a deadline again.
             _IMPORT_DEADLINE.state = None
 
 

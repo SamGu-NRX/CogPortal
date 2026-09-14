@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import importlib.util
 import json
 import os
@@ -3450,6 +3451,92 @@ class AnImportDeadlineStaysInsideItsOwnBlock(_Fixture):
     CI traceback and on `PyThreadState_SetAsyncExc` being documented as
     pending rather than immediate.
     """
+
+    @contextlib.contextmanager
+    def _timers(self):
+        """Capture every timer armed, and fire none of them by itself."""
+
+        armed = []
+        real = threading.Timer
+
+        class Held(object):
+            def __init__(self, seconds, callback):
+                self.callback, self.cancelled = callback, False
+                self.order = len(armed)
+                armed.append(self)
+
+            def start(self):
+                pass
+
+            def cancel(self):
+                self.cancelled = True
+
+        threading.Timer = Held
+        try:
+            yield armed
+        finally:
+            threading.Timer = real
+
+    def test_the_real_notebook_path_arms_one_timer(self):
+        """Not a synthetic nesting: `_execute` reaches the notebook finder,
+        which reaches `_import_one`, which reaches `_execute` again."""
+
+        (self.tmp / "helpers.ipynb").write_text(
+            _notebook("def widen(x):\n    return x * 2\n")
+        )
+        (self.tmp / "user.py").write_text(
+            "from ipynb.fs.defs.helpers import widen\n\nVALUE = widen(21)\n"
+        )
+
+        with self._timers() as armed:
+            found = discover(self.tmp)
+
+        self.assertEqual(self._module(found, "user").VALUE, 42)
+        self.assertTrue(armed, "discovery armed no deadline at all")
+        # The real question is concurrency, not the total: a nested import
+        # must not add a second live timer on top of the one already running.
+        live = 0
+        most = 0
+        for event in sorted(armed, key=lambda t: t.order):
+            live += 1
+            most = max(most, live)
+            if event.cancelled:
+                live -= 1
+        self.assertEqual(most, 1, "two deadlines were live on one thread")
+
+    def test_a_slow_import_on_a_worker_thread_is_still_bounded(self):
+        (self.tmp / "slow.py").write_text("import time\ntime.sleep(6)\nV = 1\n")
+        outcome = {}
+
+        def work():
+            try:
+                found = discover(self.tmp, import_timeout=1)
+                outcome["skipped"] = [
+                    (entry.name, entry.reason) for entry in found.skipped
+                ]
+            except BaseException as error:  # noqa: BLE001 - reported, not raised
+                outcome["raised"] = "{}: {}".format(type(error).__name__, error)
+
+        worker = threading.Thread(target=work)
+        worker.start()
+        worker.join(timeout=40)
+
+        self.assertFalse(worker.is_alive())
+        self.assertNotIn("raised", outcome)
+        self.assertEqual(outcome.get("skipped"), [("slow", "too_slow")])
+
+    def test_a_c_call_runs_to_completion_before_the_timeout_lands(self):
+        """The limit this mechanism has, pinned so it is not mistaken for a
+        defect. The exception arrives at a bytecode boundary, so a single C
+        call finishes first. `cogbench.isolate` is what covers that."""
+
+        started = time.monotonic()
+        with self.assertRaises(discover_module._ImportTimeout):
+            with discover_module._deadline(0.05, "sleeping"):
+                time.sleep(0.4)
+        slept = time.monotonic() - started
+
+        self.assertGreaterEqual(slept, 0.4)
 
     def test_a_nested_import_arms_no_timer_of_its_own(self):
         """The property that makes the interleaving impossible, rather than a
