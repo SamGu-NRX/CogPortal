@@ -707,8 +707,16 @@ def resolve(
                     )
                 declared = [str(p) for p in from_repository.pop("weights_used", ())]
                 if offered:
-                    # Capture is the declaration. Anything the hook also named
-                    # would be a second answer to the same question.
+                    # Capture is the declaration. A hook that also returns a
+                    # list is giving a second answer to the same question, and
+                    # dropping it would hide a disagreement rather than settle
+                    # one. Refused rather than reconciled at runtime.
+                    if declared:
+                        raise storage.RetentionError(
+                            "This benchmark both captures its weights and returns a "
+                            "`weights_used` list. Capture is the declaration; remove "
+                            "the list: {}".format(", ".join(sorted(declared)))
+                        )
                     weights_captured = tuple(
                         {"path": item.path, "sha256": item.sha256, "size": item.size}
                         for item in sorted(retained.values(), key=lambda r: r.path)

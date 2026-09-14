@@ -936,6 +936,30 @@ class WhatTheRepositoryItselfSuppliesIsReadOnceTheRootIsKnown(unittest.TestCase)
         self.assertEqual([item["path"] for item in captured], ["data/a.npy", "data/b.npy"])
         self.assertEqual([item["size"] for item in captured], [len(b"first"), len(b"second")])
 
+    def test_a_hook_that_captures_and_also_names_weights_is_refused(self):
+        """Two answers to one question. Dropping the list would hide the
+        disagreement instead of settling it."""
+
+        weights = self.tmp / "data"
+        weights.mkdir(exist_ok=True)
+        (weights / "a.npy").write_bytes(b"first")
+
+        def prepare(root, modules, capture=None):
+            capture(root / "data" / "a.npy")
+            return {"W": 3, "weights_used": ["data/a.npy"]}
+
+        submission = resolve(
+            self.tmp,
+            chain_role=self.role,
+            fixture=([1, 2],),
+            accepts=lambda chain, *_: (chain[0].bound([1]) == [3], ""),
+            arrangements=None,
+            prepare=prepare,
+        )
+
+        self.assertFalse(submission.ready)
+        self.assertIn("Capture is the declaration", submission.verdict.headline)
+
     def test_a_hook_that_names_weights_without_capturing_them_is_refused(self):
         """Reporting a weight nobody retained would describe unknown bytes."""
 

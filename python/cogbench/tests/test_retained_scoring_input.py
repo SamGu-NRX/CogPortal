@@ -273,6 +273,16 @@ class TheReportCarriesTheReceipts(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "byte length"):
             LocalReport.from_json(json.dumps(value))
 
+    def test_a_repeated_scored_path_is_refused(self):
+        """Two receipts would have to satisfy one name, with no way to say
+        which bytes the second meant."""
+
+        raw = _report(["models/W.npy"], []).to_json()
+        value = json.loads(raw)
+        value["weightsUsed"] = ["models/W.npy", "models/W.npy"]
+        with self.assertRaisesRegex(ValueError, "more than once"):
+            LocalReport.from_json(json.dumps(value))
+
     def test_a_scored_weight_with_no_receipt_is_refused(self):
         """Otherwise it syncs as though there were nothing to upload."""
 
