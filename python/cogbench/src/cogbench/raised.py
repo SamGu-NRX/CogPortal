@@ -20,6 +20,7 @@ ours.
 
 from __future__ import annotations
 
+import sysconfig
 import traceback
 from dataclasses import dataclass
 from pathlib import Path
@@ -38,6 +39,51 @@ __all__ = [
 #: still holds a key name, a shape, or an attribute; anything longer is a
 #: traceback pasted into a message.
 MESSAGE_LIMIT = 200
+
+# Candidate.bound inserts pipeline.py frames between the driver and student
+# code. Those adapter frames cannot identify the student's repository.
+_COGBENCH_DIRECTORY = Path(__file__).resolve().parent
+
+
+def _interpreter_library() -> Tuple[Path, ...]:
+    """The interpreter's own library directories, as it reports them itself.
+
+    Asked of `sysconfig` rather than assembled from a package's ``__file__``,
+    so this is wherever this interpreter was actually installed.
+
+    A traceback can leave cogbench without ever reaching their code: the
+    driver calls a step through `Candidate.bound`, the adapter calls whatever
+    the step is, and that raises inside the standard library. Naming the
+    innermost directory reached would report ``json/decoder.py`` as the
+    student's repository, which is a file they cannot open and a line they did
+    not write. `repository` still names their checkout when their source
+    really does live under one of these.
+    """
+
+    paths = sysconfig.get_paths()
+    found = set()
+    for key in ("stdlib", "platstdlib"):
+        where = paths.get(key)
+        if not where:
+            continue
+        try:
+            found.add(Path(where).resolve())
+        except (OSError, ValueError):
+            continue
+    return tuple(sorted(found))
+
+
+_INTERPRETER_LIBRARY = _interpreter_library()
+
+
+def _under(where: Path, directory: Path) -> bool:
+    """Whether a frame's file lies inside one directory."""
+
+    try:
+        where.relative_to(directory)
+    except ValueError:
+        return False
+    return True
 
 
 @dataclass(frozen=True)
@@ -145,16 +191,20 @@ def where_it_raised(error: BaseException, root: Path) -> Optional[Tuple[str, int
     return None
 
 
-def root_of_their_code(error: BaseException, ours: Path) -> Optional[Path]:
-    """Where their code starts, for a caller that has no checkout path.
+def root_of_their_code(
+    error: BaseException, ours: Path, *, repository: Optional[Path] = None,
+) -> Optional[Path]:
+    """Use a known checkout path, or infer where their code starts.
 
-    Discovery knows the repository root and passes it. A scored run does not:
-    the benchmark's driver holds their adapter, not the directory their files
-    were read from. What it does know exactly is where its own code ends, so
-    the outermost frame below ``ours`` is their entry point and its directory
-    is the tree to report against.
+    A benchmark driver may hold only their adapter, without the directory
+    their files were read from. The outermost frame after ``ours`` that is
+    neither cogbench's own adapter nor the interpreter's library identifies
+    their entry directory. A caller that knows ``repository`` avoids inference
+    and gets that resolved path directly, which is the preferred way in.
     """
 
+    if repository is not None:
+        return Path(repository).resolve()
     ours = Path(ours).resolve()
     entered_ours = False
     for frame in traceback.extract_tb(error.__traceback__):
@@ -165,17 +215,29 @@ def root_of_their_code(error: BaseException, ours: Path) -> Optional[Path]:
         except (OSError, ValueError):
             # See `where_it_raised`: a frame's filename is a label.
             continue
-        try:
-            where.relative_to(ours)
-        except ValueError:
-            if entered_ours:
-                return where.parent
+        # Checked first, so that a caller whose own package IS cogbench, or
+        # which ships inside the interpreter's library, still has an entry
+        # point to find.
+        if _under(where, ours):
+            entered_ours = True
             continue
-        entered_ours = True
+        # Ours in a second sense: the adapter `Candidate.bound` inserts
+        # between the driver and their function, and the library underneath
+        # whatever that adapter called. Neither is a file a student can open,
+        # and a driver that reaches the standard library without ever
+        # reaching their code has no line of theirs to name at all.
+        if _under(where, _COGBENCH_DIRECTORY) or any(
+            _under(where, library) for library in _INTERPRETER_LIBRARY
+        ):
+            continue
+        if entered_ours:
+            return where.parent
     return None
 
 
-def their_line(error: BaseException, ours: Path) -> Optional[str]:
+def their_line(
+    error: BaseException, ours: Path, *, repository: Optional[Path] = None,
+) -> Optional[str]:
     """``Type: message at file:line``, when this came out of their own code.
 
     What a benchmark driver wants in one call. A scored run reports a raised
@@ -188,7 +250,7 @@ def their_line(error: BaseException, ours: Path) -> Optional[str]:
     reports about itself.
     """
 
-    root = root_of_their_code(error, ours)
+    root = root_of_their_code(error, ours, repository=repository)
     if root is None:
         return None
     spot = where_it_raised(error, root)

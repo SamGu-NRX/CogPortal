@@ -519,6 +519,17 @@ def candidate_roots(repository: Path, *, max_depth: int = MAX_ROOT_DEPTH) -> Lis
     return found
 
 
+def _flattened(text: str) -> str:
+    """One spelling for a name a person might write several ways.
+
+    ``Week 3``, ``week-3`` and ``week_3`` are the same folder to a student
+    naming it, so both the hint and the directory are reduced to ``week3``
+    before they are compared.
+    """
+
+    return text.lower().replace(" ", "").replace("-", "").replace("_", "")
+
+
 def choose_root(
     repository: Path,
     *,
@@ -548,12 +559,14 @@ def choose_root(
         path = (repository / declared).resolve()
         return RootChoice(path, "declared in cogworks.toml", considered, ROOT_DECLARED)
 
-    for hint in (hint.lower() for hint in hints):
+    for hint in (_flattened(hint) for hint in hints):
         for path in considered:
             if path == repository:
                 continue
-            name = path.name.lower().replace(" ", "").replace("-", "").replace("_", "")
-            if hint in name:
+            # Both sides flattened, not just the directory's. `week 3` was
+            # compared against `week3` and never matched, so a caller naming
+            # the folder they meant got the repository root instead.
+            if hint and hint in _flattened(path.name):
                 return RootChoice(
                     path, "directory name matches this week", considered, ROOT_HINTED
                 )
@@ -987,23 +1000,30 @@ class _ImportTimeout(BaseException):
 def _deadline(seconds: float, name: str):
     """Interrupt an import that will not finish.
 
-    Uses a timer that raises in the main thread, which is where the import
-    runs. It cannot stop a call that never returns to the interpreter, such as
-    one blocked in a C extension, so it is a limit on ordinary Python work
-    rather than a guarantee. `cogbench.isolate` is the guarantee, and the
-    hosted runner puts the whole resolution inside it.
+    Uses a timer that raises in the thread running the import. It cannot stop
+    a call that never returns to the interpreter, such as one blocked in a C
+    extension, so it is a limit on ordinary Python work rather than a
+    guarantee. `cogbench.isolate` is the guarantee, and the hosted runner puts
+    the whole resolution inside it.
+
+    The thread is read here rather than assumed to be the main one. It raised
+    into `threading.main_thread()` before, so a caller that ran discovery on a
+    worker got the worst of both: the slow import carried on, and the main
+    thread was interrupted wherever it happened to be, which for a caller
+    waiting on `join` was inside `join`.
     """
 
     import ctypes
     import threading
 
     done = threading.Event()
+    importing = threading.current_thread().ident or 0
 
     def _interrupt() -> None:
         if done.is_set():
             return
         ctypes.pythonapi.PyThreadState_SetAsyncExc(
-            ctypes.c_ulong(threading.main_thread().ident or 0),
+            ctypes.c_ulong(importing),
             ctypes.py_object(_ImportTimeout),
         )
 
@@ -2028,6 +2048,12 @@ def _annotation_only(
             if node.lineno == node.body[0].lineno == lineno:
                 on_a_def_line = True
                 break
+        # `VALUE: Missing = 3` at module or class scope is evaluated where it
+        # is written, with no `def` anywhere near it. Postponing annotations
+        # recovers it for the same reason, and refusing lost the module.
+        elif isinstance(node, ast.AnnAssign) and node.lineno == lineno:
+            on_a_def_line = True
+            break
     if not on_a_def_line:
         return False
 

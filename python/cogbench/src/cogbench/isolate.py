@@ -394,6 +394,31 @@ class _PayloadError(Exception):
     pass
 
 
+#: The largest result body this transport carries.
+#:
+#: The length prefix is four bytes the child controls, and it went straight to
+#: `os.read`. `0xffffffff` asks the parent to allocate 4 GiB before a single
+#: byte of the body is validated, and the MemoryError escapes the conversion
+#: block below as an exception rather than a categorized failure.
+#:
+#: The number is a transport policy, not a proven ceiling on what the parent
+#: allocates: decoding and JSON construction take more again. Measured against
+#: the results this SDK sends, a `check` on a repository that resolves through
+#: discovery is 2,710 bytes and one with a declared submission is 249, and a
+#: `run` report with 32 diagnostics at their 240-character limit is 114,728.
+#: Nothing here bounds the number of metrics or the size of a discovery
+#: record, so a repository large enough could in principle exceed this and be
+#: refused; that would be a categorized failure naming the size, which is the
+#: outcome this constant exists to produce.
+MAX_PAYLOAD_BYTES = 8 * 1024 * 1024
+
+#: How much of the body one `os.read` may ask for. Without it a body at the
+#: cap is requested whole, so the parent holds the accumulated bytes and an
+#: equally large read buffer at once. This halves that peak; the cap is what
+#: bounds it at all.
+_READ_CHUNK = 64 * 1024
+
+
 def _read_payload(read_fd: int, exited: Optional[Callable[[], bool]] = None) -> Outcome:
     child_exited = False
 
@@ -420,9 +445,13 @@ def _read_payload(read_fd: int, exited: Optional[Callable[[], bool]] = None) -> 
             raise _PayloadError("eof" if not header else "truncated_header")
         header += chunk
     (size,) = struct.unpack("!I", header)
+    if size > MAX_PAYLOAD_BYTES:
+        # Refused before the read, so a declared length no payload could have
+        # costs nothing to reject.
+        raise _PayloadError("payload_too_large: declared {} bytes".format(size))
     body = b""
     while len(body) < size:
-        chunk = read(size - len(body))
+        chunk = read(min(size - len(body), _READ_CHUNK))
         if not chunk:
             raise _PayloadError("truncated_body")
         body += chunk
