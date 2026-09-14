@@ -710,20 +710,16 @@ def _operation_child() -> None:
 def _collect(pid, read_fd, timeout_seconds, memory_bytes) -> Outcome:
     """Wait for the child and describe what became of it.
 
-One deadline, owned by this thread. It used to be three: a `SIGALRM` on
-    the main thread, a timer thread off it, and blocking reaps that neither
-    could interrupt. Nothing owned "has the child been waited on", so the
-    timer could signal a number the kernel had already freed, and four rounds
-    of adding locks each closed one race and opened another. Locking harder
-    was not the answer; having one owner is.
+One monotonic deadline, held by this thread and checked where the work
+    already waits: the `select` loop in `_read_payload` and the non-blocking
+    `waitpid` polling in `_reap_bounded`. `timeout_seconds=None` means no
+    deadline; the child's own CPU limits are separate and untouched.
 
-    So there is a monotonic deadline, checked by the `select` loop in
-    `_read_payload` and by the non-blocking `waitpid` polling in
-    `_reap_bounded`. No handler is installed in the caller's process, which
-    removes the whole class of alarm interference rather than compensating for
-    it, and there is no second thread, which removes the callback races the
-    same way. `timeout_seconds=None` means no deadline and stays unbounded;
-    the child's own CPU limits are untouched.
+    Nothing is installed in the caller's process and no second thread is
+    started, which is the point. A deadline split across a signal handler, a
+    timer and blocking waits leaves no single owner of "has the child been
+    waited on", and every arrangement of locks over that closed one race and
+    opened another.
 
     Two flags, not one. `harvested` means the child has been waited on, so its
     number is no longer ours to signal. `reaped` means it exited before we
@@ -770,14 +766,9 @@ One deadline, owned by this thread. It used to be three: a `SIGALRM` on
             if not reaped and (outcome is not None or reason in ("eof", "truncated_header", "truncated_body")):
                 # EOF can precede a waitable exit on Linux. Reap before any
                 # cleanup signal so a self/external SIGKILL keeps its identity.
-                # Keep the existing deadline armed: code holding the descriptor
-                # can close it and remain alive, despite _child's normal
-                # ordering. The alarm can therefore land inside this wait, and
-                # that is a real timeout rather than a lost status, so it falls
-                # through to the cleanup path with `fired` set.
-                # Bounded by the same deadline, so this cannot outlast the
-                # budget the caller set. With none it gets the cleanup
-                # allowance, which is what it always had.
+                # Bounded by the same deadline, because code holding the
+                # descriptor can close it and remain alive: without a bound
+                # this wait is where such a child would hang the command.
                 left = (UNBOUNDED_REAP_SECONDS if deadline is None
                         else max(0.0, deadline - time.monotonic()))
                 observed = _reap_bounded(pid, left)
@@ -845,11 +836,7 @@ One deadline, owned by this thread. It used to be three: a `SIGALRM` on
 
 
 class _Alarm(Exception):
-    pass
-
-
-def _on_alarm(signum, frame):  # noqa: ARG001 - signal handler shape
-    raise _Alarm()
+    """Raised where the wall-clock deadline is observed, not by a signal."""
 
 
 def _terminate(pid: int, reaped: bool = False) -> None:
@@ -891,12 +878,13 @@ def _reap(pid: int):
 
 
 def _reap_bounded(pid: int, seconds: float):
-    """Wait up to `seconds` for `pid`, without a deadline to interrupt us.
+    """Wait up to `seconds` for `pid`.
 
-    `test` and `run` impose no wall-clock budget, so nothing arms an alarm and
-    a blocking wait here is unbounded. Student code that closes the result
+    Polling rather than a blocking wait, so the caller's deadline can be
+    honoured here too. `test` and `run` impose no wall-clock budget, and a
+    blocking wait then had no way out: student code that closes the result
     descriptor and then lingers, or leaves a descendant holding it, hung the
-    command with no way out but Ctrl+C.
+    command until Ctrl+C.
 
     Normal serialization and output flushing precede publication. A child
     that remains alive beyond this cleanup budget loses its payload, even if

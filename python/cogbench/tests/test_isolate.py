@@ -611,6 +611,7 @@ class TheDeadlineHasOneOwner(unittest.TestCase):
     that the deadline still holds, rather than rebuilding a timer to test one.
     """
 
+    @unittest.skipUnless(hasattr(os, "fork"), "needs fork to reach _collect")
     def test_no_timer_thread_is_started_for_a_deadline(self):
         started = []
         held = isolate_module.threading.Timer
@@ -629,6 +630,7 @@ class TheDeadlineHasOneOwner(unittest.TestCase):
         self.assertEqual(outcome.status, COMPLETED)
         self.assertEqual(started, [])
 
+    @unittest.skipUnless(hasattr(os, "fork"), "needs fork to reach _collect")
     @unittest.skipUnless(hasattr(signal, "alarm"), "needs SIGALRM")
     def test_no_handler_is_installed_in_the_callers_process(self):
         """The caller's alarm used to be discarded and then restored. Nothing
