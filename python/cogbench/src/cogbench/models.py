@@ -227,6 +227,8 @@ class LocalReport:
         a silently missing weight is a hosted run against different bytes.
         """
 
+        from .storage import check_weight_path
+
         entries = value.get("weightsUploaded")
         if entries is None:
             return None
@@ -252,9 +254,22 @@ class LocalReport:
                 raise ValueError("weightsUploaded needs a SHA-256 digest for {!r}".format(path))
             if type(size) is not int or size < 0:
                 raise ValueError("weightsUploaded needs a byte length for {!r}".format(path))
+            # The name is read back out of a file, so it is checked again on
+            # the way in: it becomes a path under the workspace and a key.
+            check_weight_path(str(path))
             receipts.append({"path": str(path), "sha256": checksum, "size": size})
         if len({entry["path"] for entry in receipts}) != len(receipts):
             raise ValueError("weightsUploaded names a path more than once")
+        missing = [name for name in used if name not in {r["path"] for r in receipts}]
+        if missing:
+            # A scored weight with no receipt would sync as though the run had
+            # nothing to upload, and the hosted run would score the repository's
+            # own copy instead.
+            raise ValueError(
+                "weightsUploaded is missing {}, which this report scored".format(
+                    ", ".join(sorted(missing))
+                )
+            )
         return receipts
 
     @classmethod

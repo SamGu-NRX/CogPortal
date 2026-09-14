@@ -3,9 +3,10 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import tempfile
 import time
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Dict, Optional
 
 from .models import LocalReport
@@ -74,6 +75,31 @@ def weights_dir(root: Path) -> Path:
     return workspace_dir(root) / "weights"
 
 
+def _usable_name(name: str) -> bool:
+    """Whether this is a path the report, the R2 key and the URL can carry."""
+
+    if not name or len(name) > MAX_WEIGHT_PATH:
+        return False
+    parts = PurePosixPath(name).parts
+    if not parts or PurePosixPath(name).is_absolute():
+        return False
+    for part in parts:
+        if part in ("", ".", ".."):
+            return False
+        # DEL is a control character too, and PR24 rejects it.
+        if "\\" in part or any(ord(c) < 32 or ord(c) == 127 for c in part):
+            return False
+    return True
+
+
+def check_weight_path(name: str) -> str:
+    """The saved name, or raise. Applied on the way out and on the way back."""
+
+    if not _usable_name(name):
+        raise RetentionError("Weight path is not a usable name: {!r}".format(name))
+    return name
+
+
 def canonical_weight_path(root: Path, source: Path) -> str:
     """The repository-relative name for ``source``, or raise.
 
@@ -90,13 +116,27 @@ def canonical_weight_path(root: Path, source: Path) -> str:
         raise RetentionError(
             "Weight file is outside the project: {}".format(source)
         ) from None
-    name = relative.as_posix()
-    if not name or name == "." or len(name) > MAX_WEIGHT_PATH:
-        raise RetentionError("Weight path is not a usable name: {!r}".format(name))
-    for part in relative.parts:
-        if part in ("", ".", "..") or "\\" in part or any(ord(c) < 32 for c in part):
-            raise RetentionError("Weight path is not a usable name: {!r}".format(name))
-    return name
+    return check_weight_path(relative.as_posix())
+
+
+def _verified_weights_dir(root: Path) -> Path:
+    """`<root>/.cogbench/weights`, created only through checked components.
+
+    Each level is refused if it is already a symlink, and refused before it is
+    created or written through, so a link planted at `.cogbench`, `weights` or
+    any digest directory cannot redirect a write out of the workspace.
+    """
+
+    current = Path(root)
+    for part in (".cogbench", "weights"):
+        current = current / part
+        if current.is_symlink():
+            raise RetentionError(
+                "Refusing to use {}: the workspace contains a symlink.".format(current)
+            )
+        current.mkdir(parents=True, exist_ok=True)
+    workspace_dir(root)  # keeps the self-ignoring .gitignore in place
+    return current
 
 
 def _refuse_symlinks(root: Path, path: Path) -> None:
@@ -146,9 +186,13 @@ def retain_input(root: Path, source: Path) -> RetainedInput:
         raise RetentionError("Weight file does not exist: {}".format(source))
     name = canonical_weight_path(root, source)
 
-    directory = weights_dir(root)
-    directory.mkdir(parents=True, exist_ok=True)
-    staging = directory / ".incomplete-{}".format(os.getpid())
+    # Verified before anything is created, so a planted link cannot take the
+    # first write. The staging name is created by mkstemp rather than chosen,
+    # so it cannot already be a link either.
+    directory = _verified_weights_dir(root)
+    handle, staging_name = tempfile.mkstemp(prefix=".incomplete-", dir=str(directory))
+    os.close(handle)
+    staging = Path(staging_name)
     digest = hashlib.sha256()
     size = 0
     try:
@@ -188,7 +232,19 @@ def retained_input(root: Path, path: str, sha256: str, size: int) -> Path:
     under it would make the report a false statement about the run.
     """
 
-    destination = weights_dir(root) / sha256 / path
+    check_weight_path(path)
+    if len(sha256) != 64 or any(c not in "0123456789abcdef" for c in sha256):
+        raise RetentionError("Weight digest is not a SHA-256: {!r}".format(sha256))
+    directory = weights_dir(root) / sha256
+    destination = directory / path
+    # Belt as well as the name check: the file that is read has to be the one
+    # inside the directory this digest names.
+    try:
+        destination.resolve().relative_to(directory.resolve())
+    except (ValueError, OSError):
+        raise RetentionError(
+            "Refusing to read {} from outside its retained directory.".format(path)
+        ) from None
     _refuse_symlinks(root, destination)
     if not destination.is_file():
         raise RetentionError(

@@ -162,6 +162,58 @@ class WhatTheReportCallsAScoredWeight(unittest.TestCase):
         self.assertEqual(second.sha256, first.sha256)
 
 
+class TheWorkspaceIsCheckedBeforeItIsWrittenThrough(unittest.TestCase):
+    def setUp(self):
+        self.temporary = TemporaryDirectory()
+        self.root = Path(self.temporary.name)
+        self.addCleanup(self.temporary.cleanup)
+        self.elsewhere = TemporaryDirectory()
+        self.addCleanup(self.elsewhere.cleanup)
+        self.source = self.root / "W.npy"
+        self.source.write_bytes(ORIGINAL)
+
+    def _link(self, at: Path):
+        at.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            at.symlink_to(Path(self.elsewhere.name))
+        except (OSError, NotImplementedError):
+            self.skipTest("this platform does not create symlinks here")
+
+    def test_a_planted_cogbench_link_is_refused_before_any_write(self):
+        self._link(self.root / ".cogbench")
+        with self.assertRaises(storage.RetentionError):
+            storage.retain_input(self.root, self.source)
+        self.assertEqual(list(Path(self.elsewhere.name).iterdir()), [])
+
+    def test_a_planted_weights_link_is_refused_before_any_write(self):
+        (self.root / ".cogbench").mkdir()
+        self._link(self.root / ".cogbench" / "weights")
+        with self.assertRaises(storage.RetentionError):
+            storage.retain_input(self.root, self.source)
+        self.assertEqual(list(Path(self.elsewhere.name).iterdir()), [])
+
+
+class ASavedReceiptIsNotTrustedBlindly(unittest.TestCase):
+    def setUp(self):
+        self.temporary = TemporaryDirectory()
+        self.root = Path(self.temporary.name)
+        self.addCleanup(self.temporary.cleanup)
+
+    def test_a_traversing_receipt_path_is_refused(self):
+        for name in ("../escape.npy", "/etc/passwd", "a\\b.npy", "a\x7fb.npy", ""):
+            with self.subTest(name=name):
+                with self.assertRaises(storage.RetentionError):
+                    storage.retained_input(self.root, name, "a" * 64, 1)
+
+    def test_a_receipt_digest_that_is_not_a_sha256_is_refused(self):
+        with self.assertRaises(storage.RetentionError):
+            storage.retained_input(self.root, "W.npy", "../../etc", 1)
+
+    def test_del_is_rejected_in_a_saved_name(self):
+        with self.assertRaises(storage.RetentionError):
+            storage.check_weight_path("models/W\x7f.npy")
+
+
 class OptingIntoCaptureIsExplicit(unittest.TestCase):
     def test_a_hook_that_names_the_parameter_is_offered_one(self):
         def newer(root, modules=(), capture=None):
@@ -182,6 +234,18 @@ class OptingIntoCaptureIsExplicit(unittest.TestCase):
             return {}
 
         self.assertFalse(_accepts_capture(greedy))
+
+    def test_a_star_args_named_capture_cannot_receive_a_keyword(self):
+        def varargs(root, modules=(), *capture):
+            return {}
+
+        self.assertFalse(_accepts_capture(varargs))
+
+    def test_a_keyword_only_parameter_counts(self):
+        def keyword_only(root, modules=(), *, capture=None):
+            return {}
+
+        self.assertTrue(_accepts_capture(keyword_only))
 
 
 class TheReportCarriesTheReceipts(unittest.TestCase):
@@ -207,6 +271,15 @@ class TheReportCarriesTheReceipts(unittest.TestCase):
         value = json.loads(raw)
         value["weightsUploaded"] = [{"path": "models/W.npy", "sha256": "b" * 64}]
         with self.assertRaisesRegex(ValueError, "byte length"):
+            LocalReport.from_json(json.dumps(value))
+
+    def test_a_scored_weight_with_no_receipt_is_refused(self):
+        """Otherwise it syncs as though there were nothing to upload."""
+
+        raw = _report(["models/W.npy"], []).to_json()
+        value = json.loads(raw)
+        value["weightsUploaded"] = []
+        with self.assertRaisesRegex(ValueError, "missing models/W.npy"):
             LocalReport.from_json(json.dumps(value))
 
     def test_a_report_predating_capture_stays_unknown_rather_than_empty(self):
