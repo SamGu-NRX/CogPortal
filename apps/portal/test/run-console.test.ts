@@ -266,9 +266,13 @@ test("Discord's tile sizes the lifecycle row from the console, not the window", 
 
   const tile = lifecycle(true);
   assert.doesNotMatch(tile, /sm:|min-\[/, "no viewport breakpoint decides a tile's layout");
-  // The labels are hidden at every width. `hidden` is CSS, so the names stay
-  // in the markup; the state a screen reader needs is on its own span.
-  assert.match(tile, /class="hidden text-\[11px\]/);
+  // Out of sight, not out of the accessibility tree. `display:none` drops the
+  // stage name, and the mark beside it is aria-hidden, so the four rows would
+  // announce "complete", "active", "pending" with nothing saying of what.
+  assert.doesNotMatch(tile, /class="hidden/, "display:none would unname every stage");
+  for (const label of ["Local", "Hosted", "Official", "Published"]) {
+    assert.match(tile, new RegExp(`class="sr-only text-\\[11px\\][^"]*">${label}<`), label);
+  }
   assert.match(tile, /class="sr-only">active</);
 
   // The full-width console is unchanged: it fills the viewport, so the
