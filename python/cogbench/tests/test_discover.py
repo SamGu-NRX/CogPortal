@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import shutil
 import sys
+import sysconfig
 import tempfile
 import unittest
 from pathlib import Path
@@ -2720,6 +2722,263 @@ class ASalvagedSurveyKeepsWhatItMeasured(_Fixture):
         self.assertEqual(len(recovered), 1)
         self.assertTrue(recovered[0]["futureAnnotations"])
         self.assertIn("microphone", found.record["stubbed"])
+
+
+class OnlyTheInnermostBlocksRepositoryAnswers(_Fixture):
+    """Blocks nest, and while one is open its submission is the only one whose
+    code should resolve. Every failure here was two teams' work running as one:
+    an inner block reading the outer team's file, or a shared notebook shell
+    handing back the wrong notebook."""
+
+    def _notebook_repo(self, name, token):
+        root = self.tmp / name
+        root.mkdir()
+        (root / "nine.ipynb").write_text(
+            _notebook("def pick():\n    return {!r}\n".format(token))
+        )
+        (root / "loader.py").write_text(
+            "def run():\n"
+            "    from ipynb.fs.defs import nine\n"
+            "    return nine.pick()\n"
+        )
+        return discover(root)
+
+    def test_a_nested_first_use_notebook_asks_its_own_finder(self):
+        """The outer block builds the `ipynb.fs` shells and files its notebook
+        under them. An inner submission that has never imported a notebook has
+        no shells of its own to displace those, so its `from ipynb.fs.defs
+        import nine` was answered from the outer team's entry, four times out
+        of four."""
+
+        outer = self._notebook_repo("nbC", "C")
+        inner = self._notebook_repo("nbD", "D")
+
+        seen = []
+        with outer.imports():
+            seen.append(self._module(outer, "loader").run())
+            with inner.imports():
+                seen.append(self._module(inner, "loader").run())
+                with outer.imports():
+                    seen.append(self._module(outer, "loader").run())
+            seen.append(self._module(outer, "loader").run())
+
+        self.assertEqual(seen, ["C", "D", "C", "C"])
+
+    def test_a_name_only_the_outer_submission_has_does_not_resolve_inside(self):
+        """Taking the outer team's module out of `sys.modules` was not enough.
+        Their root was still on `sys.path`, so the inner submission's `import
+        helper` read their file again and ran their code under a new object."""
+
+        outer_root = self.tmp / "onlyA"
+        outer_root.mkdir()
+        (outer_root / "helper.py").write_text("WHO = 'theirs'\n")
+        (outer_root / "entry.py").write_text(
+            "def read():\n    import helper\n    return helper.WHO\n"
+        )
+        inner_root = self.tmp / "onlyB"
+        inner_root.mkdir()
+        (inner_root / "entry.py").write_text(
+            "def read():\n    import helper\n    return helper.WHO\n"
+        )
+        outer, inner = discover(outer_root), discover(inner_root)
+
+        with outer.imports():
+            self.assertEqual(self._module(outer, "entry").read(), "theirs")
+            with inner.imports():
+                with self.assertRaises(ModuleNotFoundError):
+                    self._module(inner, "entry").read()
+
+    def test_a_nested_block_gets_its_own_notebook_not_the_outer_one(self):
+        """Once the outer block has imported its notebook, `ipynb.fs.defs.nine`
+        names that team's module. Taking only the four package shells left
+        that entry standing, so the inner submission's from-import was
+        answered out of it and its own finder was never reached."""
+
+        outer = self._notebook_repo("ordE", "E")
+        inner = self._notebook_repo("ordF", "F")
+
+        with outer.imports():
+            first = self._module(outer, "loader").run()
+            with inner.imports():
+                middle = self._module(inner, "loader").run()
+                with outer.imports():
+                    last = self._module(outer, "loader").run()
+
+        self.assertEqual((first, middle, last), ("E", "F", "E"))
+
+    def test_an_inner_block_keeps_what_the_open_outer_block_needs(self):
+        """A module first imported inside a nested block was evicted when that
+        block left, though the outer block of the same context was still
+        running and about to use it."""
+
+        (self.tmp / "side.py").write_text("V = 11\n")
+        (self.tmp / "main.py").write_text(
+            "def grab():\n    import fresh_side\n    return fresh_side.V\n"
+        )
+        found = discover(self.tmp)
+
+        with found.imports():
+            with found.imports():
+                # The shape that reaches this: a submission loading a file
+                # under a name discovery never filed. An ordinary sibling
+                # import would already be in the inventory both blocks share.
+                spec = importlib.util.spec_from_file_location(
+                    "fresh_side", str(self.tmp / "side.py")
+                )
+                made = importlib.util.module_from_spec(spec)
+                sys.modules["fresh_side"] = made
+                spec.loader.exec_module(made)
+            self.assertIn("fresh_side", sys.modules)
+            self.assertEqual(self._module(found, "main").grab(), 11)
+
+
+class ABlockIsNotAPlaceToLeaveThingsBehind(_Fixture):
+    """What a block does to the process has to be undone whether it finished,
+    raised, or never finished starting."""
+
+    def test_an_entry_that_fails_partway_installs_nothing(self):
+        """Modules went in before the frame that records them, and Python does
+        not call `__exit__` for an `__enter__` that raised, so a failure left
+        their code in `sys.modules` with nothing able to take it out."""
+
+        (self.tmp / "leftover.py").write_text("V = 2\n")
+        found = discover(self.tmp)
+        before, path = set(sys.modules), list(sys.path)
+
+        def refuse(_frame):
+            raise RuntimeError("installing failed")
+
+        found.context._install = refuse
+        try:
+            with self.assertRaises(RuntimeError):
+                with found.imports():
+                    pass
+        finally:
+            del found.context._install
+
+        self.assertEqual(set(sys.modules) - before, set())
+        self.assertEqual(sys.path, path)
+        self.assertEqual(found.context._frames, [])
+
+    def test_a_lazy_import_writes_no_bytecode_into_their_checkout(self):
+        """`_entered` suppresses it during discovery for the same reason: a
+        `__pycache__` is the platform changing a tree it was asked to read,
+        and a lazy import inside a block is still an import."""
+
+        (self.tmp / "deep").mkdir()
+        (self.tmp / "deep" / "cached.py").write_text("V = 9\n")
+        (self.tmp / "go.py").write_text(
+            "def call():\n    import cached\n    return cached.V\n"
+        )
+        found = discover(self.tmp)
+
+        held = sys.dont_write_bytecode
+        sys.dont_write_bytecode = False
+        try:
+            with found.imports():
+                self.assertTrue(sys.dont_write_bytecode)
+                self._module(found, "go").call()
+            self.assertFalse(sys.dont_write_bytecode)
+        finally:
+            sys.dont_write_bytecode = held
+
+        self.assertEqual(list(self.tmp.rglob("__pycache__")), [])
+
+    def test_an_installed_package_inside_the_checkout_is_left_alone(self):
+        """A checkout can hold the environment running it. Deciding ownership
+        by containment alone called pip student source, evicted it and
+        reinstalled it once per call, which is the native-extension reload the
+        teardown exists to avoid."""
+
+        (self.tmp / "thing.py").write_text("V = 1\n")
+        found = discover(self.tmp)
+        # What a virtualenv inside a checkout looks like from here: the
+        # library directory is inside the tree discovery was told to read.
+        found.context.directories = (
+            Path(sysconfig.get_paths()["stdlib"]).resolve(),
+        )
+        name = next(
+            (
+                candidate
+                for candidate in ("wave", "colorsys", "fractions", "statistics", "cmd")
+                if candidate not in sys.modules
+            ),
+            None,
+        )
+        if name is None:
+            self.skipTest("nothing left unimported to probe with")
+
+        with found.imports():
+            importlib.import_module(name)
+
+        self.assertIn(name, sys.modules)
+        self.assertNotIn(name, found.imports().modules)
+
+
+class AFailedMemberIsNotOfferedByItsPackage(_Fixture):
+    """A skip record saying a member failed, while `from package import bad`
+    still handed back the half-executed module, is the platform contradicting
+    its own report."""
+
+    def test_it_is_not_an_attribute_of_its_package(self):
+        """Written against `_execute` because that is where the two disagree.
+        Through the import system a failed member raises again on the next
+        attempt, which hides it; the package object keeps the attribute
+        either way."""
+
+        core = self.tmp / "core"
+        core.mkdir()
+        (core / "bad.py").write_text(
+            "def solve(x):\n    return x\n\n\nraise ValueError('broken')\n"
+        )
+        package = discover_module._register_package(core, (core,))
+        # Registering puts a live package in `sys.modules` under the
+        # directory's own name, and leaving it there makes `core` look taken
+        # to every test that runs after this one.
+        self.addCleanup(
+            lambda: [
+                sys.modules.pop(name, None)
+                for name in list(sys.modules)
+                if name == package or name.startswith(package + ".")
+            ]
+        )
+
+        _module, _skip, failure = discover_module._execute(
+            "bad", core / "bad.py", (core / "bad.py").read_text(), 5, package
+        )
+
+        self.assertIsNotNone(failure)
+        self.assertEqual(failure.reason, "raised")
+        self.assertFalse(hasattr(sys.modules.get(package), "bad"))
+
+
+class ADefaultExpressionIsNeverRetried(_Fixture):
+    """The postponed-annotation retry exists for a name that is only missing
+    because the annotation was evaluated. Reading the deepest traceback frame
+    that merely happened to be in this file put a helper's own failure back on
+    the caller's `def` line, and when the missing name also appeared in an
+    annotation the module was recompiled and the helper run a second time."""
+
+    def test_a_helper_that_fails_once_is_not_called_again(self):
+        (self.tmp / "helpers.py").write_text(
+            "calls = 0\n\n\n"
+            "def boom():\n"
+            "    global calls\n"
+            "    calls += 1\n"
+            "    if calls == 1:\n"
+            "        return Missing\n"
+            "    return 1\n"
+        )
+        (self.tmp / "user.py").write_text(
+            "from helpers import boom\n\n\ndef f(x: Missing = boom()):\n    return x\n"
+        )
+
+        found = discover(self.tmp)
+
+        self.assertEqual(self._module(found, "helpers").calls, 1)
+        self.assertNotIn("user", [entry.name for entry in found.modules])
+        failure = [entry for entry in found.skipped if entry.name == "user"][0]
+        self.assertEqual(failure.reason, "raised")
 
 
 if __name__ == "__main__":
