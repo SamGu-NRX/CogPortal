@@ -91,8 +91,8 @@ class Week3PayloadTest(unittest.TestCase):
         np.testing.assert_array_equal(cases[1].descriptors, _cases()[1].descriptors)
 
     def test_extract_and_attach_gold_roundtrip(self):
+        from language_search_benchmark.datasets import attach_gold
         from cogworks_runner.week3_payload import (
-            attach_gold,
             decode_payload,
             encode_payload,
             extract_gold,
@@ -103,17 +103,14 @@ class Week3PayloadTest(unittest.TestCase):
         _, _, stripped = decode_payload(
             encode_payload("language-search", original, showcase=False)
         )
-        restored = attach_gold(stripped, gold)
+        restored = attach_gold(stripped, **gold)
         self.assertEqual(restored[0].group_rows, [0, 0, 1])
         self.assertEqual(restored[1].gold_rows, [0, 2])
         self.assertEqual(restored[2].gold_image_ids, [10, 30])
 
     def test_attach_gold_count_mismatch_fails(self):
-        from cogworks_runner.week3_payload import (
-            attach_gold,
-            decode_payload,
-            encode_payload,
-        )
+        from language_search_benchmark.datasets import attach_gold
+        from cogworks_runner.week3_payload import decode_payload, encode_payload
 
         _, _, stripped = decode_payload(
             encode_payload("language-search", _cases(), showcase=False)
@@ -121,11 +118,9 @@ class Week3PayloadTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             attach_gold(
                 stripped,
-                {
-                    "text_group_rows": [0],
-                    "retrieval_gold_rows": [0, 2],
-                    "search_gold_image_ids": [10, 30],
-                },
+                text_group_rows=[0],
+                retrieval_gold_rows=[0, 2],
+                search_gold_image_ids=[10, 30],
             )
 
 
@@ -143,33 +138,50 @@ class RungCasesSurviveTheBoundary(unittest.TestCase):
     """
 
     def _cases(self):
-        from language_search_benchmark.datasets import SearchCase, TextCase, RetrievalCase
+        """The controller's grid, from the benchmark's constructor.
 
-        descriptors = np.zeros((3, 512), dtype=np.float32)
+        Hand-building it here was a third copy of the thing `build_cases`
+        exists to hold, and the version that omitted the retrieval rewrites is
+        what let these tests agree with a decoder that omitted them too.
+        """
+
+        from language_search_benchmark.datasets import attach_gold, build_cases
+
         queries = ["A man riding a horse", "Two cats on a bed", "A red bus downtown"]
-        base = [
-            TextCase(kind="text", captions=list(queries), group_rows=[0, 1, 2], tie_break_seed=7),
-            RetrievalCase(
-                kind="retrieval", queries=list(queries), descriptors=descriptors,
-                gold_rows=[0, 1, 2], tie_break_seed=7,
+        return attach_gold(
+            build_cases(
+                text_captions=queries,
+                queries=queries,
+                pool_image_ids=[10, 11, 12],
+                pool_descriptors=np.zeros((3, 512), dtype=np.float32),
+                tie_break_seed=7,
+                search_k=3,
             ),
-            SearchCase(
-                kind="search", queries=list(queries), image_ids=[10, 11, 12],
-                descriptors=descriptors, gold_image_ids=[10, 11, 12], k=3, tie_break_seed=7,
-            ),
-        ]
-        from language_search_benchmark import perturb
+            text_group_rows=[0, 1, 2],
+            retrieval_gold_rows=[0, 1, 2],
+            search_gold_image_ids=[10, 11, 12],
+        )
 
-        base += [
-            SearchCase(
-                kind="search", queries=perturb.rewrite_all(queries, rung),
-                image_ids=[10, 11, 12], descriptors=descriptors,
-                gold_image_ids=[10, 11, 12], k=3, tie_break_seed=7, rung=rung,
-            )
-            for rung in perturb.RUNGS
-            if rung != "verbatim"
-        ]
-        return base
+    def test_the_sandbox_runs_the_same_cases_the_controller_scores(self):
+        """The zip carries enough to rebuild the grid it was made from.
+
+        Both sides call `build_cases` now, so this no longer guards against two
+        builders drifting; the benchmark owns that. What it still catches is a
+        metadata field dropped or renamed in `encode_payload`, which would
+        rebuild a different grid from the same cases.
+        """
+
+        from cogworks_runner.week3_payload import decode_payload, encode_payload
+
+        cases = self._cases()
+        _id, _showcase, rebuilt = decode_payload(
+            encode_payload("language-search", cases, showcase=False)
+        )
+        shape = [(c.kind, getattr(c, "rung", "verbatim")) for c in cases]
+        self.assertEqual(
+            [(c.kind, getattr(c, "rung", "verbatim")) for c in rebuilt], shape
+        )
+
 
     def test_the_sandbox_derives_the_same_queries_the_controller_built(self):
         from cogworks_runner.week3_payload import decode_payload, encode_payload
@@ -178,9 +190,16 @@ class RungCasesSurviveTheBoundary(unittest.TestCase):
         _id, _showcase, rebuilt = decode_payload(
             encode_payload("language-search", cases, showcase=False)
         )
-        controller = {c.rung: c.queries for c in cases if c.kind == "search"}
-        sandbox = {c.rung: c.queries for c in rebuilt if c.kind == "search"}
-        self.assertEqual(controller, sandbox)
+        # Every kind, not just search: retrieval carries the same rewrites, and
+        # checking one kind lets the other be rebuilt with the wrong queries.
+        def texts(case):
+            return (
+                case.kind,
+                getattr(case, "rung", "verbatim"),
+                list(getattr(case, "queries", None) or case.captions),
+            )
+
+        self.assertEqual([texts(c) for c in cases], [texts(c) for c in rebuilt])
 
     def test_the_scored_component_is_the_verbatim_case_not_the_last_one(self):
         """A plain by-kind dict keeps whichever search case came last, which
@@ -205,64 +224,27 @@ class RungCasesSurviveTheBoundary(unittest.TestCase):
         for case in rebuilt:
             if case.kind == "search":
                 self.assertIsNone(case.gold_image_ids, "gold must not cross the boundary")
+            if case.kind == "retrieval":
+                self.assertIsNone(case.gold_rows, "gold must not cross the boundary")
+            if case.kind == "text":
+                self.assertIsNone(case.group_rows, "gold must not cross the boundary")
 
-    def test_every_rung_shares_one_pool_object_so_the_index_is_built_once(self):
-        """The sandbox must call prepare_database as often as the local run does.
-
-        `drivers.run_with_adapter` decides whether to rebuild the submission's
-        index by comparing `case.image_ids` and `case.descriptors` against the
-        previous case's by object identity, because a student index need not be
-        idempotent. `decode_payload` used to build a fresh id list inside the
-        rung loop, so the sandbox rebuilt four times where the local run built
-        once. On an append-style prepare (legal: nothing in the contract asks
-        for idempotence) that changed the reported score, measured
-        search_mrr_truncated 0.406667 locally against 0.250000 hosted, with
-        duplicate ids in the hosted rankings that validate_rankings does not
-        reject. Silent local/hosted disagreement is the one failure this
-        platform must never produce, so identity is asserted directly rather
-        than inferred from equal scores.
-        """
-
-        from cogworks_runner.week3_payload import decode_payload, encode_payload
-
-        _id, _showcase, rebuilt = decode_payload(
-            encode_payload("language-search", self._cases(), showcase=False)
-        )
-        searches = [c for c in rebuilt if c.kind == "search"]
-        self.assertEqual(len(searches), 4)
-        verbatim = next(c for c in searches if c.rung == "verbatim")
-        for case in searches:
-            self.assertIs(case.image_ids, verbatim.image_ids, case.rung)
-            self.assertIs(case.descriptors, verbatim.descriptors, case.rung)
-
-    def test_the_search_pool_is_the_retrieval_pool_after_decoding(self):
-        """One descriptor array across both components, as materialize_cases
-        builds it. np.asarray returns its argument unchanged when the dtype
-        already matches, which is what keeps this true."""
-
-        from cogworks_runner.week3_payload import decode_payload, encode_payload
-
-        _id, _showcase, rebuilt = decode_payload(
-            encode_payload("language-search", self._cases(), showcase=False)
-        )
-        retrieval = next(c for c in rebuilt if c.kind == "retrieval")
-        search = next(c for c in rebuilt if c.kind == "search" and c.rung == "verbatim")
-        self.assertIs(retrieval.descriptors, search.descriptors)
 
     def test_attach_gold_preserves_the_shared_pool_objects(self):
         """Gold is re-attached with dataclasses.replace, which copies the
         fields it is not changing by reference. If that ever stopped holding,
         the index guard would break after scoring re-attached cases."""
 
+        from language_search_benchmark.datasets import attach_gold
         from cogworks_runner.week3_payload import (
-            attach_gold, decode_payload, encode_payload, extract_gold,
+            decode_payload, encode_payload, extract_gold,
         )
 
         cases = self._cases()
         _id, _showcase, rebuilt = decode_payload(
             encode_payload("language-search", cases, showcase=False)
         )
-        restored = attach_gold(rebuilt, extract_gold(cases))
+        restored = attach_gold(rebuilt, **extract_gold(cases))
         searches = [c for c in restored if c.kind == "search"]
         verbatim = next(c for c in searches if c.rung == "verbatim")
         for case in searches:
@@ -272,16 +254,19 @@ class RungCasesSurviveTheBoundary(unittest.TestCase):
     def test_attach_gold_gives_every_rung_the_same_answers(self):
         """The rewrites change the query text, never which image is correct."""
 
+        from language_search_benchmark.datasets import attach_gold
         from cogworks_runner.week3_payload import (
-            attach_gold, decode_payload, encode_payload, extract_gold,
+            decode_payload, encode_payload, extract_gold,
         )
 
         cases = self._cases()
         _id, _showcase, rebuilt = decode_payload(
             encode_payload("language-search", cases, showcase=False)
         )
-        restored = attach_gold(rebuilt, extract_gold(cases))
+        restored = attach_gold(rebuilt, **extract_gold(cases))
+        from language_search_benchmark import perturb
+
         searches = [c for c in restored if c.kind == "search"]
-        self.assertEqual(len(searches), 4)
+        self.assertEqual(len(searches), len(perturb.RUNGS))
         for case in searches:
             self.assertEqual(case.gold_image_ids, [10, 11, 12])

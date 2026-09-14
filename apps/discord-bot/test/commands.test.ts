@@ -92,6 +92,8 @@ function surfaceSnapshot(): RunSurfaceSnapshot {
     officialRunId: null,
     published: false,
     refusalHeadline: null,
+    promotionRefusal: null,
+    retryRefusal: null,
     nextOfficialAttempt: 2,
     events: [],
     executionHistory: [],

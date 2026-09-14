@@ -18,6 +18,7 @@ import { serializeRunDetail } from "../worker/http/serializers.ts";
 import { publishOfficialRun, type RunActor } from "../worker/services/run-actions.ts";
 import { readRunAccounting } from "../worker/services/run-accounting.ts";
 import { FIXTURE_REPO } from "@cogworks/contracts/fixtures";
+import { PreparedEnvironmentV1Schema, RunJobV1Schema, type PreparedEnvironmentV1 } from "@cogworks/contracts/protocol";
 
 /**
  * What the portal is allowed to say when it answers a runner event.
@@ -315,6 +316,159 @@ function completedEvent() {
     },
   };
 }
+
+function provisioningEvidence(): PreparedEnvironmentV1 {
+  const fixture = PreparedEnvironmentV1Schema.parse(JSON.parse(readFileSync(new URL("../../../protocols/v1/fixtures/prepared-environment.valid.json", import.meta.url), "utf8")));
+  return { ...fixture, artifactId: "im-testsnapshot", benchmarkId: AUDIO,
+    source: { ...fixture.source, repositoryId: null } };
+}
+
+test("signed completion binds to the recorded dispatch source after the team repository is renamed", async () => {
+  const { db, binding } = freshHarness();
+  await seedRun(db, { mode: "practice" });
+  const evidence = provisioningEvidence();
+  const fixture = RunJobV1Schema.parse(JSON.parse(readFileSync(new URL("../../../protocols/v1/fixtures/run-job.valid.json", import.meta.url), "utf8")));
+  const job = RunJobV1Schema.parse({
+    ...fixture, runId: "run_1", mode: "practice", preparedArtifactId: null, preparedEnvironment: null,
+    source: { ...evidence.source, archiveUrl: `https://api.github.com/repos/${evidence.source.fullName}/tarball/${evidence.source.sha}` },
+    benchmark: { ...fixture.benchmark, id: AUDIO, version: 1, sandboxContract: evidence.sandboxContract },
+  });
+  const dispatchJobJson = JSON.stringify(job);
+  await db.update(runs).set({ dispatchJobJson }).where(eq(runs.id, "run_1"));
+  await db.update(teams).set({ repoName: "renamed", repoFullName: "cogworks-test/renamed" }).where(eq(teams.id, "team_1"));
+  const app = route();
+  const tampered = { ...evidence, source: { ...evidence.source, fullName: "cogworks-test/renamed" } };
+  assert.equal((await post(app, binding, { ...completedEvent(), preparedEnvironment: tampered })).status, 400);
+  const [unchanged] = await db.select().from(runs).where(eq(runs.id, "run_1"));
+  assert.equal(unchanged.status, "evaluating");
+  assert.equal(unchanged.preparedEnvironmentJson, null);
+  assert.equal((await db.select().from(runEvents)).length, 0);
+  assert.equal((await db.select().from(runMetrics)).length, 0);
+
+  assert.equal((await post(app, binding, { ...completedEvent(), preparedEnvironment: evidence })).status, 200);
+  const [completed] = await db.select().from(runs).where(eq(runs.id, "run_1"));
+  assert.equal(completed.status, "succeeded");
+  assert.equal(completed.dispatchJobJson, dispatchJobJson);
+  assert.deepEqual(JSON.parse(completed.preparedEnvironmentJson!), evidence);
+  assert.equal((await db.select().from(runEvents)).length, 1);
+});
+
+for (const field of ["artifact", "benchmark", "sha", "repository", "fullName"] as const) {
+  test(`authenticated completion rejects ${field} binding tamper before storing evidence`, async () => {
+    const { db, binding } = freshHarness();
+    await seedRun(db, { mode: "practice" });
+    const evidence = provisioningEvidence();
+    if (field === "artifact") evidence.artifactId = "im-other";
+    if (field === "benchmark") evidence.benchmarkId = "language-search";
+    if (field === "sha") evidence.source.sha = "b".repeat(40);
+    if (field === "repository") evidence.source.repositoryId = 42;
+    if (field === "fullName") evidence.source.fullName = "other/repo";
+    const result = await post(route(), binding, { ...completedEvent(), preparedEnvironment: evidence });
+    assert.equal(result.status, 400);
+    const [run] = await db.select().from(runs);
+    assert.equal(run.status, "evaluating");
+    assert.equal(run.preparedEnvironmentJson, null);
+    assert.equal(run.preparedArtifactId, null);
+    assert.equal((await db.select().from(runEvents)).length, 0);
+    assert.equal((await db.select().from(runMetrics)).length, 0);
+  });
+}
+
+test("a body changed after signing cannot supply provisioning evidence", async () => {
+  const { db, binding } = freshHarness();
+  await seedRun(db, { mode: "practice" });
+  const body = JSON.stringify(completedEvent());
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  const response = await route().fetch(new Request("http://localhost:5173/internal/v1/runner/events", {
+    method: "POST", body: JSON.stringify({ ...completedEvent(), preparedEnvironment: provisioningEvidence() }),
+    headers: { "X-Cogworks-Key-Id": "runner-v1", "X-Cogworks-Timestamp": timestamp,
+      "X-Cogworks-Signature": `v1=${await hmacSignature(SECRET, timestamp, body)}` },
+  }), env(binding));
+  assert.equal(response.status, 401);
+  assert.equal((await db.select().from(runs))[0].preparedEnvironmentJson, null);
+  assert.equal((await db.select().from(runEvents)).length, 0);
+});
+
+for (const omitted of [false, true]) {
+  test(`reused official completion ${omitted ? "omits" : "forwards"} evidence without replacing its original observation`, async () => {
+    const { db, binding } = freshHarness();
+    await seedRun(db);
+    const evidence = provisioningEvidence();
+    await db.update(runs).set({ preparedArtifactId: evidence.artifactId, preparedEnvironmentJson: JSON.stringify(evidence) });
+    assert.equal((await post(route(), binding, { ...completedEvent(), ...(omitted ? {} : { preparedEnvironment: evidence }) })).status, 200);
+    const [run] = await db.select().from(runs);
+    assert.deepEqual(JSON.parse(run.preparedEnvironmentJson!), evidence);
+    assert.equal(run.status, "succeeded");
+  });
+}
+
+for (const change of ["baseImageId", "sdkVersion", "pythonVersion", "sandboxContract", "moduleHash", "artifactId"] as const) {
+  test(`reused official completion cannot replace ${change} provisioning fact`, async () => {
+    const { db, binding } = freshHarness();
+    await seedRun(db);
+    const evidence = provisioningEvidence();
+    await db.update(runs).set({ preparedArtifactId: evidence.artifactId, preparedEnvironmentJson: JSON.stringify(evidence) });
+    const replacement = structuredClone(evidence);
+    if (change === "moduleHash") replacement.modules[0].sha256 = "f".repeat(64);
+    else if (change === "sandboxContract") replacement.sandboxContract = 2;
+    else replacement[change] = "different";
+    assert.equal((await post(route(), binding, { ...completedEvent(), preparedEnvironment: replacement })).status, 400);
+    const [run] = await db.select().from(runs);
+    assert.equal(run.status, "evaluating");
+    assert.deepEqual(JSON.parse(run.preparedEnvironmentJson!), evidence);
+  });
+}
+
+test("racing late completions cannot replace the first saved provisioning observation", async () => {
+  const harness = freshHarness();
+  await seedRun(harness.db);
+  const app = route();
+  await post(app, harness.binding, infrastructureFailureEvent());
+  const barrier = harness.pauseAfterRead(/^select "id", "team_id", .* from "runs"/i);
+  const alternate = { ...provisioningEvidence(), artifactId: "im-another-snapshot" };
+  const delayed = post(app, harness.binding, { ...completedEvent(), eventId: "evt_delayed", sequence: 7,
+    preparedArtifactId: alternate.artifactId, preparedEnvironment: alternate });
+  await barrier.reached;
+  try {
+    assert.equal((await post(app, harness.binding, { ...completedEvent(), sequence: 6, preparedEnvironment: provisioningEvidence() })).status, 200);
+  } finally { barrier.release(); }
+  await delayed;
+  const [run] = await harness.db.select().from(runs);
+  assert.equal(run.status, "failed");
+  assert.equal(run.lastEventSequence, 6);
+  assert.equal(run.preparedArtifactId, provisioningEvidence().artifactId);
+  assert.deepEqual(JSON.parse(run.preparedEnvironmentJson!), provisioningEvidence());
+});
+
+test("contract-check provider failure settles only its execution and a late completion stays history", async () => {
+  const { db, binding } = freshHarness();
+  await seedRun(db);
+  const evidence = provisioningEvidence();
+  await db.update(runs).set({ preparedArtifactId: evidence.artifactId, preparedEnvironmentJson: JSON.stringify(evidence) });
+  const failure = { ...infrastructureFailureEvent(), failure: {
+    category: "provider", phase: "contract_check", detail: "Saved sandbox contract 1 does not match required contract 2.", infrastructure: true,
+  } };
+  const app = route();
+  assert.equal((await post(app, binding, failure)).status, 200);
+  assert.equal((await post(app, binding, failure)).body.duplicate, true);
+  const [failed] = await db.select().from(runs);
+  assert.equal(failed.status, "failed");
+  assert.equal(failed.failureCategory, "provider");
+  assert.equal(failed.failurePhase, "contract_check");
+  assert.equal(failed.failureDetail, failure.failure.detail);
+  assert.equal(failed.failureConsumedAttempt, false);
+  assert.equal((await post(app, binding, { ...completedEvent(), sequence: 6, preparedEnvironment: evidence })).status, 200);
+  const [late] = await db.select().from(runs);
+  assert.equal(late.status, "failed");
+  assert.equal(late.finishedAt, failed.finishedAt);
+  assert.equal(late.failureDetail, failed.failureDetail);
+  assert.deepEqual(JSON.parse(late.preparedEnvironmentJson!), evidence);
+  assert.equal((await db.select().from(runMetrics)).length, 2);
+  const accounting = await readRunAccounting(db, { teamId: late.teamId, benchmarkId: AUDIO, benchmarkVersion: 1 });
+  assert.equal(accounting.officialUsed, 0);
+  assert.equal(accounting.officialReserved, 0);
+  assert.equal(accounting.activeRuns, 0);
+});
 
 /** A failure that is ours, so the attempt goes back. */
 function infrastructureFailureEvent() {

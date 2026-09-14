@@ -8,19 +8,17 @@ import { and, eq, ne, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { Hono } from "hono";
 import { maintainPlatform } from "../worker/execution/maintenance.ts";
-import { hmacSignature } from "../worker/execution/runner.ts";
+import { buildRunJob, hmacSignature } from "../worker/execution/runner.ts";
 import { registerRunnerEventRoutes } from "../worker/routes/runner-events.ts";
 import { appendRunStreamEvent, buildRunSurfaceSnapshot, publishRunSurface } from "../worker/services/run-surfaces.ts";
 import { runSurfaceHubs } from "./fixtures/run-surface-hub.ts";
 import { FIXTURE_REPO } from "@cogworks/contracts/fixtures";
-import { DashboardSchema, RUN_PHASES, type Dashboard } from "@cogworks/contracts/schema";
+import { DashboardSchema, RunDetailSchema, RUN_PHASES, type Dashboard } from "@cogworks/contracts/schema";
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { StaticRouter } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { DashboardPage } from "../src/routes/DashboardPage.tsx";
-import { createAuth } from "../worker/auth/better-auth.ts";
-import { registerDashboardRoutes } from "../worker/routes/dashboard.ts";
 import { serializeRunDetail } from "../worker/http/serializers.ts";
 import { insertRunWithCapacity, readRunAccounting } from "../worker/services/run-accounting.ts";
 import type { Database } from "../worker/db/client.ts";
@@ -41,8 +39,13 @@ import {
   users,
 } from "../worker/db/schema.ts";
 import type { AppEnv, Env } from "../worker/env.ts";
-import { ApiHttpError } from "../worker/http/errors.ts";
+import { ApiHttpError, handleError } from "../worker/http/errors.ts";
+import { createAuth } from "../worker/auth/better-auth.ts";
+import { registerRunRoutes } from "../worker/routes/runs.ts";
+import { registerDashboardRoutes } from "../worker/routes/dashboard.ts";
 import { runSourceRefusal } from "../worker/services/run-source.ts";
+import { savedEnvironmentEligibility } from "../worker/services/run-eligibility.ts";
+import { PreparedEnvironmentV1Schema, RunJobV1Schema } from "@cogworks/contracts/protocol";
 import {
   performRunSurfaceMutation,
   promotePracticeRun,
@@ -61,6 +64,15 @@ const PRACTICE_RUN_ID = "run_practice";
 // dispatch tests below now reach that publish, because a run the provider
 // accepted is no longer failed on the way past.
 const SURFACE_ID = "surface_0a1b2c3d4e5f60718293";
+// Deliberately not the team's current name: the practice run below ran before
+// a rename, which keeps the repository id and changes the name.
+const RAN_FROM = "some-org/the-repository-it-ran-from";
+const PREPARED = {
+  ...PreparedEnvironmentV1Schema.parse(JSON.parse(readFileSync(new URL("../../../protocols/v1/fixtures/prepared-environment.valid.json", import.meta.url), "utf8"))),
+  // The runner writes this from the job it received, and the job names the
+  // repository the run recorded.
+  source: { repositoryId: FIXTURE_REPO.repositoryId, fullName: RAN_FROM, sha: "a".repeat(40) },
+};
 
 interface Harness {
   db: Database;
@@ -188,6 +200,7 @@ async function seedPromotion(db: Database): Promise<RunActor> {
     summary: "Test benchmark",
     active: true,
     primaryMetricKey: "accuracy",
+    sandboxContract: 1,
     pluginVersion: "1",
     datasetVersion: "official-v1",
     scorerVersion: "1",
@@ -218,10 +231,10 @@ async function seedPromotion(db: Database): Promise<RunActor> {
     branch: "main",
     sha: "a".repeat(40),
     repositoryId: FIXTURE_REPO.repositoryId,
-    // Deliberately not the team's current name. An official attempt has to
-    // inherit the repository its practice run used, and a promotion that read
-    // the team instead would come back with FIXTURE_REPO.fullName.
-    repositoryFullName: "some-org/the-repository-it-ran-from",
+    // An official attempt has to inherit the repository its practice run used,
+    // and a promotion that read the team instead would come back with
+    // FIXTURE_REPO.fullName.
+    repositoryFullName: RAN_FROM,
     parentRunId: null,
     attemptNumber: null,
     failureCategory: null,
@@ -233,6 +246,7 @@ async function seedPromotion(db: Database): Promise<RunActor> {
     finishedAt: NOW + 1_000,
     provider: "modal",
     preparedArtifactId: "artifact_test",
+    preparedEnvironmentJson: JSON.stringify(PREPARED),
     datasetVersion: "practice-v1",
     scorerVersion: "1",
     runtimeVersion: "python-3.11",
@@ -411,6 +425,212 @@ async function seedOfficial(
     });
   }
   return runId;
+}
+
+async function authenticatedPromotion(db: Database, binding: unknown) {
+  const runtime: Env = {
+    ...env(binding, "modal"),
+    DEV_AUTH: "enabled",
+    BETTER_AUTH_SECRET: "a-secure-development-secret-32-chars",
+    BETTER_AUTH_URL: "http://localhost:5173",
+  };
+  const signIn = await createAuth(runtime).api.signUpEmail({
+    body: { email: "promotion@example.test", password: "cogportal-local-dev-password", name: "Promotion" },
+    returnHeaders: true,
+  });
+  await db.insert(teamMembers).values({ teamId: "team_test", userId: signIn.response.user.id, role: "write", joinedAt: NOW });
+  const cookie = signIn.headers.getSetCookie().map((item) => item.split(";")[0]).join("; ");
+  const app = new Hono<AppEnv>();
+  registerRunRoutes(app);
+  registerDashboardRoutes(app);
+  registerRunnerEventRoutes(app);
+  app.onError(handleError);
+  return { runtime, app, cookie, promote: (authenticated = true) => app.fetch(new Request(`http://localhost:5173/runs/${PRACTICE_RUN_ID}/promote`, {
+    method: "POST", headers: authenticated ? { cookie } : {},
+  }), runtime) };
+}
+
+for (const change of ["unknown contract", "changed contract", "changed scorer", "changed runtime", "missing inputs", "malformed inputs", "changed protocol"] as const) {
+  test(`Retry admission matches the projected ${change} refusal and inserts no successor`, async () => {
+    const { db, binding } = freshDb();
+    const actor = await seedPromotion(db);
+    const runtime = env(binding, "modal");
+    const [run] = await db.select().from(runs).where(eq(runs.id, PRACTICE_RUN_ID));
+    const [catalog] = await db.select().from(benchmarks).where(and(eq(benchmarks.id, BENCHMARK_ID), eq(benchmarks.version, run.benchmarkVersion)));
+    const job = buildRunJob(runtime, run, actor.team, catalog);
+    if (change === "unknown contract") catalog.sandboxContract = null;
+    if (change === "changed contract") catalog.sandboxContract = 2;
+    if (change === "changed scorer") catalog.scorerVersion = "changed";
+    if (change === "changed runtime") catalog.runtimeVersion = "changed";
+    const recordedJobJson = JSON.stringify(change === "changed protocol" ? { ...job, protocolVersion: "2" } : job);
+    await db.update(benchmarks).set(catalog).where(and(eq(benchmarks.id, catalog.id), eq(benchmarks.version, catalog.version)));
+    await db.update(runs).set({ status: "failed", refusalJson: JSON.stringify({ headline: "Historical failure explanation" }),
+      dispatchJobJson: change === "missing inputs" ? null : change === "malformed inputs" ? "{" : recordedJobJson,
+    }).where(eq(runs.id, run.id));
+    const before = await db.select().from(runs);
+    const snapshot = await buildRunSurfaceSnapshot(runtime, SURFACE_ID);
+    assert.equal(snapshot.status, "failed");
+    assert.equal(snapshot.refusalHeadline, "Historical failure explanation");
+    assert.equal(snapshot.actions.includes("retry"), false);
+    assert.ok(snapshot.retryRefusal);
+    await assert.rejects(retryRun(runtime, actor, SURFACE_ID, run.id), (error) => {
+      assert.ok(error instanceof ApiHttpError);
+      assert.equal(error.status, 409);
+      assert.equal(error.message, snapshot.retryRefusal);
+      return true;
+    });
+    assert.deepEqual(await db.select().from(runs), before);
+  });
+}
+
+test("a null catalog sandbox contract pauses hosted practice before inserting an execution", async () => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  await db.update(benchmarks).set({ sandboxContract: null }).where(eq(benchmarks.id, BENCHMARK_ID));
+  const before = await db.select().from(runs);
+  const surfacesBefore = await db.select().from(runSurfaces);
+  await assert.rejects(startPracticeRun(env(binding, "modal"), actor, { benchmarkId: BENCHMARK_ID, branch: "main" }),
+    (error: unknown) => {
+      assert.ok(error instanceof ApiHttpError);
+      assert.equal(error.status, 409);
+      assert.equal(error.code, "not_promotable");
+      assert.equal(error.message, "This benchmark's hosted environment is not ready.");
+      return true;
+    });
+  assert.deepEqual(await db.select().from(runs), before);
+  assert.deepEqual(await db.select().from(runSurfaces), surfacesBefore);
+});
+
+for (const proof of ["compatible", "missing", "tampered", "replaced-repository", "unknown-repository"] as const) {
+  test(`${proof} saved evidence has one refusal across the surface, dashboard and run detail without changing success`, async () => {
+    const { db, binding } = freshDb();
+    const actor = await seedPromotion(db);
+    // The fixture run is v1; migrations also seed an active Vision v2 row.
+    await db.update(benchmarks).set({ active: false }).where(and(eq(benchmarks.id, BENCHMARK_ID), sql`${benchmarks.version} <> 1`));
+    const preparedEnvironmentJson = proof === "missing" ? null : JSON.stringify({
+      ...PREPARED, ...(proof === "tampered" ? { artifactId: "another-snapshot" } : {}),
+    });
+    await db.update(runs).set({ preparedEnvironmentJson }).where(eq(runs.id, PRACTICE_RUN_ID));
+    if (proof === "replaced-repository" || proof === "unknown-repository") {
+      const repoId = proof === "replaced-repository" ? 999_999_999 : null;
+      assert.notEqual(repoId, actor.team.repoId);
+      await db.update(teams).set({ repoId }).where(eq(teams.id, actor.team.id));
+    }
+    const [team] = await db.select().from(teams).where(eq(teams.id, actor.team.id));
+    assert.equal(team.repoFullName, actor.team.repoFullName);
+    const [before] = await db.select().from(runs).where(eq(runs.id, PRACTICE_RUN_ID));
+    const [benchmark] = await db.select().from(benchmarks).where(eq(benchmarks.id, BENCHMARK_ID));
+    const eligibility = savedEnvironmentEligibility(before, benchmark, team);
+    assert.equal(eligibility.eligible, proof === "compatible");
+    const expectedReason = eligibility.eligible ? null : eligibility.reason;
+    const { app, runtime, cookie, promote } = await authenticatedPromotion(db, binding);
+    if (proof !== "compatible") {
+      // Moving the team off the run's repository trips the source check first,
+      // and that sentence is the more useful one: it names the repository to
+      // start a fresh run on. The artifact's own refusal still reaches every
+      // surface below, because the two answer different questions.
+      const sourceRefusal = runSourceRefusal(team, before, "promote it");
+      const response = await promote();
+      assert.equal(response.status, 409);
+      const body = await response.json() as { error: { code: string; message: string } };
+      assert.equal(body.error.code, sourceRefusal ? "source_changed" : "not_promotable");
+      assert.equal(body.error.message, sourceRefusal ?? expectedReason);
+      assert.equal((await db.select().from(runs)).length, 1);
+    }
+    const snapshot = await buildRunSurfaceSnapshot(runtime, SURFACE_ID);
+    assert.equal(snapshot.status, "succeeded");
+    assert.equal(snapshot.promotionRefusal, expectedReason);
+    assert.equal(snapshot.actions.includes("promote_official"), proof === "compatible");
+
+    const dashboardResponse = await app.fetch(new Request(`http://localhost:5173/dashboard?benchmark=${BENCHMARK_ID}`, { headers: { cookie } }), runtime);
+    assert.equal(dashboardResponse.status, 200);
+    const dashboard = DashboardSchema.parse(await dashboardResponse.json());
+    assert.equal(dashboard.latestCandidate?.id, PRACTICE_RUN_ID);
+    assert.equal(dashboard.latestCandidate?.status, "succeeded");
+    assert.equal(dashboard.promotionRefusal, expectedReason);
+
+    const detailResponse = await app.fetch(new Request(`http://localhost:5173/runs/${PRACTICE_RUN_ID}`, { headers: { cookie } }), runtime);
+    assert.equal(detailResponse.status, 200);
+    const detail = RunDetailSchema.parse(await detailResponse.json());
+    assert.equal(detail.status, "succeeded");
+    assert.equal(detail.promotionRefusal, expectedReason);
+    const [after] = await db.select().from(runs).where(eq(runs.id, PRACTICE_RUN_ID));
+    assert.deepEqual(after, before);
+
+    assert.equal(DashboardSchema.parse({ ...dashboard, promotionRefusal: undefined }).promotionRefusal, null);
+    assert.equal(RunDetailSchema.parse({ ...detail, promotionRefusal: undefined }).promotionRefusal, null);
+  });
+}
+
+test("authenticated completion, promotion and signed dispatch preserve provisioning across a scorer change", async () => {
+  const { db, binding } = freshDb();
+  await seedPromotion(db);
+  const { runtime, app, promote } = await authenticatedPromotion(db, binding);
+  await db.update(runs).set({ status: "scoring", createdAt: Date.now(), finishedAt: null, preparedArtifactId: null, preparedEnvironmentJson: null }).where(eq(runs.id, PRACTICE_RUN_ID));
+  const event = {
+    protocolVersion: "1", type: "completed", eventId: "evt_prepared", runId: PRACTICE_RUN_ID,
+    sequence: 5, occurredAt: Date.now(), preparedArtifactId: PREPARED.artifactId,
+    preparedEnvironment: PREPARED, environmentDigest: "b".repeat(64), sanitizedLog: null,
+    result: { protocolVersion: "1", benchmarkId: BENCHMARK_ID, benchmarkVersion: 1,
+      metrics: [{ key: "accuracy", label: "Accuracy", value: 0.5, unit: null, higherIsBetter: true, primary: true, precision: 2 }],
+      diagnostics: [], outputDigest: "c".repeat(64) },
+  };
+  const body = JSON.stringify(event);
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  const callback = await app.fetch(new Request("http://localhost:5173/internal/v1/runner/events", {
+    method: "POST", body, headers: { "X-Cogworks-Key-Id": "runner-v1", "X-Cogworks-Timestamp": timestamp,
+      "X-Cogworks-Signature": `v1=${await hmacSignature(runtime.RUNNER_SIGNING_SECRET!, timestamp, body)}` },
+  }), runtime);
+  assert.equal(callback.status, 200, await callback.text());
+  await db.update(benchmarks).set({ scorerVersion: "new-scorer", runtimeVersion: "new-runtime-label" }).where(eq(benchmarks.id, BENCHMARK_ID));
+  assert.equal((await promote(false)).status, 401);
+  const originalFetch = globalThis.fetch;
+  let sent = 0;
+  globalThis.fetch = async (_input, init) => {
+    const payload = String(init?.body);
+    const headers = new Headers(init?.headers);
+    assert.equal(headers.get("X-Cogworks-Signature"), `v1=${await hmacSignature(runtime.RUNNER_SIGNING_SECRET!, headers.get("X-Cogworks-Timestamp")!, payload)}`);
+    const job = RunJobV1Schema.parse(JSON.parse(payload));
+    assert.deepEqual(job.preparedEnvironment, PREPARED);
+    assert.equal(job.benchmark.sandboxContract, 1);
+    assert.equal(job.benchmark.scorerVersion, "new-scorer");
+    assert.equal(job.preparedArtifactId, PREPARED.artifactId);
+    assert.equal(job.weights, undefined);
+    sent++;
+    return new Response(null, { status: 202 });
+  };
+  try {
+    const response = await promote();
+    assert.equal(response.status, 201, await response.text());
+  } finally { globalThis.fetch = originalFetch; }
+  assert.equal(sent, 1);
+  const [official] = await db.select().from(runs).where(eq(runs.mode, "official"));
+  assert.deepEqual(JSON.parse(official.preparedEnvironmentJson!), PREPARED);
+  assert.equal(official.scorerVersion, "new-scorer");
+});
+
+for (const [name, patch] of Object.entries({
+  legacy: { preparedEnvironmentJson: null },
+  malformed: { preparedEnvironmentJson: "{" },
+  artifact: { preparedEnvironmentJson: JSON.stringify({ ...PREPARED, artifactId: "another-artifact" }) },
+  benchmark: { preparedEnvironmentJson: JSON.stringify({ ...PREPARED, benchmarkId: "language-search" }) },
+  source: { preparedEnvironmentJson: JSON.stringify({ ...PREPARED, source: { ...PREPARED.source, sha: "b".repeat(40) } }) },
+  repository: { preparedEnvironmentJson: JSON.stringify({ ...PREPARED, source: { ...PREPARED.source, repositoryId: 999 } }) },
+  contract: { preparedEnvironmentJson: JSON.stringify({ ...PREPARED, sandboxContract: 2 }) },
+})) {
+  test(`authenticated promotion refuses ${name} evidence before admission`, async () => {
+    const { db, binding } = freshDb();
+    await seedPromotion(db);
+    await db.update(runs).set(patch).where(eq(runs.id, PRACTICE_RUN_ID));
+    const { promote } = await authenticatedPromotion(db, binding);
+    const response = await promote();
+    assert.equal(response.status, 409);
+    assert.equal((await response.json() as { error: { code: string } }).error.code, "not_promotable");
+    assert.equal((await db.select().from(runs)).length, 1);
+    const accounting = await readRunAccounting(db, { teamId: "team_test", benchmarkId: BENCHMARK_ID, benchmarkVersion: 1 });
+    assert.equal(accounting.officialUsed, 0);
+    assert.equal(accounting.officialReserved, 0);
+  });
 }
 
 test("a failed official run blocks same-surface re-promotion", async () => {
@@ -977,7 +1197,12 @@ test("a hosted console pairs its current stage's source and commit without borro
   await seedLocalSource(db);
   // Distinct metadata makes a mixed-stage projection detectable even though
   // normal verification preserves the local commit.
-  await db.update(runs).set({ sha: "b".repeat(40), branch: "hosted-branch" }).where(eq(runs.id, PRACTICE_RUN_ID));
+  // The saved environment moves with the commit, so this stays a test of which
+  // stage's metadata the console shows rather than of promotion eligibility.
+  await db.update(runs).set({
+    sha: "b".repeat(40), branch: "hosted-branch",
+    preparedEnvironmentJson: JSON.stringify({ ...PREPARED, source: { ...PREPARED.source, sha: "b".repeat(40) } }),
+  }).where(eq(runs.id, PRACTICE_RUN_ID));
   const snapshot = await buildRunSurfaceSnapshot(env(binding, "modal"), SURFACE_ID);
   assert.equal(snapshot.stage, "hosted");
   assert.equal(snapshot.source?.fullName, "some-org/the-repository-it-ran-from");

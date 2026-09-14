@@ -34,7 +34,7 @@ import { runSourceRefusal } from "./run-source";
 import { randomHex } from "../util/id";
 import { sha256Hex } from "../util/crypto";
 import { publishRunSurface } from "./run-surfaces";
-import { canPublishOfficialRun, currentSurfaceRun } from "./run-eligibility";
+import { canPublishOfficialRun, currentSurfaceRun, savedEnvironmentEligibility } from "./run-eligibility";
 import { insertRunWithCapacity, readRunAccounting } from "./run-accounting";
 
 export interface RunActor {
@@ -257,7 +257,13 @@ export async function startPracticeRun(
   if (accounting.practiceUsed + accounting.practiceReserved >= PRACTICE_LIMIT) {
     throw new ApiHttpError(409, "quota_exhausted", "The practice-run quota is exhausted.");
   }
-  if (env.EXECUTION_PROVIDER === "modal") assertModalConfigured(env);
+  if (env.EXECUTION_PROVIDER === "modal") {
+    assertModalConfigured(env);
+    // A contract transition pauses admission before creating a failed execution.
+    if (benchmark.sandboxContract == null || !Number.isSafeInteger(benchmark.sandboxContract) || benchmark.sandboxContract <= 0) {
+      throw new ApiHttpError(409, "not_promotable", "This benchmark's hosted environment is not ready.");
+    }
+  }
 
   const fixtureRepository = actor.team.repoFullName === FIXTURE_REPO.fullName;
   const branch = options.branch || actor.team.defaultBranch;
@@ -402,6 +408,10 @@ export async function promotePracticeRun(
   const existing = currentSurfaceRun(attached, "official");
   if (existing) return existingOfficialPromotion(existing, parent.surfaceId);
   const benchmark = await activeBenchmark(env, parent.benchmarkId, parent.benchmarkVersion);
+  if (env.EXECUTION_PROVIDER === "modal") {
+    const eligibility = savedEnvironmentEligibility(parent, benchmark, actor.team);
+    if (!eligibility.eligible) throw new ApiHttpError(409, "not_promotable", eligibility.reason);
+  }
   await syncTeamRuns(db, actor.team.id, parent.benchmarkId);
   const scope = { teamId: actor.team.id, benchmarkId: parent.benchmarkId, benchmarkVersion: parent.benchmarkVersion };
   const accounting = await readRunAccounting(db, scope);
@@ -411,9 +421,6 @@ export async function promotePracticeRun(
   }
   if (env.EXECUTION_PROVIDER === "modal") {
     assertModalConfigured(env);
-    if (!parent.preparedArtifactId) {
-      throw new ApiHttpError(409, "not_promotable", "The prepared hosted artifact is unavailable. Verify the commit again.");
-    }
   }
   const runId = `run_${randomHex(5)}`;
   const now = Date.now();
@@ -559,10 +566,12 @@ export async function retryRun(
     throw new ApiHttpError(409, "invalid_request", "The recorded execution source is no longer available. Start a new candidate.");
   }
   const benchmark = await activeBenchmark(env, failed.benchmarkId, failed.benchmarkVersion);
-  if (failed.contractVersion !== benchmark.contractVersion
+  // Modal's recorded-input check in prepareRetryJob owns these comparisons.
+  // Fixture runs have no recorded job, so retain their existing label check.
+  if (failed.provider === "fixture" && (failed.contractVersion !== benchmark.contractVersion
     || failed.scorerVersion !== benchmark.scorerVersion
     || failed.runtimeVersion !== benchmark.runtimeVersion
-    || failed.datasetVersion !== (failed.mode === "official" ? benchmark.datasetVersion : "practice-v1")) {
+    || failed.datasetVersion !== (failed.mode === "official" ? benchmark.datasetVersion : "practice-v1"))) {
     throw new ApiHttpError(409, "invalid_request", "The recorded benchmark configuration has changed. Start a new candidate.");
   }
   if (actor.team.repoFullName !== FIXTURE_REPO.fullName) {
@@ -616,6 +625,7 @@ export async function retryRun(
     provider: failed.provider,
     protocolVersion: failed.protocolVersion,
     preparedArtifactId: job ? job.preparedArtifactId : failed.preparedArtifactId,
+    preparedEnvironmentJson: job?.preparedEnvironment ? JSON.stringify(job.preparedEnvironment) : null,
     datasetVersion: failed.datasetVersion,
     scorerVersion: failed.scorerVersion,
     runtimeVersion: failed.runtimeVersion,

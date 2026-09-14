@@ -33,9 +33,10 @@ import {
   type RunSurfaceRow,
 } from "../db/schema";
 import { syncRun } from "../execution/sync";
+import { validateRetryInputs } from "../execution/runner";
 import { serializeMetric } from "../http/serializers";
 import { ApiHttpError } from "../http/errors";
-import { canPublishOfficialRun, currentSurfaceRun } from "./run-eligibility";
+import { canPublishOfficialRun, currentSurfaceRun, savedEnvironmentEligibility } from "./run-eligibility";
 import { acceptedRunPredicate, readRunAccounting } from "./run-accounting";
 
 const MAX_SURFACE_EVENTS = 250;
@@ -334,6 +335,14 @@ export async function readRunSurfaceSnapshot(
   const localRefusal = local ? runSourceRefusal(team, local, "verify it here") : null;
   const sourceRefusal = stage === "local" ? localRefusal : hostedRefusal;
 
+  // Separate from the source refusal above: this one is about whether the
+  // artifact the practice run saved can still be reused, not about which
+  // repository the run came from.
+  const promotionEligibility = practice && env.EXECUTION_PROVIDER === "modal"
+    ? savedEnvironmentEligibility(practice, benchmark, team)
+    : null;
+  const promotionRefusal = stage === "hosted" && status === "succeeded" && promotionEligibility?.eligible === false
+    ? promotionEligibility.reason : null;
   const actions: RunSurfaceAction[] = ["open_console", "open_portal"];
   if (stage === "local" && status !== "running") {
     actions.push("run_again");
@@ -343,7 +352,10 @@ export async function readRunSurfaceSnapshot(
   } else if (stage === "hosted" && status !== "running") {
     if (!hostedRefusal) {
       actions.push("rerun_hosted");
-      if (status === "succeeded" && practice?.refundedAt === null) actions.splice(2, 0, "promote_official");
+      if (status === "succeeded" && practice?.refundedAt === null &&
+          promotionEligibility?.eligible !== false) {
+        actions.splice(2, 0, "promote_official");
+      }
     }
   } else if (stage === "official" && official && !hostedRefusal) {
     if (canPublishOfficialRun(official)) actions.push("publish_result");
@@ -357,13 +369,23 @@ export async function readRunSurfaceSnapshot(
   const occupied = accounting.officialUsed + accounting.officialReserved;
   const nextAttempt = occupied < OFFICIAL_LIMIT ? occupied + 1 : null;
   const execution = official ?? practice;
+  let retryRefusal: string | null = null;
+  if (execution?.status === "failed" && execution.provider === "modal") {
+    try {
+      validateRetryInputs(env, execution, team, benchmark);
+    } catch (error) {
+      if (!(error instanceof ApiHttpError) || error.status !== 409) throw error;
+      retryRefusal = error.message;
+    }
+  }
   const retryCapacity = execution?.mode === "official"
     ? occupied < OFFICIAL_LIMIT
     : accounting.practiceUsed + accounting.practiceReserved < PRACTICE_LIMIT;
   if (execution?.status === "failed" && benchmark.active && !accounting.activeRuns
     && retryCapacity && execution.provider === env.EXECUTION_PROVIDER
     && !hostedRefusal
-    && (execution.dispatchJobJson !== null || execution.provider === "fixture")) {
+    && execution.repositoryId !== null && execution.repositoryId === team.repoId
+    && retryRefusal === null) {
     actions.splice(2, 0, "retry");
   }
 
@@ -408,6 +430,8 @@ export async function readRunSurfaceSnapshot(
     // failure has a traceback and belongs in the log rather than in a chat
     // message.
     refusalHeadline: refusalHeadlineOf(official ?? practice),
+    promotionRefusal,
+    retryRefusal,
     events,
     actions,
     simulated: env.EXECUTION_PROVIDER === "fixture",

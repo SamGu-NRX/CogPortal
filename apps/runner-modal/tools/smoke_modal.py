@@ -41,6 +41,7 @@ import modal  # noqa: E402
 import modal.runner  # noqa: E402
 
 from cogworks_runner import modal_app  # noqa: E402
+from cogworks_runner.protocol import ProtocolError, validate_job  # noqa: E402
 
 #: Benchmarks this can drive, and the evaluate function each one needs. Week 2
 #: is absent because its payload needs a CelebA manifest this does not build.
@@ -102,6 +103,10 @@ def build_job(benchmark_id: str, repo: str, sha: str, mode: str) -> dict:
             "maxOutputBytes": 8 * 1024,
         },
         "callback": {"url": "https://example.invalid/never-called", "keyId": "runner-v1"},
+        # Required whenever preparedArtifactId is None, which it always is
+        # here. The empty list is the honest value: no trained weights, rather
+        # than no weights field.
+        "weights": [],
     }
 
 
@@ -127,16 +132,48 @@ def main() -> int:
                         help="report the failure and exit 0; for sweeping many repositories")
     args = parser.parse_args()
 
+    # An official job has to name a prepared artifact, and this tool always
+    # prepares a fresh one, so it has none to name. Official scoring also reads
+    # the hidden dataset volume, which a smoke run has no business touching.
+    # The choice stays listed so this says why, rather than argparse rejecting
+    # it without a reason.
+    if args.mode == "official":
+        parser.error(
+            "official mode needs a prepared artifact this tool cannot supply; "
+            "smoke runs are practice only"
+        )
+
     sha = args.sha
     if not sha:
+        import urllib.error
         import urllib.request
+
         url = "https://api.github.com/repos/{}/commits?per_page=1".format(args.repo)
         request = urllib.request.Request(url, headers={"User-Agent": "cogworks-smoke"})
-        with urllib.request.urlopen(request, timeout=30) as response:
-            sha = json.load(response)[0]["sha"]
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                sha = json.load(response)[0]["sha"]
+        except (urllib.error.URLError, OSError) as error:
+            # A mistyped --repo is the same kind of mistake as a mistyped --sha
+            # and ends the same way. 404 is the common one and its message says
+            # nothing, so name the repository that was asked for.
+            parser.error("could not resolve a commit for {}: {}".format(args.repo, error))
         print("resolved {} -> {}".format(args.repo, sha[:12]), flush=True)
 
-    job = build_job(args.benchmark, args.repo, sha, args.mode)
+    # `submit_job` validates before it spawns anything, so a job this tool
+    # builds by hand has to clear the same gate or the tool is exercising a
+    # shape the endpoint would have refused. Skipping it is how a missing
+    # `weights` key reached `_prepare` and surfaced as a provider fault
+    # instead of the protocol error that names the field.
+    try:
+        job = validate_job(build_job(args.benchmark, args.repo, sha, args.mode))
+    except ProtocolError as error:
+        # A mistyped --sha is bad input, not a failed run, so it ends here
+        # rather than in the failure handler. `--keep-going` exists to sweep
+        # many repositories past real failures; reporting a malformed argument
+        # through it would put a fabricated outcome in that sweep.
+        parser.error("{} Check --repo and --sha.".format(error))
+
     reporter = PrintReporter()
     started = time.time()
 

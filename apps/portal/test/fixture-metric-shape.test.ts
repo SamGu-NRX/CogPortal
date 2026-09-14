@@ -6,12 +6,6 @@ import { fixtureMetrics } from "../worker/execution/fixture.ts";
  * The preview a student sees before their first real run has to be the same
  * shape as a real one.
  *
- * `EXECUTION_PROVIDER` is "fixture" everywhere today, so every score anyone
- * has seen from this platform came from here. That makes this file a
- * teaching surface: whoever reads a fixture run learns what a Week 3 result
- * looks like, and if the preview disagrees with the scorer they learn the
- * wrong thing.
- *
  * It did disagree. `search_mrr` was modelled as the mean of four query
  * rungs, which was correct under scorer version retrieval-v3 and wrong under
  * retrieval-v4, where the verbatim rung is reported and not scored. The
@@ -34,8 +28,7 @@ test("the Week 3 preview reports the two probes that are never scored", () => {
   for (const key of ["retrieval_mrr_verbatim", "search_mrr_verbatim"]) {
     const metric = metrics.get(key);
     assert.ok(metric, `${key} is missing from the preview`);
-    // A student reading a table of sixteen numbers cannot otherwise tell
-    // which of them feed the score.
+    // The label must distinguish reported probes from scored metrics.
     assert.match(metric.label, /not scored/);
   }
 });
@@ -52,6 +45,20 @@ test("the Week 3 preview scores three rungs, not four", () => {
     Math.abs(metrics.get("search_mrr")!.value - mean) < 5e-4,
     `search_mrr ${metrics.get("search_mrr")!.value} is not the mean of the three rewritten rungs ${mean}`,
   );
+});
+
+test("the Week 3 preview reports each retrieval rewrite as a diagnostic", () => {
+  const metrics = metricsFor("language-search");
+  const values = ["keywords", "truncated", "typo"].map((rung) => {
+    const metric = metrics.get(`retrieval_mrr_${rung}`);
+    assert.ok(metric, `retrieval_mrr_${rung} is missing`);
+    assert.equal(metric.role, "diagnostic");
+    assert.equal(metric.higherIsBetter, true);
+    assert.equal(metric.primary, false);
+    return metric.value;
+  });
+  const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
+  assert.ok(Math.abs(metrics.get("retrieval_mrr")!.value - mean) < 5e-5);
 });
 
 test("the Week 3 preview keeps the verbatim probe above the scored number", () => {

@@ -240,6 +240,16 @@ class CountTests(unittest.TestCase):
             CHECK(_Benchmark("language-search"), [], 3)
         self.assertIn("0 results for 3 cases", str(caught.exception))
 
+    def test_count_error_does_not_assume_who_built_the_results(self):
+        for version in ("cogworks.submissions.v1", "cogworks.submissions.v2"):
+            with self.subTest(version=version), self.assertRaises(FAILURE) as caught:
+                CHECK(_Benchmark("language-search", version), [], 3)
+            message = str(caught.exception)
+            self.assertIn("If your adapter builds this list, check its length.", message)
+            self.assertIn("Otherwise, tell course staff.", message)
+            self.assertNotIn("driver calls", message)
+            self.assertLessEqual(len(message), 240)
+
     def test_count_is_checked_for_v1_too(self):
         # The v1 fixture benchmark has no entry in the shape table and needs
         # none: its score() str()-coerces whatever it is handed. The count is

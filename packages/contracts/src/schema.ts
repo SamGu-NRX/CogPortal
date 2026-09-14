@@ -201,6 +201,9 @@ export const RunSummarySchema = z.object({
 export type RunSummary = z.infer<typeof RunSummarySchema>;
 
 export const RunDetailSchema = RunSummarySchema.extend({
+  /** Saved-environment refusal for a succeeded practice run. Null does not
+   * establish authorization or available quota. */
+  promotionRefusal: z.string().max(600).nullable().default(null),
   surfaceId: z.string().regex(/^surface_[a-f0-9]{20}$/).nullable().default(null),
   contractVersion: z.string(),
   parentRunId: z.string().nullable(),
@@ -733,6 +736,11 @@ export const RunSurfaceSnapshotSchema = z.object({
    * makes the message worth reading.
    */
   refusalHeadline: z.string().max(600).nullable().default(null),
+  // A successful practice can lack a reusable environment without losing its findings.
+  promotionRefusal: z.string().max(600).nullable().default(null),
+  /** Deterministic recorded-input refusal only. Null does not establish
+   * authorization, capacity, or provider/weight availability. */
+  retryRefusal: z.string().max(600).nullable().default(null),
   events: z.array(RunStreamEventSchema).max(250),
   /** Repository of the current stage, paired with its commit. Null when
    *  that run predates the recorded name. */
@@ -886,8 +894,12 @@ export const DashboardSchema = z.object({
   quota: QuotaSchema,
   lastResolvedSha: z.string().nullable(),
   activeRun: RunSummarySchema.nullable(),
-  /** Most recent succeeded practice run, retained even when its source prevents promotion. */
+  /** Most recent succeeded practice run, retained even when something prevents
+   *  promotion. Its two refusals answer different questions and can both be
+   *  set: `sourceRefusal` is which repository the run came from, and
+   *  `promotionRefusal` is whether its saved environment can still be reused. */
   latestCandidate: RunSummarySchema.extend({ sourceRefusal: z.string().nullable() }).nullable(),
+  promotionRefusal: z.string().max(600).nullable().default(null),
   selection: SelectionSchema.nullable(),
   runs: z.array(RunSummarySchema),
 });

@@ -3,12 +3,13 @@ import { readdirSync, readFileSync } from "node:fs";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { URL } from "node:url";
 import { test } from "node:test";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
-import { buildRunJob, enqueueRun, prepareRetryJob } from "../worker/execution/runner.ts";
-import { runs, teams, cohorts, benchmarks, type RunRow, type TeamRow, type BenchmarkRow } from "../worker/db/schema.ts";
+import { buildRunJob, enqueueRun, prepareRetryJob, validateRetryInputs } from "../worker/execution/runner.ts";
+import { readRunSurfaceSnapshot } from "../worker/services/run-surfaces.ts";
+import { runs, teams, cohorts, benchmarks, users, runSurfaces, type RunRow, type TeamRow, type BenchmarkRow } from "../worker/db/schema.ts";
 import type { Env } from "../worker/env.ts";
-import type { RunJobV1 } from "@cogworks/contracts/protocol";
+import { PreparedEnvironmentV1Schema, type RunJobV1 } from "@cogworks/contracts/protocol";
 import { ApiHttpError } from "../worker/http/errors.ts";
 
 const digest = "b".repeat(64);
@@ -22,7 +23,7 @@ const benchmark: BenchmarkRow = {
   id: "vision-recognition", version: 1, contractVersion: "cogworks.submissions.v1",
   pluginVersion: "1", datasetVersion: "official-v1", scorerVersion: "1", runtimeVersion: "python-3.11",
   entryPointName: "submission", title: "Vision", module: "vision", summary: "Retry test",
-  active: true, primaryMetricKey: "accuracy",
+  active: true, primaryMetricKey: "accuracy", sandboxContract: 1,
 };
 function environment(overrides: Partial<Env> = {}): Env {
   // Retry preparation needs no database; enqueue tests supply the SQLite binding.
@@ -44,16 +45,29 @@ function original(mode: "practice" | "official" = "practice", withWeights = fals
   const run: RunRow = {
     id: "run_original", teamId: team.id, benchmarkId: benchmark.id, benchmarkVersion: 1,
     contractVersion: benchmark.contractVersion, mode, status: "failed", branch: "main",
-    sha: "a".repeat(40), repositoryId: team.repoId, provider: "modal", protocolVersion: "1",
+    // No recorded name, so the job falls back to the team's repository. The
+    // drift cases below rename that team, which is what they are testing.
+    sha: "a".repeat(40), repositoryId: team.repoId, repositoryFullName: null,
+    provider: "modal", protocolVersion: "1",
     datasetVersion: mode === "practice" ? "practice-v1" : benchmark.datasetVersion,
     scorerVersion: benchmark.scorerVersion, runtimeVersion: benchmark.runtimeVersion,
     preparedArtifactId: mode === "official" ? "im-prepared" : null,
+    preparedEnvironmentJson: null,
     createdAt: 1, finishedAt: null, lastEventSequence: -1, dispatchAttempts: 0,
     parentRunId: null, retryOfRunId: null, dispatchJobJson: null, attemptNumber: null,
     failureCategory: null, failurePhase: null, failureDetail: null, failureConsumedAttempt: false,
     refundedAt: null, log: null, diagnosticsJson: null, wiringJson: null, refusalJson: null,
     sweepJson: null, weightsSuppliedJson: "[]", environmentDigest: null, surfaceId: null,
   };
+  if (mode === "official") {
+    const evidence = PreparedEnvironmentV1Schema.parse(JSON.parse(readFileSync(
+      new URL("../../../protocols/v1/fixtures/prepared-environment.valid.json", import.meta.url), "utf8",
+    )));
+    run.preparedEnvironmentJson = JSON.stringify({ ...evidence,
+      artifactId: run.preparedArtifactId, benchmarkId: run.benchmarkId,
+      source: { repositoryId: run.repositoryId, fullName: team.repoFullName, sha: run.sha },
+    });
+  }
   const job = buildRunJob(env, run, team, benchmark,
     withWeights ? [{ path: "model.pkl", size: 3, sha256: digest }] : []);
   run.dispatchJobJson = JSON.stringify(job);
@@ -101,6 +115,38 @@ test("retry preserves recorded inputs, ignores late artifacts, and refreshes onl
     });
     assert.deepEqual({ ...retry, jobId: job.jobId, runId: job.runId, callback: job.callback }, job);
   }
+});
+
+test("saved-job Retry preserves provisioning evidence and refuses legacy or mismatched proof", async () => {
+  const { env, run, job } = original("official");
+  assert.ok(job.preparedEnvironment);
+  run.preparedEnvironmentJson = JSON.stringify({ ...job.preparedEnvironment, artifactId: "im-late-other" });
+  const retry = await prepareRetryJob(env, run, team, benchmark, "run_retry");
+  assert.deepEqual(retry.preparedEnvironment, job.preparedEnvironment);
+  assert.equal(retry.benchmark.sandboxContract, 1);
+  for (const mutate of [
+    (candidate: RunJobV1) => { delete candidate.preparedEnvironment; },
+    (candidate: RunJobV1) => { candidate.preparedEnvironment = null; },
+    (candidate: RunJobV1) => { candidate.preparedEnvironment!.artifactId = "im-other"; },
+    (candidate: RunJobV1) => { candidate.preparedEnvironment!.source.sha = "f".repeat(40); },
+    (candidate: RunJobV1) => { delete candidate.benchmark.sandboxContract; },
+    (candidate: RunJobV1) => { candidate.benchmark.sandboxContract = 2; },
+  ]) {
+    const candidate = structuredClone(job);
+    mutate(candidate);
+    await assert.rejects(prepareRetryJob(env, { ...run, dispatchJobJson: JSON.stringify(candidate) }, team, benchmark, "run_retry"), conflict);
+  }
+});
+
+test("a late practice observation does not become Retry's preparation input", async () => {
+  const { env, run, job } = original("practice");
+  const official = original("official");
+  run.preparedArtifactId = official.run.preparedArtifactId;
+  run.preparedEnvironmentJson = official.run.preparedEnvironmentJson;
+  const retry = await prepareRetryJob(env, run, team, benchmark, "run_retry");
+  assert.equal(retry.preparedArtifactId, null);
+  assert.equal(retry.preparedEnvironment, null);
+  assert.deepEqual(retry.weights, job.weights);
 });
 
 test("retry rejects absent, malformed, or mismatched recorded inputs", async () => {
@@ -223,6 +269,113 @@ async function database(failPersistence = false) {
   await db.insert(benchmarks).values(benchmark);
   return { db, binding, queries, sqlite };
 }
+
+async function snapshotDatabase(run: RunRow, env: Env, currentBenchmark = benchmark) {
+  const harness = await database();
+  const surfaceId = `surface_${"a".repeat(20)}`;
+  await harness.db.insert(users).values({ id: "user_retry", email: "retry@example.test", name: "Retry", githubLogin: "retry" });
+  await harness.db.insert(runSurfaces).values({ id: surfaceId, teamId: team.id, createdByUserId: "user_retry",
+    benchmarkId: benchmark.id, benchmarkVersion: benchmark.version, createdAt: 1, updatedAt: 1 });
+  await harness.db.update(benchmarks).set(currentBenchmark)
+    .where(and(eq(benchmarks.id, benchmark.id), eq(benchmarks.version, benchmark.version)));
+  run.surfaceId = surfaceId;
+  await harness.db.insert(runs).values(run);
+  env.DB = harness.binding;
+  return { ...harness, snapshot: () => readRunSurfaceSnapshot(env, surfaceId) };
+}
+
+type RetryCase = { run: RunRow; job: RunJobV1; env: Env; catalog: BenchmarkRow };
+const refusedInputs: Record<string, (candidate: RetryCase) => void> = {
+  "unknown contract": ({ catalog }) => { catalog.sandboxContract = null; },
+  "changed contract": ({ catalog }) => { catalog.sandboxContract = 2; },
+  "missing dispatch": ({ run }) => { run.dispatchJobJson = null; },
+  "malformed dispatch": ({ run }) => { run.dispatchJobJson = "{"; },
+  "missing provisioning": ({ job }) => { delete job.preparedEnvironment; },
+  "changed source": ({ job }) => { job.source.sha = "c".repeat(40); },
+  "changed scorer": ({ catalog }) => { catalog.scorerVersion = "changed"; },
+  "changed plugin": ({ catalog }) => { catalog.pluginVersion = "changed"; },
+  "invalid plugin": ({ catalog }) => { catalog.pluginVersion = ""; },
+  "changed runtime": ({ catalog }) => { catalog.runtimeVersion = "changed"; },
+  "changed image configuration": ({ env }) => { env.RUNNER_IMAGE_DIGEST = "changed"; },
+  "invalid protocol": ({ run, job }) => { run.dispatchJobJson = JSON.stringify({ ...job, protocolVersion: "2" }); },
+};
+for (const [name, mutate] of Object.entries(refusedInputs)) {
+  test(`Retry snapshot and admission share the ${name} refusal without changing failure history`, async () => {
+    const candidate = { ...original("official"), catalog: { ...benchmark } };
+    const before = candidate.run.dispatchJobJson;
+    mutate(candidate);
+    if (candidate.run.dispatchJobJson === before) candidate.run.dispatchJobJson = JSON.stringify(candidate.job);
+    candidate.run.refusalJson = JSON.stringify({ headline: "Historical failure explanation" });
+    const harness = await snapshotDatabase(candidate.run, candidate.env, candidate.catalog);
+    try {
+      const snapshot = await harness.snapshot();
+      assert.equal(snapshot.actions.includes("retry"), false);
+      assert.equal(snapshot.status, "failed");
+      assert.equal(snapshot.refusalHeadline, "Historical failure explanation");
+      assert.ok(snapshot.retryRefusal);
+      await assert.rejects(prepareRetryJob(candidate.env, candidate.run, team, candidate.catalog, "run_retry"), (error) => {
+        assert.ok(error instanceof ApiHttpError);
+        assert.equal(error.status, 409);
+        assert.equal(error.message, snapshot.retryRefusal);
+        return true;
+      });
+      assert.deepEqual((await harness.db.select().from(runs))[0], candidate.run);
+    } finally { harness.sqlite.close(); }
+  });
+}
+
+for (const mode of ["practice", "official"] as const) {
+  test(`${mode} Retry render uses original inputs, ignores late row evidence and performs no external IO or ID generation`, async (t) => {
+    const { run, job, env } = original(mode, mode === "practice");
+    if (job.preparedEnvironment) {
+      job.preparedEnvironment.baseImageId = "im-older-compatible-base";
+      job.preparedEnvironment.sdkVersion = "0.1.0";
+      job.preparedEnvironment.pythonVersion = "3.11.2";
+      run.dispatchJobJson = JSON.stringify(job);
+    }
+    run.preparedArtifactId = "im-late-unrelated";
+    run.preparedEnvironmentJson = "invalid late row evidence";
+    const harness = await snapshotDatabase(run, env);
+    try {
+      for (const key of ["ARTIFACTS", "MODAL_RUNNER_URL", "RUNNER_SIGNING_SECRET", "PUBLIC_ORIGIN", "RUN_QUEUE"] as const) {
+        Object.defineProperty(env, key, { configurable: true, get() { throw new Error(`Render accessed ${key}`); } });
+      }
+      t.mock.method(globalThis, "fetch", () => { throw new Error("Render attempted network access"); });
+      t.mock.method(crypto, "getRandomValues", () => { throw new Error("Render generated an ID"); });
+      assert.deepEqual(validateRetryInputs(env, run, team, benchmark), job);
+      const snapshot = await harness.snapshot();
+      assert.equal(snapshot.actions.includes("retry"), true);
+      assert.equal(snapshot.retryRefusal, null);
+      assert.equal(snapshot.status, "failed");
+      assert.deepEqual((await harness.db.select().from(runs))[0], run);
+    } finally { harness.sqlite.close(); }
+  });
+}
+
+test("fixture Retry remains advertised without a recorded job or sandbox evidence", async () => {
+  const { run, env } = original();
+  run.provider = "fixture";
+  run.dispatchJobJson = null;
+  env.EXECUTION_PROVIDER = "fixture";
+  const harness = await snapshotDatabase(run, env, { ...benchmark, sandboxContract: null });
+  try {
+    const snapshot = await harness.snapshot();
+    assert.equal(snapshot.actions.includes("retry"), true);
+    assert.equal(snapshot.retryRefusal, null);
+    assert.equal(snapshot.status, "failed");
+  } finally { harness.sqlite.close(); }
+});
+
+test("unexpected errors in Retry reconstruction are not converted to eligibility refusals", async () => {
+  for (const failure of [new Error("unexpected runtime accessor failure"), new ApiHttpError(500, "invalid_request", "unexpected internal failure")]) {
+    const { run, env } = original("official");
+    Object.defineProperty(env, "RUNNER_IMAGE_DIGEST", { get() { throw failure; } });
+    assert.throws(() => validateRetryInputs(env, run, team, benchmark), (error) => error === failure);
+    const harness = await snapshotDatabase(run, env);
+    try { await assert.rejects(harness.snapshot(), (error) => error === failure); }
+    finally { harness.sqlite.close(); }
+  }
+});
 
 test("enqueue records inputs before sending and reuses the first saved job", async () => {
   const { db, binding, queries, sqlite } = await database();
