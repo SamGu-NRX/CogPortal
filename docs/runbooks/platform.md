@@ -1,16 +1,29 @@
 # Platform deployment and operations runbook
 
 No production or course service should be changed by following only part of
-this runbook. Keep `EXECUTION_PROVIDER=fixture` until every Modal gate passes.
+this runbook. Production already exists, so start at "Production release
+gates" in section 6 and work the gates in order.
+
+An earlier version of this line said to keep `EXECUTION_PROVIDER=fixture`
+until the Modal gates pass. That is right for a development worker and wrong
+for production: fixture does not hold execution back, it manufactures it,
+advancing runs from a wall clock and writing simulated metrics. It is a
+development mode, never a production pause or rollback. Section 7 has what to
+use instead.
 
 This repository must be a real Git checkout. GitHub-generated source archives
 do not contain `benchmarks/week2`:
 
 ```bash
 git clone --recurse-submodules <cogportal-repository-url>
+git submodule sync --recursive
 git submodule update --init --recursive
 python scripts/validate_week2_submodule.py
 ```
+
+`git submodule sync` is there because a checkout keeps whichever submodule URL
+it was cloned with, so one made before `benchmarks/week2` changed source keeps
+fetching from the old one.
 
 ## 1. Verify the repository
 
@@ -261,8 +274,9 @@ the lead's, and approving the rollout is root's. The production database's
 recorded ledger is far behind this migrations directory.
 
 Duplicate numeric prefixes appear only once the portal and hosted branches are
-assembled. This branch's `migrations/` holds 43 files with no repeated number;
-the combined candidate carries 45, with two files at `0039` and two at `0040`.
+assembled. The configuration branch alone holds 43 with no repeated number;
+this assembly carries 46, with two files at `0039`, two at `0040`, and Vision's
+`0044`.
 Nothing here says that combined tree is accepted.
 
 Two mechanics for when it is assembled, because the duplicates look more
