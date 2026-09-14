@@ -24,7 +24,7 @@ The vocabulary used across these documents. When a document uses one of these wo
 
 **Answered without work.** The short path. The ask ends before anything durable happens: a validation error, a usage message, an empty state, a refusal before the first side effect. Nothing is recorded, and every document says so explicitly, because "nothing is recorded" is a claim a tester can check.
 
-**The work begins.** The moment abandoning the ask stops being free. It is a different moment on each surface and each document names it exactly: the run row is written and credit is spent; the first byte is written to `.cogbench/reports/`; the sandbox's first container starts; the Discord bubble is posted. Before this moment an interrupt leaves nothing behind. After it, something survives.
+**The work begins.** The first durable effect of an ask, such as admitting an execution, saving a report or posting a message. Leaving afterwards does not erase that effect. Admission reserves hosted capacity; only completion adds to used quota.
 
 **While it works.** What updates, what streams, what the student can still do, and what is disabled.
 
@@ -36,13 +36,15 @@ The vocabulary used across these documents. When a document uses one of these wo
 
 **The repository is the team.** The platform's rule that a team's identity is its GitHub repository: everyone with write access to it shares its attempts. Adding someone on the team page does not give them GitHub access, and the portal says so where it matters.
 
-**Practice run.** A hosted run that scores the team's repository and is visible only to the team. Costs credit. The default: pressing "Start run" makes a practice run.
+**Practice run.** A hosted evaluation visible to the team. A completed evaluation uses practice quota; a failed execution does not. See [credit and quota](cross-cutting/credit-and-quota.md).
 
 **Promotion.** Turning a finished practice run into a leaderboard entry. A separate, explicit act; a run is never promoted automatically.
 
 **Leaderboard entry.** A promoted run, visible to every team in the cohort. Carries the team name and the run's numbers, never a person's name and never a per-person number.
 
-**Credit.** The budget a team spends to start a hosted run. Spent when the work begins and refunded when the platform decides a failure was its own rather than the team's. See [`cross-cutting/credit-and-quota.md`](cross-cutting/credit-and-quota.md) for the numbers and the refund rules.
+**Credit.** The team's allowance for completed hosted evaluations. Active executions reserve capacity, and failures use none. See [credit and quota](cross-cutting/credit-and-quota.md) for the limits.
+
+**Retry.** Starting another execution of a failed run's recorded source and settings, in the same mode and view. The old execution remains history. Retry never substitutes the latest branch commit.
 
 **Cohort.** The set of teams a leaderboard covers. A student belongs to exactly one.
 

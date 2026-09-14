@@ -106,6 +106,11 @@ export class PortalRpc extends WorkerEntrypoint<Env> implements PortalRpcContrac
     return performRunSurfaceMutation(this.env, actor, surfaceId, "rerun_hosted");
   }
 
+  async retryRun(guildId: string, discordUserId: string, surfaceId: string, runId: string) {
+    const { actor } = await this.actorSurface(guildId, discordUserId, surfaceId);
+    return performRunSurfaceMutation(this.env, actor, surfaceId, "retry", { runId });
+  }
+
   async getRerunCommand(guildId: string, discordUserId: string, surfaceId: string) {
     await this.actorSurface(guildId, discordUserId, surfaceId);
     const snapshot = await buildRunSurfaceSnapshot(this.env, surfaceId);

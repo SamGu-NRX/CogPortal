@@ -308,7 +308,7 @@ test("the exception class is read off the head of the line, or not at all", () =
 });
 
 
-test("collapsed failure copy reports attempt use only for official runs", () => {
+test("collapsed failure copy identifies the execution without accounting claims", () => {
   const failure = {
     category: "adapter_missing" as const,
     phase: "contract_check" as const,
@@ -334,7 +334,8 @@ test("collapsed failure copy reports attempt use only for official runs", () => 
 
   assert.match(practice, /E-ADAPTER · practice/);
   assert.doesNotMatch(practice, /attempt/);
-  assert.match(official, /E-ADAPTER · official · attempt not consumed/);
+  assert.match(official, /E-ADAPTER · official/);
+  assert.doesNotMatch(official, /attempt|consumed|refund/);
 });
 
 
@@ -402,7 +403,11 @@ test("a 601-character persisted refusal still produces a snapshot", async (t) =>
     refusalJson: JSON.stringify({ ...refusal, headline }),
   });
 
-  const snapshot = await buildRunSurfaceSnapshot({ DB: binding, EXECUTION_PROVIDER: "modal" } as unknown as Env, surfaceId);
+  const { runSurfaceHubs } = await import("./fixtures/run-surface-hub.ts");
+  const runtime = { DB: binding, EXECUTION_PROVIDER: "modal" } as unknown as Env;
+  runtime.RUN_SURFACES = runSurfaceHubs(runtime).namespace;
+  const snapshot = await buildRunSurfaceSnapshot(runtime, surfaceId);
+  assert.equal(snapshot.snapshotRevision, 1);
   assert.equal(snapshot.id, surfaceId);
   assert.equal(snapshot.status, "failed");
   assert.equal(snapshot.refusalHeadline, headline.slice(0, 600));
