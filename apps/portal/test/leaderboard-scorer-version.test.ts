@@ -84,7 +84,12 @@ async function addRun(db: Database, id: string, benchmarkId = RECOGNITION, overr
   await db.insert(runs).values({
     id, teamId: "team_demo", benchmarkId, benchmarkVersion: 2,
     contractVersion: benchmark.contractVersion, mode: "official", status: "succeeded",
-    branch: "main", sha: "a".repeat(40), repositoryId: 123,
+    // The repository the actor's team is set to, because `publishOfficialRun`
+    // refuses a run whose recorded repository is not the team's current one.
+    // An arbitrary id here made every publication fail `source_changed` before
+    // it reached the scorer check these tests are about. The two cases that
+    // override this still differ from it, so they keep meaning what they said.
+    branch: "main", sha: "a".repeat(40), repositoryId: FIXTURE_REPO.repositoryId,
     createdAt: 10, finishedAt: 20, provider: "modal",
     scorerVersion: benchmark.scorerVersion, ...overrides,
   });
