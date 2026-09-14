@@ -43,6 +43,8 @@ SANDBOX_CONTRACTS = {
 # == (3, 8) for Audio and Language. Its image build pins 3.8.20, but that pin
 # does not establish incompatibility with another 3.8 patch. Keep the exact
 # observed version as provenance; Vision has no corresponding runtime guard.
+# Membership also selects the pinned venv in student_python; removing a track
+# changes both its interpreter and its compatibility check.
 _REQUIRED_PYTHON = {
     "audio-identification": "3.8",
     "language-search": "3.8",
@@ -186,6 +188,16 @@ def _validate_interpreter(benchmark_id: str, python_version: str) -> None:
     required = _REQUIRED_PYTHON.get(benchmark_id)
     if required is not None and re.fullmatch(re.escape(required) + r"\.[0-9]+", python_version) is None:
         raise PreparedEnvironmentError(INCOMPATIBLE_PYTHON)
+
+
+def student_python(benchmark_id: str, py38_venv: str, default: str = "python") -> str:
+    """Select the pinned venv for tracks requiring Python 3.8.
+
+    Callers supply cogbench's venv path so this module needs no cogbench import
+    when the sandbox runs its pristine compatibility probe.
+    """
+
+    return py38_venv if benchmark_id in _REQUIRED_PYTHON else default
 
 
 def validate_observation(job: Dict[str, Any], observation: Any) -> None:

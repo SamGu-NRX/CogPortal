@@ -17,7 +17,6 @@ it, and it is replaced with a recorder wherever ordering is under test.
 
 from __future__ import annotations
 
-import ast
 import io
 import json
 import sys
@@ -30,10 +29,14 @@ ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "apps" / "runner-modal" / "tools"))
 sys.path.insert(0, str(ROOT / "apps" / "runner-modal" / "src"))
 
+# The private 3.8 requirement, imported deliberately: one test exists to pin
+# that the interpreter choice is derived from it and not listed beside it.
+from cogworks_runner.prepared_environment import _REQUIRED_PYTHON as REQUIRED_PYTHON  # noqa: E402
 import probe_prepared_environment as probe_module  # noqa: E402
 from probe_prepared_environment import (  # noqa: E402
     PLATFORM_TREES,
-    STUDENT_PYTHON,
+    PY38_VENV,
+    SANDBOX_CONTRACTS,
     ProbeError,
     benchmark_source,
     bind_modules_to_manifests,
@@ -535,78 +538,23 @@ class SandboxOutputHandling(unittest.TestCase):
             load_json(Exploding(), "anything")
 
 
-def _expression_text(node):
-    """A stable spelling for the expression shapes `_student_python` uses.
+class InterpreterSelection(unittest.TestCase):
+    """Test the selection shared by the runner and release probe."""
 
-    `ast.unparse` would do this and arrived in 3.9, while this repository still
-    supports 3.8.
-    """
+    def test_the_two_tracks_the_evaluator_holds_to_3_8_get_the_venv(self):
+        for benchmark_id in ("audio-identification", "language-search"):
+            self.assertEqual(student_python(benchmark_id, PY38_VENV), PY38_VENV)
 
-    if isinstance(node, ast.Constant) and isinstance(node.value, str):
-        return repr(node.value)
-    if isinstance(node, ast.Name):
-        return node.id
-    if isinstance(node, ast.Attribute):
-        return "{}.{}".format(_expression_text(node.value), node.attr)
-    raise AssertionError("unreadable interpreter expression in modal_app.py")
+    def test_every_other_track_gets_the_image_interpreter(self):
+        for benchmark_id in ("vision-recognition", "vision-clustering"):
+            self.assertEqual(student_python(benchmark_id, PY38_VENV), "python")
 
-
-def modal_app_student_python():
-    """The real mapping, read out of modal_app.py without importing modal.
-
-    Values come back as expression text: `_student_python` maps its tracks to
-    module constants assigned from `ENVIRONMENT.PY38_VENV`, and resolving that
-    through the syntax tree would mean evaluating cogbench from source.
-    """
-
-    source = (ROOT / "apps" / "runner-modal" / "src" / "cogworks_runner" / "modal_app.py").read_text(
-        encoding="utf-8"
-    )
-    tree = ast.parse(source)
-    bindings = {}
-    for node in tree.body:
-        if isinstance(node, ast.Assign) and len(node.targets) == 1:
-            target = node.targets[0]
-            if isinstance(target, ast.Name):
-                try:
-                    bindings[target.id] = _expression_text(node.value)
-                except AssertionError:
-                    continue
-    for node in ast.walk(tree):
-        if not (isinstance(node, ast.FunctionDef) and node.name == "_student_python"):
-            continue
-        for inner in ast.walk(node):
-            if not isinstance(inner, ast.Dict):
-                continue
-            mapping = {}
-            for key, value in zip(inner.keys, inner.values):
-                text = _expression_text(value)
-                mapping[key.value] = bindings.get(text, text)
-            return mapping
-    raise AssertionError("modal_app.py has no _student_python to read")
-
-
-class InterpreterMapping(unittest.TestCase):
-    def test_matches_the_mapping_modal_app_actually_uses(self):
-        # STUDENT_PYTHON restates `_student_python` so the tool need not import
-        # modal. A restatement nothing checks is a second place to be wrong.
-        real = modal_app_student_python()
-        self.assertEqual(sorted(real), sorted(STUDENT_PYTHON))
-        for benchmark_id, expression in real.items():
-            self.assertEqual(expression, "ENVIRONMENT.PY38_VENV", benchmark_id)
-
-    def test_the_pinned_venv_path_is_the_one_cogbench_declares(self):
-        sys.path.insert(0, str(ROOT / "python" / "cogbench" / "src"))
-        try:
-            from cogbench import environment
-        except ImportError:
-            self.skipTest("cogbench is not importable here")
-        for benchmark_id in STUDENT_PYTHON:
-            self.assertEqual(student_python(benchmark_id), environment.PY38_VENV)
-
-    def test_other_tracks_use_the_image_interpreter(self):
-        self.assertEqual(student_python("vision-recognition"), "python")
-        self.assertEqual(student_python("vision-clustering"), "python")
+    def test_the_track_set_is_the_3_8_requirement_itself(self):
+        # The point of deriving it: a track cannot acquire the 3.8 requirement
+        # without acquiring the interpreter that satisfies it.
+        for benchmark_id in SANDBOX_CONTRACTS:
+            needs_venv = student_python(benchmark_id, PY38_VENV) == PY38_VENV
+            self.assertEqual(needs_venv, benchmark_id in REQUIRED_PYTHON, benchmark_id)
 
 
 class CommandLine(unittest.TestCase):
