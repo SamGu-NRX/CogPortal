@@ -907,19 +907,49 @@ class WhatTheRepositoryItselfSuppliesIsReadOnceTheRootIsKnown(unittest.TestCase)
         self.assertEqual(seen["root"], self.tmp)
         self.assertEqual(seen["modules"], ["theirs"])
 
-    def test_the_weights_the_hook_loaded_are_recorded_and_kept_out_of_the_pool(self):
+    def test_the_weights_the_hook_captured_are_recorded_and_kept_out_of_the_pool(self):
+        weights = self.tmp / "data"
+        weights.mkdir(exist_ok=True)
+        (weights / "b.npy").write_bytes(b"second")
+        (weights / "a.npy").write_bytes(b"first")
+
+        def prepare(root, modules, capture=None):
+            # Loading through `capture` is what declares the weight; the hook
+            # does not name it a second time.
+            for name in ("b.npy", "a.npy"):
+                capture(root / "data" / name)
+            return {"W": 3}
+
         submission = resolve(
             self.tmp,
             chain_role=self.role,
             fixture=([1, 2],),
             accepts=lambda chain, *_: (chain[0].bound([1]) == [3], ""),
             arrangements=None,
-            prepare=lambda root, modules: {"W": 3, "weights_used": ["data/b.npy", "data/a.npy"]},
+            prepare=prepare,
         )
 
         self.assertTrue(submission.ready, submission.verdict.headline)
         self.assertEqual(submission.weights_used, ("data/a.npy", "data/b.npy"))
         self.assertEqual(submission.to_dict()["weightsUsed"], ["data/a.npy", "data/b.npy"])
+        captured = submission.to_dict()["weightsCaptured"]
+        self.assertEqual([item["path"] for item in captured], ["data/a.npy", "data/b.npy"])
+        self.assertEqual([item["size"] for item in captured], [len(b"first"), len(b"second")])
+
+    def test_a_hook_that_names_weights_without_capturing_them_is_refused(self):
+        """Reporting a weight nobody retained would describe unknown bytes."""
+
+        submission = resolve(
+            self.tmp,
+            chain_role=self.role,
+            fixture=([1, 2],),
+            accepts=lambda chain, *_: (chain[0].bound([1]) == [3], ""),
+            arrangements=None,
+            prepare=lambda root, modules: {"W": 3, "weights_used": ["data/a.npy"]},
+        )
+
+        self.assertFalse(submission.ready)
+        self.assertIn("does not retain them", submission.verdict.headline)
 
     def test_the_benchmarks_own_extras_win_over_the_repositorys(self):
         submission = resolve(

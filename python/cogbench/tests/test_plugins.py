@@ -61,18 +61,18 @@ class PluginDiscoveryTests(unittest.TestCase):
             ),
             "vision-recognition": (
                 'python -m pip install "cogworks-week2-vision-benchmark @ '
-                'git+https://github.com/iReynaldo/ComputerVisionBenchmark.git'
-                '@c177cf23cdd4f8dbe55401a2eb4bada4c64d37c2"'
+                'git+https://github.com/SamGu-NRX/cogworks-week2-vision-benchmark.git'
+                '@b9055031bf25a18594651d89610f3fbcd7462db8"'
             ),
             "vision-clustering": (
                 'python -m pip install "cogworks-week2-vision-benchmark @ '
-                'git+https://github.com/iReynaldo/ComputerVisionBenchmark.git'
-                '@c177cf23cdd4f8dbe55401a2eb4bada4c64d37c2"'
+                'git+https://github.com/SamGu-NRX/cogworks-week2-vision-benchmark.git'
+                '@b9055031bf25a18594651d89610f3fbcd7462db8"'
             ),
             "language-search": (
                 'python -m pip install "cogworks-week3-language-benchmark @ '
                 'git+https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git'
-                '@b166f5c15e950baccc3785839cdcc660ffe01bb4"'
+                '@1004766b66a4405ceda1a1b014a0438098a6570e"'
             ),
         }
         self.assertEqual(

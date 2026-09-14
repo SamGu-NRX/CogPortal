@@ -138,6 +138,15 @@ class LocalReport:
     diagnostics: List[str]
     output_digest: str
     weights_used: List[str] = field(default_factory=list)
+    #: What was captured for each scored weight, measured from the bytes that
+    #: were copied before loading: ``{"path", "sha256", "size"}``. Empty when
+    #: the week declared no weights. ``None`` only for a report written before
+    #: capture existed, which sync refuses rather than guessing about.
+    #:
+    #: ``size`` is ours. The portal stores path and digest and drops the rest,
+    #: so the length has to survive here or sync would have to measure some
+    #: current file to find it, which is the reread this design removes.
+    weights_uploaded: Optional[List[Dict[str, Any]]] = None
 
     @classmethod
     def create(
@@ -154,6 +163,7 @@ class LocalReport:
         diagnostics: List[str],
         predictions: List[Any],
         weights_used: Optional[List[str]] = None,
+        weights_uploaded: Optional[List[Dict[str, Any]]] = None,
     ) -> "LocalReport":
         encoded = json.dumps(predictions, sort_keys=True, separators=(",", ":")).encode("utf-8")
         return cls(
@@ -174,6 +184,7 @@ class LocalReport:
             ][:32],
             output_digest=hashlib.sha256(encoded).hexdigest(),
             weights_used=weights_used or [],
+            weights_uploaded=weights_uploaded,
         )
 
     def to_wire(self) -> Dict[str, Any]:
@@ -193,12 +204,58 @@ class LocalReport:
             "metrics": [metric.to_wire() for metric in self.metrics],
             "diagnostics": list(self.diagnostics),
             "weightsUsed": list(self.weights_used) if self.weights_used else [],
+            # None is "this report predates capture", which sync refuses for a
+            # weighted run. [] is "nothing to upload", which is every week but
+            # Language and is not the same statement.
+            "weightsUploaded": (
+                None if self.weights_uploaded is None
+                else [dict(entry) for entry in self.weights_uploaded]
+            ),
         }
 
     def to_json(self) -> str:
         payload = self.to_wire()
         payload["outputDigest"] = self.output_digest
         return json.dumps(payload, indent=2, sort_keys=True)
+
+    @staticmethod
+    def _weights_uploaded(value: Dict[str, Any]) -> Optional[List[Dict[str, Any]]]:
+        """Read the capture receipts back, or say which one is unusable.
+
+        Sync uploads from these, so a receipt that does not describe a file
+        this report scored has to stop the command rather than be dropped:
+        a silently missing weight is a hosted run against different bytes.
+        """
+
+        entries = value.get("weightsUploaded")
+        if entries is None:
+            return None
+        used = [str(item) for item in value.get("weightsUsed", [])]
+        if not isinstance(entries, list):
+            raise ValueError("weightsUploaded must be a list or null")
+        receipts = []
+        for entry in entries:
+            if not isinstance(entry, dict):
+                raise ValueError("each weightsUploaded entry must be an object")
+            path = entry.get("path")
+            checksum = entry.get("sha256")
+            size = entry.get("size")
+            if path not in used:
+                raise ValueError(
+                    "weightsUploaded names {!r}, which this report did not score".format(path)
+                )
+            if (
+                not isinstance(checksum, str)
+                or len(checksum) != 64
+                or any(character not in "0123456789abcdef" for character in checksum)
+            ):
+                raise ValueError("weightsUploaded needs a SHA-256 digest for {!r}".format(path))
+            if type(size) is not int or size < 0:
+                raise ValueError("weightsUploaded needs a byte length for {!r}".format(path))
+            receipts.append({"path": str(path), "sha256": checksum, "size": size})
+        if len({entry["path"] for entry in receipts}) != len(receipts):
+            raise ValueError("weightsUploaded names a path more than once")
+        return receipts
 
     @classmethod
     def from_json(cls, raw: str) -> "LocalReport":
@@ -223,4 +280,5 @@ class LocalReport:
             diagnostics=[str(item) for item in value.get("diagnostics", [])],
             output_digest=str(value["outputDigest"]),
             weights_used=[str(item) for item in value.get("weightsUsed", [])],
+            weights_uploaded=cls._weights_uploaded(value),
         )
