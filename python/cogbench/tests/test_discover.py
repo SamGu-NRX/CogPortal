@@ -2845,10 +2845,15 @@ class ABlockIsNotAPlaceToLeaveThingsBehind(_Fixture):
         found = discover(self.tmp)
         before, path = set(sys.modules), list(sys.path)
 
-        def refuse(_frame):
+        real = found.context._install
+
+        def half(frame):
+            # Partway through, not before: the frame has to unwind work that
+            # already happened, which is the case that was broken.
+            real(frame)
             raise RuntimeError("installing failed")
 
-        found.context._install = refuse
+        found.context._install = half
         try:
             with self.assertRaises(RuntimeError):
                 with found.imports():
@@ -2979,6 +2984,177 @@ class ADefaultExpressionIsNeverRetried(_Fixture):
         self.assertNotIn("user", [entry.name for entry in found.modules])
         failure = [entry for entry in found.skipped if entry.name == "user"][0]
         self.assertEqual(failure.reason, "raised")
+
+
+class LeavingABlockHandsControlToWhicheverIsNowInnermost(_Fixture):
+    """A block is left while others are still open, and what happens next is
+    about which submission is now running, not about which contexts exist.
+    Every failure here was the leaving block's code still answering for the
+    one that resumed."""
+
+    def _repo(self, name, files):
+        root = self.tmp / name
+        root.mkdir()
+        for rel, text in files.items():
+            path = root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text)
+        return discover(root)
+
+    def test_leaving_an_inner_block_withdraws_it_from_the_one_that_resumes(self):
+        """Exit asked whether this context was open anywhere, so in A, B, A the
+        inner A left its modules installed and B, which is what control returns
+        to, could still see names only A has."""
+
+        first = self._repo("liveA", {
+            "onlya.py": "V = 'A only'\n",
+            "e.py": "def r():\n    import onlya\n    return onlya.V\n",
+        })
+        second = self._repo("liveB", {"e.py": "def r():\n    return 'B'\n"})
+
+        with first.imports():
+            with second.imports():
+                with first.imports():
+                    pass
+                self.assertNotIn("onlya", sys.modules)
+
+    def test_a_module_the_outer_block_loaded_at_call_time_is_hidden(self):
+        """Entry hid the names in each open block's inventory, and a module
+        first imported during that block is not in its inventory until it
+        leaves. The inner submission read the outer team's module from the
+        cache, which removing their directories cannot prevent."""
+
+        outer = self._repo("freshX", {
+            "side.py": "V = 11\n",
+            "main.py": (
+                "import importlib.util\n"
+                "import sys\n"
+                "from pathlib import Path\n\n\n"
+                "def load():\n"
+                "    spec = importlib.util.spec_from_file_location(\n"
+                "        'fresh_side', str(Path(__file__).with_name('side.py')))\n"
+                "    made = importlib.util.module_from_spec(spec)\n"
+                "    sys.modules['fresh_side'] = made\n"
+                "    spec.loader.exec_module(made)\n"
+                "    return made.V\n"
+            ),
+        })
+        inner = self._repo("freshY", {
+            "e.py": "def r():\n    import fresh_side\n    return fresh_side.V\n"
+        })
+
+        with outer.imports():
+            self.assertEqual(self._module(outer, "main").load(), 11)
+            with inner.imports():
+                with self.assertRaises(ModuleNotFoundError):
+                    self._module(inner, "e").r()
+
+    def test_an_outer_finder_does_not_answer_for_a_notebook_this_one_lacks(self):
+        """Putting this block's finders first was not enough. A finder searches
+        the directory it was built with, so when this submission has no such
+        notebook its finder declines and the outer team's supplies theirs."""
+
+        for name, token in (("fnP", "P"), ("fnQ", "Q")):
+            root = self.tmp / name
+            root.mkdir()
+            (root / "nine.ipynb").write_text(
+                _notebook("def pick():\n    return {!r}\n".format(token))
+            )
+            (root / "l.py").write_text(
+                "def run():\n"
+                "    from ipynb.fs.defs import nine\n"
+                "    return nine.pick()\n"
+            )
+        outer = discover(self.tmp / "fnP")
+        middle = discover(self.tmp / "fnQ")
+        bare = self._repo("fnR", {
+            "e.py": "def r():\n"
+                    "    from ipynb.fs.defs import nine\n"
+                    "    return nine.pick()\n"
+        })
+
+        with outer.imports():
+            with middle.imports():
+                with bare.imports():
+                    with self.assertRaises(ImportError):
+                        self._module(bare, "e").r()
+
+    def test_a_nested_notebook_import_reuses_this_teams_own_module(self):
+        """`_PREEXISTING` was read before this block's names went in, so when
+        two teams' notebooks share a name the outer team's entry was in it. The
+        reuse check then refused to reuse this team's own module and ran their
+        notebook a second time, into a second class."""
+
+        for name, token in (("idG", "G"), ("idH", "H")):
+            root = self.tmp / name
+            root.mkdir()
+            (root / "retrieval.ipynb").write_text(
+                _notebook(self._records("class Hit:\n    WHO = {!r}\n".format(token)))
+            )
+            (root / "q.py").write_text(
+                "def go():\n"
+                "    from ipynb.fs.full import retrieval\n"
+                "    return retrieval.Hit\n"
+            )
+        outer = discover(self.tmp / "idG")
+        inner = discover(self.tmp / "idH")
+        read_once = self._times_run()
+
+        with outer.imports():
+            self._module(outer, "q").go()
+            with inner.imports():
+                theirs = self._module(inner, "q").go()
+
+        self.assertEqual(self._times_run(), read_once)
+        self.assertIs(theirs, self._module(inner, "retrieval").Hit)
+
+    def test_leaving_out_of_order_is_refused_rather_than_silently_wrong(self):
+        """`with` cannot produce this. Hand-called entry and exit can, and
+        letting it through left one submission's modules installed and
+        `sys.path` unrestored with nothing recording that it had happened."""
+
+        first = self._repo("lifoM", {"m.py": "V = 1\n"})
+        second = self._repo("lifoN", {"n.py": "V = 2\n"})
+        before, path = set(sys.modules), list(sys.path)
+
+        first.imports().__enter__()
+        second.imports().__enter__()
+        try:
+            with self.assertRaises(RuntimeError):
+                first.imports().__exit__()
+        finally:
+            second.imports().__exit__()
+            first.imports().__exit__()
+
+        self.assertEqual(set(sys.modules) - before, set())
+        self.assertEqual(sys.path, path)
+
+
+class ADirectoryNamedForSomethingNotYetImported(_Fixture):
+    """`_PREEXISTING` and `sys.modules` only see what has been imported.
+    Reserving a name also has to ask whether one is installed and simply
+    unopened, because the context puts these names back during every call."""
+
+    def test_it_does_not_take_that_name(self):
+        spare = next(
+            (
+                candidate
+                for candidate in ("wave", "colorsys", "fractions", "cmd", "shelve")
+                if candidate not in sys.modules
+                and importlib.util.find_spec(candidate) is not None
+            ),
+            None,
+        )
+        if spare is None:
+            self.skipTest("nothing installed and unimported to name a folder after")
+        theirs = self.tmp / spare
+        theirs.mkdir()
+        (theirs / "inner.py").write_text("V = 1\n")
+
+        found = discover(self.tmp)
+
+        self.assertIn("inner", [entry.name for entry in found.modules])
+        self.assertNotIn(spare, found.context.modules)
 
 
 if __name__ == "__main__":

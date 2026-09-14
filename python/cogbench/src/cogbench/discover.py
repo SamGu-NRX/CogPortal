@@ -3020,10 +3020,6 @@ class ImportContext:
             if standing is not None:
                 displaced.setdefault(name, standing)
 
-        # Read before their names go in, so the reuse check judges a file
-        # against what the process held rather than against this repository.
-        _PREEXISTING.clear()
-        _PREEXISTING.update(sys.modules)
         _DISPLACED.clear()
         # No `.pyc` beside their files. `_entered` does the same, for the same
         # reason: importing writes `__pycache__` into a tree we were asked to
@@ -3035,10 +3031,25 @@ class ImportContext:
         # to that other team's module, because nothing displaced a name this
         # context never had.
         for other in _LIVE:
-            if other is not self:
-                for name in other._modules:
-                    if name not in self._modules:
-                        take(name)
+            if other is self:
+                continue
+            for name in other._modules:
+                if name not in self._modules:
+                    take(name)
+            # Whatever that block has imported since it opened is theirs as
+            # well, and its inventory will not hold it until it leaves. An
+            # outer submission that loaded a file at call time was still
+            # answering for that name inside this one.
+            opened = next((held for held in other._frames if held), None)
+            if opened is None:
+                continue
+            since = set(sys.modules) - opened["before"]  # type: ignore[operator]
+            for name in sorted(since, reverse=True):
+                if name in self._modules:
+                    continue
+                module = sys.modules.get(name)
+                if module is not None and _belongs_to(name, module, other.directories):
+                    take(name)
         # Their directories come off the path too. Taking the name alone was
         # not enough: the outer block's root is still on `sys.path`, so the
         # inner submission's `import helper` simply read the outer team's
@@ -3053,6 +3064,16 @@ class ImportContext:
         } - ours
         if elsewhere:
             sys.path[:] = [entry for entry in sys.path if entry not in elsewhere]
+        # What the process held that is not this submission's, which is what
+        # the reuse check judges a file against. Taken after the other open
+        # blocks' names have gone and with this one's excluded: two teams whose
+        # notebooks share a name put the outer team's entry in here, and the
+        # reuse check then refused to reuse this team's own module and ran
+        # their notebook a second time into a second class.
+        _PREEXISTING.clear()
+        _PREEXISTING.update(
+            name for name in sys.modules if name not in self._modules
+        )
         for name, module in self._modules.items():
             if name in sys.modules:
                 displaced[name] = sys.modules[name]
@@ -3081,24 +3102,50 @@ class ImportContext:
         ]
         for finder in reversed(self._finders):
             sys.meta_path.insert(0, finder)
+        # And the other open blocks' finders come off. Ours going first is not
+        # enough: when this submission has no `nine.ipynb`, its finder declines
+        # and the outer team's finder loads theirs, because a finder searches
+        # the directory it was built with rather than `sys.path`.
+        elsewhere = [
+            finder
+            for other in _LIVE
+            if other is not self
+            for finder in other._finders
+            if not any(finder is mine for mine in self._finders)
+        ]
+        if elsewhere:
+            sys.meta_path[:] = [
+                live
+                for live in sys.meta_path
+                if not any(live is finder for finder in elsewhere)
+            ]
         for directory in reversed(self.directories):
             sys.path.insert(0, str(directory))
 
     def __exit__(self, *_exc) -> None:
         if not self._frames:
             return
+        if _LIVE and _LIVE[-1] is not self:
+            # Loud rather than silent. `with` cannot produce this; hand-called
+            # entry and exit out of order can, and letting it through left one
+            # submission's modules installed and `sys.path` unrestored with
+            # nothing recording that it had happened.
+            raise RuntimeError(
+                "import contexts must be left innermost first; this one is not "
+                "the block currently open"
+            )
         frame = self._frames.pop()
-        for index in range(len(_LIVE) - 1, -1, -1):
-            if _LIVE[index] is self:
-                del _LIVE[index]
-                break
+        if _LIVE:
+            _LIVE.pop()
         if frame is None:
             return
         displaced: Dict[str, ModuleType] = frame["displaced"]  # type: ignore[assignment]
         before: set = frame["before"]  # type: ignore[assignment]
-        # Whether this same context is still entered further out, which
-        # decides whether their modules come out at all.
-        still_open = any(live is self for live in _LIVE)
+        # Whether this same context is the one control returns to. Asking
+        # only whether it is open somewhere left A's modules installed while
+        # B resumed, in A, B, A: B is the active submission then, and A's
+        # names have no business answering for it.
+        still_open = bool(_LIVE) and _LIVE[-1] is self
         sys.path[:] = frame["path"]  # type: ignore[arg-type]
         sys.meta_path[:] = frame["meta"]  # type: ignore[arg-type]
         sys.dont_write_bytecode = bool(frame["bytecode"])
