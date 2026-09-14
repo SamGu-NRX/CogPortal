@@ -141,6 +141,24 @@ export function RunDetailPage() {
           {run.benchmarkId} / v{run.benchmarkVersion}
         </span>
         <span aria-hidden="true" className="text-rule">|</span>
+        {/* The repository this run used, which is not always the one the team
+            is connected to now. Without it a commit sits here with nothing
+            saying which repository it belongs to. */}
+        {run.repo ? (
+          <a
+            href={run.repo.url}
+            target="_blank"
+            rel="noreferrer"
+            className="text-ink underline decoration-rule underline-offset-4 hover:decoration-ink"
+          >
+            {run.repo.fullName}
+          </a>
+        ) : (
+          <span className="text-ink-faint" title="This run predates the recorded repository name.">
+            repository not recorded
+          </span>
+        )}
+        <span aria-hidden="true" className="text-rule">|</span>
         <span>{run.branch}</span>
         <ShaChip sha={run.sha} shortSha={run.shortSha} />
         <span aria-hidden="true" className="text-rule">|</span>
