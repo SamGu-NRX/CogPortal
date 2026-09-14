@@ -34,7 +34,7 @@ import { runSourceRefusal } from "./run-source";
 import { randomHex } from "../util/id";
 import { sha256Hex } from "../util/crypto";
 import { publishRunSurface } from "./run-surfaces";
-import { canPublishOfficialRun, currentSurfaceRun, savedEnvironmentEligibility } from "./run-eligibility";
+import { canPublishOfficialRun, currentSurfaceRun, fixtureRetryRefusal, savedEnvironmentEligibility } from "./run-eligibility";
 import { insertRunWithCapacity, readRunAccounting } from "./run-accounting";
 
 export interface RunActor {
@@ -583,13 +583,8 @@ export async function retryRun(
   }
   const benchmark = await activeBenchmark(env, failed.benchmarkId, failed.benchmarkVersion);
   // Modal's recorded-input check in prepareRetryJob owns these comparisons.
-  // Fixture runs have no recorded job, so retain their existing label check.
-  if (failed.provider === "fixture" && (failed.contractVersion !== benchmark.contractVersion
-    || failed.scorerVersion !== benchmark.scorerVersion
-    || failed.runtimeVersion !== benchmark.runtimeVersion
-    || failed.datasetVersion !== (failed.mode === "official" ? benchmark.datasetVersion : "practice-v1"))) {
-    throw new ApiHttpError(409, "invalid_request", "The recorded benchmark configuration has changed. Start a new candidate.");
-  }
+  const fixtureRefusal = fixtureRetryRefusal(failed, benchmark);
+  if (fixtureRefusal) throw new ApiHttpError(409, "invalid_request", fixtureRefusal);
   if (actor.team.repoFullName !== FIXTURE_REPO.fullName) {
     if (!githubToken) throw new ApiHttpError(403, "forbidden", "Sign in to GitHub on Cog*Portal first.");
     try {

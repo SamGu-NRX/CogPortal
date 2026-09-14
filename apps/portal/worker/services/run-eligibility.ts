@@ -66,6 +66,26 @@ export function savedEnvironmentEligibility(
   return { eligible: true, environment: parsed.data };
 }
 
+/**
+ * Why a fixture execution cannot be retried, or null.
+ *
+ * A fixture run records no dispatch job, so the labels on its own row are the
+ * only evidence of what it ran; Modal's equivalent is `recordedJob`. Admission
+ * and the console read this one function, so the console cannot offer a Retry
+ * admission would refuse.
+ */
+export function fixtureRetryRefusal(
+  run: Pick<RunRow, "provider" | "mode" | "contractVersion" | "scorerVersion" | "runtimeVersion" | "datasetVersion">,
+  benchmark: Pick<BenchmarkRow, "contractVersion" | "scorerVersion" | "runtimeVersion" | "datasetVersion">,
+): string | null {
+  if (run.provider !== "fixture") return null;
+  const changed = run.contractVersion !== benchmark.contractVersion
+    || run.scorerVersion !== benchmark.scorerVersion
+    || run.runtimeVersion !== benchmark.runtimeVersion
+    || run.datasetVersion !== (run.mode === "official" ? benchmark.datasetVersion : "practice-v1");
+  return changed ? "The recorded benchmark configuration has changed. Start a new candidate." : null;
+}
+
 /** Retry links, not timestamps, identify the execution currently on the console. */
 export function currentSurfaceRun(rows: RunRow[], mode: RunRow["mode"]): RunRow | null {
   const replaced = new Set(rows.map((row) => row.retryOfRunId).filter((id) => id !== null));

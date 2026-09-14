@@ -391,6 +391,10 @@ export function RunDetailPage() {
                 See it on the leaderboard.
               </Link>
             </p>
+          ) : run.sourceRefusal ? (
+            // `publishable` stays a fact about the run, so an existing public
+            // entry survives a repository change. Only a new one is refused.
+            <p className="max-w-prose text-[14px] text-ink-secondary">{run.sourceRefusal}</p>
           ) : (
             <>
               <p className="max-w-prose text-[14px] text-ink-secondary">
