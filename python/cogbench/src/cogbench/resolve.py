@@ -401,7 +401,13 @@ def _accepts_capture(hook: Callable[..., Any]) -> bool:
         parameters = inspect.signature(hook).parameters
     except (TypeError, ValueError):
         return False
-    return "capture" in parameters
+    found = parameters.get("capture")
+    # It is passed by keyword, so a positional-only parameter or a `*capture`
+    # of that name cannot receive it.
+    return found is not None and found.kind in (
+        found.POSITIONAL_OR_KEYWORD,
+        found.KEYWORD_ONLY,
+    )
 
 
 def _leading(call: Callable[..., Any], held: Any) -> Callable[..., Any]:

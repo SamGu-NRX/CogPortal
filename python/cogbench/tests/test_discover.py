@@ -820,12 +820,14 @@ class SurveyIsolationTests(unittest.TestCase):
         hasattr(os, "fork"), "requires os.fork process isolation"
     )
     def test_a_repository_whose_reader_dies_says_so_rather_than_saying_empty(self):
-        """os.abort() stands in for the real case: one repository's audio
+        """A hard exit stands in for the real case: one repository's audio
         helper loads a second copy of a native backend and the interpreter
-        dies with a nanobind error no `except` clause can see."""
+        dies with a nanobind error no `except` clause can see. These need a
+        child that ends without reporting, which `os._exit` gives without a
+        crash report per run; neither asserted a signal."""
 
         (self.tmp / "a_fine.py").write_text("def peaks(x):\n    return x\n")
-        (self.tmp / "z_fatal.py").write_text("import os\nos.abort()\n")
+        (self.tmp / "z_fatal.py").write_text("import os\nos._exit(23)\n")
 
         result = survey(self.tmp, timeout_seconds=60)
 
@@ -843,7 +845,7 @@ class SurveyIsolationTests(unittest.TestCase):
 
         (self.tmp / "a_fine.py").write_text("def peaks(x):\n    return x\n")
         (self.tmp / "b_missing.py").write_text("import definitely_not_installed\n")
-        (self.tmp / "z_fatal.py").write_text("import os\nos.abort()\n")
+        (self.tmp / "z_fatal.py").write_text("import os\nos._exit(23)\n")
 
         result = survey(self.tmp, timeout_seconds=60)
 
@@ -862,7 +864,7 @@ class SurveyIsolationTests(unittest.TestCase):
         from cogbench.report import render_survey
 
         (self.tmp / "a_fine.py").write_text("def peaks(x):\n    return x\n")
-        (self.tmp / "z_fatal.py").write_text("import os\nos.abort()\n")
+        (self.tmp / "z_fatal.py").write_text("import os\nos._exit(23)\n")
         died = survey(self.tmp, timeout_seconds=60)
 
         empty_repository = Path(tempfile.mkdtemp()).resolve()

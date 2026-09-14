@@ -47,7 +47,7 @@ BENCHMARK_INSTALLS: Dict[str, BenchmarkInstall] = {
     "language-search": BenchmarkInstall(
         "cogworks-week3-language-benchmark",
         "git+https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git"
-        "@1004766b66a4405ceda1a1b014a0438098a6570e",
+        "@96becfd62128bdf42ad9de438bfd53230dccf14e",
     ),
 }
 
