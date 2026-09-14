@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import * as React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { StaticRouter, Routes, Route } from "react-router";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { RunDetailPage } from "../src/routes/RunDetailPage.tsx";
 import {
+  RunDetailSchema,
   RunStreamEventSchema,
   type RunSurfaceSnapshot,
 } from "@cogworks/contracts/schema";
@@ -8,7 +14,73 @@ import { effectiveDiscordChannelPermissions } from "../worker/services/discord.t
 import { runSurfaceMessage } from "../worker/services/discord-messages.ts";
 import { runnerSurfaceStatusCode } from "../worker/routes/runner-events.ts";
 
+Object.assign(globalThis, { React });
+
 const VIEW_AND_SEND = String((1n << 10n) | (1n << 11n));
+
+function renderOfficialDetail(publishable: boolean, selected = false): string {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const run = RunDetailSchema.parse({
+    id: "run_refunded",
+    mode: "official",
+    status: "succeeded",
+    benchmarkId: "vision-recognition",
+    benchmarkVersion: 1,
+    contractVersion: "cogworks.submissions.v1",
+    branch: "main",
+    sha: "a".repeat(40),
+    shortSha: "aaaaaaa",
+    createdAt: 1_780_000_000_000,
+    finishedAt: 1_780_000_060_000,
+    attemptNumber: 1,
+    primaryMetric: null,
+    parentRunId: null,
+    failure: null,
+    repo: { owner: "course", name: "team", fullName: "course/team", url: "https://github.com/course/team", defaultBranch: "main" },
+    phases: [],
+    metrics: [],
+    diagnostics: ["The image stage returned no embeddings."],
+    log: null,
+    selected,
+    publishable,
+  });
+  client.setQueryData(["run", run.id], run);
+  try {
+    return renderToStaticMarkup(React.createElement(QueryClientProvider, { client },
+      React.createElement(StaticRouter, { location: `/runs/${run.id}` },
+        React.createElement(Routes, null,
+          React.createElement(Route, { path: "/runs/:runId", element: React.createElement(RunDetailPage) }),
+        ),
+      ),
+    ));
+  } finally {
+    client.clear();
+  }
+}
+
+test("run detail requires the server's publication decision", () => {
+  assert.equal(RunDetailSchema.shape.publishable.safeParse(undefined).success, false);
+});
+
+test("a refunded official result keeps its finding and explains why Publish is absent", () => {
+  const html = renderOfficialDetail(false);
+  assert.match(html, /The image stage returned no embeddings/);
+  assert.match(html, /ATTEMPT REFUNDED/);
+  assert.match(html, /stopped hearing from this run and returned your attempt before/);
+  assert.match(html, /its results arrived/);
+  assert.match(html, /findings are preserved above/);
+  assert.doesNotMatch(html, /Publish to leaderboard|Confirm, make this the public result|PROMOTE/);
+});
+
+test("an eligible official result still offers Publish and a selected result links to the leaderboard", () => {
+  const eligible = renderOfficialDetail(true);
+  assert.match(eligible, /Publish to leaderboard/);
+  assert.doesNotMatch(eligible, /ATTEMPT REFUNDED/);
+  const selected = renderOfficialDetail(true, true);
+  assert.match(selected, /PUBLISHED/);
+  assert.match(selected, /See it on the leaderboard/);
+  assert.doesNotMatch(selected, /Publish to leaderboard|ATTEMPT REFUNDED/);
+});
 
 test("private team-channel permissions honor role overwrites", () => {
   const permissions = effectiveDiscordChannelPermissions(
