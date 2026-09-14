@@ -2,11 +2,63 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 import time
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Dict, Optional
 
 from .models import LocalReport
+
+
+def _checkout_path(root: Path, path: Path) -> Path:
+    """Reject preexisting symlinks below the supplied checkout root."""
+
+    root = Path(root)
+    path = Path(path)
+    parts = path.relative_to(root).parts
+    current = root
+    for part in parts:
+        current = current / part
+        if current.is_symlink():
+            raise OSError("refusing linked checkout storage path: {}".format(current))
+    return path
+
+
+def _report_filename(report_id: str) -> str:
+    if (
+        not report_id
+        or "\0" in report_id
+        or PurePosixPath(report_id).name != report_id
+        or PureWindowsPath(report_id).name != report_id
+        or report_id in (".", "..")
+    ):
+        raise OSError("report id is not a safe path component")
+    return "{}.json".format(report_id)
+
+
+def _replace_text(path: Path, text: str) -> None:
+    """Replace an already-checked path without changing an existing hard link."""
+
+    temporary: Optional[Path] = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=str(path.parent),
+            prefix=path.name + ".",
+            suffix=".tmp",
+            delete=False,
+        ) as stream:
+            temporary = Path(stream.name)
+            stream.write(text)
+        temporary.replace(path)
+        temporary = None
+    finally:
+        if temporary is not None:
+            try:
+                temporary.unlink()
+            except OSError:
+                pass
 
 
 def workspace_dir(root: Path) -> Path:
@@ -21,34 +73,43 @@ def workspace_dir(root: Path) -> Path:
     its own ignore file the way `.pytest_cache` and `.ruff_cache` do.
     """
 
-    directory = root / ".cogbench"
+    directory = _checkout_path(root, Path(root) / ".cogbench")
     directory.mkdir(parents=True, exist_ok=True)
-    ignore = directory / ".gitignore"
+    ignore = _checkout_path(root, directory / ".gitignore")
     if not ignore.exists():
         ignore.write_text("*\n", encoding="utf-8")
+    elif not ignore.is_file():
+        raise OSError("checkout ignore path is not a file: {}".format(ignore))
     return directory
 
 
 def reports_dir(cwd: Path) -> Path:
-    return cwd / ".cogbench" / "reports"
+    return _checkout_path(cwd, Path(cwd) / ".cogbench" / "reports")
 
 
 def save_report(report: LocalReport, cwd: Path) -> Path:
-    # workspace_dir for the ignore file, reports_dir for the path, so reading
-    # and writing cannot drift onto two different directories.
+    filename = _report_filename(report.report_id)
     workspace_dir(cwd)
     directory = reports_dir(cwd)
     directory.mkdir(parents=True, exist_ok=True)
-    path = directory / "{}.json".format(report.report_id)
-    path.write_text(report.to_json() + "\n", encoding="utf-8")
+    path = _checkout_path(cwd, directory / filename)
+    _replace_text(path, report.to_json() + "\n")
     return path
 
 
 def latest_report(cwd: Path) -> Optional[Path]:
-    directory = reports_dir(cwd)
-    if not directory.exists():
+    try:
+        directory = reports_dir(cwd)
+    except OSError:
         return None
-    reports = sorted(directory.glob("local_*.json"), key=lambda path: path.stat().st_mtime)
+    if not directory.is_dir():
+        return None
+    reports = [
+        path
+        for path in directory.glob("local_*.json")
+        if not path.is_symlink() and path.is_file()
+    ]
+    reports.sort(key=lambda path: path.stat().st_mtime)
     return reports[-1] if reports else None
 
 

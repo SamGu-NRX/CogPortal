@@ -25,12 +25,11 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Set
 
 from .pipeline import _under_clock
-from .storage import workspace_dir
+from .storage import _checkout_path, _replace_text, workspace_dir
 
 __all__ = ["fingerprint", "read", "write", "cache_path"]
 
@@ -175,8 +174,7 @@ def read(repository: Path, key: str) -> Optional[Dict[str, Any]]:
 
     path = cache_path(repository)
     try:
-        if path.parent.is_symlink() or path.is_symlink():
-            return None
+        _checkout_path(repository, path)
         stored = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
@@ -205,33 +203,11 @@ def write(repository: Path, key: str, binding: Dict[str, Any]) -> None:
         return
 
     path = cache_path(repository)
-    temporary: Optional[Path] = None
     try:
-        # Check before workspace_dir can write its ignore file, including a
-        # dangling link. These checks do not protect against concurrent swaps.
-        if path.parent.is_symlink() or (path.parent / ".gitignore").is_symlink():
-            return
         workspace_dir(Path(repository))
-        if path.parent.is_symlink() or not path.parent.is_dir():
-            return
-        # Exclusive creation avoids following a pre-existing temporary link.
-        # Replacement also leaves any other hard link to the old entry intact.
-        with tempfile.NamedTemporaryFile(
-            mode="w", encoding="utf-8", dir=str(path.parent),
-            prefix=path.name + ".", suffix=".tmp", delete=False,
-        ) as stream:
-            temporary = Path(stream.name)
-            stream.write(serialized)
-        temporary.replace(path)
-        temporary = None
+        _replace_text(path, serialized)
     except OSError:
         return
-    finally:
-        if temporary is not None:
-            try:
-                temporary.unlink()
-            except OSError:
-                pass
 
 
 def source_paths(discovery: Any) -> List[Path]:
