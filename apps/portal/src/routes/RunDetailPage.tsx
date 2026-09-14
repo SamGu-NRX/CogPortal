@@ -354,6 +354,13 @@ export function RunDetailPage() {
       {/* ── Next action ── */}
       {run.status === "succeeded" && run.mode === "practice" && (
         <Panel label="PROMOTE" className="mt-4">
+          {/* The server refuses a promotion of a run that is not about the
+              connected repository, so the control is not offered. Saying why
+              beats a button that fails. */}
+          {run.sourceRefusal ? (
+            <p className="max-w-prose text-[14px] text-ink-secondary">{run.sourceRefusal}</p>
+          ) : (
+          <>
           <p className="max-w-prose text-[14px] text-ink-secondary">
             Re-runs <span className="font-mono text-[13px]">{run.shortSha}</span>{" "}
             against the hidden official inputs. Logs are suppressed.
@@ -401,6 +408,8 @@ export function RunDetailPage() {
                 ? promote.error.message
                 : "The promotion couldn't be started. Try again."}
             </p>
+          )}
+          </>
           )}
         </Panel>
       )}
