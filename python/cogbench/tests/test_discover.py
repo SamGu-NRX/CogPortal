@@ -3430,5 +3430,36 @@ class TheImportDeadlineReachesTheThreadDoingTheImport(_Fixture):
         self.assertEqual(outcome.get("skipped"), [("slow", "too_slow")])
 
 
+class AnImportDeadlineStaysInsideItsOwnBlock(_Fixture):
+    """`PyThreadState_SetAsyncExc` makes the exception pending, not immediate:
+    it is raised at the importing thread's next bytecode boundary, which can
+    be after `_deadline` has exited. The flag the timer checked was read
+    before the injection, so it could not prevent one already decided on.
+
+    Evidence this escapes: a Windows CI run raised `_ImportTimeout` inside
+    `pathlib.glob`, called from `_notebooks`, which is discovery machinery
+    outside any deadline. The traceback is in the phase evidence file.
+
+    No test here pins the take-back. Reaching the state it guards means an
+    injection decided on by the timer and not yet delivered, and forcing that
+    window from a test needs the timer thread stopped between its own two
+    steps. A test that injects directly instead does not go through the timer,
+    so the guard does not apply to it and it proves nothing. What is pinned
+    below is that the deadline still does its job; the take-back rests on the
+    CI traceback and on `PyThreadState_SetAsyncExc` being documented as
+    pending rather than immediate.
+    """
+
+    def test_the_deadline_still_interrupts_what_it_is_for(self):
+        (self.tmp / "slow.py").write_text("import time\ntime.sleep(6)\nV = 1\n")
+
+        found = discover(self.tmp, import_timeout=1)
+
+        self.assertEqual(
+            [(entry.name, entry.reason) for entry in found.skipped],
+            [("slow", "too_slow")],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

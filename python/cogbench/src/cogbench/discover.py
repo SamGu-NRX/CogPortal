@@ -1016,16 +1016,19 @@ def _deadline(seconds: float, name: str):
     import ctypes
     import threading
 
-    done = threading.Event()
+    guard = threading.Lock()
+    state = {"over": False, "injected": False}
     importing = threading.current_thread().ident or 0
 
     def _interrupt() -> None:
-        if done.is_set():
-            return
-        ctypes.pythonapi.PyThreadState_SetAsyncExc(
-            ctypes.c_ulong(importing),
-            ctypes.py_object(_ImportTimeout),
-        )
+        with guard:
+            if state["over"]:
+                return
+            state["injected"] = True
+            ctypes.pythonapi.PyThreadState_SetAsyncExc(
+                ctypes.c_ulong(importing),
+                ctypes.py_object(_ImportTimeout),
+            )
 
     timer = threading.Timer(seconds, _interrupt)
     timer.daemon = True
@@ -1033,8 +1036,24 @@ def _deadline(seconds: float, name: str):
     try:
         yield
     finally:
-        done.set()
+        # Under the lock the timer injects under, so the two cannot interleave:
+        # either it injected while this was still open, or it finds `over` and
+        # does not. A bare flag checked before the injection could not do that.
+        with guard:
+            state["over"] = True
+            injected = state["injected"]
         timer.cancel()
+        if injected:
+            # `PyThreadState_SetAsyncExc` makes the exception *pending*: it is
+            # raised at the importing thread's next bytecode boundary, which
+            # may be after this block. An injection this block did not observe
+            # is therefore still in flight and has to be taken back, or it
+            # lands in whatever runs next. Evidence it does: a Windows CI run
+            # raised `_ImportTimeout` inside `pathlib.glob`, called from
+            # `_notebooks`, which is outside any deadline.
+            ctypes.pythonapi.PyThreadState_SetAsyncExc(
+                ctypes.c_ulong(importing), ctypes.c_void_p(0)
+            )
 
 
 #: Prefix for the synthetic package names discovery invents. A student file
