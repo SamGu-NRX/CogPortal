@@ -2665,6 +2665,24 @@ class AnUnknownBenchmarkDoesNotEndTheReport(_Fixture):
     """`track_for` answers "" for a benchmark it does not know, and that went
     straight into `TRACKS[""]`."""
 
+    def test_a_dependency_it_could_not_import_is_never_called_the_environment(self):
+        """A direct-install catalog lists what an image installs directly, so
+        absence from one does not demonstrate absence from the image: Week 2
+        installs sklearn and skimage, which bring scipy, and scipy is in that
+        image and in no catalog. Answering `"environment"` for it claimed the
+        graded run fails the same way, about a machine this cannot see."""
+
+        catalogued = SkippedModule(
+            "m", self.tmp / "m.py", "missing_dependency", "imports numpy", "numpy"
+        )
+        transitive = SkippedModule(
+            "m", self.tmp / "m.py", "missing_dependency", "imports scipy", "scipy"
+        )
+
+        for entry in (catalogued, transitive):
+            self.assertEqual(owner_of_skip(entry, "vision-recognition"), "ours")
+            self.assertEqual(owner_of_skip(entry), "ours")
+
     def test_it_falls_back_to_the_union_rather_than_raising(self):
         skip = SkippedModule(
             "m", self.tmp / "m.py", "missing_dependency", "imports numpy", "numpy"

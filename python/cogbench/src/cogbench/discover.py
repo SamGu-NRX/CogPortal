@@ -321,15 +321,17 @@ def owner_of_skip(entry: "SkippedModule", benchmark: str = "") -> str:
     not recognise falls back to the union rather than raising a ``KeyError``
     out of the report, which is the same safe direction as supplying none.
 
-    A known limit of ``"environment"``: the catalogs list what each image
-    installs directly, and a package can be in an image without being on one.
-    Week 2 installs sklearn and skimage, which bring scipy, so scipy is in
-    that image and in no catalog. Locally that produces ``"environment"`` for
-    a package the graded run imports fine. ``gap_note`` already tells a
-    student running locally that this report describes less of their
-    repository than the graded run will read, and in the graded run itself
-    the answer is right, so this is left rather than guessed at: the fix is
-    the image's resolved package set, which this process cannot see.
+    ``"environment"`` is not returned for a dependency this could not import.
+    The catalogs list what each image installs directly, and absence from a
+    direct-install list does not demonstrate absence from the image: Week 2
+    installs sklearn and skimage, which bring scipy, so scipy is in that image
+    and in no catalog. Answering ``"environment"`` for it claimed the graded
+    run fails the same way, about a machine this process cannot see.
+
+    What a missing dependency does demonstrate is narrower and is all that is
+    reported now: this run could not import that module. Whether that leaves
+    enough read to draw a conclusion is the consumer's decision, not this
+    one's, and PR7 is where it is made.
     """
 
     if entry.reason == "name_taken":
@@ -345,8 +347,12 @@ def owner_of_skip(entry: "SkippedModule", benchmark: str = "") -> str:
             if track
             else environment.all_student_modules()
         )
-        root = entry.missing.split(".", 1)[0]
-        return "ours" if root in graded else "environment"
+        # The same answer either way. A catalogued package is provably in the
+        # image, so its absence here is ours; an uncatalogued one is simply
+        # unknown, and the safe direction for an unknown is to withhold a
+        # verdict rather than assert one about the graded run.
+        del graded
+        return "ours"
     return "theirs"
 
 
@@ -3578,11 +3584,20 @@ def survey(
 
         backend = isolate._isolation_backend()
         if backend is None:
-            # Windows has no fork, so there is no isolation to offer. Running
-            # the same work here is what the platform can do: the caller loses
-            # the protection above, and gains a report. Refusing instead told
-            # every Windows student their repository could not be read, which
-            # is a sentence about their code that nothing observed.
+            # Known limit, deliberate. Windows has no fork, so there is no
+            # isolation to offer and the repository's imports run in this
+            # process: a module that aborts the interpreter takes the caller
+            # with it rather than returning the crash report this promises.
+            # Running the work here anyway is what the platform can do.
+            # Refusing instead told every Windows student their repository
+            # could not be read, which is a sentence about their code that
+            # nothing observed.
+            #
+            # What bounds it: `survey` runs in the student CLI and in the
+            # hosted Linux runner, and the hosted runner forks, so the graded
+            # path is isolated. The exposure is a Windows student's own
+            # `cogworks check` against their own repository. A subprocess
+            # backend would close it and is not built here.
             return Survey("ok", _work())
         if backend is isolate.run_operation:
             outcome = backend("survey", {
