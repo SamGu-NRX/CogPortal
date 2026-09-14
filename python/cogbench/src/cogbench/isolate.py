@@ -710,7 +710,11 @@ def _collect(pid, read_fd, timeout_seconds, memory_bytes) -> Outcome:
     pending = 0
     armed_at = 0.0
 
+    # One owner for reaping and termination. Every site that reaps the child
+    # or signals it takes this, so the watchdog below cannot read a stale
+    # `reaped` and send a signal to a number the kernel has already freed.
     lifecycle = threading.Lock()
+    closed = False
 
     def expire():
         # The wall-clock deadline for a caller that cannot have SIGALRM. The
@@ -720,10 +724,13 @@ def _collect(pid, read_fd, timeout_seconds, memory_bytes) -> Outcome:
         # is the deadline off the main thread, not a second guard.
         nonlocal fired
         with lifecycle:
-            # Under the same lock the collector reaps under, and reading the
-            # same flag: a timer firing while the child is being reaped would
-            # otherwise signal a number the kernel is free to reuse, which is
-            # the defect this commit removes elsewhere.
+            # `Timer.cancel` does not stop a callback already dispatched, so
+            # one can arrive here after `_collect` has returned and signal a
+            # process the operation no longer owns. `closed` is set under this
+            # same lock once cleanup is done, which makes a late callback a
+            # no-op and makes cancelling effectively a join.
+            if closed:
+                return
             fired = True
             _terminate(pid, reaped=reaped)
 
@@ -778,13 +785,16 @@ def _collect(pid, read_fd, timeout_seconds, memory_bytes) -> Outcome:
                 except _Alarm:
                     fired, observed = True, None
                 if observed is not None:
-                    status, reaped = observed, True
+                    with lifecycle:
+                        status, reaped = observed, True
         except _Alarm:
             fired, outcome = True, None
             reason = reason or "alarm"
     finally:
         try:
             if watchdog is not None:
+                # Stops one not yet dispatched. One already dispatched is
+                # handled by `closed` below, under the shared lock.
                 watchdog.cancel()
             if armed:
                 signal.alarm(0)
@@ -812,22 +822,30 @@ def _collect(pid, read_fd, timeout_seconds, memory_bytes) -> Outcome:
                     signal.alarm(max(1, int(math.ceil(left))))
             # Capture an already-dead child's status before cleanup. If the
             # pipe closed while it was alive, cleanup's SIGKILL proves no cause.
-            if not reaped:
-                try:
-                    done, observed = os.waitpid(pid, os.WNOHANG)
-                except OSError:
-                    done = 0
-                if done:
-                    reaped, status = True, observed
+            with lifecycle:
+                if not reaped:
+                    try:
+                        done, observed = os.waitpid(pid, os.WNOHANG)
+                    except OSError:
+                        done = 0
+                    if done:
+                        reaped, status = True, observed
         finally:
-            _terminate(pid, reaped=reaped)
-            if not reaped:
-                final_status = _reap(pid)[1]
+            with lifecycle:
+                # Closed here, after the last signal this operation sends and
+                # while holding the lock a running callback would hold: a
+                # callback mid-flight finishes before this is taken, and one
+                # dispatched later finds `closed` and does nothing.
+                _terminate(pid, reaped=reaped)
+                if not reaped:
+                    final_status = _reap(pid)[1]
                 # A different signal or ordinary exit could arrive between
                 # WNOHANG and cleanup. Those cannot have come from our SIGKILL.
-                if final_status is not None and not (os.WIFSIGNALED(final_status)
-                        and os.WTERMSIG(final_status) == signal.SIGKILL):
-                    status = final_status
+                    if final_status is not None and not (os.WIFSIGNALED(final_status)
+                            and os.WTERMSIG(final_status) == signal.SIGKILL):
+                        status = final_status
+                    reaped = True
+                closed = True
     # A result is only trustworthy if the child exited on its own. The result
     # descriptor is reachable from the child, so code running there can write a
     # correctly framed "completed" envelope, close it, and hang: the parent

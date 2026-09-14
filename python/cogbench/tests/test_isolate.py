@@ -12,6 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "python" / "cogbench" / "src"))
 
+from cogbench import isolate as isolate_module  # noqa: E402
 from cogbench.isolate import (  # noqa: E402
     COMPLETED,
     CRASHED,
@@ -601,6 +602,57 @@ class AFailedForkIsReportedLikeAnyOtherFailure(unittest.TestCase):
         # `diagnostics()` does not report this as an unlimited run.
         self.assertEqual(outcome.timeout_seconds, 2)
         self.assertIsNotNone(outcome.memory_bytes)
+
+class TheWatchdogCannotActAfterTheOperationCloses(unittest.TestCase):
+    """`Timer.cancel` does not stop a callback already dispatched, and only
+    `exited()` took the lifecycle lock. The containment owner reproduced the
+    consequence deterministically: the collector returned while the callback
+    was blocked, cleanup observed `reaped=True`, and the released callback
+    then signalled using the `reaped=False` it had captured earlier, after the
+    operation had finished. Every reap and termination path shares one lock
+    now, and `closed` is set under it, so a late callback does nothing.
+
+    This test does not pin that fix and must not be read as doing so: it
+    passes against the unfixed source too, because with real processes the
+    interleaving it is looking for does not reliably occur. It is a guard
+    against a regression that happens to be caught, not evidence the race is
+    closed. The deterministic proof is the owner's instrumented probe, which
+    forces the interleaving; reproducing that shape here needs the callback
+    held before it takes the lock, which this cannot reach from outside."""
+
+    @unittest.skipUnless(hasattr(os, "fork"), "needs fork")
+    def test_no_signal_is_sent_once_the_collector_has_returned(self):
+        sent = []
+        real = isolate_module._terminate
+
+        def record(pid, reaped=False):
+            sent.append((time.monotonic(), reaped))
+            return real(pid, reaped=reaped)
+
+        isolate_module._terminate = record
+        try:
+            for _ in range(8):
+                # The work lands near the deadline on purpose, so the timer
+                # and the completion race rather than one clearly winning.
+                outcome = {}
+
+                def work():
+                    outcome["got"] = run_isolated(
+                        lambda: time.sleep(0.9), timeout_seconds=1
+                    )
+
+                worker = threading.Thread(target=work)
+                worker.start()
+                worker.join(timeout=30)
+                returned = time.monotonic()
+                self.assertFalse(worker.is_alive())
+                time.sleep(0.3)
+                late = [when for when, _ in sent if when > returned]
+                self.assertEqual(late, [], "signal sent after the collector returned")
+                sent.clear()
+        finally:
+            isolate_module._terminate = real
+
 
 if __name__ == "__main__":
     unittest.main()
