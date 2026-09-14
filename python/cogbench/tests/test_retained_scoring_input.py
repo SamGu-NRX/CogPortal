@@ -213,6 +213,43 @@ class ASavedReceiptIsNotTrustedBlindly(unittest.TestCase):
         with self.assertRaises(storage.RetentionError):
             storage.check_weight_path("models/W\x7f.npy")
 
+    def test_names_that_only_normalize_to_something_usable_are_rejected(self):
+        """`PurePosixPath.parts` collapses these, so validating through it
+        accepted a name in a shape it was never stored or keyed under."""
+
+        for name in ("a//b.npy", "a/./b.npy", "models/W.npy/", "./W.npy", "a/../W.npy"):
+            with self.subTest(name=name):
+                with self.assertRaises(storage.RetentionError):
+                    storage.check_weight_path(name)
+
+    def test_reading_a_receipt_writes_nothing_when_the_workspace_is_a_symlink(self):
+        """Sync used to reach the retained copy through a creating helper, so
+        a linked `.cogbench` got a `.gitignore` written through it."""
+
+        with TemporaryDirectory() as elsewhere:
+            outside = Path(elsewhere)
+            try:
+                (self.root / ".cogbench").symlink_to(outside)
+            except (OSError, NotImplementedError):
+                self.skipTest("this platform does not create symlinks here")
+            with self.assertRaises(storage.RetentionError):
+                storage.retained_input(self.root, "W.npy", "a" * 64, 1)
+            self.assertEqual(list(outside.iterdir()), [])
+
+    def test_capture_refuses_a_dangling_gitignore_link_before_writing_it(self):
+        with TemporaryDirectory() as elsewhere:
+            (self.root / ".cogbench").mkdir()
+            target = Path(elsewhere) / "not-there-yet"
+            try:
+                (self.root / ".cogbench" / ".gitignore").symlink_to(target)
+            except (OSError, NotImplementedError):
+                self.skipTest("this platform does not create symlinks here")
+            source = self.root / "W.npy"
+            source.write_bytes(ORIGINAL)
+            with self.assertRaises(storage.RetentionError):
+                storage.retain_input(self.root, source)
+            self.assertFalse(target.exists())
+
 
 class OptingIntoCaptureIsExplicit(unittest.TestCase):
     def test_a_hook_that_names_the_parameter_is_offered_one(self):
