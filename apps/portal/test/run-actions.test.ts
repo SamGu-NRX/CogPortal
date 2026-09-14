@@ -13,7 +13,14 @@ import { registerRunnerEventRoutes } from "../worker/routes/runner-events.ts";
 import { appendRunStreamEvent, buildRunSurfaceSnapshot, publishRunSurface } from "../worker/services/run-surfaces.ts";
 import { runSurfaceHubs } from "./fixtures/run-surface-hub.ts";
 import { FIXTURE_REPO } from "@cogworks/contracts/fixtures";
-import { DashboardSchema, RunDetailSchema, RUN_PHASES, type Dashboard } from "@cogworks/contracts/schema";
+import {
+  DashboardSchema,
+  RunDetailSchema,
+  RUN_PHASES,
+  RunSurfaceSnapshotSchema,
+  type Dashboard,
+  type RunSurfaceSnapshot,
+} from "@cogworks/contracts/schema";
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { StaticRouter } from "react-router";
@@ -1840,4 +1847,148 @@ test("missing snapshot context retains its 404 across the DO request boundary", 
   await assert.rejects(buildRunSurfaceSnapshot(env(binding, "modal"), SURFACE_ID), {
     status: 404, code: "not_found", message: "Run surface context no longer exists.",
   });
+});
+
+// Older writers omitted these required fields. The tests drive the real hub
+// against Map-backed storage; they do not exercise workerd's storage.
+function historicalPayload(snapshot: RunSurfaceSnapshot): string {
+  const { source: _source, sourceRefusal: _refusal, ...rest } = snapshot;
+  assert.equal(RunSurfaceSnapshotSchema.safeParse(rest).success, false, "the fixture must predate this contract");
+  return JSON.stringify(rest);
+}
+
+test("a payload from an older writer is a cache miss, and the fresh refusal is served", async (t) => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  const runtime = env(binding, "modal");
+  const hubs = runSurfaceHubs(runtime);
+  runtime.RUN_SURFACES = hubs.namespace;
+  const warnings: string[] = [];
+  t.mock.method(console, "warn", (line: string) => { warnings.push(line); });
+
+  const before = await buildRunSurfaceSnapshot(runtime, SURFACE_ID);
+  assert.equal(before.sourceRefusal, null);
+  // The team moves off the run's repository, so the fresh read carries a
+  // refusal the cached payload could not have known about.
+  await db.update(teams).set({ repoId: 999_999_999 }).where(eq(teams.id, actor.team.id));
+  hubs.get(SURFACE_ID).values.set("latest", historicalPayload(before));
+  hubs.get(SURFACE_ID).restart();
+
+  const read = await buildRunSurfaceSnapshot(runtime, SURFACE_ID);
+  assert.ok(read.sourceRefusal, "the discarded cache was served instead of the fresh read");
+  assert.equal(read.actions.includes("promote_official"), false);
+  // The separate counter still orders the reply; only the unreadable payload went.
+  assert.equal(read.snapshotRevision, before.snapshotRevision + 1);
+  const stored = hubs.get(SURFACE_ID).values.get("latest");
+  assert.ok(typeof stored === "string");
+  assert.equal(RunSurfaceSnapshotSchema.safeParse(JSON.parse(stored)).success, true);
+
+  const warned = warnings.map((line) => JSON.parse(line) as Record<string, unknown>)
+    .filter((entry) => entry.event === "run_surface_cache_discarded");
+  assert.equal(warned.length, 1);
+  assert.equal(warned[0].surfaceId, SURFACE_ID);
+  assert.equal(warned[0].reason, "schema_mismatch");
+  assert.deepEqual(warned[0].fields, ["source", "sourceRefusal"]);
+  // Field paths only: the payload names a repository and a commit.
+  assert.doesNotMatch(warnings.join(""), new RegExp(before.sha));
+  assert.doesNotMatch(warnings.join(""), /cogworks-demo|some-org/);
+});
+
+test("a historical payload with no counter restarts the sequence at one", async () => {
+  const { db, binding } = freshDb();
+  await seedPromotion(db);
+  const runtime = env(binding, "modal");
+  const hubs = runSurfaceHubs(runtime);
+  runtime.RUN_SURFACES = hubs.namespace;
+  const first = await buildRunSurfaceSnapshot(runtime, SURFACE_ID);
+  hubs.get(SURFACE_ID).values.set("latest", historicalPayload(first));
+  hubs.get(SURFACE_ID).values.delete("snapshotRevision");
+  hubs.get(SURFACE_ID).restart();
+  assert.equal((await buildRunSurfaceSnapshot(runtime, SURFACE_ID)).snapshotRevision, 1);
+});
+
+test("the alarm replaces an unreadable payload instead of retrying the parse", async (t) => {
+  const { db, binding } = freshDb();
+  await seedPromotion(db);
+  const runtime = env(binding, "modal");
+  const hubs = runSurfaceHubs(runtime);
+  runtime.RUN_SURFACES = hubs.namespace;
+  const warnings: string[] = [];
+  t.mock.method(console, "warn", (line: string) => { warnings.push(line); });
+  const errors: string[] = [];
+  t.mock.method(console, "error", (line: string) => { errors.push(line); });
+
+  const first = await buildRunSurfaceSnapshot(runtime, SURFACE_ID);
+  assert.equal(first.status, "succeeded");
+  hubs.get(SURFACE_ID).values.set("surfaceId", SURFACE_ID);
+  hubs.get(SURFACE_ID).values.set("latest", historicalPayload(first));
+  hubs.get(SURFACE_ID).restart();
+
+  await hubs.get(SURFACE_ID).alarm();
+  assert.equal(errors.filter((line) => line.includes("run_surface_tick_failed")).length, 0);
+  // Terminal, so nothing is rescheduled: the 2s error retry would have been.
+  assert.equal(hubs.get(SURFACE_ID).scheduledAlarm, null);
+  const stored = hubs.get(SURFACE_ID).values.get("latest");
+  assert.ok(typeof stored === "string");
+  assert.equal(RunSurfaceSnapshotSchema.safeParse(JSON.parse(stored)).success, true);
+
+  // The replacement is readable, so a second pass discards nothing.
+  warnings.length = 0;
+  await hubs.get(SURFACE_ID).alarm();
+  assert.equal(warnings.filter((line) => line.includes("run_surface_cache_discarded")).length, 0);
+});
+
+test("a connection is issued over an unreadable payload rather than failing", async (t) => {
+  const { db, binding } = freshDb();
+  await seedPromotion(db);
+  const runtime = env(binding, "modal");
+  const hubs = runSurfaceHubs(runtime);
+  runtime.RUN_SURFACES = hubs.namespace;
+  t.mock.method(console, "warn", () => {});
+  const sent: string[] = [];
+  const previousPair = Object.getOwnPropertyDescriptor(globalThis, "WebSocketPair");
+  Object.assign(globalThis, {
+    WebSocketPair: class { 0 = {}; 1 = { send(payload: string) { sent.push(payload); }, close() {} }; },
+  });
+  t.after(() => {
+    if (previousPair) Object.defineProperty(globalThis, "WebSocketPair", previousPair);
+    else Reflect.deleteProperty(globalThis, "WebSocketPair");
+  });
+  const NativeResponse = Response;
+  t.mock.method(globalThis, "Response", class extends NativeResponse {
+    constructor(body?: BodyInit | null, init?: ResponseInit) {
+      super(body, init?.status === 101 ? { ...init, status: 200 } : init);
+      if (init?.status === 101) Object.defineProperty(this, "status", { value: 101 });
+    }
+  });
+
+  const first = await buildRunSurfaceSnapshot(runtime, SURFACE_ID);
+  hubs.get(SURFACE_ID).values.set("latest", historicalPayload(first));
+  hubs.get(SURFACE_ID).restart();
+  const response = await hubs.get(SURFACE_ID).fetch(new Request(`https://run-surface.internal/connect?surfaceId=${SURFACE_ID}`, {
+    headers: { Upgrade: "websocket" },
+  }));
+  assert.equal(response.status, 101);
+  assert.equal(RunSurfaceSnapshotSchema.safeParse(JSON.parse(sent[0])).success, true);
+});
+
+test("a truncated payload is the same cache miss", async (t) => {
+  const { db, binding } = freshDb();
+  await seedPromotion(db);
+  const runtime = env(binding, "modal");
+  const hubs = runSurfaceHubs(runtime);
+  runtime.RUN_SURFACES = hubs.namespace;
+  const warnings: string[] = [];
+  t.mock.method(console, "warn", (line: string) => { warnings.push(line); });
+
+  const first = await buildRunSurfaceSnapshot(runtime, SURFACE_ID);
+  hubs.get(SURFACE_ID).values.set("latest", JSON.stringify(first).slice(0, 80));
+  hubs.get(SURFACE_ID).restart();
+  const read = await buildRunSurfaceSnapshot(runtime, SURFACE_ID);
+  assert.equal(read.snapshotRevision, first.snapshotRevision + 1);
+  const warned = warnings.map((line) => JSON.parse(line) as Record<string, unknown>)
+    .filter((entry) => entry.event === "run_surface_cache_discarded");
+  assert.equal(warned.length, 1);
+  assert.equal(warned[0].reason, "malformed_json");
+  assert.deepEqual(warned[0].fields, []);
 });
