@@ -504,6 +504,169 @@ class ReceiptWriting(unittest.TestCase):
             self.assertIn("nothing was written", err.getvalue())
             self.assertNotIn("receipt written", out.getvalue())
 
+    def test_a_failed_write_leaves_the_destination_absent(self):
+        # The destination is created by linking a finished temporary file into
+        # place, so a write that dies partway never reaches the final name and
+        # the next attempt is not blocked by a stub of a receipt.
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "receipt.json"
+            self._fail_writes(OSError(28, "No space left on device"))
+
+            with self.assertRaises(ProbeError) as caught:
+                write_receipt(path, {"imageId": IMAGE_ID})
+
+            self.assertIn("Could not write", str(caught.exception))
+            self.assertFalse(path.exists())
+            self.assertEqual(self._leftovers(directory), [])
+            reserve_receipt(path)  # the retry is free to proceed
+
+    def test_an_unserializable_receipt_creates_nothing(self):
+        # Serialization happens before any file exists, so this whole class of
+        # failure cannot leave residue.
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "receipt.json"
+
+            with self.assertRaises(TypeError):
+                write_receipt(path, {"imageId": object()})
+
+            self.assertFalse(path.exists())
+            self.assertEqual(self._leftovers(directory), [])
+
+    def test_a_collision_is_refused_and_the_other_file_is_untouched(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "receipt.json"
+            intruder = b'{"written": "by someone else"}\n'
+            path.write_bytes(intruder)
+
+            with self.assertRaises(ProbeError) as caught:
+                write_receipt(path, {"imageId": IMAGE_ID})
+
+            self.assertIn("appeared while this probe was running", str(caught.exception))
+            self.assertEqual(path.read_bytes(), intruder)
+            self.assertEqual(self._leftovers(directory), [])
+
+    def test_a_dangling_symlink_destination_is_refused_intact(self):
+        # `os.link` refuses it rather than replacing it, which is why the
+        # destination is never unlinked to make room.
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "receipt.json"
+            path.symlink_to(Path(directory) / "gone.json")
+
+            with self.assertRaises(ProbeError):
+                write_receipt(path, {"imageId": IMAGE_ID})
+
+            self.assertTrue(path.is_symlink())
+            self.assertFalse(path.exists())
+            self.assertEqual(self._leftovers(directory), [])
+
+    def test_a_cleanup_failure_does_not_mask_the_write_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "receipt.json"
+            self._fail_writes(OSError(28, "No space left on device"))
+            original_unlink = probe_module.os.unlink
+            probe_module.os.unlink = self._raising_unlink(original_unlink)
+            try:
+                with self.assertRaises(ProbeError) as caught:
+                    write_receipt(path, {"imageId": IMAGE_ID})
+            finally:
+                probe_module.os.unlink = original_unlink
+
+            message = str(caught.exception)
+            self.assertIn("No space left on device", message)   # the primary cause
+            self.assertIn("A temporary file remains", message)  # stated, not hidden
+            self.assertFalse(path.exists())
+            # The residue the message promised is really there. Removing it is
+            # this test's job, not the fixture's: rmtree cannot clear a file
+            # whose deletion it was just told would fail.
+            residue = self._leftovers(directory)
+            self.assertEqual(len(residue), 1)
+            (Path(directory) / residue[0]).unlink()
+
+    def test_cleanup_residue_is_reported_after_collision(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "receipt.json"
+            path.write_text("existing receipt")
+            original = probe_module.os.unlink
+            probe_module.os.unlink = self._raising_unlink(original)
+            try:
+                with self.assertRaises(ProbeError) as caught:
+                    write_receipt(path, {"imageId": IMAGE_ID})
+            finally:
+                probe_module.os.unlink = original
+            self.assertIn("A temporary file remains", str(caught.exception))
+            self.assertEqual(path.read_text(), "existing receipt")
+            self.assertEqual(len(self._leftovers(directory)), 1)
+
+    def test_cleanup_residue_warns_after_successful_publication(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "receipt.json"
+            original = probe_module.os.unlink
+            probe_module.os.unlink = self._raising_unlink(original)
+            err = io.StringIO()
+            try:
+                with redirect_stderr(err):
+                    write_receipt(path, {"imageId": IMAGE_ID})
+            finally:
+                probe_module.os.unlink = original
+            self.assertIn("receipt is complete", err.getvalue())
+            self.assertIn("A temporary file remains", err.getvalue())
+            self.assertEqual(json.loads(path.read_text())["imageId"], IMAGE_ID)
+            self.assertEqual(len(self._leftovers(directory)), 1)
+
+    def test_the_destination_appears_only_once_it_is_complete(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "receipt.json"
+            original = probe_module.os.link
+
+            def link_complete(source, destination):
+                self.assertFalse(path.exists())
+                self.assertEqual(json.loads(Path(source).read_text())["imageId"], IMAGE_ID)
+                return original(source, destination)
+
+            probe_module.os.link = link_complete
+            try:
+                write_receipt(path, {"imageId": IMAGE_ID})
+            finally:
+                probe_module.os.link = original
+            self.assertEqual(json.loads(path.read_text())["imageId"], IMAGE_ID)
+            self.assertEqual(self._leftovers(directory), [])
+
+    def _fail_writes(self, error):
+        """Make every write to the temporary stream raise."""
+
+        original = probe_module.os.fdopen
+
+        def failing(descriptor, *arguments, **keywords):
+            stream = original(descriptor, *arguments, **keywords)
+            def fail(_text):
+                raise error
+
+            stream.write = fail
+            return stream
+
+        probe_module.os.fdopen = failing
+        self.addCleanup(setattr, probe_module.os, "fdopen", original)
+
+    def _raising_unlink(self, original):
+        """Fail only on this module's own temporary files.
+
+        `probe_module.os` is the real os module, so an unconditional patch also
+        breaks the fixture's own directory cleanup.
+        """
+
+        def unlink(target, *arguments, **keywords):
+            if str(target).endswith(".part"):
+                raise OSError(13, "Permission denied")
+            return original(target, *arguments, **keywords)
+
+        return unlink
+
+    @staticmethod
+    def _leftovers(directory):
+        """Temporary files this module would have created, if any survived."""
+
+        return sorted(p.name for p in Path(directory).iterdir() if p.name.endswith(".part"))
+
     def test_writing_is_exclusive(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "out" / "receipt.json"

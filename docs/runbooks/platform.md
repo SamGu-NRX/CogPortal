@@ -324,19 +324,29 @@ that matters.
 
 ### Images, and why this is not one command
 
-`tools/deploy.py` builds each sandbox image, publishes it under a stable name,
-and then deploys the app. Publishing the name is what makes an image live:
-`_sandbox_image` in `modal_app.py` resolves that name on every dispatch. So in
-the current tool a newly built image becomes the one every run uses before
-anything has asked whether it works, the three names are published one at a
-time, and the app deploy follows them. It is a sequence of individually visible
-steps, not an atomic rollout, and it should not be described as one.
+Publishing a name is what makes an image live: `_sandbox_image` in
+`modal_app.py` resolves that name on every dispatch. So the probe has to run
+between building an image and publishing its name, and `tools/deploy.py` takes
+`--build-only` and `--publish` to split those apart. Plain `deploy.py` with no
+flags retains the old build-and-publish behavior and bypasses this gate. Do
+not use it for the shared development/production runner during release.
 
-The intended order is pause, build, probe, publish, deploy, reactivate:
+`--publish` requires an id for every sandbox image before it changes any name.
+It then publishes names sequentially and deploys the app. A provider failure
+can leave a partially published set, so keep both environments drained until
+all names and the deployed controller have been verified.
+
+The order is pause, build, probe, publish, deploy, reactivate:
 
 1. Pause admission for the affected benchmarks (see section 7) and let
    dispatched runs settle.
-2. Build the images and keep the immutable `im-...` id each build prints.
+2. Build without publishing. This prints an immutable `im-...` id per image and
+   changes nothing a dispatch can reach:
+
+```sh
+python apps/runner-modal/tools/deploy.py --build-only
+```
+
 3. Probe each image by that id, before any name is republished:
 
 ```sh
@@ -365,7 +375,21 @@ python apps/runner-modal/tools/probe_prepared_environment.py \
    `--manifest-only` prints the accepted manifests from this checkout and needs
    no image and no credentials.
 
-4. Publish the names and deploy the app.
+4. Publish those exact ids and deploy the app. `--build-only` prints this
+   command with the ids already filled in, so none is retyped:
+
+```sh
+python apps/runner-modal/tools/deploy.py \
+    --publish cogworks-runner-benchmark=im-XXXXXXXXXXXXXXXXXXXXXX \
+    --publish cogworks-runner-week3=im-XXXXXXXXXXXXXXXXXXXXXX \
+    --publish cogworks-runner-week1=im-XXXXXXXXXXXXXXXXXXXXXX
+```
+
+   This publishes the supplied ids without rebuilding. Check every name/id
+   against the four successful receipts before running it; neither flag
+   inspects receipts. Keep the accepted checkout unchanged through build,
+   probe and publication because the final command also deploys its controller.
+
 5. Reactivate admission.
 
 ### Pins the first rehearsal keeps
