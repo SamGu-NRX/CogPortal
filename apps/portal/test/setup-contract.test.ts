@@ -31,20 +31,41 @@ test("setup evidence accepts only the coarse documented payload", () => {
   );
 });
 
-test("setup state contains checked milestones and no callback tokens", () => {
+test("setup state keeps observed evidence apart from a student's own check-off", () => {
   const state = SetupStateSchema.parse({
     verified: ["clone", "environment"],
     verifiedByBenchmark: { "vision-recognition": ["project", "wiring"] },
+    checked: [],
+    checkedByBenchmark: {},
   });
   assert.deepEqual(state, {
     verified: ["clone", "environment"],
     verifiedByBenchmark: { "vision-recognition": ["project", "wiring"] },
+    checked: [],
+    checkedByBenchmark: {},
   });
+
+  // Check-off tokens came back deliberately, for the interaction a student is
+  // asked to perform, so the contract now carries them. They stay optional
+  // because a deployment with no signing secret cannot offer the command.
+  const withTokens = SetupStateSchema.parse({
+    verified: [],
+    verifiedByBenchmark: {},
+    checked: ["clone"],
+    checkedByBenchmark: { "vision-recognition": ["environment"] },
+    tokens: { clone: "signed.token" },
+  });
+  assert.deepEqual(withTokens.checked, ["clone"]);
+  assert.equal(withTokens.tokens?.clone, "signed.token");
+
+  // Still strict about everything else.
   assert.throws(() =>
     SetupStateSchema.parse({
       verified: ["clone"],
       verifiedByBenchmark: {},
-      tokens: { clone: "legacy-token" },
+      checked: [],
+      checkedByBenchmark: {},
+      somethingElse: true,
     }),
   );
 });
@@ -91,8 +112,9 @@ function progress(
 test("setup progress counts only what CogPortal observed", () => {
   // The dashboard nudge and the setup masthead now read this one function, so
   // a count that moved without evidence would move on both at once.
-  assert.deepEqual(progress([]), { verified: 0, total: 5 });
+  assert.deepEqual(progress([]), { done: 0, verified: 0, total: 5 });
   assert.deepEqual(progress(["clone", "environment", "project", "wiring"]), {
+    done: 4,
     verified: 4,
     total: 5,
   });
@@ -109,6 +131,7 @@ test("another environment's setup does not tick this track's three lines", () =>
   // device. An older CLI that named no benchmark lands in exactly this state:
   // real evidence about the machine, none about a track.
   assert.deepEqual(progress(["clone", "environment", "project", "wiring"], 1, []), {
+    done: 2,
     verified: 2,
     total: 5,
   });
@@ -119,7 +142,7 @@ test("another environment's setup does not tick this track's three lines", () =>
       1,
       ["environment", "project", "wiring"],
     ),
-    { verified: 5, total: 5 },
+    { done: 5, verified: 5, total: 5 },
   );
 });
 
@@ -129,6 +152,7 @@ test("a student working alone can finish every counted step", () => {
   // depends on a second member, so one person reaches the end on CLI evidence
   // plus one linked device.
   assert.deepEqual(progress(["clone", "environment", "project", "wiring"], 1), {
+    done: 5,
     verified: 5,
     total: 5,
   });

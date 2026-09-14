@@ -237,15 +237,18 @@ export const setupVerifications = sqliteTable(
     /**
      * The benchmark this evidence is about, or "" when it is not about one.
      *
-     * `clone` and `environment` are the same fact whatever track is selected,
-     * so they are always stored unscoped. `project` and `wiring` name one
-     * distribution and one set of wired entry points, so they are stored
-     * against the benchmark the CLI checked. An older CLI sends no benchmark
-     * and its rows stay "", which no longer satisfies a per-track claim
-     * (migration 0036).
+     * `clone` is the same fact whatever track is selected, so it is stored
+     * unscoped. `environment`, `project` and `wiring` all describe the one
+     * environment that was active, so they are stored against the benchmark
+     * the evidence was about (BENCHMARK_SCOPED_SETUP_STEPS). An older CLI
+     * sends no benchmark and its rows stay "", which no longer satisfies a
+     * per-track claim (migration 0036).
      */
     benchmarkId: text("benchmark_id").notNull().default(""),
     verifiedAt: integer("verified_at").notNull(),
+    /** "cli" when a linked device reported it, "self" when the student ran
+     *  the check-off command from this page (migration 0039). */
+    source: text("source").notNull().default("cli"),
   },
   (table) => [
     primaryKey({ columns: [table.userId, table.teamId, table.step, table.benchmarkId] }),

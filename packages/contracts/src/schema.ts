@@ -1060,6 +1060,22 @@ export type SetupStep = z.infer<typeof SetupStepSchema>;
  * `cogworks: command not found` at the next one.
  */
 export const BENCHMARK_SCOPED_SETUP_STEPS = ["environment", "project", "wiring"] as const;
+
+/**
+ * The steps that offer a check-off command.
+ *
+ * These three are the ones nothing reports until `check` runs at the end, so
+ * without them a student clones, installs and installs again against three
+ * silent boxes. `wiring` is deliberately absent: it is what `check` decides,
+ * and a student who could tick it by hand could call their entry points wired
+ * without ever having called them. `link` needs no command because the device
+ * list is evidence the moment it exists.
+ */
+export const SELF_CHECKABLE_SETUP_STEPS = ["clone", "environment", "project"] as const;
+export type SelfCheckableSetupStep = (typeof SELF_CHECKABLE_SETUP_STEPS)[number];
+export function isSelfCheckableStep(step: SetupStep): step is SelfCheckableSetupStep {
+  return (SELF_CHECKABLE_SETUP_STEPS as readonly SetupStep[]).includes(step);
+}
 export type BenchmarkScopedSetupStep = (typeof BENCHMARK_SCOPED_SETUP_STEPS)[number];
 export function isBenchmarkScopedStep(step: SetupStep): step is BenchmarkScopedSetupStep {
   return (BENCHMARK_SCOPED_SETUP_STEPS as readonly SetupStep[]).includes(step);
@@ -1105,6 +1121,17 @@ export const SetupStateSchema = z
      *  reads its own entry and nothing else, which is what stops one
      *  benchmark's setup from marking another's as done. */
     verifiedByBenchmark: z.record(z.string(), z.array(SetupStepSchema)),
+    /** Steps the student checked off from their own terminal, which is a
+     *  weaker fact than the CLI reporting one: it says a command ran on a
+     *  machine holding this page's token, not that the environment is right.
+     *  Kept apart from `verified` so the page can tick a box without calling
+     *  it observed. Same split by scope as above. */
+    checked: z.array(SetupStepSchema),
+    checkedByBenchmark: z.record(z.string(), z.array(SetupStepSchema)),
+    /** Signed check-off tokens, keyed by step, for the benchmark this state
+     *  was read for. Absent when no deployment secret is configured, which is
+     *  the one case where the page cannot offer the command. */
+    tokens: z.record(z.string(), z.string()).optional(),
   })
   .strict();
 export type SetupState = z.infer<typeof SetupStateSchema>;

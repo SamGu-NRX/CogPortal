@@ -10,7 +10,10 @@ DEV_AUTH="enabled"
 # the server also requires PLATFORM_OWNER_LOGINS membership.
 ONBOARDING_DEV_TOOLS="enabled"
 EXECUTION_PROVIDER="fixture"
-BETTER_AUTH_SECRET=""
+# 32+ characters. Signs sessions and the setup page's check-off commands,
+# so a portal without it cannot offer those commands. Any long random
+# string works locally; generate a real one per deployment.
+BETTER_AUTH_SECRET="local-development-only-not-a-real-secret-0000"
 BETTER_AUTH_URL="http://localhost:5173"
 GITHUB_CLIENT_ID=""
 GITHUB_CLIENT_SECRET=""
