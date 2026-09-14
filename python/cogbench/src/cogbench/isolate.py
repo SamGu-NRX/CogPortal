@@ -777,13 +777,17 @@ def _collect(pid, read_fd, timeout_seconds, memory_bytes) -> Outcome:
                 left = (UNBOUNDED_REAP_SECONDS if deadline is None
                         else max(0.0, deadline - time.monotonic()))
                 observed = _reap_bounded(pid, left)
-                # Expiry is authoritative whatever the reap returned. A status
-                # collected after the budget ran out is still a run that took
-                # longer than the caller allowed.
-                if deadline is not None and time.monotonic() >= deadline:
-                    fired = True
                 if observed is not None:
                     status, reaped, harvested = observed, True, True
+            # Outside that branch, because whether the child happened to be
+            # harvested while the envelope was still arriving does not change
+            # what the clock says. Inside it, a run whose decoding crossed the
+            # deadline came back `completed` when `exited()` had already
+            # reaped, and `timed_out` when it had not, for the same payload.
+            # Expiry is authoritative either way: a result collected after the
+            # budget ran out is still a run that took longer than allowed.
+            if deadline is not None and time.monotonic() >= deadline:
+                fired = True
         except _Alarm:
             fired, outcome = True, None
             reason = reason or "alarm"

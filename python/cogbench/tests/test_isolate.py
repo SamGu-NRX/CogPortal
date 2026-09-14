@@ -612,6 +612,31 @@ class TheDeadlineHasOneOwner(unittest.TestCase):
     that the deadline still holds, rather than rebuilding a timer to test one.
     """
 
+    def test_an_expired_deadline_is_not_even_polled(self):
+        """The reviewer's suggestion, and it pins the other half. The existing
+        readable-descriptor test passes if either check outside the poll loop
+        survives; this one fails unless the check before the poll does, since
+        it asserts `select` is never reached."""
+
+        calls = []
+
+        def refuse(*arguments):
+            calls.append(arguments)
+            return ([], [], [])
+
+        read_fd, write_fd = os.pipe()
+        held = isolate_module.select.select
+        isolate_module.select.select = refuse
+        try:
+            with self.assertRaises(isolate_module._Alarm):
+                isolate_module._read_payload(read_fd, None, time.monotonic() - 1)
+        finally:
+            isolate_module.select.select = held
+            os.close(read_fd)
+            os.close(write_fd)
+
+        self.assertEqual(calls, [])
+
     @unittest.skipUnless(hasattr(os, "fork"), "needs fork to reach _collect")
     def test_no_timer_thread_is_started_for_a_deadline(self):
         """Run from a worker, because that is the only place the old code
