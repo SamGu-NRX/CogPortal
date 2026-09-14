@@ -20,6 +20,7 @@ from .image_bake import WEEK3_DATA_DIR, cache_facenet_checkpoint, cache_week3_ar
 from .protocol import canonical_json, signature, validate_job, verify_signature
 from .prepared_environment import (
     bind_environment,
+    student_python,
     validate_observation,
     validate_prepared_environment,
 )
@@ -1356,13 +1357,9 @@ def _sandbox_image(job: Dict[str, Any]) -> Any:
 
 
 def _student_python(job: Dict[str, Any]) -> str:
-    """Week 1 and Week 3 student code runs under the pinned 3.8.20 venv; the
-    course contract is Python 3.8 and Modal's own runtime cannot be."""
+    """Use the same interpreter selection as the release probe."""
 
-    return {
-        "language-search": WEEK3_STUDENT_PYTHON,
-        "audio-identification": WEEK1_STUDENT_PYTHON,
-    }.get(job["benchmark"]["id"], "python")
+    return student_python(job["benchmark"]["id"], ENVIRONMENT.PY38_VENV)
 
 
 def _prepare(job: Dict[str, Any], reporter: LiveReporter) -> Tuple[str, Dict[str, Any]]:

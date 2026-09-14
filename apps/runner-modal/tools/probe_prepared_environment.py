@@ -6,30 +6,25 @@
         --sandbox-contract 1 \\
         --receipt build/audio-receipt.json
 
-`_prepare` in modal_app.py runs this same compatibility probe before it fetches
-a student archive, which is the right check at the wrong time for a release: by
-then a student has started a run against an image already published under the
-name every dispatch resolves. This runs it against one image, on demand, with
-no student and no evaluation.
+`_prepare` runs this same compatibility probe, but only once a student has
+already started a run against a published image. This runs it against one
+image on demand, with no student and no evaluation.
 
 A receipt records, for one image: the interpreter, that the SDK exposes the
 entry points the evaluator calls, that the SDK, runner and benchmark packages
 the sandbox imports are the accepted source, and that the image's declared
 sandbox contract equals the catalog row.
 
-Three refusals, each for a reason worth keeping:
+Three refusals, each for a reason that is not obvious:
 
-**An image id, never a name.** `deploy.py` publishes names and `_sandbox_image`
-resolves them at dispatch, so a name can point at one image during the probe
-and another during a run. Only an id identifies the build that was measured.
-
-**The catalog contract from outside.** Reading `--sandbox-contract` from the
-image would compare the image against itself.
-
-**Imported modules, not paths that exist.** Manifests come from importing each
-package and walking where the import resolved, so a shadowed copy at the
-expected path cannot pass. Every module the probe reports is then matched back
-to a manifest by hash.
+- **An image id, never a name.** `deploy.py` publishes names and
+  `_sandbox_image` resolves them at dispatch, so a name can point at one image
+  during the probe and another during a run.
+- **The catalog contract from outside.** Reading `--sandbox-contract` from the
+  image would compare the image against itself.
+- **Imported modules, not paths that exist.** Manifests come from importing
+  each package and walking where the import resolved, so a shadowed copy at
+  the expected path cannot pass.
 
 A receipt is not evidence on its own: require exit status 0 and check that it
 names the image id and benchmark you intended.
@@ -48,10 +43,13 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT / "apps" / "runner-modal" / "src"))
+sys.path.insert(0, str(REPO_ROOT / "python" / "cogbench" / "src"))
 
+from cogbench.environment import PY38_VENV  # noqa: E402
 from cogworks_runner.prepared_environment import (  # noqa: E402
     SANDBOX_CONTRACTS,
     PreparedEnvironmentError,
+    student_python,
     validate_observation,
 )
 
@@ -78,17 +76,6 @@ BENCHMARK_PACKAGES = {
     "vision-clustering": ("week2", "facial_recognition_benchmark"),
     "language-search": ("week3", "language_search_benchmark"),
 }
-
-#: Interpreter each track's student code runs under. Restates
-#: `modal_app._student_python`, because importing modal_app would pull in modal
-#: and fastapi for two lookups. The test reads the real mapping with ast and
-#: fails if these drift.
-PY38_VENV = "/opt/cogworks-py38/bin/python"
-STUDENT_PYTHON = {
-    "language-search": PY38_VENV,
-    "audio-identification": PY38_VENV,
-}
-DEFAULT_STUDENT_PYTHON = "python"
 
 #: Runs inside the sandbox. Imports one package and walks the directory that
 #: import resolved to, so the manifest describes what the interpreter loads
@@ -224,10 +211,6 @@ def manifest_matches(difference: Dict[str, List[str]]) -> bool:
     return not any(difference.values())
 
 
-def student_python(benchmark_id: str) -> str:
-    return STUDENT_PYTHON.get(benchmark_id, DEFAULT_STUDENT_PYTHON)
-
-
 def catalog_job(benchmark_id: str, sandbox_contract: int) -> Dict[str, Any]:
     """The smallest job shape `validate_observation` reads."""
 
@@ -260,14 +243,12 @@ def validate_probe_inputs(benchmark_id: str, image_id: str, sandbox_contract: in
 def reserve_receipt(path: Optional[Path]) -> None:
     """Refuse an occupied receipt path before anything is spent.
 
-    A receipt is evidence about one image. Overwriting one silently destroys
-    the record of a previous probe, and doing it after the sandbox has run
-    would mean paying for the answer and losing the old one anyway.
+    A receipt is evidence about one image, so overwriting one destroys the
+    record of a previous probe.
 
-    Occupancy is `lexists`, not `exists`. A dangling symlink does not exist by
-    the second test and still makes the exclusive create fail, so checking with
-    `exists` would pass here and refuse after the sandbox had run, which is the
-    exact cost this check is for.
+    `lexists`, not `exists`: a dangling symlink does not exist by the second
+    test and still fails the exclusive create, so `exists` would pass here and
+    refuse only after the sandbox had run.
     """
 
     if path is not None and os.path.lexists(str(path)):
@@ -307,12 +288,10 @@ def bind_modules_to_manifests(
 ) -> Dict[str, str]:
     """Match every module the compatibility probe imported to a manifest entry.
 
-    This is what turns two independent readings into one claim. The probe
-    reports the absolute path and hash of each module it actually imported; the
-    manifests report every file under each resolved import root. A module whose
-    path lies under no manifest root came from somewhere else entirely, and a
-    module whose hash differs from the manifest entry at the same path means the
-    two readings disagree about the same file. Either is a refusal.
+    Turns two independent readings into one claim. A module whose path lies
+    under no manifest root came from somewhere else; a module whose hash
+    differs from the manifest entry at the same path means the two readings
+    disagree about one file. Either is a refusal.
     """
 
     roots = sorted(
@@ -397,7 +376,7 @@ def build_receipt(
         "benchmarkId": benchmark_id,
         "catalogSandboxContract": sandbox_contract,
         "imageId": image_id,
-        "studentPython": student_python(benchmark_id),
+        "studentPython": student_python(benchmark_id, PY38_VENV),
         "observation": observation,
         "importedModuleRoots": bound,
         "sourceManifests": {
@@ -423,7 +402,7 @@ def observe_image(benchmark_id: str, image_id: str, timeout: int) -> Dict[str, A
     import modal  # noqa: PLC0415
     import modal.runner  # noqa: PLC0415
 
-    interpreter = student_python(benchmark_id)
+    interpreter = student_python(benchmark_id, PY38_VENV)
     app = modal.App("cogworks-runner-probe")
     observed = {}
     with modal.enable_output(), modal.runner.run_app(app):
