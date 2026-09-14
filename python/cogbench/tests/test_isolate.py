@@ -604,54 +604,61 @@ class AFailedForkIsReportedLikeAnyOtherFailure(unittest.TestCase):
         self.assertIsNotNone(outcome.memory_bytes)
 
 class TheWatchdogCannotActAfterTheOperationCloses(unittest.TestCase):
-    """`Timer.cancel` does not stop a callback already dispatched, and only
-    `exited()` took the lifecycle lock. The containment owner reproduced the
-    consequence deterministically: the collector returned while the callback
-    was blocked, cleanup observed `reaped=True`, and the released callback
-    then signalled using the `reaped=False` it had captured earlier, after the
-    operation had finished. Every reap and termination path shares one lock
-    now, and `closed` is set under it, so a late callback does nothing.
+    """`Timer.cancel` does not stop a callback already dispatched, so one
+    could arrive after `_collect` returned and signal a process the operation
+    no longer owned. `closed` is set at the end of cleanup under the same lock
+    a running callback holds, which makes a late callback a no-op.
 
-    This test does not pin that fix and must not be read as doing so: it
-    passes against the unfixed source too, because with real processes the
-    interleaving it is looking for does not reliably occur. It is a guard
-    against a regression that happens to be caught, not evidence the race is
-    closed. The deterministic proof is the owner's instrumented probe, which
-    forces the interleaving; reproducing that shape here needs the callback
-    held before it takes the lock, which this cannot reach from outside."""
+    Deterministic by replacing the timer rather than racing a real one. An
+    earlier version of this test ran real children for about ten seconds and
+    passed against the unfixed source, so it pinned nothing; the independent
+    reviewer pointed out that capturing the callback is reachable from
+    outside, which is what this does instead.
+    """
 
-    @unittest.skipUnless(hasattr(os, "fork"), "needs fork")
-    def test_no_signal_is_sent_once_the_collector_has_returned(self):
+    def test_a_callback_dispatched_after_the_return_signals_nothing(self):
+        captured = []
         sent = []
-        real = isolate_module._terminate
+
+        class Captured(object):
+            def __init__(self, seconds, callback):
+                captured.append(callback)
+
+            def start(self):
+                pass
+
+            def cancel(self):
+                pass
+
+            daemon = True
 
         def record(pid, reaped=False):
-            sent.append((time.monotonic(), reaped))
-            return real(pid, reaped=reaped)
+            sent.append(reaped)
 
+        held_timer = isolate_module.threading.Timer
+        held_terminate = isolate_module._terminate
+        held_read = isolate_module._read_payload
+        isolate_module.threading.Timer = Captured
         isolate_module._terminate = record
+        isolate_module._read_payload = lambda *a, **k: isolate_module.Outcome(
+            COMPLETED, value=42
+        )
         try:
-            for _ in range(8):
-                # The work lands near the deadline on purpose, so the timer
-                # and the completion race rather than one clearly winning.
-                outcome = {}
-
-                def work():
-                    outcome["got"] = run_isolated(
-                        lambda: time.sleep(0.9), timeout_seconds=1
-                    )
-
-                worker = threading.Thread(target=work)
-                worker.start()
-                worker.join(timeout=30)
-                returned = time.monotonic()
-                self.assertFalse(worker.is_alive())
-                time.sleep(0.3)
-                late = [when for when, _ in sent if when > returned]
-                self.assertEqual(late, [], "signal sent after the collector returned")
-                sent.clear()
+            worker = threading.Thread(
+                target=lambda: isolate_module._collect(99999999, -1, 1, None)
+            )
+            worker.start()
+            worker.join(timeout=15)
+            self.assertFalse(worker.is_alive())
+            during = len(sent)
+            self.assertTrue(captured, "the watchdog timer was never armed")
+            captured[0]()
         finally:
-            isolate_module._terminate = real
+            isolate_module.threading.Timer = held_timer
+            isolate_module._terminate = held_terminate
+            isolate_module._read_payload = held_read
+
+        self.assertEqual(len(sent), during, "a late callback signalled anyway")
 
 
 if __name__ == "__main__":
