@@ -964,42 +964,67 @@ class WhatTheRepositoryItselfSuppliesIsReadOnceTheRootIsKnown(unittest.TestCase)
         )
         return first, second
 
-    def test_a_replayed_run_still_names_the_weights_this_resolution_used(self):
+    def test_a_replayed_run_names_this_resolutions_weights_not_the_remembered_ones(self):
         """The memo remembers the binding, not the weights. A recalled chain
-        used to come back with none at all, so a second run reported as
-        though the repository had no weights in it."""
+        came back with none at all, so a second run reported as though the
+        repository had no weights in it. Both resolutions declare a different
+        name and a different W, so stale metadata cannot pass this."""
 
-        first, second = self._resolve_twice(
-            lambda root, modules: {"W": 3, "weights_used": ["data/a.npy"]}
-        )
+        names = iter(["data/first.npy", "data/second.npy"])
+        values = iter([3, 5])
+
+        def prepare(root, modules):
+            return {"W": next(values), "weights_used": [next(names)]}
+
+        first, second = self._resolve_twice(prepare)
 
         self.assertTrue(first.ready, first.verdict.headline)
         self.assertTrue(second.ready, second.verdict.headline)
         self.assertTrue(second.recalled, "the second resolution did not replay")
-        self.assertEqual(second.weights_used, ("data/a.npy",))
+        self.assertEqual(first.weights_used, ("data/first.npy",))
+        self.assertEqual(second.weights_used, ("data/second.npy",))
         self.assertIsNone(second.weights_captured)
-        self.assertEqual(second.to_dict()["weightsUsed"], ["data/a.npy"])
-        self.assertIsNone(second.to_dict()["weightsCaptured"])
+        # The replayed binding runs on this resolution's W, not the one the
+        # remembered run was built with.
+        self.assertEqual(second.chain[0].bound([1]), [5])
 
-    def test_a_replayed_run_publishes_the_receipts_this_resolution_captured(self):
+    def test_a_replayed_run_publishes_this_resolutions_captured_bytes(self):
+        """The retained file changes between the two runs, so a receipt
+        carried over from the first would name bytes this run never read."""
+
+        import hashlib
+
         weights = self.tmp / "data"
         weights.mkdir(exist_ok=True)
-        (weights / "a.npy").write_bytes(b"first")
+        target = weights / "a.npy"
+        target.write_bytes(b"first bytes")
+        values = iter([3, 5])
 
         def prepare(root, modules, capture=None):
             capture(root / "data" / "a.npy")
-            return {"W": 3}
+            return {"W": next(values)}
 
-        first, second = self._resolve_twice(
-            prepare, weights_consumed=lambda submission: True
+        first = resolve(
+            self.tmp, chain_role=self.role, fixture=([1, 2],),
+            accepts=lambda chain, *_: (chain[0].bound([1]) == [3], ""),
+            arrangements=None, prepare=prepare, remember=True, benchmark="week3",
+            weights_consumed=lambda submission: True,
+        )
+        target.write_bytes(b"second bytes, entirely different")
+        second = resolve(
+            self.tmp, chain_role=self.role, fixture=([1, 2],),
+            accepts=lambda chain, *_: (chain[0].bound([1]) == [3], ""),
+            arrangements=None, prepare=prepare, remember=True, benchmark="week3",
+            weights_consumed=lambda submission: True,
         )
 
         self.assertTrue(second.recalled, "the second resolution did not replay")
         self.assertEqual(second.weights_used, ("data/a.npy",))
-        self.assertEqual(
-            [item["path"] for item in second.weights_captured], ["data/a.npy"]
-        )
-        self.assertEqual(second.weights_captured, first.weights_captured)
+        receipt = second.weights_captured[0]
+        self.assertEqual(receipt["sha256"], hashlib.sha256(b"second bytes, entirely different").hexdigest())
+        self.assertEqual(receipt["size"], len(b"second bytes, entirely different"))
+        self.assertNotEqual(receipt["sha256"], first.weights_captured[0]["sha256"])
+        self.assertEqual(second.chain[0].bound([1]), [5])
 
     def test_a_replayed_no_weight_run_still_has_no_weights(self):
         first, second = self._resolve_twice(lambda root, modules: {"W": 3})
