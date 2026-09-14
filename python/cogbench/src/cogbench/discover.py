@@ -306,52 +306,27 @@ class SkippedModule:
 
 
 def owner_of_skip(entry: "SkippedModule", benchmark: str = "") -> str:
-    """Whose problem a skipped module is: ours, the environment's, or theirs.
+    """Whose problem a skipped module is: ours or theirs.
 
-    The distinction decides what the platform is allowed to say. A module we
-    could not read because this machine lacks a package the graded run
-    installs is an absence we manufactured, and a verdict blaming the
-    repository for it is false. One genuinely absent from the graded run too
-    is worth naming, because the graded run fails the same way. A syntax
-    error is theirs.
+    A module this could not read because a dependency would not import is an
+    absence this run manufactured, so a verdict blaming the repository for it
+    is false. A syntax error or a raising module is theirs. A file no
+    available name could be read under is ours.
 
-    ``benchmark`` selects the graded environment, because there are three and
-    they differ: Week 2 runs on Python 3.11 with torch and opencv, Week 1 and
-    Week 3 on a pinned 3.8 with their own package sets. A benchmark this does
-    not recognise falls back to the union rather than raising a ``KeyError``
-    out of the report, which is the same safe direction as supplying none.
+    ``"environment"`` is never returned. Claiming a package is absent from the
+    graded image needs that image's resolved package set, which this process
+    cannot see: a direct-install catalog lists what an image installs
+    directly, and Week 2's sklearn and skimage bring scipy, which is in the
+    image and in no catalog.
 
-    ``"environment"`` is not returned for a dependency this could not import.
-    The catalogs list what each image installs directly, and absence from a
-    direct-install list does not demonstrate absence from the image: Week 2
-    installs sklearn and skimage, which bring scipy, so scipy is in that image
-    and in no catalog. Answering ``"environment"`` for it claimed the graded
-    run fails the same way, about a machine this process cannot see.
+    ``benchmark`` is accepted and unused. It selected a per-track catalog for
+    the claim above, and removing it from the signature would break callers.
 
-    What a missing dependency does demonstrate is narrower and is all that is
-    reported now: this run could not import that module. Whether that leaves
-    enough read to draw a conclusion is the consumer's decision, not this
-    one's, and PR7 is where it is made.
+    Whether enough was read to draw a conclusion is the consumer's decision,
+    not this one's.
     """
 
-    if entry.reason == "name_taken":
-        # Nothing to do with their file. Something else in this process
-        # already owns every name it could have been read under.
-        return "ours"
-    if entry.reason == "missing_dependency" and entry.missing:
-        from . import environment
-
-        track = environment.track_for(benchmark) if benchmark else ""
-        graded = (
-            environment.student_modules(track)
-            if track
-            else environment.all_student_modules()
-        )
-        # The same answer either way. A catalogued package is provably in the
-        # image, so its absence here is ours; an uncatalogued one is simply
-        # unknown, and the safe direction for an unknown is to withhold a
-        # verdict rather than assert one about the graded run.
-        del graded
+    if entry.reason in ("name_taken", "missing_dependency"):
         return "ours"
     return "theirs"
 
@@ -3584,20 +3559,13 @@ def survey(
 
         backend = isolate._isolation_backend()
         if backend is None:
-            # Known limit, deliberate. Windows has no fork, so there is no
-            # isolation to offer and the repository's imports run in this
-            # process: a module that aborts the interpreter takes the caller
-            # with it rather than returning the crash report this promises.
-            # Running the work here anyway is what the platform can do.
-            # Refusing instead told every Windows student their repository
-            # could not be read, which is a sentence about their code that
-            # nothing observed.
-            #
-            # What bounds it: `survey` runs in the student CLI and in the
-            # hosted Linux runner, and the hosted runner forks, so the graded
-            # path is isolated. The exposure is a Windows student's own
-            # `cogworks check` against their own repository. A subprocess
-            # backend would close it and is not built here.
+            # Without fork there is no isolation to offer, so the imports run
+            # here. Known limit: a module that aborts the interpreter takes
+            # this process with it instead of returning the crash report above.
+            # The hosted runner forks, so the graded path is unaffected; the
+            # exposure is a Windows student's own `cogworks check`. Refusing
+            # instead told them their repository could not be read, which is a
+            # claim about their code that nothing observed.
             return Survey("ok", _work())
         if backend is isolate.run_operation:
             outcome = backend("survey", {

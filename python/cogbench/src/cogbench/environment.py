@@ -334,14 +334,10 @@ def missing_here(modules: Sequence[str]) -> Tuple[str, ...]:
     its finder. Either way the honest answer is that we could not confirm the
     package is here, so it is reported as missing rather than assumed present.
 
-    The scope, stated because the name suggests more than it checks: this
-    reports what this interpreter can *locate*, not what it can import. A
-    package whose files are present but whose import raises, a broken C
-    extension being the usual case, is reported as here. Importing to find out
-    is what this was written to avoid, since that runs package initialisation
-    for every heavy name on the list. The module that depends on such a
-    package is still skipped and still names it, so the failure is reported;
-    what is missed is only this earlier warning.
+    Scope: this reports what the interpreter can locate, not what it can
+    import, so a package whose files are present but whose import raises reads
+    as here. The module depending on it is still skipped and still names it;
+    only this earlier warning is missed.
     """
 
     absent = []
