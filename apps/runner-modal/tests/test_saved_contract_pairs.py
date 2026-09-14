@@ -61,13 +61,11 @@ class SavedContractPairs(unittest.TestCase):
         from cogworks_runner.prepared_environment import (
             BINDING_MISMATCH, SANDBOX_CONTRACTS, validate_prepared_environment,
         )
-        from test_week2_official_format import OfficialClusteringFormatTests
+        from test_week2_official_format import materialize_official_bundle
 
         base_seed = 42
         with tempfile.TemporaryDirectory() as directory:
-            original, payload, gold = OfficialClusteringFormatTests("check_round_trip").materialize(
-                Path(directory), base_seed
-            )
+            original, payload, gold, _ = materialize_official_bundle(Path(directory), base_seed)
         self.assertEqual((sum(case.scored for case in original), len(original)), (3, 12))
 
         # What the controller holds, and what it re-encodes for every run.

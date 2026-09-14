@@ -4,6 +4,7 @@ import contextlib
 import importlib.util
 import io
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -23,6 +24,13 @@ try:
 except ModuleNotFoundError:
     WEEK2_AVAILABLE = False
 
+sys.path.insert(0, str(Path(__file__).parent))
+from test_prepared_environment import require_benchmark
+
+# Bound only for this module's own test bodies, which the class decorator
+# already skips when Week 2 is absent. Anything reusable reads
+# week2_fixture_modules() instead, so it answers for the call and not for the
+# instant this module happened to be imported.
 if WEEK2_AVAILABLE:
     import numpy as np
     from cogworks_runner.week2_payload import (
@@ -33,13 +41,26 @@ if WEEK2_AVAILABLE:
     from facial_recognition_benchmark import datasets
     from facial_recognition_benchmark.plugins import ClusteringBenchmark
 
-    TOOL = Path(__file__).resolve().parents[1] / "tools/materialize_week2_official.py"
-    spec = importlib.util.spec_from_file_location("materialize_week2_official", TOOL)
-    materializer = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(materializer)
+
+def week2_fixture_modules():
+    """Check dependencies when a shared fixture is called.
+
+    Other tests can add Week 2 to sys.path after this module was imported.
+    Reusable fixtures cannot rely on globals initialized only at import time.
+    """
+    require_benchmark("vision-clustering")
+    import numpy as np
+    from facial_recognition_benchmark import datasets
+
+    tool = Path(__file__).resolve().parents[1] / "tools/materialize_week2_official.py"
+    spec = importlib.util.spec_from_file_location("materialize_week2_official", tool)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return np, datasets, module, tool
 
 
 def synthetic_manifest(seed, sizes=(30, 30, 30)):
+    np, datasets, _, _ = week2_fixture_modules()
     samples, scenarios, rows = [], [], {}
     for group, size in enumerate(sizes):
         sample_ids, labels = [], []
@@ -80,46 +101,111 @@ def synthetic_manifest(seed, sizes=(30, 30, 30)):
     }, rows
 
 
+def materialize_official_bundle(root, seed, sizes=(30, 30, 30)):
+    """Return expanded cases, payload, gold and CLI output from synthetic rows."""
+    _, datasets, materializer, tool = week2_fixture_modules()
+    manifest, rows = synthetic_manifest(seed, sizes)
+    manifest_path = root / "manifest.json"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    def synthetic_rows(_split, _revision, indexes):
+        return ((index, rows[index]) for index in indexes)
+
+    argv = [
+        str(tool),
+        "vision-clustering",
+        str(manifest_path),
+        str(root / "volume"),
+        "--dataset-version",
+        "synthetic-test",
+    ]
+    # Only the data source and cache location change. Manifest validation,
+    # scenario expansion, CLI bounds and bundle writing are production code.
+    with patch.object(datasets, "_huggingface_rows", synthetic_rows), patch.object(
+        datasets, "user_cache_path", return_value=root / "cache"
+    ), patch.object(sys, "argv", argv), contextlib.redirect_stdout(
+        io.StringIO()
+    ) as output:
+        cases = datasets.clustering_scenarios(manifest)
+        materializer.main()
+    target = root / "volume/vision-clustering/synthetic-test"
+    return (
+        cases,
+        (target / "payload.zip").read_bytes(),
+        json.loads((target / "expected.json").read_text(encoding="utf-8")),
+        output.getvalue().strip(),
+    )
+
+
+# A fresh interpreter reproduces import before dependency availability.
+# The finder also blocks editable installs, which sys.path changes alone do not.
+_LATE_ARRIVAL_PROGRAM = """
+import sys, unittest
+
+class Absent:
+    def find_spec(self, name, path=None, target=None):
+        if name.split(".")[0] == "facial_recognition_benchmark":
+            raise ModuleNotFoundError(name)
+        return None
+
+absent = Absent()
+sys.meta_path.insert(0, absent)
+sys.path.insert(0, {tests!r})
+sys.path.insert(0, {runner!r})
+import test_week2_official_format as fixture
+assert not fixture.WEEK2_AVAILABLE, "Week 2 was reachable at import; the case did not arise"
+sys.meta_path.remove(absent)
+try:
+    fixture.synthetic_manifest(42)
+except unittest.SkipTest as skip:
+    print("SKIPPED:" + str(skip))
+else:
+    print("RETURNED")
+"""
+
+
+class FixtureDependencyTests(unittest.TestCase):
+    def test_source_arriving_after_import_does_not_raise_name_error(self):
+        program = _LATE_ARRIVAL_PROGRAM.format(
+            tests=str(Path(__file__).parent),
+            runner=str(Path(__file__).resolve().parents[1] / "src"),
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", program], capture_output=True, universal_newlines=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        # The failure this replaces: import-time globals read at call time.
+        self.assertNotIn("NameError", result.stderr)
+        outcome = result.stdout.strip()
+        if WEEK2_AVAILABLE:
+            # Reachable again by the time the fixture ran, so it must work
+            # rather than skip on a stale answer from before the finder moved.
+            self.assertEqual(outcome, "RETURNED")
+        else:
+            self.assertTrue(outcome.startswith("SKIPPED:"), outcome)
+
+    @unittest.skipUnless(WEEK2_AVAILABLE, "Week 2 dependency lane only")
+    def test_installed_lane_materializes_through_the_shared_fixture(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cases, payload, gold, announced = materialize_official_bundle(Path(directory), 42)
+        self.assertEqual((sum(case.scored for case in cases), len(cases)), (3, 12))
+        self.assertEqual(len(gold), len(cases))
+        self.assertTrue(payload)
+        self.assertIn("3 scored clustering cases", announced)
+
+
 @unittest.skipUnless(WEEK2_AVAILABLE, "Week 2 dependency lane only")
 class OfficialClusteringFormatTests(unittest.TestCase):
     def materialize(self, root, seed, sizes=(30, 30, 30)):
-        manifest, rows = synthetic_manifest(seed, sizes)
-        manifest_path = root / "manifest.json"
-        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
-
-        def synthetic_rows(_split, _revision, indexes):
-            return ((index, rows[index]) for index in indexes)
-
-        argv = [
-            str(TOOL),
-            "vision-clustering",
-            str(manifest_path),
-            str(root / "volume"),
-            "--dataset-version",
-            "synthetic-test",
-        ]
-        # Only the data source and cache location change. Manifest validation,
-        # scenario expansion, CLI bounds and bundle writing are production code.
-        with patch.object(datasets, "_huggingface_rows", synthetic_rows), patch.object(
-            datasets, "user_cache_path", return_value=root / "cache"
-        ), patch.object(sys, "argv", argv), contextlib.redirect_stdout(
-            io.StringIO()
-        ) as output:
-            cases = datasets.clustering_scenarios(manifest)
-            self.assertEqual(sum(case.scored for case in cases), len(sizes))
-            materializer.main()
+        cases, payload, gold, announced = materialize_official_bundle(root, seed, sizes)
+        self.assertEqual(sum(case.scored for case in cases), len(sizes))
         self.assertEqual(
-            output.getvalue().strip(),
+            announced,
             "Materialized {} scored clustering cases with {} images and {} stability repetitions.".format(
                 len(sizes), sum(sizes), len(cases) - len(sizes)
             ),
         )
-        target = root / "volume/vision-clustering/synthetic-test"
-        return (
-            cases,
-            (target / "payload.zip").read_bytes(),
-            json.loads((target / "expected.json").read_text(encoding="utf-8")),
-        )
+        return cases, payload, gold
 
     def check_round_trip(self, seed, expanded_count):
         with tempfile.TemporaryDirectory() as directory:
