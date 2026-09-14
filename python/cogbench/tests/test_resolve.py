@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import shutil
 import sys
@@ -991,8 +992,6 @@ class WhatTheRepositoryItselfSuppliesIsReadOnceTheRootIsKnown(unittest.TestCase)
     def test_a_replayed_run_publishes_this_resolutions_captured_bytes(self):
         """The retained file changes between the two runs, so a receipt
         carried over from the first would name bytes this run never read."""
-
-        import hashlib
 
         weights = self.tmp / "data"
         weights.mkdir(exist_ok=True)
