@@ -67,6 +67,7 @@ class _Discoverable:
 class _Ready:
     ready = True
     weights_used = ()
+    weights_captured = ()
 
     def to_dict(self):
         return {"root": "."}
@@ -117,11 +118,14 @@ class CheckAndRunAgree(unittest.TestCase):
         cli._discover = lambda *a, **k: (_Ready(), None, None)
 
         scoreable = cli._scoreable("b", _Discoverable(), self.tmp, as_json=True)
-        adapter, weights = cli._submission_for("b", _Discoverable(), self.tmp, as_json=True)
+        adapter, names, weights = cli._submission_for(
+            "b", _Discoverable(), self.tmp, as_json=True
+        )
 
         self.assertEqual(scoreable.source, "discovery")
         self.assertIsNotNone(scoreable.factory)
         self.assertEqual(adapter()[0], "discovered")
+        self.assertEqual(names, [])
         self.assertEqual(weights, [])
 
     def test_a_declared_file_is_scored_without_searching(self):
@@ -225,14 +229,16 @@ class ScoredRunIsolation(unittest.TestCase):
         def resolve(*args, **kwargs):
             self.assertNotEqual(os.getpid(), parent)
             self.assertEqual(args[2], self.tmp)
-            return lambda: "unpicklable adapter", ["weights.pkl"]
+            return lambda: "unpicklable adapter", ["weights.pkl"], None
 
         def execute(benchmark, adapter, root, **kwargs):
             self.assertNotEqual(os.getpid(), parent)
             self.assertEqual(adapter(), "unpicklable adapter")
             self.assertEqual(root, self.tmp)
             self.assertEqual(kwargs["smoke"], command == "test")
-            return self._report(weights_used=kwargs["weights"])
+            self.assertEqual(kwargs["weight_names"], ["weights.pkl"])
+            self.assertIsNone(kwargs["weights"])
+            return self._report(weights_used=kwargs["weight_names"])
 
         def save(report, root):
             self.assertEqual(os.getpid(), parent)
@@ -259,7 +265,7 @@ class ScoredRunIsolation(unittest.TestCase):
             for stage in ("_submission_for", "execute"):
                 with self.subTest(command=command, stage=stage), \
                         patch.object(cli, "load_benchmark", return_value=object()), \
-                        patch.object(cli, "_submission_for", return_value=(lambda: None, [])), \
+                        patch.object(cli, "_submission_for", return_value=(lambda: None, [], [])), \
                         patch.object(cli, stage, side_effect=abort), \
                         patch.object(cli, "save_report") as saved:
                     code, text = self._main(command, "--json")
@@ -312,7 +318,7 @@ class ScoredRunIsolation(unittest.TestCase):
         for fail in (False, True):
             with self.subTest(fail=fail), \
                     patch.object(cli, "load_benchmark", return_value=object()), \
-                    patch.object(cli, "_submission_for", return_value=(lambda: None, [])), \
+                    patch.object(cli, "_submission_for", return_value=(lambda: None, [], [])), \
                     patch.object(cli, "_start_live_run", side_effect=lambda *args:
                                  cli._LiveRun("https://fixture.invalid", "token", "session")), \
                     patch.object(cli, "send_local_run_event"), \
@@ -342,7 +348,7 @@ def resolve(*args, **kwargs):
     for i in range(1000):
         print("student import", i)
     os.write(1, b"native import\n")
-    return lambda: None, []
+    return lambda: None, [], []
 
 def execute(*args, **kwargs):
     print("student execution")
