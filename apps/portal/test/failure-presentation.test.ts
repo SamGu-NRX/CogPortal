@@ -432,3 +432,48 @@ test("live hook rejects old generations, old responses and closed-console frames
   await act(async () => socket.frame({ ...done, executionGeneration: 99 }));
   assert.equal(current().id, other.id);
 });
+
+/**
+ * Publishing a run whose repository the team has left.
+ *
+ * `publishable` stays a fact about the run: it is what keeps history readable
+ * and an existing public entry intact after a repository change. The server
+ * refuses only a *new* publication (`requireRunSource` in
+ * services/run-actions.ts), and this panel used to offer one anyway.
+ */
+
+function official(overrides: Partial<RunDetail> = {}): RunDetail {
+  return run({
+    id: "run_official_123", mode: "official", status: "succeeded",
+    failure: null, log: null, attemptNumber: 1, publishable: true,
+    ...overrides,
+  });
+}
+
+const LEFT_REPOSITORY =
+  "This run came from a repository your team is no longer connected to. Start a fresh run on course/team to publish a result.";
+
+test("an official run from a repository the team left offers no publication", async (t) => {
+  const { container } = await mount(t, page(t, official({ sourceRefusal: LEFT_REPOSITORY })));
+  assert.match(container.textContent, /no longer connected to/);
+  // The button and the promise beside it both go: the server would refuse it.
+  assert.equal([...container.querySelectorAll("button")]
+    .some((node) => node.textContent.includes("Publish to leaderboard")), false);
+  assert.doesNotMatch(container.textContent, /switch to another successful official run/);
+});
+
+test("the same run still offers publication while its repository matches", async (t) => {
+  const { container } = await mount(t, page(t, official()));
+  assert.ok([...container.querySelectorAll("button")]
+    .some((node) => node.textContent.includes("Publish to leaderboard")));
+  assert.match(container.textContent, /switch to another successful official run/);
+});
+
+test("a result already published keeps saying so after the repository changes", async (t) => {
+  // The refusal is about making a new selection. Replacing this sentence with
+  // it would tell a team their public entry is gone when it is still up.
+  const { container } = await mount(t, page(t, official({ selected: true, sourceRefusal: LEFT_REPOSITORY })));
+  assert.match(container.textContent, /public entry/);
+  assert.match(container.textContent, /See it on the leaderboard/);
+  assert.doesNotMatch(container.textContent, /no longer connected to/);
+});
