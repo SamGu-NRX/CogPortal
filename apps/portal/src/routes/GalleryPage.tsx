@@ -341,6 +341,17 @@ export function GalleryPage() {
           <Finding sentence="The fingerprints were measured before execution stopped." />
           <SupportingMetrics metrics={[metric()]} rolesRecorded={false} />
         </FailureCard>
+
+        {/* The card above is a provider failure, which has no reproduction
+            command, so it never draws that block. This is the shape that
+            does: open "Show details" to read the highlighted command. */}
+        <h3 className="pt-4 font-serif text-lg font-semibold text-ink">…with a command to reproduce it</h3>
+        <FailureCard
+          failure={{ category: "output_invalid", phase: "evaluating", detail: "predictions[3].score was 1.4; expected a value in [0, 1].", consumedAttempt: false }}
+          mode="practice"
+          benchmarkId="audio-identification"
+          module="audio"
+        />
       </section>
 
       <h2 className="mt-10 font-serif text-xl font-semibold text-ink">Finding</h2>
