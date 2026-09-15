@@ -692,6 +692,31 @@ def runtime_pool(values: Dict[Any, Any]):
         _RUNTIME.update(previous)
 
 
+@contextlib.contextmanager
+def _sequential_owners():
+    """Run a block with the ownership a handed-over binding runs under.
+
+    A binding is renewed for the caller with no pool open, so each renewed
+    constructor's object is its receiver's own and the pool a week's adapter
+    opens masks it: what the adapter builds is what its own later calls read.
+    A verifier renews inside the pool `_resolve_chain` holds over the probe's
+    receivers, where those objects are pool entries that the adapter's pool
+    puts back when it exits, so the week's test judged a driver on the search
+    fixture's database rather than on the one it had just built.
+
+    What the pool held is restored on the way out, so the branches still being
+    searched are unaffected.
+    """
+
+    pooled = dict(_RUNTIME)
+    _RUNTIME.clear()
+    try:
+        yield
+    finally:
+        _RUNTIME.clear()
+        _RUNTIME.update(pooled)
+
+
 def _supplied_now(candidate: Candidate, name: str) -> Any:
     if name in _RUNTIME:
         return _RUNTIME[name]

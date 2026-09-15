@@ -55,6 +55,7 @@ from .pipeline import (
     instances_in,
     methods_of,
     resolve_chain,
+    _sequential_owners,
     _under_clock,
     _scratch_cwd,
 )
@@ -95,9 +96,11 @@ __all__ = [
 #: partially-graded pairing and nothing bounds the total. Charging probes to
 #: this ceiling was tried and withdrawn: it spent all 20,000 on one repository
 #: and refused the later chains untried, where the same repository binds in 54
-#: attempts without it. The per-call clock now applies to each probe, so the
-#: unbounded quantity is calls rather than time. Bounding the enumeration
-#: itself needs a run of the weeks against the corpus that has not happened.
+#: attempts without it. Each probe runs under the per-call clock, which bounds
+#: one call of theirs and neither how many calls are made nor how long they
+#: take together, and which is not enforced at all on Windows or off the main
+#: thread. Bounding the enumeration itself needs a run of the weeks against
+#: the corpus that has not happened.
 MAX_ATTEMPTS = 20000
 
 #: What `accepts` returns when a pairing answered the question completely.
@@ -1589,14 +1592,17 @@ def resolve(
             # benchmark's own extras so a week cannot be overridden by a file.
             try:
                 # From the same throwaway directory the search probes from:
-                # the hook runs their code (a model's constructor and loader),
-                # and their code writes relative files.
+                # prepare selects benchmark data and files from the chosen
+                # root. Student model construction belongs in `construct`;
+                # this boundary does not enforce what a defective hook runs.
                 with _scratch_cwd():
-                    # The hook and the taking of its answer can both run their
-                    # code, so they share the existing probe clock. Taken in
-                    # one step rather than copied shallowly here and taken
-                    # later: a report that refers back to itself would
-                    # otherwise come back holding the week's original.
+                    # Taken in one step rather than copied shallowly here and
+                    # taken later: a report that refers back to itself would
+                    # otherwise come back holding the week's original. The
+                    # clock bounds this one call where SIGALRM exists, and
+                    # nothing here sandboxes the hook: a benchmark that hangs
+                    # or damages this process is the week's own defect, and
+                    # only one that raises becomes the refusal below.
                     from_repository = _under_clock(
                         lambda: taken_as_data(
                             prepare(found.root.path, found.namespace, **offered) or {}
@@ -1970,20 +1976,25 @@ def resolve(
                 given = bundle.again()
                 owner = reading()
                 try:
-                    try:
-                        case = given.case()
-                        put = _renewed(
-                            tentative, owner, given, chain_role, construct
-                        )
-                    except Unmapped as error:
-                        # Neither of these is the week's test saying no, so
-                        # neither goes into `last_said`: that is the sentence
-                        # the report quotes when it says their chain answered
-                        # wrongly, and their chain was not asked.
-                        stopped(error)
-                        return False
-                    asked["ever"] = True
-                    ok, detail = accepts(handed(put), *case)
+                    # Renewed and judged with the ownership the run this
+                    # returns will have, so a week whose test drives its own
+                    # adapter is judged on the database that adapter built.
+                    with _sequential_owners():
+                        try:
+                            case = given.case()
+                            put = _renewed(
+                                tentative, owner, given, chain_role, construct
+                            )
+                        except Unmapped as error:
+                            # Neither of these is the week's test saying no, so
+                            # neither goes into `last_said`: that is the
+                            # sentence the report quotes when it says their
+                            # chain answered wrongly, and their chain was not
+                            # asked.
+                            stopped(error)
+                            return False
+                        asked["ever"] = True
+                        ok, detail = accepts(handed(put), *case)
                 finally:
                     # The chain this verification renewed answers out of this
                     # reading, so the reading lives exactly as long as the
@@ -2021,21 +2032,25 @@ def resolve(
                 remaining = max_attempts - paired["tried"]
                 if remaining <= 0:
                     return False
-                best, tried = _pair(
-                    tentative,
-                    found,
-                    arrangements,
-                    accepts,
-                    grades,
-                    factories,
-                    readers,
-                    remaining,
-                    watcher,
-                    reading,
-                    _onto(tentative, bundle, chain_role, stopped, asked, construct),
-                    cleanup,
-                    offset=paired["tried"],
-                )
+                # Every trial in here renews onto its own reading and hands
+                # that to the week's test, so it owns what it builds the same
+                # way the run this returns will.
+                with _sequential_owners():
+                    best, tried = _pair(
+                        tentative,
+                        found,
+                        arrangements,
+                        accepts,
+                        grades,
+                        factories,
+                        readers,
+                        remaining,
+                        watcher,
+                        reading,
+                        _onto(tentative, bundle, chain_role, stopped, asked, construct),
+                        cleanup,
+                        offset=paired["tried"],
+                    )
                 paired["tried"] += tried
                 paired["chains"] += 1
                 if best is None:

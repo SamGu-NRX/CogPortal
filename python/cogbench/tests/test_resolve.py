@@ -20,7 +20,7 @@ from cogbench._namespace import (  # noqa: E402
 )
 from cogbench.discover import discover  # noqa: E402
 from cogbench.pipeline import (  # noqa: E402
-    Candidate, Role, Stage, _Timeout, instances_in, methods_of,
+    Candidate, Role, Stage, _Timeout, instances_in, methods_of, runtime_pool,
 )
 from cogbench.progress import Progress  # noqa: E402
 from cogbench.resolve import (  # noqa: E402
@@ -2192,6 +2192,92 @@ class AMethodCarriedOutOfABranchNeedsThatBranchToHaveRun(unittest.TestCase):
         self.assertIsNot(
             first.branches["search"][0].receiver, second.branches["search"][0].receiver
         )
+
+
+class TheWeeksTestReadsTheStoreItsDriverJustBuilt(unittest.TestCase):
+    """A week's acceptance test drives its adapter, and the adapter builds the
+    database for the case it is judging. Two objects of their class are alive
+    while it does: the one the renewal built on the branch fixture's rows, and
+    the one the driver just built on this case's rows. The query reads the
+    second while the binding is judged and after it is handed over, or the same
+    adapter answers two different ways.
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        (self.tmp / "theirs.py").write_text(
+            "class Store:\n"
+            "    def __init__(self, rows):\n"
+            "        self.rows = list(rows)\n"
+            "    def lookup(self, keys):\n"
+            "        return [self.rows[k] for k in keys]\n"
+        )
+        self.role = Role(
+            "all",
+            (),
+            branches=(
+                Role("prepare",
+                     (Stage("prepare", produces=lambda v: hasattr(v, "lookup")),),
+                     fixture=([11, 22],)),
+                Role("search",
+                     (Stage("search", produces=lambda v: isinstance(v, list)),),
+                     fixture=([0, 1],)),
+            ),
+        )
+        self.answered = []
+
+    def _driven(self, chains):
+        """One pass through the branches the way a week's adapter runs them.
+
+        Each branch runs in its own pool, and what one produced is carried to
+        the next under its branch name; `language_search_benchmark`'s
+        `DiscoveredSearch._through` is this shape.
+        """
+
+        live = {}
+        with runtime_pool(live):
+            built = chains["prepare"][0].bound([41, 52])
+        live["prepare"] = built
+        with runtime_pool(live):
+            return chains["search"][0].bound([0, 1])
+
+    def _accepts(self, chains, *_):
+        if "search" not in chains:
+            return True, ""
+        self.answered.append(self._driven(chains))
+        return self.answered[-1] == [41, 52], "read {}".format(self.answered[-1])
+
+    def _resolve(self, accepts):
+        return resolve(
+            self.tmp, chain_role=self.role, fixture=([0, 1],),
+            accepts=accepts, arrangements=None,
+        )
+
+    def test_the_driver_is_judged_on_the_rows_it_prepared(self):
+        submission = self._resolve(self._accepts)
+
+        self.assertTrue(submission.ready, submission.verdict.headline)
+        self.assertEqual(self.answered[-1], [41, 52])
+        # The same driver, on the run the caller gets and on a second run of
+        # the same binding: one answer, whoever is asking.
+        for run in (submission, submission.fresh()):
+            self.assertEqual(self._driven(run.branches), [41, 52])
+
+    def test_a_test_that_calls_the_chain_itself_reads_the_renewed_object(self):
+        seen = []
+
+        def accepts(chains, *_):
+            if "search" in chains:
+                seen.append(chains["search"][0].bound([0, 1]))
+            return True, ""
+
+        submission = self._resolve(accepts)
+
+        self.assertTrue(submission.ready, submission.verdict.headline)
+        # No driver and no pool, so the object is the one the renewal built on
+        # the branch fixture. A method still finds its own constructor's object.
+        self.assertEqual(seen[-1], [11, 22])
 
 
 class TheFixturePoolMakesNothingUntilItIsAsked(unittest.TestCase):
