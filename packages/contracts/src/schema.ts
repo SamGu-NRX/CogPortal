@@ -153,6 +153,10 @@ export const RunSummarySchema = z.object({
 export type RunSummary = z.infer<typeof RunSummarySchema>;
 
 export const RunDetailSchema = RunSummarySchema.extend({
+  /** Saved-environment refusal for a succeeded practice run. Null does not
+   * establish authorization or available quota. */
+  promotionRefusal: z.string().max(600).nullable().default(null),
+  surfaceId: z.string().regex(/^surface_[a-f0-9]{20}$/).nullable().default(null),
   contractVersion: z.string(),
   parentRunId: z.string().nullable(),
   repo: RepoRefSchema,
@@ -615,8 +619,23 @@ export const RunSurfaceActionSchema = z.enum([
   "promote_official",
   "rerun_hosted",
   "publish_result",
+  "retry",
 ]);
 export type RunSurfaceAction = z.infer<typeof RunSurfaceActionSchema>;
+
+export const RetryRunRequestSchema = z.object({
+  runId: z.string().min(1).max(128),
+}).strict();
+export type RetryRunRequest = z.infer<typeof RetryRunRequestSchema>;
+
+export const RunExecutionSummarySchema = z.object({
+  id: z.string(),
+  mode: RunModeSchema,
+  status: RunStatusSchema,
+  retryOfRunId: z.string().nullable(),
+  createdAt: z.number().int(),
+  finishedAt: z.number().int().nullable(),
+});
 
 export const RunSurfaceSnapshotSchema = z.object({
   id: z.string().regex(/^surface_[a-f0-9]{20}$/),
@@ -647,6 +666,11 @@ export const RunSurfaceSnapshotSchema = z.object({
   localRunId: z.string().nullable(),
   practiceRunId: z.string().nullable(),
   officialRunId: z.string().nullable(),
+  executionHistory: z.array(RunExecutionSummarySchema).default([]),
+  /** Count of attached physical executions, for rejecting pre-Retry stream frames. */
+  executionGeneration: z.number().int().nonnegative().default(0),
+  /** Per-surface DO sequence; zero is reserved for cached payloads from before numbering. */
+  snapshotRevision: z.number().int().nonnegative().safe().default(0),
   published: z.boolean(),
   nextOfficialAttempt: z.number().int().positive().nullable(),
   /**
@@ -658,11 +682,28 @@ export const RunSurfaceSnapshotSchema = z.object({
    * makes the message worth reading.
    */
   refusalHeadline: z.string().max(600).nullable().default(null),
+  // A successful practice can lack a reusable environment without losing its findings.
+  promotionRefusal: z.string().max(600).nullable().default(null),
+  /** Deterministic recorded-input refusal only. Null does not establish
+   * authorization, capacity, or provider/weight availability. */
+  retryRefusal: z.string().max(600).nullable().default(null),
   events: z.array(RunStreamEventSchema).max(250),
   actions: z.array(RunSurfaceActionSchema),
   simulated: z.boolean(),
 });
 export type RunSurfaceSnapshot = z.infer<typeof RunSurfaceSnapshotSchema>;
+
+export function shouldReplaceRunSurfaceSnapshot(
+  current: RunSurfaceSnapshot,
+  incoming: RunSurfaceSnapshot,
+): boolean {
+  if (current.id !== incoming.id) return false;
+  if (incoming.executionGeneration !== current.executionGeneration) {
+    return incoming.executionGeneration > current.executionGeneration;
+  }
+  if (current.status !== "running" && incoming.status === "running") return false;
+  return incoming.snapshotRevision > current.snapshotRevision;
+}
 
 export function runSurfaceCurrentRunId(snapshot: RunSurfaceSnapshot): string | null {
   if (snapshot.stage === "local") return snapshot.localRunId;
@@ -792,8 +833,10 @@ export const DashboardSchema = z.object({
   quota: QuotaSchema,
   lastResolvedSha: z.string().nullable(),
   activeRun: RunSummarySchema.nullable(),
-  /** Most recent succeeded practice run (the promotable candidate). */
+  /** Most recent succeeded practice run; compatibility is reported separately. */
   latestCandidate: RunSummarySchema.nullable(),
+  /** Saved-environment refusal for latestCandidate, without changing its outcome. */
+  promotionRefusal: z.string().max(600).nullable().default(null),
   selection: SelectionSchema.nullable(),
   runs: z.array(RunSummarySchema),
 });

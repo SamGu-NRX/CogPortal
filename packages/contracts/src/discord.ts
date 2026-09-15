@@ -81,6 +81,12 @@ export interface PortalRpcContract {
     discordUserId: string,
     surfaceId: string,
   ): Promise<z.infer<typeof RunSurfaceSnapshotSchema>>;
+  retryRun(
+    guildId: string,
+    discordUserId: string,
+    surfaceId: string,
+    runId: string,
+  ): Promise<z.infer<typeof RunSurfaceSnapshotSchema>>;
   getRerunCommand(
     guildId: string,
     discordUserId: string,

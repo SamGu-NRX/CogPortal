@@ -8,7 +8,7 @@ It stops the moment the run row exists. [`watching-a-run.md`](watching-a-run.md)
 
 ## Summary
 
-Starting a practice run is one select and one button. The student picks a branch, presses "Run practice benchmark", and the portal checks their GitHub write access, resolves that branch to a commit, writes a run row, and hands the job to the sandbox. From that moment the team owns a hosted attempt that cost one of ten, and nothing the student does in the browser can give it back.
+Starting a practice run is one select and one button. The portal checks current repository access, resolves the branch to a commit and admits an execution. It reserves capacity while running. Only a completed evaluation uses one of the team's ten practice evaluations.
 
 One component, `CurrentRunPanel`, holds the controls and renders in one of three shapes (`apps/portal/src/routes/DashboardPage.tsx:301-495`). With a run in flight on the selected benchmark it is `CURRENT RUN` (`:329`), so a student never sees a start button and a running run at the same time, and never has to decide whether pressing it again would be safe. With no run in flight and no run in the team's history it is `FIRST RUN` (`:410`). Otherwise it is `START A RUN` (`:437`).
 
@@ -71,9 +71,9 @@ stateDiagram-v2
     reading --> armed : the team has run before, START A RUN renders
     armed_first --> armed : a run row now exists
     armed_first --> refused : permission, quota, active run, or benchmark version
-    armed_first --> committed : the run row is written, credit is spent
+    armed_first --> committed : execution admitted, capacity reserved
     armed --> refused : permission, quota, active run, or benchmark version
-    armed --> committed : the run row is written, credit is spent
+    armed --> committed : execution admitted, capacity reserved
     committed --> queued : dispatched, 201 returned
     committed --> failed_at_once : dispatch rejected, run marked failed, 502
     refused --> armed : the sentence appears under the button
@@ -123,7 +123,7 @@ Three more failures are answered before the panel exists at all, by the page rat
 
 ### The work begins
 
-The moment is the insert into `runs` (`run-actions.ts:271`). Credit is counted from run rows, so the row and the cost are the same event: the dashboard's `practiceUsed` is a count of practice run rows at the current benchmark version (`dashboard.ts:105`), and the server's own limit check counts the same rows (`run-actions.ts:206`). There is no separate ledger to fall out of step with the runs.
+The execution becomes durable when admitted. Closing the page does not cancel it. Used quota counts completed evaluations, not every execution record; failure leaves history without spending quota. See [credit and quota](../cross-cutting/credit-and-quota.md).
 
 Two things happen immediately before. The commit is resolved and frozen, and everything after this is about that forty-character SHA whatever the branch does next. Then a run surface row is written with `onConflictDoNothing` (`run-actions.ts:252`). That surface is the identity the live console, the Discord message, and any later promotion all hang off; see [`watching-a-run.md`](watching-a-run.md).
 
@@ -149,9 +149,9 @@ On success the server answers `201` with `{ runId }`, and the mutation invalidat
 
 **The dashboard does not navigate to the run it started.** The success handler invalidates and stops. The same mutation on the run page's retry button does navigate, and the comment there gives the reason it was added: "the old page kept its button, and pressing it again returned active_run_exists" (`apps/portal/src/routes/RunDetailPage.tsx:60-69`). The dashboard has the same hazard and not the same fix, though the vanishing panel covers most of it.
 
-On a dispatch failure the ask ends in a run that has already failed. The run is updated to `failed` with category `provider`, phase `queued`, and the detail "The run could not be queued for Modal.", and for an official run the attempt claim is deleted in the same D1 batch, because "either half alone is a lie: a failed run keeping its claim silently spends an attempt, and a released claim on a still-queued run leaves a claimless run holding the active-run index" (`run-actions.ts:160`). The caller gets `502` with "The run could not be queued. Try again." (`run-actions.ts:176`).
+On a dispatch failure the execution is marked failed. The team can read that record, but it uses no quota.
 
-The run row survives that. A student who reads "The run could not be queued. Try again." has already spent one of ten practice runs on a job that never reached a container, and nothing tells them so except `7 of 10 hosted runs left` becoming `6 of 10` and a new failed row in `RUN LOG`. Official attempts have a refund path for exactly this shape of failure; practice runs have none.
+Retry is a separate recovery action for that failed execution. It keeps the same recorded commit, configuration, mode and view. Starting changed code from this launcher creates a new candidate.
 
 Either way the student is left on the dashboard with one obvious next move: the run's label in `CURRENT RUN` or in `RUN LOG`, which is a link to the run page. That is where the rest of this run's life is described, in [`watching-a-run.md`](watching-a-run.md) and then [`the-run-page.md`](the-run-page.md).
 
@@ -181,7 +181,7 @@ The short version: nothing here can be cancelled, and everything before the run 
 | The network or the portal fails | A failed dashboard load replaces the whole page with a `QueryError` card and a "Back to start" link (`DashboardPage.tsx:51-58`). A failed repositories load is silent; see Open questions. A failed local-reports load is the one query whose failure renders a panel that would otherwise be absent, printing "Synced local reports are temporarily unavailable. Hosted and official results are unaffected." in place of the table (`:241`, `:247-250`), which is the only place on this page that names what is still trustworthy. | A request that never leaves the browser raises code `network` with "Could not reach the portal. Check your connection and try again." (`apps/portal/src/lib/api.ts:63`), shown under the button, and nothing was written. A request that reached the server and timed out on the way back may well have written a run row the student cannot see until they reload. |
 | The page or the process goes away | Nothing is pending, so nothing is lost. A reload re-reads everything. | The run row outlives every browser that was watching. On reload the dashboard shows `CURRENT RUN` for a run the student never saw start. |
 | The thing being measured changes | The branch list is a snapshot from a query that stays fresh for five minutes (`queries.ts:111`), so a branch deleted on GitHub inside that window is still offered in the select. | The commit is resolved once, inside the request, and the run is about that commit for the rest of its life; a push landing one second later is not in it. A benchmark version rolling over between page load and click is refused with "That benchmark version is not active." (`run-actions.ts:119`). |
-| The platform refuses or credit runs out | The quota comes from the dashboard payload, so a page loaded when one run remained still shows the controls after a teammate spends it. The server's own count is authoritative and answers `409 quota_exhausted`. | Credit is spent by writing the row, so there is no window in which a run exists without having been paid for. The reverse happens: a row written and then failed by a dispatch rejection has spent a practice run, and practice runs are never refunded. See [`../cross-cutting/credit-and-quota.md`](../cross-cutting/credit-and-quota.md). |
+| The platform refuses or credit runs out | A stale page may still offer a start after a teammate uses the last available evaluation. Server admission decides whether there is room. | An active execution reserves capacity. Completion adds one to usage; failure does not. |
 
 ## Interactions with other systems
 
@@ -189,7 +189,7 @@ The short version: nothing here can be cancelled, and everything before the run 
 
 **The team owns it.** The run belongs to the team, not to whoever pressed the button. It appears in `RUN LOG` for every member, it spends the team's shared quota, and nothing on the dashboard records who started it. The run surface does record it, and the live console prints that login; see [`watching-a-run.md`](watching-a-run.md) and [`../foundations/the-team-and-the-repository.md`](../foundations/the-team-and-the-repository.md).
 
-**Credit.** One of ten hosted practice runs per team per benchmark version (`packages/contracts/src/schema.ts:1176`), spent when the row is written and never given back: the refund path covers official attempts only (`apps/portal/worker/execution/refunds.ts:115`). See [`../cross-cutting/credit-and-quota.md`](../cross-cutting/credit-and-quota.md).
+**Credit.** Ten completed hosted practice evaluations per team and benchmark version. Failed executions use no quota. See [credit and quota](../cross-cutting/credit-and-quota.md).
 
 **What the portal claims.** Nothing yet. The only claim this ask makes is the resolved commit, which the portal saw for itself and shows as a copyable chip under `last tested` (`DashboardPage.tsx:166-172`). The `LOCAL REPORTS` panel on the same page is the counter-example, labelled `SELF-REPORTED · NOT PROMOTABLE` (`:245`), listing a student login, a short commit with ` · dirty` where the tree was dirty or `not recorded` where there was none, `no primary metric` where the report carried none, and at most five rows before "showing the 5 newest of {n} synced reports" (`:264-288`). See [`../foundations/what-the-portal-claims.md`](../foundations/what-the-portal-claims.md).
 
@@ -207,7 +207,7 @@ The short version: nothing here can be cancelled, and everything before the run 
 - **The quota reads differently in the two launch panels.** `FIRST RUN` prints all three numbers on one line, `{practiceLeft} of {limit} hosted · {officialLeft} official · local unlimited` (`DashboardPage.tsx:414-417`); `START A RUN` prints only `{practiceLeft} of {limit} hosted runs left` (`:441-443`) and leaves the official count to the `ATTEMPT BUDGET` panel, which is itself absent until something has been spent. A team that has never run therefore sees its official budget once, on the page it will never see again.
 - **A run still moving has an empty outcome column.** `RunList` prints the primary metric, or the failure's catalog code, or nothing at all (`RunList.tsx:25-29`). The comment gives the reason: the status chip in the same row already says where the run is, and a dash in the outcome column reads as a result that came back blank (`:22-24`).
 - **The machine line and `CONNECTED SOURCE` say the same thing differently.** Before the first run the environment is one faint line that leads with the repository (`DashboardPage.tsx:75-82`); afterwards the same facts are split, the repository into a link at the top of `CONNECTED SOURCE` and the rest into a line at its foot (`:174-176`). A team crossing that boundary sees the sentence it read yesterday rearranged.
-- **A run row can be paid for and never run.** A dispatch rejection marks the run failed but leaves the row, and practice rows are what the quota counts. The failure is real, the cost is real, and the run page for it shows a phase rail that never left `Queued`.
+- **A run can fail before it reaches a container.** Its record stays in history, with no quota used.
 - **A surface can exist with no run.** The surface row is written before the run row and is not rolled back when the run insert throws for any reason other than the unique constraint. `buildRunSurfaceSnapshot` answers such a surface with a `404` carrying "Run surface has no run." (`apps/portal/worker/services/run-surfaces.ts:293`).
 - **Run labels can collide.** A run is shown as `RUN` plus the last four characters of its ten-hex-character id, uppercased (`apps/portal/src/lib/format.ts:38`). Two runs in one team's log can carry the same label, with nothing but position and timestamp to tell them apart.
 - **The quota resets on a version bump.** `practiceUsed` counts runs at the current benchmark version only (`dashboard.ts:47`). A team that used all ten gets ten more when the benchmark is republished, and the exhausted sentence never mentions it.
@@ -237,4 +237,4 @@ The short version: nothing here can be cancelled, and everything before the run 
 - The dashboard stops polling the moment a run reaches a terminal status, so the panel the student is left with is the one the last poll produced. Whether the swap back to `START A RUN` is visible as a jump was not observed. **Unverified.**
 - Nothing on this page distinguishes a run started here from one started by the CLI or by Discord, and no timing was taken for how long the panel takes to flip after a start. **Unverified.**
 
-Verified against Cog\*Portal commit `5a74e74`.
+Verified against Cog\*Portal commit `a0e8eac` for recovery policy; unchanged layout references retain the earlier draft. Assembled UI remains unverified.

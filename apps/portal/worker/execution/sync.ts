@@ -1,8 +1,8 @@
-import { and, eq, exists, notInArray, sql } from "drizzle-orm";
+import { and, eq, notInArray, sql } from "drizzle-orm";
 import { FIXTURE_PHASE_DURATIONS_MS } from "@cogworks/contracts/fixtures";
 import { RUN_PHASES, isTerminal, type FailureCategory } from "@cogworks/contracts/schema";
 import type { Database } from "../db/client";
-import { officialAttempts, runMetrics, runPhases, runs, type RunRow } from "../db/schema";
+import { runMetrics, runPhases, runs, type RunRow } from "../db/schema";
 import { fixtureLog, fixtureMetrics, fixtureScenario } from "./fixture";
 
 /**
@@ -64,7 +64,6 @@ export async function syncRun(db: Database, row: RunRow, now = Date.now()): Prom
       when 'contract_check' then 3 when 'evaluating' then 4 when 'scoring' then 5
       else 6 end <= ${nextStatus === "failed" || nextStatus === "succeeded" ? 6 : RUN_PHASES.indexOf(nextStatus)}`,
   );
-  const eligibleExists = exists(db.select({ id: runs.id }).from(runs).where(eligible));
   const [firstPhase, ...remainingPhases] = phaseValues.map((phase) => db.insert(runPhases).select(db.select({
       runId: sql<string>`${phase.runId}`.as("runId"),
       phase: sql<typeof phase.phase>`${phase.phase}`.as("phase"),
@@ -92,9 +91,6 @@ export async function syncRun(db: Database, row: RunRow, now = Date.now()): Prom
         relatesTo: sql<string | null>`${metric.relatesTo ?? null}`.as("relatesTo"),
       }).from(runs).where(eligible)).onConflictDoNothing()
     ) : []),
-    ...(nextStatus === "failed" ? [
-      db.delete(officialAttempts).where(and(eq(officialAttempts.runId, row.id), eligibleExists)),
-    ] : []),
     db.update(runs).set({
       status: nextStatus,
       finishedAt,
