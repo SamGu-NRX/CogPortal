@@ -1,4 +1,4 @@
-import { Finding } from "@/components/Finding";
+import { Finding, FINDING_KICKER } from "@/components/Finding";
 import { Panel } from "@/components/Panel";
 import { PrimaryMetric, SupportingMetrics } from "@/components/MetricBlock";
 import { SweepTrace } from "@/components/SweepTrace";
@@ -192,6 +192,21 @@ export function GalleryPage() {
           </Panel>
         </section>
       ))}
+
+      <h2 className="mt-12 font-serif text-xl font-semibold text-ink">
+        A clean run, whose chart is the whole finding
+      </h2>
+      <p className="mt-1 max-w-prose text-[13px] text-ink-faint">
+        Week 3 stopped repeating its chance baselines as notes, so a run that
+        went well now arrives with no diagnostics at all. The curve is then the
+        only thing in the panel, and it keeps the same introduction rather than
+        opening unlabelled. Reachable only from a successful weighted Language
+        run, which is why it is here.
+      </p>
+      <Panel className="mt-4">
+        <div className="u-kicker mb-2">{FINDING_KICKER}</div>
+        <SweepTrace sweep={SWEEPS[0].sweep} />
+      </Panel>
 
       <h2 className="mt-12 font-serif text-xl font-semibold text-ink">
         Finding above results, as the run page composes them

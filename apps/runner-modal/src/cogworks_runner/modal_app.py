@@ -1374,7 +1374,12 @@ def _sweep_wire(benchmark):
         return None
     return {
         "axis": getattr(benchmark, "sweep_axis_label", "difficulty"),
-        "metric": benchmark.primary_metric,
+        # The curve is not always the primary metric. Week 3 plots search MRR
+        # per rung while its primary is `overall`, so the chart was labelled
+        # with a number it does not draw. A plugin that names the metric its
+        # curve plots is believed; Week 1 names none and keeps the primary,
+        # which is what its catalog-size curve actually shows.
+        "metric": getattr(benchmark, "sweep_metric", None) or benchmark.primary_metric,
         "points": wire,
     }
 
