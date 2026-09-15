@@ -77,9 +77,10 @@
     // Build provenance is per image, in the probe receipts; see the runbook.
     "RUNNER_IMAGE_DIGEST": "cogworks-python-3.11:unpublished",
     "RUN_STALE_AFTER_SECONDS": "3600",
-    // The deployed Modal app, shared with production. As of the 2026-09-14
-    // read it was v35 from commit 937b01f; confirm with `modal app history`
-    // rather than trusting this line.
+    // Staging's own Modal app. Production runs cogworks-runner-production,
+    // so a deploy here cannot move production's controller or images. Which
+    // version and commit are live moves with every deploy, so read it from
+    // `modal app history cogworks-runner` rather than from a line here.
     "MODAL_RUNNER_URL": "https://samgu-nrx--cogworks-runner-submit-job.modal.run",
     "EXECUTION_PROVIDER": "modal"
   },
@@ -173,16 +174,21 @@
         // see the runbook.
         "DISCORD_CLIENT_ID": "1526706029356646460",
         "COURSE_GUILD_ID": "1515858059027550321",
-        // Must equal the staging value and the key id in the Modal secret. One
-        // active key, no key-id-to-secret map, so a divergence is a bare 401.
+        // Must equal the key id inside THIS environment's Modal secret,
+        // cogworks-runner-production-signing. Each app has one active key and
+        // no key-id-to-secret map, so a divergence is a bare 401. The two
+        // environments keep the same id and different secret values.
         "RUNNER_SIGNING_KEY_ID": "runner-v1",
         "RUNNER_PYTHON_VERSION": "3.11",
         // Placeholder for the reason given in the staging block.
         "RUNNER_IMAGE_DIGEST": "cogworks-python-3.11:unpublished",
         "RUN_STALE_AFTER_SECONDS": "3600",
-        // The same runner staging dispatches to, so the same signing secret
-        // value, so possession of it is authority over both portals.
-        "MODAL_RUNNER_URL": "https://samgu-nrx--cogworks-runner-submit-job.modal.run",
+        // Production's own Modal app, cogworks-runner-production, which pins
+        // each sandbox image to an immutable id instead of the names a
+        // staging release republishes. Modal derives this hostname from the
+        // app and function names; read it back from the deploy output before
+        // this Worker is deployed rather than trusting the pattern.
+        "MODAL_RUNNER_URL": "https://samgu-nrx--cogworks-runner-production-submit-job.modal.run",
         // Target state. Dispatch stays impossible until RUNNER_SIGNING_SECRET
         // exists here; assertModalConfigured answers 501 without it.
         //

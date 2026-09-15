@@ -75,16 +75,46 @@ test("an environment set to modal carries what dispatch needs", async () => {
   }
 });
 
-test("both environments agree on the runner signing key id", async () => {
+test("each environment declares a runner signing key id", async () => {
+  for (const [label, environment] of environments(await loadConfig())) {
+    // Both verifiers compare this against a single configured string before
+    // they look at a signature (submit_job in modal_app.py,
+    // verifyRunnerSignature in routes/runner-events.ts), so an empty value is
+    // a bare 401 with no log line on the Modal side.
+    //
+    // The two environments no longer have to agree. Each Worker now dispatches
+    // to its own Modal app holding its own signing secret, so what has to
+    // match is this id and the id inside that app's secret, which
+    // configuration cannot see. Checking they are equal to each other would
+    // assert a coincidence.
+    assert.match(
+      environment.vars.RUNNER_SIGNING_KEY_ID ?? "",
+      /\S/,
+      `${label} has no RUNNER_SIGNING_KEY_ID`,
+    );
+  }
+});
+
+test("each environment is configured to dispatch to its own Modal app", async () => {
   const config = await loadConfig();
-  // One Modal app, one secret, and both verifiers compare this against a single
-  // configured string before they look at a signature (submit_job in
-  // modal_app.py, verifyRunnerSignature in routes/runner-events.ts). Two
-  // different values here means one environment is refused with a bare 401 and
-  // no log line on the Modal side.
-  assert.equal(
-    config.env.production.vars.RUNNER_SIGNING_KEY_ID,
-    config.vars.RUNNER_SIGNING_KEY_ID,
+  // The isolation this buys: publishing a sandbox image name or rotating the
+  // signing secret is a staging release step, and production must not follow
+  // it. One shared endpoint made both portals one blast radius, in both
+  // directions, because the secret behind it was necessarily the same value.
+  //
+  // This reads configuration and nothing else. That the production endpoint
+  // resolves, and that it is the app this string names, is answered by reading
+  // the deploy output and the deployed function's own record; see
+  // docs/runbooks/platform.md, "Confirming the deploy without dispatching
+  // work".
+  assert.notEqual(
+    config.vars.MODAL_RUNNER_URL,
+    config.env.production.vars.MODAL_RUNNER_URL,
+  );
+  assert.match(
+    config.env.production.vars.MODAL_RUNNER_URL ?? "",
+    /--cogworks-runner-production-/,
+    "production is configured against an app that is not cogworks-runner-production",
   );
 });
 

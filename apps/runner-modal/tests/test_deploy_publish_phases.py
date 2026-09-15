@@ -59,7 +59,7 @@ def _install_modal_stubs() -> None:
 _install_modal_stubs()
 
 import deploy  # noqa: E402
-from deploy import PublishArgumentError, parse_publish  # noqa: E402
+from deploy import DeploymentError, parse_publish  # noqa: E402
 
 NAMES = deploy.SANDBOX_IMAGE_NAMES
 IDS = {
@@ -92,11 +92,22 @@ class _Built:
 class DeployPhases(unittest.TestCase):
     def setUp(self):
         del CALLS[:]
-        self.original_images = deploy.SANDBOX_IMAGES
+        self.original_load = deploy.load_app
         self.original_stale = deploy.stale_build_trees
-        deploy.SANDBOX_IMAGES = tuple((FakeImage(name), name) for name in NAMES)
+
+        def load_app(deployment):
+            """Stand in for importing the controller, recording the target.
+
+            Which deployment reaches this call is what decides the app,
+            signing secret and job dictionary the real import would build.
+            """
+
+            CALLS.append(("load_app", deployment.target))
+            return object(), tuple((FakeImage(name), name) for name in NAMES)
+
+        deploy.load_app = load_app
         deploy.stale_build_trees = lambda: []
-        self.addCleanup(setattr, deploy, "SANDBOX_IMAGES", self.original_images)
+        self.addCleanup(setattr, deploy, "load_app", self.original_load)
         self.addCleanup(setattr, deploy, "stale_build_trees", self.original_stale)
 
     def run_main(self, argv):
@@ -240,8 +251,11 @@ class DefaultBehaviourIsUnchanged(DeployPhases):
         self.assertEqual(code, 0)
         self.assertEqual(
             self.kinds(),
-            ["lookup"] + [k for name in NAMES for k in ("build", "publish")] + ["deploy_app"],
+            ["load_app", "lookup"]
+            + [k for name in NAMES for k in ("build", "publish")]
+            + ["deploy_app"],
         )
+        self.assertEqual(CALLS[0], ("load_app", "staging"))
         self.assertIn("deployed; sandbox images published as", output)
 
     def test_no_flags_still_refuses_a_stale_build_tree(self):
@@ -253,6 +267,55 @@ class DefaultBehaviourIsUnchanged(DeployPhases):
         self.assertEqual(CALLS, [])
 
 
+class ProductionDeploysTheControllerOnly(DeployPhases):
+    """`--target production` must not touch a staging name or image."""
+
+    def pins(self):
+        return [
+            argument
+            for name in NAMES
+            for argument in ("--sandbox-image", "{}={}".format(name, IDS[name]))
+        ]
+
+    def test_deploys_without_building_or_publishing_anything(self):
+        code, output = self.run_main(["--target", "production"] + self.pins())
+
+        self.assertEqual(code, 0)
+        self.assertEqual(self.kinds(), ["load_app", "deploy_app"])
+        self.assertEqual(CALLS[0], ("load_app", "production"))
+        self.assertIn("deployed cogworks-runner-production", output)
+        for name in NAMES:
+            self.assertIn("{}={}".format(name, IDS[name]), output)
+
+    def test_refuses_to_publish_a_name(self):
+        argv = ["--target", "production"] + self.pins()
+        for flag in (
+            ["--build-only"],
+            ["--publish", "{}={}".format(NAMES[0], IDS[NAMES[0]])],
+        ):
+            del CALLS[:]
+            err = io.StringIO()
+            with redirect_stderr(err), self.assertRaises(SystemExit):
+                deploy.main(argv + flag)
+            self.assertIn("staging release step", err.getvalue())
+            self.assertEqual(CALLS, [])
+
+    def test_refuses_an_incomplete_pin_before_importing_the_controller(self):
+        argv = ["--target", "production"] + self.pins()[:4]
+        err = io.StringIO()
+        with redirect_stderr(err), self.assertRaises(SystemExit):
+            deploy.main(argv)
+        self.assertIn(NAMES[2], err.getvalue())
+        self.assertEqual(CALLS, [])
+
+    def test_staging_refuses_a_pinned_image(self):
+        err = io.StringIO()
+        with redirect_stderr(err), self.assertRaises(SystemExit):
+            deploy.main(self.pins())
+        self.assertIn("--target production", err.getvalue())
+        self.assertEqual(CALLS, [])
+
+
 class PublishParsing(unittest.TestCase):
     """The parser alone, without the command around it."""
 
@@ -261,14 +324,14 @@ class PublishParsing(unittest.TestCase):
         self.assertEqual(parse_publish(values), IDS)
 
     def test_names_every_missing_image_at_once(self):
-        with self.assertRaises(PublishArgumentError) as caught:
+        with self.assertRaises(DeploymentError) as caught:
             parse_publish(["{}={}".format(NAMES[0], IDS[NAMES[0]])])
         message = str(caught.exception)
         for missing in NAMES[1:]:
             self.assertIn(missing, message)
 
     def test_refuses_an_empty_set(self):
-        with self.assertRaises(PublishArgumentError):
+        with self.assertRaises(DeploymentError):
             parse_publish([])
 
 
