@@ -697,14 +697,19 @@ if resolved_by is None:
 
         plugin = load_benchmark(benchmark_id)
         describes = getattr(plugin, "discovery", None)
-        spec = describes() if callable(describes) else None
-        # Everything above is ours: loading our plugin and asking the week to
-        # describe its own task. Nothing has touched the repository yet, so a
-        # failure up to here cannot be the team's. Past here the search runs
-        # their code, and a failure is theirs or unattributable; either way it
-        # is not something we can call a platform fault.
-        searched_their_code = True
-        if spec is not None:
+        # A week with no discovery() at all is not a failure: the team is
+        # expected to declare an adapter, and the fallback below says so.
+        if callable(describes):
+            spec = describes()
+            if spec is None:
+                # Both Week 2 plugins answer None when their dataset cache is
+                # missing. The week cannot describe its task, which is ours.
+                raise RuntimeError("discovery() returned no spec")
+            # Everything above is ours. Nothing has touched the repository
+            # yet, so a failure up to here cannot be the team's. Past this
+            # line the search runs their code, and a failure is theirs or
+            # unattributable; either way not ours to claim.
+            searched_their_code = True
             # from_spec forwards everything a week declares: its resources,
             # its resource files, its database factory predicate, its reader
             # budget. Naming the five original fields here is how Week 3's
@@ -1601,10 +1606,11 @@ def _prepare(job: Dict[str, Any], reporter: LiveReporter) -> Tuple[str, Dict[str
             # repository has neither a submission.py nor an entry point;
             # "entry point" catches the older ambiguous-registration message.
             # The week could not describe its own task, so nothing read the
-            # repository. Routed to the platform's category, which already
-            # says so and offers no local command; and without a refusal,
-            # because a verdict on unread code is the thing being fixed.
-            if "could not describe its task" in normalized:
+            # repository. Read off the status our own prepare step wrote, not
+            # out of the message: `normalized` includes the student's stderr,
+            # and choosing a refunding category from text they control is the
+            # forgery this controller already refuses elsewhere.
+            if (refusal or {}).get("status") == "benchmark_unavailable":
                 raise RunnerFailure("provider", "preparing", detail, True)
             if "no adapter found" in normalized or "entry point" in normalized:
                 raise RunnerFailure(

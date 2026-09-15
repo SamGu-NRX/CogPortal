@@ -111,6 +111,19 @@ class WhoseFailureItWas(unittest.TestCase):
         self.assertIn("No adapter found", message)
         self.assertEqual(discovery["verdict"]["status"], "not_read")
 
+    def test_a_week_with_no_discovery_still_asks_for_an_adapter(self):
+        message, discovery = _run_decision(None, None, self.tmp)
+
+        self.assertIn("No adapter found", message)
+        self.assertEqual(discovery, {})
+
+    def test_a_spec_of_none_is_ours_because_the_cache_is_ours(self):
+        # Both Week 2 plugins answer None when their dataset cache is missing.
+        message, discovery = _run_decision(lambda: None, None, self.tmp)
+
+        self.assertIn("could not describe its task", message)
+        self.assertEqual(discovery["verdict"]["status"], "benchmark_unavailable")
+
     def test_a_repository_that_binds_nothing_is_not_called_a_platform_fault(self):
         def from_spec(*_args, **_keywords):
             return types.SimpleNamespace(
@@ -131,13 +144,24 @@ class TheControllerRoutesBothMessages(unittest.TestCase):
         self.source = MODAL_APP.read_text(encoding="utf-8")
 
     def test_the_platform_message_reaches_the_platform_category(self):
-        index = self.source.index('"could not describe its task" in normalized')
+        index = self.source.index('(refusal or {}).get("status") == "benchmark_unavailable"')
         following = self.source[index : index + 220]
 
         self.assertIn('RunnerFailure("provider", "preparing"', following)
 
+    def test_the_category_is_not_chosen_from_text_a_student_can_reach(self):
+        """`normalized` carries the student's stderr; refunding on it is forgery.
+
+        The controller already refuses to pick a category from their words, and
+        the first version of this branch matched a phrase inside it. A
+        `from_spec` error quoting that phrase would have been appended to "No
+        adapter found" and selected the refunding category.
+        """
+
+        self.assertNotIn('"could not describe its task" in normalized', self.source)
+
     def test_it_carries_no_refusal_to_render(self):
-        index = self.source.index('"could not describe its task" in normalized')
+        index = self.source.index('(refusal or {}).get("status") == "benchmark_unavailable"')
         following = self.source[index : index + 220]
         raised = following[following.index("RunnerFailure") : following.index(")\n")]
 
