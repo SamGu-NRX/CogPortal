@@ -60,8 +60,9 @@ def cache_week2_celeba() -> None:
     Week 2 is the only week whose discovery reads real photographs, and it
     reads them where student code runs, which has no network. Runs 88C3 and
     8E60 both stopped at contract check asking the Hub for `flwrlabs/celeba`.
-    Both tiers are baked because `cogworks test` scores the small one and a
-    hosted practice run scores `evaluation`.
+    Both tiers are baked because `discovery()` builds its fixture from the
+    `test` tier in the prepare sandbox and `_v2_cases` scores a practice run
+    from `evaluation` in the controller, whose image derives from this one.
 
     The download runs in a child process. Run in-process, both tiers cached and
     validated and the builder then died at interpreter finalization
@@ -71,8 +72,17 @@ def cache_week2_celeba() -> None:
     rather than by trusting the child's exit code.
     """
 
-    os.environ["XDG_CACHE_HOME"] = WEEK2_CACHE_DIR
-    subprocess.run([sys.executable, "-c", _WEEK2_DOWNLOAD], check=False)
+    # Read rather than set. The image's own ENV layer is what the sandbox will
+    # inherit, so checking it here is what makes this build prove the sandbox
+    # looks where the child is about to write. Setting it would only prove the
+    # child agreed with this function, and a later reordering of `.env()` would
+    # still produce a green build over a cache nothing opens.
+    if os.environ.get("XDG_CACHE_HOME") != WEEK2_CACHE_DIR:
+        raise RuntimeError(
+            "the Week 2 image must set XDG_CACHE_HOME to {} before this runs; "
+            "found {!r}".format(WEEK2_CACHE_DIR, os.environ.get("XDG_CACHE_HOME"))
+        )
+    finished = subprocess.run([sys.executable, "-c", _WEEK2_DOWNLOAD], check=False)
 
     # Importing this module does not import `datasets`; the Hub is reached
     # lazily. So the check below runs in a process that never loaded it.
@@ -84,11 +94,9 @@ def cache_week2_celeba() -> None:
         status = cache_status(load_manifest(tier))
         if not status.ready:
             raise RuntimeError(
-                "Week 2 {} cache is unusable after baking: {}".format(
-                    tier, status.message
-                )
+                "Week 2 {} cache is unusable after baking (download exited "
+                "{}): {}".format(tier, finished.returncode, status.message)
             )
-        print("week2: {} tier ready at {}".format(tier, status.path), flush=True)
 
 
 def cache_week3_artifacts() -> None:
