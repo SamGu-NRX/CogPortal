@@ -9,8 +9,9 @@ function buildClient(env: Env) {
 /**
  * One Drizzle client per D1 binding, reused for the life of the isolate.
  *
- * `drizzle(binding, { schema })` walks all 32 tables in `schema` through
- * `extractTablesRelationalConfig` before it can serve a query, and the worker
+ * `drizzle(binding, { schema })` walks the 31 tables in the exported `schema`
+ * aggregate through `extractTablesRelationalConfig` before it can serve a
+ * query, and the worker
  * calls `getDb` from 106 places, several of them on a single request: the
  * session lookup, the role lookup and the route body each built their own
  * client. Workers charges CPU and not the D1 waits this sits between, so that
