@@ -131,9 +131,9 @@ sign-in; account linking and the bot are the parts that work.
 - **Is the scoring real?** Yes, on both surfaces, and it is the same code. In
   rehearsal this repository scored 0.5375 in the terminal and 0.5375 on the
   hosted runner from the same commit.
-- **What about cheating?** The official set is hidden, it never enters the
-  sandbox that runs student code, and every team gets three official attempts.
-  This walkthrough spends none of them.
+- **What about cheating?** The hosted run scores against a private answer key,
+  which is not part of what the sandbox receives, and every team gets three
+  official attempts. This walkthrough spends none of them.
 - **What does it take to adopt?** A team signs in with GitHub, joins the cohort,
   and connects their repository. Each student activates the course environment
   for the week, installs the tool and the benchmark with the two commands on
