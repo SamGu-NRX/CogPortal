@@ -1,7 +1,24 @@
+import { ArrowDown01Icon, ArrowUp01Icon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import { useId, useState } from "react";
 import type { Metric } from "@cogworks/contracts/schema";
 import { formatMetricValue } from "@/lib/format";
 import { CornerBrackets } from "./Brackets";
+
+function DirectionArrow({ higherIsBetter, size }: { higherIsBetter: boolean; size: number }) {
+  return (
+    <HugeiconsIcon
+      icon={higherIsBetter ? ArrowUp01Icon : ArrowDown01Icon}
+      size={size}
+      strokeWidth={2}
+      aria-hidden="true"
+    />
+  );
+}
+
+function directionLabel(metric: Metric): string {
+  return metric.higherIsBetter ? "higher is better" : "lower is better";
+}
 
 /**
  * Whether this metric may claim a direction at all.
@@ -21,8 +38,8 @@ import { CornerBrackets } from "./Brackets";
  *   benchmark actually stated one. Only "lower is better" is treated as a
  *   statement: producers compute `higher_is_better = key not in
  *   lower_is_better`, so `true` is what an unclassified key gets by default.
- *   Week 1's median identify time keeps its ▼; week 3's verbatim probes,
- *   whose higher really is worse, show none.
+ *   Week 1's median identify time keeps its lower-is-better mark; week 3's
+ *   verbatim probes, whose higher really is worse, show none.
  *
  *   This is deliberately conservative and it is wrong about one real metric.
  *   Week 1's `margin_separation` is reported, is absent from
@@ -43,8 +60,9 @@ export function claimsDirection(metric: Metric, rolesRecorded: boolean): boolean
 /** Direction is always explicit — the portal never assumes higher-is-better. */
 function DirectionMark({ metric }: { metric: Metric }) {
   return (
-    <span className="font-mono text-[11px] text-ink-faint" title={metric.higherIsBetter ? "higher is better" : "lower is better"}>
-      {metric.higherIsBetter ? "▲ higher is better" : "▼ lower is better"}
+    <span className="inline-flex items-center gap-1 font-mono text-[11px] text-ink-faint">
+      <DirectionArrow higherIsBetter={metric.higherIsBetter} size={11} />
+      {directionLabel(metric)}
     </span>
   );
 }
@@ -197,14 +215,10 @@ function SupportingMetricRow({
         </span>
       )}
       {claimsDirection(metric, rolesRecorded) && (
-        <>
-          <span className="font-mono text-[10px] text-ink-faint" aria-hidden="true">
-            {metric.higherIsBetter ? "▲" : "▼"}
-          </span>
-          <span className="sr-only">
-            {metric.higherIsBetter ? "higher is better" : "lower is better"}
-          </span>
-        </>
+        <span className="inline-flex items-center text-ink-faint">
+          <DirectionArrow higherIsBetter={metric.higherIsBetter} size={10} />
+          <span className="sr-only">{directionLabel(metric)}</span>
+        </span>
       )}
     </dd>
   );

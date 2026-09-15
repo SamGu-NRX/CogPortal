@@ -220,6 +220,16 @@ function retrySnapshot(mode: "practice" | "official" = "practice") {
   });
 }
 
+/** Shiki arrives through a dynamic import, so drive React until the highlighted
+ *  markup lands rather than letting it appear in the middle of an assertion. */
+async function settleHighlight(scope: { querySelectorAll: (selector: string) => ArrayLike<unknown> }) {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    if (scope.querySelectorAll("span[style]").length > 0) return;
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+  }
+  assert.fail("the local command never highlighted");
+}
+
 for (const compact of [false, true]) {
   test(`failed local console offers its local command with compact=${compact}`, async (t) => {
     const snapshot = {
@@ -227,15 +237,38 @@ for (const compact of [false, true]) {
       practiceRunId: null, officialRunId: null, executionHistory: [], events: [],
       actions: ["open_console", "open_portal", "run_again"] as const,
     };
-    const { container, root } = await mount(t, React.createElement(RunConsole, {
+    const command = "cogworks run --benchmark language-search --live";
+    const { container, root, window } = await mount(t, React.createElement(RunConsole, {
       snapshot: { ...snapshot, actions: [...snapshot.actions] }, streamState: "closed", compact,
     }));
     const again = [...container.querySelectorAll("button")].filter((button) => button.textContent === "Run again");
     assert.equal(again.length, 1);
     assert.doesNotMatch(container.textContent, /Retry|Rerun hosted/);
     await act(async () => again[0].click());
-    assert.equal(container.querySelector("dialog")?.open, true);
-    assert.match(container.querySelector("dialog")?.textContent ?? "", /cogworks run --benchmark language-search --live/);
+    const dialog = container.querySelector("dialog");
+    assert.ok(dialog);
+    assert.equal(dialog.open, true);
+    assert.ok(dialog.contains(window.document.activeElement), "an open dialog holds focus");
+    await settleHighlight(dialog);
+    assert.match(dialog.textContent ?? "", /cogworks run --benchmark language-search --live/);
+    assert.ok(dialog.querySelector(".code-block.is-wrapped"), "the command wraps instead of scrolling");
+
+    const copy = [...dialog.querySelectorAll("button")].find((button) => button.textContent === "Copy command");
+    assert.ok(copy);
+    assert.equal(window.document.activeElement, copy, "the local command is ready to copy on open");
+    const write = t.mock.method(window.navigator.clipboard, "writeText", async () => { throw new Error("denied"); });
+    await act(async () => copy.click());
+    assert.deepEqual(write.mock.calls[0].arguments, [command]);
+    const status = () => [...dialog.querySelectorAll('[role="status"]')].map((node) => node.textContent).join(" ");
+    assert.match(status(), /Couldn't copy/);
+    assert.equal(window.document.activeElement, copy);
+
+    write.mock.mockImplementation(async () => {});
+    await act(async () => copy.click());
+    assert.equal(write.mock.callCount(), 2);
+    assert.deepEqual(write.mock.calls[1].arguments, [command]);
+    assert.match(status(), /Copied\./);
+
     const close = [...container.querySelectorAll("dialog button")].find((button) => button.textContent === "Close");
     assert.ok(close);
     await act(async () => close.click());
