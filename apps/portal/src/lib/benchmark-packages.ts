@@ -57,7 +57,7 @@ const WEEK2_VISION: BenchmarkPackage = {
 const WEEK3_LANGUAGE: BenchmarkPackage = {
   distribution: "cogworks-week3-language-benchmark",
   source:
-    "git+https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git@fff786537567939936bf65042c09cdea27c90798",
+    "git+https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git@cc67edbc989df52e4273eced849603dc0ee802f5",
 };
 
 export const BENCHMARK_PACKAGES: Readonly<Record<string, BenchmarkPackage>> = {
