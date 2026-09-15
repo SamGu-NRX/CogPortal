@@ -216,7 +216,7 @@ class TimeoutAttribution(unittest.TestCase):
 def _last_error_line_function():
     """Load `_last_error_line` and the formatting it calls; see `_timed_out_function`."""
 
-    wanted = ("_receiver_units", "_fit", "_last_error_line")
+    wanted = ("_receiver_units", "_take_units", "_fit", "_last_error_line")
     module = ast.parse(MODAL_APP.read_text(encoding="utf-8"))
     nodes = [
         node
@@ -267,6 +267,21 @@ class ErrorLineExtraction(unittest.TestCase):
     def test_the_evaluate_marker_still_wins(self):
         stderr = "noise\nCOG_ERROR: returned 3 predictions for 5 cases\n"
         self.assertEqual(LAST_ERROR_LINE(stderr), "returned 3 predictions for 5 cases")
+
+    def test_a_traceback_message_obeys_the_same_cap_as_the_marker(self):
+        """Both branches return `detail`, so both are bounded the same way.
+
+        The marker branch was fixed first and this one was not, so a traceback
+        whose message ran long still cut mid-word, and 121 astral characters
+        measured 242 units at a receiver that caps 240.
+        """
+
+        emoji = "RuntimeError: " + "\U0001f600" * 121
+        units = sum(2 if ord(c) > 0xFFFF else 1 for c in LAST_ERROR_LINE(emoji))
+        self.assertLessEqual(units, 240)
+
+        wordy = "RuntimeError: " + ("word " * 80) + "final-token-here"
+        self.assertTrue(LAST_ERROR_LINE(wordy).endswith(" ..."))
 
     def test_empty_stderr_says_so_plainly(self):
         self.assertIn("failed", LAST_ERROR_LINE("").lower())

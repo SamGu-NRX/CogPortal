@@ -236,7 +236,7 @@ class PreparedRestore(unittest.TestCase):
         events = []
         forbidden = lambda *args, **kwargs: self.fail("reuse reached preparation or evaluation before compatibility")
         space = functions(
-            "RunnerFailure", "execute_job", "_failure_detail", "_fit", "_receiver_units",
+            "RunnerFailure", "execute_job", "_failure_detail", "_fit", "_take_units", "_receiver_units",
             job_store=Store(), validate_job=lambda value: value,
             _outcome_key=lambda key: key + ":outcome", LiveReporter=Reporter,
             _prepare=forbidden, _load_benchmark=forbidden, _evaluate_v2=forbidden,
@@ -324,7 +324,8 @@ raise ValueError("my own bug")
             exec=lambda *args: process, terminate=lambda: None,
         )
         space = functions(
-            "RunnerFailure", "_evaluate_v2", "_last_error_line", app=object(), EVALUATE_SCRIPT="real script tested above",
+            "RunnerFailure", "_evaluate_v2", "_last_error_line", "_fit", "_take_units",
+            "_receiver_units", app=object(), EVALUATE_SCRIPT="real script tested above",
             modal=types.SimpleNamespace(Image=types.SimpleNamespace(from_id=lambda value: object()),
                                         Sandbox=types.SimpleNamespace(create=lambda **kwargs: sandbox)),
         )

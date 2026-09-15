@@ -51,6 +51,21 @@ class ANoteArrivesWhole(unittest.TestCase):
             "a scorer note that exists today would still be shortened",
         )
 
+    def test_a_note_of_astral_characters_is_still_kept_whole(self):
+        """`textwrap` counts code points; the receiver counts UTF-16 units.
+
+        A line of 301 emoji measures 301 to `textwrap` and 602 to the
+        receiver, so bounding each line by units used to drop the overflow.
+        This path has somewhere to put a remainder, so it carries it.
+        """
+
+        note = "\U0001f600" * 301
+        lines = self.modal_app._diagnostic_lines(note)
+
+        self.assertEqual(sum(line.count("\U0001f600") for line in lines), 301)
+        for line in lines:
+            self.assertLessEqual(self.modal_app._receiver_units(line), 600)
+
     def test_a_real_length_note_is_not_touched(self):
         # The week 1 ranking note, at the length that produced the "and" on the
         # run page.
