@@ -88,8 +88,10 @@ what that would take.
 
 ## Then the demo
 
-Terminal first, then the site. Fifteen minutes, and it answers the question
-anyone technical is holding: does it actually run.
+The site, then the terminal, then back to the site. About ten minutes, and it
+answers the question anyone technical is holding: does it actually run. The
+order, the timings, and the optional extras are in
+[the pitch walkthrough](pitch-walkthrough.md).
 
 ---
 
@@ -102,4 +104,4 @@ anyone technical is holding: does it actually run.
 - Do not explain the architecture unless asked. He is not being asked to
   approve a design.
 - If he asks what it cost the course: nothing in lecture time. A student
-  connects a repository and runs three commands.
+  connects a repository and copies the commands off one page.

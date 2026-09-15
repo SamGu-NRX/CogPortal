@@ -1,100 +1,181 @@
 # Pitch walkthrough
 
-What Sam says and shows, in order: deck, terminal, website. The site is
-https://cogportal-dev.sillion.app. It is deployed by hand, so redeploy from
-this branch before rehearsing, or write down which commit is live.
+What Sam shows and says after the deck, in order. The site is production,
+`https://cogportal.sillion.app`, and it is already deployed, so there is
+nothing to redeploy before the meeting.
 
-## Before anyone is watching
+Everything that has to be true first is in
+[machine setup](machine-setup-directions.md), which is the one copy of those
+directions. This file used to repeat them and the two drifted apart.
 
-Everything that has to be true first, and the order to do it in, is in
-[machine-setup-directions.md](machine-setup-directions.md). It is the one
-current copy of those directions; this file used to repeat them and the two
-drifted apart.
+Joel's time is not fixed. The core below runs about ten minutes and answers the
+only question a technical person is holding, which is whether it actually runs.
+The expansions after it are each a minute or two and stand alone, so take them
+in any order or not at all.
 
-The short version, so you know what the walkthrough assumes: the team page is
-connected to `SamGu-NRX/cogportal-demo-week1`, that repository has a succeeded
-Song Identification run, the discovery cache in the demo clone is warm, and
-`cogworks status` names the dev site as the portal.
+## The core
 
-## Act 1: the claim, in a terminal
+### 1. Where the work already is
+
+Open `https://cogportal.sillion.app/setup`.
+
+Sam's account is already through onboarding, and the page shows 5 of 5
+verified. Say that out loud. It is a rehearsed account, and presenting it as a
+fresh signup would be a lie the next click exposes.
+
+Describe the path instead, since the page still shows every step of it: a
+student signs in with their own GitHub account, enters the cohort code, picks
+the repository their team already works in, and copies the install commands off
+this page. The boxes tick when a command reports back from their machine, so
+the page is evidence rather than a checklist they fill in themselves.
+
+Say: the team is the repository. Anyone with push access who signs in is a
+member, so there is no roster for a TA to maintain.
+
+### 2. The commit
+
+Switch to the terminal, in the student checkout.
 
 ```sh
-cogworks check --benchmark audio-identification
+git status --short --branch
 ```
 
-A couple of seconds once the cache is warm, and it prints the five functions
-it will call:
+Make the edit he intends to show, in `README.md`, then:
 
-```
-Wired up:
-  spectrogram    create_spectogram.create_spectrogram
-  peaks          find_peaks.find_peaks
-  fingerprints   create_fingerprints.peaks_to_fingerprints
-  store          database.AudioDatabase().store_fingerprints
-  query          database.AudioDatabase().query
+```sh
+git add -- README.md
+git diff --cached
+git commit -m "docs: explain the benchmark commands"
+git push origin codex/demo-rehearsal-d9405278
 ```
 
-Say: nobody wrote an adapter for this team. Two of those are methods on an
-object their code builds. The names ordered the candidates; running them
-decided.
+Say: the score belongs to a commit. The hosted runner reads a branch out of
+GitHub, so it can only ever score work that was pushed, and a local result from
+a worktree with uncommitted changes is never offered hosted verification. A
+leaderboard row is a claim about code somebody else can go read.
+
+Be straight about what this edit is. It is a documentation change, and it is
+there to show where a result comes from, not to move the number. Do not offer
+it as a tuning change, and do not predict a different score from it.
+
+### 3. The hosted run
+
+Back to `https://cogportal.sillion.app/dashboard`, on the Song Identification
+track.
+
+**Set the Branch menu to `codex/demo-rehearsal-d9405278` before starting.** It
+opens on the repository's default branch, `main`, and it does not follow the
+push that just happened. Starting the run without changing it scores `main`,
+and the commit made thirty seconds ago never appears.
+
+Then click **Run practice benchmark**. The panel replaces itself with the run,
+and its subtitle names the branch and the short commit. Read that line out:
+it is the whole provenance claim in one line of monospace.
+
+Two rehearsed runs of this repository finished in 2m01s and 2m18s. Say "about
+two minutes" rather than a number he then has to beat.
+
+### 4. While it runs, the same code on his own machine
+
+The wait is about two minutes, and the CLI fills it with something better than
+a progress rail.
 
 ```sh
 cogworks run --benchmark audio-identification
 ```
 
-Under a minute to a real score with diagnostics that name which
-half of the pipeline lost the points.
+It scores on this machine and prints where it saved the report. The rehearsal
+report for the previous commit records twelve seconds between start and finish,
+eleven metrics, and nine diagnostics. That speed is the on-ramp argument from
+the deck, running.
 
-## Act 2: what it says when it cannot
+Sync that report by name:
 
 ```sh
-cd ../../student-repos/CogWorks-2026-Team-Asterisk__Week1-Capstone-Shazam
-cogworks check --benchmark audio-identification
+cogworks sync '<the path the run just printed>'
 ```
 
-```
-Could not read:
-  Code: RuntimeError: microphone.record_audio is not available here
-  master: is empty
-  will_is_not_locked_bro: FileNotFoundError: 'song_list'
+With no path, `sync` takes the most recent report on the machine, which may
+belong to another repository. On stage that would quietly put someone else's
+result on the board.
 
-Nothing in your repository took that for the database step, which is what
-newton's_code.create_fingerprints returned.
-```
+It arrives on the dashboard under `SELF-REPORTED · NOT PROMOTABLE`. Say what
+the label is doing: the site shows a number it did not watch being produced,
+and it will not let that number be published. Had the worktree been dirty, the
+page would not offer hosted verification at all, and it would say so in words.
 
-Say: half a real cohort meets a refusal before they ever see a score, so the
-refusal is the product.
+Meanwhile the bot is posting the hosted run into the team's Discord channel and
+editing that one message as the phases pass. In rehearsal it ran from bench
+preparation through contract checking, 282 evaluated cases, and scoring, then
+settled at 0.5375 with the short commit and the wall clock. If Discord is not
+on screen, `cogworks status` answers the same provenance question from the
+terminal side: which account, team, repository, and portal this machine is
+attached to.
 
-## Act 3: the commit
+### 5. The two results
 
-Make a one-line change in the demo clone, commit it, push it.
+When the hosted run lands, put them next to each other. Both should read
+0.5375.
 
-Say: the score belongs to a commit. An uncommitted worktree is refused before
-anything reaches the hosted runner at all, on purpose, because a leaderboard
-row is a claim about code somebody can go read. (The refusal is "Commit your
-changes before hosted verification.", and it fires on Verify hosted, which
-starts a practice run.) Then `cogworks sync` puts the local result on the
-dashboard, marked as local and self-reported, and the hosted run is what turns
-it into a verified one.
+Expect that, and say why. The edit was a documentation change, so the code the
+benchmark scores is unchanged, and the number has no reason to move. If it had
+moved, something other than the commit changed, and that is worth knowing.
 
-## Act 4: the site
+Ten of the eleven metrics matched at the precision the site displays when this
+was rehearsed, and the one that differed was an unscored timing. Worth saying,
+and worth not overstating: the hosted runner is Python 3.8 and the local
+environment is 3.11, so the agreement shows this submission is stable across
+two environments, not that the environments are identical.
 
-1. **Dashboard**, the runs and the two counters.
-2. **A run page**: the finding sentence, the metrics, the diagnostics.
-3. **Team**: the five stages of the capstone with the people who committed to
-   them. Do not promise a headcount from the stage: a teammate who committed
-   under two identities appears twice, so read what is on screen.
-   This is the multi-person answer. The team is the repository: anyone with
-   push access who signs in is a member, so there is no roster to maintain.
-4. **Leaderboard**, Song Identification.
+### 6. What the run says
+
+Open the run. It leads with the finding sentence, not the score, and the
+diagnostics under it name which half of the pipeline lost the points. All nine
+diagnostics the benchmark wrote reach this page.
+
+Say: a number near chance with no reason is the mystery box this course exists
+to avoid. The point of the instrument is the sentence, and the number sits
+below it.
+
+## Optional expansions
+
+- **Leaderboard.** Song Identification, published results only. Current
+  component boards honestly report that nothing is published yet, which is the
+  right answer and not an empty state to apologize for.
+- **Team.** The process panel lists the five stages of the capstone with the
+  people who committed to each, and the date spans. Two warnings before showing
+  it. A teammate who committed under two identities appears twice, so read what
+  is on screen instead of promising a headcount. And the panel states when it
+  last read the history, which can be half an hour ago, so do not present it as
+  live. It is a record of where work went, not a count of tasks completed.
+- **Other tracks.** Language and both Vision tracks each show their own setup
+  state and their own untouched quota, which is the clearest way to show the
+  tracks are genuinely separate. None of them has a rehearsed run, so do not
+  start one.
+- **The refusal.** The strongest slide in the old version of this demo was a
+  repository the tool could not read, where it names each candidate and why it
+  refused. That case needs a student repository that is not on this machine any
+  more, so describe it rather than running it, or leave it for a follow-up.
+
+The embedded Discord Activity is not part of this. It still rejects app
+sign-in, and account linking and the bot are the parts that work.
+
+## Rough edges you may see
+
+Both are cosmetic and neither is worth a code change before the meeting.
+
+- The metadata line under some run headers can leave a separator with nothing
+  after it.
+- The pipeline rail grows very tall on a narrow window. On the presenting
+  display it is fine.
 
 ## What to say if asked
 
-- **Is the scoring real?** Yes, on both surfaces, and it is the same code.
-  The demo repository scored 0.5375 in the terminal and 0.5375 on the hosted
-  runner. Two hosted runs of it have finished: 133 seconds on 2026-09-04 and
-  2 minutes 11 seconds on 2026-09-09.
+- **Is the scoring real?** Yes, on both surfaces, and it is the same code. This
+  repository scored 0.5375 in the terminal and 0.5375 on the hosted runner,
+  from the same commit.
 - **What about cheating?** The official set is hidden, it never enters the
   sandbox that runs student code, and every team gets three official attempts.
-- **What does it cost the course?** No lecture time. Connect a repository and
-  run three commands.
+  This walkthrough spends none of them.
+- **What does it cost the course?** No lecture time. A team connects a
+  repository and copies the commands off one page.
