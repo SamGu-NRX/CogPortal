@@ -114,9 +114,22 @@ def _failure_detail(error: Any) -> str:
 
     limit = 240
     text = " ".join(str(error).split())
-    if len(text) <= limit:
+    # `z.string().max(240)` counts UTF-16 code units, and Python counts code
+    # points, so an astral character costs two there and one here. Counting in
+    # code points would let 121 emoji through as 242 units and the receiver
+    # would answer 400, losing the whole terminal event.
+    width = lambda value: len(value.encode("utf-16-le")) // 2
+    if width(text) <= limit:
         return text
-    return text[: limit - 4].rsplit(" ", 1)[0] + " ..."
+    kept, used = [], 0
+    for character in text:
+        size = width(character)
+        if used + size > limit - 4:  # room for " ..."
+            break
+        kept.append(character)
+        used += size
+    head = "".join(kept)
+    return (head.rsplit(" ", 1)[0] if " " in head else head) + " ..."
 
 
 def _diagnostic_lines(item: Any) -> List[str]:

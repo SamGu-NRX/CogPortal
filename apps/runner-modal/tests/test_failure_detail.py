@@ -57,6 +57,14 @@ class ACutDetailSaysSo(unittest.TestCase):
         # The old slice ended "on the Hub a", half of "and".
         self.assertFalse(detail.rstrip(". ").endswith(" a"), detail[-40:])
 
+    def test_the_cap_is_counted_the_way_the_receiver_counts_it(self):
+        # `z.string().max(240)` counts UTF-16 code units. Counting code points
+        # instead let 121 emoji through as 242 units, and the receiver answers
+        # 400, which loses the terminal event rather than a few characters.
+        detail = self.modal_app._failure_detail(" " * 240 + "\U0001f600" * 121)
+
+        self.assertLessEqual(len(detail.encode("utf-16-le")) // 2, 240)
+
     def test_a_message_that_fits_is_handed_over_untouched(self):
         short = "Official Week 2 data is missing or failed integrity validation."
 
