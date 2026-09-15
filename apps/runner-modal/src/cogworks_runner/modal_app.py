@@ -689,6 +689,7 @@ discovery = None
 if resolved_by is None:
     import json
 
+    searched_their_code = False
     try:
         sys.path.insert(0, "/opt/cogbench")
         from cogbench.plugins import load_benchmark
@@ -696,8 +697,19 @@ if resolved_by is None:
 
         plugin = load_benchmark(benchmark_id)
         describes = getattr(plugin, "discovery", None)
+        # A week with no discovery() at all is not a failure: the team is
+        # expected to declare an adapter, and the fallback below says so.
         if callable(describes):
             spec = describes()
+            if spec is None:
+                # Both Week 2 plugins answer None when their dataset cache is
+                # missing. The week cannot describe its task, which is ours.
+                raise RuntimeError("discovery() returned no spec")
+            # Everything above is ours. Nothing has touched the repository
+            # yet, so a failure up to here cannot be the team's. Past this
+            # line the search runs their code, and a failure is theirs or
+            # unattributable; either way not ours to claim.
+            searched_their_code = True
             # from_spec forwards everything a week declares: its resources,
             # its resource files, its database factory predicate, its reader
             # budget. Naming the five original fields here is how Week 3's
@@ -718,7 +730,7 @@ if resolved_by is None:
     except Exception as error:
         discovery = {
             "verdict": {
-                "status": "not_read",
+                "status": "not_read" if searched_their_code else "benchmark_unavailable",
                 "headline": "The search for your code could not run: {}".format(
                     str(error)[:200]
                 ),
@@ -734,9 +746,15 @@ if resolved_by is None:
 if resolved_by is None:
     # The verdict says more than this line can, and it has already been
     # written for the caller to read. This is the summary that reaches a log.
-    detail = ""
-    if discovery:
-        detail = " " + str(discovery.get("verdict", {}).get("headline", ""))[:300]
+    verdict = (discovery or {}).get("verdict", {})
+    detail = " " + str(verdict.get("headline", ""))[:300] if discovery else ""
+    if verdict.get("status") == "benchmark_unavailable":
+        # Saying "no adapter found" here would be a verdict on code nobody
+        # read. The controller routes this to the platform's own category.
+        raise RuntimeError(
+            "This benchmark could not describe its task, so {} was never "
+            "read.{}".format(project.name, detail)
+        )
     raise RuntimeError(
         "No adapter found in {}, and no set of functions in it performed the "
         "benchmark's task.{}".format(project.name, detail)
@@ -1587,6 +1605,13 @@ def _prepare(job: Dict[str, Any], reporter: LiveReporter) -> Tuple[str, Dict[str
             # "no adapter found" is the message PREPARE_SCRIPT raises when a
             # repository has neither a submission.py nor an entry point;
             # "entry point" catches the older ambiguous-registration message.
+            # The week could not describe its own task, so nothing read the
+            # repository. Read off the status our own prepare step wrote, not
+            # out of the message: `normalized` includes the student's stderr,
+            # and choosing a refunding category from text they control is the
+            # forgery this controller already refuses elsewhere.
+            if (refusal or {}).get("status") == "benchmark_unavailable":
+                raise RunnerFailure("provider", "preparing", detail, True)
             if "no adapter found" in normalized or "entry point" in normalized:
                 raise RunnerFailure(
                     "adapter_missing", "contract_check", detail, False, refusal
