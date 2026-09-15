@@ -21,19 +21,16 @@ export const ProtocolMetricSchema = z.object({
    * capstone it corresponds to. Optional because plugins written before it
    * exists do not send one; a metric with no explanation renders without the
    * help affordance rather than with an empty one.
-   */
-  /**
-   * 1000, because 600 rejected a real result. Week 3's `search_mrr` explains
-   * the whole application end to end and its help runs to 645 characters, so
-   * a hosted Language run that bound its search side answered 400 on the
-   * completed event and lost a scored result it had already computed. The
-   * stored side never had this limit: `MetricSchema.help` in schema.ts is
-   * uncapped, so the same string round-trips through a local report and only
-   * the hosted path refused it.
    *
-   * Explanatory prose is not a log line. It is written by the benchmark, shown
-   * in a disclosure, and stored whole, so a cap here buys nothing except the
-   * chance to reject a result. This one exists only to bound the request.
+   * 1000, because 600 rejected a real result. Week 3's `search_mrr` explains
+   * the whole application end to end and its help runs to 645 characters, so a
+   * hosted Language run that bound its search side answered 400 on the
+   * completed event and lost a score it had already computed.
+   *
+   * This bounds a request; it is not an attempt to match storage, where
+   * `MetricSchema.help` has no limit at all. That asymmetry is why nothing
+   * local caught this: the same string round-trips through a saved report
+   * untouched.
    */
   help: z.string().max(1_000).optional(),
   /**
