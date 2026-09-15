@@ -116,15 +116,16 @@ the run. When the run appears, the panel reads
 `practice · codex/demo-rehearsal-d9405278 · <short sha>`. Read that line once
 before moving on.
 
-If the branch is missing from the menu, the site could not read the branch list
-and fell back to the default branch alone
-(`apps/portal/src/routes/DashboardPage.tsx:67`). Reload the dashboard once.
+If the branch is missing from the menu, the menu is offering the default branch
+alone. That happens whenever the repository's branch list has not resolved, and
+the repository list not having loaded yet is only one of the reasons
+(`apps/portal/src/routes/DashboardPage.tsx:65-67`). Reload the dashboard once.
 
-If it is still missing after that reload, stop. Do not start the run. The only
-branch you could start is `main`, which scores the wrong commit and makes the
-point backwards. Show the saved result at
+If it is still missing after that reload, stop, and do not start the run. The
+only branch you could start is `main`, which scores the wrong commit and makes
+the point backwards. Show the saved result at
 `https://cogportal.sillion.app/runs/run_b647f110de` instead, and tell Sam
-before he is on stage rather than during.
+before he is on stage rather than during it.
 
 ## 5. If the /tmp environment is gone
 

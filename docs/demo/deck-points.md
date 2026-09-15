@@ -103,5 +103,7 @@ order, the timings, and the optional extras are in
   right there.
 - Do not explain the architecture unless asked. He is not being asked to
   approve a design.
-- If he asks what it cost the course: nothing in lecture time. A student
-  connects a repository and copies the commands off one page.
+- If he asks what it takes to adopt: a team signs in with GitHub, joins the
+  cohort and connects their repository, and each student activates the course
+  environment for the week, installs the tool and the benchmark with the two
+  commands on the Setup page, then runs `cogworks check` and `cogworks run`.
