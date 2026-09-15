@@ -94,6 +94,30 @@ REPO_ROOT = _repo_root()
 #: would lose whole completed events rather than a few characters.
 DIAGNOSTIC_LIMIT = 600
 
+def _failure_detail(error: Any) -> str:
+    """The failure's own words, cut at a word and marked when cut.
+
+    Measured on staging run `run_158c8e88c3`: a 240-character slice landed
+    mid-word and the run page read "...trying to locate the file on the Hub a",
+    which looks like the sentence the benchmark wrote rather than like a cut.
+    `_diagnostic_lines` already refuses to slice notes mid-word; this is the
+    same rule for the one field that has nowhere to put the remainder, because
+    `detail` is a single string and `protocol.ts` answers 400 past 240.
+
+    The full text is not lost: the refusal and diagnostics carry it, and the
+    run page shows them behind Show details.
+
+    Deliberately self-contained. Two test harnesses exec a named subset of this
+    module in a namespace they build by hand, so a helper that reached for a
+    module constant or an import would have to be threaded through both.
+    """
+
+    limit = 240
+    text = " ".join(str(error).split())
+    if len(text) <= limit:
+        return text
+    return text[: limit - 4].rsplit(" ", 1)[0] + " ..."
+
 
 def _diagnostic_lines(item: Any) -> List[str]:
     """One note, in pieces no longer than the wire allows, split between words.
@@ -2726,7 +2750,7 @@ def execute_job(job_value: Dict[str, Any]) -> None:
         if _WIRING:
             result["wiring"] = _WIRING
     except Exception as error:
-        detail = str(error)[:240]
+        detail = _failure_detail(error)
         refusal = None
         if isinstance(error, RunnerFailure):
             category = error.category

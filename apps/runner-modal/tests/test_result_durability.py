@@ -105,7 +105,8 @@ def _execute_job(store: dict) -> tuple:
 
     text = MODAL_APP.read_text(encoding="utf-8")
     module = ast.parse(text)
-    wanted = ("_outcome_key", "_finish", "_deliver_terminal", "_event", "LiveReporter", "execute_job")
+    wanted = ("_outcome_key", "_finish", "_deliver_terminal", "_event", "_failure_detail",
+              "LiveReporter", "execute_job")
     nodes = []
     for node in module.body:
         if isinstance(node, (ast.FunctionDef, ast.ClassDef)) and node.name in wanted:

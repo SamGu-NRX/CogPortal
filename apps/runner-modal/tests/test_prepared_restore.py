@@ -235,7 +235,8 @@ class PreparedRestore(unittest.TestCase):
         events = []
         forbidden = lambda *args, **kwargs: self.fail("reuse reached preparation or evaluation before compatibility")
         space = functions(
-            "RunnerFailure", "execute_job", job_store=Store(), validate_job=lambda value: value,
+            "RunnerFailure", "execute_job", "_failure_detail",
+            job_store=Store(), validate_job=lambda value: value,
             _outcome_key=lambda key: key + ":outcome", LiveReporter=Reporter,
             _prepare=forbidden, _load_benchmark=forbidden, _evaluate_v2=forbidden,
             _finish=lambda job, outcome, status: events.append(outcome["event"]),
