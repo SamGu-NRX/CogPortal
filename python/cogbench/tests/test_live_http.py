@@ -19,6 +19,7 @@ from cogbench.client import send_local_run_event, send_local_run_event_batch
 SOURCE = Path(__file__).resolve().parents[1] / 'src'
 CHECKOUT = Path(__file__).resolve().parents[3]
 TOKEN = 'loopback-fixture-token'
+FIXTURE_BRANCH = 'live-http-fixture'
 
 # Select the same real backends as test_fresh_interpreter, inside a process
 # which has never hosted the receiver thread. Authentication stays on disk so
@@ -29,6 +30,28 @@ from cogbench import cli, isolate
 isolate._isolation_backend = lambda: getattr(isolate, sys.argv[1])
 raise SystemExit(cli.main(sys.argv[2:]))
 '''
+
+
+def clone_fixture_repo(source, repo):
+    """Clone `source` onto a branch this fixture names, writing only the clone.
+
+    CI's detached merge commit may have no branch for clone to select.
+    Naming the clone's branch keeps the HTTP branch assertion independent of
+    the source checkout. Ref-only changes preserve the dirty no-checkout index.
+    update-ref also works when the clone already has this branch checked out;
+    branch --force rejects that case.
+    """
+    subprocess.run(['git', 'clone', '--quiet', '--shared', '--no-checkout',
+                    str(source), str(repo)], check=True, capture_output=True)
+    sha = subprocess.check_output(['git', '-C', str(repo), 'rev-parse', 'HEAD'],
+                                  text=True).strip()
+    subprocess.run(['git', '-C', str(repo), 'update-ref',
+                    'refs/heads/' + FIXTURE_BRANCH, sha], check=True, capture_output=True)
+    subprocess.run(['git', '-C', str(repo), 'symbolic-ref', 'HEAD',
+                    'refs/heads/' + FIXTURE_BRANCH], check=True, capture_output=True)
+    branch = subprocess.check_output(
+        ['git', '-C', str(repo), 'symbolic-ref', '--short', 'HEAD'], text=True).strip()
+    return sha, branch
 
 
 class Receiver(HTTPServer):
@@ -191,6 +214,84 @@ class LiveHTTPStalledProgress(unittest.TestCase):
             self.assertFalse(receiver.errors, receiver.errors)
 
 
+@unittest.skipUnless(hasattr(os, 'fork'), 'covers the POSIX-only fixtures below')
+class FixtureRepoClone(unittest.TestCase):
+    """Guard the clone helper against the ref layout of the source checkout."""
+
+    def commit_source(self, root, text):
+        """Build a one-commit repository to clone, and return it with its git prefix."""
+        source = root / 'source'
+        git = ['git', '-C', str(source)]
+        for command in (['git', 'init', '--quiet', str(source)],
+                        git + ['config', 'user.email', 'fixture@example.invalid'],
+                        git + ['config', 'user.name', 'Live HTTP fixture'],
+                        git + ['config', 'commit.gpgsign', 'false']):
+            subprocess.run(command, check=True, capture_output=True)
+        (source / 'README').write_text(text + '\n')
+        subprocess.run(git + ['add', 'README'], check=True, capture_output=True)
+        subprocess.run(git + ['commit', '--quiet', '-m', 'fixture commit'],
+                       check=True, capture_output=True)
+        return source, git
+
+    def test_named_branch_survives_a_detached_source(self):
+        with tempfile.TemporaryDirectory(prefix='cogbench-live-detached-') as temporary:
+            root = Path(temporary).resolve()
+            source, git = self.commit_source(root, 'detached source fixture')
+            subprocess.run(git + ['checkout', '--quiet', '--detach', 'HEAD'],
+                           check=True, capture_output=True)
+            # The commit CI runs from is the pull request's merge commit, which
+            # no branch points at, so cloning cannot guess a branch for it.
+            (source / 'README').write_text('detached source fixture, merged\n')
+            subprocess.run(git + ['commit', '--quiet', '-am', 'detached commit'],
+                           check=True, capture_output=True)
+            head = subprocess.check_output(git + ['rev-parse', 'HEAD'], text=True).strip()
+            self.assertEqual(
+                subprocess.check_output(
+                    git + ['for-each-ref', '--points-at', head,
+                           '--format=%(refname:short)', 'refs/heads'], text=True).strip(),
+                '', 'source fixture left a branch on the commit under test')
+
+            clone = root / 'clone'
+            sha, branch = clone_fixture_repo(source, clone)
+
+            self.assertEqual(sha, head)
+            self.assertEqual(branch, FIXTURE_BRANCH)
+            self.assertEqual(subprocess.check_output(
+                ['git', '-C', str(clone), 'rev-parse', FIXTURE_BRANCH], text=True).strip(),
+                head)
+            self.assertEqual(
+                subprocess.check_output(
+                    git + ['for-each-ref', '--format=%(refname:short)',
+                           'refs/heads/' + FIXTURE_BRANCH], text=True).strip(),
+                '', 'the clone wrote a branch back into its source')
+
+    def test_named_branch_survives_a_source_already_on_that_name(self):
+        with tempfile.TemporaryDirectory(prefix='cogbench-live-attached-') as temporary:
+            root = Path(temporary).resolve()
+            source, git = self.commit_source(root, 'attached source fixture')
+            # A checkout whose branch is already the name this fixture uses
+            # hands the clone that branch and its HEAD, which is the case
+            # `git branch --force` refuses with exit 128.
+            subprocess.run(git + ['branch', '--move', FIXTURE_BRANCH],
+                           check=True, capture_output=True)
+            head = subprocess.check_output(git + ['rev-parse', 'HEAD'], text=True).strip()
+
+            clone = root / 'clone'
+            sha, branch = clone_fixture_repo(source, clone)
+
+            self.assertEqual(sha, head)
+            self.assertEqual(branch, FIXTURE_BRANCH)
+            self.assertEqual(subprocess.check_output(
+                ['git', '-C', str(clone), 'rev-parse', FIXTURE_BRANCH], text=True).strip(),
+                head)
+            self.assertEqual(subprocess.check_output(
+                git + ['symbolic-ref', '--short', 'HEAD'], text=True).strip(),
+                FIXTURE_BRANCH, 'the clone moved its source off the fixture branch')
+            self.assertEqual(subprocess.check_output(
+                git + ['rev-parse', FIXTURE_BRANCH], text=True).strip(),
+                head, 'the clone moved the fixture branch inside its source')
+
+
 @unittest.skipUnless(hasattr(os, 'fork'), 'requires POSIX isolation backends')
 class LiveHTTP(unittest.TestCase):
     def exercise(self, backend, action, expected_status):
@@ -198,16 +299,12 @@ class LiveHTTP(unittest.TestCase):
             root = Path(temporary).resolve()
             repo = root / 'repo'
             # Borrow existing Git objects without creating a commit or changing
-            # this checkout. Only the disposable repository's config is edited.
-            subprocess.run(['git', 'clone', '--quiet', '--shared', '--no-checkout',
-                            str(CHECKOUT), str(repo)], check=True, capture_output=True)
+            # this checkout. Only the disposable repository's refs and config
+            # are edited.
+            sha, branch = clone_fixture_repo(CHECKOUT, repo)
             subprocess.run(['git', '-C', str(repo), 'remote', 'set-url', 'origin',
                             'https://github.com/students/live-http-fixture.git'],
                            check=True, capture_output=True)
-            sha = subprocess.check_output(['git', '-C', str(repo), 'rev-parse', 'HEAD'],
-                                          text=True).strip()
-            branch = subprocess.check_output(
-                ['git', '-C', str(repo), 'symbolic-ref', '--short', 'HEAD'], text=True).strip()
             gate = root / 'progress-received'
             observed = root / 'student.json'
             scored = root / 'scored'
