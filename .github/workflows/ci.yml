@@ -94,7 +94,9 @@ jobs:
       - run: python -m unittest discover -s python/cogbench/tests -p 'test_*.py'
       - run: python -m unittest discover -s apps/runner-modal/tests -p 'test_*.py'
       - run: cogworks check --benchmark vision-recognition --json
+        working-directory: examples/week2-vision-submission
       - run: cogworks check --benchmark vision-clustering --json
+        working-directory: examples/week2-vision-submission
 
   week3:
     runs-on: ubuntu-latest
@@ -120,6 +122,7 @@ jobs:
       # sandbox payload.
       - run: python -m unittest discover -s apps/runner-modal/tests -p 'test_*.py'
       - run: cogworks check --benchmark language-search --json
+        working-directory: examples/week3-language-submission
 
   week1:
     runs-on: ubuntu-latest
@@ -144,3 +147,4 @@ jobs:
       # place a non-macOS libm sees the renderer before Modal does.
       - run: python -m unittest discover -s apps/runner-modal/tests -p 'test_*.py'
       - run: cogworks check --benchmark audio-identification --json
+        working-directory: examples/week1-audio-submission

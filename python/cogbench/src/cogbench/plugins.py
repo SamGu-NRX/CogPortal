@@ -25,22 +25,22 @@ BENCHMARK_INSTALLS: Dict[str, BenchmarkInstall] = {
     "audio-identification": BenchmarkInstall(
         "cogworks-week1-audio-benchmark",
         "git+https://github.com/SamGu-NRX/cogworks-week1-audio-benchmark.git"
-        "@61ef56ebb14a47419ad9b27c79dfdd82aca798f2",
+        "@b156644aecc810e0b93535e320098f96c39ae04e",
     ),
     "vision-recognition": BenchmarkInstall(
         "cogworks-week2-vision-benchmark",
         "git+https://github.com/SamGu-NRX/cogworks-week2-vision-benchmark.git"
-        "@65200e909264414761a55c670a3c323b5122c7fb",
+        "@c177cf23cdd4f8dbe55401a2eb4bada4c64d37c2",
     ),
     "vision-clustering": BenchmarkInstall(
         "cogworks-week2-vision-benchmark",
         "git+https://github.com/SamGu-NRX/cogworks-week2-vision-benchmark.git"
-        "@65200e909264414761a55c670a3c323b5122c7fb",
+        "@c177cf23cdd4f8dbe55401a2eb4bada4c64d37c2",
     ),
     "language-search": BenchmarkInstall(
         "cogworks-week3-language-benchmark",
         "git+https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git"
-        "@abdce758b85c347bc7ac0c15e31c5bc015ca5803",
+        "@b166f5c15e950baccc3785839cdcc660ffe01bb4",
     ),
 }
 

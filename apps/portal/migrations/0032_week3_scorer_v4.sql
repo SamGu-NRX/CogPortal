@@ -1,0 +1,33 @@
+-- Week 3's scored questions were answerable from the file the submission is
+-- handed, so its scorer version moves again.
+--
+-- `Resources.captions_path` is the full COCO annotations file, which is also
+-- the caption-to-image mapping. Every scored verbatim query was a caption of
+-- its gold image read out of that same file, so a lookup answered it: measured
+-- against the real scorer on the test tier, a submission that embedded nothing
+-- scored retrieval_mrr 1.0000 and overall 0.4822, against 0.6925 for the
+-- reference. The captions cannot be withheld, because embedding them is the
+-- assignment.
+--
+-- So `retrieval_mrr` and `search_mrr` now average the three rewritten rungs,
+-- and the verbatim probes are published beside them as
+-- `retrieval_mrr_verbatim` and `search_mrr_verbatim`, reported but not scored.
+-- Keeping them visible is the point: an honest submission scores about the
+-- same either way, and the memorizer above scores 1.00 next to 0.03.
+--
+--   reference   test        overall 0.6925 -> 0.6594   (-4.8%)
+--   reference   evaluation  overall 0.4241 -> 0.4097   (-3.4%)
+--   memorizer   test        overall 0.4822 -> 0.0811   (-83%)
+--
+-- The full derivation, including the band written down before the number was
+-- computed, is in docs/decisions/week3-verbatim-probes.md.
+--
+-- This file keeps the number it has on the development database, where it is
+-- already applied. 0027 through 0031 belong to portal work that has not been
+-- extracted yet; the gap is deliberate, not a missing file.
+--
+-- Existing rows in `runs` keep the scorer_version that scored them. That
+-- column records what a run measured.
+UPDATE benchmarks
+SET scorer_version = 'retrieval-v4'
+WHERE id = 'language-search' AND version = 1;
