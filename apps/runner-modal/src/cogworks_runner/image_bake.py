@@ -30,7 +30,7 @@ WEEK3_DATA_DIR = "/opt/cogworks-data/week3"
 #: already does for the FaceNet checkpoint.
 WEEK2_CACHE_DIR = "/opt/cogworks-cache"
 
-#: Run in a child so the Hugging Face reader's thread dies with it. See
+#: Run in a child so whatever survives the download dies with it. See
 #: `cache_week2_celeba`.
 _WEEK2_DOWNLOAD = """
 from facial_recognition_benchmark.datasets import load_manifest, materialize_manifest
@@ -63,23 +63,19 @@ def cache_week2_celeba() -> None:
     Both tiers are baked because `cogworks test` scores the small one and a
     hosted practice run scores `evaluation`.
 
-    The download runs in a child process. `_huggingface_rows` stops reading as
-    soon as it has the last row the manifest asked for, which leaves a
-    streaming reader alive; measured twice, both tiers cached and validated and
-    the builder still died with "PyGILState_Release ... runtime state:
-    finalizing". A `gc.collect()` did not release it, because the thread
-    belongs to the reader rather than to the abandoned generator. Letting the
-    child own that thread keeps this process clean, and this process decides
-    whether the bake worked by reading the cache back rather than by trusting
-    the child's exit code.
+    The download runs in a child process. Run in-process, both tiers cached and
+    validated and the builder then died at interpreter finalization
+    ("PyGILState_Release ... runtime state: finalizing"), twice. Which object
+    holds that thread was not established. The child confines whatever it is,
+    and this process decides whether the bake worked by reading the cache back
+    rather than by trusting the child's exit code.
     """
 
     os.environ["XDG_CACHE_HOME"] = WEEK2_CACHE_DIR
     subprocess.run([sys.executable, "-c", _WEEK2_DOWNLOAD], check=False)
 
     # Importing this module does not import `datasets`; the Hub is reached
-    # lazily inside `_huggingface_rows`. So the check below stays in a process
-    # that never loaded the offending library.
+    # lazily. So the check below runs in a process that never loaded it.
     from facial_recognition_benchmark.datasets import cache_status, load_manifest
 
     for tier in ("test", "evaluation"):
