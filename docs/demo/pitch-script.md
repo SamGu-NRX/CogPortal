@@ -64,4 +64,5 @@ would take.
 
 ---
 
-Then the demo. Terminal first, then the site.
+Then the demo. The site, then the terminal, then back to the site. The order
+is in [the pitch walkthrough](pitch-walkthrough.md).
