@@ -68,16 +68,10 @@ Back in the terminal, still in the student checkout.
 cogworks run --benchmark audio-identification
 ```
 
-It scores here and ends with `saved:` and an absolute path. Pass that path to
-`sync`:
-
-```sh
-cogworks sync <the path it just printed>
-```
-
-Naming the path ties what you upload to the commit you just pushed. With no
-path, `sync` takes the newest report in this checkout, which is usually the
-same file and is one timestamp away from not being.
+It scores here and ends with `saved:` and an absolute path. Copy that path and
+pass it to `cogworks sync`. With no path, `sync` takes the newest report in this
+checkout, which is normally that same file; naming it ties what you upload to
+the commit you just pushed.
 
 Reload the dashboard. A synced report does not show up in a tab that is already
 open.
