@@ -54,12 +54,12 @@ const WEEK2_VISION: BenchmarkPackage = {
     "git+https://github.com/SamGu-NRX/cogworks-week2-vision-benchmark.git@b9055031bf25a18594651d89610f3fbcd7462db8",
 };
 
-// cc67edb rather than fff7865, which the hosted image also runs. fff7865 counts
-// the SDK's retained copy of a trained model as a second candidate for the
-// trained image projection and withholds the weight inputs, so a student
-// checking locally on it sees their image side unbound while a hosted run
-// scores it. Observed on staging run_28df471772 and reproduced on Python 3.8.20
-// with the network blocked; the skip alone restores the local numbers.
+// Matches the verified staging image, which runs cc67edb. fff7865 counts the
+// SDK's retained copy of a trained model as a second candidate for the trained
+// image projection and withholds the weight inputs, so a student checking
+// locally on it sees their image side unbound while a hosted run scores it.
+// Observed on staging run_28df471772 and reproduced on Python 3.8.20 with the
+// network blocked; the skip alone restores the local numbers.
 const WEEK3_LANGUAGE: BenchmarkPackage = {
   distribution: "cogworks-week3-language-benchmark",
   source:
