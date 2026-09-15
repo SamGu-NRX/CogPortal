@@ -249,18 +249,26 @@ export async function getWeightUploadTarget(
 
 /**
  * The weight provenance a dispatch should use: the newest report a team member
- * synced for this repository and revision.
+ * synced for this benchmark, repository and revision.
  *
  * `repositoryId` is checked after selection, not added to the filter. Filtering
  * on it would drop a conflicting newest report and quietly dispatch an older
  * one's weights, which is the opposite of noticing the conflict.
+ *
+ * `benchmarkId` is a filter, because two reports for different benchmarks are
+ * not answering the same question. A team connects one repository and runs
+ * every benchmark from it, so two benchmarks at one commit is ordinary, and
+ * Audio names no weights at all. Selecting Audio's report because it synced
+ * more recently dispatched `weights: []` for Language, whose run then scores
+ * near chance with nothing to read.
  */
 export async function getLatestTeamWeights(
   env: Env,
   teamId: string,
   repositoryFullName: string,
   sha: string,
-  repositoryId: number | null = null,
+  repositoryId: number | null,
+  benchmarkId: string,
 ): Promise<Pick<LocalReportInput, "weightsUsed" | "weightsUploaded">> {
   const memberUserIds = await teamMemberUserIds(env, teamId);
   if (memberUserIds.length === 0) return { weightsUsed: [], weightsUploaded: null };
@@ -276,6 +284,7 @@ export async function getLatestTeamWeights(
         inArray(localReports.userId, memberUserIds),
         eq(localReports.repositoryFullName, repositoryFullName),
         eq(localReports.sha, sha),
+        eq(localReports.benchmarkId, benchmarkId),
       ),
     )
     .orderBy(desc(localReports.syncedAt))

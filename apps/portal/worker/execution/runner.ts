@@ -331,7 +331,7 @@ export async function enqueueRun(
       // so both lookups use the team's current one and the recorded repository
       // ID is what catches a report that belongs somewhere else.
       const report = await getLatestTeamWeights(
-        env, stored.teamId, team.repoFullName, stored.sha, stored.repositoryId,
+        env, stored.teamId, team.repoFullName, stored.sha, stored.repositoryId, stored.benchmarkId,
       );
       weights = await weightManifest(
         env.ARTIFACTS, team.repoFullName, stored.sha, report.weightsUsed, report.weightsUploaded,
