@@ -56,8 +56,9 @@ test("the wire and the stored report keep the same explanation", () => {
   );
 });
 
-test("a benchmark may explain a metric at whatever length it needs", () => {
-  // The hosted path bounds the request where the request is read, not by
-  // deciding how long an explanation is allowed to be.
+test("the schema no longer decides how long an explanation may be", () => {
+  // Only that this schema stops refusing them. Whatever finite limits the
+  // request, D1 and the run-surface snapshot have are theirs, and are not
+  // asserted here.
   assert.equal(ProtocolMetricSchema.safeParse(metric("x".repeat(5_000))).success, true);
 });
