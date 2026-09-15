@@ -27,6 +27,8 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
+from .execution import ExecutionPaths
+
 __all__ = ["fingerprint", "read", "write", "cache_path"]
 
 #: Bumped when a change would make an old entry wrong: a different search
@@ -68,7 +70,9 @@ def cache_path(repository: Path) -> Path:
     return Path(repository) / ".cogbench" / "resolved.json"
 
 
-def fingerprint(paths: Sequence[Path], *, benchmark: str) -> str:
+def fingerprint(
+    paths: Sequence[Path], *, benchmark: str, project: Optional[ExecutionPaths] = None
+) -> str:
     """A key that changes when anything the search read changes.
 
     Contents, not modification times: a checkout, a branch switch, and a
@@ -80,7 +84,10 @@ def fingerprint(paths: Sequence[Path], *, benchmark: str) -> str:
     digest = hashlib.sha256()
     digest.update("{}\x00{}\x00".format(FORMAT, benchmark).encode("utf-8"))
     for path in sorted(Path(p) for p in paths):
-        digest.update(str(path).encode("utf-8", "replace"))
+        # Hash copied bytes under their original names, so a new temporary
+        # directory does not force another search of unchanged source.
+        name = project.source_path(path) if project is not None else path
+        digest.update(str(name).encode("utf-8", "replace"))
         digest.update(b"\x00")
         try:
             digest.update(path.read_bytes())

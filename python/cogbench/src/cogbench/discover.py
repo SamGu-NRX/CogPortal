@@ -1237,8 +1237,12 @@ def _mirror_into(source: Path, destination: Path) -> None:
 
 
 @contextlib.contextmanager
-def _reading_from(folder: Path):
-    """Work from a throwaway copy of the module's own folder, not from it.
+def _reading_from(folder: Path, *, private_copy: bool = False):
+    """Retry from the module's folder, already private for CLI operations.
+
+    Direct SDK discovery returns live modules without owning their lifetime.
+    It retains the older import-only mirror described below; that mirror does
+    not provide the CLI's complete-operation preservation.
 
     The retry below re-executes a module with its own directory as the
     working directory, because a module that reads ``data/trumpet.wav`` at
@@ -1282,6 +1286,17 @@ def _reading_from(folder: Path):
     """
 
     global _GUARDED, _GUARD_INSTALLED
+
+    # The CLI owns these files through scoring. Another mirror would discard
+    # import-created resources and install an unnecessary audit hook.
+    if private_copy:
+        previous = os.getcwd()
+        try:
+            os.chdir(folder)
+            yield
+        finally:
+            os.chdir(previous)
+        return
 
     with tempfile.TemporaryDirectory(prefix="cogworks-import-") as temporary:
         mirror = Path(temporary).resolve()
@@ -1451,6 +1466,7 @@ def _import_one(
     timeout: float = IMPORT_TIMEOUT_SECONDS,
     package: Optional[str] = None,
     redirects: Optional["_Redirects"] = None,
+    *, private_copy: bool = False,
 ) -> Tuple[Optional[ModuleType], Optional[SkippedModule], _Notes]:
     """Import one module, retrying only where the failure is ours to answer.
 
@@ -1514,7 +1530,7 @@ def _import_one(
             notes.redirected = notes.redirected + (basename,)
         try:
             if folder is not None:
-                with _reading_from(folder):
+                with _reading_from(folder, private_copy=private_copy):
                     module, error, failure = _execute(
                         name, path, source, timeout, package, future_annotations=future
                     )
@@ -1649,7 +1665,7 @@ def _note(
         pass
 
 
-def _run_package_body(package: str, path: Path) -> Optional[SkippedModule]:
+def _run_package_body(package: str, path: Path, *, private_copy: bool = False) -> Optional[SkippedModule]:
     """Execute an ``__init__.py`` as the body of its package.
 
     The package object already exists (``_register_package`` made it, so its
@@ -1675,7 +1691,7 @@ def _run_package_body(package: str, path: Path) -> Optional[SkippedModule]:
     # line numbers. `package=None` because the body is not a member of the
     # package, it is the package.
     body, failure, _notes = _import_one(
-        "__init__", path, None, IMPORT_TIMEOUT_SECONDS, None
+        "__init__", path, None, IMPORT_TIMEOUT_SECONDS, None, private_copy=private_copy
     )
     if failure is not None:
         return failure
@@ -2088,6 +2104,7 @@ def load_modules(
     import_timeout: float = IMPORT_TIMEOUT_SECONDS,
     journal: Optional[Callable[[str, object], None]] = None,
     resource_files: Optional[Mapping[str, Path]] = None,
+    private_copy: bool = False,
 ) -> Tuple[List[LoadedModule], List[SkippedModule], List[str]]:
     """Import every module in ``root``, then in each of ``extra``.
 
@@ -2149,7 +2166,7 @@ def load_modules(
             if initializer.is_file():
                 files = [path for path in files if path != initializer]
                 _note(journal, "reading", initializer)
-                failure = _run_package_body(package, initializer)
+                failure = _run_package_body(package, initializer, private_copy=private_copy)
                 if failure is not None:
                     skipped.append(failure)
                     _note(journal, "skipped", failure)
@@ -2183,7 +2200,7 @@ def load_modules(
             # only evidence that it was the one being read.
             _note(journal, "reading", path)
             module, failure, notes = _import_one(
-                name, path, None, import_timeout, package, redirects
+                name, path, None, import_timeout, package, redirects, private_copy=private_copy
             )
             if module is not None:
                 entry = LoadedModule(
@@ -2214,7 +2231,7 @@ def load_modules(
                 continue
             _note(journal, "reading", path)
             module, failure, notes = _import_one(
-                path.stem, path, source, import_timeout, None, redirects
+                path.stem, path, source, import_timeout, None, redirects, private_copy=private_copy
             )
             if module is not None:
                 entry = LoadedModule(
@@ -2373,6 +2390,7 @@ def discover(
     import_timeout: float = IMPORT_TIMEOUT_SECONDS,
     journal: Optional[Callable[[str, object], None]] = None,
     resource_files: Optional[Mapping[str, Path]] = None,
+    private_copy: bool = False,
 ) -> Discovery:
     """Choose a root, import what imports, and report all of it.
 
@@ -2433,6 +2451,7 @@ def discover(
                 import_timeout=import_timeout,
                 journal=journal,
                 resource_files=resource_files,
+                private_copy=private_copy,
             )
             stubbed = stubbed_now()
             initializers = initializers_now(root.path, extra)
@@ -2445,6 +2464,7 @@ def discover(
                     import_timeout=import_timeout,
                     journal=journal,
                     resource_files=resource_files,
+                    private_copy=private_copy,
                 )
                 stubbed = stubbed_now()
                 initializers = initializers_now(root.path, extra)
