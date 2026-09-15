@@ -822,19 +822,31 @@ def resolve(
                 # piece is a database rather than better work in the step
                 # before it.
                 #
-                # The sentence names the role the week declared rather than a
-                # noun of its own: Week 1 stores a song, Week 2 stores a face,
-                # and both reach here. Written in Week 1's nouns, it told a
-                # face-recognition team about fingerprinting and songs.
+                # This slot is the next step, so it says what to go and check
+                # rather than restating the headline, and it points at the
+                # function the headline already named. Both weeks that reach
+                # here store different things -- Week 1 a song, Week 2 a face --
+                # so naming either one told the other week's team about the
+                # wrong course. Their own function is the handle both weeks
+                # share, and it keeps one name through the whole message.
+                #
+                # Empty `reached` falls back to the role, because `not_wired`
+                # guards its own headline the same way rather than indexing a
+                # trace it was handed empty.
+                made = (
+                    reached[-1].function
+                    if reached
+                    else "your {} step".format(chain_role.name)
+                )
                 return Submission(
                     not_wired(
                         "identification",
                         "database",
                         reached,
                         next_step=(
-                            "The benchmark found your {} step but no pair of your "
-                            "functions that stores what it returns and then names "
-                            "it back.".format(chain_role.name)
+                            "Check that two of your functions take what {} "
+                            "returns: one that stores it under a name, and one "
+                            "that looks up a new one and returns the name.".format(made)
                         ),
                         coverage=_coverage_of(found, benchmark),
                     ),
