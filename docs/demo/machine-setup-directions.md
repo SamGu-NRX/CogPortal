@@ -103,10 +103,15 @@ report anything else rather than working around it.
    CogPortal team and 5 of 5 verified. If it shows the sign-in page, tell Sam
    and let him sign in himself.
 
-4. Open `https://cogportal.sillion.app/dashboard` and set the track to Song
-   Identification. The run log is scoped to the selected benchmark, and the
-   default selection is not necessarily Audio. Three succeeded runs at 0.5375
-   should be listed.
+4. Open `https://cogportal.sillion.app/dashboard` and reload it before reading
+   anything. The prepared tab has been open for a while, and a tab that has sat
+   without reloading can still show rows from an earlier state under the right
+   address, which is a stale view no amount of checking the hostname catches.
+   Reloading costs the prepared branch selection, so reselect
+   `codex/demo-rehearsal-d9405278` afterwards; a known reselect beats an
+   unverified page. Then set the track to Song Identification, because the run
+   log is scoped to the selected benchmark and the default is not necessarily
+   Audio. Three succeeded runs at 0.5375 should be listed.
 
 ## 4. Before the hosted run, match the branch
 
