@@ -260,14 +260,14 @@ test("a newest report naming another repository stops dispatch rather than falli
   ]);
 
   await assert.rejects(
-    getLatestTeamWeights(env, "team_1", REPO, sha, 77),
+    getLatestTeamWeights(env, "team_1", REPO, sha, 77, BENCHMARK),
     /names a different repository than this execution/,
   );
   // Unknown on either side is unknown, not a match and not a conflict.
-  assert.deepEqual(await getLatestTeamWeights(env, "team_1", REPO, sha, null), {
+  assert.deepEqual(await getLatestTeamWeights(env, "team_1", REPO, sha, null, BENCHMARK), {
     weightsUsed: ["newest.pkl"], weightsUploaded: null,
   });
-  assert.deepEqual(await getLatestTeamWeights(env, "team_1", REPO, sha, 78), {
+  assert.deepEqual(await getLatestTeamWeights(env, "team_1", REPO, sha, 78, BENCHMARK), {
     weightsUsed: ["newest.pkl"], weightsUploaded: null,
   });
 });
@@ -309,9 +309,44 @@ test("the newest matching team report supplies the run weight paths", async () =
     },
   ]);
 
-  assert.deepEqual(await getLatestTeamWeights(env, "team_1", REPO, sha), {
+  assert.deepEqual(await getLatestTeamWeights(env, "team_1", REPO, sha, null, BENCHMARK), {
     weightsUsed: ["models/current.pkl"],
     weightsUploaded: null,
+  });
+});
+
+test("another benchmark's newer report does not empty this benchmark's weights", async () => {
+  const { env, db } = await seededDb();
+  const sha = "b".repeat(40);
+  // One repository, two benchmarks, one commit: the ordinary shape, since a
+  // team connects a single repository and runs every benchmark from it.
+  await db.insert(localReports).values([
+    {
+      ...reportRow("report_weighted", 1),
+      sha,
+      weightsUsedJson: JSON.stringify(["data/W_embed.npy"]),
+      weightsUploadedJson: JSON.stringify([{ path: "data/W_embed.npy", sha256: DIGEST }]),
+      syncedAt: 10,
+    },
+    {
+      // The other benchmark names no weights, and it synced last.
+      ...reportRow("report_other_benchmark", 1),
+      benchmarkId: "other-benchmark",
+      sha,
+      weightsUsedJson: JSON.stringify([]),
+      weightsUploadedJson: JSON.stringify([]),
+      syncedAt: 20,
+    },
+  ]);
+
+  // The digest travels; the byte length comes from the stored object.
+  assert.deepEqual(await getLatestTeamWeights(env, "team_1", REPO, sha, null, BENCHMARK), {
+    weightsUsed: ["data/W_embed.npy"],
+    weightsUploaded: [{ path: "data/W_embed.npy", sha256: DIGEST }],
+  });
+  assert.deepEqual(await getLatestTeamWeights(env, "team_1", REPO, sha, null, "other-benchmark"), {
+    weightsUsed: [],
+    weightsUploaded: [],
   });
 });
 
@@ -328,7 +363,7 @@ test("legacy reports remain readable and upsertable without declaring committed 
   const saved = await upsertLocalReport(env, "user_1", legacy);
   assert.equal(saved.created, false);
   assert.equal(saved.report.weightsUploaded, null);
-  const weights = await getLatestTeamWeights(env, "team_1", REPO, sha);
+  const weights = await getLatestTeamWeights(env, "team_1", REPO, sha, null, BENCHMARK);
   await assert.rejects(
     weightManifest({ head: async () => null }, REPO, sha, weights.weightsUsed, weights.weightsUploaded),
     /doesn't identify its uploaded weights/,
@@ -353,7 +388,7 @@ test("report upload requirements survive upsert and dispatch selection", async (
   assert.ok(report);
   const saved = await upsertLocalReport(env, "user_1", { ...report, weightsUploaded: [{ path: "model.pkl", sha256: "a".repeat(64) }] });
   assert.deepEqual(saved.report.weightsUploaded, [{ path: "model.pkl", sha256: "a".repeat(64) }]);
-  const weights = await getLatestTeamWeights(env, "team_1", REPO, sha);
+  const weights = await getLatestTeamWeights(env, "team_1", REPO, sha, null, BENCHMARK);
   assert.deepEqual(weights, {
     weightsUsed: ["model.pkl", "committed.pkl"], weightsUploaded: [{ path: "model.pkl", sha256: "a".repeat(64) }],
   });
