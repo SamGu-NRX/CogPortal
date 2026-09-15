@@ -34,8 +34,19 @@
     }
   ],
 
-  // Trained-file storage is optional and is not provisioned. GitHub source,
-  // report sync and runs without uploaded weights do not need ARTIFACTS.
+  // Staging's trained-file storage. `cogportal-artifacts-dev` was created on
+  // 2026-09-15 and is private: no r2.dev public URL, no custom domain, reached
+  // only through this binding. Production deliberately has no R2 block yet, so
+  // a staging upload has nowhere to land in production and the production
+  // bucket is not created before it is needed.
+  //
+  // Trained-file storage stays optional in code. GitHub source, report sync and
+  // runs without uploaded weights never touch ARTIFACTS, and the Worker answers
+  // rather than throws when it is unbound, so this binding adds a capability
+  // instead of a requirement.
+  "r2_buckets": [
+    { "binding": "ARTIFACTS", "bucket_name": "cogportal-artifacts-dev" }
+  ],
 
   "durable_objects": {
     "bindings": [
@@ -155,6 +166,10 @@
           "migrations_dir": "migrations"
         }
       ],
+      // No r2_buckets here on purpose. Production gets its own bucket when
+      // hosted weight upload is accepted on staging, and it must never name
+      // the staging bucket: weights are addressed by repository and commit, so
+      // one shared bucket would collide on exactly the interesting case.
       "durable_objects": {
         "bindings": [{ "name": "RUN_SURFACES", "class_name": "RunSurfaceHub" }]
       },

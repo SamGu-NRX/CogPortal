@@ -261,10 +261,10 @@ and an older CLI clipboard result is not evidence for this release.
 ## 6. Production release gates
 
 `apps/portal/wrangler.jsonc` describes the intended production configuration.
-Checking it in deploys nothing, and two of its values read as if they were
-already true: `EXECUTION_PROVIDER` is `modal` and the R2 binding names a bucket
-that does not exist yet. These gates are what has to pass before
-`pnpm --filter @cogworks/portal run deploy:production` is run, in this order.
+Checking it in deploys nothing, and one of its values reads as if it were
+already true: `EXECUTION_PROVIDER` is `modal`. These gates are what has to pass
+before `pnpm --filter @cogworks/portal run deploy:production` is run, in this
+order.
 That is the whole command; there is no root `deploy:production` script, and
 `pnpm deploy:portal` targets staging.
 
@@ -370,28 +370,35 @@ shortcut stops applying the moment production dispatches.
 
 ### Gate R2
 
-Create both buckets before deploying either environment:
+Create a bucket before deploying the environment that binds it. Staging's is
+done:
 
 ```sh
-wrangler r2 bucket create cogportal-artifacts
-wrangler r2 bucket create cogportal-artifacts-dev
+wrangler r2 bucket create cogportal-artifacts-dev   # done 2026-09-15
 ```
 
-As of the 2026-09-14 read, R2 is not activated on the account: bucket listing
-answers Cloudflare code 10042, a request to activate it in the dashboard.
-Activation and billing are owner decisions.
+R2 is activated on the account as of the 2026-09-15 read; the earlier code
+10042 refusal on bucket listing is gone. The listing then held one bucket,
+`cogportal-artifacts-dev`, private: `wrangler r2 bucket dev-url get` reports
+public access disabled and `wrangler r2 bucket domain list` reports no custom
+domains. Leave it that way. Weights are reached through the `ARTIFACTS`
+binding and signed portal downloads, so a public URL would only widen who can
+read a team's trained file.
+
+`cogportal-artifacts` for production is deliberately not created and
+`env.production` deliberately has no `r2_buckets` block, so production weight
+upload answers 501 until hosted upload is accepted on staging. Create it in
+the same step that adds the production binding, never before, and never point
+production at the staging bucket: weights are addressed by repository and
+commit, so one shared bucket would collide on exactly the case that matters.
 
 **Verify the binding rather than assuming a refusal.** It would be convenient
 if Wrangler always refused a deploy naming a bucket that does not exist, and
 that has not been tested here, so do not rely on it. After deploying, confirm
-`ARTIFACTS` is present in the binding list Wrangler prints, and confirm both
-buckets exist with `wrangler r2 bucket list`. The failure being guarded against
-is quiet: a Worker with `ARTIFACTS` unbound answers 501 on weight upload and
+`ARTIFACTS` is present in the binding list Wrangler prints and that the bucket
+exists in `wrangler r2 bucket list`. The failure being guarded against is
+quiet: a Worker with `ARTIFACTS` unbound answers 501 on weight upload and
 otherwise looks healthy.
-
-The two environments name different buckets because weights are addressed by
-repository and commit, so one shared bucket would collide on exactly the case
-that matters.
 
 ### Images, and why this is not one command
 
@@ -733,8 +740,9 @@ request to a deployed origin, so run it deliberately. Do not reach for
       catalog flag alone does not survive `0018`
 - [ ] Audio activation in production named as an explicit decision, not
       inherited from a migration
-- [ ] both R2 buckets created, the account activated, and `ARTIFACTS` confirmed
-      bound in each environment after deploying
+- [ ] `cogportal-artifacts` created and bound as `ARTIFACTS` in
+      `env.production`, in that order, and confirmed bound after deploying
+      (staging's `cogportal-artifacts-dev` is already created and bound)
 - [ ] production secrets set by name on `cogportal-production`, including
       `RUNNER_SIGNING_SECRET`
 - [ ] four probe receipts, one per served benchmark, each exited 0 and naming
