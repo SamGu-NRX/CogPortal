@@ -16,8 +16,7 @@ export const ProtocolMetricSchema = z.object({
    * capstone it corresponds to. Optional because plugins written before it
    * exists do not send one; a metric with no explanation renders without the
    * help affordance rather than with an empty one.
-   */
-  /**
+   *
    * 1000, because 600 rejected a real result. Week 3's `search_mrr` explains
    * the whole application end to end and its help runs to 645 characters, so a
    * hosted Language run that bound its search side answered 400 on the
