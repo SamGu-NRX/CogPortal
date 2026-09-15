@@ -94,6 +94,61 @@ REPO_ROOT = _repo_root()
 #: would lose whole completed events rather than a few characters.
 DIAGNOSTIC_LIMIT = 600
 
+#: `protocol.ts` caps `detail` here, and it is one string with nowhere to
+#: put a remainder.
+DETAIL_LIMIT = 240
+
+def _receiver_units(text: str) -> int:
+    """What `z.string().max(n)` counts: UTF-16 code units, not code points.
+
+    Arithmetic rather than `.encode("utf-16-le")`, which raises on a lone
+    surrogate. Student code can produce one and Unix paths can carry one, and
+    this is called from inside failure handling.
+    """
+
+    return sum(2 if ord(character) > 0xFFFF else 1 for character in text)
+
+
+def _take_units(text: str, limit: int) -> Tuple[str, str]:
+    """`(head, rest)` where `head` is within `limit` receiver units."""
+
+    used = 0
+    for index, character in enumerate(text):
+        size = 2 if ord(character) > 0xFFFF else 1
+        if used + size > limit:
+            return text[:index], text[index:]
+        used += size
+    return text, ""
+
+
+def _fit(text: str, limit: int) -> str:
+    """`text` within `limit` receiver units, cut at a word and marked if cut.
+
+    For a field with nowhere to put a remainder. The receiver answers 400 past
+    its cap and `_post_event` does not retry a 400, so an oversized field loses
+    the whole event rather than a few characters.
+    """
+
+    if _receiver_units(text) <= limit:
+        return text
+    head, _ = _take_units(text, limit - 4)  # room for " ..."
+    return (head.rsplit(" ", 1)[0] if " " in head else head) + " ..."
+
+
+def _failure_detail(error: Any) -> str:
+    """The failure's own words, within `DETAIL_LIMIT`.
+
+    Sliced at 240 code points, this landed mid-word: staging run
+    run_158c8e88c3 read "...trying to locate the file on the Hub a". A short
+    message keeps its own line breaks; only one that has to be cut is joined
+    into a line, because a word-boundary cut needs words on one line.
+    """
+
+    raw = str(error)
+    if _receiver_units(raw) <= DETAIL_LIMIT:
+        return raw
+    return _fit(" ".join(raw.split()), DETAIL_LIMIT)
+
 
 def _diagnostic_lines(item: Any) -> List[str]:
     """One note, in pieces no longer than the wire allows, split between words.
@@ -110,14 +165,24 @@ def _diagnostic_lines(item: Any) -> List[str]:
     """
 
     text = str(item).strip()
-    if len(text) <= DIAGNOSTIC_LIMIT:
+    if _receiver_units(text) <= DIAGNOSTIC_LIMIT:
         return [text]
-    return textwrap.wrap(
+    # `textwrap` measures in code points, so a line of astral characters can
+    # still exceed the cap the receiver counts. Any that does is split again
+    # rather than cut: this path has somewhere to put a remainder, and keeping
+    # the whole instruction is the reason it exists.
+    lines = []
+    for line in textwrap.wrap(
         text,
         width=DIAGNOSTIC_LIMIT,
         break_long_words=True,
         break_on_hyphens=False,
-    ) or [text[:DIAGNOSTIC_LIMIT]]
+    ):
+        while _receiver_units(line) > DIAGNOSTIC_LIMIT:
+            head, line = _take_units(line, DIAGNOSTIC_LIMIT)
+            lines.append(head)
+        lines.append(line)
+    return lines or [text]
 
 
 def _cogbench_environment():
@@ -624,6 +689,7 @@ discovery = None
 if resolved_by is None:
     import json
 
+    searched_their_code = False
     try:
         sys.path.insert(0, "/opt/cogbench")
         from cogbench.plugins import load_benchmark
@@ -631,8 +697,19 @@ if resolved_by is None:
 
         plugin = load_benchmark(benchmark_id)
         describes = getattr(plugin, "discovery", None)
+        # A week with no discovery() at all is not a failure: the team is
+        # expected to declare an adapter, and the fallback below says so.
         if callable(describes):
             spec = describes()
+            if spec is None:
+                # Both Week 2 plugins answer None when their dataset cache is
+                # missing. The week cannot describe its task, which is ours.
+                raise RuntimeError("discovery() returned no spec")
+            # Everything above is ours. Nothing has touched the repository
+            # yet, so a failure up to here cannot be the team's. Past this
+            # line the search runs their code, and a failure is theirs or
+            # unattributable; either way not ours to claim.
+            searched_their_code = True
             # from_spec forwards everything a week declares: its resources,
             # its resource files, its database factory predicate, its reader
             # budget. Naming the five original fields here is how Week 3's
@@ -653,7 +730,7 @@ if resolved_by is None:
     except Exception as error:
         discovery = {
             "verdict": {
-                "status": "not_read",
+                "status": "not_read" if searched_their_code else "benchmark_unavailable",
                 "headline": "The search for your code could not run: {}".format(
                     str(error)[:200]
                 ),
@@ -669,9 +746,15 @@ if resolved_by is None:
 if resolved_by is None:
     # The verdict says more than this line can, and it has already been
     # written for the caller to read. This is the summary that reaches a log.
-    detail = ""
-    if discovery:
-        detail = " " + str(discovery.get("verdict", {}).get("headline", ""))[:300]
+    verdict = (discovery or {}).get("verdict", {})
+    detail = " " + str(verdict.get("headline", ""))[:300] if discovery else ""
+    if verdict.get("status") == "benchmark_unavailable":
+        # Saying "no adapter found" here would be a verdict on code nobody
+        # read. The controller routes this to the platform's own category.
+        raise RuntimeError(
+            "This benchmark could not describe its task, so {} was never "
+            "read.{}".format(project.name, detail)
+        )
     raise RuntimeError(
         "No adapter found in {}, and no set of functions in it performed the "
         "benchmark's task.{}".format(project.name, detail)
@@ -1522,6 +1605,13 @@ def _prepare(job: Dict[str, Any], reporter: LiveReporter) -> Tuple[str, Dict[str
             # "no adapter found" is the message PREPARE_SCRIPT raises when a
             # repository has neither a submission.py nor an entry point;
             # "entry point" catches the older ambiguous-registration message.
+            # The week could not describe its own task, so nothing read the
+            # repository. Read off the status our own prepare step wrote, not
+            # out of the message: `normalized` includes the student's stderr,
+            # and choosing a refunding category from text they control is the
+            # forgery this controller already refuses elsewhere.
+            if (refusal or {}).get("status") == "benchmark_unavailable":
+                raise RunnerFailure("provider", "preparing", detail, True)
             if "no adapter found" in normalized or "entry point" in normalized:
                 raise RunnerFailure(
                     "adapter_missing", "contract_check", detail, False, refusal
@@ -2450,7 +2540,7 @@ def _last_error_line(value: str) -> str:
 
     stripped = lines[-1].strip()
     if stripped.startswith("COG_ERROR:"):
-        return stripped[len("COG_ERROR:"):].strip()[:240]
+        return _fit(stripped[len("COG_ERROR:"):].strip(), DETAIL_LIMIT)
 
     # Walk back to the last unindented line: Python puts `Type: message`
     # there, and every traceback frame above it is indented.
@@ -2462,7 +2552,7 @@ def _last_error_line(value: str) -> str:
             if ": " in text and text.split(": ", 1)[0].isidentifier():
                 text = text.split(": ", 1)[1]
             if text and not text.startswith("Traceback"):
-                return text[:240]
+                return _fit(text, DETAIL_LIMIT)
     return "The student process exited before producing a valid result."
 
 
@@ -2573,12 +2663,7 @@ def _sweep_wire(benchmark):
         return None
     return {
         "axis": getattr(benchmark, "sweep_axis_label", "difficulty"),
-        # The curve is not always the primary metric. Week 3 plots search MRR
-        # per rung while its primary is `overall`, so the chart was labelled
-        # with a number it does not draw. A plugin that names the metric its
-        # curve plots is believed; Week 1 names none and keeps the primary,
-        # which is what its catalog-size curve actually shows.
-        "metric": getattr(benchmark, "sweep_metric", None) or _primary_for_run(benchmark),
+        "metric": _primary_for_run(benchmark),
         "points": wire,
     }
 
@@ -2731,7 +2816,7 @@ def execute_job(job_value: Dict[str, Any]) -> None:
         if _WIRING:
             result["wiring"] = _WIRING
     except Exception as error:
-        detail = str(error)[:240]
+        detail = _failure_detail(error)
         refusal = None
         if isinstance(error, RunnerFailure):
             category = error.category
