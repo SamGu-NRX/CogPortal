@@ -52,13 +52,15 @@ code being scored.
 
 Dashboard, on the Song Identification track.
 
-Set **Branch** to `codex/demo-rehearsal-d9405278`. It opens on `main` and does
-not follow the push you just made.
+Check **Branch** reads `codex/demo-rehearsal-d9405278`. The prepared tab was
+left on it, but any reload drops the menu back to `main`, and it never follows
+the push you just made.
 
 Click **Run practice benchmark**. Read the line on the run panel out loud:
 `practice · codex/demo-rehearsal-d9405278 · <short sha>`.
 
-Two rehearsed runs took 2m01s and 2m18s. Say "about two minutes".
+Three rehearsed runs took 2m01s, 2m18s and 2m56s. Say "two or three minutes"
+and leave yourself room.
 
 ## 4. While it runs
 
@@ -116,9 +118,21 @@ benchmark writes the sentence and the number sits under it.
   teammate who committed under two identities appears twice, and the panel says
   when it last read the history, which can be half an hour ago. It records
   where work went, not which tasks are done.
-- **Other tracks.** Language and both Vision tracks carry their own setup state
-  and their own untouched quota, which shows the tracks are separate. None has
-  a rehearsed run.
+- **Language, and a model the student trained.** The saved run is
+  `https://cogportal.sillion.app/runs/run_6deb074208`. It scored 0.4126 overall
+  on `SamGu-NRX/Language_Module_Capstone@8789361`, and the page shows
+  `data/W_embed.npy from your local run at 8789361`: a weight file the student
+  trained on their own machine, carried up automatically and used by the hosted
+  run. All nineteen stored values match their local report exactly. Two caveats.
+  It is a saved result rather than a live one, and it took 15m31s, so do not
+  start another. And it belongs to a different repository than the one the team
+  is connected to right now, which is how it was opened when it was verified; if
+  the link does not open cleanly today, drop the expansion rather than
+  troubleshooting it on stage.
+- **Other tracks.** Each track carries its own setup state and its own quota,
+  which is what shows they are separate. Both Vision tracks have real runs on
+  the staging site, not on production, so describe them rather than opening
+  them here.
 - **The refusal.** A repository the tool cannot read, where it names each
   candidate and why it refused. That case needs a student repository that is
   not on this machine, so describe it rather than running it.
@@ -131,9 +145,10 @@ sign-in; account linking and the bot are the parts that work.
 - **Is the scoring real?** Yes, on both surfaces, and it is the same code. In
   rehearsal this repository scored 0.5375 in the terminal and 0.5375 on the
   hosted runner from the same commit.
-- **What about cheating?** The hosted run scores against a private answer key,
-  which is not part of what the sandbox receives, and every team gets three
-  official attempts. This walkthrough spends none of them.
+- **What about cheating?** What you just watched is a practice run, scored
+  against the public set that ships with the benchmark. Official attempts read
+  a separate hidden set the practice path never touches, and every team gets
+  three of them. This walkthrough spends none.
 - **What does it take to adopt?** A team signs in with GitHub, joins the cohort,
   and connects their repository. Each student activates the course environment
   for the week, installs the tool and the benchmark with the two commands on

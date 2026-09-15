@@ -23,19 +23,26 @@ to reset.
   expires Nov 14.
 - Discord user SamG is linked and the team channel is bound, so a hosted run
   posts its progress there.
-- Two hosted practice runs are saved. Practice usage is 2 of 10, which leaves
-  eight. No official attempt has been used.
+- Three hosted practice runs are saved. Practice usage is 3 of 10, which leaves
+  seven. No official attempt has been used.
 
-Saved results to fall back on if anything live fails:
+Saved results, newest first:
 
 | Run | Score | Wall clock | Source |
 | --- | --- | --- | --- |
+| [`run_4e15c756d0`](https://cogportal.sillion.app/runs/run_4e15c756d0) | 0.5375 | 2m56s | `e515ff6` |
 | [`run_b647f110de`](https://cogportal.sillion.app/runs/run_b647f110de) | 0.5375 | 2m18s | `e515ff6` |
 | `run_6c658516d2` | 0.5375 | 2m01s | `e515ff6` |
 
 Ten of the eleven metrics the site displays match the saved local report
 exactly. The one that differs is an unscored timing, which is what you would
 expect from two different machines.
+
+**Known limitation on the fallback.** These are real results and they stay
+useful if a live run is slow, but one of them is a saved run from earlier
+today, not a new result, so say which it is. Three clean runs in a row also do
+not prove the service holds up under load: production returned 503 under load
+earlier, and nothing since has tested capacity.
 
 ## 2. The environment
 
@@ -98,18 +105,20 @@ report anything else rather than working around it.
 
 4. Open `https://cogportal.sillion.app/dashboard` and set the track to Song
    Identification. The run log is scoped to the selected benchmark, and the
-   default selection is not necessarily Audio. Two succeeded runs at 0.5375
+   default selection is not necessarily Audio. Three succeeded runs at 0.5375
    should be listed.
 
 ## 4. Before the hosted run, match the branch
 
-This is the one step that quietly produces the wrong demo. The dashboard's
-**Branch** menu starts on the repository's default branch, which is `main`
-(`apps/portal/src/routes/DashboardPage.tsx:334`). It does not follow the branch
-you just pushed to. If Sam pushes to `codex/demo-rehearsal-d9405278` and then
-clicks **Run practice benchmark** without touching the menu, the hosted run
-scores `main` at `7125804`, and the commit he just made on stage is not the one
-in the result.
+The prepared Helium tab was left with `codex/demo-rehearsal-d9405278` already
+selected, so check it rather than assume it. The selection lives in component
+state (`apps/portal/src/routes/DashboardPage.tsx:334`), which means any reload
+or fresh navigation drops it back to the repository's default branch, `main`.
+
+That is the one step that quietly produces the wrong demo. If Sam pushes to
+`codex/demo-rehearsal-d9405278` and then clicks **Run practice benchmark** with
+the menu sitting on `main`, the hosted run scores `main` at `7125804`, and the
+commit he just made on stage is not the one in the result.
 
 Select `codex/demo-rehearsal-d9405278` in the **Branch** menu first, then start
 the run. When the run appears, the panel reads
