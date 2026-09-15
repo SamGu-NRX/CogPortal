@@ -8,8 +8,9 @@ Everything that has to be true first is in
 [machine setup](machine-setup-directions.md), which is the one copy of those
 directions. This file used to repeat them and the two drifted apart.
 
-Joel's time is not fixed. The core below runs about ten minutes and answers the
-only question a technical person is holding, which is whether it actually runs.
+Joel's time is not fixed. The core below should take roughly ten minutes,
+which is an estimate rather than a rehearsed figure, and it answers the only
+question a technical person is holding, which is whether it actually runs.
 The expansions after it are each a minute or two and stand alone, so take them
 in any order or not at all.
 
@@ -93,21 +94,23 @@ report for the previous commit records twelve seconds between start and finish,
 eleven metrics, and nine diagnostics. That speed is the on-ramp argument from
 the deck, running.
 
-Sync that report by name:
-
-```sh
-cogworks sync '<the path the run just printed>'
-```
-
-With no path, `sync` takes the most recent report on the machine, which may
-belong to another repository. On stage that would quietly put someone else's
+The last line it prints reads `saved:` followed by an absolute path. Copy that
+path and pass it to `cogworks sync`. Do not run `sync` with no path: it falls
+back to the most recent report on the machine, which on this machine may belong
+to a different repository, and on stage that would quietly put someone else's
 result on the board.
 
-It arrives on the dashboard under `SELF-REPORTED · NOT PROMOTABLE`. Say what
-the label is doing: the site shows a number it did not watch being produced,
-and it will not let that number be published. Had the worktree been dirty, the
-page would not offer hosted verification at all, and it would say why:
-"Hosted verification needs a commit."
+Then reload the dashboard. A synced report does not appear in a tab that is
+already open, because the local-report query does not poll and the app turns
+off refetching when a window regains focus (`apps/portal/src/App.tsx:27`). The
+hosted run's own polling refreshes a different query, so the page can end up
+showing the hosted result and not the local one.
+
+The local result arrives under `SELF-REPORTED · NOT PROMOTABLE`. Say what the
+label is doing: the site shows a number it did not watch being produced, and it
+will not let that number be published. Had the worktree been dirty, the page
+would not offer hosted verification at all, and it would say why: "Hosted
+verification needs a commit."
 
 Meanwhile the bot is posting the hosted run into the team's Discord channel and
 editing that one message as the phases pass. In rehearsal it ran from bench
@@ -149,11 +152,12 @@ below it.
   right answer and not an empty state to apologize for.
 - **Team.** The process panel lists the stages of the capstone with the people
   who committed to each, and the date spans. It reads them from this team's
-  commits, so the stages it shows are whatever the history supports. Two warnings before showing
-  it. A teammate who committed under two identities appears twice, so read what
-  is on screen instead of promising a headcount. And the panel states when it
-  last read the history, which can be half an hour ago, so do not present it as
-  live. It is a record of where work went, not a count of tasks completed.
+  commits, so the stages it shows are whatever the history supports. Two
+  warnings before showing it. A teammate who committed under two identities
+  appears twice, so read what is on screen rather than promising a headcount.
+  And the panel says when it last read the history, which can be half an hour
+  ago, so do not present it as live. It is a record of where work went, not a
+  count of tasks completed.
 - **Other tracks.** Language and both Vision tracks each show their own setup
   state and their own untouched quota, which is the clearest way to show the
   tracks are genuinely separate. None of them has a rehearsed run, so do not

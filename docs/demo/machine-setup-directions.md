@@ -7,7 +7,7 @@ records the state, the commands, and the checks worth running on the day.
 here rather than repeating any of it.
 
 Every identifier below was observed during the production rehearsal on
-2026-09-15, against build `20889b5`. Run the checks in section 3 on the day.
+2026-09-15. Run the checks in section 3 on the day.
 Do not start a hosted evaluation to reconfirm a number already recorded here,
 because each one spends a practice attempt.
 
@@ -62,8 +62,8 @@ export NUMBA_CACHE_DIR=/tmp/cogportal-rehearsal-caches/numba
 export MPLCONFIGDIR=/tmp/cogportal-rehearsal-caches/matplotlib
 ```
 
-Those paths are all under `/tmp`, so a reboot or a cleanup sweep takes the
-environment with them. Section 5 says what to do if that happens.
+Those paths are all under `/tmp`, which a reboot or a cleanup sweep can take
+with it. Section 5 says what to do if that happens.
 
 **The browser** is Helium, because it holds the signed-in session. Chrome is
 also on this machine and is not the one to use. Open a new window rather than
@@ -116,19 +116,29 @@ the run. When the run appears, the panel reads
 `practice · codex/demo-rehearsal-d9405278 · <short sha>`. Read that line once
 before moving on.
 
-If the branch is missing from the menu, the site is working from a stale branch
-list for the repository. Reload the dashboard once. The menu falls back to the
-default branch alone when it cannot read the list
-(`apps/portal/src/routes/DashboardPage.tsx:67`).
+If the branch is missing from the menu, the site could not read the branch list
+and fell back to the default branch alone
+(`apps/portal/src/routes/DashboardPage.tsx:67`). Reload the dashboard once.
+
+If it is still missing after that reload, stop. Do not start the run. The only
+branch you could start is `main`, which scores the wrong commit and makes the
+point backwards. Show the saved result at
+`https://cogportal.sillion.app/runs/run_b647f110de` instead, and tell Sam
+before he is on stage rather than during.
 
 ## 5. If the /tmp environment is gone
 
-The virtualenv and its configuration live under `/tmp`, so they do not survive
-a reboot. If `cogworks` is missing or `cogworks status` reports no portal,
-rebuild rather than improvise:
+The virtualenv and its configuration live under `/tmp`, so a reboot or a
+cleanup sweep can remove them. If `cogworks` is missing or `cogworks status`
+reports no portal, rebuild rather than improvise:
 
-1. Create a fresh virtualenv outside any repository, and activate it.
-2. Run the install commands from `https://cogportal.sillion.app/setup` in it.
+1. Activate the course Audio environment first. The two install commands on
+   the Setup page install the tool and the benchmark and nothing else, and the
+   student's own code imports librosa, numba, scipy, soundfile and the rest
+   from the CogWeb environment for the week. The Setup page says this above its
+   first install line.
+2. Run the install commands from `https://cogportal.sillion.app/setup` into
+   that environment.
 3. Run `cogworks link --portal https://cogportal.sillion.app --no-browser`,
    then paste the printed URL into the Helium window that holds Sam's session.
    Approving the device needs his session, so ask him to press **Approve**.
@@ -143,6 +153,13 @@ rebuild rather than improvise:
    (`project_root = Path.cwd()`, `python/cogbench/src/cogbench/cli.py:890`), so
    running either from the virtualenv's own directory inspects the wrong
    project and reports nothing useful.
+
+`check` names any course package the graded run installs and this machine
+lacks, and it still exits successfully when some are missing. Read that list
+rather than trusting the exit code. If the course stack cannot be rebuilt in
+time, drop the local scoring pass from the walkthrough and show the saved
+hosted result. The hosted runner is unaffected by any of this, because it
+builds its own environment.
 
 Use `--no-browser`. Without it the CLI opens the system default browser, which
 may not be the one holding the signed-in session.
@@ -177,7 +194,7 @@ Discord linking is optional and starts with `/cog` in the course server.
   verified setup state, and the demo depends on that state reading 5 of 5.
 - Do not commit, push, or discard anything in the student checkout beyond the
   one deliberate demo edit the walkthrough describes.
-- Do not touch `apps/portal/.dev.vars` or any file holding a credential, and do
-  not print the CLI configuration.
+- Do not open or print any file holding a credential, including the CLI
+  configuration and any `.dev.vars` in a CogPortal checkout.
 - Do not close windows, tabs, or editor buffers you did not open, and do not
   quit an application that was already running.
