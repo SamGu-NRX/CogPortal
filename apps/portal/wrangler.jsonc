@@ -34,13 +34,8 @@
     }
   ],
 
-  // Separate buckets so a staging upload cannot replace a production artifact.
-  // Both must exist before deploying, and the binding must be confirmed present
-  // afterwards rather than assumed. Never unbind to recover: sandboxes fetch
-  // weights mid-run. See docs/runbooks/platform.md, "Gate R2".
-  "r2_buckets": [
-    { "binding": "ARTIFACTS", "bucket_name": "cogportal-artifacts-dev" }
-  ],
+  // Trained-file storage is optional and is not provisioned. GitHub source,
+  // report sync and runs without uploaded weights do not need ARTIFACTS.
 
   "durable_objects": {
     "bindings": [
@@ -102,8 +97,8 @@
   // everything is re-declared here.
   //
   // This block describes the intended production configuration. Checking it in
-  // deploys nothing, and it is not deploy-ready: EXECUTION_PROVIDER is "modal"
-  // and the R2 binding names a bucket that does not exist yet. The ordered
+  // deploys nothing. Matching Modal images/controller, schema and secrets
+  // still need coordinated promotion before hosted execution. The ordered
   // gates are docs/runbooks/platform.md, "Production release gates", which is
   // the list to follow rather than this comment.
   //
@@ -158,11 +153,6 @@
           "database_id": "83ad728b-e6c5-46cf-bbec-2bdecfe9952e",
           "migrations_dir": "migrations"
         }
-      ],
-      // See the staging block: separate bucket, must exist before deploying,
-      // binding confirmed after, never unbound to recover.
-      "r2_buckets": [
-        { "binding": "ARTIFACTS", "bucket_name": "cogportal-artifacts" }
       ],
       "durable_objects": {
         "bindings": [{ "name": "RUN_SURFACES", "class_name": "RunSurfaceHub" }]
