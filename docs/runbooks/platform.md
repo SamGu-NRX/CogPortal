@@ -300,15 +300,27 @@ talk past.
 environments. Names only, values never in a file or a chat:
 `ACTIVITY_SESSION_SECRET`, `BETTER_AUTH_SECRET`, `DISCORD_BOT_TOKEN`,
 `DISCORD_CLIENT_SECRET`, `GITHUB_CLIENT_SECRET`, `PLATFORM_OWNER_LOGINS`,
-`RUNNER_SIGNING_SECRET`. The last is the one production does not have.
+`RUNNER_SIGNING_SECRET`.
+
+An earlier version of this line said production did not have
+`RUNNER_SIGNING_SECRET`. It does. `wrangler secret list --env production` on
+2026-09-15 returned every name above, and the Worker's two most recent
+deployments are both `Secret Change`. So the production half of the rotation
+below replaces a live value rather than writing a first one, and `wrangler
+secret put` overwrites it without asking.
 
 Production dispatches to its own Modal app, `cogworks-runner-production`, whose
 signing secret is `cogworks-runner-production-signing`. So production's
 `RUNNER_SIGNING_SECRET` has to be byte-identical to the value inside *that*
-secret and different from staging's. Possession of one value is full authority
-over one portal in both directions, which is the point of separating them: an
-exposure on staging is not an exposure of the course's real data, and a
-rotation drains one portal.
+secret and different from staging's. The value production holds today predates
+that app and cannot match it, which fixes the order of the cutover: replace the
+Worker secret before, or in the same pass as, the Worker deploy that switches
+`MODAL_RUNNER_URL`. A production Worker pointed at the new app while still
+holding the old value gets a bare 401 on every dispatch.
+
+Possession of one value is full authority over one portal in both directions,
+which is the point of separating them: an exposure on staging is not an
+exposure of the course's real data, and a rotation drains one portal.
 
 Create that Modal secret before the first production controller deploy, because
 `Secret.from_name` fails deploy-time resolution rather than creating it.
