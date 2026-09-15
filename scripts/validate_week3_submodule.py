@@ -13,7 +13,7 @@ BENCHMARK = ROOT / "benchmarks" / "week3"
 # Retains 1004766's shared case grid and duplicate-case checks, then binds
 # supported weight inputs to retained bytes. Scorer metadata stays unchanged;
 # this pin does not establish compatibility with every course repository.
-REVIEWED_COMMIT = "cc67edbc989df52e4273eced849603dc0ee802f5"
+REVIEWED_COMMIT = "6dc63fe8f6af2b3554a21f7707debb138f31ae4e"
 
 PLUGIN_EXPECTATIONS = {
     'benchmark_id = "language-search"': "benchmark id",

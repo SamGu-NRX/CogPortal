@@ -6,23 +6,24 @@ import { MetricSchema } from "@cogworks/contracts/schema";
 /**
  * A metric's explanation has to survive the hosted path, not just the local one.
  *
- * This is Week 3's real `search_mrr` help, copied from the result of
- * run_28df471772. The hosted protocol used to cap help at 600 characters and
- * this is 645, so that run answered 400 on its completed event and lost a score
- * it had already measured. Nothing local caught it: the stored side has no
- * limit, so the identical string round-trips through a saved report untouched,
- * and `search_mrr` is only emitted once a submission's search side binds.
+ * This is Week 3's real `search_mrr` help, as the pinned benchmark emits it.
+ * The hosted protocol used to cap help at 600 characters and this is 642, so
+ * run_28df471772 answered 400 on its completed event and lost a score it had
+ * already measured. Nothing local caught it: the stored side has no limit, so
+ * the identical string round-trips through a saved report untouched, and
+ * `search_mrr` is only emitted once a submission's search side binds.
  */
 const WEEK3_SEARCH_MRR_HELP =
   "The application end to end: a query string in, ranked image ids out, " +
-  "through whatever database the submission built. This is the average over " +
-  "four versions of every query (the caption unchanged, its keywords only, " +
-  "its first three words, and one with a typo), so it asks whether search " +
-  "holds up on what a person would actually type rather than only on a " +
-  "caption handed back verbatim. The four are listed separately further down, " +
-  "so a low score here can be traced to the rewrite that caused it. Weak here " +
-  "while the two above are strong points at the plumbing, meaning the " +
-  "database, the id mapping, or the query path, rather than at the embeddings.";
+  "through whatever database the submission built. This is the average " +
+  "over three rewrites of every query -- its keywords only, its first " +
+  "three words, and one with a typo -- so it asks whether search holds " +
+  "up on what a person would actually type. The caption unchanged is " +
+  "run and reported beside them, not scored. All four are listed " +
+  "separately further down, so a low score here can be traced to the " +
+  "rewrite that caused it. Weak here while the two above are strong " +
+  "points at the plumbing, meaning the database, the id mapping, or the " +
+  "query path, rather than at the embeddings.";
 
 function metric(help: string) {
   return {
