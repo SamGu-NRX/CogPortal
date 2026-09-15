@@ -27,10 +27,14 @@ WEEK1_PLUGINS = ROOT / "benchmarks" / "week1" / "audio_identification_benchmark"
 
 
 def _sweep_wire_function():
-    """The shipped `_sweep_wire`, with the one helper it calls."""
+    """The shipped `_sweep_wire`, with the helpers it calls.
+
+    `_primary_for_run` is absent on branches that read `primary_metric`
+    directly, so it is taken when present rather than required.
+    """
 
     module = ast.parse(MODAL_APP.read_text(encoding="utf-8"))
-    wanted = {"_sweep_wire", "_primary_for_run"}
+    wanted = {"_sweep_wire", "_primary_for_run", "_declared_sweep_metric"}
     namespace: dict = {}
     for node in module.body:
         if isinstance(node, ast.FunctionDef) and node.name in wanted:
@@ -68,6 +72,15 @@ class SweepIsLabelledWithWhatItDraws(unittest.TestCase):
     def test_an_empty_declaration_does_not_blank_the_label(self):
         wire = SWEEP_WIRE(Plugin(sweep_metric=""))
         self.assertEqual(wire["metric"], "primary_score")
+
+    def test_a_declaration_the_wire_would_refuse_is_ignored(self):
+        # `SweepSchema.metric` takes 1 to 60 characters. Forwarding anything
+        # else answers 400 on the completed event and loses a measured score,
+        # which is too much to pay for a chart label.
+        for refused in (7, True, ["search_mrr"], "x" * 61, "   "):
+            with self.subTest(declared=refused):
+                wire = SWEEP_WIRE(Plugin(sweep_metric=refused))
+                self.assertEqual(wire["metric"], "primary_score")
 
 
 @unittest.skipIf(not WEEK1_PLUGINS.exists(), "needs the week 1 benchmark checkout")
