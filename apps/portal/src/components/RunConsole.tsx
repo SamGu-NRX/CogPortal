@@ -14,6 +14,7 @@ import {
 } from "@cogworks/contracts/schema";
 import type { StreamState } from "@/lib/run-surface-stream";
 import type { RunSurfaceMutationInput } from "@/lib/api";
+import { Code } from "./Code";
 import { Veil } from "./Veil";
 
 type Mutation = "verify_hosted" | "promote_official" | "publish_result" | "rerun_hosted";
@@ -522,7 +523,9 @@ export function RunConsole({
             <div className="u-kicker">{showCommand ? "Run locally" : "Confirm action"}</div>
             <h2 id="run-action-title" className="mt-2 text-2xl">{showCommand ? "Back to the bench" : ACTION_COPY[pendingAction ?? "run_again"]}</h2>
             {showCommand ? (
-              <code className="mt-4 block overflow-x-auto border border-rule bg-paper-sunken/45 p-3 text-[12px]">cogworks run --benchmark {snapshot.benchmark.id} --live</code>
+              <div className="mt-4">
+                <Code lang="bash" code={`cogworks run --benchmark ${snapshot.benchmark.id} --live`} wrap />
+              </div>
             ) : <p className="mt-3 text-[14px] text-ink-secondary">{confirmation}</p>}
             <div className="mt-6 flex justify-end gap-2">
               <button type="button" className="min-h-11 border border-rule px-4 text-[13px]" onClick={closeDialog}>Close</button>
