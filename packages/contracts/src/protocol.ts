@@ -22,17 +22,14 @@ export const ProtocolMetricSchema = z.object({
    * exists do not send one; a metric with no explanation renders without the
    * help affordance rather than with an empty one.
    *
-   * 1000, because 600 rejected a real result. Week 3's `search_mrr` explains
-   * the whole application end to end and its help runs to 645 characters, so a
-   * hosted Language run that bound its search side answered 400 on the
-   * completed event and lost a score it had already computed.
-   *
-   * This bounds a request; it is not an attempt to match storage, where
-   * `MetricSchema.help` has no limit at all. That asymmetry is why nothing
-   * local caught this: the same string round-trips through a saved report
-   * untouched.
+   * No maximum. A 600-character cap refused Week 3's `search_mrr`, whose help
+   * is 645 characters, and cost a hosted run a result it had already scored.
+   * The cap bounded nothing: `routes/runner-events.ts` reads and verifies the
+   * whole signed body before any field is parsed, and `metrics.help` is an
+   * unbounded TEXT column. A limit here only decides which explanations a
+   * benchmark is allowed to write.
    */
-  help: z.string().max(1_000).optional(),
+  help: z.string().optional(),
   /**
    * What kind of number this is, which decides how the run page draws it.
    *
