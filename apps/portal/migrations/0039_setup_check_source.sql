@@ -1,0 +1,11 @@
+-- Tell a step the CLI reported apart from one the student checked off.
+--
+-- Both tick a box on the setup page, and they are not the same claim. CLI
+-- evidence arrives through a linked device after a real command passed;
+-- a check-off says a command ran on a machine that could reach this page with
+-- the student's token. The page shows the first as verified and the second as
+-- done, so a tick never overstates what CogPortal saw.
+--
+-- Existing rows all came from the CLI, so 'cli' is the right default for them
+-- and the column needs no backfill.
+ALTER TABLE setup_verifications ADD COLUMN source TEXT NOT NULL DEFAULT 'cli';

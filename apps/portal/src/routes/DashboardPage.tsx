@@ -142,7 +142,7 @@ export function DashboardPage() {
               </span>
             }
           >
-            <RunList runs={d.runs} />
+            <RunList runs={d.runs} connectedFullName={d.team.repo?.fullName} />
           </Panel>
         </div>
 
@@ -166,8 +166,12 @@ export function DashboardPage() {
                   {d.lastResolvedSha ? (
                     <ShaChip sha={d.lastResolvedSha} shortSha={d.lastResolvedSha.slice(0, 7)} />
                   ) : (
+                    // A team can have scored runs that belong to a repository
+                    // it has since left, or runs from before the source was
+                    // recorded. Neither is "nothing yet", and this panel can
+                    // only speak for the repository named above it.
                     <span className="font-mono text-[12px] text-ink-faint">
-                      nothing yet; start a practice run
+                      none recorded for this repository
                     </span>
                   )}
                 </div>
@@ -196,17 +200,9 @@ export function DashboardPage() {
                   label="Official attempts"
                   tone="detect"
                 />
-                {/* What the cells do, which is not what the `consumed` flag
-                    does. `officialUsed` is the number of claim rows
-                    (routes/dashboard.ts), and a claim row is written when the
-                    run starts (services/run-actions.ts), so a cell fills on
-                    promotion. `consumed` is written and never read. An attempt
-                    returns when execution/refunds.ts deletes the claim, which
-                    it does for a platform-side failure up to a cap. */}
                 <p className="border-t border-rule-soft pt-3 text-[12px] leading-[1.55] text-ink-secondary">
-                  Local runs are unlimited and are not counted here. An official
-                  cell fills the moment you start that attempt, and it comes back
-                  if the run fails for a reason on our side.
+                  Completed hosted evaluations count here. Failed runs don't use
+                  quota. Local runs are unlimited.
                 </p>
               </div>
             </Panel>
@@ -223,6 +219,9 @@ export function DashboardPage() {
                   ? `attempt #${d.selection.attemptNumber} · `
                   : ""}
                 {d.selection.shortSha}
+              </p>
+              <p className="mt-1 break-words font-mono text-[11px] text-ink-secondary">
+                {d.selection.source?.fullName ?? "source not recorded"}
               </p>
               <p className="u-tnum mt-1 font-mono text-[11.5px] tracking-[0.05em] text-ink-secondary">
                 {d.selection.primaryMetric.label}{" "}
@@ -332,6 +331,12 @@ function CurrentRunPanel({
   const startPractice = useStartPractice(d.benchmark.id);
   const promote = usePromote();
   const [branch, setBranch] = useState(d.team.repo?.defaultBranch ?? "main");
+  // Why the candidate cannot be promoted: which repository it came from, or
+  // whether its saved environment can still be reused. The server answers the
+  // source first, so that sentence is the one that applies.
+  const candidateRefusal = d.latestCandidate
+    ? d.latestCandidate.sourceRefusal ?? d.promotionRefusal
+    : null;
 
   const active = d.activeRun;
 
@@ -431,28 +436,26 @@ function CurrentRunPanel({
             they should be using today. The counts come from the dashboard
             payload, so they are this team's real remaining budget. */}
         <p className="max-w-[58ch] text-[13.5px] leading-[1.6] text-ink-secondary">
-          There are two ways to run {d.benchmark.title}, and they score the
-          same way. Local runs are unlimited, so that's usually where the work
-          happens.
+          Two ways to run {d.benchmark.title}, scored the same way. Local runs
+          are unlimited, so that's usually where the work happens.
         </p>
 
         <div className="mt-5 grid gap-6 sm:grid-cols-2">
-          <div>
+          <div className="min-w-0">
             <h3 className="u-kicker">On your machine</h3>
             {/* These three lines assume an installed tool and a linked
                 machine, which a student who came straight here has not done.
                 It names the prerequisite and links to it; it does not gate the
                 hosted column beside it, which needs nothing local. */}
             <p className="mt-2 text-[13px] leading-[1.55] text-ink-secondary">
-              The commands below need the CogWorks tool installed first, which
-              is what{" "}
+              These need the tool from{" "}
               <Link
                 to="/setup"
                 className="text-ink underline decoration-rule underline-offset-4 hover:decoration-ink"
               >
                 Setup
               </Link>{" "}
-              walks through.
+              first.
             </p>
             {/* The commands carry this benchmark's id, so they are the ones to
                 run rather than an example of the shape. */}
@@ -468,7 +471,7 @@ function CurrentRunPanel({
             </div>
           </div>
 
-          <div>
+          <div className="min-w-0">
             <h3 className="u-kicker">Here, from your pushed commit</h3>
             <p className="mt-2 text-[13px] leading-[1.55] text-ink-secondary">
               {practiceLeft} of {d.quota.practiceLimit} hosted practice runs left,
@@ -505,7 +508,9 @@ function CurrentRunPanel({
         <div className="mt-6 border-t border-rule pt-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <div className="u-kicker text-verify-deep">Candidate ready</div>
+              <div className={`u-kicker ${candidateRefusal ? "text-ink-secondary" : "text-verify-deep"}`}>
+                {candidateRefusal ? "Previous result" : "Candidate ready"}
+              </div>
               <p className="mt-1 text-[14px]">
                 <Link
                   to={`/runs/${d.latestCandidate.id}`}
@@ -519,20 +524,31 @@ function CurrentRunPanel({
                 </span>{" "}
                 on {d.latestCandidate.branch} · {d.latestCandidate.shortSha}
               </p>
+              <p className="mt-1 break-words font-mono text-[11px] text-ink-secondary">
+                {d.latestCandidate.repo?.fullName ?? "source not recorded"}
+              </p>
             </div>
-            <ConfirmButton
-              label="Promote to official"
-              confirmLabel={`Confirm, uses attempt ${d.quota.officialUsed + 1} of ${OFFICIAL_LIMIT}`}
-              onConfirm={() => promote.mutate(d.latestCandidate!.id)}
-              busy={promote.isPending}
-              disabled={officialLeft <= 0}
-            />
+            {!candidateRefusal && (
+              <ConfirmButton
+                label="Promote to official"
+                confirmLabel={`Confirm, uses attempt ${d.quota.officialUsed + 1} of ${OFFICIAL_LIMIT}`}
+                onConfirm={() => promote.mutate(d.latestCandidate!.id)}
+                busy={promote.isPending}
+                disabled={officialLeft <= 0}
+              />
+            )}
           </div>
-          <p className="mt-2 font-mono text-[11px] leading-relaxed text-ink-faint">
-            {officialLeft <= 0
-              ? "All official attempts are used."
-              : "Runs the same commit against hidden inputs. Logs are suppressed."}
-          </p>
+          {candidateRefusal ? (
+            <p className="mt-2 text-[13px] leading-relaxed text-ink-secondary">
+              {candidateRefusal}
+            </p>
+          ) : (
+            <p className="mt-2 font-mono text-[11px] leading-relaxed text-ink-faint">
+              {officialLeft <= 0
+                ? "All official attempts are used."
+                : "Runs the same commit against hidden inputs. Logs are suppressed."}
+            </p>
+          )}
           {promoteError && (
             <p role="alert" className="mt-2 text-[13px] text-detect-deep">
               {promoteError.message}

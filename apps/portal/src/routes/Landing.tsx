@@ -1,3 +1,5 @@
+import { ArrowRight01Icon, ArrowUpRight01Icon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import type { ReactNode } from "react";
 import { Link, Navigate } from "react-router";
 import { OFFICIAL_LIMIT, PRACTICE_LIMIT } from "@cogworks/contracts/schema";
@@ -85,7 +87,14 @@ export function Landing() {
                   rel="noreferrer"
                   className="font-mono text-[13px] text-ink underline decoration-rule underline-offset-4 hover:decoration-ink"
                 >
-                  github.com/{template} ↗
+                  github.com/{template}
+                  <HugeiconsIcon
+                    icon={ArrowUpRight01Icon}
+                    size={12}
+                    strokeWidth={1.8}
+                    className="inline-block align-[-0.1em]"
+                    aria-hidden="true"
+                  />
                 </a>
                 , or connect a repository your team already has.
               </p>
@@ -99,19 +108,17 @@ export function Landing() {
 
           <Step n={2} title="Set up your machine">
             <p>
-              Clone the repository, activate the course environment for your
-              week, and install the CogWorks tool. Once you sign in, the setup
-              page has the exact commands for your track and records what they
-              report back.
+              Clone the repository, activate your week's course environment,
+              and install the CogWorks tool. The setup page has the exact
+              commands for your track.
             </p>
           </Step>
 
           <Step n={3} title="Practice on your own machine">
             <p>
               <code className="font-mono text-[12.5px]">cogworks run</code> scores
-              your code locally, with the same scorer the hosted run uses. There
-              is no limit on local runs, so this is where the work happens: read
-              what it says, change something, run it again.
+              your code locally, with the same checks and scorer a hosted run
+              uses, and there's no limit on local runs.
             </p>
           </Step>
 
@@ -126,9 +133,10 @@ export function Landing() {
             {!authed && (
               <Link
                 to="/signin"
-                className="u-pressable mt-3 inline-flex min-h-10 items-center font-mono text-[11.5px] tracking-[0.09em] text-detect-deep uppercase underline decoration-detect/40 underline-offset-4 hover:decoration-detect"
+                className="u-pressable mt-3 inline-flex min-h-10 items-center gap-1 font-mono text-[11.5px] tracking-[0.09em] text-detect-deep uppercase underline decoration-detect/40 underline-offset-4 hover:decoration-detect"
               >
-                Sign in →
+                Sign in
+                <HugeiconsIcon icon={ArrowRight01Icon} size={12} strokeWidth={1.8} aria-hidden="true" />
               </Link>
             )}
           </Step>

@@ -682,7 +682,7 @@ test("two deliveries of one event racing each other settle it once", async () =>
 });
 
 async function publicationActor(db: Database): Promise<RunActor> {
-  await db.update(teams).set({ repoFullName: FIXTURE_REPO.fullName }).where(eq(teams.id, "team_1"));
+  await db.update(teams).set({ repoId: 1, repoFullName: FIXTURE_REPO.fullName }).where(eq(teams.id, "team_1"));
   const [team] = await db.select().from(teams).where(eq(teams.id, "team_1"));
   return { userId: "test_user", githubLogin: null, role: "write", team };
 }
@@ -731,6 +731,8 @@ test("a failed execution's late completion cannot replace a subsequently publish
   await harness.db.insert(runs).values({
     ...reaped.run,
     id: "run_2",
+    repositoryId: 1,
+    repositoryFullName: FIXTURE_REPO.fullName,
     status: "evaluating",
     createdAt: NOW + 3_600_002,
     finishedAt: null,

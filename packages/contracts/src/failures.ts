@@ -24,7 +24,7 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
     explanation:
       "We could not clone your repository at the resolved commit. The repository may have been made private, or the branch may have been deleted.",
     action:
-      "Confirm the repository is public and the branch still exists, then start a new run.",
+      "Confirm the repository is public and the recorded commit is still available.",
     reproCommand: "git clone <your repository url>",
     retryable: true,
   },
@@ -90,7 +90,7 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
     explanation:
       "Evaluation started, but your submission raised an unhandled exception while processing benchmark inputs.",
     action:
-      "Reproduce with the local practice runner; the traceback excerpt is in the log below. Fix, verify locally, then run practice again before promoting.",
+      "Reproduce with the local runner and use the recorded details to find the exception.",
     reproCommand: "cogworks run --benchmark {benchmark}",
     retryable: false,
   },
@@ -120,7 +120,7 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
     explanation:
       "Your adapter returned output that failed schema validation. Extra fields, wrong types, and values outside the allowed range are all rejected.",
     action:
-      "Validate your output locally with the schema check, correct the prediction shape, and run practice again before promoting.",
+      "Validate your output locally with the schema check and correct the prediction shape.",
     reproCommand: "cogworks test --benchmark {benchmark}",
     retryable: false,
   },
@@ -130,17 +130,17 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
     explanation:
       "Your predictions were produced and retrieved, but the trusted scorer failed. This is a platform problem, not a problem with your code.",
     action:
-      "Staff have been notified with this run's ID. Your attempt was not consumed; you may retry once the issue is resolved.",
+      "If scoring keeps failing, share the run's details with course staff.",
     reproCommand: null,
     retryable: true,
   },
   provider: {
     code: "E-PROVIDER",
-    title: "Execution provider failed",
+    title: "The run couldn't finish",
     explanation:
-      "The isolated execution environment failed before your code ran. This is a platform problem, not a problem with your code.",
+      "The hosted execution could not finish. The recorded details may identify where it stopped.",
     action:
-      "Retry the run. If this recurs, report the run ID to course staff.",
+      "If the run keeps failing, share its details with course staff.",
     reproCommand: null,
     retryable: true,
   },
