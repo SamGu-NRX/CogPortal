@@ -57,8 +57,5 @@ test("the wire and the stored report keep the same explanation", () => {
 });
 
 test("the schema no longer decides how long an explanation may be", () => {
-  // Only that this schema stops refusing them. Whatever finite limits the
-  // request, D1 and the run-surface snapshot have are theirs, and are not
-  // asserted here.
   assert.equal(ProtocolMetricSchema.safeParse(metric("x".repeat(5_000))).success, true);
 });

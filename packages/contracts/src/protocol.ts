@@ -24,9 +24,8 @@ export const ProtocolMetricSchema = z.object({
    * the whole signed body before any field is parsed. It did incidentally bound
    * what a signed runner can persist and broadcast, since `metrics.help` is an
    * unbounded TEXT column and run-surface snapshots carry every metric. That is
-   * a real concern and a different one, and it belongs where the request or the
-   * snapshot is sized rather than in a limit on how long an explanation a
-   * benchmark is allowed to write.
+   * a real concern and a different one; a rule about how long an explanation a
+   * benchmark may write is not where it gets addressed.
    */
   help: z.string().optional(),
 });
