@@ -822,17 +822,11 @@ def resolve(
                 # piece is a database rather than better work in the step
                 # before it.
                 #
-                # This slot is the next step, so it says what to go and check
-                # rather than restating the headline, and it points at the
-                # function the headline already named. Both weeks that reach
-                # here store different things -- Week 1 a song, Week 2 a face --
-                # so naming either one told the other week's team about the
-                # wrong course. Their own function is the handle both weeks
-                # share, and it keeps one name through the whole message.
-                #
-                # Empty `reached` falls back to the role, because `not_wired`
-                # guards its own headline the same way rather than indexing a
-                # trace it was handed empty.
+                # Week 1 stores a song and Week 2 a face, so naming either told
+                # the other week's team about the wrong course. Their own
+                # function is the handle both weeks share, and the headline
+                # already prints it. Empty `reached` falls back to the role,
+                # because `not_wired` guards its own headline the same way.
                 made = (
                     reached[-1].function
                     if reached

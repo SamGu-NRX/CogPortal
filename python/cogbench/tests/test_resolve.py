@@ -1925,15 +1925,9 @@ class AReaderProbeGetsThePerCallClockLikeEveryOtherCall(unittest.TestCase):
 class TheRefusalNamesTheirOwnFunction(unittest.TestCase):
     """A week whose task ends in a database refuses without borrowing nouns.
 
-    Two weeks reach this branch and they store different things: Week 1 stores
-    a song, Week 2 stores a face. The sentence used to be written in Week 1's
-    nouns, so a Week 2 team whose descriptors bound and whose database did not
-    was told the benchmark had found their "fingerprinting" and wanted a pair
-    of functions to keep a "song". Reproduced on
-    LashikaKapoor28/Vision_Module_Capstone @ 479ad2c.
-
-    It now names the function their own chain returned, which is the handle
-    both weeks share and the one the headline above it already prints.
+    The sentence was written in Week 1's, so a Week 2 team whose descriptors
+    bound and whose database did not was told about "fingerprinting" and a
+    "song". Reproduced on LashikaKapoor28/Vision_Module_Capstone @ 479ad2c.
     """
 
     #: Binds the one stage and offers nothing that could store its result,
