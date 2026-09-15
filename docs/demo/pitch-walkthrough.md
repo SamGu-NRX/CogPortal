@@ -102,7 +102,8 @@ result on the board.
 It arrives on the dashboard under `SELF-REPORTED · NOT PROMOTABLE`. Say what
 the label is doing: the site shows a number it did not watch being produced,
 and it will not let that number be published. Had the worktree been dirty, the
-page would not offer hosted verification at all, and it would say so in words.
+page would not offer hosted verification at all, and it would say why:
+"Hosted verification needs a commit."
 
 Meanwhile the bot is posting the hosted run into the team's Discord channel and
 editing that one message as the phases pass. In rehearsal it ran from bench
@@ -142,8 +143,9 @@ below it.
 - **Leaderboard.** Song Identification, published results only. Current
   component boards honestly report that nothing is published yet, which is the
   right answer and not an empty state to apologize for.
-- **Team.** The process panel lists the five stages of the capstone with the
-  people who committed to each, and the date spans. Two warnings before showing
+- **Team.** The process panel lists the stages of the capstone with the people
+  who committed to each, and the date spans. It reads them from this team's
+  commits, so the stages it shows are whatever the history supports. Two warnings before showing
   it. A teammate who committed under two identities appears twice, so read what
   is on screen instead of promising a headcount. And the panel states when it
   last read the history, which can be half an hour ago, so do not present it as
@@ -159,15 +161,6 @@ below it.
 
 The embedded Discord Activity is not part of this. It still rejects app
 sign-in, and account linking and the bot are the parts that work.
-
-## Rough edges you may see
-
-Both are cosmetic and neither is worth a code change before the meeting.
-
-- The metadata line under some run headers can leave a separator with nothing
-  after it.
-- The pipeline rail grows very tall on a narrow window. On the presenting
-  display it is fine.
 
 ## What to say if asked
 

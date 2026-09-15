@@ -7,9 +7,9 @@ records the state, the commands, and the checks worth running on the day.
 here rather than repeating any of it.
 
 Every identifier below was observed during the production rehearsal on
-2026-09-15, against build `20889b5`. Run the checks in section 3 on the day. Do not start a hosted evaluation to
-reconfirm a number that is already recorded here, because each one spends a
-practice attempt.
+2026-09-15, against build `20889b5`. Run the checks in section 3 on the day.
+Do not start a hosted evaluation to reconfirm a number already recorded here,
+because each one spends a practice attempt.
 
 ## 1. What is already done
 
@@ -59,8 +59,8 @@ export NUMBA_CACHE_DIR=/tmp/cogportal-rehearsal-caches/numba
 export MPLCONFIGDIR=/tmp/cogportal-rehearsal-caches/matplotlib
 ```
 
-Both of those paths are under `/tmp`. A reboot or a cleanup sweep takes them
-with it. Section 5 says what to do if that happens.
+Those paths are all under `/tmp`, so a reboot or a cleanup sweep takes the
+environment with them. Section 5 says what to do if that happens.
 
 **The browser** is Helium, because it holds the signed-in session. Chrome is
 also on this machine and is not the one to use. Open a new window rather than
