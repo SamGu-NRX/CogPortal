@@ -92,7 +92,7 @@ class SavedContractPairs(unittest.TestCase):
         forbidden = {name: mock.Mock(side_effect=AssertionError(name + " must not run"))
                      for name in ("_prepare", "_load_benchmark", "_week3_cases", "_evaluate_week3", "_evaluate_v2")}
         space = functions(
-            "RunnerFailure", "execute_job", "_failure_detail", "_fit", "_receiver_units",
+            "RunnerFailure", "execute_job", "_failure_detail", "_fit", "_take_units", "_receiver_units",
             job_store=Store(), validate_job=validate_job,
             _outcome_key=lambda key: key + ":outcome", LiveReporter=Reporter,
             _finish=lambda job, outcome, status: terminal.append((outcome, status)),

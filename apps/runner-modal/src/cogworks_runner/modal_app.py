@@ -109,24 +109,29 @@ def _receiver_units(text: str) -> int:
     return sum(2 if ord(character) > 0xFFFF else 1 for character in text)
 
 
+def _take_units(text: str, limit: int) -> Tuple[str, str]:
+    """`(head, rest)` where `head` is within `limit` receiver units."""
+
+    used = 0
+    for index, character in enumerate(text):
+        size = 2 if ord(character) > 0xFFFF else 1
+        if used + size > limit:
+            return text[:index], text[index:]
+        used += size
+    return text, ""
+
+
 def _fit(text: str, limit: int) -> str:
     """`text` within `limit` receiver units, cut at a word and marked if cut.
 
-    Every bounded string on the wire goes through here. The receiver answers
-    400 past its cap and `_post_event` does not retry a 400, so an oversized
-    field loses the whole event rather than a few characters.
+    For a field with nowhere to put a remainder. The receiver answers 400 past
+    its cap and `_post_event` does not retry a 400, so an oversized field loses
+    the whole event rather than a few characters.
     """
 
     if _receiver_units(text) <= limit:
         return text
-    kept, used = [], 0
-    for character in text:
-        size = 2 if ord(character) > 0xFFFF else 1
-        if used + size > limit - 4:  # room for " ..."
-            break
-        kept.append(character)
-        used += size
-    head = "".join(kept)
+    head, _ = _take_units(text, limit - 4)  # room for " ..."
     return (head.rsplit(" ", 1)[0] if " " in head else head) + " ..."
 
 
@@ -162,18 +167,22 @@ def _diagnostic_lines(item: Any) -> List[str]:
     text = str(item).strip()
     if _receiver_units(text) <= DIAGNOSTIC_LIMIT:
         return [text]
-    # `textwrap` measures in code points, so each line is bounded again in the
-    # units the receiver counts. For the ASCII the scorers actually write the
-    # second pass changes nothing.
-    wrapped = textwrap.wrap(
+    # `textwrap` measures in code points, so a line of astral characters can
+    # still exceed the cap the receiver counts. Any that does is split again
+    # rather than cut: this path has somewhere to put a remainder, and keeping
+    # the whole instruction is the reason it exists.
+    lines = []
+    for line in textwrap.wrap(
         text,
         width=DIAGNOSTIC_LIMIT,
         break_long_words=True,
         break_on_hyphens=False,
-    )
-    return [_fit(line, DIAGNOSTIC_LIMIT) for line in wrapped] or [
-        _fit(text, DIAGNOSTIC_LIMIT)
-    ]
+    ):
+        while _receiver_units(line) > DIAGNOSTIC_LIMIT:
+            head, line = _take_units(line, DIAGNOSTIC_LIMIT)
+            lines.append(head)
+        lines.append(line)
+    return lines or [text]
 
 
 def _cogbench_environment():
@@ -2537,7 +2546,7 @@ def _last_error_line(value: str) -> str:
             if ": " in text and text.split(": ", 1)[0].isidentifier():
                 text = text.split(": ", 1)[1]
             if text and not text.startswith("Traceback"):
-                return text[:240]
+                return _fit(text, DETAIL_LIMIT)
     return "The student process exited before producing a valid result."
 
 
