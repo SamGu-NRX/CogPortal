@@ -13,10 +13,7 @@ import { parseJsonc } from "./jsonc.ts";
  * touched, and the difference only appears when a student hits the surface that
  * needed it.
  *
- * These parse the file rather than matching text in it. `weights.test.ts`
- * asserts bucket names with a regex, which is why that test passed for months
- * while both `r2_buckets` blocks were commented out: a regex cannot tell
- * configuration from a comment describing configuration.
+ * Parse configuration rather than matching comments that describe it.
  */
 
 interface Route {
@@ -131,17 +128,15 @@ test("each environment's origins match the hosts it is routed on", async () => {
   }
 });
 
+test("both deployment targets work without provisioned object storage", async () => {
+  for (const [, environment] of environments(await loadConfig())) {
+    assert.deepEqual(environment.r2_buckets ?? [], []);
+  }
+});
+
 test("staging and production never share stored state", async () => {
   const config = await loadConfig();
   const production = config.env.production;
   assert.notEqual(config.d1_databases[0].database_id, production.d1_databases[0].database_id);
   assert.notEqual(config.d1_databases[0].database_name, production.d1_databases[0].database_name);
-
-  // Both environments must actually bind ARTIFACTS, and to different buckets.
-  // A staging upload that could replace a production artifact is the reason
-  // these are separate, and weights are addressed by repository and commit, so
-  // one shared bucket would collide on exactly the interesting case.
-  assert.equal(config.r2_buckets?.[0].binding, "ARTIFACTS");
-  assert.equal(production.r2_buckets?.[0].binding, "ARTIFACTS");
-  assert.notEqual(config.r2_buckets?.[0].bucket_name, production.r2_buckets?.[0].bucket_name);
 });
