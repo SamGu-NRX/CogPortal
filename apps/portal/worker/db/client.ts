@@ -11,11 +11,10 @@ function buildClient(env: Env) {
  *
  * `drizzle(binding, { schema })` walks the 31 tables in the exported `schema`
  * aggregate through `extractTablesRelationalConfig` before it can serve a
- * query, and the worker
- * calls `getDb` from 106 places, several of them on a single request: the
- * session lookup, the role lookup and the route body each built their own
- * client. Workers charges CPU and not the D1 waits this sits between, so that
- * repetition is the part worth removing.
+ * query, and the worker calls `getDb` from 106 places, several of them on a
+ * single request: the session lookup, the role lookup and the route body each
+ * built their own client. Workers charges CPU and not the D1 waits this sits
+ * between, so that repetition is the part worth removing.
  *
  * Measured on a local production build, profiled through the workerd DevTools
  * inspector over 200 authenticated `GET /api/dashboard` requests:
