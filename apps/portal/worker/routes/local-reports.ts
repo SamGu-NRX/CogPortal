@@ -14,7 +14,7 @@ import {
   listTeamLocalReports,
   upsertLocalReport,
 } from "../services/local-reports";
-import { uploadWeight, validateWeightPath } from "../services/weights";
+import { parseWeightDigest, uploadWeight, weightPathFromRoute } from "../services/weights";
 
 export function registerLocalReportRoutes(app: Hono<AppEnv>): void {
   app.post("/v1/local-reports", async (c) => {
@@ -26,15 +26,17 @@ export function registerLocalReportRoutes(app: Hono<AppEnv>): void {
 
   app.put("/v1/local-reports/:reportId/weights/*", async (c) => {
     const device = await requireDevice(c);
-    const path = validateWeightPath(c.req.param("*") ?? "");
+    const path = weightPathFromRoute(c.req.routePath, c.req.url);
+    // The digest names the stored object, so admission has to see it before
+    // anything is written rather than learning it from the bytes.
+    const sha256 = parseWeightDigest(c.req.header("X-Cogworks-Weight-SHA256"));
     const target = await getWeightUploadTarget(
       c.env,
       device.userId,
       c.req.param("reportId"),
       path,
+      sha256,
     );
-    const rawLength = c.req.header("Content-Length");
-    const contentLength = rawLength == null ? null : Number(rawLength);
     if (!c.env.ARTIFACTS) {
       throw new ApiHttpError(
         501,
@@ -48,8 +50,8 @@ export function registerLocalReportRoutes(app: Hono<AppEnv>): void {
       target.sha,
       path,
       c.req.raw.body,
-      contentLength,
-      c.req.header("X-Cogworks-Weight-SHA256") ?? null,
+      c.req.header("Content-Length"),
+      sha256,
     );
     return c.json(uploaded, 201);
   });
