@@ -106,7 +106,7 @@ def _execute_job(store: dict) -> tuple:
     text = MODAL_APP.read_text(encoding="utf-8")
     module = ast.parse(text)
     wanted = ("_outcome_key", "_finish", "_deliver_terminal", "_event", "_failure_detail",
-              "LiveReporter", "execute_job")
+              "_fit", "_receiver_units", "LiveReporter", "execute_job")
     nodes = []
     for node in module.body:
         if isinstance(node, (ast.FunctionDef, ast.ClassDef)) and node.name in wanted:
@@ -143,6 +143,8 @@ def _execute_job(store: dict) -> tuple:
         "controller_image": None,
         "runner_secret": None,
         "hidden_datasets": None,
+        "DETAIL_LIMIT": 240,
+        "DIAGNOSTIC_LIMIT": 600,
     }
     for name in SCORING_GLOBALS:
         namespace[name] = sentinel(name)

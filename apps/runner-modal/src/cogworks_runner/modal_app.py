@@ -94,37 +94,30 @@ REPO_ROOT = _repo_root()
 #: would lose whole completed events rather than a few characters.
 DIAGNOSTIC_LIMIT = 600
 
-def _failure_detail(error: Any) -> str:
-    """The failure's own words, cut at a word and marked when cut.
+#: `protocol.ts` caps `detail` here, and it is one string with nowhere to
+#: put a remainder.
+DETAIL_LIMIT = 240
 
-    Measured on staging run `run_158c8e88c3`: a 240-character slice landed
-    mid-word and the run page read "...trying to locate the file on the Hub a",
-    which looks like the sentence the benchmark wrote rather than like a cut.
-    `_diagnostic_lines` already refuses to slice notes mid-word; this is the
-    same rule for the one field that has nowhere to put the remainder, because
-    `detail` is a single string and `protocol.ts` answers 400 past 240.
+def _receiver_units(text: str) -> int:
+    """What `z.string().max(n)` counts: UTF-16 code units, not code points.
 
-    The full text is not lost: the refusal and diagnostics carry it, and the
-    run page shows them behind Show details.
-
-    Deliberately self-contained. Two test harnesses exec a named subset of this
-    module in a namespace they build by hand, so a helper that reached for a
-    module constant or an import would have to be threaded through both.
+    Arithmetic rather than `.encode("utf-16-le")`, which raises on a lone
+    surrogate. Student code can produce one and Unix paths can carry one, and
+    this is called from inside failure handling.
     """
 
-    limit = 240
-    raw = str(error)
-    # `z.string().max(240)` counts UTF-16 code units and Python counts code
-    # points, so an astral character costs two there and one here. Counted by
-    # arithmetic rather than by encoding, because a lone surrogate is something
-    # student code can hand us and `.encode("utf-16-le")` raises on one, which
-    # would throw from inside the handler already reporting another failure.
-    width = lambda value: sum(2 if ord(ch) > 0xFFFF else 1 for ch in value)
-    if width(raw) <= limit:
-        return raw
-    # Only now is the text reshaped. A short detail keeps its own newlines.
-    text = " ".join(raw.split())
-    if width(text) <= limit:
+    return sum(2 if ord(character) > 0xFFFF else 1 for character in text)
+
+
+def _fit(text: str, limit: int) -> str:
+    """`text` within `limit` receiver units, cut at a word and marked if cut.
+
+    Every bounded string on the wire goes through here. The receiver answers
+    400 past its cap and `_post_event` does not retry a 400, so an oversized
+    field loses the whole event rather than a few characters.
+    """
+
+    if _receiver_units(text) <= limit:
         return text
     kept, used = [], 0
     for character in text:
@@ -135,6 +128,21 @@ def _failure_detail(error: Any) -> str:
         used += size
     head = "".join(kept)
     return (head.rsplit(" ", 1)[0] if " " in head else head) + " ..."
+
+
+def _failure_detail(error: Any) -> str:
+    """The failure's own words, within `DETAIL_LIMIT`.
+
+    Sliced at 240 code points, this landed mid-word: staging run
+    run_158c8e88c3 read "...trying to locate the file on the Hub a". A short
+    message keeps its own line breaks; only one that has to be cut is joined
+    into a line, because a word-boundary cut needs words on one line.
+    """
+
+    raw = str(error)
+    if _receiver_units(raw) <= DETAIL_LIMIT:
+        return raw
+    return _fit(" ".join(raw.split()), DETAIL_LIMIT)
 
 
 def _diagnostic_lines(item: Any) -> List[str]:
@@ -152,14 +160,20 @@ def _diagnostic_lines(item: Any) -> List[str]:
     """
 
     text = str(item).strip()
-    if len(text) <= DIAGNOSTIC_LIMIT:
+    if _receiver_units(text) <= DIAGNOSTIC_LIMIT:
         return [text]
-    return textwrap.wrap(
+    # `textwrap` measures in code points, so each line is bounded again in the
+    # units the receiver counts. For the ASCII the scorers actually write the
+    # second pass changes nothing.
+    wrapped = textwrap.wrap(
         text,
         width=DIAGNOSTIC_LIMIT,
         break_long_words=True,
         break_on_hyphens=False,
-    ) or [text[:DIAGNOSTIC_LIMIT]]
+    )
+    return [_fit(line, DIAGNOSTIC_LIMIT) for line in wrapped] or [
+        _fit(text, DIAGNOSTIC_LIMIT)
+    ]
 
 
 def _cogbench_environment():
@@ -2492,7 +2506,7 @@ def _last_error_line(value: str) -> str:
 
     stripped = lines[-1].strip()
     if stripped.startswith("COG_ERROR:"):
-        return stripped[len("COG_ERROR:"):].strip()[:240]
+        return _fit(stripped[len("COG_ERROR:"):].strip(), DETAIL_LIMIT)
 
     # Walk back to the last unindented line: Python puts `Type: message`
     # there, and every traceback frame above it is indented.

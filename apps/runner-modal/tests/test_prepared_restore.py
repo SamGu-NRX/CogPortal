@@ -62,6 +62,7 @@ def functions(*names, **globals_):
                  "PreparedEnvironmentError": PreparedEnvironmentError,
                  "bind_environment": bind_environment, "validate_observation": validate_observation,
                  "validate_prepared_environment": validate_prepared_environment,
+                 "DETAIL_LIMIT": 240, "DIAGNOSTIC_LIMIT": 600,
                  **globals_}
     exec(compile(ast.Module(nodes, []), str(SOURCE), "exec"), namespace)
     return namespace
@@ -235,7 +236,7 @@ class PreparedRestore(unittest.TestCase):
         events = []
         forbidden = lambda *args, **kwargs: self.fail("reuse reached preparation or evaluation before compatibility")
         space = functions(
-            "RunnerFailure", "execute_job", "_failure_detail",
+            "RunnerFailure", "execute_job", "_failure_detail", "_fit", "_receiver_units",
             job_store=Store(), validate_job=lambda value: value,
             _outcome_key=lambda key: key + ":outcome", LiveReporter=Reporter,
             _prepare=forbidden, _load_benchmark=forbidden, _evaluate_v2=forbidden,

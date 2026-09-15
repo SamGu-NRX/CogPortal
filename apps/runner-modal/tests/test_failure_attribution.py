@@ -214,15 +214,20 @@ class TimeoutAttribution(unittest.TestCase):
 
 
 def _last_error_line_function():
-    """Load `_last_error_line` from source; see `_timed_out_function`."""
+    """Load `_last_error_line` and the formatting it calls; see `_timed_out_function`."""
 
+    wanted = ("_receiver_units", "_fit", "_last_error_line")
     module = ast.parse(MODAL_APP.read_text(encoding="utf-8"))
-    for node in module.body:
-        if isinstance(node, ast.FunctionDef) and node.name == "_last_error_line":
-            namespace = {}
-            exec(compile(ast.Module([node], []), "<modal_app>", "exec"), namespace)
-            return namespace["_last_error_line"]
-    raise AssertionError("_last_error_line not found")
+    nodes = [
+        node
+        for node in module.body
+        if isinstance(node, ast.FunctionDef) and node.name in wanted
+    ]
+    if len(nodes) != len(wanted):
+        raise AssertionError("expected {} in modal_app".format(", ".join(wanted)))
+    namespace = {"DETAIL_LIMIT": 240}
+    exec(compile(ast.Module(nodes, []), "<modal_app>", "exec"), namespace)
+    return namespace["_last_error_line"]
 
 
 LAST_ERROR_LINE = _last_error_line_function()
