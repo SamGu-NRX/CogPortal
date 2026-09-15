@@ -87,8 +87,10 @@ takes the same time as one without.
 
 ## Trained weights
 
-Enable R2 on the Cloudflare account and create `cogportal-artifacts-dev` and
-`cogportal-artifacts`. Each uploaded file is capped at 100 MiB because Workers
+R2 is enabled on the Cloudflare account and staging binds `ARTIFACTS` to the
+private bucket `cogportal-artifacts-dev`. Production's `cogportal-artifacts` is
+deferred until hosted upload is accepted on staging; see docs/runbooks/
+platform.md, "Gate R2". Each uploaded file is capped at 100 MiB because Workers
 limits request bodies to 100 MB on Free and Pro plans, and this account's plan
 is not established. A hosted run builds its weight manifest from the newest
 synced report for that repository and commit.

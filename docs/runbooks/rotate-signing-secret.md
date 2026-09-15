@@ -13,12 +13,20 @@ making it small and legible rather than around pretending it is zero.
 
 ## 1. What the secret is for
 
-`RUNNER_SIGNING_SECRET` is one shared value that authenticates both directions
-of the portal-to-Modal boundary: the Worker signs each job it sends to Modal
-with it, and the Modal container signs every progress and result event it sends
-back with the same value. Both sides recompute the signature and compare, so the
-two systems must hold byte-identical copies or every request across that
-boundary is refused.
+`RUNNER_SIGNING_SECRET` authenticates both directions of the portal-to-Modal
+boundary: the Worker signs each job it sends to Modal with it, and the Modal
+container signs every progress and result event it sends back with the same
+value. Both sides recompute the signature and compare, so the two systems must
+hold byte-identical copies or every request across that boundary is refused.
+
+**One environment at a time.** Each portal now has its own Modal app and its own
+Modal secret: staging is `cogworks-runner` with `cogworks-runner-signing`, and
+production is `cogworks-runner-production` with
+`cogworks-runner-production-signing`. A rotation is therefore a pair, one Worker
+and the one Modal secret it dispatches to, and the two environments hold
+different values on purpose. The commands below name staging's objects; for
+production substitute the production names and add `--env production` to every
+Wrangler command. Do not copy one environment's value into the other.
 
 There is no public key and no certificate here. It is a symmetric HMAC-SHA256
 secret, which means holding it is the entire authorization to submit a job or to
@@ -56,10 +64,14 @@ $ curl -X POST https://cogportal-dev.sillion.app/api/internal/v1/runner/events \
 {"error":{"code":"provider_unconfigured","message":"Runner signing is not configured."}}
 ```
 
-`https://cogportal.sillion.app` answers identically. Both also run with
-`EXECUTION_PROVIDER` set to `"fixture"` in `apps/portal/wrangler.jsonc`, in
-both the top-level `vars` block and `env.production.vars`, so neither dispatches
-anything today regardless.
+`https://cogportal.sillion.app` answered identically on that date.
+
+That snapshot has since moved and should be re-checked rather than trusted.
+`apps/portal/wrangler.jsonc` now carries `EXECUTION_PROVIDER: "modal"` in both
+the top-level `vars` block and `env.production.vars`, and the September 14 read
+found `RUNNER_SIGNING_SECRET` present on the development worker but not on
+production. Configuration is not deployment, so what a given environment is
+actually running is a question for `wrangler versions list`, not for this file.
 
 ---
 
@@ -93,37 +105,77 @@ starts where it does.
 
 ### Step 0. Drain, if anything is running
 
-Skip this if `EXECUTION_PROVIDER` is `"fixture"` everywhere, which is currently
-true of both deployed environments (section 2). Nothing is in flight, so there
-is nothing to drain.
+Do not decide this by whether an environment "looks idle". Ask the database of
+the environment you are rotating whether any run is still in flight, and get an
+empty result. Each portal dispatches to its own Modal app, so draining the
+other one is no longer part of this:
 
-Otherwise: set `EXECUTION_PROVIDER` to `"fixture"` in `apps/portal/wrangler.jsonc`
-for the environment you are rotating and deploy it. New starts stop dispatching
-immediately. Then wait for the runs already dispatched to reach a terminal
-status. A run carries its provider on its own row (the `provider` column in
+```sh
+pnpm --filter @cogworks/portal exec wrangler d1 execute DB --remote --json \
+  --command "SELECT id, status, provider FROM runs WHERE status NOT IN ('succeeded','failed','cancelled');"
+```
+
+Add `--env production` when production is the environment being rotated. Those
+three are `TERMINAL_STATUSES` in
+`packages/contracts/src/schema.ts:40`; anything else is a run that can still
+post a callback. A non-empty result means step 3 would strand it for
+`RUN_STALE_AFTER_SECONDS`, currently one hour.
+
+**Do not close the door by switching `EXECUTION_PROVIDER` to `"fixture"`.** An
+earlier version of this step said to, and it was wrong. Fixture does not stop
+execution, it fabricates it: the fixture provider advances runs from a wall
+clock and writes simulated metrics, so a rotation done that way leaves invented
+runs in the database that somebody then has to tell apart from real ones.
+
+Close intake instead. On a steady deployment, setting the benchmark
+`active = 0` makes `startRun` refuse a new run before it creates a row or
+reserves quota. During the release that is not sufficient on its own, and the
+closure that would be is an open decision; read
+`docs/runbooks/platform.md`, "Closing intake across the pending migrations",
+before doing this as part of the rollout.
+
+Then wait for the runs already dispatched to reach a terminal status. A run
+carries its provider on its own row (the `provider` column in
 `worker/db/schema.ts`), so runs already sent to Modal keep behaving as Modal
-runs and keep posting
-callbacks; flipping the variable does not strand them.
+runs and keep posting callbacks; closing intake does not strand them.
 
 If you cannot drain (an incident where the secret is known to be compromised is
 the real case), rotate anyway and read section 6 for the ordering that costs the
 least.
 
-### Step 1. Generate the new value
+### Step 1. Generate the new value into a protected file
+
+Generate it where it can be handed to the next command without ever being
+printed, typed, or passed as an argument. An argument is visible in `ps` and
+lands in your shell history, and a value on screen is a value in your terminal
+scrollback.
 
 ```sh
-openssl rand -hex 32
+umask 077
+mkdir -p ~/.cogworks/secrets && chmod 700 ~/.cogworks/secrets
+python3 - <<'PY'
+import json, os, secrets
+# Name the file after the Modal secret it is about to become, so two
+# environments in flight at once cannot be confused for each other.
+path = os.path.expanduser("~/.cogworks/secrets/cogworks-runner-signing.json")
+handle = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+with os.fdopen(handle, "w") as out:
+    json.dump(
+        {
+            "RUNNER_SIGNING_SECRET": secrets.token_hex(32),
+            "RUNNER_SIGNING_KEY_ID": "runner-v1",
+        },
+        out,
+    )
+print("wrote", path)
+PY
 ```
 
-`openssl` ships with macOS, so there is nothing to install and no script in this
-repository to run. If you prefer Python:
-
-```sh
-python3 -c 'import secrets; print(secrets.token_hex(32))'
-```
-
-Both print 64 lowercase hex characters, which is 32 random bytes, which is 256
-bits.
+`token_hex(32)` is 64 lowercase hex characters, which is 32 random bytes, which
+is 256 bits. `O_EXCL` means a second run refuses rather than overwriting a
+value one of the two sides may already hold; delete the file deliberately if
+you really are starting over. Step 3 is the one place you have to read the
+value back, and only if the Worker half is authorized in this pass.
 
 **Why that length and that alphabet.** 256 bits matches the SHA-256 digest size,
 so a longer key buys nothing an attacker could use, and it is far past any
@@ -131,10 +183,10 @@ brute-force reach. Hex matters more than it looks: this value has to survive
 being pasted into a `.dev.vars` line whose parser strips one pair of surrounding
 quotes and understands no escapes
 (`parse_env_file` in `apps/runner-modal/tools/preflight_dispatch.py`), a shell
-`VAR=... command` prefix, and `modal secret create NAME KEY="value"`. Hex
-contains no quote, backslash, dollar sign, space, or newline, so it cannot be
-mangled anywhere in that chain. The code itself imposes no length or character
-rule (`worker/env.ts` declares it as a plain optional string), so this is a
+`VAR=... command` prefix, and a Wrangler prompt. Hex contains no quote,
+backslash, dollar sign, space, or newline, so it cannot be mangled anywhere in
+that chain. The code itself imposes no length or character rule
+(`worker/env.ts` declares it as a plain optional string), so this is a
 convention, not something a validator will catch if you ignore it.
 
 The one hard requirement is that it not be empty. An empty value is treated as
@@ -144,41 +196,65 @@ below that WebCrypto refuses a zero-length HMAC key outright with
 happily. So an empty secret is not "unconfigured on both sides"; it is Modal
 signing successfully and the Worker throwing.
 
-Keep the value in your clipboard or a password manager for the next three steps.
-Do not paste it into a file in this repository, a chat, a commit message, or
-this runbook.
+That file is the only copy. Keep it until both sides hold the value, then
+delete it. Do not paste the value into a file in this repository, a chat, a
+commit message, or this runbook.
 
 ### Step 2. Modal, first
 
-The Modal secret is named `cogworks-runner-signing`, which is the exact name
-`modal_app.py` resolves at deploy time via `modal.Secret.from_name`. It holds
-two keys, because Modal is where the key id lives for the runner side.
+Staging's Modal secret is named `cogworks-runner-signing` and production's is
+`cogworks-runner-production-signing`, which are the exact names `modal_app.py`
+resolves at deploy time via `modal.Secret.from_name` for each target. Each
+holds two keys, because Modal is where the key id lives for the runner side.
 
 ```sh
-modal secret create cogworks-runner-signing \
-  RUNNER_SIGNING_SECRET='<paste the new value>' \
-  RUNNER_SIGNING_KEY_ID=runner-v1 \
-  --force
+modal secret create cogworks-runner-signing --force \
+  --from-json ~/.cogworks/secrets/cogworks-runner-signing.json
 ```
 
 `--force` overwrites the existing secret. Without it the command fails because
 the secret already exists; there is no separate update subcommand in the Modal
-CLI (verified against modal 1.5.4, the version pinned by
-`apps/runner-modal/pyproject.toml`).
+CLI (verified against modal 1.5.5 in `.venv-deploy`). `--from-json` reads both
+keys out of the file step 1 wrote, so the value stays off the command line.
+Two nearby inputs do not work here: `--from-dotenv` raises `ImportError: Need
+the python-dotenv package installed`, which that environment does not have,
+and `KEY=-` opens `$EDITOR` and stores the buffer verbatim
+(`get_text_from_editor` in `modal/cli/secret.py`), so a trailing newline
+becomes part of the secret.
 
 Then give the app fresh containers, because a container reads
 `os.environ["RUNNER_SIGNING_SECRET"]` from an environment injected when it
 started, so a container that is already warm keeps the old value:
 
 ```sh
-.venv-deploy/bin/python apps/runner-modal/tools/deploy.py
+modal app rollover cogworks-runner --strategy recreate
 ```
 
-Use that script rather than `modal deploy` for the reason its own docstring
-gives: image definitions resolve client-side, so a container asked to resolve
-`week1_image` would try to re-read local sources that only exist on a developer
-machine. If you are certain no code changed and only want new containers,
-`modal app rollover cogworks-runner --strategy recreate` does that instead.
+That redeploys the same App version with new containers and adds an entry to
+the app's history (`modal app rollover --help`, modal 1.5.5). `--strategy
+recreate` terminates running containers rather than replacing them gradually,
+which is what you want here and is also why section 7 treats the undrained case
+as a different procedure.
+
+**Use rollover for production, not a deploy.** `deploy.py --target production`
+builds its controller from whatever is in your working tree, so running it
+during a rotation ships every unrelated change in that tree under cover of a
+secret change. Rollover keeps the deployed version exactly as it is:
+
+```sh
+modal app rollover cogworks-runner-production --strategy recreate
+```
+
+If a redeploy really is unavoidable, it is a code release with a secret change
+inside it, and it needs the same inputs the original deploy had: the recorded
+production source commit checked out, a clean tree, and the three recorded
+`--sandbox-image` pins passed again (`docs/runbooks/platform.md`, "What to
+record"). A deploy whose source or pins you cannot name is not a rotation.
+
+For staging, `deploy.py` is still how a code change reaches the app, and the
+reason to prefer it over `modal deploy` is in its own docstring: image
+definitions resolve client-side, so a container asked to resolve `week1_image`
+would try to re-read local sources that only exist on a developer machine.
 
 Whether a warm container would eventually pick up a changed secret on its own
 was not measured here, so this step forces the replacement rather than assuming
@@ -188,7 +264,8 @@ it. If you skip it, section 6 explains what you are relying on.
 
 Secrets do not copy between Wrangler environments; each named environment is a
 separate Worker with its own store (the pre-deploy checklist comment in
-`wrangler.jsonc` says this). So this is two commands, not one.
+`wrangler.jsonc` says this). Run the command for the environment you are
+rotating, with the value you put in that environment's Modal secret.
 
 Staging (`cogportal-dev.sillion.app`, the default environment, no `--env` flag):
 
@@ -203,11 +280,20 @@ pnpm --filter @cogworks/portal exec wrangler secret put RUNNER_SIGNING_SECRET --
 ```
 
 Each prompts for the value. Paste it at the prompt rather than piping it in, so
-the secret never enters your shell history.
+the secret never enters your shell history. To get it out of step 1's file
+without displaying it, and to put the clipboard back afterwards:
+
+```sh
+python3 -c 'import json, os, sys; sys.stdout.write(json.load(open(os.path.expanduser("~/.cogworks/secrets/cogworks-runner-signing.json")))["RUNNER_SIGNING_SECRET"])' | pbcopy
+# ... paste at the wrangler prompt ...
+pbcopy < /dev/null
+```
 
 There is no deploy step after these. `wrangler secret put` creates and deploys a
 new version of the Worker immediately, which is why it is the second half of the
-rotation rather than something you batch with a later release.
+rotation rather than something you batch with a later release, and why during
+the production cutover this step waits for its own authorization: it is the
+command that puts a new production Worker version live.
 
 If you are also changing `RUNNER_SIGNING_KEY_ID` (section 6 explains when that is
 worth doing), it is an ordinary variable rather than a secret and lives in
@@ -262,11 +348,16 @@ Read its answers as:
 | signed 401 | The secret is set and differs from yours. This is the failure the tool exists to find. |
 | unsigned 405 | The route is not deployed. Nothing else in the output can be interpreted. |
 
-**Dispatch direction (portal to Modal).** This proves Modal holds the same value:
+**Dispatch direction (portal to Modal).** This proves Modal holds the same
+value. Name the endpoint explicitly, because the tool's default is staging
+(`DEFAULT_URL` in `verify_dispatch.py`, overridden by `MODAL_RUNNER_URL` if you
+have it exported), and a production check that silently probes staging is worse
+than no check:
 
 ```sh
 RUNNER_SIGNING_SECRET=... .venv-test/bin/python \
-  apps/runner-modal/tools/verify_dispatch.py
+  apps/runner-modal/tools/verify_dispatch.py \
+  --url https://samgu-nrx--cogworks-runner-production-submit-job.modal.run
 ```
 
 It sends refusable requests plus one correctly signed job naming a SHA of forty
@@ -275,6 +366,22 @@ the archive in a few seconds rather than running an evaluation. Pass is five
 401s, one 202, and the line "dispatch boundary verified". If the unauthenticated
 refusals pass but the signed job returns 401, the secret or the key id differs
 between the two sides.
+
+**The signed job is a real dispatch.** It is accepted with 202, it claims a
+job id in that app's job dictionary, and it spawns a prepare sandbox. That is
+the only way to prove the accept path, and it is not something to run against
+an environment you have not been cleared to write to. The refusals alone run
+with the secret unset, and still establish that the endpoint is live and
+refuses unsigned work:
+
+```sh
+env -u RUNNER_SIGNING_SECRET .venv-test/bin/python \
+  apps/runner-modal/tools/verify_dispatch.py --url <the endpoint>
+```
+
+Unset it in the command rather than trusting your shell: the tool reads it from
+the process environment, so an exported value quietly turns this back into the
+signed path.
 
 Both tools take the secret from the process environment only. Neither prints it.
 

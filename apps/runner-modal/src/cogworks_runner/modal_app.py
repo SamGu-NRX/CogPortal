@@ -16,10 +16,17 @@ from typing import Any, Dict, List, Optional, Tuple
 import modal
 from fastapi import Request, Response
 
+from .deployment import (
+    BENCHMARK_SANDBOX_IMAGE,
+    WEEK1_SANDBOX_IMAGE,
+    WEEK3_SANDBOX_IMAGE,
+)
+from .deployment import select as select_deployment
 from .image_bake import WEEK3_DATA_DIR, cache_facenet_checkpoint, cache_week3_artifacts
 from .protocol import canonical_json, signature, validate_job, verify_signature
 from .prepared_environment import (
     bind_environment,
+    student_python,
     validate_observation,
     validate_prepared_environment,
 )
@@ -168,12 +175,31 @@ BUILD_JUNK = [
     "~=**/dist",
 ]
 
-app = modal.App("cogworks-runner")
+#: Staging unless the environment says otherwise, both here and inside every
+#: container: Modal re-imports this module to resolve a deployed function, so
+#: the selection has to be something the container can read for itself.
+#: `tools/deploy.py` sets it before importing this module, and bakes it into
+#: the production controller image for the container half. See deployment.py.
+DEPLOYMENT = select_deployment(os.environ)
+
+app = modal.App(DEPLOYMENT.app_name)
 # modal>=1.5 removed create_if_missing from Secret.from_name; the secret is
 # still required to exist (deploy fails at reference resolution otherwise).
-runner_secret = modal.Secret.from_name("cogworks-runner-signing")
+runner_secret = modal.Secret.from_name(DEPLOYMENT.signing_secret_name)
 hidden_datasets = modal.Volume.from_name("cogworks-hidden-datasets", create_if_missing=True)
-job_store = modal.Dict.from_name("cogworks-runner-jobs", create_if_missing=True)
+# One dataset volume with one owner, mounted read-only in production. Nothing
+# here writes under /hidden: `_cases`, `_v2_cases`, `_week3_cases` and
+# `_week1_manifest` only read it, and the operator materializers write their
+# bundles locally. So read-only costs production nothing and removes the one
+# way it could damage data every environment reads.
+hidden_mount = (
+    hidden_datasets.with_mount_options(read_only=True)
+    if DEPLOYMENT.is_production
+    else hidden_datasets
+)
+# Job ids are portal-scoped, so two environments sharing one dictionary would
+# let either one answer for the other's claim and stored outcome.
+job_store = modal.Dict.from_name(DEPLOYMENT.job_dict_name, create_if_missing=True)
 
 # Hosted images run 3.11: Modal's 2025.06 image builder dropped Python 3.8,
 # and the run protocol already declared pythonVersion "3.11" (runner.ts).
@@ -350,31 +376,51 @@ week1_image = (
     )
 )
 
-# The controller scores every benchmark, so it carries every plugin package;
-# week1 and week3 scoring are pure numpy (gensim and librosa stay lazy and
-# unused there).
-controller_image = (
-    benchmark_image.pip_install("fastapi>=0.115,<1")
-    .pipe(lambda i: add_source_dir(i, REPO_ROOT / "benchmarks" / "week3", "/opt/week3"))
-    .pipe(lambda i: add_source_dir(i, REPO_ROOT / "benchmarks" / "week1", "/opt/week1"))
-    .run_commands(
-        "python -m pip install --no-deps /opt/week3",
-        "python -m pip install --no-deps /opt/week1",
-    )
-)
 
-#: Names the two sandbox images are published under at deploy time.
-#:
-#: `_prepare` creates its sandbox from inside a Modal container, where the
-#: repository that these images' `add_local_dir` layers read does not exist.
-#: Modal resolves an image definition client-side, so naming the objects
-#: directly there makes it try to rebuild them from local files and fail with
-#: "local dir ... does not exist". Publishing each image from the machine that
-#: does have the repository (see tools/deploy.py) turns it into a server-side
-#: object the container can reference by name instead of rebuild.
-BENCHMARK_SANDBOX_IMAGE = "cogworks-runner-benchmark"
-WEEK3_SANDBOX_IMAGE = "cogworks-runner-week3"
-WEEK1_SANDBOX_IMAGE = "cogworks-runner-week1"
+def controller_layers(base: "modal.Image") -> "modal.Image":
+    """What the controller adds to a Week 2 evaluation image.
+
+    The controller scores every benchmark, so it carries every plugin package;
+    week1 and week3 scoring are pure numpy (gensim and librosa stay lazy and
+    unused there). Both targets add exactly these layers, over different bases.
+    """
+
+    return (
+        base.pip_install("fastapi>=0.115,<1")
+        .pipe(lambda i: add_source_dir(i, REPO_ROOT / "benchmarks" / "week3", "/opt/week3"))
+        .pipe(lambda i: add_source_dir(i, REPO_ROOT / "benchmarks" / "week1", "/opt/week1"))
+        .run_commands(
+            "python -m pip install --no-deps /opt/week3",
+            "python -m pip install --no-deps /opt/week1",
+        )
+    )
+
+
+if DEPLOYMENT.is_production:
+    # Production starts from the pinned Week 2 image itself rather than from
+    # `benchmark_image`. The definition above copies this checkout's runner
+    # source at /opt/runner, so resolving it now would rebuild every layer
+    # after that copy (the Week 2 package install and the facenet checkpoint
+    # download), and the controller would sit on layers the pinned sandboxes do
+    # not share. Starting from the id keeps those layers, and the copy below
+    # puts the controller's own source on top.
+    #
+    # `add_local_dir` is a COPY, so it merges: a file this checkout deleted
+    # would survive underneath. Nothing is deleted here, but a release that
+    # removes a runner module has to handle that deliberately.
+    controller_image = controller_layers(
+        add_source_dir(
+            modal.Image.from_id(DEPLOYMENT.sandbox_image_ids[BENCHMARK_SANDBOX_IMAGE]),
+            REPO_ROOT / "apps" / "runner-modal" / "src",
+            "/opt/runner",
+        )
+    ).env(
+        # How the selection reaches the container: the last layer, which the
+        # container's own import of this module reads back through `select`.
+        DEPLOYMENT.environment()
+    )
+else:
+    controller_image = controller_layers(benchmark_image)
 
 PREPARE_SCRIPT = r"""
 import importlib.metadata
@@ -1342,27 +1388,28 @@ def _week1_cases(job: Dict[str, Any], manifest: Dict[str, Any]) -> List[Any]:
 
 
 def _sandbox_image(job: Dict[str, Any]) -> Any:
-    """Reference the published sandbox image by name.
+    """Reference this benchmark's sandbox image.
 
     This runs inside the container, so it must not touch `week3_image` or
     `benchmark_image` directly; resolving those definitions needs the local
-    repository. `tools/deploy.py` publishes both names at deploy time.
+    repository. Staging references the name `tools/deploy.py` published at
+    deploy time. Production references the immutable id captured into its
+    controller, because publishing a name is a staging release step and a
+    name resolved here would follow it.
     """
     name = {
         "language-search": WEEK3_SANDBOX_IMAGE,
         "audio-identification": WEEK1_SANDBOX_IMAGE,
     }.get(job["benchmark"]["id"], BENCHMARK_SANDBOX_IMAGE)
+    if DEPLOYMENT.is_production:
+        return modal.Image.from_id(DEPLOYMENT.sandbox_image_ids[name])
     return modal.Image.from_name(name)
 
 
 def _student_python(job: Dict[str, Any]) -> str:
-    """Week 1 and Week 3 student code runs under the pinned 3.8.20 venv; the
-    course contract is Python 3.8 and Modal's own runtime cannot be."""
+    """Use the same interpreter selection as the release probe."""
 
-    return {
-        "language-search": WEEK3_STUDENT_PYTHON,
-        "audio-identification": WEEK1_STUDENT_PYTHON,
-    }.get(job["benchmark"]["id"], "python")
+    return student_python(job["benchmark"]["id"], ENVIRONMENT.PY38_VENV)
 
 
 def _prepare(job: Dict[str, Any], reporter: LiveReporter) -> Tuple[str, Dict[str, Any]]:
@@ -1400,7 +1447,6 @@ def _prepare(job: Dict[str, Any], reporter: LiveReporter) -> Tuple[str, Dict[str
         if callback.hostname and callback.hostname not in allowlist:
             allowlist.append(callback.hostname)
         image = _sandbox_image(job)
-        image.hydrate()
         sandbox = modal.Sandbox.create(
             image=image,
             app=app,
@@ -1409,6 +1455,9 @@ def _prepare(job: Dict[str, Any], reporter: LiveReporter) -> Tuple[str, Dict[str
             timeout=job["runtime"]["timeoutSeconds"],
             outbound_domain_allowlist=allowlist,
         )
+        # Modal 1.5.5 rejects direct hydration of a named image. Sandbox.create
+        # resolves this same handle, so its base image id is available only now.
+        base_image_id = image.object_id
         reporter.status("preparing")
         # Only this pristine image is platform-owned. Neither the archive nor
         # an installer has run. Preserve the observation in controller memory;
@@ -1467,7 +1516,7 @@ def _prepare(job: Dict[str, Any], reporter: LiveReporter) -> Tuple[str, Dict[str
             raise RunnerFailure("dependency_install", "installing", detail or "Install failed.", False)
         reporter.status("contract_check")
         snapshot_id = sandbox.snapshot_filesystem().object_id
-        return snapshot_id, bind_environment(job, observation, snapshot_id, image.object_id)
+        return snapshot_id, bind_environment(job, observation, snapshot_id, base_image_id)
     except RunnerFailure:
         raise
     except Exception as error:
@@ -2519,7 +2568,7 @@ def _sweep_wire(benchmark):
 @app.function(
     image=controller_image,
     secrets=[runner_secret],
-    volumes={"/hidden": hidden_datasets},
+    volumes={"/hidden": hidden_mount},
     timeout=3_600,
     # Modal's own retry policy is the mechanism that replays an outcome the
     # portal never heard. `_finish` raises when, and only when, a terminal

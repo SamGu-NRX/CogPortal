@@ -1,9 +1,9 @@
 /**
  * Which benchmark distribution a track installs, and where pip resolves it.
  *
- * The revisions are the submodule commits recorded in `.gitmodules`; they move
- * when the submodules move. A student's install matches the graded run only
- * while the two agree, so a submodule bump is also an edit here.
+ * Pins follow the accepted release's benchmark gitlinks and source repositories.
+ * Update these with each accepted benchmark revision so local installation and
+ * hosted scoring use the same source.
  *
  * Each source is a PEP 508 direct reference pinned to a commit rather than a
  * branch: `@main` would silently change what a student installed between two
@@ -30,21 +30,15 @@ export interface BenchmarkPackage {
  * reaches that through this page, which serves whichever pin its own deploy
  * carries, but `--portal` at an older deployment does.
  *
- * This pin carries the macOS execution boundary, so a student on a Mac runs
- * their code in a fresh interpreter rather than a fork that aborts inside
- * system APIs, and it carries the JSON result boundary that replaced the
- * pickle. It also carries the four repairs a security review blocked the
- * boundary on: a killed run can no longer report `completed`, resource limits
- * are confirmed installed before student code runs, `test` and `run` can no
- * longer hang with no deadline armed, and a repository that declares its own
- * submission no longer needs a warm course cache. Installed into a clean
- * 3.8.20 venv from this exact commit on 2026-09-10: `direct_url.json` names
- * it, `run_operation` is present, the boundary contains no pickle, reports
- * carry metric roles, and all four guards are in the installed source. CI was
- * green on all 24 check-runs at this commit before it was pinned.
+ * The retained-input SDK and Week3 pin move together: reports name captured
+ * bytes and sync uploads those retained files, rather than rereading changed
+ * project weights. The accepted local contract/storage and memo checks cover
+ * supported adapters; they do not establish weighted course compatibility.
+ * `d9405278` preserves that implementation and repairs its CI fixtures and
+ * strict Week3 validator. Final combined live rehearsal remains separate.
  */
 export const COGBENCH_SOURCE =
-  "git+https://github.com/SamGu-NRX/CogPortal.git@094a6f1ac109716014492a57a81157e71b70f7ab#subdirectory=python/cogbench";
+  "git+https://github.com/SamGu-NRX/CogPortal.git@d9405278aac8268cd340e589f36dbad766d1e2a0#subdirectory=python/cogbench";
 
 const WEEK1_AUDIO: BenchmarkPackage = {
   distribution: "cogworks-week1-audio-benchmark",
@@ -57,13 +51,13 @@ const WEEK1_AUDIO: BenchmarkPackage = {
 const WEEK2_VISION: BenchmarkPackage = {
   distribution: "cogworks-week2-vision-benchmark",
   source:
-    "git+https://github.com/iReynaldo/ComputerVisionBenchmark.git@c177cf23cdd4f8dbe55401a2eb4bada4c64d37c2",
+    "git+https://github.com/SamGu-NRX/cogworks-week2-vision-benchmark.git@b9055031bf25a18594651d89610f3fbcd7462db8",
 };
 
 const WEEK3_LANGUAGE: BenchmarkPackage = {
   distribution: "cogworks-week3-language-benchmark",
   source:
-    "git+https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git@b166f5c15e950baccc3785839cdcc660ffe01bb4",
+    "git+https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git@fff786537567939936bf65042c09cdea27c90798",
 };
 
 export const BENCHMARK_PACKAGES: Readonly<Record<string, BenchmarkPackage>> = {
