@@ -9,25 +9,14 @@ function buildClient(env: Env) {
 /**
  * One Drizzle client per D1 binding, reused for the life of the isolate.
  *
- * `drizzle(binding, { schema })` walks the 31 tables in the exported `schema`
- * aggregate through `extractTablesRelationalConfig` before it can serve a
- * query, and the worker calls `getDb` from 106 places, several of them on a
- * single request: the session lookup, the role lookup and the route body each
- * built their own client. Workers charges CPU and not the D1 waits this sits
- * between, so that repetition is the part worth removing.
+ * `getDb` is called from 106 places, several of them on a single request, and
+ * every call rebuilt a client out of the same binding and the same `schema`
+ * module constant. Building it once removes that repeated construction. What a
+ * profile of it does and does not show is in the pull request.
  *
- * Measured on a local production build, profiled through the workerd DevTools
- * inspector over 200 authenticated `GET /api/dashboard` requests:
- * `extractTablesRelationalConfig` and `drizzle` together held 0.96 ms per
- * request of self time before this change and do not appear after it. The
- * whole-request total moved by less than the run-to-run spread (about 0.4 ms on
- * roughly 11 ms), so this buys headroom rather than a visible speed-up, and a
- * local number is not a measurement of cloud CPU margin either way.
- *
- * Sharing it is safe because the client is a function of the binding and of
- * `schema`, a module constant. Nothing about a query or a row is kept: the
- * session holds only `client`, `schema` and `options`, prepares a fresh
- * statement per call, and leaves drizzle's cache at its NoopCache default
+ * Sharing is safe because the client keeps no per-query state: the session
+ * holds only `client`, `schema` and `options`, prepares a fresh statement per
+ * call, and leaves drizzle's cache at its NoopCache default
  * (`drizzle-orm/d1/session.js`). Keyed on the binding so another environment,
  * or a Durable Object with its own `env`, gets its own client, and weak so it
  * lives no longer than the binding does.
