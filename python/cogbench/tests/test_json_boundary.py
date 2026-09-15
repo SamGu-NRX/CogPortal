@@ -190,4 +190,3 @@ class ADeclaredLengthIsNotAnAllocationOrder(unittest.TestCase):
 
         self.assertEqual(outcome.status, isolate.COMPLETED)
         self.assertEqual(outcome.value, value)
-
