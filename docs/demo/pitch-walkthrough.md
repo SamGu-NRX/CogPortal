@@ -123,12 +123,10 @@ benchmark writes the sentence and the number sits under it.
   on `SamGu-NRX/Language_Module_Capstone@8789361`, and the page shows
   `data/W_embed.npy from your local run at 8789361`: a weight file the student
   trained on their own machine, carried up automatically and used by the hosted
-  run. All nineteen stored values match their local report exactly. Two caveats.
-  It is a saved result rather than a live one, and it took 15m31s, so do not
-  start another. And it belongs to a different repository than the one the team
-  is connected to right now, which is how it was opened when it was verified; if
-  the link does not open cleanly today, drop the expansion rather than
-  troubleshooting it on stage.
+  run. All nineteen stored values match their local report exactly. One caveat:
+  it is a saved result rather than a live one, and it took 15m31s, so do not
+  start another. The link opens from the Audio-connected account, checked
+  today; only new actions against that older repository are unavailable.
 - **Other tracks.** Each track carries its own setup state and its own quota,
   which is what shows they are separate. Both Vision tracks have real runs on
   the staging site, not on production, so describe them rather than opening

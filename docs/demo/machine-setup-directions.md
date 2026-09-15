@@ -40,9 +40,9 @@ expect from two different machines.
 
 **Known limitation on the fallback.** These are real results and they stay
 useful if a live run is slow, but one of them is a saved run from earlier
-today, not a new result, so say which it is. Three clean runs in a row also do
-not prove the service holds up under load: production returned 503 under load
-earlier, and nothing since has tested capacity.
+today, not a new result, so say which it is. These successful runs also say
+nothing about capacity, which has not been tested. Production returned 503
+earlier, before the latest recovery, and that has not been diagnosed.
 
 ## 2. The environment
 
@@ -103,15 +103,12 @@ report anything else rather than working around it.
    CogPortal team and 5 of 5 verified. If it shows the sign-in page, tell Sam
    and let him sign in himself.
 
-4. Open `https://cogportal.sillion.app/dashboard` and reload it before reading
-   anything. The prepared tab has been open for a while, and a tab that has sat
-   without reloading can still show rows from an earlier state under the right
-   address, which is a stale view no amount of checking the hostname catches.
-   Reloading costs the prepared branch selection, so reselect
-   `codex/demo-rehearsal-d9405278` afterwards; a known reselect beats an
-   unverified page. Then set the track to Song Identification, because the run
-   log is scoped to the selected benchmark and the default is not necessarily
-   Audio. Three succeeded runs at 0.5375 should be listed.
+4. Open `https://cogportal.sillion.app/dashboard`, taking care it is that
+   address and not the dev one. Set the track to Song Identification, because
+   the run log is scoped to the selected benchmark and the default is not
+   necessarily Audio. Three succeeded runs at 0.5375 should be listed. After
+   any navigation or reload, confirm the **Branch** menu still reads
+   `codex/demo-rehearsal-d9405278`, and reselect it if it does not.
 
 ## 4. Before the hosted run, match the branch
 
