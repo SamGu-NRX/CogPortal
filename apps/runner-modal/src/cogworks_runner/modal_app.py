@@ -2519,6 +2519,21 @@ def _v2_metrics(benchmark: Any, outputs: List[Any], cases: List[Any]) -> Tuple[L
     return metrics, list(getattr(benchmark, "last_diagnostics", []))
 
 
+def _declared_sweep_metric(benchmark):
+    """The metric a plugin says its curve plots, if it says one the wire takes.
+
+    `SweepSchema.metric` is a string of 1 to 60 characters. Anything else is a
+    400 on the completed event, which loses a score that was already measured,
+    so a declaration this cannot use is ignored rather than forwarded.
+    """
+
+    declared = getattr(benchmark, "sweep_metric", None)
+    if not isinstance(declared, str):
+        return None
+    declared = declared.strip()
+    return declared if 0 < len(declared) <= 60 else None
+
+
 def _sweep_wire(benchmark):
     """The plugin's difficulty sweep, in the shape the protocol expects.
 
@@ -2565,7 +2580,12 @@ def _sweep_wire(benchmark):
         # with a number it does not draw. A plugin that names the metric its
         # curve plots is believed; Week 1 names none and keeps the primary,
         # which is what its catalog-size curve actually shows.
-        "metric": getattr(benchmark, "sweep_metric", None) or _primary_for_run(benchmark),
+        #
+        # Checked against the shape the protocol accepts before it is used. A
+        # declaration that is not a short string would be refused at
+        # `SweepSchema.metric`, and the refusal takes the whole completed event
+        # with it, so a chart label is not worth losing a measured score over.
+        "metric": _declared_sweep_metric(benchmark) or _primary_for_run(benchmark),
         "points": wire,
     }
 
