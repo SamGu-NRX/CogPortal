@@ -727,9 +727,9 @@ request to a deployed origin, so run it deliberately. Do not reach for
       catalog flag alone does not survive `0018`
 - [ ] Audio activation in production named as an explicit decision, not
       inherited from a migration
-- [ ] `cogportal-artifacts` created and bound as `ARTIFACTS` in
-      `env.production`, in that order, and confirmed bound after deploying
-      (staging's `cogportal-artifacts-dev` is already created and bound)
+- [ ] staging's `cogportal-artifacts-dev` bound as `ARTIFACTS` and still
+      private, `env.production` still carrying no `r2_buckets` block, and
+      production storage authorized separately after staging acceptance
 - [ ] production secrets set by name on `cogportal-production`, including
       `RUNNER_SIGNING_SECRET`
 - [ ] four probe receipts, one per served benchmark, each exited 0 and naming
