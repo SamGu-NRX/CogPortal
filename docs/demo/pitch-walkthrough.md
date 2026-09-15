@@ -40,7 +40,11 @@ Switch to the terminal, in the student checkout.
 git status --short --branch
 ```
 
-Make the edit he intends to show, in `README.md`, then:
+Then make the edit. Keep it in `README.md`, the way the rehearsed commit did:
+one line under the existing heading, naming a command a teammate would run.
+What the line says does not matter, and it is his to write on the day. Keeping
+it out of the Python is what makes the next two minutes a claim about
+provenance rather than an unrehearsed change to the thing being scored.
 
 ```sh
 git add -- README.md
@@ -78,7 +82,7 @@ two minutes" rather than a number he then has to beat.
 ### 4. While it runs, the same code on his own machine
 
 The wait is about two minutes, and the CLI fills it with something better than
-a progress rail.
+a progress rail. Back in the terminal, which is still in the student checkout:
 
 ```sh
 cogworks run --benchmark audio-identification

@@ -49,9 +49,12 @@ commit adds thirteen lines to `README.md` and nothing else. `main` is still at
 
 **The CLI** is an isolated virtualenv holding `cogworks` 0.2.0. It keeps its
 configuration outside the global one, so nothing here disturbs another CLI on
-this machine. Paste this block into the demo terminal before anything else:
+this machine. Paste this block into the demo terminal before anything else. It
+ends in the student checkout on purpose, because `check` and `run` read the
+directory you are standing in:
 
 ```sh
+cd '/Users/samgu/Programming Projects/CogPortal-rehearsal-student'
 source /tmp/cogportal-rehearsal-venv/bin/activate
 export COGBENCH_CONFIG=/tmp/cogportal-rehearsal-state/config.json
 export PYTHONDONTWRITEBYTECODE=1
@@ -124,12 +127,22 @@ The virtualenv and its configuration live under `/tmp`, so they do not survive
 a reboot. If `cogworks` is missing or `cogworks status` reports no portal,
 rebuild rather than improvise:
 
-1. Create a fresh virtualenv outside any repository.
+1. Create a fresh virtualenv outside any repository, and activate it.
 2. Run the install commands from `https://cogportal.sillion.app/setup` in it.
 3. Run `cogworks link --portal https://cogportal.sillion.app --no-browser`,
    then paste the printed URL into the Helium window that holds Sam's session.
    Approving the device needs his session, so ask him to press **Approve**.
-4. Run `cogworks check --benchmark audio-identification` to confirm the wiring.
+4. Change into the student checkout, then confirm the wiring:
+
+   ```sh
+   cd '/Users/samgu/Programming Projects/CogPortal-rehearsal-student'
+   cogworks check --benchmark audio-identification
+   ```
+
+   `check` and `run` both read the directory you are standing in
+   (`project_root = Path.cwd()`, `python/cogbench/src/cogbench/cli.py:890`), so
+   running either from the virtualenv's own directory inspects the wrong
+   project and reports nothing useful.
 
 Use `--no-browser`. Without it the CLI opens the system default browser, which
 may not be the one holding the signed-in session.
