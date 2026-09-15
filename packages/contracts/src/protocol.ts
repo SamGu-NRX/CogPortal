@@ -22,7 +22,20 @@ export const ProtocolMetricSchema = z.object({
    * exists do not send one; a metric with no explanation renders without the
    * help affordance rather than with an empty one.
    */
-  help: z.string().max(600).optional(),
+  /**
+   * 1000, because 600 rejected a real result. Week 3's `search_mrr` explains
+   * the whole application end to end and its help runs to 645 characters, so
+   * a hosted Language run that bound its search side answered 400 on the
+   * completed event and lost a scored result it had already computed. The
+   * stored side never had this limit: `MetricSchema.help` in schema.ts is
+   * uncapped, so the same string round-trips through a local report and only
+   * the hosted path refused it.
+   *
+   * Explanatory prose is not a log line. It is written by the benchmark, shown
+   * in a disclosure, and stored whole, so a cap here buys nothing except the
+   * chance to reject a result. This one exists only to bound the request.
+   */
+  help: z.string().max(1_000).optional(),
   /**
    * What kind of number this is, which decides how the run page draws it.
    *
