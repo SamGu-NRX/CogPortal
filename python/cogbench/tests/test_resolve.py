@@ -1920,3 +1920,46 @@ class AReaderProbeGetsThePerCallClockLikeEveryOtherCall(unittest.TestCase):
         thread.join()
 
         self.assertEqual(answered.get("value"), 42)
+
+
+class TheRefusalUsesTheWeeksOwnWords(unittest.TestCase):
+    """A week whose task ends in a database refuses in its own vocabulary.
+
+    Two weeks reach this branch, and they store different things: Week 1
+    stores a song, Week 2 stores a face. The sentence was written in Week 1's
+    nouns, so a Week 2 team whose descriptors bound and whose database did not
+    was told the benchmark had found their "fingerprinting" and wanted a pair
+    of functions to keep a "song". Reproduced on
+    LashikaKapoor28/Vision_Module_Capstone @ 479ad2c.
+    """
+
+    #: Binds the one stage and offers nothing that could store its result,
+    #: which is what puts the search on the half-resolved branch.
+    HALF = "def make_features(value, rate):\n    return [(value * 2, rate)]\n"
+
+    def _refusal(self, role):
+        tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        (tmp / "theirs.py").write_text(self.HALF)
+        return resolve(
+            tmp,
+            chain_role=role,
+            fixture=FIXTURE,
+            accepts=_accepts,
+            arrangements=_arrangements,
+        ).verdict
+
+    def test_a_week_that_does_not_handle_audio_is_not_told_about_songs(self):
+        verdict = self._refusal(Role("describe", ROLE.stages))
+
+        self.assertEqual(verdict.status, NOT_WIRED)
+        self.assertIn("describe", verdict.next_step)
+        said = verdict.next_step.lower()
+        self.assertNotIn("song", said)
+        self.assertNotIn("fingerprint", said)
+
+    def test_the_audio_week_still_names_its_own_half(self):
+        verdict = self._refusal(ROLE)
+
+        self.assertEqual(verdict.status, NOT_WIRED)
+        self.assertIn("fingerprint", verdict.next_step)

@@ -819,15 +819,22 @@ def resolve(
                 # could be paired with a store and a query. Saying their
                 # algorithm returned the wrong answer would be wrong twice over:
                 # nothing of theirs was asked for an answer, and the missing
-                # piece is a database rather than a better fingerprint.
+                # piece is a database rather than better work in the step
+                # before it.
+                #
+                # The sentence names the role the week declared rather than a
+                # noun of its own: Week 1 stores a song, Week 2 stores a face,
+                # and both reach here. Written in Week 1's nouns, it told a
+                # face-recognition team about fingerprinting and songs.
                 return Submission(
                     not_wired(
                         "identification",
                         "database",
                         reached,
                         next_step=(
-                            "The benchmark found your fingerprinting but no pair of "
-                            "functions that stores a song and then names it back."
+                            "The benchmark found your {} step but no pair of your "
+                            "functions that stores what it returns and then names "
+                            "it back.".format(chain_role.name)
                         ),
                         coverage=_coverage_of(found, benchmark),
                     ),
