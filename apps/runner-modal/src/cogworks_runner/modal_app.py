@@ -113,17 +113,22 @@ def _failure_detail(error: Any) -> str:
     """
 
     limit = 240
-    text = " ".join(str(error).split())
-    # `z.string().max(240)` counts UTF-16 code units, and Python counts code
-    # points, so an astral character costs two there and one here. Counting in
-    # code points would let 121 emoji through as 242 units and the receiver
-    # would answer 400, losing the whole terminal event.
-    width = lambda value: len(value.encode("utf-16-le")) // 2
+    raw = str(error)
+    # `z.string().max(240)` counts UTF-16 code units and Python counts code
+    # points, so an astral character costs two there and one here. Counted by
+    # arithmetic rather than by encoding, because a lone surrogate is something
+    # student code can hand us and `.encode("utf-16-le")` raises on one, which
+    # would throw from inside the handler already reporting another failure.
+    width = lambda value: sum(2 if ord(ch) > 0xFFFF else 1 for ch in value)
+    if width(raw) <= limit:
+        return raw
+    # Only now is the text reshaped. A short detail keeps its own newlines.
+    text = " ".join(raw.split())
     if width(text) <= limit:
         return text
     kept, used = [], 0
     for character in text:
-        size = width(character)
+        size = 2 if ord(character) > 0xFFFF else 1
         if used + size > limit - 4:  # room for " ..."
             break
         kept.append(character)

@@ -65,6 +65,19 @@ class ACutDetailSaysSo(unittest.TestCase):
 
         self.assertLessEqual(len(detail.encode("utf-16-le")) // 2, 240)
 
+    def test_a_surrogate_does_not_throw_from_inside_the_handler(self):
+        # Student code can hand us a lone surrogate, and encoding one raises.
+        # Throwing here would escape the block already reporting another
+        # failure, so the width is counted by arithmetic instead.
+        detail = self.modal_app._failure_detail("\udcff" * 241)
+
+        self.assertLessEqual(len(detail), 240)
+
+    def test_a_short_formatted_message_keeps_its_own_shape(self):
+        formatted = "Prepared environment is unknown.\n  expected: a\n  found: b"
+
+        self.assertEqual(self.modal_app._failure_detail(formatted), formatted)
+
     def test_a_message_that_fits_is_handed_over_untouched(self):
         short = "Official Week 2 data is missing or failed integrity validation."
 
