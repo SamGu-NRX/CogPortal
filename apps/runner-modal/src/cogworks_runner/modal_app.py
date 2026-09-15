@@ -22,7 +22,13 @@ from .deployment import (
     WEEK3_SANDBOX_IMAGE,
 )
 from .deployment import select as select_deployment
-from .image_bake import WEEK3_DATA_DIR, cache_facenet_checkpoint, cache_week3_artifacts
+from .image_bake import (
+    WEEK2_CACHE_DIR,
+    WEEK3_DATA_DIR,
+    cache_facenet_checkpoint,
+    cache_week2_celeba,
+    cache_week3_artifacts,
+)
 from .protocol import canonical_json, signature, validate_job, verify_signature
 from .prepared_environment import (
     bind_environment,
@@ -253,9 +259,16 @@ benchmark_image = (
             # where every process in the sandbox inherits it. The binding
             # records whether it was pinned (isolate.hash_seed_in_effect).
             "PYTHONHASHSEED": "0",
+            # XDG_CACHE_HOME: Week 2 asks platformdirs where its photographs
+            # are and never passes a root of its own, so the answer depends on
+            # whose home directory is asking. Pinning it here is what makes the
+            # cache `cache_week2_celeba` writes at build time the same cache
+            # the sandbox opens at run time.
+            "XDG_CACHE_HOME": WEEK2_CACHE_DIR,
         }
     )
     .run_function(cache_facenet_checkpoint)
+    .run_function(cache_week2_celeba)
 )
 
 #: Student evaluation interpreter for Week 3. Modal's runtime requires
