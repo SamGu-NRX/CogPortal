@@ -289,14 +289,59 @@ environments. Names only, values never in a file or a chat:
 `DISCORD_CLIENT_SECRET`, `GITHUB_CLIENT_SECRET`, `PLATFORM_OWNER_LOGINS`,
 `RUNNER_SIGNING_SECRET`. The last is the one production does not have.
 
-There is one Modal app and one signing secret, so production's
-`RUNNER_SIGNING_SECRET` has to be byte-identical to the value staging holds and
-to the one inside the Modal secret. That is a consequence worth stating plainly
-rather than discovering: possession of that single value is full authority over
-both portals in both directions, so an exposure anywhere is an exposure
-everywhere, and a rotation is now a drain of both portals rather than one. See
-`rotate-signing-secret.md`, whose "skip this if everything is fixture" shortcut
-stops applying the moment production dispatches.
+Production dispatches to its own Modal app, `cogworks-runner-production`, whose
+signing secret is `cogworks-runner-production-signing`. So production's
+`RUNNER_SIGNING_SECRET` has to be byte-identical to the value inside *that*
+secret and different from staging's. Possession of one value is full authority
+over one portal in both directions, which is the point of separating them: an
+exposure on staging is not an exposure of the course's real data, and a
+rotation drains one portal.
+
+Create that Modal secret before the first production controller deploy, because
+`Secret.from_name` fails deploy-time resolution rather than creating it.
+Generate the value into a protected file rather than onto a command line: an
+argument is visible in `ps` and is written to your shell history, and neither
+is somewhere this value can be withdrawn from later.
+
+```sh
+umask 077
+mkdir -p ~/.cogworks/secrets && chmod 700 ~/.cogworks/secrets
+python3 - <<'PY'
+import json, os, secrets
+path = os.path.expanduser("~/.cogworks/secrets/cogworks-runner-production-signing.json")
+handle = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+with os.fdopen(handle, "w") as out:
+    json.dump(
+        {
+            "RUNNER_SIGNING_SECRET": secrets.token_hex(32),
+            "RUNNER_SIGNING_KEY_ID": "runner-v1",
+        },
+        out,
+    )
+print("wrote", path)
+PY
+
+modal secret create cogworks-runner-production-signing \
+  --from-json ~/.cogworks/secrets/cogworks-runner-production-signing.json
+```
+
+The value is never printed and never passed as an argument. `O_EXCL` makes the
+generator refuse to overwrite a file that already exists, so re-running it
+cannot replace a value Modal is already holding. `--from-json` is the file
+input the installed CLI supports (modal 1.5.5, `modal secret create --help`).
+Two inputs that look equivalent and are not: `--from-dotenv` raises
+`ImportError: Need the python-dotenv package installed`, which `.venv-deploy`
+does not have, and `KEY=-` opens `$EDITOR` and stores the buffer verbatim
+(`get_text_from_editor` in `modal/cli/secret.py`), so an editor's trailing
+newline becomes part of the secret.
+
+The same value belongs in exactly one other place: `RUNNER_SIGNING_SECRET` on
+the `cogportal-production` Worker. That half is a separate, separately
+authorized step, because `wrangler secret put` creates and deploys a new Worker
+version immediately. Until it is taken, keep the file (it is the only copy) and
+delete it once both sides hold the value. `rotate-signing-secret.md` has the
+ordering and the outage it costs; its "skip this if everything is fixture"
+shortcut stops applying the moment production dispatches.
 
 ### Gate R2
 
@@ -392,6 +437,95 @@ python apps/runner-modal/tools/deploy.py \
    probe and publication because the final command also deploys its controller.
 
 5. Reactivate admission.
+
+### Production runs the same ids without the names
+
+Steps 2 to 4 above are staging's. Production never publishes a name, because
+publishing is what makes an image live and production must not move underneath
+a staging release. It deploys its controller with the same ids captured into
+it, so `_sandbox_image` resolves them with `Image.from_id`:
+
+```sh
+.venv-deploy/bin/python apps/runner-modal/tools/deploy.py --target production \
+  --sandbox-image cogworks-runner-benchmark=im-XXXXXXXXXXXXXXXXXXXXXX \
+  --sandbox-image cogworks-runner-week3=im-XXXXXXXXXXXXXXXXXXXXXX \
+  --sandbox-image cogworks-runner-week1=im-XXXXXXXXXXXXXXXXXXXXXX
+```
+
+The command refuses `--build-only` and `--publish`, and refuses to run at all
+unless every sandbox image has an id. The one image it resolves is the
+controller, and that starts from the benchmark id above rather than from the
+`benchmark_image` definition: the definition copies this checkout's runner
+source partway down its chain, so resolving it would rebuild the Week 2 package
+install and the facenet checkpoint download above that copy. On top of the
+pinned image the controller adds this checkout's runner source, the Week 1 and
+Week 3 plugin layers, and the environment carrying the selection. No sandbox
+image is rebuilt and no name is published.
+
+Prerequisites: `cogworks-runner-production-signing` exists (see Secrets above),
+and the three ids come from probe receipts. The job dictionary
+`cogworks-runner-production-jobs` is created by the deploy itself. The hidden
+dataset volume is the shared `cogworks-hidden-datasets`, mounted read-only in
+production, so there is nothing to provision and nothing production can write.
+
+**Do not export `COGWORKS_RUNNER_TARGET`, `COGWORKS_RUNNER_SANDBOX_IMAGE_IDS`
+or `MODAL_RUNNER_URL` into your shell.** `deploy.py` clears the first two
+before it imports the controller, so a staging deploy stays staging. Nothing
+else does: `tools/diagnose_corpus.py` and `tools/smoke_week3_sandbox.py` import
+`modal_app` directly and would build against whichever app the exported value
+selects, and `tools/verify_dispatch.py` takes its default endpoint from
+`MODAL_RUNNER_URL`. Pass the target per command instead.
+
+#### What to record, and what the receipts do not cover
+
+The four probe receipts vouch for the three sandbox image ids and nothing else.
+The controller is built from your working tree at deploy time, so it is not
+covered by any receipt, old or new. Record, next to the ids: the commit the
+deploy ran from, that the tree was clean, and the app version the deploy
+produced (`modal app history cogworks-runner-production`). The three ids and
+that source line are separate facts about separate images.
+
+#### Confirming the deploy without dispatching work
+
+In order, and none of it runs student code or costs a sandbox evaluation:
+
+1. Read the endpoint out of the deploy output and compare it to
+   `MODAL_RUNNER_URL` in `env.production.vars`. The value in `wrangler.jsonc`
+   was derived from Modal's `workspace--app-function` pattern, not read back
+   from a deploy, so this is the step that makes it a fact. Fix the config
+   before the Worker is deployed if they differ.
+2. Read the deployed function's own record rather than inferring it from local
+   source. `FunctionGet` (`app_name`, `object_tag`, `environment_name`) returns
+   the deployed `Function`, whose `image_id`, `secret_ids`, `volume_mounts`
+   (each with its `read_only` flag) and `web_url` are the four things worth
+   checking: the image id is the controller this deploy built, `/hidden` is
+   read-only, and the URL is the one in step 1. `secret_ids` holds ids rather
+   than names, so compare it against the id of
+   `cogworks-runner-production-signing`. Fields confirmed present in
+   `modal_proto.api_pb2` for modal 1.5.5; the call has not been made here,
+   because nothing is deployed yet.
+3. If you want to see the environment a container would read, run a
+   configuration-only command (`env`, an import check) in a sandbox created
+   from `modal.Image.from_id(<the image id step 2 reported>)`, the way
+   `probe_prepared_environment.py` already addresses an image. Two things that
+   are not evidence: `modal shell hello.py::fn`, which rebuilds the local
+   definition rather than opening what is deployed, and `modal shell --image`,
+   which takes a registry tag and not a Modal image id.
+4. Check refusals at the endpoint, without a signed job:
+
+   ```sh
+   env -u RUNNER_SIGNING_SECRET .venv-test/bin/python \
+     apps/runner-modal/tools/verify_dispatch.py \
+     --url https://samgu-nrx--cogworks-runner-production-submit-job.modal.run
+   ```
+
+   Without the secret the tool sends its three unauthenticated shapes, expects
+   401 from each, and stops before the accept path. Unset the variable in the
+   command rather than trusting your shell, because it reads the secret from
+   the process environment and the signed job is not harmless: it is accepted
+   with 202 and spawns a real prepare sandbox against the production job
+   dictionary. That belongs to a later, separately authorized step, along with
+   `probe_callback.py` against the production portal.
 
 ### Pins the first rehearsal keeps
 
@@ -535,12 +669,19 @@ request to a deployed origin, so run it deliberately. Do not reach for
 - Worker rollback, either environment: `wrangler versions list --name <worker>`
   to find the exact version, then `wrangler rollback <version-id> --name
   <worker>`. No rebuild, and the version id is recorded before the cutover.
-- Modal rollback: `modal app history cogworks-runner` to find the version, then
-  `modal app rollback cogworks-runner <version>`. Known gap: the sandbox images
-  are published under mutable names and resolved by name at dispatch, so app
-  versioning does not cover them and a rollback does not restore the images a
-  previous version ran against. Recovering an exact image needs its immutable
-  id, which is what the probe receipts hold.
+- Modal rollback: `modal app history <app>` to find the version, then
+  `modal app rollback <app> <version>`, where `<app>` is `cogworks-runner` for
+  staging or `cogworks-runner-production`. Known gap, staging only: its sandbox
+  images are published under mutable names and resolved by name at dispatch, so
+  app versioning does not cover them and a rollback does not restore the images
+  a previous version ran against. Recovering an exact image needs its immutable
+  id, which is what the probe receipts hold. A production rollback does return
+  to the ids that version was deployed with, because they are baked into its
+  controller, but only for work prepared after the rollback. A run that carries
+  a `preparedArtifactId` is evaluated inside that filesystem snapshot
+  (`modal.Image.from_id(snapshot_id)` in `_evaluate*`), and the snapshot was
+  taken on whichever image prepared it, so a rollback does not move it. Treat a
+  rollback as changing what happens next, not as undoing what already ran.
 - Discord incident: deploy or route-disable CogBot. Portal and CogBench local
   operation remain independent. Revoke account links only if identity mapping
   is affected.

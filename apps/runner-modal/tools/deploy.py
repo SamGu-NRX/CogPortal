@@ -29,15 +29,28 @@ their names without rebuilding, and deploys the app.
 Explicit ids avoid relying on a second build returning the same image.
 The operator must verify four benchmark receipts before publication; this
 script does not inspect receipts.
+
+Everything above is staging, which is the default. Production deploys the
+controller and nothing else, against ids staging already published and
+probed:
+
+    python apps/runner-modal/tools/deploy.py --target production \\
+        --sandbox-image cogworks-runner-benchmark=im-... \\
+        --sandbox-image cogworks-runner-week3=im-... \\
+        --sandbox-image cogworks-runner-week1=im-...
+
+It builds no sandbox image and publishes no name, because publishing is what
+makes an image live for staging and production must not move underneath a
+staging release. The ids are captured into the deployed controller instead.
 """
 
 from __future__ import annotations
 
 import argparse
-import re
+import os
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import modal
 
@@ -48,32 +61,46 @@ import modal.runner
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from cogworks_runner.modal_app import (  # noqa: E402
+from cogworks_runner.deployment import (  # noqa: E402
     BENCHMARK_SANDBOX_IMAGE,
+    PRODUCTION,
+    SANDBOX_IMAGE_NAMES,
+    STAGING,
     WEEK1_SANDBOX_IMAGE,
     WEEK3_SANDBOX_IMAGE,
-    app,
-    benchmark_image,
-    week1_image,
-    week3_image,
+    Deployment,
+    DeploymentError,
+    parse_image_pairs,
+    production,
+    staging,
 )
 
-SANDBOX_IMAGES = (
-    (benchmark_image, BENCHMARK_SANDBOX_IMAGE),
-    (week3_image, WEEK3_SANDBOX_IMAGE),
-    (week1_image, WEEK1_SANDBOX_IMAGE),
-)
 
-#: Every name a dispatch can resolve. `--publish` requires all of them.
-SANDBOX_IMAGE_NAMES = tuple(name for _image, name in SANDBOX_IMAGES)
+def load_app(
+    deployment: Deployment,
+) -> Tuple["modal.App", Tuple[Tuple["modal.Image", str], ...]]:
+    """Import the controller with this deployment selected.
 
-#: Modal object ids are prefixed and opaque; matching the prefix separates one
-#: from the mutable names this script publishes.
-IMAGE_ID = re.compile(r"im-[A-Za-z0-9]+\Z")
+    Deferred rather than imported at module scope, because `modal_app` builds
+    its app, secret, dictionary and controller image while it is being
+    imported, reading the same environment the container will read. The
+    selection therefore has to be in place before the import rather than
+    applied to the module afterwards.
+    """
 
+    deployment.apply_to(os.environ)
+    from cogworks_runner.modal_app import (
+        app,
+        benchmark_image,
+        week1_image,
+        week3_image,
+    )
 
-class PublishArgumentError(ValueError):
-    """A `--publish` input that must be refused before anything is sent."""
+    return app, (
+        (benchmark_image, BENCHMARK_SANDBOX_IMAGE),
+        (week3_image, WEEK3_SANDBOX_IMAGE),
+        (week1_image, WEEK1_SANDBOX_IMAGE),
+    )
 
 
 def parse_publish(values: Sequence[str]) -> Dict[str, str]:
@@ -83,29 +110,10 @@ def parse_publish(values: Sequence[str]) -> Dict[str, str]:
     silently retain an old image. Publication itself is not atomic.
     """
 
-    published: Dict[str, str] = {}
-    for value in values:
-        name, separator, image_id = value.partition("=")
-        if not separator:
-            raise PublishArgumentError("{!r} is not NAME=IMAGE_ID.".format(value))
-        if name not in SANDBOX_IMAGE_NAMES:
-            raise PublishArgumentError(
-                "{} is not a sandbox image name. Expected one of {}.".format(
-                    name or "an empty name", ", ".join(SANDBOX_IMAGE_NAMES)
-                )
-            )
-        if name in published:
-            raise PublishArgumentError("{} was given twice.".format(name))
-        if not IMAGE_ID.match(image_id):
-            raise PublishArgumentError(
-                "{} is not an immutable image id for {}. Pass the `im-...` id "
-                "`--build-only` printed.".format(image_id or "an empty id", name)
-            )
-        published[name] = image_id
-
+    published = parse_image_pairs(values)
     missing = [name for name in SANDBOX_IMAGE_NAMES if name not in published]
     if missing:
-        raise PublishArgumentError(
+        raise DeploymentError(
             "No image id for {}. Publish every sandbox image together, or the "
             "app deploys against a mixed set.".format(", ".join(missing))
         )
@@ -136,6 +144,22 @@ def stale_build_trees() -> list:
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--target",
+        choices=(STAGING, PRODUCTION),
+        default=STAGING,
+        help="which environment's app, signing secret and job dictionary to deploy",
+    )
+    parser.add_argument(
+        "--sandbox-image",
+        action="append",
+        metavar="NAME=IMAGE_ID",
+        default=[],
+        help=(
+            "with --target production, the immutable id this deployment runs "
+            "under this name; repeat for every sandbox image"
+        ),
+    )
     phase = parser.add_mutually_exclusive_group()
     phase.add_argument(
         "--build-only",
@@ -151,21 +175,52 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     )
     arguments = parser.parse_args(argv)
 
-    # Before Modal, so a mistyped id or a missing image costs nothing.
+    # Before Modal, so a mistyped id, a missing image or the wrong flag for
+    # this target costs nothing.
     published: Dict[str, str] = {}
-    if arguments.publish:
-        try:
-            published = parse_publish(arguments.publish)
-        except PublishArgumentError as error:
-            parser.error(str(error))
+    try:
+        if arguments.target == PRODUCTION:
+            if arguments.build_only or arguments.publish:
+                parser.error(
+                    "--target production deploys the controller only. Building and "
+                    "publishing a sandbox image name is a staging release step."
+                )
+            deployment = production(parse_image_pairs(arguments.sandbox_image))
+        else:
+            if arguments.sandbox_image:
+                parser.error(
+                    "--sandbox-image belongs to --target production. Staging "
+                    "resolves each image by the name it publishes."
+                )
+            deployment = staging()
+            if arguments.publish:
+                published = parse_publish(arguments.publish)
+    except DeploymentError as error:
+        parser.error(str(error))
 
-    # Publishing also deploys the controller, which installs benchmark source.
+    # Every path below deploys the controller, which installs benchmark source.
     stale = stale_build_trees()
     if stale:
         print("Refusing to deploy: stale build trees would shadow the real source.")
         for path in stale:
             print("  rm -rf {}".format(path))
         return 1
+
+    app, sandbox_images = load_app(deployment)
+
+    if deployment.is_production:
+        with modal.enable_output():
+            modal.runner.deploy_app(app)
+        print(
+            "deployed {}; sandbox images pinned to {}".format(
+                deployment.app_name,
+                ", ".join(
+                    "{}={}".format(name, deployment.sandbox_image_ids[name])
+                    for name in SANDBOX_IMAGE_NAMES
+                ),
+            )
+        )
+        return 0
 
     if published:
         with modal.enable_output():
@@ -186,7 +241,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     build_context = modal.App.lookup("cogworks-runner-images", create_if_missing=True)
     built_ids: List[str] = []
     with modal.enable_output():
-        for image, name in SANDBOX_IMAGES:
+        for image, name in sandbox_images:
             print("building sandbox image {}...".format(name))
             built = image.build(build_context)
             if arguments.build_only:
@@ -206,7 +261,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         modal.runner.deploy_app(app)
     print(
         "deployed; sandbox images published as {}".format(
-            ", ".join(name for _image, name in SANDBOX_IMAGES)
+            ", ".join(name for _image, name in sandbox_images)
         )
     )
     return 0
