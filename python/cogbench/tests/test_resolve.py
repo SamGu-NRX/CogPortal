@@ -1920,3 +1920,42 @@ class AReaderProbeGetsThePerCallClockLikeEveryOtherCall(unittest.TestCase):
         thread.join()
 
         self.assertEqual(answered.get("value"), 42)
+
+
+class TheRefusalNamesTheirOwnFunction(unittest.TestCase):
+    """A week whose task ends in a database refuses without borrowing nouns.
+
+    The sentence was written in Week 1's, so a Week 2 team whose descriptors
+    bound and whose database did not was told about "fingerprinting" and a
+    "song". Reproduced on LashikaKapoor28/Vision_Module_Capstone @ 479ad2c.
+    """
+
+    #: Binds the one stage and offers nothing that could store its result,
+    #: which is what puts the search on the half-resolved branch.
+    HALF = "def make_features(value, rate):\n    return [(value * 2, rate)]\n"
+
+    def _refusal(self, role):
+        tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        (tmp / "theirs.py").write_text(self.HALF)
+        return resolve(
+            tmp,
+            chain_role=role,
+            fixture=FIXTURE,
+            accepts=_accepts,
+            arrangements=_arrangements,
+        ).verdict
+
+    def test_it_names_the_function_their_chain_returned(self):
+        verdict = self._refusal(Role("describe", ROLE.stages))
+
+        self.assertEqual(verdict.status, NOT_WIRED)
+        self.assertIn("theirs.make_features", verdict.next_step)
+
+    def test_no_week_reads_the_other_weeks_vocabulary(self):
+        for role in (ROLE, Role("describe", ROLE.stages)):
+            with self.subTest(role=role.name):
+                said = self._refusal(role).next_step.lower()
+
+                self.assertNotIn("song", said)
+                self.assertNotIn("fingerprint", said)

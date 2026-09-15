@@ -819,15 +819,28 @@ def resolve(
                 # could be paired with a store and a query. Saying their
                 # algorithm returned the wrong answer would be wrong twice over:
                 # nothing of theirs was asked for an answer, and the missing
-                # piece is a database rather than a better fingerprint.
+                # piece is a database rather than better work in the step
+                # before it.
+                #
+                # Week 1 stores a song and Week 2 a face, so naming either told
+                # the other week's team about the wrong course. Their own
+                # function is the handle both weeks share, and the headline
+                # already prints it. Empty `reached` falls back to the role,
+                # because `not_wired` guards its own headline the same way.
+                made = (
+                    reached[-1].function
+                    if reached
+                    else "your {} step".format(chain_role.name)
+                )
                 return Submission(
                     not_wired(
                         "identification",
                         "database",
                         reached,
                         next_step=(
-                            "The benchmark found your fingerprinting but no pair of "
-                            "functions that stores a song and then names it back."
+                            "Check that two of your functions take what {} "
+                            "returns: one that stores it under a name, and one "
+                            "that looks up a new one and returns the name.".format(made)
                         ),
                         coverage=_coverage_of(found, benchmark),
                     ),
