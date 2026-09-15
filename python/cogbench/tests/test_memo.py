@@ -32,10 +32,13 @@ from test_resolve import (  # noqa: E402
     _accepts,
     _arrangements,
     _is_factory,
-    _module_holding,
     _ranked_accepts,
     _ranked_grades,
 )
+
+#: How a fixture repository is told to refuse to build. See
+#: `test_factory_and_constructor_failures_are_reported_on_first_use`.
+FAILING_VARIABLE = "COGBENCH_TEST_CLOSED"
 
 
 class _RaisesOnIteration(list):
@@ -85,11 +88,10 @@ class KeyTests(unittest.TestCase):
             memo.fingerprint([self.file], benchmark="week3"),
         )
 
-    def test_version_12_binding_is_not_reused(self):
-        with mock.patch.object(memo, "FORMAT", 12):
+    def test_a_previous_format_binding_is_not_reused(self):
+        with mock.patch.object(memo, "FORMAT", memo.FORMAT - 1):
             old_key = memo.fingerprint([self.file], benchmark="w1")
         memo.write(self.tmp, old_key, {"enroll": "a.b"})
-        self.assertEqual(memo.FORMAT, 13)
         new_key = memo.fingerprint([self.file], benchmark="w1")
         self.assertNotEqual(new_key, old_key)
         self.assertIsNone(memo.read(self.tmp, new_key))
@@ -313,23 +315,32 @@ class UsableReplayedSubmissions(unittest.TestCase):
                             self.assertEqual(ready.query([(14, 44100)]), expected)
 
     def test_factory_and_constructor_failures_are_reported_on_first_use(self):
-        factory = "FAIL = False\n" + FACTORY_REPO.replace(
-            "def create_database():\n    return {}",
-            "def create_database():\n    if FAIL:\n        raise ValueError('closed')\n    return {}",
+        # Their code decides to fail from the environment rather than from a
+        # module global a test writes to. Every run of a binding reads the
+        # repository again, so the module the search imported is not the one
+        # a run calls, and setting a flag on it would change nothing.
+        refuse = "\nimport os\n\n\ndef _closed():\n    return os.environ.get('{}') == '1'\n".format(
+            FAILING_VARIABLE
         )
-        constructor = "FAIL = False\n" + COUNTED_BUILD_REPO.replace(
+        factory = refuse + FACTORY_REPO.replace(
+            "def create_database():\n    return {}",
+            "def create_database():\n    if _closed():\n        raise ValueError('closed')\n    return {}",
+        )
+        constructor = refuse + COUNTED_BUILD_REPO.replace(
             "        BUILDS.append(1)",
-            "        if FAIL:\n            raise ValueError('closed')\n        BUILDS.append(1)",
+            "        if _closed():\n            raise ValueError('closed')\n        BUILDS.append(1)",
         )
         cases = (
             (factory, _ranked_accepts, _ranked_grades, _is_factory, 2),
             (constructor, _accepts, None, None, 0),
         )
+        self.addCleanup(os.environ.pop, FAILING_VARIABLE, None)
         for source, accepts, grades, factories, readers in cases:
             with tempfile.TemporaryDirectory() as directory:
                 root = Path(directory).resolve()
                 (root / "theirs.py").write_text(source)
                 for recalled in (False, True):
+                    os.environ.pop(FAILING_VARIABLE, None)
                     submission = resolve(
                         root, chain_role=ROLE, fixture=FIXTURE, accepts=accepts,
                         arrangements=_arrangements, grades=grades, factories=factories,
@@ -337,7 +348,7 @@ class UsableReplayedSubmissions(unittest.TestCase):
                     )
                     self.assertTrue(submission.ready)
                     self.assertEqual(submission.recalled, recalled)
-                    _module_holding(submission, "FAIL").FAIL = True
+                    os.environ[FAILING_VARIABLE] = "1"
                     for ready in (submission, submission.fresh()):
                         with self.assertRaises(NoDatabase):
                             ready.enroll("gamma", [(14, 44100)])
@@ -500,6 +511,139 @@ class LateSourcesCannotUseAnEarlierKey(unittest.TestCase):
                 self.assertFalse(result.recalled)
                 write.assert_not_called()
                 memo.cache_path(self.tmp).unlink()
+
+
+#: A store that refuses a song id it has already seen, keeping what it has
+#: seen where no object can be rebuilt to forget it: once in a module global,
+#: once on the class itself. Both are ordinary, and both were how a run of a
+#: binding used to inherit whatever the run before it enrolled.
+REFUSING_REPO = '''
+SEEN = []
+
+
+def make_features(value, rate):
+    return [(value * 2, rate)]
+
+
+class Vault:
+    KEPT = {}
+
+    def remember(self, item_id, features):
+        if item_id in SEEN:
+            raise KeyError(item_id)
+        SEEN.append(item_id)
+        Vault.KEPT[tuple(features)] = item_id
+
+    def whose(self, features):
+        return Vault.KEPT.get(tuple(features), "")
+'''
+
+
+class ColdAndRememberedRunsAreIndependentOfEachOther(unittest.TestCase):
+    """Four runs of one binding, two searched and two recalled, used in turns.
+
+    A caller holds more than one of these at a time: the CLI checks, then
+    scores; a runner scores one repository twice to compare. Whether a run
+    came from a search or from the cache is not something their code can see,
+    so the four have to behave the same and none may inherit what another
+    enrolled.
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        (self.tmp / "theirs.py").write_text(REFUSING_REPO)
+
+    def _resolve(self):
+        return resolve(
+            self.tmp, chain_role=ROLE, fixture=FIXTURE, accepts=_accepts,
+            arrangements=_arrangements, remember=True, benchmark="interleaved",
+        )
+
+    def test_two_cold_and_two_remembered_runs_take_turns(self):
+        cold = self._resolve()
+        self.assertTrue(cold.ready, cold.verdict.headline)
+        self.assertFalse(cold.recalled)
+        warm = self._resolve()
+        self.assertTrue(warm.recalled, warm.verdict.headline)
+
+        runs = [cold, cold.fresh(), warm, warm.fresh()]
+        for item_id, value in (("gamma", 28), ("delta", 36)):
+            for run in runs:
+                # Every run takes the same ids. A run that could see another's
+                # SEEN list, or another's Vault.KEPT, raises on the second one.
+                run.enroll(item_id, [(value, 44100)])
+        for run in runs:
+            self.assertEqual(run.query([(28, 44100)]), "gamma")
+            self.assertEqual(run.query([(36, 44100)]), "delta")
+
+    def test_a_run_starts_from_an_empty_store_whatever_the_search_enrolled(self):
+        """The search enrolled the week's fixture into every trial it made.
+        None of that may be in the store a scored run is handed."""
+
+        for run in (self._resolve(), self._resolve().fresh()):
+            self.assertEqual(run.query([(14, 44100)]), "")
+            run.enroll("alpha", [(14, 44100)])
+            self.assertEqual(run.query([(14, 44100)]), "alpha")
+
+
+class ATrialsOwnLateImportReachesTheKey(unittest.TestCase):
+    """The other half of late-source accounting, and the half the trials own.
+
+    A function of theirs that imports a sibling in its own body does that when
+    a trial calls it, on that trial's own reading, long after the key was
+    worked out. Nobody hashed that file, so a key written as though it were
+    not there cannot see the edit that should invalidate it. The reading
+    reports what it imported and the key is dropped.
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        package = self.tmp / "a" / "b" / "c"
+        package.mkdir(parents=True)
+        self.source = package / "values.py"
+        self.source.write_text("SCALE = 2\n")
+
+    def _write(self, lazy):
+        # The import sits in their store, which is one of the calls a trial
+        # owns and wraps in its own reading's import context. Their chain is
+        # probed by the search rather than by a trial, and the search's
+        # probing is not this module's to widen.
+        body = (
+            "    from a.b.c.values import SCALE\n"
+            "    _DB[tuple(features)] = (item_id, SCALE)\n"
+            if lazy else "    _DB[tuple(features)] = (item_id, 2)\n"
+        )
+        (self.tmp / "theirs.py").write_text(
+            "_DB = {}\n"
+            "def make_features(value, rate):\n    return [(value * 2, rate)]\n"
+            "def remember(features, item_id):\n" + body +
+            "def whose(features):\n    return _DB.get(tuple(features), ('', 0))[0]\n"
+        )
+
+    def _resolve(self):
+        return resolve(
+            self.tmp, chain_role=ROLE, fixture=FIXTURE, accepts=_accepts,
+            arrangements=_arrangements, remember=True, benchmark="trial-late-source",
+        )
+
+    def test_a_lazy_sibling_import_inside_a_trial_blocks_the_key(self):
+        self._write(lazy=True)
+
+        result = self._resolve()
+
+        self.assertTrue(result.ready, result.verdict.headline)
+        self.assertFalse(memo.cache_path(self.tmp).exists())
+
+    def test_a_repository_with_no_lazy_import_still_remembers(self):
+        """The guard has to cost nothing when there is nothing to guard."""
+
+        self._write(lazy=False)
+
+        self.assertTrue(self._resolve().ready)
+        self.assertTrue(memo.cache_path(self.tmp).exists())
+        self.assertTrue(self._resolve().recalled)
 
 
 def _key(repository: Path) -> str:

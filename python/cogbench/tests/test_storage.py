@@ -11,7 +11,10 @@ from types import SimpleNamespace
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "python" / "cogbench" / "src"))
 
-from cogbench.storage import latest_report, save_report, workspace_dir  # noqa: E402
+from cogbench.storage import (  # noqa: E402
+    RetentionError, check_weight_path, latest_report, retain_input,
+    retained_input, save_report, weights_dir, workspace_dir,
+)
 
 
 class CheckoutStorageTests(unittest.TestCase):
@@ -112,6 +115,32 @@ class CheckoutStorageTests(unittest.TestCase):
         self.assertEqual(save_report(self.report(), self.root), target)
         self.assertEqual(target.read_text(encoding="utf-8"), "inside\n")
         self.assertEqual(outside_report.read_text(encoding="utf-8"), "outside")
+
+    def test_missing_retained_input_does_not_create_a_workspace(self):
+        self.assertEqual(weights_dir(self.root), self.root / ".cogbench" / "weights")
+        with self.assertRaises(RetentionError):
+            retained_input(self.root, "weights.npy", "0" * 64, 0)
+        self.assertFalse((self.root / ".cogbench").exists())
+
+    def test_weight_names_reject_segments_that_pathlib_would_normalize(self):
+        for name in ("a//b", "a/./b", "a/b/", "a/../b", "a/\x7fb"):
+            with self.subTest(name=name), self.assertRaises(RetentionError):
+                check_weight_path(name)
+        self.assertEqual(check_weight_path("a/b.npy"), "a/b.npy")
+
+    def test_retaining_weights_refuses_a_dangling_ignore_symlink(self):
+        source = self.root / "weights.npy"
+        source.write_bytes(b"trained")
+        workspace = self.root / ".cogbench"
+        workspace.mkdir()
+        target = self.outside / "missing-ignore"
+        self.symlink(workspace / ".gitignore", target)
+
+        with self.assertRaises(RetentionError):
+            retain_input(self.root, source)
+        self.assertFalse(target.exists())
+        self.assertTrue((workspace / ".gitignore").is_symlink())
+        self.assertEqual(source.read_bytes(), b"trained")
 
     def test_report_ids_cannot_select_another_path(self):
         for report_id in (

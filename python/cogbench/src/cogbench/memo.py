@@ -73,7 +73,15 @@ __all__ = ["fingerprint", "read", "write", "cache_path"]
 #: 13: project modules now execute once per discovery and package bodies
 #: enter its candidate namespace. Reconsider bindings chosen before that
 #: loader change and the constructor screening/receiver repairs.
-FORMAT = 13
+#: 14: a step now records the keyword arguments it passes, as the parameter
+#: and the slot filling it. A 13 entry does not carry them, so a step the
+#: search called with a keyword-only argument would be replayed without it,
+#: which is a different call and usually a `TypeError` from their own
+#: function. Every trial also gets its own reading of the repository now, so
+#: a pairing an earlier trial's module-level leftovers had made raise is
+#: reachable, and a 13 entry can name a worse pairing than the search would
+#: pick today.
+FORMAT = 14
 
 
 def cache_path(repository: Path) -> Path:

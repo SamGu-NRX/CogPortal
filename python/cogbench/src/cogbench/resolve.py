@@ -20,23 +20,35 @@ that gives up says how hard it looked.
 
 from __future__ import annotations
 
+import contextlib
 import inspect
 import sys
-from collections.abc import Mapping as _MappingABC
+from collections.abc import Mapping as _MappingABC, Sequence as _SequenceABC
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from types import GetSetDescriptorType, MemberDescriptorType
-from typing import Mapping, Any, Callable, Dict, FrozenSet, Iterator, List, Optional, Sequence, Tuple
+from typing import (
+    Mapping, Any, Callable, Dict, FrozenSet, Iterator, List, Optional, Sequence,
+    Set, Tuple,
+)
 
-from . import memo
+from . import memo, storage
+from ._namespace import (
+    Bundle, CleanupFailed, Closed, Handed, Project, Unmapped, _also,
+    collides, declared_in, module_origins, opened, reads_anything,
+    taken_as_data,
+)
 from .discover import Discovery, discover, _Redirects
 from .isolate import hash_seed_in_effect as _hash_seed_in_effect
 from .progress import Progress
 from .pipeline import (
+    Binding,
     Candidate,
     Fixtures,
     Role,
+    _Described,
+    _Receiver,
     callables_in,
     constructors_in,
     identities_for,
@@ -154,6 +166,13 @@ class Submission:
     """
 
     verdict: Verdict
+    #: The search's own reading, until the binding is handed a reading of its
+    #: own. `fresh` lets it go at that handoff and keeps `_origin_files` and
+    #: `_discovered` instead, because the modules in here are the ones the
+    #: search filled and one of their files may have parked a model in a
+    #: global of them. A submission that never binds keeps it while it is
+    #: open, since it is the evidence behind the refusal, and `close` reduces
+    #: it to the record the same way.
     discovery: Optional[Discovery] = None
     chain: Tuple[Candidate, ...] = ()
     attempt: Optional[Attempt] = None
@@ -181,6 +200,15 @@ class Submission:
     #: the whole thing. What a partial set is worth is the week's to decide;
     #: this says which surface is absent and why.
     missing: Dict[str, Any] = field(default_factory=dict)
+    #: What could not be released cleanly, in the order it happened. A
+    #: week's model hook raising on its way out is a real fact about the run
+    #: and belongs on the run, not only on a terminal that may not be there:
+    #: `Silent` is the default `Progress` and its `note` does nothing, so a
+    #: hosted run used to drop these entirely. It does not change the verdict,
+    #: because the scoring already happened and retracting it would be a
+    #: worse answer than reporting the leak beside it.
+    cleanup: Tuple[str, ...] = ()
+
     #: Repository-relative POSIX paths of the trained-weights files the
     #: week's `prepare` hook loaded for this run, sorted; empty when none.
     #: Recorded here rather than left in the extras pool because `cogworks
@@ -188,6 +216,34 @@ class Submission:
     #: and the upload must name the files discovery actually used, not the
     #: files a directory listing happens to contain.
     weights_used: Tuple[str, ...] = ()
+    #: One receipt per entry in ``weights_used``, in the same order:
+    #: ``{"path", "sha256", "size"}``, measured from the bytes retained
+    #: before the week loaded them. The report carries these so `cogworks
+    #: sync` uploads the retained bytes rather than whatever the file holds
+    #: later.
+    #:
+    #: Three states, and the middle one is the point. ``()`` is a run with no
+    #: weights. A tuple is a run whose week established that its binding
+    #: consumed them. ``None`` is a run that scored with weights whose
+    #: consumption the week could not establish: the names stay and the
+    #: receipts do not exist, because a receipt says which bytes were read
+    #: and nothing here can say that on the week's behalf.
+    weights_captured: Optional[Tuple[Dict[str, Any], ...]] = ()
+
+    #: What the week's ``prepare`` hook returned for this repository, by name.
+    #: The hook is called once per resolution and its answer describes that
+    #: repository alone, so a plugin that resolves several in turn cannot keep
+    #: it on itself: week 3's report of which weights file it chose, and why
+    #: the image side is unmeasured, belongs to the run it was read for.
+    #: ``construct`` is already handed this pool; this is the same answer, on
+    #: the run the caller got back.
+    #:
+    #: The containers are this run's own, so preparing the next repository
+    #: cannot change what this one reports, and what is inside them is still
+    #: the week's. `_namespace.taken_as_data` states that contract in full.
+    prepared: Mapping[str, Any] = field(
+        default_factory=dict, compare=False, repr=False,
+    )
 
     #: The candidates behind ``enroll`` and ``query``, kept so a scoring run
     #: can start from an empty database. Not part of the record.
@@ -209,6 +265,63 @@ class Submission:
     _state_attribute: Optional[str] = None
     #: Lazy construction runs after resolve's resource redirects have closed.
     _resource_files: Dict[str, Path] = field(default_factory=dict)
+    #: How to read this repository again. `fresh` gives each run of a binding
+    #: its own module objects, which means reading the repository again rather
+    #: than reusing the namespace the search filled, and reading it needs the
+    #: same three arguments `resolve` was given.
+    _repository: Optional[Path] = None
+    _hints: Tuple[str, ...] = ()
+    _declared_root: Optional[str] = None
+    #: The role this bound to, by name, and the benchmark's own inputs taken
+    #: before any of their code ran. Both are what `_renewed` needs to put the
+    #: binding back on a new reading: the name roots the scope a fit stage was
+    #: declared under, and the bundle is where a resource comes from.
+    _role: Optional[Role] = field(default=None, compare=False, repr=False)
+    _bundle: Optional[Bundle] = field(default=None, compare=False, repr=False)
+    #: The binding as the search found it, kept so every run of it is made
+    #: from the same original rather than from the last run.
+    #:
+    #: `fresh` returns a submission whose chain is this reading's, so making
+    #: another one from THAT would map a mapped candidate: its module is the
+    #: previous reading's module, and a name discovery built from a counter
+    #: is not the name the next reading builds. Keeping the original means
+    #: the tenth run maps the same candidates against the same discovery as
+    #: the first.
+    _source: Optional[Binding] = field(default=None, compare=False, repr=False)
+    #: Where each module the search read came from, and the discovery section
+    #: of the record, both taken at the handoff. They are what `discovery` was
+    #: still being held for: a reading of its own needs the file each module
+    #: name belongs to (`module_origins`), and `to_dict` needs the record.
+    #: Keeping the discovery instead would keep its module objects, and a
+    #: model one of their files parked in a global lives in one of those.
+    _origin_files: Optional[Mapping[str, str]] = field(
+        default=None, compare=False, repr=False,
+    )
+    #: The record alone, which is also what `close` keeps for a refusal. Every
+    #: run of one binding shares this dictionary, so `to_dict` copies out of it
+    #: rather than handing it over.
+    _discovered: Optional[Dict[str, object]] = field(
+        default=None, compare=False, repr=False,
+    )
+    #: The reading this run of the binding owns, for every shape of week: a
+    #: chain-only week has no trial and still has a namespace and, if the week
+    #: declares one, a loaded model to release.
+    _owned: Optional[Project] = field(default=None, compare=False, repr=False)
+    #: The pairing behind ``enroll`` and ``query``, for a week whose task ends
+    #: in a database. Held because closing the reading is not the whole of
+    #: closing the run: the trial also holds their database, the store and
+    #: query it took off that reading, and the table it read back off their
+    #: object, and the week's adapter goes on holding the trial through those
+    #: two bound calls.
+    _trial: Optional["_Trial"] = field(default=None, compare=False, repr=False)
+    #: The week's model hook, carried so each run can build its own.
+    _construct: Optional[Callable[..., Any]] = field(
+        default=None, compare=False, repr=False,
+    )
+    #: The set `resolve` keys its memo entry against. A run of this binding can
+    #: import a file of theirs that nothing had imported when the key was
+    #: written, and the key is only safe if it knows about that file.
+    _observed: Optional[Set[Path]] = field(default=None, compare=False, repr=False)
 
     @property
     def ready(self) -> bool:
@@ -231,25 +344,235 @@ class Submission:
         return bool(self.chain) and self.verdict.status == SCORED
 
     def fresh(self) -> "Submission":
-        """Another run of this binding, built lazily on its first use.
+        """Another run of this binding, over a repository read again for it.
 
-        The accepted trial owns rebinding for search and scoring alike. Its
-        constructor and factory run inside the caller's working directory,
-        not while resolution is returning from its scratch directory.
-        Module-global state has no rebuild operation and is not reset here.
+        The whole binding moves together: the chain, the store, the query and
+        their readers all come off one new reading, so a value the chain
+        computes is handed to a store that shares its module objects. Two
+        submissions made fresh separately share nothing, which is what lets a
+        caller alternate between them.
+
+        Reading happens here. Their database does not: a constructor or a
+        factory of theirs runs on first use, inside the caller's working
+        directory, rather than while resolution is returning from its own
+        scratch directory.
         """
 
-        if self._store is None or self._ask is None:
+        if self._owned is not None and self._owned.closed:
+            # Reopening would quietly build a second namespace under a
+            # submission whose handles the caller has already given up.
+            raise Closed("this submission was closed; resolve again for a new run")
+        if self._repository is None or self._bundle is None:
             return self
+        let_go: Dict[str, Any] = {}
+        if self._source is None:
+            # The first run of a binding the search has just found. The search
+            # binds against modules it imported itself rather than through a
+            # `Project`, so no reading owns what it left on the steps or the
+            # discovery it read them off, and both would be held for as long
+            # as this submission is. What is kept to replay from is a
+            # description; see `_replayed`. Described while the originals are
+            # still here, so the record and the file each module name belongs
+            # to are read off them once and the reading is then let go.
+            stand_in: Dict[int, _Receiver] = {}
+            source = _replayable(self._binding(), stand_in)
+            store = _replayed(self._store, stand_in)
+            ask = _replayed(self._ask, stand_in)
+            factory = _replayed(self._factory, stand_in)
+            readers = tuple(_replayed(one, stand_in) for one in self._readers)
+            assert self.discovery is not None
+            let_go = {
+                "discovery": None,
+                "_origin_files": module_origins(self.discovery),
+                "_discovered": self.discovery.to_dict(),
+            }
+            files = let_go["_origin_files"]
+        else:
+            source = self._source
+            store, ask = self._store, self._ask
+            factory, readers = self._factory, self._readers
+            files = self._origin_files
+        # Off the map rather than off the discovery, so this reading does not
+        # become the next thing holding the one the search made.
+        project = self._reading(files)
+        # One reconstruction for this run of the binding. Another `fresh`
+        # gets its own, which is what keeps two runs apart.
+        #
+        # Under the same course-file mapping the search ran under. A fit
+        # stage runs one of their functions here, and a function that opens
+        # the week's artifact needs the same answer it got during the search.
+        try:
+            with _Redirects(self._resource_files):
+                renewed = _renewed(
+                    source, project, self._bundle.again(), self._role,
+                    construct=self._construct,
+                )
+        except BaseException as primary:
+            # This run owns the reading it just made, including whatever its
+            # model hook had already built, so a failure part way through
+            # releases it rather than leaving it to nobody. What went wrong
+            # first is what the caller came for, so a loader that also
+            # complains on the way out rides along on it rather than
+            # replacing it, and rather than being dropped: `Submission.close`
+            # reads `cogbench_cleanup`, and a loader that could not let go of
+            # its files is a real fact about the run either way.
+            try:
+                project.close()
+            except CleanupFailed as cleanup:
+                _also(primary, cleanup)
+            raise
+        put = replace(
+            self,
+            chain=renewed.steps,
+            branches=dict(renewed.branches),
+            fits=renewed.fits,
+            _source=source,
+            _store=store,
+            _ask=ask,
+            _factory=factory,
+            _readers=readers,
+            _owned=project,
+            _trial=None,
+            **let_go,
+        )
+        if store is None or ask is None:
+            # A week with no database: the chain is the whole binding, and it
+            # is now on a reading of its own. It owns that reading too, which
+            # is why this is not the trial's to hold.
+            return put
         trial = _Trial(
-            _Shape(self._factory, self._readers, self._state, self._state_attribute),
-            self._store,
-            self._ask,
+            _Shape(factory, readers, self._state, self._state_attribute),
+            store,
+            ask,
             self._arrange,
             self.attempt.arrangement if self.attempt else 0,
+            project=project,
+            renew=lambda _project: renewed.steps,
             resource_files=self._resource_files,
         )
-        return replace(self, enroll=trial.enroll, query=trial.query())
+        return replace(put, enroll=trial.enroll, query=trial.query(), _trial=trial)
+
+    def close(self) -> None:
+        """Release this run's reading, and whatever its models hold.
+
+        What the run recorded stays readable: the verdict, the step labels,
+        the attempt, `to_dict`. What stops is running their code. `enroll`,
+        `query` and any bound step raise `Closed` afterwards, because the
+        namespace they would answer from is gone.
+
+        A week whose task ends in a database is closed through its trial
+        rather than through the reading directly. The reading is the trial's,
+        and the trial is holding more than the reading: their database, and
+        the calls it took off that reading to fill it.
+
+        A refusal has no reading of its own and still has the search's, as
+        the evidence behind it; closing one lets that go. See
+        `_let_the_search_go`.
+
+        Idempotent. Raises `CleanupFailed` only when the week's own model
+        hook raised on its way out, which is worth hearing about and does not
+        change the fact that the reading is closed.
+        """
+
+        try:
+            if self._trial is not None:
+                self._trial.close()
+            elif self._owned is not None:
+                self._owned.close()
+        finally:
+            # After the reading, and whether or not it complained: a run that
+            # would not release is still a run the caller has finished with.
+            self._let_the_search_go()
+
+    def __enter__(self) -> "Submission":
+        return self
+
+    def __exit__(self, *exc: Any) -> None:
+        """Close, without letting the loader's parting complaint take over.
+
+        A body that raised is what the caller came for. The reading closes
+        either way, and the complaint rides on that exception as
+        ``cogbench_cleanup`` rather than replacing it. An explicit `close`
+        with nothing already in flight still raises `CleanupFailed`, which is
+        the only way anyone would hear about it.
+        """
+
+        try:
+            self.close()
+        except CleanupFailed as cleanup:
+            if exc and exc[0] is not None:
+                _also(exc[1], cleanup)
+                return
+            raise
+
+    def _let_the_search_go(self) -> None:
+        """Keep the search's reading as a record and let the reading go.
+
+        A submission that bound nothing keeps `discovery` as the evidence
+        behind the refusal, and the modules in it are the search's: a model
+        one of their files parked in a global lives in one of those, so
+        closing the refusal released nothing. `fresh` performs this same
+        handoff for a run that binds.
+
+        The chain goes the same way. A refusal that ran their pipeline to the
+        end and found no database names the chain it found, and a step holds
+        their own function, so the modules the discovery just let go of stay
+        reachable through it. `_replayed` keeps what the record renders (the
+        label, the folder, the pooled name) and takes their code off; a call
+        afterwards says the reading closed.
+
+        Only the record. `_origin_files` is what a reading of its own needs,
+        and a refusal has no binding to put on one.
+
+        Idempotent, and `to_dict` answers from the record afterwards.
+        """
+
+        found = self.discovery
+        if found is None:
+            return
+        if self._discovered is None:
+            self._discovered = found.to_dict()
+        self.discovery = None
+        stand_in: Dict[int, _Receiver] = {}
+        self.chain = tuple(
+            replace(_replayed(step, stand_in), _runtime_call=_closed_reading)
+            for step in self.chain
+        )
+
+    def _binding(self) -> Binding:
+        """This submission's binding, in the shape `_renewed` reads.
+
+        A submission keeps the same pieces a `Binding` does and keeps them
+        flat, because that is what the record renders from. This puts them
+        back together for the one caller that needs the whole thing at once.
+        """
+
+        return Binding(
+            self._role.name if self._role is not None else "",
+            tuple(self.chain),
+            fits=self.fits,
+            branches=dict(self.branches),
+            _stage_names=tuple("" for _ in self.chain),
+            _received=tuple("" for _ in self.chain),
+            _returned=tuple("" for _ in self.chain),
+        )
+
+    def _reading(self, origin: Optional[Mapping[str, str]]) -> Project:
+        """A reading of their repository that belongs to one run of this.
+
+        ``origin`` is the file each module name of the search's belongs to,
+        which is the whole of what a reading needs from the reading before it.
+        """
+
+        assert self._repository is not None and origin is not None
+        return Project(
+            self._repository,
+            origin,
+            hints=self._hints,
+            declared_root=self._declared_root,
+            resource_files=self._resource_files,
+            observed=self._observed,
+        )
 
     def report(self) -> SubmissionReport:
         """This submission with the live callables left behind.
@@ -279,9 +602,24 @@ class Submission:
             record["enroll"] = self.attempt.enroll
             record["query"] = self.attempt.query
             record["arrangement"] = self.attempt.arrangement
+        # Rendered from the reading itself while the run still holds it, and
+        # from what the handoff read off it once it does not. Copied either
+        # way: the snapshot is one dictionary shared by every run of this
+        # binding, and a caller that emptied `report().record["discovery"]`
+        # emptied what its siblings report.
         if self.discovery is not None:
             record["discovery"] = self.discovery.to_dict()
+        elif self._discovered is not None:
+            record["discovery"] = taken_as_data(self._discovered)
         record["weightsUsed"] = list(self.weights_used)
+        # `null` where consumption was not established, which is a different
+        # answer from the empty list a run with no weights carries.
+        record["weightsCaptured"] = (
+            None if self.weights_captured is None
+            else [dict(item) for item in self.weights_captured]
+        )
+        if self.cleanup:
+            record["cleanup"] = list(self.cleanup)
         supplied = _supplied_by(self)
         if supplied:
             # Everything the benchmark handed their code that did not come out
@@ -331,45 +669,645 @@ def _leading(call: Callable[..., Any], held: Any) -> Callable[..., Any]:
     return lambda *args, **keywords: call(held, *args, **keywords)
 
 
-def _bound_to(candidate: Any) -> Any:
-    """The object one of their methods is bound to, or None for a function."""
+def _onto(
+    tentative: Binding,
+    bundle: Bundle,
+    role: Role,
+    stopped: Callable[[Unmapped], None],
+    asked: Dict[str, bool],
+    construct: Optional[Callable[..., Any]] = None,
+) -> Callable[[Project], Any]:
+    """How a trial puts this binding onto its own reading.
 
-    return getattr(getattr(candidate, "call", None), "__self__", None)
-
-
-def _same_method_on(owner: Any, candidate: Candidate) -> Optional[Callable[..., Any]]:
-    """The same method as ``candidate``, taken off ``owner`` instead.
-
-    By the attribute the candidate was enumerated under, falling back to the
-    last segment of its label, which is what that attribute is named after.
+    ``stopped`` is told why a reconstruction could not happen, so the caller
+    can report that rather than let it read as a pairing their code failed.
     """
 
-    name = candidate.attribute or candidate.label.rsplit(".", 1)[-1]
-    method = getattr(owner, name, None)
-    return method if callable(method) else None
+    def renew(project: Project) -> Any:
+        try:
+            # One reconstruction per trial: two steps of one trial share what
+            # the benchmark shares, and two trials share nothing.
+            put = _renewed(tentative, project, bundle.again(), role, construct)
+        except Unmapped as error:
+            stopped(error)
+            raise
+        asked["ever"] = True
+        return dict(put.branches) if put.branches else put.steps
+
+    return renew
 
 
-def _rebound(candidate: Candidate, original: Any, owner: Any) -> Candidate:
-    """``candidate`` taken off ``owner``, when it came off ``original``.
+class _Held:
+    """The search's own model block, closed once and never twice.
 
-    The one question this answers is whether two of their callables are two
-    methods of the SAME object, and it answers it by identity rather than by
-    name or by class: `instances_in` builds one object per class, so every
-    method of that class in the candidate list is bound to that one instance,
-    and a store rebuilt on its own leaves the query and the readers pointing
-    at the database the search filled.
-
-    A candidate bound to some other object, or to nothing, is returned
-    unchanged. `_Trial` rebuilds distinct owners separately and uses this
-    helper to share each rebuilt owner among its methods.
+    Closed before the run is handed back, so a complaint reaches the record
+    the caller gets. Also on the exit stack, for the ways out that have no
+    handoff.
     """
 
-    if original is None or owner is None or owner is original:
-        return candidate
-    if _bound_to(candidate) is not original:
-        return candidate
-    method = _same_method_on(owner, candidate)
-    return candidate if method is None else replace(candidate, call=method)
+    __slots__ = ("_holding", "_watcher", "_cleanup", "_closed")
+
+    def __init__(self, holding: Any, watcher: Any, cleanup: List[str]) -> None:
+        self._holding = holding
+        self._watcher = watcher
+        self._cleanup = cleanup
+        self._closed = False
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        try:
+            self._holding.__exit__(None, None, None)
+        except BaseException as error:  # noqa: BLE001 - their loader
+            _complained(
+                "their model loader raised while closing: {}: {}".format(
+                    type(error).__name__, str(error)[:160]
+                ),
+                self._watcher,
+                self._cleanup,
+            )
+
+
+def _complained(text: str, watcher: Any, cleanup: List[str]) -> None:
+    """Record that something would not release, and echo it to the watcher.
+
+    The record is the channel: the default `Progress` is `Silent` and its
+    `note` does nothing, so a hosted run has no terminal to hear this.
+    """
+
+    if text not in cleanup:
+        cleanup.append(text)
+    watcher.note(text)
+
+
+def _released(owner: Any, watcher: Any, cleanup: List[str]) -> None:
+    """Close a reading from a `finally`, keeping any failure already in flight.
+
+    A loader that will not let go is worth reporting and is not the run's
+    result, so it is recorded rather than raised over what brought us here.
+    """
+
+    try:
+        owner.close()
+    except CleanupFailed as error:
+        _complained(str(error), watcher, cleanup)
+
+
+def _published(
+    submission: "Submission", hook: Optional[Callable[["Submission"], bool]]
+) -> "Submission":
+    """Decide what this run may claim about the weights it scored with.
+
+    A true answer is honoured only where capture produced receipts, so a
+    mistaken hook cannot mint provenance for a run that retained nothing.
+    """
+
+    if not submission.weights_used:
+        return submission
+    established = False
+    if submission.weights_captured and hook is not None:
+        try:
+            established = bool(hook(submission))
+        except Exception:  # noqa: BLE001 - a week's hook must not fail a score
+            established = False
+    return submission if established else replace(submission, weights_captured=None)
+
+
+def _handed_over(
+    submission: "Submission",
+    found: Discovery,
+    weights_used: Sequence[str],
+    cleanup: List[str],
+) -> "Submission":
+    """A bound submission on a reading of its own, or why it could not be.
+
+    The search proved this binding on a reading it has already thrown away.
+    Handing it over means putting it on one more, and the one thing that can
+    stop that is an input the benchmark cannot give their code again. Saying
+    so names that input, because the alternative is a scored run quietly
+    reusing whatever the last probe left in it.
+    """
+
+    try:
+        return replace(submission.fresh(), cleanup=tuple(cleanup))
+    except Unmapped as error:
+        return Submission(
+            not_read(found.root.path.name, str(error)),
+            discovery=found,
+            # The declared names survive a failed handoff; the receipts do
+            # not, because nothing attested that this binding consumed them
+            # and an empty tuple would say there were none.
+            weights_used=tuple(weights_used),
+            weights_captured=None if weights_used else (),
+            cleanup=tuple(cleanup),
+        )
+
+
+def _accepts_capture(hook: Callable[..., Any]) -> bool:
+    """Whether this week's `prepare` wants the retention callback.
+
+    A week that declares no weights never asks for it and is called exactly
+    as before, so offering the argument does not disturb the other three.
+
+    Opting in means naming the parameter. A `**kwargs` hook does not count:
+    it would swallow the callback without loading through it, and the run
+    would then describe bytes that nothing retained.
+    """
+
+    try:
+        parameters = inspect.signature(hook).parameters
+    except (TypeError, ValueError):
+        return False
+    wanted = parameters.get("capture")
+    # By kind, not by name alone. A parameter swallowed by `**kwargs` is
+    # named `capture` in the signature object and is never bound to one, so
+    # the hook would load the original and the run would describe bytes
+    # nothing retained.
+    return wanted is not None and wanted.kind in (
+        inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY,
+    )
+
+
+def _visible(values: Dict[Tuple[str, ...], Dict[str, Any]], scope: Tuple[str, ...]):
+    """The side inputs a step in ``scope`` can see, outermost first.
+
+    A branch's own fits shadow the role's, which is how the search itself
+    carries them: `_resolve_branches` fills one pool for the role and hands
+    each branch a copy that its own fits then add to.
+    """
+
+    seen: Dict[str, Any] = {}
+    for depth in range(1, len(scope) + 1):
+        seen.update(values.get(scope[:depth], {}))
+    return seen
+
+
+def _handing(
+    handed: Handed,
+    values: Dict[Tuple[str, ...], Dict[str, Any]],
+    scope: Tuple[str, ...],
+    models: Mapping[str, Any] = {},
+) -> Callable[[Candidate], Candidate]:
+    """The last word on one step's call: what this reading hands it.
+
+    A step records what it was handed as a plan of slots, and the values
+    behind the named slots live on the step itself. Two kinds live there and
+    they are renewed in opposite ways. A benchmark resource is reconstructed
+    from ``handed``, because it is ours and their code may have written to it,
+    and every step of one trial reconstructs from that same one so two steps
+    taking one resource take one object. A fit stage's value is one of THEIR
+    objects, so it is not copied at all: `_renewed` has already run that fit
+    again on this reading and what goes on the step is the value that run
+    produced.
+
+    Returned as a callable rather than applied here, because `Project.rebind`
+    has to seal the call around the finished candidate. A step amended after
+    sealing keeps the record and loses the call.
+    """
+
+    def given(step: Candidate, name: str) -> Any:
+        """One side input, from whichever of the three places owns it.
+
+        In the order the search itself resolves them. A fit stage's table or
+        an earlier branch's output wins, because those are computed last and
+        the search lets them override. Then a model, which their own loader
+        built in this reading. Then the benchmark's data.
+        """
+
+        known = _visible(values, scope)
+        if name in known:
+            # Something of theirs, recomputed on this reading by `_renewed`
+            # and never copied.
+            return known[name]
+        if name in models:
+            # Also theirs, built by their loader in this reading. Shared
+            # within it the way their code would share it, and never handed
+            # to another reading.
+            return models[name]
+        return handed.extra(name)
+
+    def finish(step: Candidate) -> Candidate:
+        # Positional and keyword slots are the same four slots and are filled
+        # from the same line in `pipeline._slot_value`, so both are read here.
+        # A step whose only extra arrives by keyword was otherwise handed the
+        # search's value while every positional one was renewed.
+        slots = tuple(step.plan) + tuple(slot for _name, slot in step.keyword_plan)
+        wanted = [slot[len("extra:"):] for slot in slots if slot.startswith("extra:")]
+        wanted.extend(step.keywords)
+        supplied = dict(step.supplied)
+        for name in wanted:
+            supplied[name] = given(step, name)
+        if "identity" in slots:
+            supplied["identity"] = tuple(handed.identities())
+        put = replace(step, supplied=supplied)
+        if "pooled" in step.supplied:
+            # This step is not one of their functions: it is the object the
+            # week put in the pool, offered because a stage declared it and it
+            # turned out to be callable. That object is renewed like any other
+            # declared input, and so is everything else this step takes, which
+            # returning here early used to skip.
+            call = given(step, step.supplied["pooled"])
+            if not callable(call):
+                raise Unmapped("kind_changed", step.label, "no longer callable")
+            return replace(put, call=call)
+        return put
+
+    return finish
+
+
+def _built_by(
+    construct: Optional[Callable[..., Any]], owner: Any, handed: Handed
+) -> Mapping[str, Any]:
+    """Their models for one reading, or nothing when the week loads none.
+
+    The hook is given this owner's own data pool, so a model built out of the
+    benchmark's caption table is built out of the same table its stages are
+    handed. A name the hook claims that the data already holds is refused:
+    either could own it, and choosing would be guessing which half of the
+    week's own declaration to believe.
+    """
+
+    if construct is None:
+        return {}
+    try:
+        models = owner.models(construct, handed.pool())
+    except Unmapped:
+        # Already categorized, by `_as_models`: the hook yielded something
+        # that is not a mapping of names to models. Wrapping it again would
+        # report a broken contract as a loader that raised.
+        raise
+    except BaseException as error:  # noqa: BLE001 - the week's own loader
+        raise Unmapped(
+            "model_failed", "this week's models",
+            "{}: {}".format(type(error).__name__, str(error)[:160]),
+        ) from None
+    clash = collides(models, handed.names())
+    if clash:
+        raise Unmapped(
+            "hook_contract", "this week's models",
+            "{} named by both `construct` and the benchmark's own inputs".format(
+                ", ".join(clash)
+            ),
+        )
+    return models
+
+
+def _taken_by(binding: Binding) -> FrozenSet[str]:
+    """Every branch some step of this binding depends on, by name.
+
+    Two ways a step depends on a branch, and only one of them is written in
+    its call. The visible one is a side input: a stage declared the branch's
+    name and `_resolve_branches` put what that branch produced into the pool
+    under it.
+
+    The other leaves no slot at all. A method carried out of an earlier
+    branch is a method OF the object that branch's constructor stage built,
+    and it finds that object through the construction handle it shares with
+    the step that built it (`pipeline._rebound`). On a fresh reading that
+    handle starts empty and is filled by running the constructor, so a branch
+    that owns a carried method has to run even though nothing asks for its
+    value. Without this the carried method raised, because its own branch was
+    never run and its handle was never filled.
+    """
+
+    wanted = set()
+    chains = list(binding.branches.values()) + [binding.steps, binding._reach]
+    for steps in chains:
+        for step in steps:
+            slots = tuple(step.plan) + tuple(slot for _name, slot in step.keyword_plan)
+            wanted.update(
+                slot[len("extra:"):] for slot in slots if slot.startswith("extra:")
+            )
+            wanted.update(step.keywords)
+            if "pooled" in step.supplied:
+                wanted.add(step.supplied["pooled"])
+            if step.branch:
+                wanted.add(step.branch)
+    return frozenset(wanted)
+
+
+def _declares_a_folder(role: Any) -> bool:
+    """Whether any stage of this role offers its files as a folder.
+
+    Read off the role rather than off a binding, because the memo key is
+    written before there is a binding to look at.
+    """
+
+    if any(getattr(stage, "folder", False) for stage in getattr(role, "stages", ())):
+        return True
+    return any(
+        _declares_a_folder(branch) for branch in getattr(role, "branches", ()) or ()
+    )
+
+
+def _reads_a_folder(binding: Binding) -> bool:
+    """Whether any step of this binding is handed a folder of our files.
+
+    Every chain the binding holds, the way `_taken_by` walks them, because the
+    step that reads the folder may be in a branch or be a method reached off a
+    constructor rather than in the chain itself.
+    """
+
+    chains = list(binding.branches.values()) + [binding.steps, binding._reach]
+    chains.append(tuple(step for _name, step in binding.fits))
+    return any(
+        "folder" in step.supplied for steps in chains for step in steps
+    )
+
+
+def _renewed(
+    binding: Binding,
+    project: Project,
+    handed: Handed,
+    role: Optional[Role] = None,
+    construct: Optional[Callable[..., Any]] = None,
+) -> Binding:
+    """One whole binding, taken off one fresh reading of their repository.
+
+    Everything the binding is made of moves together onto the new reading: the
+    chain, every branch, the methods a constructor stage reached, and the side
+    inputs their own code computes. They have to move together, because a
+    method reached off a constructor answers from the object that constructor
+    built, and a step that takes a fit's table has to take the table this
+    reading's code produced.
+
+    Nothing of theirs is carried over, and that covers two kinds of value.
+
+    A fit stage's table came out of the modules the search filled, so the
+    fit's own function is called again here, on the fixture its stage
+    declared. Values are scoped by the role path the fit was declared under
+    (`_FitProvenance.role_path`), because two branches of one role may both
+    declare a stage called ``fit`` and those are two different values.
+
+    A branch's output is the same kind of thing. `_resolve_branches` puts what
+    each branch produced into the pool under that branch's own name, and a
+    later branch may declare it: Bagel's week 3 `CaptionImageQuery(EMBEDDINGS,
+    ids)` takes the image branch's projected matrix. So a branch whose output
+    some step asks for has its renewed chain run again here, on its own
+    reconstructed fixture, and the value that produces is what the later step
+    is handed. A branch nobody asks for is not run, because running it would
+    be calling their code for a value nothing reads.
+
+    All of it in the order the binding records, which is the order the search
+    bound it in, so a fit that reads an earlier fit and a branch that reads an
+    earlier branch both still can.
+    """
+
+    values: Dict[Tuple[str, ...], Dict[str, Any]] = {}
+    here = (binding.role,)
+    # A binding that reads a folder needs this run's own directory to exist
+    # before anything runs in it, their model loader included: it may read a
+    # relative path of its own, and a fit stage runs before the chain does.
+    # Keyed on what the binding records rather than on which call happens to
+    # come first.
+    if _reads_a_folder(binding):
+        project.home()
+    # Their models, built in this reading before anything else runs, because
+    # a fit stage may take one. The hook reads this owner's own data pool, so
+    # what it sees is aliased exactly as the benchmark shared it and is never
+    # the caller's original.
+    models = _built_by(construct, project, handed)
+    wanted = _taken_by(binding)
+    by_name = {branch.name: branch for branch in getattr(role, "branches", ()) or ()}
+    renewed_fits: List[Tuple[str, Candidate]] = []
+    fits_at: Dict[Tuple[str, ...], List[Tuple[str, Candidate]]] = {}
+    for name, fit in binding.fits:
+        where = fit._fit_provenance
+        if where is None:
+            raise Unmapped(
+                "no_source", fit.label,
+                "the binding does not say which stage declared it",
+            )
+        fits_at.setdefault(tuple(where.role_path), []).append((name, fit))
+
+    def run_fits(scope: Tuple[str, ...]) -> None:
+        for name, fit in fits_at.get(scope, ()):
+            where = fit._fit_provenance
+            step = project.rebind(fit, _handing(handed, values, scope, models))
+            case = handed.fit_case(scope, where.stage_index)
+            forms = case if isinstance(case, Fixtures) else (case,)
+            try:
+                produced = step.bound(*tuple(forms[fit.form or 0]))
+            except BaseException as error:  # noqa: BLE001 - their function
+                raise Unmapped(
+                    "fit_failed", fit.label,
+                    "{} on this reading".format(type(error).__name__),
+                ) from None
+            values.setdefault(scope, {})[name] = produced
+            renewed_fits.append((name, step))
+
+    def renew(steps: Sequence[Candidate], scope: Tuple[str, ...]):
+        return tuple(
+            project.rebind(step, _handing(handed, values, scope, models)) for step in steps
+        )
+
+    run_fits(here)
+    branches: Dict[str, Tuple[Candidate, ...]] = {}
+    # In the order the binding records, which `_resolve_branches` fills as
+    # each branch binds, so a branch that reads an earlier branch's output
+    # finds it already made.
+    for name, chain in binding.branches.items():
+        scope = here + (name,)
+        run_fits(scope)
+        branches[name] = renew(chain, scope)
+        if name in wanted and name in by_name:
+            values.setdefault(here, {})[name] = _produced_by(
+                by_name[name], branches[name], handed, values, here, branches
+            )
+
+    # Which branch this binding's own chain belongs to, by identity: the
+    # tentative branch is the one the verifier put into the trial dict.
+    mine = next(
+        (name for name, chain in binding.branches.items() if chain is binding.steps),
+        None,
+    )
+    scope = here if mine is None else here + (mine,)
+    for left in fits_at:
+        # A fit declared under a branch that did not bind, or under a role
+        # path no chain here belongs to, still has to run: a step may take it.
+        if left != here and left not in {here + (name,) for name in binding.branches}:
+            run_fits(left)
+    return replace(
+        binding,
+        steps=branches[mine] if mine is not None else renew(binding.steps, scope),
+        fits=tuple(renewed_fits),
+        branches=branches,
+        _reach=tuple(
+            project.rebind(
+                step,
+                _handing(
+                    handed, values,
+                    here + (step.branch,) if step.branch else scope, models,
+                ),
+            )
+            for step in binding._reach
+        ),
+    )
+
+
+def _produced_by(
+    branch: Role,
+    chain: Sequence[Candidate],
+    handed: Handed,
+    values: Dict[Tuple[str, ...], Dict[str, Any]],
+    here: Tuple[str, ...],
+    bound: Dict[str, Tuple[Candidate, ...]],
+) -> Any:
+    """What one branch's renewed chain produces, run on this reading.
+
+    The search kept the value the branch produced and put it in the pool; that
+    value belongs to the modules the search filled, so it is made again here
+    instead of being carried. The branch's own input is made the way the
+    search made it, through `pipeline._fixture_for`: a plain fixture as it is,
+    a callable one asked for a fixture with this reading's pool and this
+    reading's chains, because a week whose branch input is its own text chain
+    applied to a query string cannot be given the search's answer.
+    """
+
+    from .pipeline import _Broken, _UNREADY, _fixture_for
+
+    try:
+        # What the week's fixture hook can read: the benchmark's own
+        # resources and their own products together, the way the search's
+        # pool held both. Made only as it is asked for, because the hook may
+        # read any name and a resource nobody reads must not decide the run.
+        # `_fixture_for` copies this rather than calling `dict()` on it, so
+        # taking it never reads it.
+        pool = handed.pool(_visible(values, here))
+        case = _fixture_for(branch, handed.case(), pool, dict(bound))
+    except Unmapped:
+        raise
+    except BaseException as error:  # noqa: BLE001 - a week's own fixture hook
+        raise Unmapped(
+            "branch_input", branch.name,
+            "its input could not be made again: {}".format(type(error).__name__),
+        ) from None
+    if isinstance(case, _Broken):
+        # `_fixture_for` reports a fixture that raised by wrapping the error,
+        # so this has to be read before the value is used. Unwrapped it is a
+        # tuple of one `_Broken`, their chain is called with it, and a
+        # `TypeError` from their own first line is then reported as their
+        # branch failing. Two different failures wearing one sentence again.
+        if isinstance(case.error, Unmapped):
+            # Ours, already named: a resource the week's fixture read and
+            # this reading could not make again. It keeps its own reason.
+            raise case.error
+        raise Unmapped(
+            "branch_input", branch.name,
+            "its input could not be made again: {}".format(type(case.error).__name__),
+        ) from None
+    if case is _UNREADY or not chain:
+        raise Unmapped(
+            "branch_input", branch.name,
+            "its input is not available on this reading",
+        )
+    forms = case if isinstance(case, Fixtures) else (case,)
+    try:
+        value = chain[0].bound(*tuple(forms[chain[0].form or 0]))
+        for step in chain[1:]:
+            value = step.bound(value)
+    except BaseException as error:  # noqa: BLE001 - their own chain
+        raise Unmapped(
+            "branch_failed", branch.name,
+            "{} on this reading".format(type(error).__name__),
+        ) from None
+    return value
+
+
+def _taken_from_the_pool(*_args: Any) -> Any:
+    """Stands where a pool object was, on a binding kept only to be replayed."""
+
+    raise RuntimeError(
+        "this step is one of the benchmark's own objects; a run of this "
+        "binding takes it from the pool again rather than from the search"
+    )
+
+
+def _found_again_by_name(*_args: Any) -> Any:
+    """Stands where their own code was, on a binding kept only to be replayed."""
+
+    raise RuntimeError(
+        "this step is a description of a call; a run of this binding takes "
+        "their code off its own reading rather than from the search"
+    )
+
+
+def _closed_reading(*_args: Any) -> Any:
+    """Stands where their code was, on a refusal the caller has closed."""
+
+    raise Closed("this reading was closed")
+
+
+def _replayed(
+    step: Optional[Candidate], stand_in: Dict[int, _Receiver]
+) -> Optional[Candidate]:
+    """One step of the search's binding, as a description of the call to make.
+
+    `Project.rebind` finds the same code again by name, so a description is
+    the step with the live things taken off it. Four of them, and none is the
+    submission's to keep: their own function or class, which holds the module
+    the search read and so whatever one of their files parked in a global; the
+    named slots, which hold the resources the call was handed and the week's
+    models among them; the construction handle a method shares with the step
+    that built its object; and ``rebuild``, a closure over one of their
+    objects that nothing reads any more.
+
+    `_Described` is what replaces the first: the module and qualified name
+    `rebind` looks the code up by, which is all it ever read off the objects
+    themselves. ``_handing`` fills every named slot again from the reading the
+    run is on, and ``stand_in`` gives each handle an empty one, so which steps
+    share a handle survives and what it was filled with does not.
+
+    What stays is what the record renders (`_given_to`): the folder name, the
+    pooled name and the sentence written under it, and a module-value fit's
+    note.
+    """
+
+    if step is None:
+        return None
+    recorded = {name: step.supplied[name]
+                for name in ("folder", "pooled", "value") if name in step.supplied}
+    pooled = recorded.get("pooled")
+    told = step.supplied.get(pooled)
+    if isinstance(told, str):
+        recorded[pooled] = told
+    receiver = step.receiver
+    if receiver is not None:
+        receiver = stand_in.setdefault(id(receiver), _Receiver())
+    return replace(
+        step,
+        # A pooled step is not their code at all: `rebind` takes the object out
+        # of this reading's pool by the name above and never reads this.
+        call=_taken_from_the_pool if pooled is not None else _found_again_by_name,
+        owner=None,
+        supplied=recorded,
+        rebuild=None,
+        receiver=receiver,
+        _described=None if pooled is not None else _Described.of(step),
+    )
+
+
+def _replayable(binding: Binding, stand_in: Dict[int, _Receiver]) -> Binding:
+    """The whole binding as a description, sharing one set of stand-in handles.
+
+    One map across every chain, because a method carried out of one branch
+    shares its construction handle with the step in another branch that built
+    the object.
+    """
+
+    def described(step: Candidate) -> Candidate:
+        return _replayed(step, stand_in)
+
+    return replace(
+        binding,
+        steps=tuple(described(step) for step in binding.steps),
+        fits=tuple((name, described(step)) for name, step in binding.fits),
+        branches={
+            name: tuple(described(step) for step in chain)
+            for name, chain in binding.branches.items()
+        },
+    )
 
 
 def _supplied_by(submission: "Submission") -> List[Dict[str, object]]:
@@ -467,6 +1405,13 @@ def from_spec(repository: Path, spec: Any, **overrides: Any) -> Submission:
         "factories": getattr(spec, "factories", None),
         "readers": int(getattr(spec, "readers", 0) or 0),
         "prepare": getattr(spec, "prepare", None),
+        # A week that loads its own models declares this instead of returning
+        # them from `prepare`. Absent on every data-only and no-weight
+        # adapter, which is why it is read rather than required.
+        "construct": getattr(spec, "construct", None),
+        # Whether the selected binding consumed what `prepare` retained. Which
+        # bindings count is the week's question, so the week answers it.
+        "weights_consumed": getattr(spec, "weights_consumed", None),
         "expects": getattr(spec, "expects", None),
     }
     arguments.update(overrides)
@@ -515,6 +1460,8 @@ def resolve(
     factories: Optional[Callable[[Candidate], bool]] = None,
     readers: int = 0,
     prepare: Optional[Callable[[Path, Sequence[Any]], Mapping[str, Any]]] = None,
+    construct: Optional[Callable[..., Any]] = None,
+    weights_consumed: Optional[Callable[["Submission"], bool]] = None,
     expects: Optional[str] = None,
 ) -> Submission:
     """Resolve one repository against one week's task.
@@ -565,7 +1512,10 @@ def resolve(
 
     # Keep deferred imports and candidate calls under the same course-file
     # mapping as module imports. Captured aliases retain only this mapping.
-    with _Redirects(resource_files or {}):
+    #
+    # `lifetime` owns anything opened for the search itself, so every way out
+    # of this function closes it: the returns, the refusals, and an exception.
+    with _Redirects(resource_files or {}), contextlib.ExitStack() as lifetime:
         if readers > 0 and grades is None:
             # Said here rather than discovered as an empty reader search: a week
             # that declares readers and no way to grade one would silently bind
@@ -577,6 +1527,34 @@ def resolve(
             )
 
         watcher = progress or Progress()
+
+        #: What would not release cleanly during this resolution, carried onto
+        #: whatever it returns. See `Submission.cleanup`.
+        cleanup: List[str] = []
+        #: What the week's `prepare` hook said about this repository, carried
+        #: the same way. See `Submission.prepared`.
+        prepared: Dict[str, Any] = {}
+        #: The search's own model block, if this week declares one, so it can
+        #: be closed before the run is handed back rather than after.
+        searching_held: List[Any] = []
+
+        def finish(submission: Submission) -> Submission:
+            """The one way out of this function, for every normal return.
+
+            Closes the search's own model block, attaches what could not be
+            released, then settles what may be said about the weights. A
+            refusal carries weight names too, so it cannot bypass the
+            decision. The exit stack stays for the exception, which has no
+            return.
+            """
+
+            for held in searching_held:
+                held.close()
+            return _published(
+                replace(submission, cleanup=tuple(cleanup), prepared=prepared),
+                weights_consumed,
+            )
+
         repository = Path(repository).resolve()
 
         watcher.phase("Reading your repository")
@@ -587,7 +1565,25 @@ def resolve(
             resource_files=resource_files,
         )
         weights_used: Tuple[str, ...] = ()
+        weights_captured: Optional[Tuple[Dict[str, Any], ...]] = ()
         if prepare is not None:
+            # Capture records selected files. Publication also requires the
+            # week's confirmation that the returned binding consumed them.
+            retained: Dict[Path, storage.RetainedInput] = {}
+
+            def capture(original: Path) -> Path:
+                """Copy the selected input and return its retained path.
+
+                The week must load from that path. Retention does not redirect
+                code that reads the original or prove which bytes it consumed.
+                """
+
+                resolved = Path(original).resolve()
+                if resolved not in retained:
+                    retained[resolved] = storage.retain_input(repository, original)
+                return retained[resolved].retained
+
+            offered = {"capture": capture} if _accepts_capture(prepare) else {}
             # What this repository itself supplies to the search: week 3's
             # trained projection, read off the chosen root. Merged under the
             # benchmark's own extras so a week cannot be overridden by a file.
@@ -596,22 +1592,61 @@ def resolve(
                 # the hook runs their code (a model's constructor and loader),
                 # and their code writes relative files.
                 with _scratch_cwd():
-                    # The hook and conversion of its returned mapping can both
-                    # run student code, so they share the existing probe clock.
+                    # The hook and the taking of its answer can both run their
+                    # code, so they share the existing probe clock. Taken in
+                    # one step rather than copied shallowly here and taken
+                    # later: a report that refers back to itself would
+                    # otherwise come back holding the week's original.
                     from_repository = _under_clock(
-                        lambda: dict(prepare(found.root.path, found.namespace) or {})
+                        lambda: taken_as_data(
+                            prepare(found.root.path, found.namespace, **offered) or {}
+                        )
                     )
+                declared = [str(p) for p in from_repository.pop("weights_used", ())]
+                if offered:
+                    # Capture is the declaration. A hook that also returns a
+                    # list is giving a second answer to the same question, and
+                    # dropping it would hide a disagreement rather than settle
+                    # one. Refused rather than reconciled at runtime.
+                    if declared:
+                        raise storage.RetentionError(
+                            "This benchmark both captures its weights and returns a "
+                            "`weights_used` list. Capture is the declaration; remove "
+                            "the list: {}".format(", ".join(sorted(declared)))
+                        )
+                    weights_captured = tuple(
+                        {"path": item.path, "sha256": item.sha256, "size": item.size}
+                        for item in sorted(retained.values(), key=lambda r: r.path)
+                    )
+                    weights_used = tuple(item["path"] for item in weights_captured)
+                elif declared:
+                    # A week that names weights without retaining them still
+                    # scores locally. The names are canonicalised against the
+                    # project the same way a captured one is, by path only,
+                    # and the run publishes no receipt for them.
+                    weights_used = tuple(sorted(
+                        storage.canonical_weight_path(repository, found.root.path / name)
+                        for name in declared
+                    ))
+                    weights_captured = None
             except Exception as error:  # noqa: BLE001 - the week's hook may refuse
                 watcher.done()
-                return Submission(
+                return finish(Submission(
                     not_read(
                         found.root.path.name,
                         "{}: {}".format(type(error).__name__, str(error)[:200]),
                     ),
                     discovery=found,
                     weights_used=weights_used,
-                )
-            weights_used = tuple(sorted(str(p) for p in from_repository.pop("weights_used", ())))
+                    weights_captured=weights_captured,
+                ))
+            # The hook's own answer, kept whole so the week can read back what
+            # it said about THIS repository. A plugin resolving several in turn
+            # otherwise has only its own last answer to report from, and a
+            # plugin that fills the same nested dictionary each time would
+            # rewrite this one's report while preparing the next; the
+            # containers here are the run's own. See `taken_as_data`.
+            prepared = from_repository
             extras = dict(from_repository, **(extras or {}))
         if found.modules:
             watcher.note(
@@ -626,7 +1661,7 @@ def resolve(
             watcher.done()
             if found.skipped:
                 worst = found.skipped[0]
-                return Submission(
+                return finish(Submission(
                     not_read(
                         worst.name,
                         worst.detail,
@@ -634,9 +1669,187 @@ def resolve(
                     ),
                     discovery=found,
                     weights_used=weights_used,
-                )
-            return Submission(nothing_here(repository.name), discovery=found)
+                    weights_captured=weights_captured,
+                ))
+            return finish(Submission(nothing_here(repository.name), discovery=found))
 
+        # Every file any reading of this repository touched, including the ones
+        # a lazy import inside one of their functions reaches while a trial
+        # runs. A key written without one of those files is a key that cannot
+        # see the change that should invalidate it, so the readings report
+        # here and `_memo_key`'s inventory is checked against this afterwards.
+        observed: Set[Path] = set()
+
+        def reading() -> Project:
+            """One reading of their repository, for one trial. See `_Trial`."""
+
+            return Project(
+                repository,
+                found,
+                hints=hints,
+                declared_root=declared_root,
+                resource_files=resource_files,
+                observed=observed,
+            )
+
+        #: Everything the benchmark hands their code, taken now, before any of
+        #: their functions has been called and so before any of it can have
+        #: been written to. Every later use is reconstructed from this.
+        declared, fit_cases = declared_in(chain_role)
+        #: The names a stage actually asks for, kept before `declared` widens
+        #: to the whole pool, so a resource nobody declares can be skipped
+        #: while one that is declared refuses by name.
+        declared_by = list(declared)
+        if reads_anything(chain_role) or construct is not None:
+            # Something of this week's reads the pool by name without saying
+            # which name: a callable branch fixture, or the `construct` hook,
+            # which is handed the data pool to build its models from. Nothing
+            # declares what they read, so every name the caller supplied is
+            # snapshotted. An entry that will not copy is still only a refusal
+            # if something reads it.
+            declared = list(extras or {})
+        bundle = Bundle(
+            fixture, extras, identities, declared=declared, fits=fit_cases
+        )
+
+        # The search is an owner like any other, so it takes one
+        # reconstruction and takes everything from it: the case its stages are
+        # probed with, the item names, and the resources they declare. Reading
+        # its models out of one graph and its inputs out of another made the
+        # search the one caller whose model was built from a copy while its
+        # steps were handed the caller's originals.
+        search_handed = bundle.again()
+        # What the search itself probes with, off one reconstruction, so a
+        # model built from the caption table and a step handed the caption
+        # table are handed one table. Kept beside `extras` rather than
+        # replacing it: the memo key identifies the inputs the CALLER passed,
+        # and fingerprinting a reconstruction would let an opaque resource
+        # look identifiable when it is exactly the thing that is not.
+        try:
+            searched_fixture = search_handed.case()
+            searched_identities = search_handed.identities()
+        except Unmapped as error:
+            # The week's own case, which every stage is probed with, so there
+            # is nothing to search with and nothing to guess. Named here for
+            # the same reason a declared resource is: the alternative is this
+            # leaving `resolve` as an exception, which no caller of ours is
+            # written to read.
+            watcher.done()
+            return finish(Submission(
+                not_read(found.root.path.name, str(error)),
+                discovery=found,
+                weights_used=weights_used,
+                weights_captured=weights_captured,
+                cleanup=tuple(cleanup),
+            ))
+        searching: Dict[str, Any] = {}
+        for name in search_handed.names():
+            try:
+                searching[name] = search_handed.extra(name)
+            except Unmapped as error:
+                if name in set(declared_by):
+                    # A stage asks for this one, so their code is going to be
+                    # handed it, and there is nothing honest to probe with.
+                    watcher.done()
+                    return finish(Submission(
+                        not_read(found.root.path.name, str(error)),
+                        discovery=found,
+                        weights_used=weights_used,
+                        weights_captured=weights_captured,
+                        cleanup=tuple(cleanup),
+                    ))
+                # Nobody declared it, so nothing will read it. Left out rather
+                # than forced, which is what keeps an unreadable resource a
+                # deliberate memo miss instead of a refused repository.
+
+        # Their models for the search's own namespace. The search reads their
+        # repository like any trial does, so it builds its own models like any
+        # trial does, out of that same pool. They overlay the extras the
+        # search carries and never go near the bundle: a model is not data and
+        # is never copied.
+        if construct is not None:
+            try:
+                holding = opened(
+                    construct, found, resource_files, search_handed.pool()
+                )
+                models = holding.__enter__()
+            except BaseException as error:  # noqa: BLE001 - their loader
+                # Two facts, and the refusal is only the first. `opened` shuts
+                # a hook down that broke its contract, and records what that
+                # shutdown raised on the failure it is already carrying; this
+                # is the one return that reads it, so dropping it here is the
+                # last place the loader's complaint could go.
+                for complaint in getattr(error, "cogbench_cleanup", ()):
+                    _complained(str(complaint), watcher, cleanup)
+                watcher.done()
+                return finish(Submission(
+                    not_read(
+                        found.root.path.name,
+                        "this week's models could not be built: {}: {}".format(
+                            type(error).__name__, str(error)[:160]
+                        ),
+                    ),
+                    discovery=found,
+                    weights_used=weights_used,
+                    weights_captured=weights_captured,
+                ))
+            held = _Held(holding, watcher, cleanup)
+            lifetime.callback(held.close)
+            searching_held.append(held)
+            clash = collides(models, search_handed.names())
+            if clash:
+                watcher.done()
+                return finish(Submission(
+                    not_read(
+                        found.root.path.name,
+                        "hook_contract: {} named by both `construct` and the "
+                        "benchmark's own inputs".format(", ".join(clash)),
+                    ),
+                    discovery=found,
+                    weights_used=weights_used,
+                    weights_captured=weights_captured,
+                ))
+            searching = dict(searching, **models)
+
+        #: How a submission of this resolution runs again: where to read the
+        #: repository, and what the benchmark hands their code.
+        again: Dict[str, Any] = {
+            "_repository": repository,
+            "_hints": tuple(hints),
+            "_declared_root": declared_root,
+            "_observed": observed,
+            "_role": chain_role,
+            "_bundle": bundle,
+            # Each run of the binding builds its own models, so it needs the
+            # hook rather than anything the search built with it.
+            "_construct": construct,
+            # Every returned submission carries these, not only the ones with
+            # a database. A fit stage runs one of their functions on each run,
+            # and a function that opens the week's artifact needs the same
+            # answer on the tenth run as on the search.
+            "_resource_files": dict(resource_files or {}),
+        }
+
+        # A week that loads its own models does not use the memo, and says so
+        # rather than remembering something it cannot check. What a hook built
+        # is not in the key and could not be: the key identifies inputs by
+        # their bytes, and a model is an object their loader made, with no
+        # representation here that a later run could be compared against.
+        # Storing a binding chosen with one model and replaying it against
+        # another is the wrong-binding case the whole key exists to prevent,
+        # so this is a deliberate miss. Data-only weeks are unaffected.
+        remember = remember and construct is None
+        # A week that hands a folder to a zero-argument reader does not use it
+        # either, for the same reason and with the same evidence. `_remembered`
+        # records `selfOnly` but has no field for the folder name a step was
+        # bound over, so a replayed step would be called with no arguments and
+        # nothing put where its code looks. The reader then finds whatever the
+        # caller's own directory holds: probed here with a same-named folder
+        # beside the caller, the replayed step returned that folder's contents
+        # and reported success. Adding a field for the name would make the
+        # entry replayable; nothing needs that yet, and a wrong answer that
+        # looks right is the thing to avoid first.
+        remember = remember and not _declares_a_folder(chain_role)
         key = (
             _memo_key(
                 found, benchmark=benchmark, chain_role=chain_role, fixture=fixture,
@@ -661,26 +1874,49 @@ def resolve(
                         deepcopy(stored), validation_found, chain_role, arrangements,
                         fixture=deepcopy(fixture), extras=deepcopy(extras),
                         identities=deepcopy(identities), resource_files=resource_files,
+                        again=dict(again, _observed=observed),
                     ))
             except BaseException:  # copying or constructing an optional replay may fail
                 validation = None
-            valid = validation is not None and _valid_replay(
-                validation, accepts, fixture, factories=factories, readers=readers,
-            )
-            if validation is not None and set(memo.source_paths(validation_found)) != keyed_sources:
+            try:
+                valid = validation is not None and _valid_replay(
+                    validation, accepts, fixture, factories=factories, readers=readers,
+                )
+            finally:
+                # Validation built a whole run of their binding, models and
+                # all, to answer one question. It is released here whether
+                # that question was answered, refused or raised.
+                if validation is not None:
+                    _released(validation, watcher, cleanup)
+            if validation is not None and (
+                set(memo.source_paths(validation_found)) | observed != keyed_sources
+            ):
                 # A late import was not hashed at lookup. Acceptance cannot make
-                # that incomplete key safe, including for a subsequent cold search.
+                # that incomplete key safe, including for a subsequent cold
+                # search. Validation's own trial reads this repository again and
+                # reports what it imported into `observed`, so a file reached
+                # only from inside one of their functions counts here too.
                 key = ""
             if valid and key:
                 recalled = _replay(
                     stored, found, chain_role, arrangements, fixture=fixture,
                     extras=extras, identities=identities, resource_files=resource_files,
+                    again=again,
                 )
                 if recalled is not None:
                     watcher.done()
                     # The current call validated one binding, not the original
-                    # search's remembered attempt count.
-                    return replace(recalled, attempts_tried=1)
+                    # search's remembered attempt count. The weights are this
+                    # run's too: a stored binding carries no receipts, and
+                    # what `prepare` retained a moment ago is what this run
+                    # scored with. Through `finish` like every other return,
+                    # so the week answers for a replayed binding as well.
+                    return finish(replace(
+                        recalled,
+                        attempts_tried=1,
+                        weights_used=weights_used,
+                        weights_captured=weights_captured,
+                    ))
 
         watcher.phase("Looking for the functions that do the work")
         # What the week's test said about the last chain it rejected, kept so a
@@ -691,11 +1927,69 @@ def resolve(
         # not paired a second time on the way out.
         paired: Dict[str, Any] = {"tried": 0, "chains": 0}
 
+        #: An input of ours that could not be given to their code again, and
+        #: separately their code that could not be read again. Kept rather
+        #: than reported where they happen, because they happen inside the
+        #: verifier, and a verifier that says no makes the search report that
+        #: their chain answered wrongly. Neither of these is that.
+        #:
+        #: Both are only worth reporting if nothing else bound. A chain the
+        #: search could not put back is not a reason to refuse a repository
+        #: whose next chain went through.
+        refused: Dict[str, Unmapped] = {}
+        unreadable: Dict[str, Unmapped] = {}
+        #: Whether the week's own test was ever actually reached. If it never
+        #: was, nothing can be said about what their code answered, because
+        #: nothing of theirs was asked.
+        asked: Dict[str, bool] = {"ever": False}
+
+        def stopped(error: Unmapped) -> None:
+            """Record why one verification could not proceed."""
+
+            if error.reason == "benchmark_inputs":
+                refused.setdefault("why", error)
+            else:
+                unreadable.setdefault("why", error)
+
+        def handed(tentative: Binding) -> Any:
+            """What the week's acceptance test is given for this binding.
+
+            A role made of branches is judged on every branch visible so far,
+            by name; every other role is judged on its one chain.
+            """
+
+            return dict(tentative.branches) if tentative.branches else tentative.steps
+
         if arrangements is None:
             # A week with no database is complete when its chain is, so the week's
             # acceptance test is the whole verifier.
-            def verify(steps: Any) -> bool:
-                ok, detail = accepts(steps, *fixture)
+            def verify(tentative: Binding) -> bool:
+                # One reconstruction for the whole verification, so the case
+                # the week's test is given and the resources its steps take
+                # are the same objects wherever the benchmark shared them.
+                given = bundle.again()
+                owner = reading()
+                try:
+                    try:
+                        case = given.case()
+                        put = _renewed(
+                            tentative, owner, given, chain_role, construct
+                        )
+                    except Unmapped as error:
+                        # Neither of these is the week's test saying no, so
+                        # neither goes into `last_said`: that is the sentence
+                        # the report quotes when it says their chain answered
+                        # wrongly, and their chain was not asked.
+                        stopped(error)
+                        return False
+                    asked["ever"] = True
+                    ok, detail = accepts(handed(put), *case)
+                finally:
+                    # The chain this verification renewed answers out of this
+                    # reading, so the reading lives exactly as long as the
+                    # week's test is using it, and no longer, whether that
+                    # test accepted, refused or raised.
+                    _released(owner, watcher, cleanup)
                 last_said["detail"] = str(detail or "")
                 return bool(ok)
 
@@ -714,12 +2008,12 @@ def resolve(
             # with the preferences emptied the accepted chain became
             # `make_spectrogram -> find_peaks -> find_peaks`, which pairs with
             # nothing that answers, and the run scored 0.125 instead of 0.640625.
-            def verify(steps: Any) -> bool:
+            def verify(tentative: Binding) -> bool:
                 # The first complete chain, kept for the report when none of them
                 # pairs. "We found your fingerprinting and no database" has to be
-                # able to name the fingerprinting it found, and a refusal carries
-                # labels rather than the bound steps.
-                paired.setdefault("steps", tuple(steps))
+                # able to name the fingerprinting it found; `Submission.close`
+                # reduces these to the labels the record renders.
+                paired.setdefault("steps", tuple(tentative.steps))
                 # The ceiling is on the search, not on one chain of it. Restarting
                 # it per chain meant a repository offering twelve complete chains
                 # could try twelve times `max_attempts` pairings, so the number
@@ -728,7 +2022,7 @@ def resolve(
                 if remaining <= 0:
                     return False
                 best, tried = _pair(
-                    steps,
+                    tentative,
                     found,
                     arrangements,
                     accepts,
@@ -737,6 +2031,9 @@ def resolve(
                     readers,
                     remaining,
                     watcher,
+                    reading,
+                    _onto(tentative, bundle, chain_role, stopped, asked, construct),
+                    cleanup,
                     offset=paired["tried"],
                 )
                 paired["tried"] += tried
@@ -749,11 +2046,26 @@ def resolve(
         chain, refusal = resolve_chain(
             chain_role,
             found.namespace,
-            fixture,
-            verify=verify,
-            extras=extras,
-            identities=identities,
+            searched_fixture,
+            verify_binding=verify,
+            extras=searching,
+            identities=searched_identities,
         )
+        if chain is None and (refused or (unreadable and not asked["ever"])):
+            # Nothing bound, and the reason is not their algorithm: the
+            # week's test was never able to ask. Every sentence below says
+            # their chain ran and answered. Only when nothing bound, because
+            # a chain the search could not put back says nothing about the
+            # next one.
+            why = refused.get("why") or unreadable["why"]
+            watcher.done()
+            return finish(Submission(
+                not_read(found.root.path.name, str(why)),
+                discovery=found,
+                weights_used=weights_used,
+                weights_captured=weights_captured,
+            ))
+
         if chain is None:
             watcher.done()
             assert refusal is not None
@@ -784,25 +2096,32 @@ def resolve(
                 # algorithm returned the wrong answer would be wrong twice over:
                 # nothing of theirs was asked for an answer, and the missing
                 # piece is a database rather than a better fingerprint.
-                return Submission(
+                return finish(Submission(
                     not_wired(
                         "identification",
                         "database",
                         reached,
+                        # Week 1's own words, on every week. A 2026 vision
+                        # repository resolved here during this change and was
+                        # told about its fingerprinting and its songs. The
+                        # sentence says the same thing without naming a task,
+                        # which is what this branch actually knows.
                         next_step=(
-                            "The benchmark found your fingerprinting but no pair of "
-                            "functions that stores a song and then names it back."
+                            "The benchmark ran your steps to the end but found no "
+                            "pair of functions that stores what they produced and "
+                            "names it back."
                         ),
                         coverage=_coverage_of(found, benchmark),
                     ),
                     discovery=found,
                     weights_used=weights_used,
+                    weights_captured=weights_captured,
                     chain=paired.get("steps", ()),
                     attempts_tried=paired["tried"],
-                )
+                ))
             if refusal.ran_to_the_end:
                 said = last_said.get("detail", "")
-                return Submission(
+                return finish(Submission(
                     wired_but_wrong(
                         chain_role.name,
                         expects or "the answer the benchmark's own case has",
@@ -818,8 +2137,9 @@ def resolve(
                     ),
                     discovery=found,
                     weights_used=weights_used,
-                )
-            return Submission(
+                    weights_captured=weights_captured,
+                ))
+            return finish(Submission(
                 not_wired(
                     chain_role.name,
                     refusal.stage,
@@ -832,11 +2152,14 @@ def resolve(
                 ),
                 discovery=found,
                 weights_used=weights_used,
-            )
+                weights_captured=weights_captured,
+            ))
 
-        if key and set(memo.source_paths(found)) != keyed_sources:
-            # Search can discover additional project sources too. Do not persist
-            # its choice under the earlier, incomplete inventory.
+        if key and set(memo.source_paths(found)) | observed != keyed_sources:
+            # Search can discover additional project sources too, and so can a
+            # trial that reads the repository again and runs a function of
+            # theirs that imports a sibling. Do not persist this choice under
+            # the earlier, incomplete inventory.
             key = ""
 
         for step, stage in zip(chain.steps, chain_role.stages):
@@ -846,18 +2169,35 @@ def resolve(
             watcher.done()
             if key:
                 memo.write(repository, key, dict(_remembered(chain), arrangement=-1))
-            return Submission(
-                _scored_placeholder(chain),
-                discovery=found,
-                weights_used=weights_used,
-                chain=chain.steps,
-                branches=dict(chain.branches),
-                fits=chain.fits,
-                missing=dict(chain.missing),
-                attempts_tried=0,
-                enroll=None,
-                query=None,
-            )
+            # `fresh` puts the whole binding on a reading of its own, so a
+            # scored run starts from their modules as their file wrote them
+            # rather than as the search left them.
+            #
+            # Before the handoff, not in `finish`: `_handed_over` builds that
+            # reading and its models, and `finish` runs after it returns, so
+            # leaving it to `finish` holds the search's models and the run's
+            # at once. Closing twice is a no-op.
+            for held in searching_held:
+                held.close()
+            return finish(_handed_over(
+                Submission(
+                    _scored_placeholder(chain),
+                    discovery=found,
+                    weights_used=weights_used,
+                    weights_captured=weights_captured,
+                    chain=chain.steps,
+                    branches=dict(chain.branches),
+                    fits=chain.fits,
+                    missing=dict(chain.missing),
+                    attempts_tried=0,
+                    enroll=None,
+                    query=None,
+                    **again,
+                ),
+                found,
+                weights_used,
+                cleanup,
+            ))
 
         # The accepted pairing's ordinal within its own chain is not how much work
         # this took: every chain before it was searched too. `paired["tried"]` is
@@ -881,29 +2221,39 @@ def resolve(
                     stateAttribute=shape.state_attribute,
                 ),
             )
-        return Submission(
-            _scored_placeholder(chain),
-            discovery=found,
-            weights_used=weights_used,
-            chain=chain.steps,
-            branches=dict(chain.branches),
-            fits=chain.fits,
-            missing=dict(chain.missing),
-            attempt=Attempt(store.label, ask.label, index),
-            attempts_tried=paired["tried"],
-            _store=store,
-            _ask=ask,
-            _arrange=arrangements,
-            _factory=shape.factory,
-            _readers=shape.readers,
-            _state=shape.state,
-            _state_attribute=shape.state_attribute,
-            _resource_files=dict(resource_files or {}),
-        ).fresh()
+        # Before the handoff builds this run's own reading and models; see
+        # the same close above the chain-only return.
+        for held in searching_held:
+            held.close()
+        return finish(_handed_over(
+            Submission(
+                _scored_placeholder(chain),
+                discovery=found,
+                weights_used=weights_used,
+                weights_captured=weights_captured,
+                chain=chain.steps,
+                branches=dict(chain.branches),
+                fits=chain.fits,
+                missing=dict(chain.missing),
+                attempt=Attempt(store.label, ask.label, index),
+                attempts_tried=paired["tried"],
+                _store=store,
+                _ask=ask,
+                _arrange=arrangements,
+                _factory=shape.factory,
+                _readers=shape.readers,
+                _state=shape.state,
+                _state_attribute=shape.state_attribute,
+                **again,
+            ),
+            found,
+            weights_used,
+            cleanup,
+        ))
 
 
 def _pair(
-    steps: Sequence[Candidate],
+    tentative: Binding,
     found: Discovery,
     arrangements: Callable[..., Any],
     accepts: Callable[..., Tuple[Any, str]],
@@ -912,6 +2262,9 @@ def _pair(
     readers: int,
     max_attempts: int,
     watcher: Any,
+    reading: Callable[[], Project],
+    renew: Callable[[Project], Any],
+    cleanup: List[str],
     offset: int = 0,
 ) -> Tuple[Optional[Tuple[float, Candidate, Candidate, int, int, "_Shape"]], int]:
     """The best pair of their functions that stores a song through ``steps``
@@ -945,8 +2298,16 @@ def _pair(
     ceiling belongs to the search rather than to one chain of it, and because
     a progress bar that restarts at zero for every chain reads as no progress
     at all.
+
+    ``reading`` gives each attempt its own reading of their repository and
+    ``renew`` puts the chain and its side inputs onto that reading; see
+    `_Trial` and `_renewed`. Which of their functions can be a store, a query
+    or a reader is still decided once here, off the search's own candidates,
+    because those are signature questions and a second reading answers them
+    the same way.
     """
 
+    steps = tentative.steps
     candidates = _store_candidates(found, steps)
     arrangement_count = len(arrangements(lambda *_: None, "", None))
     # The shapes a store and a query can have between them. The first is the
@@ -990,10 +2351,19 @@ def _pair(
             break
         tried += 1
         watcher.attempts(offset + tried, probe_total)
-        # A probe gets its own database for the same reason a pairing does,
+        # A probe gets its own reading for the same reason a pairing does,
         # and no query, because there is nothing here a query could answer.
-        probe = _Trial(shape, store, None, arrangements, index)
-        enrolled, _detail = accepts(steps, probe.enroll, None)
+        probe = _Trial(shape, store, None, arrangements, index, reading(), renew)
+        try:
+            try:
+                chain = probe.steps()
+            except NoDatabase:
+                # Their chain is not in this reading, so there is nothing to
+                # probe this store with. Counted as the attempt it was.
+                continue
+            enrolled, _detail = accepts(chain, probe.enroll, None)
+        finally:
+            _released(probe, watcher, cleanup)
         if not enrolled:
             continue
         indexes = by_store.get((at, store.label))
@@ -1030,67 +2400,94 @@ def _pair(
         tried += 1
         watcher.attempts(offset + tried, total)
 
-        # A trial gets its own database. Sharing one across trials let the
+        # A trial gets its own reading. Sharing one across trials let the
         # second trial enrol into a database the first had already filled, so
         # a store that refuses a song id it has seen raised on every trial
         # after the first and the tail that would have answered was recorded
         # as one that raised.
-        trial = _Trial(shape, store, ask, arrangements, index)
-        asked = _Asked(trial.query())
-        ok, _detail = accepts(steps, trial.enroll, asked)
-        grade = float(ok)
-        # The shape this pairing bound with, kept apart from the one the loop
-        # is iterating. Assigning readers back onto `shape` rewrote the loop
-        # variable, so every later pairing in the same pass was then run
-        # through readers chosen for an earlier one.
-        bound = shape
-        if trial.state is not None:
-            # Which attribute their query was actually handed, now that a
-            # pairing has run and found out.
-            bound = replace(bound, state_attribute=trial.state.chosen)
-        # The bare query's grade is banked before any reader is tried, so a
-        # reader search that finds nothing cannot cost the pairing the grade
-        # it already earned (measured on one 2026 repository whose one working
-        # pairing earns exactly 0.5).
+        trial = _Trial(shape, store, ask, arrangements, index, reading(), renew)
+        try:
+            ok = _paired_once(
+                trial, accepts, grades, readable, readers, store, ask, shape,
+            )
+        finally:
+            # Whatever this pairing did, its reading and its models stop here.
+            # The accepted pairing is named by the search's own candidates, so
+            # nothing that survives this loop holds a closed reading.
+            _released(trial, watcher, cleanup)
+        if ok is None:
+            continue
+        grade, bound = ok
         if grade > 0 and (best is None or grade > best[0]):
             best = (grade, store, ask, index, tried, bound)
-        if grade < FULLY_ANSWERED and readers > 0 and asked.ran:
-            # Their query answered something the benchmark could not read as a
-            # ranking. Before giving that a lower grade, try up to `readers`
-            # more of their own functions on what it returned: rutvim2009
-            # Week1's `query_database` returns a vote tally keyed by
-            # `(song_id, offset)`, and its `get_sorted_matches` then
-            # `get_sorted_songs` are what turn that into song names.
-            #
-            # `asked.ran` is the whole rule: a reader reads what the query
-            # returned, so a pairing whose query raised never reached the
-            # point where one could be applied. An empty answer is not
-            # excluded, because turning an empty tally into a ranking is a
-            # thing one of their readers can do, and excluding it made that
-            # reader unreachable.
-            better = _read_further(
-                grades,
-                asked.answer,
-                trial,
-                [c for c in readable if c is not store and c is not ask],
-                readers,
-                grade,
-            )
-            if better is not None:
-                grade, bound = better[0], replace(bound, readers=better[1])
-                if best is None or grade > best[0]:
-                    best = (grade, store, ask, index, tried, bound)
         if best is not None and best[0] >= FULLY_ANSWERED:
             break
 
     return best, tried
 
 
-#: What a factory call returns when their own factory raised. Not None,
-#: because None is the ordinary "no factory in this shape" value and the two
-#: must not be confused: one means try the pairing without a database object,
-#: the other means their factory is not usable and this attempt is over.
-_FAILED = object()
+def _paired_once(
+    trial: "_Trial",
+    accepts: Callable[..., Tuple[Any, str]],
+    grades: Optional[Callable[[Any], Tuple[Any, str]]],
+    readable: Sequence[Candidate],
+    readers: int,
+    store: Candidate,
+    ask: Candidate,
+    shape: "_Shape",
+) -> Optional[Tuple[float, "_Shape"]]:
+    """Run one pairing and say what it earned, or None when it never ran.
+
+    Its own function so the trial that owns the reading can be released by one
+    `finally` around the whole of it, rather than at each of the places this
+    used to return or fall through.
+    """
+
+    try:
+        chain = trial.steps()
+    except NoDatabase:
+        return None
+    asked = _Asked(trial.query())
+    ok, _detail = accepts(chain, trial.enroll, asked)
+    grade = float(ok)
+    # The shape this pairing bound with, kept apart from the one the loop
+    # is iterating. Assigning readers back onto `shape` rewrote the loop
+    # variable, so every later pairing in the same pass was then run
+    # through readers chosen for an earlier one.
+    bound = shape
+    if trial.state is not None:
+        # Which attribute their query was actually handed, now that a
+        # pairing has run and found out.
+        bound = replace(bound, state_attribute=trial.state.chosen)
+    # The bare query's grade is banked before any reader is tried, so a
+    # reader search that finds nothing cannot cost the pairing the grade
+    # it already earned (measured on one 2026 repository whose one working
+    # pairing earns exactly 0.5).
+    if grade < FULLY_ANSWERED and readers > 0 and asked.ran:
+        # Their query answered something the benchmark could not read as a
+        # ranking. Before giving that a lower grade, try up to `readers`
+        # more of their own functions on what it returned: rutvim2009
+        # Week1's `query_database` returns a vote tally keyed by
+        # `(song_id, offset)`, and its `get_sorted_matches` then
+        # `get_sorted_songs` are what turn that into song names.
+        #
+        # `asked.ran` is the whole rule: a reader reads what the query
+        # returned, so a pairing whose query raised never reached the
+        # point where one could be applied. An empty answer is not
+        # excluded, because turning an empty tally into a ranking is a
+        # thing one of their readers can do, and excluding it made that
+        # reader unreachable.
+        better = _read_further(
+            grades,
+            asked.answer,
+            trial,
+            [c for c in readable if c is not store and c is not ask],
+            readers,
+            grade,
+        )
+        if better is not None:
+            grade, bound = better[0], replace(bound, readers=better[1])
+    return grade, bound
 
 
 @dataclass(frozen=True)
@@ -1132,54 +2529,43 @@ class _Shape:
             return 3
         return 1 if self.factory is None else 2
 
-    def hold(self) -> Any:
-        """Their empty database, made fresh, or None when there is none."""
-
-        if self.factory is None:
-            return None
-        try:
-            return self.factory.call()
-        except BaseException:  # noqa: BLE001 - student code raises anything
-            return _FAILED
-
 
 class NoDatabase(Exception):
     """This pairing could not be given a database of its own.
 
-    Their factory raised, or a callable's owner could not be constructed a
-    second time. Construction happens on first enrollment or query, in the
-    caller's working directory. Acceptance tests treat this as a failed
-    pairing; callers of a returned submission receive the same error.
+    Their factory raised, their class would not build, or the code a binding
+    names is not in a freshly read copy of their repository. Construction
+    happens on first enrollment or query, in the caller's working directory.
+    Acceptance tests treat this as a failed pairing; callers of a returned
+    submission receive the same error.
     """
 
 
 class _Trial:
-    """One pairing, with its own database, made the first time it is used.
+    """One pairing over a repository read again for it alone.
 
-    Two things have to be true at once and neither was.
+    Three things have to be true at once and none of them was.
 
-    The database has to be this pairing's alone. `_Shape.hold` already made a
-    new one per trial for a week that declares a factory, but an ordinary
-    store that is a method kept the single object `instances_in` built and
-    carried whatever every earlier pairing had put in it. A store that
-    refuses an id it has already seen then raised on every trial after the
-    first, and the pairing that would have answered was recorded as one that
-    raised. So the store is rebuilt per trial whenever it can be, and the
-    query and the readers are taken off that same new object whenever they
-    came off the same old one -- rebuilding the store alone leaves the query
-    answering from the database the search filled. Distinct query and reader
-    owners are rebuilt too when they supply a rebuild callback, because their
-    caches can otherwise retain probe answers. Methods sharing an original
-    owner share its replacement within the trial.
+    The state their code keeps has to be this pairing's alone, and rebuilding
+    the store's object is not enough to make it so. Measured on temporary
+    projects under Python 3.8.20 and 3.13.12: a store keeping its songs in a
+    module-level dict, or in an attribute of its class rather than of its
+    instance, accepted one enrolment and refused the next nine, because every
+    trial shared one reading of the repository. Nothing a trial can do to an
+    object fixes that, so the trial reads the repository again and takes the
+    whole binding off the new modules. `_namespace.Project` is that reading.
 
-    And it has to be built where the week's acceptance test runs. A week may
-    give each attempt a world of its own: week 1 changes to an empty
-    directory inside `accepts`, which is after the search has already called
-    the factory or the constructor. A database built in one directory and
-    filled in another is not the program the scored run runs, whose object is
-    built inside the driver's own scratch directory. So nothing is built
-    here. The first enrolling call builds it, and the query reads whatever
-    that call built.
+    The chain has to come from the same reading as the store. The week's
+    acceptance test is handed both, and a fingerprinter whose module global
+    the store also reads is one program; running the two halves in two
+    namespaces would be another.
+
+    And their database has to be built where the week's acceptance test runs.
+    A week may give each attempt a world of its own: week 1 changes to an
+    empty directory inside `accepts`, which is after the search would already
+    have called their factory or their constructor. So nothing of theirs is
+    built here. The first enrolling call builds it, and the query reads
+    whatever that call built.
     """
 
     __slots__ = (
@@ -1194,7 +2580,9 @@ class _Trial:
         "_call",
         "_asking",
         "_reading",
-        "_owners",
+        "_project",
+        "_renew",
+        "_chain",
         "_resource_files",
         "state",
     )
@@ -1206,6 +2594,8 @@ class _Trial:
         ask: Optional[Candidate],
         arrange: Optional[Callable[..., Sequence[Callable[[], Any]]]],
         index: int,
+        project: Project,
+        renew: Optional[Callable[[Project], Any]] = None,
         resource_files: Optional[Dict[str, Path]] = None,
     ) -> None:
         #: None for the enrolment probe, which asks whether this store takes
@@ -1221,56 +2611,123 @@ class _Trial:
         self._call: Any = store.call
         self._asking = ask
         self._reading = shape.readers
-        self._owners: List[Tuple[Any, Any]] = []
+        #: This trial's own reading of their repository. Nothing is shared
+        #: with any other trial, including the module objects.
+        self._project = project
+        #: How to put the chain and its side inputs onto that reading. None
+        #: for a caller that has no chain to hand the acceptance test.
+        self._renew = renew
+        self._chain: Any = None
         self._resource_files = dict(resource_files or {})
         #: Set once the database exists, so a caller that needs to know which
         #: attribute their store filled reads it after the pairing has run.
         self.state: Optional["_FromTheirStore"] = None
 
-    def _begin(self) -> None:
-        """Make this trial's database, once, at the moment it is first used."""
+    def close(self) -> None:
+        """Release this trial's reading, and everything made out of it.
 
+        The reading first, and then what this trial took off it: their
+        database, the store and query it enrolled through, their readers, and
+        the table it read back off their object. Those are the SDK's
+        references, not the week's, and nothing else drops them -- the week's
+        adapter goes on holding this trial through `enroll` and `query` for as
+        long as it lives, and both refuse once the reading is closed.
+
+        Idempotent, and it raises `CleanupFailed` only when the week's own
+        model hook raised on the way out; the handles go either way.
+        """
+
+        try:
+            self._project.close()
+        finally:
+            self._held = None
+            self._call = None
+            self._asking = None
+            self._reading = ()
+            self._chain = None
+            self.state = None
+
+    def __enter__(self) -> "_Trial":
+        return self
+
+    def __exit__(self, *_exc: Any) -> None:
+        self.close()
+
+    def steps(self) -> Any:
+        """The chain the week's acceptance test is handed for this trial.
+
+        Taken off this trial's own reading, so the chain and the store share
+        their module objects and a fit stage's value is the one this reading's
+        code computed. Reading happens here rather than in `_begin` because
+        the acceptance test needs the chain before it calls anything, and
+        reading builds none of their objects.
+        """
+
+        if self._chain is None:
+            if self._renew is None:
+                return ()
+            with _Redirects(self._resource_files):
+                try:
+                    self._chain = self._renew(self._project)
+                except Unmapped as error:
+                    raise NoDatabase(str(error)) from None
+        return self._chain
+
+    def _map(self, candidate: Candidate) -> Candidate:
+        """One selected callable, taken off this trial's own reading."""
+
+        try:
+            return self._project.rebind(candidate)
+        except Unmapped as error:
+            raise NoDatabase(str(error)) from None
+
+    def _map_all(self, candidates: Sequence[Candidate]) -> Tuple[Candidate, ...]:
+        return tuple(self._map(candidate) for candidate in candidates)
+
+    def _begin(self) -> None:
+        """Make this trial's database, once, at the moment it is first used.
+
+        Asked of a closed run, this is where the refusal comes from, before
+        anything reaches for a handle `close` has already dropped.
+        """
+
+        if self._project.closed:
+            raise Closed("this submission was closed; resolve again for a new run")
         if self._begun:
             if self._refused:
                 raise NoDatabase(self._refused)
             return
         self._begun = True
         try:
-            with _Redirects(self._resource_files):
-                held = self._shape.hold()
-                if held is _FAILED:
-                    raise NoDatabase("their factory raised, so this pairing has no database")
-                self._held = held
-                self._call = self._bind(self._store).call
+            with _Redirects(self._resource_files), self._project.running():
+                self._held = self._empty_database()
+                self._call = self._map(self._store).call
                 if self._ask is not None:
-                    self._asking = self._bind(self._ask)
-                self._reading = tuple(self._bind(reader) for reader in self._shape.readers)
+                    self._asking = self._map(self._ask)
+                self._reading = self._map_all(self._shape.readers)
+                # Read before anything is enrolled, and on this trial's own
+                # object: what their store filled is the difference between
+                # the object now and the object afterwards.
                 self.state = _FromTheirStore(self._call) if self._shape.state else None
         except NoDatabase as error:
-            # Only selected callables refuse the trial. A speculative reader's
-            # rebuild failure must leave later readers available to the search.
+            # Only selected callables refuse the trial. A speculative reader
+            # that cannot be taken off this reading must leave the later
+            # readers available to the search.
             self._refused = str(error)
             raise
 
-    def _bind(self, candidate: Candidate) -> Candidate:
-        """Rebuild each distinct owner once, including query-side caches."""
+    def _empty_database(self) -> Any:
+        """Their own empty database, or None when this shape has no factory."""
 
-        original = _bound_to(candidate)
-        # Identity matters: distinct instances can compare equal or be unhashable.
-        for previous, owner in self._owners:
-            if original is previous:
-                return _rebound(candidate, original, owner)
-        if candidate.rebuild is None:
-            return candidate
+        if self._shape.factory is None:
+            return None
+        factory = self._map(self._shape.factory)
         try:
-            call = candidate.rebuild()
-        except BaseException as error:  # noqa: BLE001 - their constructor
-            raise NoDatabase("{} could not be built again: {}".format(
-                candidate.label, type(error).__name__
-            )) from None
-        if original is not None:
-            self._owners.append((original, getattr(call, "__self__", None)))
-        return replace(candidate, call=call)
+            return factory.call()
+        except BaseException:  # noqa: BLE001 - student code raises anything
+            raise NoDatabase(
+                "their factory raised, so this pairing has no database"
+            ) from None
 
     def enroll(self, song_id: str, item: Any) -> Any:
         """Put one item in this trial's database, the week's way round."""
@@ -1279,31 +2736,43 @@ class _Trial:
         if self.state is not None:
             self.state.enrolling(song_id)
         target = self._call if self._held is None else _leading(self._call, self._held)
-        if self._arrange is None:
-            return target(song_id, item)
-        return self._arrange(target, song_id, item)[self._index]()
+        with self._project.running():
+            if self._arrange is None:
+                return target(song_id, item)
+            return self._arrange(target, song_id, item)[self._index]()
 
     def query(self) -> Callable[[Any], Any]:
         """Their query over this trial's database."""
 
         def _ask(item: Any) -> Any:
             self._begin()
-            return _read(self._asking, self._held, self._reading, item, self.state)
+            with self._project.running():
+                return _read(self._asking, self._held, self._reading, item, self.state)
 
         return _ask
 
     def reading(self, candidate: Candidate) -> Callable[[Any], Any]:
-        """One of their functions, taken off this trial's own object.
+        """One of their functions, taken off this trial's own reading.
 
         A reader is one of their functions and can be a method like any other.
-        One that came off the object the store was rebuilt from has to be
-        taken off the rebuilt one, or it reads the database an earlier trial
-        filled rather than this one's.
+        One that came off the object the store came off has to come off this
+        trial's object, or it reads the database an earlier trial filled
+        rather than this one's.
+
+        A reader the search is only speculating about is mapped here rather
+        than in `_begin`, so one that cannot be taken off this reading is not
+        a reader of this value and the trial stays usable.
         """
 
         self._begin()
         with _Redirects(self._resource_files):
-            return self._bind(candidate).call
+            call = self._map(candidate).call
+
+        def _run(value: Any) -> Any:
+            with self._project.running():
+                return call(value)
+
+        return _run
 
 
 class AmbiguousStore(Exception):
@@ -1723,6 +3192,20 @@ def _safely(predicate: Callable[[Candidate], bool], candidate: Candidate) -> boo
         return False
 
 
+def _on_this_reading(submission: Submission) -> Candidate:
+    """This run's own factory, for the week's predicate to ask about.
+
+    A week answers "is this what an empty database looks like" by calling the
+    candidate, and what a submission keeps is a description of the call rather
+    than the search's own function. So it is taken off the reading this run
+    already owns, which is also the code the run would use.
+    """
+
+    factory = submission._factory
+    assert factory is not None  # only asked for when there is one
+    return factory if submission._owned is None else submission._owned.rebind(factory)
+
+
 def _valid_replay(
     submission: Submission, accepts: Callable[..., Tuple[Any, str]],
     fixture: Sequence[Any], *, factories: Optional[Callable[[Candidate], bool]],
@@ -1740,7 +3223,8 @@ def _valid_replay(
         with _scratch_cwd():
             def validate():
                 if submission._factory is not None and (
-                    factories is None or not _safely(factories, submission._factory)
+                    factories is None
+                    or not _safely(factories, _on_this_reading(submission))
                 ):
                     return False
                 # _replay already built this validation-only submission.
@@ -1825,6 +3309,15 @@ def _remembered(chain) -> Dict[str, Any]:
         "inPlace": [step.in_place for step in steps],
         "plans": [list(step.plan) for step in steps],
         "keywords": [list(step.keywords) for step in steps],
+        # The keyword arguments this step passes, as parameter and slot. Not
+        # derivable from `keywords`, which is only a list of extras passed
+        # under their own names: a keyword argument may hold a tuning or the
+        # item's own identity, and a required keyword-only parameter is
+        # unfillable without this. A step replayed without it is called a
+        # different way from the way the search proved.
+        "keywordPlans": [
+            [[name, slot] for name, slot in step.keyword_plan] for step in steps
+        ],
         "perItem": [step.per_item for step in steps],
         "elements": [step.element for step in steps],
         "selfOnly": [step.self_only for step in steps],
@@ -1851,6 +3344,7 @@ def _replay(
     extras: Optional[Dict[str, Any]] = None,
     identities: Sequence[Any] = (),
     resource_files: Optional[Dict[str, Path]] = None,
+    again: Optional[Dict[str, Any]] = None,
 ) -> Optional[Submission]:
     """Rebind a remembered result, or return None and let the search run.
 
@@ -1858,6 +3352,11 @@ def _replay(
     namespace that was just imported. Any name that no longer resolves means
     their code moved, and the honest response is to search again rather than
     to report a binding that no longer exists.
+
+    ``again`` says how to read the repository for each run of the binding; see
+    `Submission.fresh`. A replay without it has no bound calls at all, because
+    a run of a remembered binding is a run like any other and gets its own
+    reading rather than the namespace the lookup happened to import.
     """
 
     if not stored:
@@ -1904,12 +3403,21 @@ def _replay(
             _received=tuple("" for _ in steps),
             _returned=tuple("" for _ in steps),
         )
-        return Submission(
+        recalled = Submission(
             _scored_placeholder(chain),
             discovery=found,
             chain=steps,
             recalled=True,
+            **(again or {}),
         )
+        # A remembered chain is run like a searched one, so it goes back on a
+        # reading of its own rather than on the lookup's namespace. A binding
+        # that cannot be put back is a miss: the search is the honest answer,
+        # not a replay over the modules the lookup happened to import.
+        try:
+            return recalled.fresh()
+        except Unmapped:
+            return None
 
     by_label = _by_label(found)
 
@@ -1938,7 +3446,7 @@ def _replay(
     )
     # Construct on first use, as on a cold result. A construction failure is
     # NoDatabase in the caller's directory, not a cache miss in our scratch dir.
-    return Submission(
+    remembered = Submission(
         _scored_placeholder(chain),
         discovery=found,
         chain=steps,
@@ -1952,8 +3460,12 @@ def _replay(
         _readers=readers,
         _state=shape.state,
         _state_attribute=shape.state_attribute,
-        _resource_files=dict(resource_files or {}),
-    ).fresh()
+        **(again or {}),
+    )
+    try:
+        return remembered.fresh()
+    except Unmapped:
+        return None
 
 
 def _by_label(found: Discovery) -> Dict[str, Candidate]:
@@ -1997,6 +3509,7 @@ def _retuned(
     in_place = _aligned(stored, "inPlace", labels)
     plans = _aligned(stored, "plans", labels)
     keywords = _aligned(stored, "keywords", labels)
+    keyword_plans = _aligned(stored, "keywordPlans", labels)
     per_item = _aligned(stored, "perItem", labels)
     elements = _aligned(stored, "elements", labels)
     self_only = _aligned(stored, "selfOnly", labels)
@@ -2006,8 +3519,13 @@ def _retuned(
     steps = []
     for index, label in enumerate(labels):
         plan = tuple(str(slot) for slot in plans[index])
+        by_keyword = _pairs(keyword_plans[index])
         supplied: Dict[str, Any] = {}
-        for slot in plan:
+        # Both kinds of slot are filled the same way, because `_slot_value`
+        # reads them the same way. Only `extra:<name>` is a pool lookup: a
+        # tuning is on the step, and the identity slot is this run's items
+        # rather than the search's, so neither is stored or looked up.
+        for slot in plan + tuple(slot for _name, slot in by_keyword):
             if slot == "identity":
                 supplied["identity"] = tuple(identities)
             elif slot.startswith("extra:"):
@@ -2022,6 +3540,7 @@ def _retuned(
                 in_place=bool(in_place[index]),
                 plan=plan,
                 keywords=tuple(str(name) for name in keywords[index]),
+                keyword_plan=by_keyword,
                 supplied=supplied,
                 per_item=bool(per_item[index]),
                 element=elements[index],
@@ -2032,6 +3551,33 @@ def _retuned(
     if steps:
         steps[0] = replace(steps[0], form=stored.get("form"))
     return tuple(steps)
+
+
+def _pairs(recorded: Any) -> Tuple[Tuple[str, str], ...]:
+    """One step's keyword arguments, as the parameter and the slot filling it.
+
+    A record is JSON, so a pair comes back as a two-element list. Anything
+    that is not a parameter and a slot is a record this version cannot read,
+    and reading it loosely would call their function with a keyword argument
+    the search never passed. `TypeError` is what `_replay` already treats as
+    a miss, which sends the binding back through the search.
+    """
+
+    found: List[Tuple[str, str]] = []
+    if isinstance(recorded, (str, bytes)) or not isinstance(recorded, _SequenceABC):
+        raise TypeError("a step's keyword plan is not a list of pairs")
+    for pair in recorded:
+        if (
+            isinstance(pair, (str, bytes))
+            or not isinstance(pair, _SequenceABC)
+            or len(pair) != 2
+        ):
+            raise TypeError("a keyword argument is not a parameter and a slot")
+        name, slot = pair
+        if not isinstance(name, str) or not isinstance(slot, str):
+            raise TypeError("a keyword argument names something that is not a name")
+        found.append((name, slot))
+    return tuple(found)
 
 
 def _aligned(stored: Dict[str, Any], name: str, labels: Sequence[Any]) -> List[Any]:
