@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import hashlib
 import os
+import subprocess
+import sys
 import urllib.request
 from pathlib import Path
 
@@ -27,6 +29,16 @@ WEEK3_DATA_DIR = "/opt/cogworks-data/week3"
 #: cache and the sandbox reading it name the same place, the way TORCH_HOME
 #: already does for the FaceNet checkpoint.
 WEEK2_CACHE_DIR = "/opt/cogworks-cache"
+
+#: Run in a child so the Hugging Face reader's thread dies with it. See
+#: `cache_week2_celeba`.
+_WEEK2_DOWNLOAD = """
+from facial_recognition_benchmark.datasets import load_manifest, materialize_manifest
+
+for tier in ("test", "evaluation"):
+    print("week2: materializing " + tier, flush=True)
+    print("week2: cached at " + str(materialize_manifest(load_manifest(tier))), flush=True)
+"""
 
 
 def cache_facenet_checkpoint() -> None:
@@ -46,32 +58,41 @@ def cache_week2_celeba() -> None:
     """Bake both public CelebA tiers so the sandbox can build its fixture.
 
     Week 2 is the only week whose discovery reads real photographs, and it
-    reads them where student code runs, which has no network. Run 88C3 and
-    run 8E60 both stopped at contract check asking the Hub for
-    `flwrlabs/celeba`. Both tiers are baked because `cogworks test` scores the
-    small one and a hosted practice run scores `evaluation`.
+    reads them where student code runs, which has no network. Runs 88C3 and
+    8E60 both stopped at contract check asking the Hub for `flwrlabs/celeba`.
+    Both tiers are baked because `cogworks test` scores the small one and a
+    hosted practice run scores `evaluation`.
+
+    The download runs in a child process. `_huggingface_rows` stops reading as
+    soon as it has the last row the manifest asked for, which leaves a
+    streaming reader alive; measured twice, both tiers cached and validated and
+    the builder still died with "PyGILState_Release ... runtime state:
+    finalizing". A `gc.collect()` did not release it, because the thread
+    belongs to the reader rather than to the abandoned generator. Letting the
+    child own that thread keeps this process clean, and this process decides
+    whether the bake worked by reading the cache back rather than by trusting
+    the child's exit code.
     """
 
     os.environ["XDG_CACHE_HOME"] = WEEK2_CACHE_DIR
-    from facial_recognition_benchmark.datasets import (
-        cache_status,
-        load_manifest,
-        materialize_manifest,
-    )
+    subprocess.run([sys.executable, "-c", _WEEK2_DOWNLOAD], check=False)
+
+    # Importing this module does not import `datasets`; the Hub is reached
+    # lazily inside `_huggingface_rows`. So the check below stays in a process
+    # that never loaded the offending library.
+    from facial_recognition_benchmark.datasets import cache_status, load_manifest
 
     for tier in ("test", "evaluation"):
-        manifest = load_manifest(tier)
-        materialize_manifest(manifest)
-        # Reading the cache back through the benchmark's own validator is the
-        # point: it re-checksums every image, so a truncated download fails
-        # the build instead of the student's run.
-        status = cache_status(manifest)
+        # The benchmark's own validator re-checksums every image, so a
+        # truncated download fails the build instead of a student's run.
+        status = cache_status(load_manifest(tier))
         if not status.ready:
             raise RuntimeError(
                 "Week 2 {} cache is unusable after baking: {}".format(
                     tier, status.message
                 )
             )
+        print("week2: {} tier ready at {}".format(tier, status.path), flush=True)
 
 
 def cache_week3_artifacts() -> None:
