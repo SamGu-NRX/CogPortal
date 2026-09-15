@@ -803,7 +803,9 @@ class ASpecCarriesBothHooks(unittest.TestCase):
         module = __import__("cogbench.discovery_spec", fromlist=["DiscoverySpec"])
         # The real package path, not a file loaded from somewhere convenient.
         self.assertEqual(module.__name__, "cogbench.discovery_spec")
-        self.assertTrue(module.__file__.endswith("cogbench/discovery_spec.py"))
+        self.assertEqual(
+            Path(module.__file__).parts[-2:], ("cogbench", "discovery_spec.py")
+        )
         self.assertEqual(module.DiscoverySpec.__module__, "cogbench.discovery_spec")
 
     def test_a_data_only_plugin_constructs_exactly_as_before(self):

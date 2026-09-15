@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "python" / "cogbench" / "src"))
@@ -141,6 +142,40 @@ class CheckoutStorageTests(unittest.TestCase):
         self.assertFalse(target.exists())
         self.assertTrue((workspace / ".gitignore").is_symlink())
         self.assertEqual(source.read_bytes(), b"trained")
+
+    def test_retaining_the_same_file_again_survives_a_refused_replace(self):
+        """Windows will not replace a file another handle has open, and the
+        handle is ordinarily ours: a model an earlier resolution built from the
+        retained copy still holds it. Before this, the second resolution of a
+        repository came back as one that could not be imported."""
+
+        source = self.root / "weights.npy"
+        source.write_bytes(b"trained")
+        first = retain_input(self.root, source)
+        held = first.retained.open("rb")
+        self.addCleanup(held.close)
+
+        with mock.patch("os.replace", side_effect=PermissionError(32, "in use")):
+            again = retain_input(self.root, source)
+
+        self.assertEqual(again, first)
+        self.assertEqual(first.retained.read_bytes(), b"trained")
+        self.assertEqual(list(weights_dir(self.root).glob(".incomplete-*")), [])
+
+    def test_a_refused_replace_over_other_bytes_is_not_a_receipt(self):
+        """The receipt says these bytes are at that address. A refused write
+        over a file that is something else leaves it unsaid."""
+
+        source = self.root / "weights.npy"
+        source.write_bytes(b"trained")
+        first = retain_input(self.root, source)
+        first.retained.write_bytes(b"tampered")
+
+        with mock.patch("os.replace", side_effect=PermissionError(32, "in use")):
+            with self.assertRaises(PermissionError):
+                retain_input(self.root, source)
+
+        self.assertEqual(list(weights_dir(self.root).glob(".incomplete-*")), [])
 
     def test_report_ids_cannot_select_another_path(self):
         for report_id in (

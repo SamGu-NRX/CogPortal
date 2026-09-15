@@ -174,6 +174,19 @@ MAX_WEIGHT_PATH = 500
 _READ_CHUNK = 1024 * 1024
 
 
+def _digest_of(path: Path) -> str:
+    """The SHA-256 of the bytes on disk at ``path``, read in one pass."""
+
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        while True:
+            chunk = stream.read(_READ_CHUNK)
+            if not chunk:
+                break
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 class RetentionError(OSError):
     """A scored input could not be retained, or a retained one is not intact."""
 
@@ -350,11 +363,24 @@ def retain_input(root: Path, source: Path) -> RetainedInput:
         _refuse_symlinks(root, destination.parent)
         destination.parent.mkdir(parents=True, exist_ok=True)
         _refuse_symlinks(root, destination)
-        # Always the bytes just hashed, even when something is already at this
-        # address. Keeping whatever is there would mean serving a cached file
-        # nothing in this run verified, and the digest would then be a claim
-        # about bytes this run never read.
-        os.replace(str(staging), str(destination))
+        # The receipt says these bytes are at this address, so whatever is
+        # already there is either overwritten or read and found to be them.
+        # Serving a cached file nothing in this run verified would make the
+        # digest a claim about bytes this run never read.
+        try:
+            os.replace(str(staging), str(destination))
+        except OSError:
+            # Windows refuses to replace a file another handle has open, and
+            # the handle is ordinarily this process's own: a model an earlier
+            # resolution built from the retained copy still holds it while the
+            # next resolution captures the same file. A destination that
+            # cannot be read at all is the refusal it looked like.
+            try:
+                already = _digest_of(destination)
+            except OSError:
+                already = None
+            if already != checksum:
+                raise
     finally:
         # Only an interrupted write of our own is cleaned up here. Retained
         # inputs stay until the student removes the workspace.
@@ -393,14 +419,7 @@ def retained_input(root: Path, path: str, sha256: str, size: int) -> Path:
             "run the benchmark again to recapture it.".format(path)
         )
     actual_size = destination.stat().st_size
-    digest = hashlib.sha256()
-    with destination.open("rb") as stream:
-        while True:
-            chunk = stream.read(_READ_CHUNK)
-            if not chunk:
-                break
-            digest.update(chunk)
-    actual = digest.hexdigest()
+    actual = _digest_of(destination)
     if actual_size != size or actual != sha256:
         raise RetentionError(
             "The retained copy of {} no longer matches the report "

@@ -2247,14 +2247,21 @@ def _folder_wanted(
                     "rather than a folder this run can write".format(named)
                 )
             continue
+        # One spelling per directory, the one `_folder_read_here` reports, so
+        # the name a binding records does not depend on which of the two
+        # produced it. Their `os.path.join("data", "photos")` is read as
+        # `data\photos` on Windows and names the same folder as `data/photos`;
+        # where a backslash is an ordinary character in a filename, this
+        # leaves the name alone.
+        wanted = Path(named).as_posix()
         # A folder some earlier probe in this same scratch directory left
         # behind, holding that probe's files. Emptying it to make room would
         # be this call claiming a folder it never asked about.
-        here = Path.cwd() / named
+        here = Path.cwd() / wanted
         if here.is_dir() and any(here.iterdir()):
             continue
-        if named not in names:
-            names.append(named)
+        if wanted not in names:
+            names.append(wanted)
     return names, unwritable
 
 
