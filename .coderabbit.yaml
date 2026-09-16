@@ -1,0 +1,31 @@
+# CodeRabbit reads this file from the branch under review, so a PR only picks it
+# up once its branch contains it (merge main in, or open the PR after this landed).
+#
+# Every PR here is stacked on another branch. With the default settings CodeRabbit
+# reviews only PRs that target main, which is why 34 of 37 open PRs never got a
+# review: it posted "Auto reviews are disabled on base/target branches other than
+# the default branch" and a passing check that looked like approval.
+reviews:
+  profile: assertive
+  request_changes_workflow: true
+  high_level_summary: true
+  poem: false
+  review_status: true
+  auto_review:
+    enabled: true
+    drafts: false
+    # Review PRs that target a stack branch, not only main.
+    base_branches:
+      - ".*"
+    # The default (10) paused reviews on PR #1 mid-stream ("Reviews paused").
+    auto_pause_after_reviewed_commits: 50
+  path_filters:
+    - "!**/*.lock"
+    - "!pnpm-lock.yaml"
+    - "!**/*.png"
+    - "!**/*.jpg"
+    - "!**/*.npy"
+    - "!result/**"
+    - "!benchmarks/**"
+chat:
+  auto_reply: true
