@@ -1,0 +1,5 @@
+{
+  "triggerOnUpdates": true,
+  "statusCheck": true,
+  "ignorePatterns": "pnpm-lock.yaml\n**/*.png\n**/*.jpg\n**/*.npy\nresult/**\nbenchmarks/**"
+}
