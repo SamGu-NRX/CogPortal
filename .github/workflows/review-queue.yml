@@ -1,0 +1,50 @@
+name: Review queue
+
+# CodeRabbit's free tier refuses a review when the account is over its hourly
+# allowance and records the refusal as a passing commit status, so an unreviewed head
+# looks fine and stays unreviewed. This asks again, a few pull requests at a time.
+# docs/runbooks/review-bots.md explains what the queue decides and why.
+
+on:
+  schedule:
+    # Roughly hourly, off the :00 mark where scheduled runs pile up and GitHub delays them.
+    - cron: '13 * * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Decide and log without commenting
+        type: boolean
+        default: true
+      only_pr:
+        description: Restrict the run to one pull request number
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+  statuses: read
+  pull-requests: write
+
+concurrency:
+  group: review-queue
+  cancel-in-progress: false
+
+jobs:
+  queue:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Request reviews
+        env:
+          # REVIEW_QUEUE_TOKEN is a user PAT, used when CodeRabbit ignores commands from
+          # github-actions[bot]. The workflow falls back to GITHUB_TOKEN when it is unset.
+          GH_TOKEN: ${{ secrets.REVIEW_QUEUE_TOKEN || secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && '1' || '' }}
+          ONLY_PR: ${{ inputs.only_pr }}
+        run: node scripts/review-queue.mjs
