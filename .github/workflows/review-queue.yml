@@ -39,10 +39,24 @@ jobs:
         with:
           node-version: '20'
 
+      # CodeRabbit ignores commands from github-actions[bot]. Measured on pull request #4
+      # on 2026-09-17: the built-in GITHUB_TOKEN posted "@coderabbitai review" at 11:00:31Z
+      # and CodeRabbit never acknowledged it; the identical comment from a user account at
+      # 11:11:25Z was acknowledged at 11:11:33Z and the head went to "Review in progress" at
+      # 11:11:35Z. Without the PAT this job would post comments nothing acts on, so it stops
+      # instead. Reading statuses does not depend on identity, so dry runs are exempt.
+      - name: Require a posting identity CodeRabbit listens to
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
+        env:
+          REVIEW_QUEUE_TOKEN: ${{ secrets.REVIEW_QUEUE_TOKEN }}
+        run: |
+          if [ -z "$REVIEW_QUEUE_TOKEN" ]; then
+            echo "::error::Set the REVIEW_QUEUE_TOKEN secret to a fine-grained PAT on a user account, scoped to this repository, with pull requests read and write plus contents read. See docs/runbooks/review-bots.md."
+            exit 1
+          fi
+
       - name: Request reviews
         env:
-          # REVIEW_QUEUE_TOKEN is a user PAT, used when CodeRabbit ignores commands from
-          # github-actions[bot]. The workflow falls back to GITHUB_TOKEN when it is unset.
           GH_TOKEN: ${{ secrets.REVIEW_QUEUE_TOKEN || secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && '1' || '' }}

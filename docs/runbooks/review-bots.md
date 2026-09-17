@@ -107,12 +107,19 @@ gh workflow run review-queue.yml -f dry_run=false -f only_pr=4
 Locally, `DRY_RUN=1 node scripts/review-queue.mjs` decides and logs without
 commenting, using whatever account `gh auth status` reports.
 
-## The token
+## The token, and why the queue needs one
 
-The workflow uses `secrets.REVIEW_QUEUE_TOKEN` when it is set and falls back to the
-built-in `GITHUB_TOKEN`. The fallback posts as `github-actions[bot]`. If CodeRabbit
-stops answering commands from that identity, create a fine-grained personal access
-token on Sam's own account, scoped to this repository, with **pull requests: read and
-write** and **contents: read**, and add it as the repository secret
-`REVIEW_QUEUE_TOKEN`. It has to be a user token rather than an app or bot token,
-because the identity is the point.
+CodeRabbit ignores commands posted by `github-actions[bot]`, so the built-in
+`GITHUB_TOKEN` is not enough. Measured on pull request #4 on 2026-09-17: the workflow
+posted `@coderabbitai review` at 11:00:31Z using `GITHUB_TOKEN` and CodeRabbit never
+acknowledged it, not even to say it was rate limited. The identical comment from a
+user account at 11:11:25Z was acknowledged at 11:11:33Z, and the head commit moved to
+`Review in progress` at 11:11:35Z. Same command, same pull request, eleven minutes
+apart; only the author differed.
+
+So the real run needs `secrets.REVIEW_QUEUE_TOKEN`: a fine-grained personal access
+token on a user account, scoped to this repository, with **pull requests: read and
+write** and **contents: read**. It has to be a user token rather than an app or bot
+token, because the identity is the whole point. Without the secret the workflow stops
+before commenting rather than posting into a void; dry runs still work, since reading
+commit statuses does not depend on who asks.
