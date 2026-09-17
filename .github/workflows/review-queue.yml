@@ -6,11 +6,6 @@ name: Review queue
 # docs/runbooks/review-bots.md explains what the queue decides and why.
 
 on:
-  # TEMPORARY: workflow_dispatch only registers from the default branch, so the one-off
-  # identity test (does CodeRabbit answer github-actions[bot]?) runs off a push instead.
-  # Removed in the next commit.
-  push:
-    branches: [ci/review-queue]
   schedule:
     # Roughly hourly, off the :00 mark where scheduled runs pile up and GitHub delays them.
     - cron: '13 * * * *'
@@ -51,5 +46,5 @@ jobs:
           GH_TOKEN: ${{ secrets.REVIEW_QUEUE_TOKEN || secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && '1' || '' }}
-          ONLY_PR: ${{ inputs.only_pr || '4' }} # TEMPORARY: identity test, reverted next commit
+          ONLY_PR: ${{ inputs.only_pr }}
         run: node scripts/review-queue.mjs
