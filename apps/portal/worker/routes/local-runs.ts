@@ -242,7 +242,6 @@ export function registerLocalRunRoutes(app: Hono<AppEnv>): void {
         existing.userId !== device.userId ||
         existing.benchmarkId !== body.benchmarkId ||
         existing.benchmarkVersion !== body.benchmarkVersion ||
-        existing.repositoryId !== body.repositoryId ||
         existing.repositoryFullName.toLowerCase() !== body.repositoryFullName.toLowerCase() ||
         existing.sha !== body.sha ||
         existing.branch !== (body.branch ?? null) ||
@@ -299,7 +298,10 @@ export function registerLocalRunRoutes(app: Hono<AppEnv>): void {
         deviceId: device.deviceId,
         benchmarkId: body.benchmarkId,
         benchmarkVersion: body.benchmarkVersion,
-        repositoryId: body.repositoryId,
+        // The name check above tied this checkout to the connected repository,
+        // so the session records that repository's id. The CLI only reads the
+        // origin remote and cannot supply GitHub's numeric id itself.
+        repositoryId: membership.team.repoId,
         repositoryFullName: body.repositoryFullName,
         sha: body.sha,
         branch: body.branch ?? null,
@@ -329,7 +331,6 @@ export function registerLocalRunRoutes(app: Hono<AppEnv>): void {
         conflict.userId !== device.userId ||
         conflict.benchmarkId !== body.benchmarkId ||
         conflict.benchmarkVersion !== body.benchmarkVersion ||
-        conflict.repositoryId !== body.repositoryId ||
         conflict.repositoryFullName.toLowerCase() !== body.repositoryFullName.toLowerCase() ||
         conflict.sha !== body.sha ||
         conflict.branch !== (body.branch ?? null) ||

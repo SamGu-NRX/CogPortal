@@ -775,7 +775,6 @@ export const StartLocalRunRequestSchema = z.object({
   clientRunId: z.string().regex(/^localrun_[a-f0-9]{32}$/),
   benchmarkId: z.string().min(1).max(120),
   benchmarkVersion: z.number().int().positive(),
-  repositoryId: z.number().int().positive().nullable(),
   repositoryFullName: z.string().regex(/^[^/\s]+\/[^/\s]+$/),
   sha: z.string().regex(/^[a-f0-9]{40}$/),
   branch: z.string().trim().min(1).max(255).nullable().optional(),
