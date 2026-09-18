@@ -135,10 +135,21 @@ function SetupGuide({
   const benchmarkTitle = track.benchmark?.title ?? track.benchmarkId;
   const environment = benchmarkEnvironment(track.benchmarkId);
 
+  // Both pip lines can meet this refusal, so the sentence is written once and
+  // attached to each.
+  const pipRefusal = (
+    <>
+      If pip answers{" "}
+      <code className="font-mono text-[12px]">externally-managed-environment</code>,
+      you're not in the course environment; activate it and run the command
+      again.
+    </>
+  );
+
   // What each command is for. A Record rather than a function, so a new
   // SetupCommandId fails to compile until someone writes its line instead of
   // rendering a bare command under nothing.
-  const said: Record<SetupCommandId, { title: string; body: ReactNode }> = {
+  const said: Record<SetupCommandId, { title: string; body: ReactNode; note?: ReactNode }> = {
     clone: {
       title: "Get the code",
       body: (
@@ -149,38 +160,15 @@ function SetupGuide({
       ),
     },
     tool: {
-      title: "Set up your environment",
+      title: "Install the CogWorks tool",
       body: (
         <p>
-          From your repository's root, with{" "}
-          {environment ? (
-            <>
-              <code className="font-mono text-[12px]">
-                conda activate {environment.condaEnv}
-              </code>{" "}
-              done, the environment you built for the{" "}
-              <a
-                href={environment.prereqsUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="text-ink underline decoration-rule underline-offset-4 hover:decoration-ink"
-              >
-                {benchmarkTitle} prerequisites
-                <HugeiconsIcon
-                  icon={ArrowUpRight01Icon}
-                  size={12}
-                  strokeWidth={1.8}
-                  className="inline-block align-[-0.1em]"
-                  aria-hidden="true"
-                />
-              </a>
-              :
-            </>
-          ) : (
-            <>your week's course environment active:</>
-          )}
+          The <code className="font-mono text-[12px]">cogworks</code> commands
+          further down come from this package, so install it from your
+          repository's root:
         </p>
       ),
+      note: pipRefusal,
     },
     benchmark: {
       title: `Install the ${benchmarkTitle} benchmark`,
@@ -190,6 +178,7 @@ function SetupGuide({
           own package. Changing the track above changes this line.
         </p>
       ),
+      note: pipRefusal,
     },
     link: {
       title: "Link this device",
@@ -294,6 +283,34 @@ function SetupGuide({
 
       <div className="mt-9">
         <StepRail>
+          {/* No check-off: the portal cannot watch a shell, so 00 never ticks and never counts. */}
+          {environment && (
+            <Step index="00" state="pending" title="Start in the course environment">
+              <p>
+                Every command below runs inside the environment you built for
+                the{" "}
+                <a
+                  href={environment.prereqsUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-ink underline decoration-rule underline-offset-4 hover:decoration-ink"
+                >
+                  {benchmarkTitle} prerequisites
+                  <HugeiconsIcon
+                    icon={ArrowUpRight01Icon}
+                    size={12}
+                    strokeWidth={1.8}
+                    className="inline-block align-[-0.1em]"
+                    aria-hidden="true"
+                  />
+                </a>
+                , so activate it first:
+              </p>
+              <div className="mt-2.5">
+                <Code lang="bash" code={`conda activate ${environment.condaEnv}`} />
+              </div>
+            </Step>
+          )}
           {lines.map((line, index) => {
             const state = stepState(line, unreadable);
             return (
@@ -308,6 +325,9 @@ function SetupGuide({
                 <div className="mt-2.5">
                   <Code lang="bash" code={line.command} wrap />
                 </div>
+                {said[line.id].note && (
+                  <p className="mt-2.5 text-[12px] text-ink-faint">{said[line.id].note}</p>
+                )}
                 <TerminalCheckoff step={line.step} state={state} tokens={tokens} />
               </Step>
             );
