@@ -780,7 +780,6 @@ def _start_live_run(
             "clientRunId": "localrun_" + uuid.uuid4().hex,
             "benchmarkId": str(getattr(benchmark, "benchmark_id")),
             "benchmarkVersion": int(getattr(benchmark, "benchmark_version")),
-            "repositoryId": repository.repository_id,
             "repositoryFullName": repository.full_name,
             "sha": repository.sha,
             "branch": repository.branch,
