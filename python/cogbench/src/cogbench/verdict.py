@@ -105,6 +105,14 @@ def describe(value: Any) -> str:
     that a binding record can be compared byte for byte.
     """
 
+    try:
+        return _describe(value)
+    except BaseException:
+        # Describing a student value may itself run a property or __repr__.
+        return "{} (description unavailable)".format(type(value).__name__)
+
+
+def _describe(value: Any) -> str:
     shape = getattr(value, "shape", None)
     if shape is not None:
         return "an array of shape {}".format(tuple(shape))
@@ -114,6 +122,9 @@ def describe(value: Any) -> str:
         )
         if not value:
             return "an empty {}".format(type(value).__name__)
+        if isinstance(value, set):
+            # Sets have no stable first entry across Python hash seeds.
+            return "{} of {}".format(name, len(value))
         first = next(iter(value))
         inner = getattr(first, "shape", None)
         if inner is not None:
@@ -168,19 +179,21 @@ class Coverage:
     and publishes a real number that is wrong for that repository. No verdict
     describes that. Only the coverage does.
 
-    Skips have owners, and the owner decides what may be said:
+    Skips have owners, and the owner decides how a skip is attributed:
 
     ``ours``
-        A package the graded run installs and this machine does not have.
-        The absence is manufactured by us, so a verdict that blames the
-        repository is false. `read_enough_to_judge` is False.
+        The import failed for a reason that is not about their code: a name
+        this process already holds, or a dependency. Blaming the repository
+        is false.
     ``environment``
-        A package genuinely absent from the graded run too. The verdict
-        stands and the skip is worth naming, because the graded run will
-        fail the same way and saying so early is the point of a local check.
+        The older classification for a dependency that did not import here.
     ``theirs``
-        A syntax error, or a module that raises on import. The verdict
-        stands and the attribution is now true.
+        A syntax error, or a module that raises on import.
+
+    The middle field of `skipped` is the sentence a reader sees, not the
+    machine reason; `discovery.to_dict()` is where both are kept apart.
+    Attribution is also not the same question as whether the file was read,
+    which is `unread`.
     """
 
     read: Tuple[str, ...] = ()
@@ -192,15 +205,30 @@ class Coverage:
         return tuple(name for name, _reason, owner in self.skipped if owner == "ours")
 
     @property
-    def read_enough_to_judge(self) -> bool:
-        """Whether a verdict about their code is supported by this run.
+    def unread(self) -> Tuple[str, ...]:
+        """Skipped modules that prevent a conclusion that no pipeline exists.
 
-        False when we manufactured an absence. A module we could not read for
-        our own reasons might be the one holding their pipeline, and there is
-        no way to know without reading it.
+        ``environment`` only classified missing dependencies in older
+        discovery results. Like ``ours``, it cannot establish that the
+        skipped module lacks the needed code. Syntax and runtime errors
+        attributed to the repository remain observed failures.
         """
 
-        return not self.ours
+        return tuple(
+            name
+            for name, _detail, owner in self.skipped
+            if owner in ("ours", "environment")
+        )
+
+    @property
+    def read_enough_to_judge(self) -> bool:
+        """Whether this run read enough to say no chain of theirs does the task.
+
+        False when anything in `unread` is missing: there is no way to know
+        what was in a file nobody opened.
+        """
+
+        return not self.unread
 
     def to_dict(self) -> Dict[str, object]:
         return {
@@ -431,28 +459,21 @@ def not_wired(
 def could_not_look(
     coverage: "Coverage", *, next_step: str = "", errors: Sequence[Raised] = ()
 ) -> Verdict:
-    """We could not read enough of the repository to say anything about it.
+    """Too little of the repository was read to say anything about it.
 
-    The honest answer when the skip is ours. It names the modules and the
-    reason, and it does not guess at what was in them.
+    Names how many files were not read and does not guess at what was in
+    them. The modules themselves are listed once, in the next step.
     """
 
-    # The headline states the situation; the next step lists the modules and
-    # says what to install. Naming them in both made the reader compare two
-    # lists to discover they were the same list. The count stays, because
-    # "5 of your files" is the part that says how much was not looked at.
-    count = len(coverage.ours)
-    # One unreadable file needs a singular package and pronoun in the headline.
-    missing = (
-        "one of your files, because this machine is missing a package it imports"
-        if count == 1
-        else "{} of your files, because this machine is missing packages they import".format(count)
-    )
+    count = len(coverage.unread)
+    files = "one of your files" if count == 1 else "{} of your files".format(count)
     return Verdict(
         COULD_NOT_LOOK,
-        "This check could not read {}. That is a limit of this check and not "
-        "a problem with your repository: the graded run has those packages, "
-        "so it will not skip them for that reason.".format(missing),
+        # No cause in the headline: these skips do not share one, and local
+        # import failures do not establish what the hosted environment can
+        # import. Each skip carries its own reason in the coverage below.
+        "This check could not read {}, so it could not finish looking for the "
+        "code this task needs.".format(files),
         next_step=next_step,
         coverage=coverage,
         # Still true, and still theirs: a module we could not read does not

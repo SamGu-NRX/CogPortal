@@ -106,7 +106,10 @@ class TerminalProgress(Progress):
         file is thousands of escape codes nobody reads.
         """
 
-        return bool(getattr(self._stream, "isatty", lambda: False)())
+        try:
+            return bool(getattr(self._stream, "isatty", lambda: False)())
+        except (ValueError, OSError):
+            return False
 
     def phase(self, headline: str) -> None:
         self._erase()

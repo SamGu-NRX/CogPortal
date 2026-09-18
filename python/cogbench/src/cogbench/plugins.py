@@ -85,6 +85,13 @@ def load_plugin(group: str, name: str, instantiate_classes: bool = True) -> Any:
     matches = [point for point in _unique_entry_points(group) if point.name == name]
     if not matches:
         installed = plugin_names(group)
+        if not group.startswith("cogworks.benchmarks."):
+            raise PluginError(
+                '"{}" is not installed in "{}" (available: {}). Install the '
+                "package that provides it and run this again.".format(
+                    name, group, ", ".join(installed) or "none"
+                )
+            )
         # Two readers, two sentences. A benchmark that is simply not
         # installed is the ordinary case and the student's next step is one
         # command, so say that and nothing else. `cogworks check` has always
