@@ -174,13 +174,13 @@ test("a run that recorded no repository reports none, not the team's", async () 
 test("the backfill fills a run whose own id proves the repository, and no other", async () => {
   // Applied against the schema as it stood before this migration, so this
   // exercises the shipped SQL rather than a paraphrase of it.
-  const before = migrationFiles("0039_setup_check_source.sql");
+  const before = migrationFiles("0045_setup_check_source.sql");
   const { db, sqlite } = freshDb(before);
   await seedTeamOnOldRepository(db);
 
   // Three shapes of history: one whose recorded id still matches the team, one
   // from a repository the team has since left, and one from before ids existed.
-  // Inserted as SQL because the point is the schema as it stood at 0039, which
+  // Inserted as SQL because the point is the schema as it stood at 0045, which
   // has no name column for the query builder to fill.
   const insert = sqlite.prepare(
     `insert into runs
@@ -193,7 +193,7 @@ test("the backfill fills a run whose own id proves the repository, and no other"
   insert.run("run_moved", SHA, 7);
   insert.run("run_ancient", SHA, null);
 
-  sqlite.exec(readFileSync(join(MIGRATIONS, "0040_run_repository_name.sql"), "utf8"));
+  sqlite.exec(readFileSync(join(MIGRATIONS, "0046_run_repository_name.sql"), "utf8"));
 
   const named = new Map(
     (await db.select().from(runs)).map((row) => [row.id, row.repositoryFullName]),
