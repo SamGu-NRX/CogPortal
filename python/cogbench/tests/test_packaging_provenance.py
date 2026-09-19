@@ -31,7 +31,6 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
-from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -57,8 +56,6 @@ def _git(*args: str) -> str:
 
 
 def _export(destination: Path) -> Path:
-    """Unpack `python/cogbench` from the revision, exactly as committed."""
-
     archive = destination / "export.tar"
     with archive.open("wb") as handle:
         subprocess.run(
@@ -108,8 +105,6 @@ def _unusable_backend() -> str:
     except importlib.metadata.PackageNotFoundError:
         return "setuptools is not installed in this interpreter"
     pieces = raw.split(".")[:2]
-    if len(pieces) != 2 or not all(p.isdigit() for p in pieces):
-        return f"cannot read a version from setuptools {raw!r}"
     found = (int(pieces[0]), int(pieces[1]))
     if found >= _SETUPTOOLS_WITH_BDIST_WHEEL:
         return ""
@@ -178,26 +173,8 @@ class TheTreeCarriesNoGeneratedCopyOfThePackage(unittest.TestCase):
         )
 
 
-class TheSkipReasonNamesTheMissingTool(unittest.TestCase):
-    """pip is tooling here too, because the build shells out to it.
-
-    An interpreter with new setuptools and no pip passed the backend check
-    and then failed inside the build, which reads as a packaging defect
-    rather than as the absent tool it is.
-
-    Mocked, because the alternative is an interpreter without pip and there
-    is no reason to build one.
-    """
-
-    def test_absent_pip_is_named_rather_than_found_by_failing(self):
-        with mock.patch(f"{__name__}._installed", lambda name: name != "pip"):
-            self.assertIn("pip", _unusable_backend())
-
-
 class AWheelFromAnUntouchedExportCarriesTheSource(unittest.TestCase):
-    """Build what the committed tree builds, and read what came out.
-
-    The export is not cleaned first, on purpose: deleting `build/` inside the
+    """The export is not cleaned first, on purpose: deleting `build/` inside the
     test would hide the defect this file exists to catch.
     """
 

@@ -183,8 +183,6 @@ class Submission:
     #: uploads the retained bytes rather than whatever the file holds later.
     #: Present only where the week established that its binding consumed
     #: them; ``None`` otherwise, and never a claim about every read.
-    #: ``None`` when this run scored with weights whose consumption the
-    #: week could not establish: the names stay, the receipts do not exist.
     weights_captured: Optional[Tuple[Dict[str, Any], ...]] = ()
 
     #: The candidates behind ``enroll`` and ``query``, kept so a scoring run
@@ -396,9 +394,6 @@ class Submission:
 
 def _accepts_capture(hook: Callable[..., Any]) -> bool:
     """Whether this week's `prepare` wants the retention callback.
-
-    A week that declares no weights never asks for it and is called exactly
-    as before, so offering the argument does not disturb the other three.
 
     Opting in means naming the parameter. A `**kwargs` hook does not count:
     it would swallow the callback without loading through it, and the run
@@ -618,13 +613,11 @@ def resolve(repository: Path, *arguments: Any, **keywords: Any) -> "Submission":
 
     Wrapping rather than deciding at each return keeps every path through the
     search, including the memo's, on one answer, and keeps the capture
-    accumulator separate from what the report is allowed to say. `wraps`
-    keeps the typed signature callers read.
+    accumulator separate from what the report is allowed to say.
     """
 
     hook = keywords.pop("weights_consumed", None)
     return _publish_weights(_resolve(repository, *arguments, **keywords), hook)
-
 
 
 def _resolve(
@@ -727,8 +720,6 @@ def _resolve(
         weights_used: Tuple[str, ...] = ()
         weights_captured: Tuple[Dict[str, Any], ...] = ()
         if prepare is not None:
-            # The one declaration of what this run scored. What was captured
-            # is what is reported: there is no second list to agree with.
             retained: Dict[Path, storage.RetainedInput] = {}
 
             def capture(original: Path) -> Path:

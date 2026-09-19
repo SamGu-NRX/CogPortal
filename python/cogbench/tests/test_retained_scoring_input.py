@@ -9,7 +9,6 @@ set of bytes and uploaded another, or lost the upload entirely.
 from __future__ import annotations
 
 import json
-import os
 import sys
 import unittest
 from dataclasses import dataclass
