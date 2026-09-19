@@ -40,6 +40,8 @@ const SIGN_IN_ERRORS: Record<string, string> = {
     "GitHub didn't send us an email address for that account, and we need one to make your Cog*Portal account. Ask course staff to take a look.",
   unable_to_create_user:
     "We couldn't create your Cog*Portal account. Ask course staff to take a look.",
+  unable_to_create_session:
+    "GitHub confirmed who you are, but we couldn't start your session. Try again shortly.",
 };
 
 export function signInErrorMessage(code: string): string {
@@ -48,7 +50,11 @@ export function signInErrorMessage(code: string): string {
   if (code.includes("denied")) {
     return "GitHub sign-in was cancelled. Sign in again when you're ready.";
   }
-  return SIGN_IN_ERRORS[code] ?? "GitHub sign-in failed. Try again.";
+  // hasOwn rather than a bare lookup: the code comes from the query string, so
+  // ?error=__proto__ and ?error=constructor otherwise resolve to an inherited
+  // Object member instead of undefined, and a `??` fallback never fires.
+  if (Object.hasOwn(SIGN_IN_ERRORS, code)) return SIGN_IN_ERRORS[code];
+  return "GitHub sign-in failed. Try again.";
 }
 
 export function SignInPage() {

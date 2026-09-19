@@ -218,9 +218,34 @@ test("the sign-in page names the refusal and keeps the code on screen", () => {
   assert.match(html, /account_not_linked/);
 });
 
-test("an unrecognized code keeps the generic sentence and still shows the code", () => {
+test("a session that cannot be created says so rather than falling through", () => {
+  // Better Auth emits this one from oauth2/link-account.mjs when createSession
+  // returns nothing, so it needs its own sentence, not the generic one.
   const html = renderSignIn("/signin?error=unable_to_create_session");
 
-  assert.match(html, /GitHub sign-in failed. Try again./);
+  // Apostrophes arrive HTML-escaped, so the assertion avoids one.
+  assert.match(html, /GitHub confirmed who you are/);
+  assert.match(html, /start your session/);
+  assert.doesNotMatch(html, /GitHub sign-in failed/);
   assert.match(html, /unable_to_create_session/);
+});
+
+test("an unrecognized code keeps the generic sentence and still shows the code", () => {
+  // no_callback_url is emitted, but only ever by a misconfigured Worker, so it
+  // is deliberately unlisted and lands here with its code visible.
+  const html = renderSignIn("/signin?error=no_callback_url");
+
+  assert.match(html, /GitHub sign-in failed. Try again./);
+  assert.match(html, /no_callback_url/);
+});
+
+test("a code naming an inherited object property is unknown, not a crash", () => {
+  // The code comes from the query string, so any string can arrive. A bare
+  // lookup returned Object.prototype for __proto__, which React refuses to
+  // render at all, and a function for constructor, which renders nothing.
+  for (const code of ["__proto__", "constructor", "toString"]) {
+    const html = renderSignIn(`/signin?error=${code}`);
+
+    assert.match(html, /GitHub sign-in failed. Try again./);
+  }
 });
