@@ -121,11 +121,25 @@ const STAGE_WORDS: Record<RunSurfaceSnapshot["stage"], string> = {
   published: "published",
 };
 
+/** For the two fields a team's own repository writes: the refusal headline,
+ *  built from their function names and returned shapes, and the actor name
+ *  from their GitHub profile. `allowed_mentions` on the payload already stops
+ *  a mention from pinging and does nothing about a masked link, which would
+ *  post into their channel as a link they have reason to trust.
+ *
+ *  Both are one line by construction, so a line break in either can only have
+ *  come from somewhere that should not be writing one; it becomes a space
+ *  rather than a new `-#` or `###` line of its own. `<` goes too, because the
+ *  sequences Discord reads for a timestamp or a mention all open with it. */
+function plain(text: string): string {
+  return text.replace(/[\r\n]+/g, " ").replace(/[\\*_~`|[\]<>]/g, (ch) => "\\" + ch);
+}
+
 function surfaceMeta(snapshot: RunSurfaceSnapshot, lead: string): string {
   return `-# ${metaLine([
     lead,
     chip(snapshot.shortSha),
-    `by ${snapshot.actor.name ?? snapshot.actor.login}`,
+    `by ${plain(snapshot.actor.name ?? snapshot.actor.login)}`,
     chip(elapsed(snapshot.elapsedMs)),
     snapshot.dirty && "dirty worktree",
     snapshot.simulated && "simulated",
@@ -211,6 +225,13 @@ export function runSurfaceMessage(env: Env, snapshot: RunSurfaceSnapshot) {
     }
     if (snapshot.status === "failed") {
       lines.push("", ...failureTrace(snapshot, events, (code) => EVENT_COPY[code], fmt));
+      // "Contract check stopped" is true and says nothing a team can act on.
+      // When the platform could not find code to score, it already wrote one
+      // sentence explaining why, in their own function names. Discord is
+      // where several teams read a result first, so it belongs here too.
+      if (snapshot.refusalHeadline) {
+        lines.push("-# " + plain(snapshot.refusalHeadline.slice(0, 300)));
+      }
     }
     children.push(text(lines.join("\n")));
     const breakdown = snapshot.status === "succeeded" ? subscoreLines(snapshot, fmt) : [];

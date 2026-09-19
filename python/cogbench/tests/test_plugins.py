@@ -10,6 +10,7 @@ sys.path.insert(0, str(ROOT / "python" / "cogbench" / "src"))
 
 from cogbench.plugins import (  # noqa: E402
     PluginError,
+    benchmark_install_command,
     load_plugin,
     load_submission,
     plugin_names,
@@ -51,6 +52,54 @@ class PluginDiscoveryTests(unittest.TestCase):
         with self.assertRaisesRegex(PluginError, "More than one"):
             load_plugin("cogworks.submissions.v1", "vision-recognition")
 
+    def test_every_shipped_benchmark_has_its_pinned_install_command(self):
+        expected = {
+            "audio-identification": (
+                'python -m pip install "cogworks-week1-audio-benchmark @ '
+                'git+https://github.com/SamGu-NRX/cogworks-week1-audio-benchmark.git'
+                '@b156644aecc810e0b93535e320098f96c39ae04e"'
+            ),
+            "vision-recognition": (
+                'python -m pip install "cogworks-week2-vision-benchmark @ '
+                'git+https://github.com/iReynaldo/ComputerVisionBenchmark.git'
+                '@c177cf23cdd4f8dbe55401a2eb4bada4c64d37c2"'
+            ),
+            "vision-clustering": (
+                'python -m pip install "cogworks-week2-vision-benchmark @ '
+                'git+https://github.com/iReynaldo/ComputerVisionBenchmark.git'
+                '@c177cf23cdd4f8dbe55401a2eb4bada4c64d37c2"'
+            ),
+            "language-search": (
+                'python -m pip install "cogworks-week3-language-benchmark @ '
+                'git+https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git'
+                '@b166f5c15e950baccc3785839cdcc660ffe01bb4"'
+            ),
+        }
+        self.assertEqual(
+            {name: benchmark_install_command(name) for name in expected},
+            expected,
+        )
+
+    @patch("cogbench.plugins._entry_points", return_value=[])
+    def test_a_known_missing_benchmark_prints_the_exact_install_command(self, _entry_points):
+        command = benchmark_install_command("audio-identification")
+        with self.assertRaises(PluginError) as caught:
+            load_plugin("cogworks.benchmarks.v2", "audio-identification")
+
+        self.assertIn(command, str(caught.exception))
+
+    @patch("cogbench.plugins._entry_points", return_value=[])
+    def test_an_unknown_missing_benchmark_keeps_the_general_sentence(self, _entry_points):
+        with self.assertRaises(PluginError) as caught:
+            load_plugin("cogworks.benchmarks.v2", "not-a-shipped-benchmark")
+
+        self.assertEqual(
+            str(caught.exception),
+            "not-a-shipped-benchmark is not installed here, so there is "
+            "nothing to run. Install the benchmark package for this week and "
+            "run this again.",
+        )
+
     @patch("cogbench.plugins._entry_points")
     def test_v2_submission_class_is_loaded_as_raw_factory(self, entry_points):
         class Factory:
@@ -68,3 +117,46 @@ class PluginDiscoveryTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AMissingBenchmarkReadsLikeAnAnswer(unittest.TestCase):
+    """`run` and `check` meet the same situation and used to disagree.
+
+    A student who has not installed the week's benchmark package gets a clear
+    sentence from `cogworks check`: "Nothing was searched for, because
+    audio-identification is not installed here. Install it, then run this
+    again." From `cogworks run` they used to get 'Entry-point group
+    "cogworks.benchmarks.v1" has no "audio-identification" registration
+    (available: none)', which names a Python packaging concept, offers no
+    next step, and arrives after they have done more work.
+    """
+
+    def test_nothing_installed_names_the_package_and_the_next_step(self):
+        from cogbench.plugins import PluginError, load_plugin
+
+        with self.assertRaises(PluginError) as caught:
+            load_plugin("cogworks.benchmarks.absent-group-for-this-test", "week-9")
+        message = str(caught.exception)
+
+        self.assertIn("week-9", message)
+        self.assertIn("not installed here", message)
+        self.assertIn("run this again", message)
+        # Our vocabulary, not theirs.
+        self.assertNotIn("Entry-point", message)
+        self.assertNotIn("registration", message)
+
+    def test_a_wrong_name_still_lists_what_is_there(self):
+        """When something IS installed the likely fault is a name or a
+        version rather than an absence, and listing the alternatives is the
+        useful thing rather than noise."""
+
+        from cogbench.plugins import PluginError, load_plugin
+
+        with self.assertRaises(PluginError) as caught:
+            load_plugin("cogworks.benchmarks.v1", "audio-identifcation")
+        message = str(caught.exception)
+        self.assertIn("audio-identifcation", message)
+        # Either branch is correct here depending on what this interpreter has
+        # installed; both must name the thing asked for and neither may leak
+        # the packaging vocabulary.
+        self.assertNotIn("Entry-point", message)

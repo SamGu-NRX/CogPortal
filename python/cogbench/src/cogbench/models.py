@@ -2,9 +2,48 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
+import textwrap
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
+
+
+def _diagnostic_lines(value: Any, limit: int = 240) -> List[str]:
+    """Keep notes within the wire limit without cutting ordinary words.
+
+    Benchmark notes are prose. Sentence boundaries make the best split; a
+    sentence longer than the protocol limit falls back to word boundaries.
+    """
+
+    text = str(value).strip()
+    if not text:
+        return [""]
+    sentences = re.split(r"(?<=[.!?])\s+", text)
+    lines: List[str] = []
+    current = ""
+    for sentence in sentences:
+        candidate = "{} {}".format(current, sentence).strip()
+        if current and len(candidate) > limit:
+            lines.append(current)
+            current = ""
+        if len(sentence) <= limit:
+            current = "{} {}".format(current, sentence).strip()
+            continue
+        if current:
+            lines.append(current)
+            current = ""
+        lines.extend(
+            textwrap.wrap(
+                sentence,
+                width=limit,
+                break_long_words=True,
+                break_on_hyphens=False,
+            )
+        )
+    if current:
+        lines.append(current)
+    return lines
 
 
 @dataclass(frozen=True)
@@ -22,6 +61,20 @@ class Metric:
     #: box, and a black box teaches nothing. Optional so older plugins that
     #: predate it keep working; a plugin supplies it through `metric_help`.
     help: Optional[str] = None
+    #: What kind of number this is: "scored", "floor", "reported", or
+    #: "diagnostic". Absent means scored, which is what everything was before
+    #: this existed, so a plugin that declares nothing renders as it did.
+    #:
+    #: The distinction is not cosmetic. Every metric renders with an arrow
+    #: saying which direction is better, and that is an assertion about the
+    #: submission. A floor is a property of the dataset, so "higher is
+    #: better" on it reads as advice to raise a number the student does not
+    #: control.
+    role: Optional[str] = None
+    #: The metric this one is the floor of, or is reported beside. A floor is
+    #: the scale its metric sits on; a reported metric only means anything
+    #: next to its scored counterpart.
+    relates_to: Optional[str] = None
 
     def to_wire(self) -> Dict[str, Any]:
         wire = {
@@ -38,6 +91,10 @@ class Metric:
         # is the empty string".
         if self.help:
             wire["help"] = self.help
+        if self.role:
+            wire["role"] = self.role
+        if self.relates_to:
+            wire["relatesTo"] = self.relates_to
         return wire
 
     @classmethod
@@ -52,6 +109,8 @@ class Metric:
             primary=bool(value["primary"]),
             precision=int(value["precision"]),
             help=None if help_text is None else str(help_text),
+            role=None if value.get("role") is None else str(value["role"]),
+            relates_to=None if value.get("relatesTo") is None else str(value["relatesTo"]),
         )
 
 
@@ -78,6 +137,9 @@ class LocalReport:
     metrics: List[Metric]
     diagnostics: List[str]
     output_digest: str
+    weights_used: List[str] = field(default_factory=list)
+    # None means sync has not compared the files with the report's Git revision.
+    weights_uploaded: Optional[List[Dict[str, str]]] = None
 
     @classmethod
     def create(
@@ -93,6 +155,7 @@ class LocalReport:
         metrics: List[Metric],
         diagnostics: List[str],
         predictions: List[Any],
+        weights_used: Optional[List[str]] = None,
     ) -> "LocalReport":
         encoded = json.dumps(predictions, sort_keys=True, separators=(",", ":")).encode("utf-8")
         return cls(
@@ -106,8 +169,13 @@ class LocalReport:
             started_at=started_at,
             finished_at=finished_at,
             metrics=metrics,
-            diagnostics=[str(item)[:240] for item in diagnostics[:32]],
+            diagnostics=[
+                line
+                for item in diagnostics
+                for line in _diagnostic_lines(item)
+            ][:32],
             output_digest=hashlib.sha256(encoded).hexdigest(),
+            weights_used=weights_used or [],
         )
 
     def to_wire(self) -> Dict[str, Any]:
@@ -126,6 +194,8 @@ class LocalReport:
             "finishedAt": self.finished_at,
             "metrics": [metric.to_wire() for metric in self.metrics],
             "diagnostics": list(self.diagnostics),
+            "weightsUsed": list(self.weights_used) if self.weights_used else [],
+            "weightsUploaded": self.weights_uploaded,
         }
 
     def to_json(self) -> str:
@@ -136,6 +206,19 @@ class LocalReport:
     @classmethod
     def from_json(cls, raw: str) -> "LocalReport":
         value = json.loads(raw)
+        weights_uploaded = value.get("weightsUploaded")
+        if weights_uploaded is not None and (
+            not isinstance(weights_uploaded, list)
+            or any(
+                not isinstance(weight, dict)
+                or weight.get("path") not in value.get("weightsUsed", [])
+                or not isinstance(weight.get("sha256"), str)
+                or len(weight["sha256"]) != 64
+                or any(char not in "0123456789abcdef" for char in weight["sha256"])
+                for weight in weights_uploaded
+            )
+        ):
+            raise ValueError("weightsUploaded must name paths from weightsUsed with SHA-256 digests")
         return cls(
             report_id=str(value["reportId"]),
             benchmark_id=str(value["benchmarkId"]),
@@ -155,4 +238,6 @@ class LocalReport:
             metrics=[Metric.from_wire(metric) for metric in value["metrics"]],
             diagnostics=[str(item) for item in value.get("diagnostics", [])],
             output_digest=str(value["outputDigest"]),
+            weights_used=[str(item) for item in value.get("weightsUsed", [])],
+            weights_uploaded=weights_uploaded,
         )

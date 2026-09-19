@@ -43,7 +43,7 @@ async function editDeferredResponse(
         message: error instanceof Error ? error.message : "unknown",
       }),
     );
-    response = message("I couldn't reach Cog*Portal just now. Nothing changed—try again in a moment.", true);
+    response = message("I couldn't reach Cog*Portal just now. Nothing changed. Try again in a moment.", true);
   }
   const patched = await fetch(
     `https://discord.com/api/v10/webhooks/${encodeURIComponent(interaction.application_id)}/${encodeURIComponent(interaction.token)}/messages/@original`,
@@ -135,7 +135,7 @@ export default {
         }),
       );
       return Response.json(
-        message("I couldn't reach Cog*Portal just now. Nothing changed—try again in a moment.", true),
+        message("I couldn't reach Cog*Portal just now. Nothing changed. Try again in a moment.", true),
       );
     }
   },

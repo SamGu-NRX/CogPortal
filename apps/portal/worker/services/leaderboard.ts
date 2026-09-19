@@ -16,6 +16,7 @@ import {
   teams,
 } from "../db/schema";
 import { ApiHttpError } from "../http/errors";
+import { canPublishOfficialRun } from "./run-eligibility";
 import { serializeBenchmark, serializeMetric } from "../http/serializers";
 import {
   hasSharedBenchmarkSource,
@@ -69,6 +70,7 @@ export async function getLeaderboardReadModel(
 
   const entries: LeaderboardEntry[] = [];
   for (const row of selected) {
+    if (!canPublishOfficialRun(row.run)) continue;
     const runMetricsForRow = metricsByRun.get(row.run.id) ?? [];
     const primary = runMetricsForRow.find((metric) => metric.isPrimary);
     if (!primary || row.run.finishedAt === null) continue;
@@ -76,9 +78,13 @@ export async function getLeaderboardReadModel(
       rank: 0,
       teamName: row.team.name,
       teamDescription: row.team.description,
-      repoUrl: row.team.repoUrl,
-      sha: row.run.sha,
-      shortSha: row.run.sha.slice(0, 7),
+      provenance: row.team.provenance,
+      // An archive row is labeled anonymized on the page. The repository link
+      // names a GitHub account and a commit SHA resolves to its repository
+      // through GitHub search, so neither leaves the server for those rows.
+      repoUrl: row.team.provenance === "archive" ? null : row.team.repoUrl,
+      sha: row.team.provenance === "archive" ? "" : row.run.sha,
+      shortSha: row.team.provenance === "archive" ? "" : row.run.sha.slice(0, 7),
       primaryMetric: serializeMetric(primary),
       supportingMetrics: runMetricsForRow
         .filter((metric) => !metric.isPrimary)
@@ -127,7 +133,7 @@ export async function getFamilyLeaderboardReadModel(
     .innerJoin(runs, eq(leaderboardSelections.runId, runs.id))
     .innerJoin(teams, eq(leaderboardSelections.teamId, teams.id));
   const relevant = selected.filter((row) =>
-    components.some(
+    canPublishOfficialRun(row.run) && components.some(
       (component) =>
         component.benchmarkId === row.run.benchmarkId &&
         component.benchmarkVersion === row.run.benchmarkVersion,
@@ -192,9 +198,13 @@ export async function getFamilyLeaderboardReadModel(
       rank: 0,
       teamName: row.team.name,
       teamDescription: row.team.description,
-      repoUrl: row.team.repoUrl,
-      sha: row.run.sha,
-      shortSha: row.run.sha.slice(0, 7),
+      provenance: row.team.provenance,
+      // An archive row is labeled anonymized on the page. The repository link
+      // names a GitHub account and a commit SHA resolves to its repository
+      // through GitHub search, so neither leaves the server for those rows.
+      repoUrl: row.team.provenance === "archive" ? null : row.team.repoUrl,
+      sha: row.team.provenance === "archive" ? "" : row.run.sha,
+      shortSha: row.team.provenance === "archive" ? "" : row.run.sha.slice(0, 7),
       primaryMetric: {
         key: "overall",
         label: "Overall",

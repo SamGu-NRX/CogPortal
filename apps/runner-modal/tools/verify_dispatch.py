@@ -69,6 +69,11 @@ def build_job(repo: str, sha: str) -> dict:
         "runId": "run_verify_{}".format(stamp),
         "mode": "practice",
         "preparedArtifactId": None,
+        # Required whenever there is no prepared artifact (protocol.validate_job):
+        # the portal sends the team's weight manifest here, empty when the
+        # team trained nothing. Without it the endpoint answers 400 with an
+        # empty body, which this tool reported as "boundary is not sound".
+        "weights": [],
         "source": {
             "repositoryId": 0,
             "fullName": repo,
