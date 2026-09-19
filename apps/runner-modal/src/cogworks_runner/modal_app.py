@@ -39,11 +39,10 @@ def _repo_root() -> Path:
     Those paths matter only while a local `modal deploy` builds the images.
     Modal also imports this module inside the container, where the package sits
     at `/root/cogworks_runner` and the repository does not exist. A hardcoded
-    `parents[4]` raised IndexError there, which crash-looped every container:
-    `submit_job` never answered, so no job was ever spawned and no run event was
-    ever emitted. Anchoring on the workspace marker also removes the silent
-    failure mode where moving this file makes `parents[4]` point somewhere else
-    that happens to exist.
+    `parents[4]` raised IndexError there, which crash-looped every container.
+    Anchoring on the workspace marker also removes the silent failure mode where
+    moving this file makes `parents[4]` point somewhere else that happens to
+    exist.
     """
     for candidate in Path(__file__).resolve().parents:
         if (candidate / "pnpm-workspace.yaml").is_file():
@@ -64,10 +63,8 @@ REPO_ROOT = _repo_root()
 #:
 #: It was 240, and the scorers write longer than that. The week 1 notes run to
 #: 315 characters and week 2's abstention note to 392, so five of the fixed
-#: templates arrived on the run page cut mid-word: three of them ended "and",
-#: "not hid", and "give you on". A note is one instruction about what to change
-#: next, so the half that survived was the half that described the problem and
-#: the half that was lost was the advice.
+#: templates arrived on the run page cut mid-word, losing the half of the note
+#: that said what to change.
 #:
 #: 600 is not a new number here. It is what packages/contracts already allows
 #: for every prose field of a refusal (headline, nextStep, notes), which is the
@@ -277,13 +274,11 @@ week3_image = (
             "COGWORKS_LANGUAGE_DATA": WEEK3_DATA_DIR,
             # See the Week 2 image: a plot that wants a window never gets one.
             "MPLBACKEND": "Agg",
-            # PYTHONHASHSEED: one 2026 team builds its IDF table by iterating
-            # a set, so which order words land in it depends on string
-            # hashing, and its text retrieval score moved between 0.8188 and
-            # 0.8335 across three seeds. An interpreter's seed is fixed before
-            # its first line, so it has to come from the image environment,
-            # where every process in the sandbox inherits it. The binding
-            # records whether it was pinned (isolate.hash_seed_in_effect).
+            # One 2026 team builds its IDF table by iterating a set, so word
+            # order depends on string hashing and its text retrieval score moved
+            # between 0.8188 and 0.8335 across three seeds. An interpreter's
+            # seed is fixed before its first line, so it has to come from the
+            # image environment for every process in the sandbox to inherit it.
             "PYTHONHASHSEED": "0",
         }
     )
@@ -512,8 +507,7 @@ if has_packaging:
     except Exception:
         # A build failure is fatal only when nothing else can resolve the
         # submission. A repository carrying both a broken pyproject.toml and a
-        # working submission.py is scoreable, and failing it here would spend
-        # one of three official attempts on our packaging preference.
+        # working submission.py is scoreable.
         if adapter_file is None:
             raise
 
@@ -759,11 +753,10 @@ def _discovered_factory(benchmark_id):
         pass  # the score is the point; the explanation is worth less than it
 
     return lambda *args, **kwargs: benchmark.submission_from_discovery(found)
-# Who owns the step currently running. The controller decides whether a
-# failure consumes one of the three official attempts, and it must decide that
-# from WHERE the exception came from, never from what the message says: the
-# message is written by the submission, so matching words in it let a student
-# label their own crash as a platform fault and retry for free.
+# Who owns the step currently running. Decided from WHERE the exception came
+# from, never from what the message says: the message is written by the
+# submission, so matching words in it let a student label their own crash as a
+# platform fault.
 owner = "platform"
 try:
     if pathlib.Path("/tmp/cog-week1-payload.zip").exists():
@@ -1427,7 +1420,6 @@ def _prepare(job: Dict[str, Any], reporter: LiveReporter) -> Tuple[str, Dict[str
 _WIRING: List[Dict[str, Any]] = []
 
 
-# ---------------------------------------------------------------------------
 # Controller-side validation of the predictions read back from the sandbox.
 #
 # The sandbox already counts its own outputs against the case list
@@ -1452,12 +1444,12 @@ _WIRING: List[Dict[str, Any]] = []
 #   * A wrong element type is an uncaught AttributeError inside `score()`, and
 #     `execute_job` classifies any non-RunnerFailure raised during the scoring
 #     phase as `scorer` with `infrastructure=True`. That copy tells the team
-#     "this is a platform problem, not a problem with your code". Validate
-#     malformed submission output before scoring so that advice stays accurate.
+#     "this is a platform problem, not a problem with your code".
 #
-# `output_invalid` already has the appropriate copy in contracts/failures.ts.
-# Every failed execution releases capacity; this boundary determines ownership
-# of the failure, not whether an evaluation counts against quota.
+# `output_invalid` is the category for this. It exists already
+# (FAILURE_CATEGORIES in packages/contracts/src/schema.ts) and its copy is
+# written for exactly this case ("Predictions did not match the schema",
+# packages/contracts/src/failures.ts).
 
 
 class _NonFiniteNumber(ValueError):
@@ -1490,9 +1482,7 @@ def _bounded_int(text: str) -> int:
 
     Scoring calls float() on submission numbers in several places (Week 1's
     `_margin`, `_v2_metrics`' own `float(value)`), and `float(2 ** 1024)`
-    raises OverflowError rather than returning an infinity. Uncaught during
-    scoring that is the `scorer`/infrastructure path, which misattributes a
-    400-digit integer supplied by the submission to our scorer.
+    raises OverflowError rather than returning an infinity.
 
     Tried by conversion rather than by a bit-length bound. The bound is not
     exactly on a bit boundary: 2**1023 has 1024 bits and converts, 2**1024 - 1
@@ -1655,8 +1645,7 @@ _NULLABLE_PREDICTION_FIELDS = frozenset({"scores"})
 #: writing -inf on the score matrix diagonal, then sorts by -score. With an
 #: all-NaN matrix the diagonal is the only non-NaN entry, and numpy sorts NaN
 #: after every real value including +inf, so each caption ranks itself first
-#: and every co-caption lands at rank 1. The exclusion that makes the metric
-#: meaningful is what the NaN defeats.
+#: and every co-caption lands at rank 1.
 #:
 #: Week 3's own `coerce_matrix` rejects non-finite values already, and this is
 #: not a second opinion on it: that check runs inside the sandbox, in the
@@ -1696,10 +1685,6 @@ _EMPTY_ROW_OK = frozenset({"rankings"})
 def _refuse_output(detail: str) -> RunnerFailure:
     """Build the refusal for results that cannot be scored.
 
-    `infrastructure=False` and `output_invalid` identify malformed submission
-    results, rather than blaming the platform's scorer. Every failure releases
-    capacity; attribution still determines which problem the team is told about.
-
     The phase is "evaluating" rather than "scoring". What is wrong is the
     submission's results, and those were produced during evaluation; naming
     the scoring phase would put our own name on a step that never ran.
@@ -1713,8 +1698,7 @@ def _check_matrix_field(index: int, field: str, rows: List[Any]) -> None:
 
     See `_NUMERIC_MATRIX_FIELDS` for why this exists and what it costs: JSON
     `null` reaches numpy as NaN, and a NaN embedding scores 1.0 rather than
-    crashing. Ragged rows are refused too, since numpy raises on them and an
-    uncaught raise during scoring would incorrectly blame the platform.
+    crashing. Ragged rows are refused too, since numpy raises on them.
 
     Only the first offending leaf is named. A submission that got this wrong
     usually got it wrong everywhere, and one location is what the team needs
@@ -1730,11 +1714,10 @@ def _check_matrix_field(index: int, field: str, rows: List[Any]) -> None:
                 'In result {}, row {} of "{}" came back as {}. Each row holds '
                 "one list of numbers.".format(index, position, field, _type_word(row))
             )
-        # "rankings" is skipped here and only here: it is legitimately ragged
-        # and legitimately empty, because each query returns up to k ids and
-        # `validate_rankings` writes [] for a query that matched nothing.
-        # `search_ranks` scores a short or empty row as a miss on purpose. The
-        # embedding fields are a matrix and get both checks.
+        # "rankings" is exempt: each query returns up to k ids and
+        # `validate_rankings` writes [] for a query that matched nothing, which
+        # `search_ranks` scores as a miss on purpose. The embedding fields are a
+        # matrix and get both checks.
         if rectangular:
             if not row:
                 raise _refuse_output(
@@ -1757,8 +1740,7 @@ def _check_matrix_field(index: int, field: str, rows: List[Any]) -> None:
             # bool is checked first because `type(True) is bool`, not int, and
             # numpy reads True as 1.0. A submission whose embeddings are all
             # True scores text_mrr 0.1620 against the 0.1624 chance floor,
-            # which is an honest bad score rather than an inflated one, so
-            # refusing it would cost a team an attempt for nothing.
+            # which is an honest bad score rather than an inflated one.
             if type(item) is bool or type(item) in leaf_types:
                 continue
             raise _refuse_output(
@@ -1824,9 +1806,7 @@ def _check_predictions(benchmark: Any, predictions: List[Any], case_count: int) 
                 # driver refuses bools inside the sandbox as a contract
                 # matter, but scoring treats True as 1 and False as 0 and
                 # returns a correct partition for them (measured: identical
-                # metrics to the same labels written as 1 and 0). Refusing a
-                # payload that scores correctly would cost a team an attempt
-                # for nothing.
+                # metrics to the same labels written as 1 and 0).
                 if not isinstance(item, item_types):
                     raise _refuse_output(
                         "In result {}, label {} came back as {}. Cluster "
@@ -1868,8 +1848,27 @@ def _collect_wiring(sandbox) -> None:
         steps = json.loads(sandbox.filesystem.read_text("/tmp/cog-wiring.json"))
     except Exception:
         return
-    if isinstance(steps, list):
-        _WIRING.extend(steps[:16])
+    if not isinstance(steps, list):
+        return
+    # Clipped to WiredStepSchema in packages/contracts/src/protocol.ts. The
+    # portal validates the completed event as one object, so a step past those
+    # lengths costs the run rather than the panel it draws, and nothing
+    # upstream bounds them: `function` is `module.function` as it appears in
+    # the team's repository, and this file sits on a filesystem their code runs
+    # on after the evaluate step writes it.
+    for step in steps[:16]:
+        if not isinstance(step, dict):
+            continue
+        stage = step.get("stage")
+        function = step.get("function")
+        if not (isinstance(stage, str) and stage and isinstance(function, str) and function):
+            continue
+        kept = {"stage": stage[:60], "function": function[:200]}
+        for field in ("received", "returned"):
+            value = step.get(field)
+            if isinstance(value, str):
+                kept[field] = value[:200]
+        _WIRING.append(kept)
 
 
 def _evaluate(job: Dict[str, Any], snapshot_id: str, inputs: List[Any]) -> Tuple[List[Any], str]:
@@ -1960,9 +1959,9 @@ def _evaluate_v2(
             # writes after it imports student code is student speech, and the
             # conditions a marker used to report are already verified by the
             # controller before the sandbox starts.
-            # Student-controlled message text cannot identify a platform fault.
-            # Provisioning compatibility was checked before this execution;
-            # the failure here belongs to the submission, not that check.
+            # Not "contract_invalid" derived from the message text either: the
+            # contract check already ran during prepare, so a failure here is
+            # the submission's.
             raise RunnerFailure("student_runtime", "evaluating", detail, False)
         predictions = _load_predictions(
             sandbox.filesystem.read_text("/tmp/cog-predictions.json")
@@ -2027,10 +2026,10 @@ def _restore_v2_predictions(predictions: List[Any], plans: List[Any]) -> List[An
     since iterating a dict yields its keys.
 
     The refusals here are `output_invalid` rather than provider faults, for the
-    reason `_refuse_output` states: what is wrong is the submission's results,
-    and a provider category would misidentify their cause. The sandbox driver
-    already length-checked each batch before writing the file, but that check
-    ran inside the student's own process, so it is re-done on this side.
+    reason `_refuse_output` states: what is wrong is the submission's results.
+    The sandbox driver already length-checked each batch before writing the
+    file, but that check ran inside the student's own process, so it is re-done
+    on this side.
     """
 
     from cogworks_runner.week2_payload import restore_recognition_outputs
@@ -2107,9 +2106,9 @@ def _evaluate_week3(
             # No platform-fault branch. _week3_cases already decoded and
             # validated the same artifacts in this process, before the sandbox
             # ran. See _platform_owned_evaluation_failure.
-            # Student-controlled message text cannot identify a platform fault.
-            # Provisioning compatibility was checked before this execution;
-            # the failure here belongs to the submission, not that check.
+            # Not "contract_invalid" derived from the message text either: the
+            # contract check already ran during prepare, so a failure here is
+            # the submission's.
             if _timed_out(job, started, process.returncode, stderr_text):
                 raise RunnerFailure(
                     "timeout",
@@ -2226,10 +2225,6 @@ def _evaluate_week1(
 def _platform_owned_evaluation_failure() -> None:
     """Why no evaluation failure is ever attributed to the platform from here.
 
-    All failures release capacity. Platform attribution still requires evidence
-    the submission cannot write; otherwise the advice blames our environment
-    for what the submitted code did.
-
     The sandbox used to say. It wrote `COG_PLATFORM_ERROR:` to stderr when it
     failed before importing student code, and the controller read that. The
     comment above the read said the marker could not be forged because only
@@ -2240,15 +2235,13 @@ def _platform_owned_evaluation_failure() -> None:
         import os
         os.write(2, b"COG_PLATFORM_ERROR: FaceNet cache validation failed")
 
-    put the marker on the pipe the controller reads. The run page then blamed
-    our model cache for a message the submission had fabricated.
+    put the marker on the pipe the controller reads, and the run page blamed
+    our model cache.
 
     The exit code is no better: `os._exit` beats the `SystemExit(2)` the script
     would otherwise raise. Once student code is running in a process, nothing
     that process emits is evidence about us. That is the rule, and it is why
-    this is not fixed by a harder-to-forge channel. Two earlier fixes each
-    moved the trust to a new channel (adapter name, then message words, then
-    this marker) and each left the shape intact.
+    this is not fixed by a harder-to-forge channel.
 
     Saved-environment compatibility is checked separately against the retained
     pre-install observation. It proves provisioning, not that installation left
@@ -2264,9 +2257,8 @@ def _platform_owned_evaluation_failure() -> None:
                      image build time, so a cache fault at evaluation would
                      mean the image did not build
 
-    So the marker was a second opinion about a settled question, solicited
-    from the one party with a reason to lie. The remaining ways a run can fail
-    through no fault of the submission are the ones the controller observes
+    The remaining ways a run can fail through no fault of the submission are
+    the ones the controller observes
     from outside: a process killed for time or memory, which `_timed_out`
     decides from elapsed seconds and the return code, and provider faults,
     which surface as exceptions here rather than as text from in there.
@@ -2282,9 +2274,8 @@ def _timed_out(job: Dict[str, Any], started: float, returncode: int, stderr_text
     Modal enforces the sandbox timeout by killing the process, and a killed
     process reports a nonzero returncode with no traceback -- identical, from
     here, to a crash. Reported as a crash it becomes `student_runtime`, which
-    consumes an official attempt and tells the team "Evaluation failed." with
-    nothing to act on; a timeout is its own category, and the right message
-    names the budget they exceeded.
+    tells the team "Evaluation failed." with nothing to act on; a timeout is
+    its own category, and the right message names the budget they exceeded.
 
     Measured: `carti4ce/week1_capstone` reached 999 s against a 900 s budget on
     the evaluation corpus, because its `database.add` rewrites the whole pickle
@@ -2638,7 +2629,7 @@ def execute_job(job_value: Dict[str, Any]) -> None:
     # anything raised while the phase is "scoring" to `category: "scorer"`. So a
     # portal that would not answer turned a run that scored into a scorer
     # failure: the team's real number was replaced by a claim that our scorer
-    # broke. Delivery failure must not replace a result that already exists.
+    # broke.
     #
     # The result is written down before it is sent. `_post_event` retries three
     # times; when those are exhausted the numbers used to exist only in this

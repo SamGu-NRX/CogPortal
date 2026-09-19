@@ -1,9 +1,7 @@
 """What `cogworks check` prints.
 
-The first thing a student saw was nine lines of ``False`` and no next step.
-Every one of them was true and none of them said what to do, which is the
-worst shape a diagnostic can take: it looks like the tool is working and
-leaves the reader with nothing.
+The first version printed nine lines of ``False`` and no next step: every one
+of them true, none of them saying what to do.
 
 So this prints what was found, in the order a person asks about it. Where is
 your code. Which files did we read, and which could we not. What did we wire
@@ -39,10 +37,9 @@ def _plural(count: int, one: str, many: Optional[str] = None) -> str:
 def _wrapped(text: str, width: int = 78) -> List[str]:
     """A paragraph broken to terminal width.
 
-    Every other line here is a label and a short value, so nothing needed
-    wrapping before. A paragraph printed as one line wraps at whatever the
-    terminal happens to be and breaks mid-package-name, which is the one part
-    of this report a student is meant to read carefully.
+    A paragraph printed as one line wraps at whatever the terminal happens to
+    be and breaks mid-package-name, which is the one part of this report a
+    student is meant to read carefully.
     """
 
     import textwrap

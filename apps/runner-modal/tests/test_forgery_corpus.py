@@ -1,8 +1,12 @@
 """Submission output must not forge a platform failure or a successful result.
 
-These fixtures run through the real sandbox script and retain diagnostic
-attribution checks. Failure categories explain what broke; they no longer
-decide whether a practice or official slot is used.
+These fixtures run through the real sandbox script. A failure category now only
+explains what broke; it no longer decides whether an attempt is spent, so each
+case pins the category the controller derives rather than the slot it moved.
+
+Every entry is an exploit that worked, or that would have worked. They stay
+after they are fixed, because the way this class of defect comes back is that
+someone re-adds a channel nobody is still testing.
 """
 
 from __future__ import annotations

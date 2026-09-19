@@ -240,7 +240,7 @@ class ARememberedFormIsReplayed(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
         # Not `theirs.py`: the class above writes one, discovery registers a
         # module under its bare file name, and a second `theirs` in the same
-        # process resolved to the first one's function. ints have no
+        # process resolves to the first one's function. ints have no
         # rsplit(), so only the paths form can bind.
         (self.tmp / "pathfeats.py").write_text(
             "def feats(paths, rate):\n    return [(p.rsplit('.', 1)[1], rate) for p in paths]\n"

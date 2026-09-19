@@ -180,12 +180,10 @@ def _metric(
         # keeps four; the rest are read for shape, not rank.
         precision=4 if key == primary_key else 3,
         help=help_text,
-        # Same story as `help` above: the model and `to_wire` have carried
-        # these since roles existed and the hosted path sends them, but this
-        # local builder never set them, so `cogworks run` reported a floor as
-        # an ordinary scored number with an arrow on it. A local report and a
-        # hosted one describe the same run and have to say the same thing
-        # about it.
+        # Same story as `help` above: without these the local builder
+        # reported a floor as an ordinary scored number with an arrow on it,
+        # while the hosted path sent the role. A local report and a hosted
+        # one describe the same run and have to say the same thing.
         role=role,
         relates_to=relates_to,
     )
@@ -208,12 +206,10 @@ def _execute_v2(
         model_factory = plugin_model_factory
     labels = getattr(benchmark, "metric_labels", None)
     lower_is_better = getattr(benchmark, "lower_is_better", ())
-    # What each number means, in the course's vocabulary. The hosted path has
-    # passed this through since metric_help existed (modal_app.py `_wire`),
-    # but this local path never did, so `cogbench run` dropped every
-    # explanation and a student debugging on their own laptop saw bare
-    # numbers while the portal explained them. Absent on plugins that predate
-    # metric_help, which is why it reads as a plain dict lookup.
+    # What each number means, in the course's vocabulary. The hosted path
+    # passes this through (modal_app.py `_wire`); without it a student
+    # debugging locally sees bare numbers while the portal explains them.
+    # Absent on plugins that predate metric_help, hence the plain lookup.
     help_text = getattr(benchmark, "metric_help", None) or {}
     roles = getattr(benchmark, "metric_roles", None) or {}
     relations = getattr(benchmark, "metric_relations", None) or {}
