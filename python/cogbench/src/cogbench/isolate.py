@@ -112,9 +112,6 @@ class Outcome:
 
     def diagnostics(self) -> dict:
         """Configured budgets and observed outcome, not proof rlimits took."""
-        # Exec pays plugin-import CPU inside RLIMIT_CPU; fork inherited those
-        # imports for free. Heavy imports leave less CPU for a native fit.
-        # Check also loads the plugin in the parent for benchmarkLoadable.
         return {
             "status": self.status, "detail": self.detail, "signal": self.signal,
             "alarmFired": self.alarm_fired, "readReason": self.read_reason,
@@ -818,7 +815,7 @@ def _collect(pid, read_fd, timeout_seconds, memory_bytes) -> Outcome:
         finally:
             _terminate(pid, reaped=harvested)
             if not reaped:
-                final_status = _reap(pid)[1]
+                final_status = _reap_exact(pid)
                 # Waited on, so the number is no longer ours to signal.
                 # `reaped` stays False: this death is one we caused, and it is
                 # not evidence that a payload the child published can be
@@ -891,10 +888,6 @@ def _terminate(pid: int, reaped: bool = False) -> None:
             os.kill(target, sig)
         except OSError:
             continue
-
-
-def _reap(pid: int):
-    return pid, _reap_exact(pid)
 
 
 def _reap_bounded(pid: int, seconds: float):

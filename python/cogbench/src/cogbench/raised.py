@@ -66,10 +66,7 @@ def _interpreter_library() -> Tuple[Path, ...]:
         where = paths.get(key)
         if not where:
             continue
-        try:
-            found.add(Path(where).resolve())
-        except (OSError, ValueError):
-            continue
+        found.add(Path(where).resolve())
     return tuple(sorted(found))
 
 
@@ -77,8 +74,6 @@ _INTERPRETER_LIBRARY = _interpreter_library()
 
 
 def _under(where: Path, directory: Path) -> bool:
-    """Whether a frame's file lies inside one directory."""
-
     try:
         where.relative_to(directory)
     except ValueError:
