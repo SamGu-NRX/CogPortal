@@ -4,7 +4,7 @@ CogPortal is the benchmark portal for MIT BWSI CogWorks. Students connect their
 team repository, run a course benchmark against held-out data, and read what the
 run found. This page says where each kind of document lives.
 
-The four sections below follow [Diátaxis](https://diataxis.fr): a document either
+The sections below follow [Diátaxis](https://diataxis.fr): a document either
 helps you do something or helps you understand something, and it does not try to
 do both.
 

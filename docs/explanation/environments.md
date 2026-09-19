@@ -1,8 +1,6 @@
 # About CogPortal's two hosted environments
 
-CogPortal runs in two places, and they are deliberately the same shape. This page
-records that decision, what the two environments share, the short list of things
-they do not, and how a commit travels from one to the other.
+CogPortal runs in two places, and they are deliberately the same shape.
 
 The decision matters because the alternative is worse in a specific way. If the
 environment a change is checked in differs from the one students use, the check
@@ -15,9 +13,8 @@ real prediction about prod.
 **Dev.** Worker `cogportal`, at `cogportal-dev.sillion.app` and
 `cogactivity-dev.sillion.app`. This is the top-level block in
 `apps/portal/wrangler.jsonc`, and `wrangler deploy` with no `--env` targets it.
-Every change is checked here against real GitHub and real Modal. Dev is not a
-sandbox with fake services in it. A run started on dev dispatches to a real
-Modal app and spends real sandbox time.
+Every change is checked here against real GitHub and real Modal. A run started
+on dev dispatches to a real Modal app and spends real sandbox time.
 
 **Prod.** Worker `cogportal-production`, at `cogportal.sillion.app` and
 `cogactivity.sillion.app`. This is `env.production` in the same file, deployed
