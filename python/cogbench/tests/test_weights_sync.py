@@ -109,7 +109,6 @@ class CliTrackedWeightSkipTest(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
 
     def test_sync_skips_tracked_weight_files(self):
-        # Create a git repo with a tracked weight file
         subprocess.run(["git", "init"], cwd=str(self.tmp), check=True, capture_output=True)
         subprocess.run(
             ["git", "config", "user.email", "test@example.com"],
@@ -124,7 +123,6 @@ class CliTrackedWeightSkipTest(unittest.TestCase):
             capture_output=True,
         )
 
-        # Create and track a weight file
         weight_path = self.tmp / "model.pkl"
         weight_path.write_bytes(b"fake pickle data")
         subprocess.run(["git", "add", "model.pkl"], cwd=str(self.tmp), check=True, capture_output=True)
@@ -137,7 +135,6 @@ class CliTrackedWeightSkipTest(unittest.TestCase):
             text=True,
         ).stdout.strip()
 
-        # Create a report with the tracked weight
         report = LocalReport(
             report_id="local_test123",
             benchmark_id="language-search",
@@ -154,17 +151,14 @@ class CliTrackedWeightSkipTest(unittest.TestCase):
             weights_used=["model.pkl"],
         )
 
-        # Save report
         report_file = self.tmp / "report.json"
         report_file.write_text(report.to_json(), encoding="utf-8")
 
-        # Mock the sync_report and upload_weight calls
         with patch("cogbench.cli.sync_report") as mock_sync:
             with patch("cogbench.cli.upload_weight") as mock_upload:
                 with patch("cogbench.cli.token_for", return_value="test_token"):
                     with patch("cogbench.cli._resolve_report", return_value=report_file):
                         with patch("cogbench.cli._portal", return_value="http://example.com"):
-                            # Mock Path.cwd to return our temp directory
                             with patch("cogbench.cli.Path.cwd", return_value=self.tmp):
                                 stdout = io.StringIO()
                                 with redirect_stdout(stdout):
@@ -173,9 +167,7 @@ class CliTrackedWeightSkipTest(unittest.TestCase):
         self.assertEqual(result, 0)
         mock_sync.assert_called_once()
         self.assertEqual(mock_sync.call_args[0][2]["weightsUploaded"], [])
-        # Verify upload was NOT called for tracked file
         mock_upload.assert_not_called()
-        # Verify output mentions the tracked file
         self.assertIn("is committed and travels with the repository", stdout.getvalue())
 
 
@@ -185,7 +177,6 @@ class CliUntrackedWeightUploadTest(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
 
     def test_sync_uploads_untracked_weight_files(self):
-        # Create a git repo
         subprocess.run(["git", "init"], cwd=str(self.tmp), check=True, capture_output=True)
         subprocess.run(
             ["git", "config", "user.email", "test@example.com"],
@@ -200,11 +191,9 @@ class CliUntrackedWeightUploadTest(unittest.TestCase):
             capture_output=True,
         )
 
-        # Create an untracked weight file
         weight_path = self.tmp / "trained_weights.npz"
         weight_path.write_bytes(b"fake numpy data")
 
-        # Create a report with the untracked weight
         report = LocalReport(
             report_id="local_test456",
             benchmark_id="language-search",
@@ -221,17 +210,14 @@ class CliUntrackedWeightUploadTest(unittest.TestCase):
             weights_used=["trained_weights.npz"],
         )
 
-        # Save report
         report_file = self.tmp / "report.json"
         report_file.write_text(report.to_json(), encoding="utf-8")
 
-        # Mock the sync_report and upload_weight calls
         with patch("cogbench.cli.sync_report") as mock_sync:
             with patch("cogbench.cli.upload_weight") as mock_upload:
                 with patch("cogbench.cli.token_for", return_value="test_token"):
                     with patch("cogbench.cli._resolve_report", return_value=report_file):
                         with patch("cogbench.cli._portal", return_value="http://example.com"):
-                            # Mock Path.cwd to return our temp directory
                             with patch("cogbench.cli.Path.cwd", return_value=self.tmp):
                                 stdout = io.StringIO()
                                 with redirect_stdout(stdout):
@@ -242,15 +228,12 @@ class CliUntrackedWeightUploadTest(unittest.TestCase):
         self.assertEqual(mock_sync.call_args[0][2]["weightsUploaded"], [{
             "path": "trained_weights.npz", "sha256": hashlib.sha256(b"fake numpy data").hexdigest(),
         }])
-        # Verify upload WAS called for untracked file
         mock_upload.assert_called_once()
-        # Check the arguments to upload_weight
         call_args = mock_upload.call_args
         self.assertEqual(call_args[0][0], "http://example.com")  # portal
         self.assertEqual(call_args[0][1], "test_token")  # token
         self.assertEqual(call_args[0][2], "local_test456")  # report_id
         self.assertEqual(call_args[0][3], "trained_weights.npz")  # rel_path
-        # Verify output mentions upload
         self.assertIn("uploaded to", stdout.getvalue())
         self.assertIn("15 bytes", stdout.getvalue())
 
@@ -261,7 +244,6 @@ class CliMissingWeightFileFailsTest(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
 
     def test_sync_fails_on_missing_untracked_weight_file(self):
-        # Create a git repo
         subprocess.run(["git", "init"], cwd=str(self.tmp), check=True, capture_output=True)
         subprocess.run(
             ["git", "config", "user.email", "test@example.com"],
@@ -276,7 +258,6 @@ class CliMissingWeightFileFailsTest(unittest.TestCase):
             capture_output=True,
         )
 
-        # Create a report referencing a weight file that does not exist
         report = LocalReport(
             report_id="local_test789",
             benchmark_id="language-search",
@@ -293,16 +274,13 @@ class CliMissingWeightFileFailsTest(unittest.TestCase):
             weights_used=["missing_weights.pkl"],
         )
 
-        # Save report
         report_file = self.tmp / "report.json"
         report_file.write_text(report.to_json(), encoding="utf-8")
 
-        # Mock the sync_report call
         with patch("cogbench.cli.sync_report") as mock_sync:
             with patch("cogbench.cli.token_for", return_value="test_token"):
                 with patch("cogbench.cli._resolve_report", return_value=report_file):
                     with patch("cogbench.cli._portal", return_value="http://example.com"):
-                        # Mock Path.cwd to return our temp directory
                         with patch("cogbench.cli.Path.cwd", return_value=self.tmp):
                             stderr = io.StringIO()
                             with redirect_stderr(stderr):

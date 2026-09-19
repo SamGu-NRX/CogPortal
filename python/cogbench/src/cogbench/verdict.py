@@ -10,11 +10,10 @@ them into "it failed" wastes the only information the student needs:
 
 ``wired_but_wrong``
     We wired your code, it ran end to end, and it returned the wrong answer on
-    a case the benchmark made up and knows the answer to. This is the finding
-    that matters most and the one a scoreboard cannot express. It is a bug in
-    the pipeline, it is theirs to find, and the report's job is to hand them
-    the smallest reproduction we have: which of their functions ran, in what
-    order, on what input, and what came back.
+    a case the benchmark made up and knows the answer to. It is theirs to
+    find, and the report's job is to hand them the smallest reproduction we
+    have: which of their functions ran, in what order, on what input, and what
+    came back.
 
 ``not_wired``
     We could not find a chain of your functions that performs this task. The
@@ -31,12 +30,9 @@ them into "it failed" wastes the only information the student needs:
     There is no code in this repository. Rare, and worth saying plainly rather
     than dressing up as a failure.
 
-What this module deliberately does not do is diagnose. A programmatic system
-cannot tell a student why their fanout is wrong, and pretending to would be
-worse than silence: a confident wrong explanation costs more than none. What it
-can do is be specific about what it observed, which is what makes the bug
-findable. The line is: report what ran and what came back, never why it is
-wrong or what to change.
+What this module deliberately does not do is diagnose. A confident wrong
+explanation costs more than none, so the line is: report what ran and what
+came back, never why it is wrong or what to change.
 """
 
 from __future__ import annotations
@@ -82,10 +78,8 @@ _SUMMARY_LIMIT = 160
 #: The address in the default `object.__repr__`. Two runs of the same
 #: repository put different numbers here, and these strings are recorded on
 #: the binding, so `to_dict()` was never byte-identical between two cold
-#: resolves of a chain that carries their own objects: week 2's `whispers`
-#: chain differed in six places on nothing but `id()`. The address says
-#: nothing a student can use -- the class name beside it is the whole
-#: content -- so it is dropped rather than reported.
+#: resolves of a chain that carries their own objects. The class name beside
+#: the address is the whole content, so the address is dropped.
 _ADDRESS = re.compile(r" at 0x[0-9a-fA-F]+")
 
 
@@ -395,10 +389,9 @@ def not_wired(
     coverage = coverage or Coverage()
     # NOT_WIRED asserts that we read the code and no chain of it does the
     # task. When we manufactured an absence, we did not read the code, and
-    # the module we skipped may be the one holding their pipeline. Measured:
-    # three Week 2 repositories were reported NOT_WIRED while the modules
-    # holding their clustering were skipped for packages the graded run
-    # installs. Refusing here is what stops that sentence being written.
+    # the module we skipped may be the one holding their pipeline: three Week
+    # 2 repositories were reported NOT_WIRED while the modules holding their
+    # clustering were skipped for packages the graded run installs.
     if not coverage.read_enough_to_judge:
         return could_not_look(coverage, next_step=next_step, errors=errors)
 
@@ -406,7 +399,12 @@ def not_wired(
         headline = (
             "Nothing in your repository took {} for the {} step, which is what "
             "{} returned.".format(
-                last_returned or "that", stage, trace[-1].function
+                # The observed value when the caller did not name one. "that"
+                # is the last resort, and it is the word that makes the
+                # headline unactionable.
+                last_returned or trace[-1].returned or "that",
+                stage,
+                trace[-1].function,
             )
         )
     else:

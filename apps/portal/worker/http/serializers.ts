@@ -167,8 +167,6 @@ function parseDiagnostics(value: string | null): string[] {
   }
 }
 
-/** Same tolerance again: a malformed refusal costs the explanation, never the
- *  page. The capped `failure.detail` still renders either way. */
 function parseRefusal(value: string | null): RunDetail["refusal"] {
   if (!value) return null;
   try {
@@ -179,8 +177,6 @@ function parseRefusal(value: string | null): RunDetail["refusal"] {
   }
 }
 
-/** Same tolerance again: a malformed wiring record costs that panel, never
- *  the page. */
 function parseWiring(value: string | null): RunDetail["wiring"] {
   if (!value) return [];
   try {
