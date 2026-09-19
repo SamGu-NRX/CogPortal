@@ -73,7 +73,6 @@ function freshBinding(): unknown {
   return { prepare };
 }
 
-/** Stands in for GitHub so the callback can run end to end. */
 function stubGithub(): void {
   globalThis.fetch = (async (input: RequestInfo | URL) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
@@ -104,7 +103,6 @@ function stubGithub(): void {
   }) as typeof fetch;
 }
 
-/** Drives /api/github/login and the callback, returning the final redirect. */
 async function signInWithGithub(seed: (db: Database) => Promise<void>): Promise<string> {
   const binding = freshBinding();
   const db = drizzle(binding as never) as unknown as Database;

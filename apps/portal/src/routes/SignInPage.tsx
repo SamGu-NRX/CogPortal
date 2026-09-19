@@ -11,8 +11,6 @@ import { useDevLogin, useSession } from "@/lib/queries";
 import { pendingConnectionReturn } from "@/lib/pending-return";
 
 /**
- * What each `?error=` code from the GitHub callback means to the student.
- *
  * Better Auth redirects here with a machine code and nothing else
  * (`redirectOnError` in better-auth/dist/oauth2/errors.mjs); the Worker asks
  * it to by setting errorCallbackURL to /signin. Nothing else records a failed
@@ -44,7 +42,7 @@ const SIGN_IN_ERRORS: Record<string, string> = {
     "GitHub confirmed who you are, but we couldn't start your session. Try again shortly.",
 };
 
-export function signInErrorMessage(code: string): string {
+function signInErrorMessage(code: string): string {
   // GitHub and Better Auth both spell a cancellation with "denied"
   // (access_denied, oauth_denied), so it is matched rather than listed.
   if (code.includes("denied")) {
