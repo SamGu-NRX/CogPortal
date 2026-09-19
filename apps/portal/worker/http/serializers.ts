@@ -78,8 +78,6 @@ export async function serializeRunSummary(db: Database, row: RunRow): Promise<Ru
 
   return {
     id: row.id,
-    // The run's own source, so a commit in a list can be attributed. Detail
-    // spreads this summary, so both answer from the same place.
     repo: runSource(row.repositoryFullName),
     mode: row.mode,
     status: row.status,

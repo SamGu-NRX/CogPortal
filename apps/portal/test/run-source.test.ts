@@ -110,8 +110,6 @@ async function insertRun(
   } as never);
 }
 
-/** The team as it is now, which is what decides whether a run is still
- *  actionable. What the run *was* comes from the run. */
 async function currentTeam(db: Database) {
   const [row] = await db.select().from(teams).where(eq(teams.id, "team_1"));
   return { repoId: row!.repoId, repoFullName: row!.repoFullName };
@@ -148,8 +146,6 @@ test("a finished run still names its own repository after the team changes repos
   // The commit was always the run's own. It has to still agree with the name
   // above it, which is the pairing the defect broke.
   assert.equal(detail.sha, SHA);
-  // Readable, and no longer promotable: the page shows this instead of a
-  // control the server would refuse.
   assert.match(detail.sourceRefusal ?? "", /no longer connected to/);
   assert.match(detail.sourceRefusal ?? "", new RegExp(NEW));
 });
