@@ -33,6 +33,7 @@ from cogbench.pipeline import (
     _named_for_something_else,
     _reachable,
     _under_clock,
+    _write_folder,
     callables_in,
     constructors_in,
     extend,
@@ -41,6 +42,74 @@ from cogbench.pipeline import (
     resolve_chain,
     runtime_pool,
 )
+
+
+@unittest.skipUnless(
+    hasattr(signal, "SIGALRM") and hasattr(signal, "getitimer"),
+    "clock ownership requires POSIX interval timers",
+)
+class ClockOwnershipTests(unittest.TestCase):
+    def setUp(self):
+        if signal.getitimer(signal.ITIMER_REAL)[0]:
+            self.skipTest("the test runner already owns an alarm")
+        self.previous_handler = signal.getsignal(signal.SIGALRM)
+        self.addCleanup(signal.signal, signal.SIGALRM, self.previous_handler)
+        self.addCleanup(signal.setitimer, signal.ITIMER_REAL, 0)
+
+    def test_a_callers_timer_and_handler_survive_success_and_failure(self):
+        def caller_handler(signum, frame):
+            self.fail("the caller's twelve-second timer expired during a short test")
+
+        for raises in (False, True):
+            with self.subTest(raises=raises):
+                signal.signal(signal.SIGALRM, caller_handler)
+                signal.setitimer(signal.ITIMER_REAL, 12, 0.25)
+
+                def call():
+                    self.assertIs(signal.getsignal(signal.SIGALRM), caller_handler)
+                    remaining, interval = signal.getitimer(signal.ITIMER_REAL)
+                    self.assertGreater(remaining, 1)
+                    self.assertEqual(interval, 0.25)
+                    if raises:
+                        raise ValueError("their call failed")
+                    return "answer"
+
+                with patch("cogbench.pipeline.CALL_TIMEOUT_SECONDS", 1):
+                    if raises:
+                        with self.assertRaisesRegex(ValueError, "their call failed"):
+                            _under_clock(call)
+                    else:
+                        self.assertEqual(_under_clock(call), "answer")
+                self.assertIs(signal.getsignal(signal.SIGALRM), caller_handler)
+                remaining, interval = signal.getitimer(signal.ITIMER_REAL)
+                self.assertGreater(remaining, 1)
+                self.assertEqual(interval, 0.25)
+                signal.setitimer(signal.ITIMER_REAL, 0)
+
+    def test_nested_probes_do_not_cancel_the_outer_deadline(self):
+        for raises in (False, True):
+            with self.subTest(raises=raises):
+                def outer():
+                    before = signal.getitimer(signal.ITIMER_REAL)[0]
+                    handler = signal.getsignal(signal.SIGALRM)
+
+                    def inner():
+                        if raises:
+                            raise ValueError("inner failure")
+
+                    if raises:
+                        with self.assertRaisesRegex(ValueError, "inner failure"):
+                            _under_clock(inner)
+                    else:
+                        _under_clock(inner)
+                    after = signal.getitimer(signal.ITIMER_REAL)[0]
+                    self.assertGreater(after, 0)
+                    self.assertLessEqual(after, before)
+                    self.assertIs(signal.getsignal(signal.SIGALRM), handler)
+
+                _under_clock(outer)
+                self.assertEqual(signal.getitimer(signal.ITIMER_REAL)[0], 0)
+                self.assertIs(signal.getsignal(signal.SIGALRM), self.previous_handler)
 
 
 def _module(name: str, **members) -> ModuleType:
@@ -1225,7 +1294,7 @@ class TheirPipelineOverAFolder(unittest.TestCase):
         self.assertIsNone(binding)
         self.assertEqual(refusal.stage, "d")
 
-    def test_the_refusal_says_which_folder_of_theirs_was_in_the_way(self):
+    def test_the_refusal_says_which_directory_was_read_instead(self):
         """Refusing the constructor is right and, on its own, unreadable.
 
         A repository whose whole pipeline hangs off such a constructor has
@@ -1234,6 +1303,11 @@ class TheirPipelineOverAFolder(unittest.TestCase):
         a hand-off that is true and beside the point. Measured on week 2's
         CoggurtFilter, which was told that nothing took what its profile class
         returned, a class its team never meant to be part of the pipeline.
+
+        The sentence is the path that was listed, and nothing around it. It
+        used to say the folder "holds your photos", which nothing here opened
+        it to find out, and then that it is "inside your repository", which was
+        read off a walk up from their file rather than observed.
         """
 
         checkout = self.tmp / "checkout"
@@ -1262,11 +1336,11 @@ class TheirPipelineOverAFolder(unittest.TestCase):
         self.assertEqual(
             refusal.notes,
             (
-                "clustering.Album() reads photos/ next to its own file, which "
-                "holds your photos rather than the benchmark's, so it cannot "
-                "be given the benchmark's photos; a constructor that takes "
-                "the folder path as an argument, or reads it relative to the "
-                "working directory, can.",
+                "clustering.Album() listed {}, which is not under the "
+                "directory this run owns, so the benchmark had nowhere to put "
+                "its files for it; a constructor that takes the folder path as "
+                "an argument, or reads one relative to the working directory, "
+                "can be handed them.".format(photos.resolve()),
             ),
         )
 
@@ -1293,6 +1367,461 @@ class TheirPipelineOverAFolder(unittest.TestCase):
 
         self.assertEqual(set(here.iterdir()), before)
         self.assertEqual(set(self.tmp.iterdir()), set(self.files))
+
+
+def _raises_the_pathlib_glob_event():
+    """Whether this interpreter tells an audit hook about `Path.glob`.
+
+    Asked rather than read off the version, because the answer is the thing the
+    search depends on and a version table is a claim about interpreters nobody
+    here ran. Measured absent on 3.8.20, present on 3.11.15 and 3.13.12.
+
+    An audit hook cannot be removed once installed, so this one stops recording
+    when the probe is over rather than watching the rest of the suite.
+    """
+
+    fired = []
+    probing = True
+
+    def watch(event, _arguments):
+        if probing and event == "pathlib.Path.glob":
+            fired.append(event)
+
+    sys.addaudithook(watch)
+    list(Path(tempfile.gettempdir()).glob("cogworks-no-such-thing-*"))
+    probing = False
+    return bool(fired)
+
+
+class TheFolderKeepsThePathTheirCodeAskedFor(unittest.TestCase):
+    """The name a folder binding records is the path their own code reads, whole.
+
+    Naming it by its first segment wrote `data/photos` into `data/`, one
+    directory above where their code then looked, so the retry read an empty
+    folder and a working repository did not bind. Naming it by its basename
+    had the same effect from the other end. Both are gone, and so is the rule
+    that a name with a dot in it is a file: the audit event says which of a
+    listing and an `open` fired, and the path is kept as it was written.
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.files = []
+        for name in ("one.png", "two.png"):
+            path = self.tmp / name
+            path.write_bytes(b"pretend photo")
+            self.files.append(path)
+        self.role = Role(
+            "cluster",
+            (
+                Stage(
+                    "d",
+                    produces=lambda v: isinstance(v, list) and len(v) == 2,
+                    folder=True,
+                ),
+            ),
+        )
+
+    def _bind(self, body):
+        module = _written("theirs", body)
+        return resolve_chain(self.role, [module], (self.files,))
+
+    def test_a_nested_folder_is_written_where_their_code_reads_it(self):
+        binding, refusal = self._bind(
+            "import os\n"
+            "def build():\n"
+            "    return sorted(os.listdir('data/photos'))\n"
+        )
+
+        self.assertIsNone(refusal)
+        self.assertEqual(binding.steps[0].supplied["folder"], "data/photos")
+
+    def test_a_nested_glob_names_the_folder_before_the_wildcard(self):
+        binding, refusal = self._bind(
+            "import glob, os\n"
+            "def build():\n"
+            "    return sorted(os.path.basename(p) for p in glob.glob('data/photos/*.png'))\n"
+        )
+
+        self.assertIsNone(refusal)
+        self.assertEqual(binding.steps[0].supplied["folder"], "data/photos")
+
+    @unittest.skipUnless(
+        _raises_the_pathlib_glob_event(),
+        "this interpreter raises no pathlib.Path.glob audit event; measured "
+        "absent on 3.8.20 and present on 3.11.15 and 3.13.12",
+    )
+    def test_a_pathlib_glob_names_the_directory_it_walks(self):
+        binding, refusal = self._bind(
+            "from pathlib import Path\n"
+            "def build():\n"
+            "    return sorted(p.name for p in Path('data/photos').glob('*.png'))\n"
+        )
+
+        self.assertIsNone(refusal)
+        self.assertEqual(binding.steps[0].supplied["folder"], "data/photos")
+
+    def test_a_folder_whose_name_has_a_dot_in_it_still_binds(self):
+        binding, refusal = self._bind(
+            "import os\n"
+            "def build():\n"
+            "    return sorted(os.listdir('my.photos'))\n"
+        )
+
+        self.assertIsNone(refusal)
+        self.assertEqual(binding.steps[0].supplied["folder"], "my.photos")
+
+    def test_a_file_opened_beside_their_code_names_no_folder(self):
+        """`open('config.json')` in the directory the probe runs from names the
+        scratch directory itself, which is not a folder to fill. Before the
+        event was recorded this was told apart by the dot in the name."""
+
+        binding, refusal = self._bind(
+            "import os\n"
+            "def build():\n"
+            "    open('config.json', 'w').write('{}')\n"
+            "    return sorted(os.listdir('photos'))\n"
+        )
+
+        self.assertIsNone(refusal)
+        self.assertEqual(binding.steps[0].supplied["folder"], "photos")
+
+    def test_a_nested_folder_left_by_an_earlier_probe_keeps_its_whole_path(self):
+        """The other half of the naming question, and the only one the disk can
+        answer.
+
+        A first candidate fills `data/photos` and then fails the stage's output
+        check. The second candidate's first call therefore succeeds, so its
+        folder is named from what it read rather than from what it asked for.
+        Naming it by its first segment refilled `data/` and left the photos one
+        directory above where the second candidate looks.
+        """
+
+        module = _written(
+            "theirs",
+            "import os\n"
+            "class A:\n"
+            "    def __init__(self):\n"
+            "        self.count = len(os.listdir('data/photos'))\n"
+            "class B:\n"
+            "    def __init__(self):\n"
+            "        self.where = sorted(os.listdir('data/photos'))\n"
+            "    def names(self):\n"
+            "        return list(self.where)\n",
+        )
+        role = Role(
+            "cluster",
+            (
+                Stage(
+                    "d",
+                    produces=lambda v: hasattr(v, "names") and len(v.names()) == 2,
+                    folder=True,
+                ),
+            ),
+        )
+
+        binding, refusal = resolve_chain(role, [module], (self.files,))
+
+        self.assertIsNone(refusal)
+        self.assertEqual(binding.steps[0].label, "theirs.B")
+        self.assertEqual(binding.steps[0].supplied["folder"], "data/photos")
+
+    def test_a_config_their_constructor_could_not_open_is_not_the_folder(self):
+        """The open comes first and fails, the listing comes second. Making a
+        folder out of the opened file's directory filled `config/` with photos
+        and left `photos/` empty, so the retry failed the same way and a
+        working repository did not bind."""
+
+        binding, refusal = self._bind(
+            "import os\n"
+            "def build():\n"
+            "    try:\n"
+            "        open('config/settings.json')\n"
+            "    except OSError:\n"
+            "        pass\n"
+            "    return sorted(os.listdir('photos'))\n"
+        )
+
+        self.assertIsNone(refusal)
+        self.assertEqual(binding.steps[0].supplied["folder"], "photos")
+
+
+class AFolderOutsideThisRunIsRefusedBeforeAnythingIsWritten(unittest.TestCase):
+    """`_write_folder` owns containment, and it settles it before it removes or
+    copies anything, so a name that climbs out leaves the disk as it was."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.files = [self.tmp / "one.png"]
+        self.files[0].write_bytes(b"pretend photo")
+        self.role = Role(
+            "cluster",
+            (Stage("d", produces=lambda v: isinstance(v, list), folder=True),),
+        )
+
+    def test_a_climbing_name_is_refused_and_named(self):
+        module = _written(
+            "theirs",
+            "import os\n"
+            "def build():\n"
+            "    return sorted(os.listdir('../photos'))\n",
+        )
+        before = set(self.tmp.iterdir())
+
+        binding, refusal = resolve_chain(self.role, [module], (self.files,))
+
+        self.assertIsNone(binding)
+        self.assertEqual(len(refusal.notes), 1)
+        self.assertIn("../photos", refusal.notes[0])
+        self.assertIn("outside the folder this run owns", refusal.notes[0])
+        self.assertEqual(set(self.tmp.iterdir()), before)
+
+    def test_a_contained_folder_asked_for_later_still_wins(self):
+        """A constructor that reads a sibling directory of its own and then its
+        photos from a folder here asked for both. The one this run can fill is
+        the one it is handed."""
+
+        module = _written(
+            "theirs",
+            "import os\n"
+            "def build():\n"
+            "    try:\n"
+            "        os.listdir('../elsewhere')\n"
+            "    except OSError:\n"
+            "        pass\n"
+            "    return sorted(os.listdir('photos'))\n",
+        )
+
+        binding, refusal = resolve_chain(self.role, [module], (self.files,))
+
+        self.assertIsNone(refusal)
+        self.assertEqual(binding.steps[0].supplied["folder"], "photos")
+
+
+class OneProbeLeavesTheFolderBehindForTheNext(unittest.TestCase):
+    """Every probe in a search shares one scratch directory, so the folder the
+    last one wrote is sitting there when the next one is called.
+
+    That is what makes the first call an observation and nothing more. It
+    settles which directory their code reads; the answer it returned came out
+    of whatever the previous probe left, so the folder is refilled with this
+    probe's own files and the call made again before anything is kept.
+
+    Both of these bound the wrong way before that second call existed: the
+    first refused a working reader outright, the second retained an answer
+    computed over another probe's input.
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.checkout = self.tmp / "checkout"
+        (self.checkout / "models").mkdir(parents=True)
+        (self.checkout / "models" / "config.txt").write_text("threshold = 0.5\n")
+
+    def _photos(self, where, names):
+        directory = self.tmp / where
+        directory.mkdir(parents=True, exist_ok=True)
+        made = []
+        for name in names:
+            path = directory / name
+            path.write_bytes(b"pretend photo")
+            made.append(path)
+        return made
+
+    def _two_candidates(self):
+        """A probed first, so the folder exists by the time B is called.
+
+        `constructors_in` reads a module in definition order, which is what
+        puts A first. A fills the folder and then fails the stage's output
+        check; B reads the same folder and its own config file and answers.
+        """
+
+        (self.checkout / "theirs.py").write_text(
+            "import os\n"
+            "from pathlib import Path\n"
+            "class A:\n"
+            "    def __init__(self):\n"
+            "        self.count = len(os.listdir('baseImages'))\n"
+            "class B:\n"
+            "    def __init__(self):\n"
+            "        here = Path(__file__).resolve().parent / 'models'\n"
+            "        sorted(os.listdir(here))\n"
+            "        self.config = (here / 'config.txt').read_text()\n"
+            "        self.where = sorted(os.listdir('baseImages'))\n"
+            "    def names(self):\n"
+            "        return list(self.where)\n"
+        )
+        module = _imported("theirs", self.checkout / "theirs.py")
+        self.addCleanup(sys.modules.pop, "theirs", None)
+        return module
+
+    def test_a_reader_that_also_opens_its_own_config_still_binds(self):
+        """A was refused for reading outside the scratch directory and so was
+        B, because the rule looked at every path a call touched rather than at
+        which folder it was handed."""
+
+        module = self._two_candidates()
+        role = Role(
+            "cluster",
+            (
+                Stage("make", produces=lambda v: hasattr(v, "names"), folder=True),
+                Stage("read", produces=lambda v: isinstance(v, list) and len(v) == 2),
+            ),
+        )
+
+        binding, refusal = resolve_chain(
+            role, [module], (self._photos("a", ["one.png", "two.png"]),)
+        )
+
+        self.assertIsNone(refusal)
+        self.assertEqual(binding.steps[0].supplied["folder"], "baseImages")
+        self.assertEqual(binding.steps[0].label, "theirs.B")
+
+    def test_a_second_probe_is_answered_over_its_own_files(self):
+        """Two inputs of different sizes through one scratch directory. The
+        second probe's call succeeds immediately, on the first probe's two
+        photos, and a stage that checks how many came back then refused a
+        reader that works."""
+
+        module = _written(
+            "plain",
+            "import os\n"
+            "def build():\n"
+            "    return sorted(os.listdir('baseImages'))\n",
+        )
+        first = self._photos("a", ["one.png", "two.png"])
+        second = self._photos("b", ["three.png"])
+        two = Role(
+            "cluster",
+            (
+                Stage(
+                    "d",
+                    produces=lambda v: isinstance(v, list) and len(v) == 2,
+                    folder=True,
+                ),
+            ),
+        )
+        one = Role(
+            "cluster",
+            (
+                Stage(
+                    "d",
+                    produces=lambda v: isinstance(v, list) and len(v) == 1,
+                    folder=True,
+                ),
+            ),
+        )
+
+        with pipeline._scratch_cwd():
+            before, _ = pipeline._resolve_chain(two, [module], (first,))
+            after, refusal = pipeline._resolve_chain(one, [module], (second,))
+
+        self.assertIsNotNone(before)
+        self.assertIsNone(refusal)
+        self.assertEqual(after.steps[0].supplied["folder"], "baseImages")
+
+
+class WhatGoesInThatFolderHasOneCorrectAnswer(unittest.TestCase):
+    """`_write_folder` is the one thing that fills a folder of ours, for the
+    search that discovers the binding and for the run that is scored.
+
+    They were two functions once, and the scored side never ran at all, so the
+    difference was invisible. Testing it here rather than only through a
+    resolved binding is deliberate: each of these has exactly one right answer
+    and none of them needs a repository to ask the question.
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.root = self.tmp / "home"
+        self.root.mkdir()
+
+    def _photo(self, where, name, body=b"pretend photo"):
+        path = self.tmp / where
+        path.mkdir(parents=True, exist_ok=True)
+        path = path / name
+        path.write_bytes(body)
+        return path
+
+    def test_the_files_land_under_the_name_their_code_asked_for(self):
+        one = self._photo("a", "one.png")
+        two = self._photo("a", "two.png")
+
+        self.assertIsNone(_write_folder(self.root, "baseImages", [one, two]))
+
+        self.assertEqual(
+            sorted(p.name for p in (self.root / "baseImages").iterdir()),
+            ["one.png", "two.png"],
+        )
+
+    def test_a_nested_name_is_made_the_whole_way_down(self):
+        one = self._photo("a", "one.png")
+
+        self.assertIsNone(_write_folder(self.root, "data/photos", [one]))
+
+        self.assertTrue((self.root / "data" / "photos" / "one.png").is_file())
+
+    def test_a_second_call_replaces_rather_than_adds_to_the_first(self):
+        """Their code lists the folder, so a file left behind by the last call
+        is an extra item in this call's answer."""
+
+        first = self._photo("a", "one.png")
+        second = self._photo("b", "three.png")
+        _write_folder(self.root, "baseImages", [first])
+
+        self.assertIsNone(_write_folder(self.root, "baseImages", [second]))
+
+        self.assertEqual(
+            [p.name for p in (self.root / "baseImages").iterdir()], ["three.png"]
+        )
+
+    def test_two_files_of_one_name_are_refused_rather_than_one_overwritten(self):
+        """A folder holds one file per name, so copying both would hand their
+        code one photo where the benchmark meant two, and nothing would say
+        so."""
+
+        one = self._photo("a", "one.png")
+        other = self._photo("b", "one.png", b"a different photo")
+
+        reason = _write_folder(self.root, "baseImages", [one, other])
+
+        self.assertIn("both called one.png", reason)
+        self.assertFalse((self.root / "baseImages").exists())
+
+    def test_a_name_that_climbs_out_is_refused_rather_than_clamped(self):
+        one = self._photo("a", "one.png")
+
+        for name in ("../elsewhere", str(self.tmp / "elsewhere")):
+            with self.subTest(name=name):
+                reason = _write_folder(self.root, name, [one])
+
+                self.assertIsNotNone(reason)
+                self.assertFalse((self.tmp / "elsewhere").exists())
+
+    def test_files_already_inside_the_destination_are_refused_not_deleted(self):
+        """Emptying the folder first is what makes a second call honest, and it
+        is also what would delete these before they could be copied."""
+
+        (self.root / "baseImages").mkdir()
+        theirs = self.root / "baseImages" / "one.png"
+        theirs.write_bytes(b"pretend photo")
+
+        reason = _write_folder(self.root, "baseImages", [theirs])
+
+        self.assertIn("already inside", reason)
+        self.assertTrue(theirs.is_file())
+
+    def test_copies_are_made_so_their_code_writes_to_ours_and_not_the_original(self):
+        one = self._photo("a", "one.png")
+
+        _write_folder(self.root, "baseImages", [one])
+        (self.root / "baseImages" / "one.png").write_bytes(b"they rewrote it")
+
+        self.assertEqual(one.read_bytes(), b"pretend photo")
 
 
 class TheNameFilterSkipsWordsAndNotSubstrings(unittest.TestCase):

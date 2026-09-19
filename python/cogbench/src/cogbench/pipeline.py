@@ -423,6 +423,47 @@ class _FitProvenance:
 
 
 @dataclass(frozen=True)
+class _Described:
+    """Where a step's code lives, in words rather than as the object itself.
+
+    `_namespace.Project.rebind` finds the same code in a fresh reading by
+    module and qualified name, so this is everything it reads. A binding kept
+    only to be replayed carries this instead of the search's own function or
+    class: those hold the module they came from, and the module holds whatever
+    one of their files parked in a global.
+
+    ``kind`` is how the search reached the code, which decides how a reading
+    reaches it again. A ``"method"`` names the class, and `Candidate.attribute`
+    names the method on it.
+    """
+
+    module: str
+    qualname: str
+    kind: str
+
+    @classmethod
+    def of(cls, candidate: "Candidate") -> "_Described":
+        """Where this candidate's code lives, described or still held."""
+
+        if candidate._described is not None:
+            return candidate._described
+        held = candidate.owner if candidate.owner is not None else candidate.call
+        return cls(
+            module=getattr(held, "__module__", None) or candidate.module,
+            qualname=(
+                getattr(held, "__qualname__", None)
+                or getattr(held, "__name__", None)
+                or ""
+            ),
+            kind=(
+                "method" if candidate.owner is not None
+                else "class" if isinstance(held, type)
+                else "function"
+            ),
+        )
+
+
+@dataclass(frozen=True)
 class Candidate:
     """One callable that might serve one stage."""
 
@@ -565,6 +606,12 @@ class Candidate:
     #: together with `module`, without inspecting the search-time closure.
     _fit_provenance: Optional[_FitProvenance] = field(default=None, repr=False)
 
+    #: Present on a step kept only to be replayed, where `call` and `owner`
+    #: have been taken off. See `_Described` and `resolve._replayed`.
+    _described: Optional[_Described] = field(
+        default=None, compare=False, repr=False,
+    )
+
     @property
     def bound(self) -> Callable[..., Any]:
         """The callable, called the way the search called it.
@@ -643,6 +690,31 @@ def runtime_pool(values: Dict[Any, Any]):
     finally:
         _RUNTIME.clear()
         _RUNTIME.update(previous)
+
+
+@contextlib.contextmanager
+def _sequential_owners():
+    """Run a block with the ownership a handed-over binding runs under.
+
+    A binding is renewed for the caller with no pool open, so each renewed
+    constructor's object is its receiver's own and the pool a week's adapter
+    opens masks it: what the adapter builds is what its own later calls read.
+    A verifier renews inside the pool `_resolve_chain` holds over the probe's
+    receivers, where those objects are pool entries that the adapter's pool
+    puts back when it exits, so the week's test judged a driver on the search
+    fixture's database rather than on the one it had just built.
+
+    What the pool held is restored on the way out, so the branches still being
+    searched are unaffected.
+    """
+
+    pooled = dict(_RUNTIME)
+    _RUNTIME.clear()
+    try:
+        yield
+    finally:
+        _RUNTIME.clear()
+        _RUNTIME.update(pooled)
 
 
 def _supplied_now(candidate: Candidate, name: str) -> Any:
@@ -945,7 +1017,7 @@ class Refusal:
     #: Anything the search learned about why nothing bound that the stage and
     #: the furthest chain do not say. A refusal names the hand-off that
     #: failed, which is the right headline and is sometimes not the reason:
-    #: see `_folders_of_their_own`, where the reason is a constructor the
+    #: see `_folders_we_could_not_fill`, where the reason is a constructor the
     #: search had to refuse three stages earlier.
     notes: Tuple[str, ...] = ()
     #: The candidates this search called that raised from inside their own
@@ -1846,29 +1918,45 @@ _SCRATCH: Optional["Path"] = None
 #: What one zero-argument constructor read and returned when dry-called
 #: during this search, by constructor and fixture files. Cleared with the
 #: scratch directory, because the answer is about files that live there.
-#: The last entry is the folder of their own the call read instead of ours,
-#: when it read one; see `_folder_of_their_own`.
+#: The last entry is what to say when there was nowhere to hand that call the
+#: benchmark's files; see `_folders_we_could_not_fill`.
 _DRY_CALLS: Dict[
     Tuple[int, Tuple[str, ...]], Tuple[Optional[str], bool, Any, Optional[str]]
 ] = {}
 
-#: The zero-argument constructors that answered out of a folder of their own,
-#: by label, and the folder each one read. A refusal turns these into the one
-#: sentence that says why a repository whose whole pipeline hangs off such a
-#: constructor could not be wired up. Cleared with `_DRY_CALLS`.
-_FOLDER_OF_THEIR_OWN: Dict[str, str] = {}
+#: The zero-argument constructors the benchmark had nowhere to put its files
+#: for, by label, and what was observed about each. A refusal turns these into
+#: the one sentence that says why a repository whose whole pipeline hangs off
+#: such a constructor could not be wired up. Cleared with `_DRY_CALLS`.
+_COULD_NOT_FILL: Dict[str, str] = {}
 
-#: The audit events that mean "this code is reading a directory". `open` is
-#: here because a folder read often ends in one, and its argument is what
-#: names the folder.
-_FOLDER_EVENTS = ("os.listdir", "os.scandir", "glob.glob", "pathlib.Path.glob", "open")
+#: The audit events that mean "this code listed a directory". Each names that
+#: directory in its first argument, `pathlib.Path.glob` included: its first
+#: argument is the path the pattern is walked from.
+#:
+#: One gap, measured on 3.8.20, 3.11.15 and 3.13.12: only the last two raise
+#: `pathlib.Path.glob` at all, and on 3.8 `Path.glob` swallows the failed
+#: `os.scandir` underneath it, so a team who reaches a folder that way is
+#: invisible there until the folder exists. Nothing is inferred to cover it. A
+#: directory guessed where nothing was observed is a folder of the benchmark's
+#: photos written somewhere nobody asked for one.
+_LISTING_EVENTS = ("os.listdir", "os.scandir", "glob.glob", "pathlib.Path.glob")
+
+#: The events watched, the listings plus `open`. A folder read often ends in
+#: one, and the file it opens says which folder it was reading.
+_FOLDER_EVENTS = _LISTING_EVENTS + ("open",)
 
 
 def _audit(event: str, arguments) -> None:  # pragma: no cover - process-wide hook
     if _WATCHED is None or event not in _FOLDER_EVENTS or not arguments:
         return
     try:
-        _WATCHED.append(str(arguments[0]))
+        # The event is kept, not only the path: which of these fired is the
+        # difference between a path that is a directory and one that is a file
+        # inside it, and it is the only evidence of that before the folder
+        # exists. Reading it off the name instead ("a dot means a file")
+        # mistook `my.photos/` for a file and `LICENSE` for a folder.
+        _WATCHED.append((event, str(arguments[0])))
     except Exception:  # noqa: BLE001 - an audit hook must never raise
         pass
 
@@ -1881,7 +1969,7 @@ def _watching():
     if not _HOOK_INSTALLED:
         sys.addaudithook(_audit)
         _HOOK_INSTALLED = True
-    seen: List[str] = []
+    seen: List[Tuple[str, str]] = []
     _WATCHED = seen
     try:
         yield seen
@@ -1901,20 +1989,23 @@ def _from_a_folder(
     photos are the benchmark's own, which is input in exactly the sense the
     week 2 fixture already is when it writes the same photos out as paths.
 
-    Nothing is guessed. The call is made once; if it raises, the audit hook
-    says which directory it was reading; and the files are written under that
-    directory's own name in the scratch working directory, which is the only
-    place this ever writes.
+    Nothing is guessed. The audit hook says which directory the call read, the
+    benchmark's files are written under that directory's name in the scratch
+    working directory, which is the only place this ever writes, and the call
+    is then made again over them.
 
-    Two limits, both deliberate. A call that succeeds while reading a
-    directory outside the scratch one answered about somebody else's data,
-    so it is refused rather than bound: measured on one 2026 repository,
-    `clusterCreator()` resolves `baseImages` from `Path(__file__)` and
-    describes the 34 photos of their own team, and binding that would score
-    their answer about their photos as if it were an answer about ours. And
-    that same shape is not rescued either, because the folder their code
-    computes is inside their checkout and writing there is not something a
-    benchmark may do. Both cases end in a refusal that names the stage.
+    What a binding here claims, and it claims nothing further: their code
+    asked for a directory of that name, this pair's own files were in it
+    before the call that bound, and the stage's own output check passed.
+    Whether what came back was computed from those files is not observable
+    from a list of paths their code touched, and is not asserted anywhere.
+    The week's acceptance test on a fresh reading is what settles it.
+
+    One shape is refused rather than bound: a call that reads a directory the
+    benchmark has nowhere to write, so there is no way to hand it the input at
+    all. Measured on one 2026 repository, `clusterCreator()` resolves
+    `baseImages` from `Path(__file__)` and returns 34 names with none of ours
+    on disk. The refusal names the stage and the path that was read.
     """
 
     if _required_parameters(candidate.call) != []:
@@ -1932,16 +2023,16 @@ def _from_a_folder(
     key = (id(candidate.call), tuple(str(f) for f in files))
     trial = replace(candidate, self_only=True)
     if key in _DRY_CALLS:
-        folder, ok, value, theirs = _DRY_CALLS[key]
+        folder, ok, value, note = _DRY_CALLS[key]
     else:
-        folder, ok, value, theirs = _dry_call_over_a_folder(trial, files)
-        _DRY_CALLS[key] = (folder, ok, value, theirs)
-    if theirs is not None:
+        folder, ok, value, note = _dry_call_over_a_folder(trial, files)
+        _DRY_CALLS[key] = (folder, ok, value, note)
+    if note is not None:
         # Refused just below, and the only place that knows both which
         # constructor it was and what it read. A repository whose pipeline
         # starts here has nothing else to offer, so the refusal that follows
-        # is the one place a team will look; see `_folders_of_their_own`.
-        _FOLDER_OF_THEIR_OWN[candidate.label] = theirs
+        # is the one place a team will look; see `_folders_we_could_not_fill`.
+        _COULD_NOT_FILL[candidate.label] = note
     if folder is None or not ok or value is None:
         return None
     # The stage's own output check is applied per stage and never memoized:
@@ -1959,173 +2050,166 @@ def _from_a_folder(
 def _dry_call_over_a_folder(
     trial: Candidate, files: Sequence[Any]
 ) -> Tuple[Optional[str], bool, Any, Optional[str]]:
-    """Call once, hand over the folder it asked for, and say what it read.
+    """Find the folder this call reads, fill it with these files, call again.
 
-    Returns ``(folder, ok, value, theirs)``: the folder the call read here or
-    was given, what it returned, and the folder of their own it answered out
-    of instead. ``folder`` is None when the call read no folder, read one
-    outside the scratch directory, or asked for one that could not be
-    written; ``theirs`` is set only in the middle case, so that a refusal can
-    say which folder it was. Memoized by the caller because the second call,
-    made after the folder exists, cannot be repeated: replaying only the
-    first half against a folder that now exists reads "nothing was wanted"
-    and refuses a class the first pass had bound.
+    Returns ``(folder, ok, value, note)``: the folder under the scratch
+    directory their code reads, what the second call returned over this pair's
+    own files, and what to say when there was nowhere to hand them over at
+    all. ``folder`` is None when the call read no folder we can fill.
+
+    The first call is an observation and only an observation. It settles which
+    directory their code looks in, and nothing else: a call that succeeds on
+    the first try read a folder some earlier probe in this same scratch
+    directory left behind, holding whatever files that probe was handed. So
+    the folder is refilled with this pair's files and the call repeated either
+    way, and the answer kept is the one made after they were there. Without
+    the refill, one probe's leftovers scored the next probe's input: a
+    two-file answer was retained for a one-file call, and a stage that checks
+    how many results came back then refused a reader that works.
+
+    Memoized by the caller per constructor and per input, because these two
+    calls cannot be replayed separately: their class may remember its first
+    answer, and replaying only the first half against a folder that now exists
+    reads "nothing was wanted".
     """
 
     with _watching() as seen:
         ok, value = _call(trial, ())
-    if ok and value is not None:
-        if _read_elsewhere(seen):
-            return None, ok, value, _folder_of_their_own(seen, trial.call)
-        return _folder_read_here(seen), ok, value, None
-    name = _folder_wanted(seen)
-    if name is None or not _materialize(name, files):
-        return None, False, None, None
+    answered = ok and value is not None
+    # Two answers to the same question, and the call returning is not what
+    # tells them apart. `_folder_read_here` is a fact about the disk and only
+    # has one when the folder was already there, left by an earlier probe in
+    # this same scratch directory. `_folder_wanted` is what the call asked
+    # for, which is all there is when the folder is missing, and a call can be
+    # missing its folder and still return: `glob.glob` over a directory that
+    # does not exist answers with an empty list rather than raising.
+    wanted, unwritable = _folder_wanted(seen)
+    here = _folder_read_here(seen)
+    if here is not None:
+        wanted = [here] + [name for name in wanted if name != here]
+    nothing_to_fill = _nowhere_to_put_them(seen) if answered else unwritable
+    if not wanted:
+        return None, ok, value, nothing_to_fill
+    # Each folder their code asked for, in the order it asked, until one can
+    # be filled. `_write_folder` is what decides that, so `../photos` and an
+    # escaping name are refused there, before anything is written, and a
+    # contained folder asked for later in the same call still wins.
+    filled, refused = None, None
+    for name in wanted:
+        reason = _materialize(name, files)
+        if reason is None:
+            filled = name
+            break
+        if refused is None:
+            refused = "asked for {}, and {}".format(name, reason)
+    if filled is None:
+        return None, False, None, refused or nothing_to_fill
     ok, value = _call(trial, ())
     if not ok or value is None:
         return None, False, None, None
-    return name, ok, value, None
+    return filled, ok, value, None
 
 
-def _folder_of_their_own(seen: Sequence[str], call: Any) -> Optional[str]:
-    """The folder of theirs, beside their own file, that this call listed.
+def _folder_named_by(event: str, read: str) -> Optional[str]:
+    """The directory one observation names, written the way their code wrote it.
 
-    Two filters, and both are what make the sentence a refusal writes out of
-    this true rather than merely plausible.
+    A listing event names its directory outright. `glob.glob` names it in the
+    part of the pattern before the first wildcard, and a wildcard inside a
+    segment (`da*/photos`) leaves that segment naming no directory at all.
+    `open` names a file, so the directory is its parent.
 
-    Only a directory counts. The audit hook records the path of every event
-    it watches and not which event it was, and a call that reads a folder of
-    photos also opens a model's weights and whatever its imports touch. A
-    listing names a directory; every one of those others names a file.
-
-    And only a directory under their own file. `~/.cache/torch/checkpoints`
-    is outside the scratch directory too, and saying their pipeline reads it
-    next to its own file would be false. What is being reported is a folder
-    they shipped, which is the one thing the benchmark cannot hand over and
-    cannot write into.
+    Nothing here touches the disk, because the caller that most needs an
+    answer is looking at a call that failed precisely because the folder was
+    not there. None means this observation named no directory.
     """
 
-    from pathlib import Path as _Path
-
-    if _SCRATCH is None:
-        return None
-    for read in seen:
-        try:
-            where = _Path(str(read)).resolve()
-        except OSError:
-            continue
-        if not where.is_dir():
-            continue
-        try:
-            where.relative_to(_SCRATCH)
-        except ValueError:
-            named = _their_name_for(where, call)
-            if named is not None:
-                return named
-    return None
+    text = str(read)
+    if event == "glob.glob":
+        cut = min((at for at in (text.find("*"), text.find("?")) if at >= 0), default=-1)
+        if cut >= 0:
+            head = text[:cut]
+            text = head if head.endswith(("/", "\\")) else os.path.dirname(head)
+    elif event == "open":
+        text = os.path.dirname(text)
+    text = text.rstrip("/\\")
+    return text or None
 
 
-def _their_name_for(folder: "Path", call: Any) -> Optional[str]:
-    """One folder of theirs, written the way the file that read it wrote it.
-
-    Relative to whichever directory above their file holds it, which for a
-    folder inside their checkout is the path they typed. None when no
-    directory above their file holds it, and the folder's own name when it
-    does but the path there is longer than anything they would have written.
-    """
-
-    from pathlib import Path as _Path
-
-    # A class is a harder thing to place than a function: `inspect.getfile`
-    # reads a class's file out of `sys.modules`, and a module discovery
-    # imported under a name of its own making is not there under the name the
-    # class remembers. Its `__init__` carries the filename in its own code
-    # object, which is the file the class was written in either way.
-    written = call if inspect.isfunction(call) else getattr(call, "__init__", call)
-    try:
-        theirs = _Path(inspect.getfile(written)).resolve().parent
-    except (TypeError, OSError):
-        return None
-    for anchor in (theirs, *theirs.parents):
-        if anchor == anchor.parent:
-            # The filesystem root holds everything, which says nothing.
-            break
-        try:
-            named = _Path(*folder.relative_to(anchor).parts)
-        except ValueError:
-            continue
-        # The first anchor that holds it is the closest one, so this is the
-        # shortest way to say where the folder is. Anything longer is a path
-        # across the machine rather than a name out of their code.
-        return str(named) if len(named.parts) <= 3 else folder.name
-    return None
-
-
-def _folder_read_here(seen: Sequence[str]) -> Optional[str]:
+def _folder_read_here(seen: Sequence[Tuple[str, str]]) -> Optional[str]:
     """The scratch folder this call read, when it read one.
 
-    Named as the top-level directory under the scratch working directory,
-    which is the name `_materialize` writes the benchmark's files under and
-    so the name a run page can put in a sentence.
+    Named by its whole path relative to the scratch working directory, which
+    is the path `_materialize` writes the benchmark's files under and so the
+    one a run page can put in a sentence. A team who reads `data/photos` is
+    handed `data/photos`; naming it `data` wrote the photos one directory
+    above where their own code then looked.
 
-    Returns None when the call touched no folder at all, which is the
-    difference between a pipeline written over a directory and a function
-    that happens to take no arguments.
+    Returns None when the call touched no folder under that directory, which
+    covers both a function that happens to take no arguments and one that
+    answered out of a directory somewhere else on the machine. The second is
+    refused by the caller, because a folder the benchmark cannot write is a
+    folder it cannot hand the input over in.
     """
-
-    from pathlib import Path as _Path
 
     if _SCRATCH is None:
         return None
-    for read in seen:
-        text = str(read)
-        if "*" in text or "?" in text:
-            text = text.split("*", 1)[0].split("?", 1)[0]
-        text = text.rstrip("/\\")
-        if not text:
+    for event, read in seen:
+        named = _folder_named_by(event, read)
+        if named is None:
             continue
-        where = _Path(text)
+        where = Path(named)
         try:
             resolved = (where if where.is_absolute() else _SCRATCH / where).resolve()
         except OSError:
             continue
-        # A listing names the folder; an `open` names a file inside it.
-        folder = resolved if resolved.is_dir() else resolved.parent
+        # This call succeeded, so the folder it read exists and can be asked
+        # what it is rather than inferred from its name.
+        if not resolved.is_dir():
+            continue
         try:
-            inside = folder.relative_to(_SCRATCH)
+            inside = resolved.relative_to(_SCRATCH)
         except ValueError:
             continue
         if not inside.parts:
             continue
-        return inside.parts[0]
+        return inside.as_posix()
     return None
 
 
-def _read_elsewhere(seen: Sequence[str]) -> bool:
-    """Whether this call got its data from outside the scratch directory.
+def _nowhere_to_put_them(seen: Sequence[Tuple[str, str]]) -> Optional[str]:
+    """What a call that read no folder of ours did read, for the refusal.
 
-    A zero-argument reader that succeeded because a folder it owns is full of
-    its own photos has answered a question about its own data. That answer is
-    not about the benchmark's input, however plausible its shape, so it is
-    not a binding.
+    Only a listing counts. A call that reads a folder of photos also opens
+    whatever its imports touch, and reporting one of those as the directory it
+    wanted names a file in site-packages as the reason a repository could not
+    be wired up.
+
+    The path is reported as it was read, with nothing inferred about whose
+    directory it is or what is in it. All that was observed is that their code
+    listed it, that it is not under the directory this search owns, and so
+    that there was nowhere to put the benchmark's files for this call.
     """
 
-    from pathlib import Path as _Path
-
     if _SCRATCH is None:
-        return True
-    for read in seen:
-        try:
-            where = _Path(str(read)).resolve()
-        except OSError:
+        return None
+    for event, read in seen:
+        if event not in _LISTING_EVENTS:
             continue
-        if not where.exists():
+        named = _folder_named_by(event, read)
+        if named is None:
+            continue
+        try:
+            where = Path(named).resolve()
+        except OSError:
             continue
         try:
             where.relative_to(_SCRATCH)
         except ValueError:
-            return True
-    return False
+            return (
+                "listed {}, which is not under the directory this run owns, so "
+                "the benchmark had nowhere to put its files for it".format(where)
+            )
+    return None
 
 
 def _files_in(positional: Sequence[Any]) -> List[Any]:
@@ -2149,63 +2233,177 @@ def _files_in(positional: Sequence[Any]) -> List[Any]:
     return [item for item in candidates if _Path(item).is_file()]
 
 
-def _folder_wanted(seen: Sequence[str]) -> Optional[str]:
-    """The name of a directory the failed call read and did not find here.
+def _folder_wanted(
+    seen: Sequence[Tuple[str, str]]
+) -> Tuple[List[str], Optional[str]]:
+    """The directories a failed call read and did not find here.
 
-    The name only. A path is a location on the machine that wrote it, and the
-    part of it that means anything to us is what the folder is called.
+    Returns ``(names, note)``: every relative folder their code asked for, in
+    the order it asked, and what to say when it asked only for places off this
+    machine's scratch directory.
+
+    Only a listing counts. The folder is not on the disk to be asked what it
+    is, so the event is the whole of the evidence, and reading an `open` as a
+    listing makes a folder out of the config file their constructor failed to
+    find, with the photos going somewhere their code never lists.
+
+    A relative name is one this search may be able to fill, since the call is
+    made from the scratch directory and reads it from there, and it is kept
+    whole: `data/photos` is neither `data` nor `photos`. An absolute path names
+    a place on the machine that ran, so it is reported rather than turned into
+    a folder of the same basename under the scratch directory, where their code
+    would never look and the retry would fail again with nothing said. All the
+    relative ones are handed back because only the caller's write settles which
+    of them this run can fill.
     """
 
-    from pathlib import Path as _Path
-
-    for read in seen:
-        text = str(read)
-        # A glob pattern names its directory in everything before the
-        # wildcard.
-        if "*" in text or "?" in text:
-            text = text.split("*", 1)[0].split("?", 1)[0]
-        name = _Path(text.rstrip("/\\")).name
-        if not name or "." in name:
+    names: List[str] = []
+    unwritable = None
+    for event, read in seen:
+        if event not in _LISTING_EVENTS:
             continue
-        here = _Path.cwd() / name
-        if here.exists() and any(here.iterdir()):
+        named = _folder_named_by(event, read)
+        if named is None:
             continue
-        return name
-    return None
+        if Path(named).is_absolute():
+            if unwritable is None:
+                unwritable = (
+                    "asked for {}, which names a place on the machine that ran "
+                    "rather than a folder this run can write".format(named)
+                )
+            continue
+        # One spelling per directory, the one `_folder_read_here` reports, so
+        # the name a binding records does not depend on which of the two
+        # produced it. Their `os.path.join("data", "photos")` is read as
+        # `data\photos` on Windows and names the same folder as `data/photos`;
+        # where a backslash is an ordinary character in a filename, this
+        # leaves the name alone.
+        wanted = Path(named).as_posix()
+        # A folder some earlier probe in this same scratch directory left
+        # behind, holding that probe's files. Emptying it to make room would
+        # be this call claiming a folder it never asked about.
+        here = Path.cwd() / wanted
+        if here.is_dir() and any(here.iterdir()):
+            continue
+        if wanted not in names:
+            names.append(wanted)
+    return names, unwritable
 
 
-def _materialize(name: str, files: Sequence[Any]) -> bool:
+def _materialize(name: str, files: Sequence[Any]) -> Optional[str]:
     """Write the benchmark's files into a folder of that name, here.
 
+    None means they are there. A string is why they are not, in the words a
+    refusal would use.
+
     Here means the scratch working directory the search already probes from,
-    and nowhere else: the check below refuses any destination that is not
+    and nowhere else: `_write_folder` refuses any destination that is not
     under it, so a repository being read cannot be written to whatever a
     student's code asked for.
     """
 
-    import shutil
-    from pathlib import Path as _Path
-
-    root = _Path.cwd().resolve()
+    root = Path.cwd().resolve()
     # The throwaway directory `_scratch_cwd` made, and nothing else. A
     # comparison against the working directory alone is not enough: a caller
     # that probes a stage without going through the search would then write
     # a folder of photos into whatever directory it happened to be in, which
     # during this change was a checkout of this repository.
     if _SCRATCH is None or root != _SCRATCH:
-        return False
-    folder = (root / name).resolve()
+        return "this search owns no directory to write a folder in"
+    return _write_folder(root, name, files)
+
+
+def _write_folder(root: Any, name: str, files: Sequence[Any]) -> Optional[str]:
+    """Put these files in ``<root>/<name>``, or say why they could not go.
+
+    None means the folder now holds exactly these files and nothing else; a
+    string is the reason, in the words a refusal would use.
+
+    One function for the search, which writes the folder to find out whether
+    their code reads one, and for a scored run, which writes it again with
+    that run's own files. "What is in that folder" has one correct answer, and
+    two implementations of it drifted apart once already.
+
+    Strict about four things, each of them a way the folder could end up
+    holding something other than what this call was handed. All four are
+    settled before anything is removed, so a refused write leaves whatever was
+    there for the last call still standing.
+
+    An escaping or absolute name is refused rather than clamped. The name came
+    out of their code, and a benchmark that quietly rewrites ``../photos`` into
+    a folder of its own choosing has written somewhere nobody asked it to.
+
+    Every source has to be a file on disk. Copying the ones that exist and
+    leaving out the rest would run their code over a smaller batch than the
+    benchmark handed over and score what came back as if it were the whole
+    answer.
+
+    Two sources with the same basename are refused rather than one silently
+    overwriting the other. Their code would see one file where the benchmark
+    handed over two, and count them.
+
+    Sources that already live in the destination are refused too, since
+    emptying it would delete the very files being copied. This checks the
+    paths as given; a directory being rewritten underneath us while this runs
+    is not something it defends against.
+
+    Whatever was there is then removed, so a second call with different files
+    finds this call's input and not the last call's as well.
+    """
+
+    import shutil
+
+    root = Path(root).resolve()
+    if not name or Path(name).is_absolute():
+        return "{!r} is not a folder name this run can write".format(name)
     try:
-        folder.relative_to(root)
-    except ValueError:
-        return False
+        # Resolved rather than merely normalized, so a symlink sitting at that
+        # name is followed here and caught by the check below, instead of
+        # being removed along with whatever it points at.
+        resolved = (root / name).resolve()
+        resolved.relative_to(root)
+    except (OSError, ValueError):
+        return "{!r} is outside the folder this run owns".format(name)
+
+    sources = [Path(source) for source in files]
+    missing = []
+    for source in sources:
+        try:
+            if not source.is_file():
+                missing.append(str(source))
+        except OSError:
+            missing.append(str(source))
+    if missing:
+        return "{} {} not a file on disk".format(
+            ", ".join(sorted(missing)), "is" if len(missing) == 1 else "are"
+        )
+    together: Dict[str, int] = {}
+    for source in sources:
+        together[source.name] = together.get(source.name, 0) + 1
+    repeated = sorted(base for base, count in together.items() if count > 1)
+    if repeated:
+        return (
+            "two of the benchmark's files are both called {}, and a folder "
+            "holds one of each name".format(", ".join(repeated))
+        )
+    for source in sources:
+        try:
+            source.resolve().relative_to(resolved)
+        except (OSError, ValueError):
+            continue
+        return "the benchmark's files are already inside {}".format(name)
+
     try:
-        folder.mkdir(parents=True, exist_ok=True)
-        for source in files:
-            shutil.copyfile(str(source), str(folder / _Path(source).name))
-    except OSError:
-        return False
-    return True
+        if resolved.is_dir():
+            shutil.rmtree(str(resolved))
+        elif resolved.exists():
+            resolved.unlink()
+        resolved.mkdir(parents=True)
+        for source in sources:
+            shutil.copyfile(str(source), str(resolved / source.name))
+    except OSError as error:
+        return "{}/ could not be written: {}".format(name, error)
+    return None
 
 
 def _pick_element(stage: Stage, produced: Sequence[Any]) -> Tuple[Optional[int], Any]:
@@ -3431,22 +3629,24 @@ def _scratch_cwd():
             _SCRATCH = was
             _THEIR_ROOT = None
             _DRY_CALLS.clear()
-            _FOLDER_OF_THEIR_OWN.clear()
+            _COULD_NOT_FILL.clear()
             _RAISED.clear()
             os.chdir(previous)
 
 
-def _folders_of_their_own() -> Tuple[str, ...]:
-    """Why a constructor that reads a folder of their own could not be used.
+def _folders_we_could_not_fill() -> Tuple[str, ...]:
+    """Why a constructor that reads a folder could not be given one.
 
     A pipeline written over a directory is a shape the search supports: a
-    constructor that takes nothing is handed the benchmark's photos in a
-    folder of the name its code looks for. That only works while the folder
-    it looks for is one the benchmark can write. A constructor that resolves
-    its folder from its own file finds its own photos instead, succeeds, and
-    has answered a question about their data rather than ours, so it is
-    refused; writing the benchmark's photos into their checkout to make it
-    ours is not something a benchmark may do.
+    constructor that takes nothing is handed the benchmark's files in a folder
+    of the name its code looks for. That only works while the folder it looks
+    for is one the benchmark can write, and a constructor that resolves its
+    folder from its own file or from an absolute path reads somewhere a
+    benchmark may not write.
+
+    The observation half of each sentence is written where it is observed, by
+    `_nowhere_to_put_them` and `_folder_wanted`; this adds what to change and
+    sorts them.
 
     The refusal that follows names the hand-off that failed, which for such a
     repository is three stages downstream and true but useless. Measured on
@@ -3459,11 +3659,10 @@ def _folders_of_their_own() -> Tuple[str, ...]:
     """
 
     return tuple(
-        "{}() reads {}/ next to its own file, which holds your photos rather "
-        "than the benchmark's, so it cannot be given the benchmark's photos; "
-        "a constructor that takes the folder path as an argument, or reads it "
-        "relative to the working directory, can.".format(label, folder)
-        for label, folder in sorted(_FOLDER_OF_THEIR_OWN.items())
+        "{}() {}; a constructor that takes the folder path as an argument, or "
+        "reads one relative to the working directory, can be handed "
+        "them.".format(label, note)
+        for label, note in sorted(_COULD_NOT_FILL.items())
     )
 
 
@@ -3603,7 +3802,7 @@ def _resolve_chain(
             "nothing accepted the {} the benchmark passes".format(
                 "arguments" if first.arity > 1 else "input"
             ),
-            notes=_folders_of_their_own(),
+            notes=_folders_we_could_not_fill(),
             errors=_raised_in_this_search(),
         )
 
@@ -3862,7 +4061,7 @@ def _resolve_chain(
                     furthest[-1] if furthest else "the last step"
                 ),
                 last_returned=last_returned,
-                notes=_folders_of_their_own(),
+                notes=_folders_we_could_not_fill(),
                 errors=_raised_in_this_search(),
             )
         frontier = nxt
