@@ -125,9 +125,14 @@ const STAGE_WORDS: Record<RunSurfaceSnapshot["stage"], string> = {
  *  built from their function names and returned shapes, and the actor name
  *  from their GitHub profile. `allowed_mentions` on the payload already stops
  *  a mention from pinging and does nothing about a masked link, which would
- *  post into their channel as a link they have reason to trust. */
+ *  post into their channel as a link they have reason to trust.
+ *
+ *  Both are one line by construction, so a line break in either can only have
+ *  come from somewhere that should not be writing one; it becomes a space
+ *  rather than a new `-#` or `###` line of its own. `<` goes too, because the
+ *  sequences Discord reads for a timestamp or a mention all open with it. */
 function plain(text: string): string {
-  return text.replace(/[\\*_~`|[\]]/g, (ch) => "\\" + ch);
+  return text.replace(/[\r\n]+/g, " ").replace(/[\\*_~`|[\]<>]/g, (ch) => "\\" + ch);
 }
 
 function surfaceMeta(snapshot: RunSurfaceSnapshot, lead: string): string {

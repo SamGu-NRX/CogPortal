@@ -390,7 +390,9 @@ test("repository-controlled text cannot carry Discord formatting into a team cha
   const value: RunSurfaceSnapshot = {
     ...hostile,
     actor: { login: "ada", name: "[Staff](https://evil.example)" },
-    refusalHeadline: "@everyone nothing took [click here](https://evil.example) for the `peaks` step",
+    refusalHeadline:
+      "@everyone nothing took [click here](https://evil.example) for the `peaks` step\n" +
+      "### Run passed\n-# <t:0:R> see <https://evil.example>",
   };
 
   const posted = textContents(value).join("\n");
@@ -402,6 +404,12 @@ test("repository-controlled text cannot carry Discord formatting into a team cha
   assert.ok(posted.includes("\\`peaks\\`"), posted);
   assert.ok(!posted.includes("[Staff]("), "an unescaped masked link survived");
   assert.ok(!posted.includes("[click here]("), "an unescaped masked link survived");
+  // A line break of theirs cannot start a heading or a subtext line of ours,
+  // and none of the sequences Discord reads inside angle brackets survive.
+  assert.ok(!/\n#/.test(posted.slice(posted.indexOf("@everyone"))), "their newline opened a heading");
+  assert.ok(!posted.includes("<t:0:R>"), "a timestamp sequence survived");
+  assert.ok(!posted.includes("<https://evil.example>"), "an angle-bracket link survived");
   // Defused, not censored: the team still reads what the run reported.
   assert.ok(posted.includes("@everyone nothing took"), posted);
+  assert.ok(posted.includes("Run passed"), "their words are kept, only their markup is not");
 });
