@@ -10,6 +10,47 @@ import { ApiRequestError } from "@/lib/api";
 import { useDevLogin, useSession } from "@/lib/queries";
 import { pendingConnectionReturn } from "@/lib/pending-return";
 
+/**
+ * What each `?error=` code from the GitHub callback means to the student.
+ *
+ * Better Auth redirects here with a machine code and nothing else
+ * (`redirectOnError` in better-auth/dist/oauth2/errors.mjs); the Worker asks
+ * it to by setting errorCallbackURL to /signin. Nothing else records a failed
+ * callback, so a refusal this page does not name cannot be explained after the
+ * fact, which is what happened to a sign-in on 2026-09-15.
+ *
+ * Only codes this deployment can reach are listed. Codes raised before the
+ * OAuth state is parsed go to Better Auth's own /api/auth/error instead, and
+ * the link-account codes need a linkSocialAccount flow the portal never uses.
+ */
+const SIGN_IN_ERRORS: Record<string, string> = {
+  // A user row already holds this email and no github account row matches the
+  // identity that just signed in. Enabling account linking would merge them,
+  // which we deliberately don't do: githubLogin is the portal's identity, and
+  // overrideUserInfoOnSignIn would rewrite it to the newer account.
+  account_not_linked:
+    "A Cog*Portal account already uses that email, and it isn't linked to this GitHub account. Sign in with the GitHub account you used before.",
+  state_mismatch:
+    "Your sign-in expired or began in another tab. Start again from this page.",
+  invalid_code:
+    "GitHub didn't accept the sign-in code, which usually means it was already used. Start again from this page.",
+  unable_to_get_user_info:
+    "GitHub didn't answer when we asked who you are. Try again shortly.",
+  email_not_found:
+    "GitHub didn't send us an email address for that account, and we need one to make your Cog*Portal account. Ask course staff to take a look.",
+  unable_to_create_user:
+    "We couldn't create your Cog*Portal account. Ask course staff to take a look.",
+};
+
+export function signInErrorMessage(code: string): string {
+  // GitHub and Better Auth both spell a cancellation with "denied"
+  // (access_denied, oauth_denied), so it is matched rather than listed.
+  if (code.includes("denied")) {
+    return "GitHub sign-in was cancelled. Sign in again when you're ready.";
+  }
+  return SIGN_IN_ERRORS[code] ?? "GitHub sign-in failed. Try again.";
+}
+
 export function SignInPage() {
   const sessionQuery = useSession();
   const { data: session } = sessionQuery;
@@ -87,14 +128,17 @@ export function SignInPage() {
             </>
           )}
           {oauthError && (
-            <p role="alert" className="mt-3 text-center text-[13px] text-detect-deep">
-              {/* GitHub and Better Auth both spell a cancellation with
-                  "denied" (access_denied, oauth_denied); anything else is a
-                  real failure and we don't claim to know which. */}
-              {oauthError.includes("denied")
-                ? "GitHub sign-in was cancelled. Sign in again when you're ready."
-                : "GitHub sign-in failed. Try again."}
-            </p>
+            <div role="alert" className="mt-3">
+              {/* Left-aligned like the paragraph above the button: these
+                  sentences run to three lines, and centering left a ragged
+                  last line under a full-width control. */}
+              <p className="text-[13px] text-detect-deep">{signInErrorMessage(oauthError)}</p>
+              {/* The raw code stays on screen for every outcome, so a TA
+                  reading over a student's shoulder has something to search. */}
+              <p className="mt-1.5 font-mono text-[11px] tracking-[0.06em] text-ink-faint">
+                {oauthError}
+              </p>
+            </div>
           )}
         </div>
 
