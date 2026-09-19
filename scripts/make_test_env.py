@@ -12,15 +12,14 @@ run, and the natural reading is that something is broken.
 
 Versions come from `cogbench.environment`, which is the same data the hosted
 images are built from, so this interpreter matches the graded run rather than
-approximating it. That is not tidiness. Installing an unpinned scikit-image
-here pulled numpy 2.4 over the pinned 1.24, and every module in a student
-repository that imports numpy stopped importing with
+approximating it. Installing an unpinned scikit-image here pulled numpy 2.4
+over the pinned 1.24, and every module in a student repository that imports
+numpy stopped importing with
 
     ImportError: numpy.core.multiarray failed to import
 
 which discovery correctly recorded as a skip and which read, from the
-outside, as five real repositories suddenly failing to resolve. The pin is
-load-bearing and the reason is worth the two minutes it costs to build this.
+outside, as five real repositories suddenly failing to resolve.
 
 The environment is deliberately not the union of all three graded images: it
 carries Week 1's librosa and Week 2's torch in one interpreter, which no

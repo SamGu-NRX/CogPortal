@@ -212,7 +212,6 @@ export async function fetchCommitHistory(
       return { ok: false, reason: "fetch_failed" };
     }
 
-    // Only from the first page, and only when it actually moved.
     if (page === 1 && response.url) {
       const moved = /\/repos\/([^/]+)\/([^/?]+)\/commits/.exec(response.url);
       if (moved && (moved[1] !== owner || moved[2] !== name)) {

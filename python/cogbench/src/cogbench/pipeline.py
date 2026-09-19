@@ -1,33 +1,18 @@
 """Bind a benchmark's roles to a student's functions by running them.
 
-The alternative was a table of names per role, extended every time a team
-called something new. That is a list of the implementations we happened to
-think of, and it rots between cohorts. What does not rot is the task: a week 1
-submission enrolls songs and identifies a clip, whatever its functions are
-called, and a chain of their functions either does that or it does not.
+The alternative was a table of names per role, and it rots between cohorts. So
+names are a search order and nothing else. The evidence that binds is a call:
+hand a candidate the input a stage receives, see whether what comes back is
+the shape the next stage takes, and keep going. A chain is accepted only when
+the whole thing runs end to end and returns the right answer on cases the
+benchmark made up. A shape check cannot stand in for that: a wrong binding
+does not fail loudly, it returns a number.
 
-So names are a search order and nothing else. The evidence that binds is a
-call: hand a candidate the input a stage receives, see whether what comes back
-is the shape the next stage takes, and keep going. A chain is accepted only
-when the whole thing runs end to end and returns the right answer on cases the
-benchmark made up.
-
-Why the running matters, from the corpus. ``carti4ce.find_peaks`` accepts raw
-audio samples and returns an ndarray of shape ``(440, 1)``, which passes any
-"is this a peak list" check you would write. Feeding that to their own
-``make_fgp`` raises ``IndexError``. Their real spectrogram through the same two
-functions gives 355 peaks and 5158 fingerprints. A shape check cannot tell
-those apart, and a wrong binding does not fail loudly: it returns a number, and
-a number is indistinguishable from a real result.
-
-Two rules follow, and they are the reason this file is careful rather than
-clever:
+Two rules follow:
 
 **A stage's output is passed to the next stage unchanged.** Never re-scaled,
-re-shaped, or re-typed. ``carti4ce.make_spectrogram`` already returns a
-log-scaled array; taking a log of it again produced NaNs and zero peaks. Their
-threshold is tuned to their own scaling, and anything we do in between scores
-our arithmetic instead of their code.
+re-shaped, or re-typed. Their threshold is tuned to their own scaling, and
+anything we do in between scores our arithmetic instead of their code.
 
 **A stage is probed only with input a benchmark can honestly make.** Audio
 samples and a rate are canonical; "a peaks array" is not, because every team
@@ -89,11 +74,9 @@ _NEVER = ("test", "plot", "show", "display", "demo", "main", "visuali")
 #: so a candidate that records audio, opens a file dialog, or reloads a native
 #: audio backend is skipped rather than called.
 #:
-#: The third of those is not hypothetical: probing ``slicing.split_mp3`` in one
-#: audited repository loads a second copy of soxr through pydub and aborts the
-#: interpreter with a nanobind duplicate-key error. That is not an exception a
-#: caller can catch, which is why this is a static check before the call rather
-#: than a guard around it.
+#: Probing ``slicing.split_mp3`` in one audited repository loads a second copy
+#: of soxr through pydub and aborts the interpreter, which no caller can
+#: catch; hence a static check before the call rather than a guard around it.
 _SIDE_EFFECTING = (
     "record_audio",
     "input(",
@@ -139,16 +122,11 @@ class Stage:
     #: Whether this stage's answer may be left on the value it was given
     #: rather than returned.
     #:
-    #: Week 2's course text is explicit about this: `propagate_label` "should
-    #: update that node's label", and `whispers` calls it repeatedly while
-    #: recording how the component count changes. So their `whispers` returns
-    #: diagnostics and the labels are on the graph it was handed. Reading the
-    #: answer means calling one more of their functions on that same graph.
-    #:
-    #: When set, a stage that ran and returned something this stage does not
-    #: recognize also offers the value it was given, so the next stage can
-    #: read it. Nothing is inspected or reconstructed; their own function is
-    #: what turns the graph back into an answer.
+    #: Week 2's course text tells students `propagate_label` "should update
+    #: that node's label", so their `whispers` returns diagnostics and the
+    #: labels are on the graph it was handed. When set, a stage that returned
+    #: something unrecognized also offers the value it was given, so one more
+    #: of their own functions can read the answer off it.
     in_place: bool = False
 
     #: Values to try for a required tuning argument the function has no
@@ -157,73 +135,54 @@ class Stage:
     #: Week 2's course text tells students to pick a cosine-distance cutoff by
     #: eye, so their graph builders take it as a required argument. The
     #: benchmark knows what range is meaningful for its own metric and the
-    #: search does not, so the benchmark says: these are the numbers worth
-    #: trying. A team that defaulted theirs is unaffected, because the plain
-    #: call is tried first.
-    #:
-    #: This is not tuning their algorithm. Whichever value binds is the one
-    #: their chain then runs with, and the benchmark scores that.
+    #: search does not. The plain call is tried first, and whichever value
+    #: binds is the one their chain then runs with.
     tunings: Tuple[Any, ...] = ()
 
     #: Whether a function that handles one item may be called once per item.
     #:
-    #: Week 2's capstone document hands students one photo at a time
-    #: ("image = io.imread(str(path_to_image))"), and their descriptor
-    #: functions take one path and return one vector. The benchmark works on a
-    #: folder. Calling a per-photo function once per photo is not a
-    #: transformation of their answer; it is the loop the course wrote around
-    #: it, and refusing over its absence would refuse the whole corpus.
+    #: Week 2's capstone document hands students one photo at a time, so their
+    #: descriptor functions take one path and return one vector while the
+    #: benchmark works on a folder. The loop is the one the course wrote
+    #: around them, not a transformation of their answer.
     per_item: bool = False
     #: Whether one function may do this step and the next one together.
     #:
-    #: The course names five steps and one 2026 team wrote four functions:
-    #: their `identifying_peaks(samples, rate)` computes a spectrogram and
-    #: finds peaks in it, returning both. That is not a missing step, it is
-    #: the same work in one function, and a search that insisted on a
-    #: separate spectrogram would refuse a complete pipeline.
-    #:
-    #: Set on the step that may be absorbed, and only where fusing is a shape
-    #: real teams write. The chain is still accepted only by the end-to-end
-    #: test, so allowing the shorter path costs nothing but attempts.
+    #: The course names five steps and teams write fewer: one
+    #: `identifying_peaks(samples, rate)` computes a spectrogram and finds
+    #: peaks in it. Set on the step that may be absorbed. The chain is still
+    #: accepted only by the end-to-end test, so the shorter path costs
+    #: nothing but attempts.
     fusible: bool = False
 
     #: Names of side inputs every call of this stage also takes, looked up in
     #: the extras pool the search carries (benchmark resources, plus whatever
     #: a `fit` stage produced).
     #:
-    #: A side input is data, never arithmetic. Week 3's
-    #: `embed_captions_batch(texts, glove, idfs)` needs the course's GloVe
-    #: vectors and an inverse-document-frequency table; the first is a
-    #: benchmark artifact and the second is what THEIR own `compute_idfs`
-    #: returned. Neither is a step of their algorithm and neither can be
-    #: manufactured from the stage's value.
+    #: A side input is data, never arithmetic: a benchmark artifact, or what
+    #: THEIR own earlier function returned. Neither is a step of their
+    #: algorithm and neither can be manufactured from the stage's value.
     #:
     #: Tried in three positions, in this order: after the value, before it,
-    #: and by keyword where the signature names them. Both positions are
-    #: needed and neither is guessable from names. Measured on the corpus:
-    #: Lashika's week 3 `embed_captions_batch(texts, glove, idfs)` takes them
-    #: last, and CoggurtFilter's week 2 `detect_and_describe(model, image)`
-    #: takes the FaceNet model FIRST.
+    #: and by keyword where the signature names them. Both positions occur in
+    #: the corpus and neither is guessable from names.
     extras: Tuple[str, ...] = ()
 
     #: Whether this stage is computed once from its own input and handed to
     #: later stages rather than being a link in the chain.
     #:
-    #: Week 3 is the case. All four repositories compute an IDF table from the
-    #: whole caption corpus (`compute_idfs`, `find_idfs`, `compute_idf`) and
-    #: then pass it to every call of their text embedder. That table is not a
-    #: stage value: nothing downstream consumes it as its input, everything
-    #: downstream takes it alongside its input. So it runs once, against
-    #: `fixture`, and joins the extras pool under this stage's name.
+    #: Week 3's IDF table is the case: nothing downstream consumes it as its
+    #: input, everything downstream takes it alongside its input. So it runs
+    #: once, against `fixture`, and joins the extras pool under this stage's
+    #: name.
     fit: bool = False
     #: Whether the search may go on without this fit stage when nothing in
     #: the repository computes it. A stage that binds without the extra is
     #: then offered its input alone, which `_shapes` already does for any
-    #: extra absent from the pool. Measured on one 2026 repository (Asterisk
-    #: week 3): the IDF weighting lives inside their `CaptionVectorizer`,
-    #: nothing maps a corpus to a word-to-idf table, and their embedder takes
-    #: the caption alone; a required `idfs` fit refused the whole text side
-    #: before that embedder was ever called.
+    #: extra absent from the pool. One 2026 repository keeps its IDF
+    #: weighting inside a class and maps no corpus to a table, so a required
+    #: `idfs` fit refused the whole text side before their embedder, which
+    #: takes the caption alone, was ever called.
     optional: bool = False
 
     #: This stage's own input, when it has one. A `fit` stage is called with
@@ -234,24 +193,21 @@ class Stage:
     #: identity: the path the benchmark handed over, or its index.
     #:
     #: Week 2's Bagel repository writes `Whispers(vectors, names, threshold)`,
-    #: where `names` is one label per descriptor and exists so their node
-    #: objects can say which photo they came from. The benchmark knows which
-    #: photo each descriptor came from -- it is the input it just passed -- so
-    #: handing that back is input, not algorithm. Only parameters whose name
-    #: asks for one (`name`, `id`, `label`, `path`, `file`, `image`, `photo`)
-    #: are offered it, and only after the value, the extras, and the tunings
-    #: have taken their slots.
+    #: where `names` is one label per descriptor. The benchmark knows which
+    #: photo each descriptor came from, so handing that back is input, not
+    #: algorithm. Only parameters whose name asks for one are offered it, and
+    #: only after the value, the extras, and the tunings have taken their
+    #: slots.
     identity: bool = False
 
     #: Whether a candidate that reads a folder may be handed the benchmark's
     #: own files as that folder.
     #:
-    #: Off by default for two reasons, both measured rather than assumed.
-    #: Detecting the read needs `sys.addaudithook`, which cannot be removed
-    #: once installed and taxes every `open` in the process for the rest of
-    #: its life. And a stage that declares this starts calling zero-argument
-    #: candidates, which the search never does otherwise, so a week that does
-    #: not want that keeps the search it has.
+    #: Off by default for two reasons. Detecting the read needs
+    #: `sys.addaudithook`, which cannot be removed once installed and taxes
+    #: every `open` in the process for the rest of its life. And a stage that
+    #: declares this starts calling zero-argument candidates, which the
+    #: search never does otherwise.
     folder: bool = False
 
 
@@ -265,12 +221,10 @@ class Role:
     #: Sub-chains resolved over one shared candidate pool, one shared extras
     #: pool, and one shared set of constructed instances.
     #:
-    #: Week 3 is four surfaces rather than one line: captions become vectors,
-    #: descriptors become vectors, ids and descriptors become a store, and a
-    #: query returns ids. They share the IDF table, the GloVe vectors, and in
-    #: three of the four repositories the store object itself. A single chain
-    #: cannot say that, and running four independent searches would lose the
-    #: sharing, which is the whole shape of the week.
+    #: Week 3 is four surfaces rather than one line, and they share the IDF
+    #: table, the GloVe vectors, and often the store object itself. A single
+    #: chain cannot say that, and four independent searches would lose the
+    #: sharing.
     #:
     #: When set, `stages` is empty and the verifier is handed a dict of branch
     #: name to bound chain rather than one chain.
@@ -280,11 +234,9 @@ class Role:
     #: fixture is used when it is None.
     #:
     #: May be a callable ``(pool, chains) -> fixture``, evaluated at the
-    #: moment the branch is resolved rather than when the role was built.
-    #: Week 3 needs that in both directions: the search branch is probed with
-    #: the text branch's own chain applied to the query string, and the
-    #: prepare branch is offered the image branch's projected matrix as its
-    #: descriptor slot. Neither value exists when the role is constructed.
+    #: moment the branch is resolved rather than when the role was built,
+    #: because week 3's branches take values other branches produce and
+    #: neither exists when the role is constructed.
     #: A callable that raises, or returns None, means this branch cannot be
     #: probed yet on this pass; the fixpoint in `_resolve_branches` comes
     #: back to it once another branch has filled the pool.
@@ -292,12 +244,10 @@ class Role:
 
     #: Whether the role still resolves when this branch does not.
     #:
-    #: Week 3 with no trained weights in the repository is the case. The
-    #: decided policy withholds the overall and the three image-side numbers
-    #: rather than zeroing them (docs/design/discovery-v2-brief.md, "Absent
-    #: weights"), which only means anything if the text branch still binds.
-    #: Refusing the whole role over the image half reports "your code is not
-    #: wired up" to a team whose caption embedding works.
+    #: Week 3 with no trained weights is the case: the decided policy
+    #: withholds the image-side numbers rather than zeroing them
+    #: (docs/design/discovery-v2-brief.md, "Absent weights"), which only
+    #: means anything if the text branch still binds.
     #:
     #: A required branch that never resolves refuses the role and names
     #: itself. An optional one is recorded on the binding under `missing`
@@ -321,7 +271,7 @@ class Fixtures(tuple):
         """The form the first step of ``chain`` was bound with.
 
         A chain from a single-form search carries no index and gets the
-        first form, which is the only one there was.
+        first form.
         """
 
         index = getattr(chain[0], "form", None) if chain else None
@@ -334,8 +284,7 @@ class _Partial:
 
     ``stages`` is carried rather than derived, because a fused step makes the
     chain shorter than the stage list and there is no way to work out
-    afterwards which function absorbed which step. Recording it as it happens
-    is the only version that is right.
+    afterwards which function absorbed which step.
     """
 
     chain: Tuple["Candidate", ...]
@@ -350,9 +299,8 @@ class _Partial:
     reach: Tuple["Candidate", ...] = ()
     #: How many stages were skipped by handing their INPUT to a later step
     #: (see the forward reading in `_resolve_chain`). Weaker evidence than a
-    #: stage absorbed backward, where one of their functions was seen to
-    #: produce the later stage's output; counted so the final ask tries such
-    #: chains after the others.
+    #: stage absorbed backward; counted so the final ask tries such chains
+    #: after the others.
     forward: int = 0
 
 
@@ -367,28 +315,22 @@ class Candidate:
     #: method rather than a plain function. The search fills one instance with
     #: fixture songs while proving a binding works, and scoring must not start
     #: from that: the fixture would sit in the database competing with the
-    #: benchmark's own catalog. Given this, a fresh object can be built and the
-    #: same method taken off it.
+    #: benchmark's own catalog.
     rebuild: Optional[Callable[[], Any]] = field(default=None, compare=False)
     #: The tuning value the search bound this step with, or None when the
     #: plain call worked. Part of the binding, not of the search: whichever
     #: cutoff made their `adj_list(paths, threshold)` run is the cutoff their
     #: chain must run with when it is scored, and when the acceptance test
-    #: runs it. Measured on one 2026 repository before this existed: the
-    #: search bound `adj_list` at threshold 0.3, then handed the bare
-    #: candidate to the acceptance test, which called it with one argument,
-    #: got `TypeError: missing 1 required positional argument`, and reported
-    #: "your code ran end to end and answered a different grouping". Their
-    #: code had not run at all.
+    #: runs it. Without it the acceptance test called `adj_list` with one
+    #: argument, raised, and reported a wrong answer for code that had never
+    #: run.
     tuning: Any = None
     #: Which form of the benchmark's input this first step accepted, as an
     #: index into the `Fixtures` it was probed with, or None when there was
     #: only one form. Week 2 offers the same photos as arrays and as paths.
-    #: A function that took paths was then handed arrays by the acceptance
-    #: test and by the scored run, because neither knew which one had bound.
-    #: Measured on two 2026 repositories: `adj_list` did `p.parent` on an
-    #: ndarray, `nodes_and_adj` did `imread` on one, and both were reported
-    #: as having run and answered wrongly.
+    #: Without it a function that took paths was handed arrays by the
+    #: acceptance test and by the scored run, and reported as having run and
+    #: answered wrongly.
     form: Optional[int] = None
     #: Whether this step left its answer on the value it was given rather
     #: than returning it, so the chain must carry that value forward past
@@ -403,15 +345,13 @@ class Candidate:
     #: index, and ``"extra:<name>"`` is a side input from the extras pool.
     #:
     #: Empty means the call the search has always made: the value, then the
-    #: tuning if there is one. Keeping that as its own case is deliberate --
-    #: a week that declares no extras and no identity gets byte-identical
-    #: calls to the ones it got before this existed.
+    #: tuning if there is one. Kept as its own case so a week that declares
+    #: no extras and no identity gets byte-identical calls.
     #:
     #: A plan rather than a closure because a binding is written down and
-    #: replayed. `tuning` and `form` are here for the same reason and for the
-    #: same measured failure: a step re-called differently from the way the
-    #: search called it is a different program, and the report then blames
-    #: the student for a call they never made.
+    #: replayed. A step re-called differently from the way the search called
+    #: it is a different program, and the report then blames the student for
+    #: a call they never made.
     plan: Tuple[str, ...] = ()
     #: Extras passed by keyword instead of by position, by parameter name.
     keywords: Tuple[str, ...] = ()
@@ -424,15 +364,14 @@ class Candidate:
     #:
     #: The search already calls a per-item function once per item to prove a
     #: binding (`_mapped`). Without recording it, the acceptance test and the
-    #: scored run hand the whole collection to a function that takes one
-    #: photo, which raises on its first line and is reported as their bug.
+    #: scored run hand the whole collection to a one-photo function, which
+    #: raises and is reported as their bug.
     per_item: bool = False
     #: Which element of each per-item result is this stage's output, when
     #: their function returns several things per item.
     #:
     #: Week 2's Bagel repository returns `(boxes, probabilities, descriptors)`
-    #: per photo. The descriptors are element 2, and gathering them is not a
-    #: transformation of their answer: it is reading the part of what they
+    #: per photo. Gathering element 2 is reading the part of what they
     #: returned that the next step takes, which is what `_handoffs` already
     #: does for a single return value.
     element: Optional[int] = None
@@ -463,15 +402,11 @@ class Candidate:
     #: nothing here transforms a value: it is passed exactly as it was
     #: returned, or exactly one part of it is.
     #:
-    #: Recorded for the same reason as `tuning`, `form`, and `in_place`. The
-    #: search knows which reading bound at the moment it binds, and a run
-    #: that re-executes the chain later has nothing to work it out from:
-    #: rutvim's week 1 `spectrogram_conversion` returns `(log_spectrogram,
-    #: peaks)` and their `generate_fingerprints` accepts either, returning
-    #: 609 fingerprints and scoring 0.547 on the peaks and 2970 and 0.094 on
-    #: the spectrogram (benchmarks/week1/tests/test_discovered_chain.py,
-    #: `WhichPartOfATupleTheNextStepIsHanded`). Both readings run, so the
-    #: difference is a score rather than an error.
+    #: Recorded for the same reason as `tuning`, `form`, and `in_place`: a
+    #: run that re-executes the chain later has nothing to work it out from,
+    #: and both readings run, so the difference is a score rather than an
+    #: error (benchmarks/week1/tests/test_discovered_chain.py,
+    #: `WhichPartOfATupleTheNextStepIsHanded`).
     handoff: Optional[str] = None
 
     @property
@@ -479,8 +414,7 @@ class Candidate:
         """The callable, called the way the search called it.
 
         One code path for the search, the acceptance test, and the scored
-        run. Every field above exists because those three drifted apart once
-        and a chain that had been proved raised on its first call.
+        run, which once drifted apart.
         """
 
         if (
@@ -505,10 +439,9 @@ class Candidate:
     ) -> "Candidate":
         """The same candidate called a different way.
 
-        What was already on `supplied` is kept underneath. A candidate that
-        is itself one of the benchmark's own objects (see `_from_pool`)
-        carries the note saying so, and building a shape out of it must not
-        drop that note: it is the only record that the step the chain ran
+        What was already on `supplied` is kept underneath, because a
+        candidate that is itself one of the benchmark's own objects (see
+        `_from_pool`) carries the only record that the step the chain ran
         was not one of their functions.
         """
 
@@ -525,9 +458,8 @@ class Candidate:
 #: Values that replace a step's remembered side inputs for the duration of one
 #: run. Set by a week's discovered adapter before it runs a chain, so a step
 #: whose extra was another branch's output takes THIS run's output rather
-#: than the search fixture's. Measured before this existed: a prepare step
-#: bound with supplied={"image": <fixture rows>} built the scored database
-#: from the fixture's projected descriptors, not the run's.
+#: than the search fixture's, instead of building the scored database from
+#: the fixture's values.
 _RUNTIME: Dict[str, Any] = {}
 
 
@@ -554,9 +486,7 @@ def _arguments(candidate: Candidate, positional: Sequence[Any], index: Optional[
     """The exact positional arguments and keywords one call is made with.
 
     ``index`` names which item of a per-item call this is, so the identity
-    slot holds that item's own name rather than the whole list. Their
-    descriptor function takes one photo and one photo's name; the stage that
-    builds a graph takes every descriptor and every name.
+    slot holds that item's own name rather than the whole list.
     """
 
     if not candidate.plan:
@@ -575,15 +505,9 @@ def _arguments(candidate: Candidate, positional: Sequence[Any], index: Optional[
         elif slot == "tuning":
             args.append(candidate.tuning)
         elif slot == "identity":
-            # This run's items, not the search's. The identity slot holds the
-            # names of the photos the benchmark is passing, and the search
-            # bound it on the fixture's copies; a scored run writes its own
-            # and then reads the answer back by those names. Measured on week
-            # 2's Bagel repository, whose `Whispers(vectors, names, threshold)`
-            # stores each name on its node and whose `sorted_images` returns
-            # the groups keyed by them: replaying the search's names made
-            # every group name a photo this run had never seen, and placing
-            # the answer raised instead of scoring.
+            # This run's items, not the search's: a scored run writes its
+            # own copies and reads the answer back keyed by those names, so
+            # replaying the search's names names photos this run never saw.
             identities = (
                 _RUNTIME["identity"]
                 if "identity" in _RUNTIME
@@ -602,18 +526,11 @@ def _rebound(candidate: Candidate, positional: Sequence[Any]) -> Callable[..., A
     """This step's callable, taken off the object the chain is carrying now.
 
     A method reached through a constructor stage is stored as the bound
-    method of the object the SEARCH built, out of the search's fixture. A
-    scored run builds that object again from the benchmark's real input, and
-    a step that kept calling the first one answers about the fixture:
-    `Good([1]).read()` bound during the search still returned `[1]` after the
-    constructor was replayed with `[9]`, so a run could report fixture state
-    as the student's answer.
-
-    The chain already carries the new object -- it is what the constructor
-    step just returned and what this step is called with -- so the method is
-    taken off that. Falls back to the stored callable whenever the carried
-    value is not one of these objects, which is every step that is not a
-    method of a constructor stage's instance, so nothing else changes.
+    method of the object the SEARCH built, out of the search's fixture, and a
+    step that kept calling that one would report fixture state as the
+    student's answer. The chain already carries the object this run built, so
+    the method is taken off that; anything else falls back to the stored
+    callable.
     """
 
     if candidate.attribute is None:
@@ -621,9 +538,7 @@ def _rebound(candidate: Candidate, positional: Sequence[Any]) -> Callable[..., A
     # The object this run built, in one of two places: carried by the chain
     # as the value the constructor step just returned, or, for a method
     # reached from ANOTHER branch, in the runtime pool under that branch's
-    # name. Measured before the second was read: a search branch bound to
-    # `Store([1]).search` from the prepare branch kept answering about
-    # `[1]` after the scored run had built `Store([9])`.
+    # name.
     holders: List[Any] = []
     if positional:
         holders.append(positional[0])
@@ -642,19 +557,14 @@ def _handed(candidate: Candidate, positional: Sequence[Any]) -> Tuple[Any, ...]:
     """The upstream value read the way the search read it when this bound.
 
     `extend` offers a stage's value whole and then taken apart (`_handoffs`),
-    and whichever reading ran is recorded on the step. This applies that same
-    reading to the value a later call carries, so the acceptance test and the
-    scored run make the call the search made. Nothing is transformed: the
-    value is passed as it was returned, spread as the arguments it already
-    is, or one of its parts is passed as it was returned.
+    and whichever reading ran is recorded on the step. Nothing is
+    transformed: the value is passed as it was returned, spread as the
+    arguments it already is, or one of its parts is passed as it was
+    returned.
 
-    A value the reading cannot be applied to raises, with the reading and
-    the value named. The search bound this step on a value that had this
-    part; a scored run that hands it one that does not has an upstream
-    whose shape changed, which is their bug to see. Falling through to the
-    whole value instead, which the first draft did, silently scored a
-    different call from the one the search proved: measured with a step
-    bound on "element:2" and handed a pair, it was called with the pair.
+    A value the reading cannot be applied to raises rather than falling
+    through to the whole value, which would silently score a different call
+    from the one the search proved.
     """
 
     if candidate.handoff is None or not positional:
@@ -663,8 +573,7 @@ def _handed(candidate: Candidate, positional: Sequence[Any]) -> Tuple[Any, ...]:
     rest = tuple(positional[1:])
     try:
         # These readings were discovered on a tuple and mean nothing on
-        # anything else. A list would spread and a string would index, and
-        # either is a call the search never proved.
+        # anything else: a list would spread and a string would index.
         if candidate.handoff in ("spread", "reversed") and not isinstance(value, tuple):
             raise TypeError("not a tuple")
         if candidate.handoff == "spread":
@@ -722,10 +631,7 @@ def _carried(candidate: Candidate, positional: Sequence[Any], result: Any) -> An
 
     The search recorded an in-place step as answering on the object it was
     given (`extend`, the `stage.in_place` branch) and carried that object
-    forward; a scored run has to carry the same thing. One helper for every
-    call path, because the first version covered only the plain call and an
-    independent review found the self-only and cross-branch paths handing
-    the next step None.
+    forward; a scored run has to carry the same thing, on every call path.
     """
 
     if candidate.in_place and result is None and positional:
@@ -748,10 +654,9 @@ class Binding:
     def observations(self):
         """Every step that ran, with what it received and returned.
 
-        This is the reproduction a student debugs from when the chain runs and
-        answers wrongly. It is the platform's whole contribution to that case:
-        it can say what ran and what came back, and it cannot say which line is
-        wrong, so it says the first and stops.
+        The reproduction a student debugs from when the chain runs and
+        answers wrongly. The platform cannot say which line is wrong, so it
+        says what ran and what came back, and stops.
         """
 
         from .verdict import Observation
@@ -780,11 +685,10 @@ class Binding:
     _received: Tuple[str, ...] = field(default=(), compare=False)
     _returned: Tuple[str, ...] = field(default=(), compare=False)
     #: What this chain's last step produced, kept so a later branch of the
-    #: same role can be probed with it. Bagel's week 3
+    #: same role can be probed with it: Bagel's week 3
     #: `CaptionImageQuery(EMBEDDINGS, ids)` takes the image branch's
     #: projected matrix and Lashika's search takes the prepare branch's
-    #: store; before this the value a branch produced was thrown away the
-    #: moment the branch was accepted, so neither could be reached.
+    #: store.
     #:
     #: Not part of the record and not compared: it is a live object out of
     #: their code, sometimes a large array, and two runs of the same
@@ -820,15 +724,12 @@ class Refusal:
     ran_to_the_end: bool = False
     #: Anything the search learned about why nothing bound that the stage and
     #: the furthest chain do not say. A refusal names the hand-off that
-    #: failed, which is the right headline and is sometimes not the reason:
-    #: see `_folders_of_their_own`, where the reason is a constructor the
-    #: search had to refuse three stages earlier.
+    #: failed, which is sometimes not the reason: see `_folders_of_their_own`.
     notes: Tuple[str, ...] = ()
     #: The candidates this search called that raised from inside their own
     #: code, in the order they were tried. "Nothing accepted the input" is
-    #: what the search observed; these are the reasons underneath it, and on
-    #: one 2026 repository the reason is a single bad import three files away
-    #: from anything the headline names.
+    #: what the search observed; these are the reasons underneath it, which
+    #: can be a bad import in a file the headline never names.
     errors: Tuple[Raised, ...] = ()
 
 
@@ -899,11 +800,10 @@ def _namespaced_in(owner: type, module_name: str, class_name: str) -> List[Candi
     A class whose functions take no `self` is a namespace, not a type: one
     2026 team keeps its whole week 1 pipeline under `class Spectogram:` and
     calls each piece as `Spectogram.match_fingerprint(fp, db, index)`.
-    `methods_of` only ever exposes the bound copy, where the first argument
-    is swallowed as `self`, so their matcher could take two arguments where
-    it needs three and nothing in the repository answered the query. The
-    first parameter not being named `self` is what separates such a
-    function from a method, and every real method stays with `methods_of`.
+    `methods_of` only ever exposes the bound copy, whose first argument is
+    swallowed as `self`. The first parameter not being named `self` is what
+    separates such a function from a method, and every real method stays
+    with `methods_of`.
     """
 
     found: List[Candidate] = []
@@ -978,13 +878,10 @@ def constructors_in(modules: Sequence[Any]) -> List[Candidate]:
     is what it produces, and the only honest moment to build one is the
     moment the stage runs, with the value the previous stage returned.
 
-    Measured on the corpus, three repositories are unreachable without this
-    and all three are complete pipelines: Lashika's week 3
-    `ImageDatabase(image_ids, descriptors, W)`, Bagel's week 3
-    `CaptionImageQuery(embeddings, ids)`, and Bagel's week 2
-    `Whispers(vectors, names, threshold)`. Under the old rule every one of
-    them was skipped and their methods were never enumerated, so the search
-    reported that nothing accepted the descriptors.
+    Three corpus repositories are complete pipelines unreachable without
+    this: `ImageDatabase(image_ids, descriptors, W)`,
+    `CaptionImageQuery(embeddings, ids)`, and
+    `Whispers(vectors, names, threshold)`.
 
     Only for stage probing. `callables_in` still refuses classes, so the
     store-and-query pairing search sees exactly what it saw before.
@@ -1060,21 +957,6 @@ def folder_readers_in(modules: Sequence[Any]) -> List[Candidate]:
     return found
 
 
-def rebuilder_for(instance: Any) -> Optional[Callable[[], Any]]:
-    """A way to build another object like this one, or None.
-
-    Only for a class that constructs with no arguments, which is the only kind
-    `instances_in` builds in the first place.
-    """
-
-    owner = type(instance)
-
-    def _build() -> Any:
-        return owner()
-
-    return _build
-
-
 def methods_of(
     label: str, instance: Any, *, build: Optional[Callable[[], Any]] = None
 ) -> List[Candidate]:
@@ -1097,13 +979,9 @@ def methods_of(
         try:
             value = getattr(instance, name, None)
         except BaseException:  # noqa: BLE001 - reading an attribute runs their code
-            # A property is their code, and reading one runs it. Week 2's
-            # Lashika repository has `Profile.average_descriptor`, a property
-            # that averages the descriptors it was built with; on an object
-            # the search constructed out of a cutoff there are none, and
-            # `np.mean(0.3, axis=0)` raises. Enumerating what an object can
-            # do must never end discovery, so an attribute that will not be
-            # read is simply not a candidate.
+            # A property is their code, and reading one runs it, which can
+            # raise on an object the search constructed. Enumerating what an
+            # object can do must never end discovery.
             continue
         if not callable(value) or isinstance(value, type):
             continue
@@ -1175,20 +1053,14 @@ def _record_raise(candidate: Candidate, error: BaseException) -> None:
     The search calls candidates with input they may not take, so most of what
     lands here is the probe being wrong rather than their code being wrong: a
     call with the wrong arity raises TypeError from the calling frame, which
-    is ours, and `where_it_raised` returns None for it. A timeout is ours too,
-    since it is our clock rather than anything they wrote.
+    is ours, and `where_it_raised` returns None for it. A timeout is ours too.
 
     One entry per candidate, because a stage calls the same function in
-    several shapes and three lines differing only in which arguments we
-    guessed say nothing a student can use. Which of those calls is kept is
-    decided by whether it raised in the candidate's own file. Measured on
-    rutvim's week 2 repository: `whispers.create_graph` was first offered the
-    photos as arrays, which its own `jpg_to_rgb` tried to open as a path, and
-    the FileNotFoundError that produced is about our probe. Offered the
-    photos as paths it reaches its own line 66 and raises
-    `module 'pyexpat.model' has no attribute 'detect'`, which is the bug in
-    that repository. A raise it triggered in another of their files belongs
-    to whichever function owns that file, and the search probes that one too.
+    several shapes and lines differing only in which arguments we guessed say
+    nothing a student can use. Which of those calls is kept is decided by
+    whether it raised in the candidate's own file, since a raise in another
+    of their files belongs to whichever function owns that file and the
+    search probes that one too.
     """
 
     if _THEIR_ROOT is None or isinstance(error, _Timeout):
@@ -1253,26 +1125,20 @@ def _throwaway_paths_out(message: str) -> str:
     return _THROWAWAY.sub("a temporary path", message)
 
 
-#: How many raises a refusal carries. Five was the first number tried and it
-#: hid the answer: on rutvim's week 2 repository twelve of their functions
-#: raise, and the one that explains all of them (`whispers.py:66`, an
-#: attribute taken off `pyexpat.model` because line 1 imports the wrong
-#: `model`) is the ninth in candidate order. A repository this broken has a
-#: dozen lines to report and a compiler would print all of them; the cap is
-#: here to bound the block, not to choose for the reader. Under the protocol's
-#: own limit of sixteen, which is what a stored refusal may carry.
+#: How many raises a refusal carries. Five hid the answer on one corpus
+#: repository, where twelve of their functions raise and the one that
+#: explains all of them is ninth in candidate order. The cap is here to bound
+#: the block, not to choose for the reader, and sits under the protocol's own
+#: limit of sixteen for a stored refusal.
 _ERRORS_IN_A_REFUSAL = 12
 
 
 def _raised_in_this_search() -> Tuple[Raised, ...]:
     """Everything their code raised while this search ran.
 
-    Not scoped to the stage that refused, though that was the first thing
-    tried. A stage after the first is reached by extending chains, and every
-    candidate that was going to raise had already raised while the first
-    stage probed it, so the per-stage slice was empty for every refusal
-    except a first-stage one. Measured on week 2's CoggurtFilter, which
-    stalls four stages in and reported nothing.
+    Not scoped to the stage that refused: every candidate that was going to
+    raise had already raised while the first stage probed it, so a per-stage
+    slice was empty for every refusal except a first-stage one.
 
     One line per place, not per function: several of their functions calling
     one broken helper is one problem, and repeating it once per caller buries
@@ -1295,9 +1161,7 @@ def _raised_in_this_search() -> Tuple[Raised, ...]:
 def _their_root(modules: Sequence[Any]) -> Optional["Path"]:
     """The directory holding the modules discovery read, or None.
 
-    The common parent of their files. A repository that keeps a matcher at
-    its root and descriptors under `core/` gives the root; one whose code all
-    sits in `Week2/` gives `Week2/`, which is what a student would type.
+    The common parent of their files, which is what a student would type.
     """
 
     folders = []
@@ -1320,14 +1184,12 @@ def _call(
     """Call one candidate under a clock. Any failure is just a no.
 
     ``positional`` is what the chain carries: the value, or the arguments a
-    fixture is made of. Everything else the call needs -- the tuning, the
-    side inputs, the item's identity -- is on the candidate as a plan, and is
-    filled in here so that this call and the one a scored run makes later are
-    produced by the same three lines.
+    fixture is made of. Everything else the call needs is on the candidate as
+    a plan, and is filled in here so that this call and the one a scored run
+    makes later are produced by the same lines.
 
-    A no is still a no. What changes is that a no caused by their own code
-    raising is written down first: see `_record_raise`. The search does not
-    read it, and a refusal does.
+    A no caused by their own code raising is written down first (see
+    `_record_raise`); the search does not read it, and a refusal does.
     """
 
     if candidate.self_only:
@@ -1341,11 +1203,8 @@ def _call(
         inspect.signature(candidate.call).bind(*args, **keywords)
     except (TypeError, ValueError):
         return False, None
-    # Windows has no SIGALRM. There the per-call clock is not enforced and
-    # a probe that hangs is caught only by the whole-of-discovery wall clock
-    # in `run_isolated`, which Windows also lacks; the CLI already says
-    # discovery is not isolated there. Guarding here keeps the module
-    # importable and the search running on the platforms it can run on.
+    # Windows has no SIGALRM, so the per-call clock is not enforced there
+    # and the CLI already says discovery is not isolated on that platform.
     alarm = hasattr(signal, "SIGALRM")
     previous = signal.signal(signal.SIGALRM, _raise_timeout) if alarm else None
     if alarm:
@@ -1353,10 +1212,9 @@ def _call(
     try:
         # The alarm is cancelled inside the guarded block, not in the outer
         # `finally`. A call that returns just as the clock runs out has the
-        # alarm land between the return and the cancel; when the cancel sat
-        # in `finally`, that was outside the `except`, and the `_Timeout`
-        # left this function and ended the whole search. Measured on one
-        # 2026 repository whose constructor probe took ten seconds.
+        # alarm land between the return and the cancel, and a cancel in the
+        # outer `finally` is outside the `except`, so the `_Timeout` escaped
+        # and ended the whole search.
         try:
             with _muted():
                 result = candidate.call(*args, **keywords)
@@ -1377,11 +1235,9 @@ def _call(
 def _muted():
     """Probe without the student's console.
 
-    Their functions narrate: one prints every fingerprint it built, which is
-    thousands of lines per call and tens of thousands across a search. Their
-    output belongs to their run, not to ours, so probing captures it and
-    throws it away. What a student sees is the report, which says what was
-    tried and what came back.
+    Their functions narrate, and one that prints every fingerprint it built
+    is thousands of lines per call. Their output belongs to their run, not to
+    a speculative probe, so it is captured and thrown away.
     """
 
     saved_out, saved_err = sys.stdout, sys.stderr
@@ -1410,16 +1266,14 @@ def probe_sources(
 
     ``extras`` is the pool of side inputs a stage may declare (see
     ``Stage.extras``); ``identities`` names the items the benchmark is passing
-    (see ``Stage.identity``). Both default to nothing, which is the search as
-    it was.
+    (see ``Stage.identity``).
     """
 
     accepted: List[Tuple[Candidate, Any]] = []
     # A benchmark may offer its input in more than one form. Week 2's photos
     # are arrays, and the capstone document tells students to write a function
-    # taking image paths, so all three audited teams did. The same photos
-    # either way; which form their function takes is theirs to decide, and
-    # refusing the one the course taught would be our contract failing them.
+    # taking image paths, so refusing either form would refuse the shape the
+    # course taught.
     forms = fixture if isinstance(fixture, Fixtures) else (fixture,)
     pool = dict(extras or {})
     for candidate in _order_for(stage, candidates) + _from_pool(stage, pool):
@@ -1440,10 +1294,9 @@ def probe_sources(
                 break
         if bound is None:
             continue
-        # The same reading `extend` applies downstream. One team's first
-        # function returns `(peaks, freqs, times, spectrogram)`, so requiring
-        # the whole return value to look like a spectrogram refused a
-        # function that had plainly done the work.
+        # The same reading `extend` applies downstream, because one team's
+        # first function returns `(peaks, freqs, times, spectrogram)` and
+        # only one element of it is this stage's output.
         if stage.produces is None or _safe_produces(stage, value):
             accepted.append((replace(bound, form=which), value))
     return accepted
@@ -1453,12 +1306,10 @@ def _from_pool(stage: Stage, pool: Dict[str, Any]) -> List[Candidate]:
     """The side inputs this stage declared that are themselves callable.
 
     A side input is usually data. Bagel's week 3 image encoder is not: it is
-    `ImageToCaption()`, built with no arguments, handed their own pickle
-    through `.load(path)`, and then called. The object is theirs and the
-    weights inside it are theirs; the only thing the benchmark supplied is
-    the path. Nothing in the repository can serve that stage, because
-    `methods_of` skips `__call__` along with every other underscore name and
-    the loaded instance lives in the pool rather than in a module.
+    a callable object of theirs loaded from their own pickle, and nothing in
+    the repository can serve that stage, because `methods_of` skips
+    `__call__` along with every other underscore name and the loaded
+    instance lives in the pool rather than in a module.
 
     Offered after every candidate the repository itself provides, so one of
     their functions always wins where one exists, and recorded as supplied so
@@ -1491,8 +1342,7 @@ def identities_for(identities: Sequence[Any], form: Sequence[Any]) -> Sequence[A
     Given by the caller when it knows (the week hands over photo paths).
     Otherwise read off the input itself: a sequence of paths or strings
     identifies its items by name, anything else by position. Both are things
-    the benchmark already knows about its own input, which is why offering
-    one is input rather than an answer.
+    the benchmark already knows about its own input.
     """
 
     if identities:
@@ -1526,11 +1376,11 @@ def _bind_one(
 ) -> Tuple[Optional[Candidate], Any]:
     """The first way of calling this candidate that returns something.
 
-    The order is the one the search has always used -- the plain call, then
-    once per item, then the benchmark's tunings -- with the declared side
-    inputs and the identity slot tried in between: after the plain call, so a
-    team who needs none is unaffected, and before the tunings, so a required
-    resource is not mistaken for a cutoff.
+    The order is the plain call, then once per item, then the benchmark's
+    tunings, with the declared side inputs and the identity slot tried in
+    between: after the plain call, so a team who needs none is unaffected,
+    and before the tunings, so a required resource is not mistaken for a
+    cutoff.
     """
 
     if stage.folder:
@@ -1556,23 +1406,18 @@ def _bind_one(
             ):
                 return shape, value
             # Their function took the whole list and answered, but not with
-            # this stage's output. One 2026 tokenizer walks its argument
-            # character by character, so handed 75 captions it treated each
-            # caption as a character, joined them, and returned one flat
-            # token list; the per-item form was never tried because the
-            # whole call had "succeeded", and the branch refused. The
-            # per-item form is tried before the whole answer is kept, and
-            # kept only when it looks like this stage's output.
+            # this stage's output: a tokenizer that walks its argument
+            # character by character "succeeds" on a list of captions. So the
+            # per-item form is tried before the whole answer is kept.
             ok, produced = _mapped(shape, positional)
             if ok and produced:
                 element, offered = _pick_element(stage, produced)
                 if _safe_produces(stage, offered):
                     return replace(shape, per_item=True, element=element), offered
             # Neither reading looks like this stage's output; the next
-            # shape (side inputs, keywords, identity) may. Returning the
-            # wrong whole answer here ended the candidate: a tokenizer that
-            # returns nothing without its table never reached the shape
-            # that supplies it.
+            # shape (side inputs, keywords, identity) may, and returning the
+            # wrong whole answer here ends the candidate before the shape
+            # that supplies its table is tried.
             continue
         if stage.per_item and not spread:
             ok, produced = _mapped(shape, positional)
@@ -1591,10 +1436,9 @@ def _bind_one(
     return None, None
 
 
-#: How many branch attempts a form search may make in one role. A guard for
-#: a role with many multi-form branches, set with no evidence of being
-#: reached: week 3 has one four-form branch and every other week has one
-#: form per branch.
+#: How many branch attempts a form search may make in one role. No corpus
+#: week comes near it: week 3 has one four-form branch and every other week
+#: has one form per branch.
 _FORM_ATTEMPTS = 32
 
 #: Where a folder read is recorded while one dry probe runs, or None when
@@ -1661,25 +1505,19 @@ def _from_a_folder(
 
     Some teams wrote a pipeline over a folder rather than over arguments:
     their constructor takes nothing, reads a directory, and describes every
-    photo in it. That is not a missing function, it is a different interface
-    to the same work, and the honest answer is to give them a folder. The
-    photos are the benchmark's own, which is input in exactly the sense the
-    week 2 fixture already is when it writes the same photos out as paths.
+    photo in it. The photos are the benchmark's own, which is input in
+    exactly the sense the week 2 fixture already is when it writes the same
+    photos out as paths.
 
     Nothing is guessed. The call is made once; if it raises, the audit hook
     says which directory it was reading; and the files are written under that
     directory's own name in the scratch working directory, which is the only
     place this ever writes.
 
-    Two limits, both deliberate. A call that succeeds while reading a
-    directory outside the scratch one answered about somebody else's data,
-    so it is refused rather than bound: measured on one 2026 repository,
-    `clusterCreator()` resolves `baseImages` from `Path(__file__)` and
-    describes the 34 photos of their own team, and binding that would score
-    their answer about their photos as if it were an answer about ours. And
-    that same shape is not rescued either, because the folder their code
-    computes is inside their checkout and writing there is not something a
-    benchmark may do. Both cases end in a refusal that names the stage.
+    A call that succeeds while reading a directory outside the scratch one
+    answered about their own photos, so it is refused rather than bound. It
+    is not rescued either, because the folder their code computes is inside
+    their checkout and writing there is not something a benchmark may do.
     """
 
     if _required_parameters(candidate.call) != []:
@@ -1689,11 +1527,9 @@ def _from_a_folder(
         return None
     # One dry call per constructor per search. The call is what decides
     # whether the class reads a folder, and its answer does not change
-    # between the fixture forms or the stages that ask. Measured on one
-    # 2026 repository: `clusterCreator()` builds a FaceNet model and
-    # describes their own 34 photos on every call, about four seconds, and
-    # was called once per form per folder-declaring stage, which is what
-    # put that repository past the ten-minute budget.
+    # between the fixture forms or the stages that ask. One corpus
+    # constructor takes four seconds a call, which once per form per
+    # folder-declaring stage put that repository past the budget.
     key = (id(candidate.call), tuple(str(f) for f in files))
     trial = replace(candidate, self_only=True)
     if key in _DRY_CALLS:
@@ -1703,17 +1539,14 @@ def _from_a_folder(
         _DRY_CALLS[key] = (folder, ok, value, theirs)
     if theirs is not None:
         # Refused just below, and the only place that knows both which
-        # constructor it was and what it read. A repository whose pipeline
-        # starts here has nothing else to offer, so the refusal that follows
-        # is the one place a team will look; see `_folders_of_their_own`.
+        # constructor it was and what it read; see `_folders_of_their_own`.
         _FOLDER_OF_THEIR_OWN[candidate.label] = theirs
     if folder is None or not ok or value is None:
         return None
     # The stage's own output check is applied per stage and never memoized:
     # the same constructor is offered to every folder-declaring stage, and
-    # week 2's `Album()` is not descriptors but is a graph, so the
-    # descriptors stage refuses it and the graph stage, one probe later,
-    # binds it. A memo that stored the refusal lost the binding.
+    # one that is not descriptors may still be a graph, so a memo that stored
+    # the descriptors stage's refusal lost the graph stage's binding.
     if stage.produces is not None and not _safe_produces(stage, value):
         return None
     supplied = dict(trial.supplied)
@@ -1731,10 +1564,9 @@ def _dry_call_over_a_folder(
     of instead. ``folder`` is None when the call read no folder, read one
     outside the scratch directory, or asked for one that could not be
     written; ``theirs`` is set only in the middle case, so that a refusal can
-    say which folder it was. Memoized by the caller because the second call,
-    made after the folder exists, cannot be repeated: replaying only the
-    first half against a folder that now exists reads "nothing was wanted"
-    and refuses a class the first pass had bound.
+    say which folder it was. Memoized by the caller because replaying only
+    the first half against a folder that now exists reads "nothing was
+    wanted" and refuses a class the first pass had bound.
     """
 
     with _watching() as seen:
@@ -1755,19 +1587,13 @@ def _dry_call_over_a_folder(
 def _folder_of_their_own(seen: Sequence[str], call: Any) -> Optional[str]:
     """The folder of theirs, beside their own file, that this call listed.
 
-    Two filters, and both are what make the sentence a refusal writes out of
-    this true rather than merely plausible.
-
-    Only a directory counts. The audit hook records the path of every event
+    Only a directory counts: the audit hook records the path of every event
     it watches and not which event it was, and a call that reads a folder of
-    photos also opens a model's weights and whatever its imports touch. A
-    listing names a directory; every one of those others names a file.
+    photos also opens files.
 
-    And only a directory under their own file. `~/.cache/torch/checkpoints`
-    is outside the scratch directory too, and saying their pipeline reads it
-    next to its own file would be false. What is being reported is a folder
-    they shipped, which is the one thing the benchmark cannot hand over and
-    cannot write into.
+    And only a directory under their own file, because
+    `~/.cache/torch/checkpoints` is outside the scratch directory too and
+    saying their pipeline reads it next to its own file would be false.
     """
 
     from pathlib import Path as _Path
@@ -1793,19 +1619,17 @@ def _folder_of_their_own(seen: Sequence[str], call: Any) -> Optional[str]:
 def _their_name_for(folder: "Path", call: Any) -> Optional[str]:
     """One folder of theirs, written the way the file that read it wrote it.
 
-    Relative to whichever directory above their file holds it, which for a
-    folder inside their checkout is the path they typed. None when no
-    directory above their file holds it, and the folder's own name when it
-    does but the path there is longer than anything they would have written.
+    Relative to whichever directory above their file holds it. None when no
+    directory above their file holds it, and the folder's own name when the
+    path there is longer than anything they would have written.
     """
 
     from pathlib import Path as _Path
 
-    # A class is a harder thing to place than a function: `inspect.getfile`
-    # reads a class's file out of `sys.modules`, and a module discovery
-    # imported under a name of its own making is not there under the name the
-    # class remembers. Its `__init__` carries the filename in its own code
-    # object, which is the file the class was written in either way.
+    # `inspect.getfile` reads a class's file out of `sys.modules`, and a
+    # module discovery imported under a name of its own making is not there
+    # under the name the class remembers. Its `__init__` carries the filename
+    # in its own code object.
     written = call if inspect.isfunction(call) else getattr(call, "__init__", call)
     try:
         theirs = _Path(inspect.getfile(written)).resolve().parent
@@ -1819,9 +1643,8 @@ def _their_name_for(folder: "Path", call: Any) -> Optional[str]:
             named = _Path(*folder.relative_to(anchor).parts)
         except ValueError:
             continue
-        # The first anchor that holds it is the closest one, so this is the
-        # shortest way to say where the folder is. Anything longer is a path
-        # across the machine rather than a name out of their code.
+        # The first anchor that holds it is the closest one. Anything longer
+        # is a path across the machine rather than a name out of their code.
         return str(named) if len(named.parts) <= 3 else folder.name
     return None
 
@@ -1830,8 +1653,7 @@ def _folder_read_here(seen: Sequence[str]) -> Optional[str]:
     """The scratch folder this call read, when it read one.
 
     Named as the top-level directory under the scratch working directory,
-    which is the name `_materialize` writes the benchmark's files under and
-    so the name a run page can put in a sentence.
+    which is the name `_materialize` writes the benchmark's files under.
 
     Returns None when the call touched no folder at all, which is the
     difference between a pipeline written over a directory and a function
@@ -1869,10 +1691,9 @@ def _folder_read_here(seen: Sequence[str]) -> Optional[str]:
 def _read_elsewhere(seen: Sequence[str]) -> bool:
     """Whether this call got its data from outside the scratch directory.
 
-    A zero-argument reader that succeeded because a folder it owns is full of
-    its own photos has answered a question about its own data. That answer is
-    not about the benchmark's input, however plausible its shape, so it is
-    not a binding.
+    A zero-argument reader that succeeded out of a folder it owns answered a
+    question about its own data, however plausible the shape, so it is not a
+    binding.
     """
 
     from pathlib import Path as _Path
@@ -1917,8 +1738,7 @@ def _files_in(positional: Sequence[Any]) -> List[Any]:
 def _folder_wanted(seen: Sequence[str]) -> Optional[str]:
     """The name of a directory the failed call read and did not find here.
 
-    The name only. A path is a location on the machine that wrote it, and the
-    part of it that means anything to us is what the folder is called.
+    The name only: a path is a location on the machine that wrote it.
     """
 
     from pathlib import Path as _Path
@@ -1944,8 +1764,7 @@ def _materialize(name: str, files: Sequence[Any]) -> bool:
 
     Here means the scratch working directory the search already probes from,
     and nowhere else: the check below refuses any destination that is not
-    under it, so a repository being read cannot be written to whatever a
-    student's code asked for.
+    under it.
     """
 
     import shutil
@@ -1953,10 +1772,9 @@ def _materialize(name: str, files: Sequence[Any]) -> bool:
 
     root = _Path.cwd().resolve()
     # The throwaway directory `_scratch_cwd` made, and nothing else. A
-    # comparison against the working directory alone is not enough: a caller
-    # that probes a stage without going through the search would then write
-    # a folder of photos into whatever directory it happened to be in, which
-    # during this change was a checkout of this repository.
+    # comparison against the working directory alone would let a caller that
+    # probes a stage outside the search write a folder of photos into
+    # whatever directory it happened to be in.
     if _SCRATCH is None or root != _SCRATCH:
         return False
     folder = (root / name).resolve()
@@ -1987,8 +1805,7 @@ def _mapped(candidate: Candidate, fixture: Sequence[Any]) -> Tuple[bool, Any]:
 
     Only the first argument is spread; anything after it is passed to every
     call unchanged, which is how a rate or a threshold behaves. A single
-    failure fails the whole attempt, because a descriptor function that works
-    on eleven photos of twelve has not done the job.
+    failure fails the whole attempt.
     """
 
     if not fixture:
@@ -2004,8 +1821,8 @@ def _mapped(candidate: Candidate, fixture: Sequence[Any]) -> Tuple[bool, Any]:
 
     produced = []
     for index, item in enumerate(items):
-        # The index goes with the call, because the only thing that differs
-        # between items is which one's name the identity slot holds.
+        # The index goes with the call: the only thing that differs between
+        # items is which one's name the identity slot holds.
         ok, value = _call(candidate, (item,) + rest, index)
         if not ok or value is None:
             return False, None
@@ -2016,11 +1833,9 @@ def _mapped(candidate: Candidate, fixture: Sequence[Any]) -> Tuple[bool, Any]:
 def _gathered(stage: Stage, produced: Sequence[Any]) -> List[Tuple[Optional[int], Any]]:
     """The per-item result whole, then element k of every item.
 
-    Their per-photo function returns everything it found. Week 2's Bagel
-    repository returns `(boxes, probabilities, descriptors)` per photo, and
-    the descriptors are what the next step takes; gathering element 2 across
-    photos is the same reading `_handoffs` does for a single return value,
-    applied once per item instead of once.
+    Their per-photo function returns everything it found, so gathering one
+    element across items is the same reading `_handoffs` does for a single
+    return value, applied once per item instead of once.
 
     Offered only for a per-item stage. Applying it to every value would
     rewrite week 1's fingerprint lists, which are thousands of tuples, into
@@ -2042,10 +1857,8 @@ def _gathered(stage: Stage, produced: Sequence[Any]) -> List[Tuple[Optional[int]
 
 
 #: Parameter names that ask for the item's own identity rather than for data.
-#: Deliberately a small list of the words the corpus actually used: `names`
-#: in Bagel's `Whispers(vectors, names, threshold)` and `file_path` in the
-#: course's own Node. A wider list would start feeding photo paths to
-#: arguments that wanted something else.
+#: Deliberately only the words the corpus actually used; a wider list would
+#: start feeding photo paths to arguments that wanted something else.
 _IDENTITY_WORDS = ("name", "id", "label", "path", "file", "image", "photo", "title")
 
 #: The noun forms of `id`, spelled out. Two letters is too short to match as
@@ -2064,12 +1877,10 @@ def _words_in(name: str) -> List[str]:
 def _asks_for_identity(name: str) -> bool:
     """Whether this parameter is asking for the item's own name or index.
 
-    Matched on whole words. The test here was `word in parameter.name.lower()`
-    over `_IDENTITY_WORDS`, and `id` occurs inside `width`: `build(vectors,
-    width)` was called with the list of photo identities as its width, and
-    bound. `grid`, `valid`, and any size argument spelled with those three
-    letters had the same problem, so a decoy could be bound by a substring of
-    an argument it never asked for.
+    Matched on whole words. A substring test binds a decoy by an argument it
+    never asked for: `id` occurs inside `width`, `grid`, and `valid`, and
+    `build(vectors, width)` was called with the list of photo identities as
+    its width.
 
     A word of four letters or more may also begin a token, because
     `filename` and `filepath` are one token asking for exactly what
@@ -2132,10 +1943,9 @@ def _shapes(
     """Every honest way this stage's call can be made, in the order to try.
 
     The plain call first, always, so a team that defaulted everything is
-    unaffected and a week that declares nothing gets exactly the search it
-    had. Then the declared side inputs after the value, then before it, then
-    by the names the signature uses. Then, last, the item's identity in any
-    required slot still empty.
+    unaffected. Then the declared side inputs after the value, then before
+    it, then by the names the signature uses. Then, last, the item's identity
+    in any required slot still empty.
     """
 
     shapes: List[Candidate] = [candidate.with_plan(())]
@@ -2206,9 +2016,9 @@ def _identity_shape(
 def _tuned(candidate: Candidate, tuning: Any) -> Candidate:
     """The same shape, carrying a tuning value.
 
-    A plain call keeps its empty plan, so the tuning lands where it always
-    did: appended after the value. A shape that already reserved a slot for
-    one fills that slot instead.
+    A plain call keeps its empty plan, so the tuning is appended after the
+    value. A shape that already reserved a slot for one fills that slot
+    instead.
     """
 
     if not candidate.plan or "tuning" in candidate.plan:
@@ -2219,9 +2029,8 @@ def _tuned(candidate: Candidate, tuning: Any) -> Candidate:
 def _safe_produces(stage: Stage, value: Any) -> bool:
     """Whether the upstream value already looks like this stage's output.
 
-    The test for a fused pair. Their combined function returned something; if
-    that something passes this stage's own validator, the step is done and the
-    chain moves on without adding a candidate for it.
+    The test for a fused pair: when a combined function's return passes this
+    stage's validator, the chain moves on without adding a candidate for it.
     """
 
     if stage.produces is None:
@@ -2245,9 +2054,8 @@ def _handoffs(upstream: Any) -> List[Tuple[Any, Optional[str]]]:
     A stage's value is never altered, but it can be *unpacked*. Teams return a
     bare array, or the ``(spectrogram, freqs, times)`` triple matplotlib's
     ``specgram`` hands back, and their own next function takes whichever one
-    they wrote for. Offering the whole tuple and then its first element covers
-    both without transforming either: what the next stage receives is exactly
-    what the last stage produced, or exactly one element of it.
+    they wrote for. What the next stage receives is exactly what the last
+    stage produced, or exactly one element of it.
 
     Anything else -- rescaling, transposing, re-typing -- would score our
     arithmetic instead of their code, and their thresholds are tuned to their
@@ -2255,30 +2063,21 @@ def _handoffs(upstream: Any) -> List[Tuple[Any, Optional[str]]]:
     """
 
     # The second half of each pair names the reading, and is what a bound
-    # step records as its `handoff`. It used to be prose nobody read, which
-    # is why a replay had to re-derive which part of a tuple had bound.
+    # step records as its `handoff`.
     offers: List[Tuple[Any, Optional[str]]] = [(upstream, None)]
     if isinstance(upstream, tuple) and upstream:
         # Spread, when the previous step returned exactly the arguments the
-        # next one takes. One 2026 team's `adj_list` returns `(nodes, adj)`
-        # and their `whispers(nodes, adj, iterations)` takes both, which is
-        # the course's own design: "a list of nodes and an adjacency graph
-        # ... together, represent your graph"
-        # (docs/capstones/week2-vision-capstone.md:386). Nothing is
-        # transformed; the tuple is handed over as the arguments it already
-        # is.
+        # next one takes. This is the course's own design: "a list of nodes
+        # and an adjacency graph ... together, represent your graph"
+        # (docs/capstones/week2-vision-capstone.md:386).
         offers.append((_Spread(upstream), "spread"))
         if len(upstream) == 2:
-            # The same two parts the other way round. One 2026 team's
-            # `adj_list` returns `(nodes, adj)` and their own
-            # `connected_comps(adj, nodes)` takes them reversed, which is
-            # their choice of parameter order and not a different answer.
+            # The same two parts the other way round, which is a team's
+            # choice of parameter order and not a different answer.
             offers.append((_Spread((upstream[1], upstream[0])), "reversed"))
-        # Every element, not only the first. `specgram` returns
-        # `(spectrogram, freqs, times)` and one team's combined peak finder
+        # Every element, not only the first: one team's combined peak finder
         # returns `(peaks, freqs, times, spectrogram)`, where the part the
-        # next stage wants is last. Each element is offered exactly as it was
-        # returned, and the stage's own validator decides.
+        # next stage wants is last.
         seen = set()
         for index, element in enumerate(upstream):
             marker = id(element)
@@ -2309,10 +2108,8 @@ def extend(
     accepted: List[Tuple[Candidate, Any]] = []
     for candidate in _order_for(stage, candidates) + _from_pool(stage, pool):
         # A method of the object the chain is carrying is called with no
-        # arguments at all: the object it is bound to IS the input. Week 2's
-        # Bagel repository builds its graph with `Whispers(...)` and then
-        # `w.create_matrix()`, and a call that passed the instance to its own
-        # method would be handing it to itself twice.
+        # arguments at all: the object it is bound to IS the input, and
+        # passing the instance to its own method hands it to itself twice.
         if getattr(candidate.call, "__self__", None) is upstream:
             trial = replace(candidate, self_only=True)
             ok, value = _call(trial, ())
@@ -2321,9 +2118,9 @@ def extend(
                 accepted.append((trial, value, upstream))
                 continue
             if ok and value is None and stage.in_place:
-                # Their method returned nothing and changed the object. That
-                # is the shape the course teaches for whispers, and the
-                # object goes forward for one of their own functions to read.
+                # Their method returned nothing and changed the object,
+                # which is the shape the course teaches for whispers, so the
+                # object goes forward for one of their functions to read.
                 accepted.append((replace(trial, in_place=True), upstream, upstream))
                 continue
         for offered, handoff in _handoffs(upstream):
@@ -2451,25 +2248,19 @@ def _resolve_branches(
 ) -> Resolution:
     """Resolve every branch over one shared pool, then verify them together.
 
-    Shared is the point. Week 3's four surfaces are not four repositories:
-    the text side and the search side use the same IDF table, and in three of
-    the four audited repositories the store the prepare branch builds is the
-    object the search branch calls a method on. Resolving them independently
-    would find four chains that cannot be composed.
+    Shared is the point: week 3's branches use the same IDF table, and in
+    three of the four audited repositories the store the prepare branch
+    builds is the object the search branch calls a method on. Resolving them
+    independently would find four chains that cannot be composed.
 
     Branches are resolved to a fixpoint rather than once in declared order,
-    because the corpus needs opposite orders. Lashika's week 3 image step is
-    `ImageDatabase(ids, descriptors, W).descriptor_to_embedding`, a method of
-    the object the PREPARE branch builds, so image must come after prepare;
-    declared in the week's order it refused with "nothing accepted the input
-    the image step passes" (measured 2026-09-02). Bagel's
-    `CaptionImageQuery(EMBEDDINGS, ids)` takes the IMAGE branch's projected
-    matrix, so prepare must come after image. One declared order cannot
-    serve both. So: walk the unresolved branches in declared order, bind
-    whichever can bind now, and go round again until a whole pass binds
-    nothing. A branch that resolved is never resolved again, and the order
-    within each pass is the declared one, so the result is the same on every
-    run.
+    because the corpus needs opposite orders: one repository's image step is
+    a method of the object the PREPARE branch builds, and another's prepare
+    step takes the IMAGE branch's projected matrix. So: walk the unresolved
+    branches in declared order, bind whichever can bind now, and go round
+    again until a whole pass binds nothing. A branch that resolved is never
+    resolved again, and the order within each pass is the declared one, so
+    the result is the same on every run.
 
     Each branch is verified only by the whole, because a branch on its own
     answers nothing the benchmark asked for.
@@ -2479,9 +2270,8 @@ def _resolve_branches(
     carried: List[Candidate] = []
     chains: Dict[str, Tuple[Candidate, ...]] = {}
     # The side inputs every branch shares are computed here, once, before any
-    # branch runs. Week 3's IDF table is the case: putting it inside a branch
-    # would compute it again per branch and, worse, let two branches bind two
-    # different tables.
+    # branch runs. Inside a branch they would be computed again per branch
+    # and, worse, two branches could bind two different tables.
     candidates = callables_in(modules) + constructors_in(modules)
     fits, missing = _fits_of(role, candidates, pool, identities, values_in(modules))
     if missing is not None:
@@ -2563,12 +2353,9 @@ def _resolve_branches(
                 # The week's test judges each branch as it binds, with every
                 # branch bound so far beside it, so a chain the test rejects
                 # is passed over for the next one rather than ending the
-                # search. Measured on Lashika: the image branch first bound
-                # `triplet_utils.train_val_split`, whose per-row split
-                # gathers into a (100, 409) matrix that passes the stage's
-                # loose width check; the test refused it (409-d against
-                # 200-d text) and the role was reported as ran-but-wrong
-                # while their `descriptor_to_embedding` was never asked.
+                # search. Without it a decoy that passes the stage's loose
+                # check reports the role as ran-but-wrong while the function
+                # that would have bound is never asked.
                 def _judge(steps: Sequence[Candidate], _name: str = branch.name) -> bool:
                     if verify is None:
                         return True
@@ -2642,22 +2429,18 @@ def _resolve_branches(
     best = latest
 
     def _covers(attempt: _Attempt) -> Tuple[int, int]:
-        # Required branches first, then how many branches at all. An
-        # independent review built a role where the earliest attempt bound
-        # an optional branch and a later one bound the required branch
-        # instead; counting chains alone kept the first and refused the
-        # role with the required branch found.
+        # Required branches first, then how many branches at all. Counting
+        # chains alone keeps an attempt that bound an optional branch over a
+        # later one that bound the required branch.
         required_names = {branch.name for branch in role.branches if not branch.optional}
         return (len(required_names & set(attempt.chains)), len(attempt.chains))
 
     # Depth-first over the forms the bound branches were offered. A state
     # is the exact form forced on each branch of a prefix of the binding
     # order; every later branch keeps all its forms open, because a form
-    # banned under one upstream state was never tried under another (the
-    # review's A=2, B=0 case). A visited state ends that path; the cap
-    # guards a role with many multi-form branches and no corpus repository
-    # comes near it (week 3 has one four-form branch). The attempt that
-    # covers the most required branches, then the most branches, wins.
+    # banned under one upstream state was never tried under another. A
+    # visited state ends that path. The attempt that covers the most
+    # required branches, then the most branches, wins.
     seen_states = {frozenset()}
     stack: List[Tuple[_Attempt, Dict[str, int]]] = [(latest, {})]
     attempts = 1
@@ -2707,9 +2490,7 @@ def _resolve_branches(
         )
     # The optional branches that never bound, kept with the refusal each one
     # ended on. The week decides what a partial set means; discovery's job is
-    # to say exactly which surface is absent and why. Every chain in the
-    # answer passed the week's test beside the chains bound before it, and
-    # the last one beside all of them, so the whole has been judged.
+    # to say which surface is absent and why.
     absent = {branch.name: best.refusals[branch.name] for branch in best.pending}
     return (
         Binding(
@@ -2740,12 +2521,9 @@ def _fixture_for(
 ) -> Any:
     """This branch's own input, made at the moment the branch is resolved.
 
-    A plain fixture is used as it is, which is every branch before week 3. A
-    callable is handed the pool and the branches bound so far and asked for
-    one: week 3's search branch is probed with its own text chain applied to
-    the query string, which does not exist until the text branch has bound,
-    and its prepare branch is offered the image branch's projected matrix
-    alongside the raw descriptors.
+    A plain fixture is used as it is. A callable is handed the pool and the
+    branches bound so far and asked for one, because week 3's branches take
+    values that do not exist until another branch has bound.
 
     Raising is how the week says "not yet". The pool and the chains are
     copies, so a week that reads them cannot change what the search is
@@ -2765,9 +2543,9 @@ def _fixture_for(
         return _UNREADY
     except BaseException as error:  # noqa: BLE001 - a week's fixture may do anything
         # Anything else is the fixture itself failing, which no later pass
-        # will change. Reported as such, because the first draft folded it
-        # into "not produced by any other branch", which told a week author
-        # to look at branch order when the bug was in the fixture they wrote.
+        # will change. Reported as such rather than as "not produced by any
+        # other branch", which sends a week author to branch order when the
+        # bug is in the fixture they wrote.
         return _Broken(error)
     return _UNREADY if made is None else made
 
@@ -2785,11 +2563,9 @@ def values_in(modules: Sequence[Any]) -> List[Tuple[str, str, Any]]:
     As ``(label, module, value)`` in a stable order. Functions, classes,
     modules, and private names are left out; what remains is data their own
     statements produced at import: a table, a matrix, a loaded resource.
-    One audited repository has no IDF function at all. Its `text_to_image`
-    computes `idf` at module scope, in a loop over the course captions, and
-    every embedding call reads that global. The computation is theirs and it
-    ran; a fit stage that only looks for a function to call reports that
-    nothing produced the table while the table sits in their namespace.
+    One audited repository has no IDF function at all and computes the table
+    at module scope, so a fit stage that only looks for a function to call
+    reports that nothing produced it while it sits in their namespace.
     """
 
     found: List[Tuple[str, str, Any]] = []
@@ -2860,10 +2636,9 @@ def _fit(
     if hits:
         return hits[0]
     # No function of theirs produces it. A value their module built when it
-    # loaded may be the same table (see `values_in`); it is offered only
-    # after every function has been tried, so a team with a function is
-    # bound to the call the search witnessed. Recorded as supplied by name,
-    # because a scored run cannot recompute a value that was never a call.
+    # loaded may be the same table (see `values_in`), offered only after
+    # every function has been tried. Recorded as supplied by name, because a
+    # scored run cannot recompute a value that was never a call.
     if stage.produces is None:
         return None
     for label, module_name, value in values:
@@ -2893,13 +2668,9 @@ def _already_ran(candidate: Candidate, partial: _Partial) -> bool:
     Only for a step that answers in place. Such a step returns nothing and
     changes the value it was given, so the search cannot see what it did and
     every one of them looks equally good; taking the same one again is the
-    same step twice rather than the next one.
-
-    Measured on week 2's Bagel repository, whose graph object offers seven
-    methods that return nothing. Without this the beam filled with
-    `create_matrix` repeated at every stage -- the alphabetically first of
-    them -- and their `train_sweeps`, which is the step that actually runs
-    whispers, was never reached at any beam width.
+    same step twice rather than the next one. Without this the beam fills
+    with the alphabetically first such method repeated at every stage, and
+    the one that does the work is never reached at any beam width.
     """
 
     if not candidate.in_place:
@@ -2920,15 +2691,9 @@ def _shared_out(
     chain's best continuation is offered before any chain's second, so a
     branch cannot be cut before it has been tried once.
 
-    Measured on week 2's Bagel repository. Their `Whispers(vectors, names,
-    threshold)` accepts the raw photos as its vectors too, so the fused
-    first-stage probe binds it on the fixture and that chain runs beside the
-    real one through `get_descriptor`. The pixel chain then answers the
-    graph stage with a method while the real one can only construct, which
-    the rank puts last, and both go on to offer five in-place methods of the
-    same object. At beam 4 every slot went to the pixel chain from the graph
-    stage onwards: the chain running on their descriptors was built and
-    thrown away at each stage, and the repository was refused.
+    Without it, one corpus repository had every beam slot from the graph
+    stage onwards taken by a decoy chain, and the chain running on their
+    descriptors was built and thrown away at each stage.
     """
 
     grouped: Dict[int, List[Tuple[Any, int, _Partial]]] = {}
@@ -2936,9 +2701,8 @@ def _shared_out(
         grouped.setdefault(parent, []).append((rank(partial), index, partial))
     ordered: List[Tuple[Tuple[Any, ...], _Partial]] = []
     for parent in sorted(grouped):
-        # Ranked within its own parent first, so which continuation of a
-        # chain is best is decided exactly as before; the position in that
-        # order is then what the parents take turns on.
+        # Ranked within its own parent first; the position in that order is
+        # then what the parents take turns on.
         for nth, (score, index, partial) in enumerate(
             sorted(grouped[parent], key=lambda entry: (entry[0], entry[1]))
         ):
@@ -2959,10 +2723,10 @@ def _reachable(
 
     Each method carries a way to build the object again the same way: the
     same class, called with the same arguments, through the same plan. That
-    is the rule `Submission.fresh` already applies to the no-argument
-    classes, and it exists for the same measured reason -- fixture data left
-    in a store competes with the benchmark's own catalog -- but a store built
-    from data cannot be rebuilt from nothing, so the arguments come with it.
+    is the rule `Submission.fresh` applies to the no-argument classes, for
+    the same reason -- fixture data left in a store competes with the
+    benchmark's own catalog -- but a store built from data cannot be rebuilt
+    from nothing, so the arguments come with it.
     """
 
     if not isinstance(candidate.call, type) or value is None:
@@ -2987,9 +2751,8 @@ def _scratch_cwd():
     """Probe from a throwaway directory.
 
     Probing calls student functions, and their functions write: one audited
-    repository rewrites a relative ``db.pkl`` on every add, and probing two
-    repositories left ``db.pkl`` and ``songs.pkl`` in this checkout. Discovery
-    already imports from scratch; the calls that follow it must too.
+    repository rewrites a relative ``db.pkl`` on every add. Discovery already
+    imports from scratch; the calls that follow it must too.
     """
 
     global _SCRATCH, _THEIR_ROOT
@@ -3013,21 +2776,15 @@ def _scratch_cwd():
 def _folders_of_their_own() -> Tuple[str, ...]:
     """Why a constructor that reads a folder of their own could not be used.
 
-    A pipeline written over a directory is a shape the search supports: a
-    constructor that takes nothing is handed the benchmark's photos in a
-    folder of the name its code looks for. That only works while the folder
-    it looks for is one the benchmark can write. A constructor that resolves
-    its folder from its own file finds its own photos instead, succeeds, and
-    has answered a question about their data rather than ours, so it is
-    refused; writing the benchmark's photos into their checkout to make it
-    ours is not something a benchmark may do.
+    A constructor that resolves its folder from its own file finds its own
+    photos, succeeds, and has answered a question about their data rather
+    than ours, so it is refused; writing the benchmark's photos into their
+    checkout is not something a benchmark may do.
 
-    The refusal that follows names the hand-off that failed, which for such a
-    repository is three stages downstream and true but useless. Measured on
-    week 2's CoggurtFilter: nothing else there builds a graph from
-    descriptors, so the search wandered through the two other classes and
-    stalled at the labels step, and the report named a profile class the team
-    never meant to be part of the pipeline.
+    Without this note the refusal names the hand-off that failed, which for
+    such a repository is three stages downstream and true but useless: on one
+    corpus repository the report named a class the team never meant to be
+    part of the pipeline.
 
     Sorted, so two runs of the same repository write the same report.
     """
@@ -3057,9 +2814,7 @@ def _resolve_chain(
     random.seed(seed)
     pool: Dict[str, Any] = dict(extras or {})
     candidates = callables_in(modules)
-    # Classes that demand their data up front are steps, not containers, and
-    # they only reach the search here. `callables_in` is untouched, so the
-    # store-and-query pairing search below still sees plain functions only.
+    # Classes that demand their data up front are steps, not containers.
     candidates = candidates + constructors_in(modules)
     # A class that builds with no arguments is a container `instances_in`
     # fills, not a step -- unless a stage said its input can be handed over
@@ -3073,9 +2828,8 @@ def _resolve_chain(
     if not candidates:
         return None, Refusal(role.name, (), role.stages[0].name, "no functions to try")
 
-    # The side inputs their own code computes, once, before anything else
-    # runs. Each joins the pool under its stage's name, which is how a later
-    # stage asks for it (`Stage.extras`).
+    # Each joins the pool under its stage's name, which is how a later stage
+    # asks for it (`Stage.extras`).
     fits, missing = _fits_of(role, candidates, pool, identities, values_in(modules))
     if missing is not None:
         return None, Refusal(
@@ -3095,11 +2849,6 @@ def _resolve_chain(
     first_form = fixture[0] if isinstance(fixture, Fixtures) else fixture
     fixture_summary = ", ".join(describe(item) for item in first_form)
 
-    # Each entry carries the chain, the value it last produced, and what every
-    # step received and returned along the way. The trace is not decoration: a
-    # chain that runs and answers wrongly is a bug in their pipeline, and the
-    # only useful thing the platform can offer is the smallest reproduction it
-    # has -- which of their functions ran, on what, and what came back.
     forms = fixture if isinstance(fixture, Fixtures) else (fixture,)
 
     def _identities_of(partial: _Partial) -> Sequence[Any]:
@@ -3107,13 +2856,10 @@ def _resolve_chain(
 
         `probe_sources` works this out per form and the first stage gets it;
         every stage after it was handed the caller's `identities`, which is
-        empty for a week that lets the input name its own items. Week 2's
-        Bagel repository needs it downstream rather than at the first step:
-        `file_descriptors(photo)` takes only the photo, and it is
-        `Whispers(vectors, names, threshold)` two stages later that asks
-        which photo each descriptor came from. Without this the identity slot
-        was never offered after the first stage and the constructor could not
-        be called at all.
+        empty for a week that lets the input name its own items. A corpus
+        repository asks which photo each descriptor came from two stages in,
+        so without this the identity slot was never offered after the first
+        stage and its constructor could not be called at all.
         """
 
         return identities_for(identities, forms[partial.chain[0].form or 0])
@@ -3132,12 +2878,10 @@ def _resolve_chain(
         )
     ]
 
-    # A first stage marked fusible may not exist as its own function. One 2026
+    # A first stage marked fusible may not exist as its own function: one
     # team's `adj_list(image_paths, threshold)` reads every photo and builds
-    # the graph together, so there is no separate descriptor step to find and
-    # the second stage is what takes the benchmark's own input. Probing the
-    # next stage against the fixture too is how that shape is reached; the
-    # acceptance test still decides.
+    # the graph together, so the second stage is what takes the benchmark's
+    # own input. The acceptance test still decides.
     if first.fusible and len(role.stages) > 1:
         second = role.stages[1]
         seen = {step.chain[0].label for step in frontier}
@@ -3154,9 +2898,8 @@ def _resolve_chain(
                     (describe(value),),
                     ("{} + {}".format(first.name, second.name),),
                     _reachable(candidate, value, forms[candidate.form or 0]),
-                    # The first stage's input handed to the second stage's
-                    # function: the forward reading, asked after any chain
-                    # that found a function for the first stage.
+                    # The forward reading, asked after any chain that found
+                    # a function for the first stage.
                     1,
                 )
             )
@@ -3182,15 +2925,10 @@ def _resolve_chain(
         # shared between them rather than filled by whichever entry happened
         # to have the most children; see `_shared_out`.
         parents: List[int] = []
-        # The last stage is what makes a chain askable, and the verifier
-        # below already asks every chain that reaches it rather than the
-        # beam's share of them. So the beam bounds how many chains are
-        # BUILT, and the final step is where building one costs a single
-        # call. Measured on week 2's Bagel repository: their `train_sweeps`
-        # is the fourth of seven methods that answer in place, so the chain
-        # that runs whispers sat outside the beam at the last stage at every
-        # width up to 128 and was never asked, while the three ahead of it
-        # were asked and refused for not having settled.
+        # The beam bounds how many chains are BUILT, and at the final stage
+        # building one costs a single call, so every chain that reaches it is
+        # grown. On one corpus repository the chain that runs whispers sat
+        # outside the beam at the last stage at every width up to 128.
         growing = frontier if stage is role.stages[-1] else frontier[:beam]
         # A chain that already absorbed this stage while probing skips it.
         done = [p for p in growing if p.stages[-1].endswith("+ " + stage.name)]
@@ -3199,9 +2937,7 @@ def _resolve_chain(
                 # It served this stage already (its last step's input was
                 # read as this stage, see the forward reading below).
                 # Running another of their functions on top would put two
-                # steps at one stage: a chain grew a second
-                # `fingerprint_recording` after the first had absorbed the
-                # peaks stage.
+                # steps at one stage.
                 continue
             reachable = list(candidates) + list(partial.reach)
             mine = _identities_of(partial)
@@ -3214,8 +2950,8 @@ def _resolve_chain(
                     _Partial(
                         partial.chain + (candidate,),
                         produced,
-                        # What this step actually received, which is the whole
-                        # upstream value or one element unpacked from it.
+                        # The whole upstream value or one element unpacked
+                        # from it.
                         partial.received + (describe(passed),),
                         partial.returned + (describe(produced),),
                         partial.stages + (stage.name,),
@@ -3243,11 +2979,9 @@ def _resolve_chain(
                 ):
                     # A function whose return already answers this stage
                     # did not answer in place; it was recorded above. Marking
-                    # it in place too doubled one 2026 team's
-                    # `connected_components` in the chain, and let two
-                    # decoys that return a labels-shaped list claim the
-                    # in-place slot ahead of the function that settled the
-                    # graph.
+                    # it in place too doubles it in the chain and lets a
+                    # decoy claim the in-place slot ahead of the function
+                    # that settled the graph.
                     if stage.produces is not None and _safe_produces(stage, produced):
                         continue
                     if _already_ran(replace(candidate, in_place=True), partial):
@@ -3266,22 +3000,15 @@ def _resolve_chain(
                     parents.append(where)
         # A step the previous function already did. Carrying the frontier
         # forward unchanged lets the next stage read what that function
-        # returned, which is how a fused pair is found: their combined
-        # function has already produced this stage's output. The stage name
-        # joins the step that absorbed it, so the report names both.
-        # A chain whose last step already produced this stage's answer is
-        # complete. One 2026 team ends at `connected_comps`, which is both
-        # their graph reader and their answer; requiring another function
-        # after it would refuse a finished pipeline.
+        # returned, which is how a fused pair is found. The stage name joins
+        # the step that absorbed it, so the report names both.
         #
         # Kept beside the beam rather than inside it. The beam bounds how
         # many chains are BUILT and no call is made to carry one forward, so
         # a chain that skipped this stage costs nothing and cannot be worth
-        # a slot that a step of their code could have had. Measured on week
-        # 2's Lashika repository: their `adj_list` does three of the week's
-        # stages in one call, and at every stage the carry-forward was
-        # appended after every candidate the search had tried and sorted out
-        # of a beam of four, so their `whispers` was never reached.
+        # a slot that a step of their code could have had. Inside the beam,
+        # a repository whose one function does three of the week's stages
+        # had the carry-forward sorted out of a beam of four every time.
         skipped: List[_Partial] = []
         skipped_parents: List[int] = []
         if stage.fusible:
@@ -3301,41 +3028,28 @@ def _resolve_chain(
                         )
                     )
             # The other direction: a fusible stage absorbed by the step
-            # AFTER it. The previous function did not do this stage's work,
-            # but the next stage's function takes this stage's input and
-            # does both. One 2026 team's `fingerprint_recording(spectrogram)`
-            # finds the peaks and pairs them in one call, and their
-            # `local_peak_locations` needs a neighbourhood array and an
-            # amplitude floor no benchmark could honestly supply; folding
-            # the peaks stage into the function before it (above) cannot
-            # reach that, because the spectrogram is not peaks. So the next
-            # stage is probed against this stage's input as well, and the
-            # step that binds is recorded as having done both.
+            # AFTER it. One team's `fingerprint_recording(spectrogram)` finds
+            # the peaks and pairs them in one call, which folding the peaks
+            # stage into the function before it cannot reach, because the
+            # spectrogram is not peaks. So the next stage is probed against
+            # this stage's input as well.
             following = role.stages[role.stages.index(stage) + 1] if stage is not role.stages[-1] else None
             # Only into a following stage whose own output check can say the
             # work was done. An in-place following step returns nothing, so
             # "their method did this stage's work and the next" could never
-            # be checked, and on week 2's Bagel it was taken anyway:
-            # `train_sweeps()` absorbed the `nodes` stage, `create_nodes`
-            # was never called, and `sorted_images()` returned an empty
-            # dict that the week's test read as "does not say which photos
-            # go together".
+            # be checked, and was taken anyway on one corpus repository,
+            # skipping a stage its code did have.
             if following is not None and (following.in_place or following.produces is None):
                 following = None
             if following is not None:
                 # The value handed over is THIS stage's input, so this
                 # stage's `accepts` governs the probe, not the following
                 # stage's, which describes what it takes from this stage's
-                # output. Week 1's fingerprints stage refuses a bare
-                # spectrogram for that reason (rutvim's fingerprinter
-                # accepts one and scores 0.094 on it), and that rule is
-                # right for a chain that has peaks to offer and wrong for a
-                # team whose fingerprinter finds them itself.
+                # output.
                 absorbed = replace(following, accepts=stage.accepts)
                 # Only where nothing of theirs served this stage from this
-                # chain, and never with the function that just answered:
-                # `fingerprint_recording -> fingerprint_recording` is the
-                # same call made twice, not a stage absorbed.
+                # chain, and never with the function that just answered,
+                # which would be the same call made twice.
                 served = set(parents)
                 for where, partial in enumerate(growing):
                     if any(p is partial for p in done) or where in served:
@@ -3367,30 +3081,18 @@ def _resolve_chain(
                         )
                         parents.append(where)
         # A chain that reached this stage's own answer goes first. Otherwise
-        # the beam keeps whichever branch was found earliest, and one 2026
-        # team's `whispers` -- which returns how the component count moved and
-        # leaves the labels on the graph -- crowded out their
-        # `connected_comps`, which returns the answer.
+        # the beam keeps whichever branch was found earliest.
         #
         # At a stage declared in_place, a step that answered on the graph
         # ranks ahead of one whose return merely looks like the answer. The
         # in-place partial carries the graph, which by design does not look
-        # like this stage's output, so the plain sort put it last and the
-        # beam cut it. Measured on the same 2026 repository: at beam 4 their
-        # `adj_list -> whispers -> connected_comps` never reached the
-        # verifier; at beam 64 it did and passed.
+        # like this stage's output, so a plain sort puts it last and the beam
+        # cuts it.
+        #
         # A step that built one of their objects goes behind every step that
         # did not. Constructing something out of a value is a way of carrying
-        # it, not a way of answering; when one of their functions has already
-        # answered this stage, wrapping that answer in an object is not a
-        # better reading of it.
-        #
-        # Measured on one 2026 repository the moment classes became stage
-        # candidates: their `Profile(name)` accepted the groups their
-        # `connected_components` had just returned, took the in-place slot at
-        # `settle`, and added a step that builds a profile and throws it
-        # away. The score was identical and the chain was a step longer,
-        # which is a chain that says something untrue about their code.
+        # it, not a way of answering; wrapping an answer in an object adds a
+        # step that says something untrue about their code.
         def _rank(p: _Partial) -> Tuple[int, int]:
             built = bool(
                 p.stages[-1] == stage.name
@@ -3401,22 +3103,16 @@ def _resolve_chain(
                 return (int(built), 0)
             return (int(built), 1 if _safe_produces(stage, p.value) else 2)
 
-        # Rank no-call fused readings with actual continuations. A real
-        # in-place call ranks ahead of the unchanged object, while a fused
-        # reading wins ties against normal or constructed continuations. This
-        # keeps multi-step mutations alive without displacing shorter chains.
         # One share-out over calls and skipped readings together, each with
-        # its parent. A global sort after the share-out regrouped one
-        # parent's children ahead of another parent's best, which is the
-        # starvation `_shared_out` exists to prevent (found by review with
-        # two parents at beam 2). Within a parent `_rank` still puts an
-        # in-place call ahead of the unchanged object.
+        # its parent. A global sort after the share-out regroups one parent's
+        # children ahead of another parent's best, which is the starvation
+        # `_shared_out` exists to prevent.
+        #
         # Skipped readings first in the combined list, so on a rank tie
         # within one parent the fused reading is offered before a call that
-        # merely looks like this stage's output: Lashika's `whispers` returns
-        # a list of ints that passes the labels check, and offered ahead of
-        # the fused reading it ended the chain a step early and the run
-        # reported every photo in its own group.
+        # merely looks like this stage's output: a `whispers` that returns a
+        # list of ints passes the labels check, and offered ahead of the
+        # fused reading it ends the chain a step early.
         nxt = done + _shared_out(skipped + nxt, skipped_parents + parents, _rank)
         if not nxt:
             return None, Refusal(
@@ -3436,38 +3132,25 @@ def _resolve_chain(
         stalled_at = stage.name
 
     # Every chain that reached the end is asked, not just the ones the beam
-    # kept. `_order_for` puts preferred names first and the beam then cut at
-    # four, so with six one-stage candidates that all ran, whether the
-    # repository resolved at all depended on where its function sorted: with
-    # `prefers=("good",)` the working one entered the beam and bound, and
-    # with every preference emptied five alphabetically earlier decoys pushed
-    # it out and the same role refused. A name decided an outcome, which is
+    # kept. `_order_for` puts preferred names first, so a beam over the asked
+    # chains let a name decide whether a repository resolved at all, which is
     # the one thing this search may never let happen.
     #
     # The beam still bounds how many chains are BUILT, which is where the
-    # cost is. It no longer bounds how many are asked, and asking more can
-    # only turn a refusal into a binding: the chains the beam kept are still
-    # tried first and in the same order.
+    # cost is.
     asked = set()
     # A chain that found one of their functions for every stage is asked
-    # before one that read a stage as fused into a neighbour. A fusible
-    # stage is declared as one their code MAY not have; when it does, and a
-    # chain through it passes the week's test, that chain is their division
-    # of the work and the fused reading is the fallback it was meant to be.
-    # Measured on rutvim's week 3: `embed_text(tokens, glove, idf)` accepts
-    # a raw caption too and iterates its characters, and that fused chain
-    # passed the week's test ahead of `caption_processor -> embed_text`
-    # (text MRR 0.54 against 0.83). Both are their code; only one is how
-    # they wrote it.
+    # before one that read a stage as fused into a neighbour. A fusible stage
+    # is declared as one their code MAY not have; when it does, that chain is
+    # their division of the work and the fused reading is the fallback it was
+    # meant to be. One repository's fused chain passes the week's test at
+    # text MRR 0.54 where their own division scores 0.83.
     #
-    # A stage read forward (its input handed to a later step, at the head
-    # of the chain or in the middle) sorts after every other reading,
-    # because nothing of theirs was seen to produce that stage's output.
-    # Among the rest the beam's own order stands: `_rank` already puts a
-    # chain that answered ahead of one that merely built an object.
-    # Measured on week 2's fixture: sorting on fused count alone put
-    # `group -> Profile` ahead of `group` fused with `settle`, a chain that
-    # builds a profile and throws it away. The sort is stable.
+    # A stage read forward (its input handed to a later step) sorts after
+    # every other reading, because nothing of theirs was seen to produce that
+    # stage's output. Among the rest the beam's own order stands, so the sort
+    # is stable: sorting on fused count alone put a chain that builds an
+    # object and throws it away ahead of a fused reading.
     for partial in sorted(frontier, key=lambda p: p.forward):
         key = tuple(
             (
