@@ -133,6 +133,13 @@ class NotWiredTests(unittest.TestCase):
         self.assertTrue(verdict.is_failure)
         self.assertFalse(verdict.is_theirs_to_fix)
 
+    def test_without_last_returned_the_headline_still_names_what_came_back(self):
+        # The shape is the whole content of the sentence. "that" reads as the
+        # platform declining to say, and the observation already holds it.
+        verdict = not_wired("fingerprinting", "peaks", TRACE[:1])
+        self.assertIn("a tuple of 3, starting with an array of shape (2049, 63)", verdict.headline)
+        self.assertNotIn("took that for", verdict.headline)
+
 
 class OtherOutcomeTests(unittest.TestCase):
     def test_a_score_reads_as_a_result_not_an_error(self):
