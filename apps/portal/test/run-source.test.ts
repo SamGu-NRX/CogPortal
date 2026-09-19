@@ -51,6 +51,11 @@ function freshDb(files: string[]): { db: Database; sqlite: DatabaseSync } {
         async run() {
           return { success: true, meta: statement.run(...bound) };
         },
+        execute() {
+          const results = statement.all(...bound);
+          const { changes } = sqlite.prepare("SELECT changes() AS changes").get()!;
+          return { success: true, results, meta: { changes } };
+        },
         async all() {
           return { success: true, results: statement.all(...bound) };
         },
@@ -62,6 +67,19 @@ function freshDb(files: string[]): { db: Database; sqlite: DatabaseSync } {
         },
       };
       return prepared;
+    },
+    // One implicit transaction, and one `results` per entry, the way D1 returns
+    // rows for a batched SELECT.
+    async batch(statements: { execute(): unknown }[]) {
+      sqlite.exec("BEGIN");
+      try {
+        const results = statements.map((statement) => statement.execute());
+        sqlite.exec("COMMIT");
+        return results;
+      } catch (error) {
+        sqlite.exec("ROLLBACK");
+        throw error;
+      }
     },
   };
   return { db: drizzle(binding as never) as unknown as Database, sqlite };
