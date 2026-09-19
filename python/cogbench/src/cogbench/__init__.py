@@ -2,8 +2,6 @@
 
 from importlib.metadata import PackageNotFoundError, version as _installed_version
 
-#: Read from the installed package rather than restated here.
-#:
 #: This was a literal, and it drifted: pyproject said one version and this
 #: file said another, so `cogworks --version` and the report's `cliVersion`
 #: both named a release that was not what the student had. A student

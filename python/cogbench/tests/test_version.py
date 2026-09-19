@@ -51,33 +51,8 @@ class TheVersionIsNotRestated(unittest.TestCase):
     def test_it_reports_the_declared_version_when_installed(self):
         import cogbench
 
-        # In a checkout with the package installed (editable or not) the two
-        # must agree. Where it is not installed at all the fallback answers,
-        # and that case is covered below.
         if cogbench.__version__ != "0+source":
             self.assertEqual(cogbench.__version__, _declared_version())
-
-    def test_an_uninstalled_source_tree_says_so_rather_than_guessing(self):
-        """A wrong version is worse than an obviously absent one.
-
-        Simulated rather than staged in a real interpreter: building a venv
-        with no metadata anywhere above it is slow and fragile, and the branch
-        under test is one `except`.
-        """
-
-        from importlib.metadata import PackageNotFoundError
-
-        def _resolve(lookup):
-            try:
-                return lookup("cogworks-benchmark")
-            except PackageNotFoundError:
-                return "0+source"
-
-        def _absent(_name):
-            raise PackageNotFoundError("cogworks-benchmark")
-
-        self.assertEqual(_resolve(_absent), "0+source")
-        self.assertEqual(_resolve(lambda _n: "9.9.9"), "9.9.9")
 
 
 class ThePublishedVersionIsNotAlreadyTaken(unittest.TestCase):

@@ -32,7 +32,7 @@ from .client import (
     update_setup_checks,
 )
 from .models import LocalReport
-from .resolve import SubmissionReport, from_spec, resolve
+from .resolve import SubmissionReport, from_spec
 from .discover import _Redirects
 from .plugins import (
     PluginError,
@@ -213,8 +213,8 @@ def _print_report(report: LocalReport, as_json: bool = False) -> None:
         precision = max(metric.precision, 4) if metric.primary else metric.precision
         value = ("{:.%df}" % precision).format(metric.value)
         unit = metric.unit
-        # Older plugins omitted the unit for timing metrics. The key is the
-        # only remaining evidence that the value is measured in seconds.
+        # runner._metric carries no unit for any metric, so the key suffix is
+        # the only evidence that a value is seconds.
         if not unit and metric.key.endswith("_seconds"):
             unit = "s"
         print("{}: {}{}".format(metric.label, value, " " + unit if unit else ""))
@@ -548,8 +548,6 @@ def _check(benchmark: str, as_json: bool, project_root: Path) -> int:
     elif checks["benchmarkInstalled"]:
         load_benchmark(benchmark)
         checks["benchmarkLoadable"] = True
-    # Everything that reads the repository happens in one call, in a child
-    # process, and answers the same question `run` asks.
     submission = None
     survey = None
     installed_reference = False

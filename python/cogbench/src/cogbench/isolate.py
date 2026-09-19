@@ -705,8 +705,6 @@ def _operation_child() -> None:
         if operation == "run":
             import argparse
             from .cli import _run_view
-            # The whole parser namespace is intentional: worker behavior
-            # follows whatever flags the CLI parser defines, not a second schema.
             return _run_view(argparse.Namespace(**arguments["args"]), Path(arguments["repository"]))
         if operation == "survey":
             from .discover import _survey_work
