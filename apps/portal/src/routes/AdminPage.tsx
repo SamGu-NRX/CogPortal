@@ -67,7 +67,8 @@ export function AdminPage() {
         }
       >
         {teams.length === 0 ? (
-          <EmptyState message="No teams yet." />
+          // Staff sees assigned teams only.
+          <EmptyState message={isOwner ? "No teams yet." : "No teams assigned to you yet."} />
         ) : (
           <ul className="divide-y divide-rule-soft">
             {triageOrder(teams).map((team) => (
@@ -499,14 +500,16 @@ function TeamRow({ team, canAssignTas }: { team: AdminTeamSummary; canAssignTas:
 
   return (
     <li>
+      {/* On phones the auto-sized count columns consumed the identity column.
+          Put counts below identity until `sm:`. */}
       <button
         type="button"
         aria-expanded={open}
         aria-controls={`team-${team.id}`}
         onClick={() => setOpen((v) => !v)}
-        className="grid w-full grid-cols-[minmax(0,1fr)_auto_auto_1.5rem] items-baseline gap-x-4 py-2.5 text-left hover:bg-paper-sunken/50"
+        className="grid w-full grid-cols-[minmax(0,1fr)_1.5rem] items-baseline gap-x-4 gap-y-1 py-2.5 text-left hover:bg-paper-sunken/50 sm:grid-cols-[minmax(0,1fr)_auto_auto_1.5rem] sm:gap-y-0"
       >
-        <span className="min-w-0">
+        <span className="col-start-1 row-start-1 min-w-0">
           <span className="block truncate text-[14px] font-medium text-ink" title={team.name}>
             {team.name}
           </span>
@@ -518,13 +521,13 @@ function TeamRow({ team, canAssignTas }: { team: AdminTeamSummary; canAssignTas:
             run for, faint on the rest, so forty rows resolve to the handful
             worth opening without reading a single number. */}
         <span
-          className={`font-mono text-[11px] ${
+          className={`col-start-1 row-start-2 font-mono text-[11px] sm:col-start-2 sm:row-start-1 ${
             hostedRuns(team) === 0 ? "text-ink" : "text-ink-faint"
           }`}
         >
           {runState(team)}
         </span>
-        <span className="u-tnum font-mono text-[11px] text-ink-secondary">
+        <span className="u-tnum col-start-1 row-start-3 font-mono text-[11px] text-ink-secondary sm:col-start-3 sm:row-start-1">
           {/* Totals span benchmark versions, so a single version's quota is not a denominator. */}
           {team.practiceUsed} practice runs · {team.officialUsed} official attempts
           {/* Only when there are any. A team that keeps hitting real
@@ -542,7 +545,7 @@ function TeamRow({ team, canAssignTas }: { team: AdminTeamSummary; canAssignTas:
           aria-hidden="true"
           animate={{ rotate: open ? 180 : 0 }}
           transition={reduce ? { duration: 0 } : { duration: 0.15, ease: "easeOut" }}
-          className="justify-self-end self-center text-ink-faint"
+          className="col-start-2 row-start-1 justify-self-end self-center text-ink-faint sm:col-start-4"
         >
           <HugeiconsIcon icon={ArrowDown01Icon} size={14} strokeWidth={1.8} />
         </motion.span>
