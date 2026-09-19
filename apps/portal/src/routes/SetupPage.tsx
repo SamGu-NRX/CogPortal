@@ -285,7 +285,7 @@ function SetupGuide({
         <StepRail>
           {/* No check-off: the portal cannot watch a shell, so 00 never ticks and never counts. */}
           {environment && (
-            <Step index="00" state="pending" title="Start in the course environment">
+            <Step index="00" state="note" title="Start in the course environment">
               <p>
                 Every command below runs inside the environment you built for
                 the{" "}
