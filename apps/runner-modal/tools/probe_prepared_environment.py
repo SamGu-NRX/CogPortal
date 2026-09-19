@@ -518,9 +518,6 @@ def probe_image(
     )
 
 
-# ---------------------------------------------------------------------------
-
-
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
