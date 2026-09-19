@@ -7,7 +7,7 @@ import { and, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { buildRunJob, enqueueRun, prepareRetryJob, validateRetryInputs } from "../worker/execution/runner.ts";
 import { readRunSurfaceSnapshot } from "../worker/services/run-surfaces.ts";
-import { runs, teams, cohorts, benchmarks, users, runSurfaces, type RunRow, type TeamRow, type BenchmarkRow } from "../worker/db/schema.ts";
+import { runs, teams, cohorts, benchmarks, users, runSurfaces, localReports, teamMembers, type RunRow, type TeamRow, type BenchmarkRow } from "../worker/db/schema.ts";
 import type { Env } from "../worker/env.ts";
 import { PreparedEnvironmentV1Schema, type RunJobV1 } from "@cogworks/contracts/protocol";
 import { ApiHttpError } from "../worker/http/errors.ts";
@@ -204,13 +204,46 @@ test("retry rechecks saved weight size and digest at the original object key", a
   env.ARTIFACTS = weightBucket(async (key) => { keys.push(key); return object(); });
   const retry = await prepareRetryJob(env, run, team, benchmark, "run_retry");
   assert.deepEqual(retry.weights, job.weights);
-  assert.deepEqual(keys, [`weights/course/team/${run.sha}/model.pkl`]);
+  assert.deepEqual(keys, [`weight-objects/course/team/${run.sha}/${digest}/model.pkl`]);
   for (const stored of [null, object(4), object(3, null), object(3, "c".repeat(64))]) {
     env.ARTIFACTS = weightBucket(async () => stored);
     await assert.rejects(prepareRetryJob(env, run, team, benchmark, "run_retry"), conflict);
   }
   delete env.ARTIFACTS;
   await assert.rejects(prepareRetryJob(env, run, team, benchmark, "run_retry"), conflict);
+});
+
+test("a newer upload at the same path leaves the recorded run retryable", async () => {
+  const { env, run, job } = original("practice", true);
+  // What a teammate's second upload of model.pkl actually leaves in storage:
+  // the recorded object at its own key, plus a different object at the newer
+  // digest's key. Under the pre-digest key the second upload replaced the
+  // first and Retry answered "has changed".
+  const stored = new Map([
+    [`weight-objects/course/team/${run.sha}/${digest}/model.pkl`, object()],
+    [`weight-objects/course/team/${run.sha}/${"c".repeat(64)}/model.pkl`, object(9, "c".repeat(64))],
+  ]);
+  env.ARTIFACTS = weightBucket(async (key) => stored.get(key) ?? null);
+  const retry = await prepareRetryJob(env, run, team, benchmark, "run_retry");
+  assert.deepEqual(retry.weights, job.weights);
+});
+
+test("retry reads the pre-digest key only when nothing is content-addressed", async () => {
+  const { env, run, job } = original("practice", true);
+  const legacy = `weights/course/team/${run.sha}/model.pkl`;
+  const keys: string[] = [];
+  env.ARTIFACTS = weightBucket(async (key) => {
+    keys.push(key);
+    return key === legacy ? object() : null;
+  });
+  const retry = await prepareRetryJob(env, run, team, benchmark, "run_retry");
+  assert.deepEqual(retry.weights, job.weights);
+  assert.deepEqual(keys, [`weight-objects/course/team/${run.sha}/${digest}/model.pkl`, legacy]);
+  // A pre-digest object was overwritable, so only the recorded bytes count.
+  for (const stale of [object(4), object(3, "c".repeat(64)), object(3, null)]) {
+    env.ARTIFACTS = weightBucket(async (key) => (key === legacy ? stale : null));
+    await assert.rejects(prepareRetryJob(env, run, team, benchmark, "run_retry"), conflict);
+  }
 });
 
 test("retry rejects duplicate and unsafe saved weight paths", async () => {
@@ -397,6 +430,50 @@ test("enqueue records inputs before sending and reuses the first saved job", asy
     await enqueueRun(env, run, { ...team, repoName: "ignored" }, benchmark);
     assert.deepEqual(sent[2], sent[0]);
     assert.ok(!queries.some((query) => /local_reports|team_members/.test(query)));
+  } finally { sqlite.close(); }
+});
+
+test("new dispatch selects B while an existing dispatch and Retry retain A", async () => {
+  const { db, binding, sqlite } = await database();
+  try {
+    const { env, run } = original();
+    env.DB = binding;
+    run.dispatchJobJson = null;
+    await db.insert(users).values({ id: "weight_author", email: "weight@example.test", name: "Weight author" });
+    await db.insert(teamMembers).values({ teamId: team.id, userId: "weight_author", role: "member" });
+    const report = {
+      userId: "weight_author", benchmarkId: benchmark.id, benchmarkVersion: benchmark.version,
+      contractVersion: benchmark.contractVersion, sdkVersion: "0.1.0", pluginVersion: "1",
+      repositoryId: null, repositoryFullName: team.repoFullName, sha: run.sha, dirty: false,
+      startedAt: 1, finishedAt: 2, metricsJson: "[]", diagnosticsJson: "{}", weightsUsedJson: '["model.pkl"]',
+    };
+    await db.insert(localReports).values({ ...report, reportId: "report_a", syncedAt: 10,
+      weightsUploadedJson: JSON.stringify([{ path: "model.pkl", sha256: digest }]) });
+    const newerDigest = "c".repeat(64);
+    const stored = new Map([
+      [`weight-objects/course/team/${run.sha}/${digest}/model.pkl`, object()],
+      [`weight-objects/course/team/${run.sha}/${newerDigest}/model.pkl`, object(9, newerDigest)],
+    ]);
+    env.ARTIFACTS = weightBucket(async (key) => stored.get(key) ?? null);
+    const sent: RunJobV1[] = [];
+    env.RUN_QUEUE = runQueue(async (job) => { sent.push(job); });
+    await db.insert(runs).values(run);
+    await enqueueRun(env, run, team, benchmark);
+    await db.insert(localReports).values({ ...report, reportId: "report_b", syncedAt: 20,
+      weightsUploadedJson: JSON.stringify([{ path: "model.pkl", sha256: newerDigest }]) });
+    const newerRun = { ...run, id: "run_new_candidate" };
+    await db.insert(runs).values(newerRun);
+    await enqueueRun(env, newerRun, team, benchmark);
+    await enqueueRun(env, run, team, benchmark);
+    assert.deepEqual(sent.map((job) => job.weights), [
+      [{ path: "model.pkl", size: 3, sha256: digest }],
+      [{ path: "model.pkl", size: 9, sha256: newerDigest }],
+      [{ path: "model.pkl", size: 3, sha256: digest }],
+    ]);
+    const [recorded] = await db.select().from(runs).where(eq(runs.id, run.id));
+    const retry = await prepareRetryJob(env, recorded, team, benchmark, "run_retry_a");
+    assert.deepEqual(retry.weights, sent[0].weights);
+    assert.equal(retry.source.repositoryId, team.repoId);
   } finally { sqlite.close(); }
 });
 
