@@ -3,10 +3,7 @@
 Gate 1 lists memory as one of eight behaviours to verify, and nothing covered
 it. What can be covered offline is not "Modal kills a sandbox at 4 GB", which
 needs a live sandbox and money, but the decision made about the death after it
-happens. That decision has real consequences: a failure the controller marks
-infrastructure=True refunds the team's official attempt, and one it marks False
-spends it. Deciding wrongly either hands out free attempts or charges a team for
-our outage.
+happens.
 
 The decision is made twice, in two different ways, and the difference matters.
 
@@ -137,12 +134,7 @@ class EveryEvaluatePathClassifiesLimits(unittest.TestCase):
             self.assertIn("memory_limit", categories, name)
 
     def test_every_path_charges_a_limit_to_the_submission(self):
-        """infrastructure=False, so the attempt is spent.
-
-        A timeout or an OOM is the submission's own resource use. Marking it
-        infrastructure would refund the attempt and let a team retry an
-        expensive submission without cost.
-        """
+        """A timeout or an OOM is the submission's own resource use."""
 
         for name in EVALUATE_PATHS:
             for category, _test, infrastructure in classifiers(name):
@@ -192,11 +184,7 @@ class WhatTheClassifierRecognizes(unittest.TestCase):
         self.assertEqual(classify("_evaluate", "timed out waiting for memory"), "timeout")
 
     def test_an_unrelated_error_falls_through_to_provider(self):
-        """And so refunds the attempt, which is the right default.
-
-        A gRPC failure or a dropped connection is ours. Charging a team for it
-        would spend one of three attempts on our outage.
-        """
+        """A gRPC failure or a dropped connection is ours."""
 
         for message in ("grpc: connection reset", "unexpected exit status"):
             self.assertIsNone(classify("_evaluate", message), message)
@@ -213,8 +201,8 @@ class TheBlindSpot(unittest.TestCase):
 
     Every exception class in modal.exception constructs with an empty string.
     An empty message matches neither substring, so it falls through to
-    `provider` with infrastructure=True, and an official attempt is refunded
-    for what was really the submission exceeding its own budget.
+    `provider` with infrastructure=True, so the platform is blamed for what was
+    really the submission exceeding its own budget.
 
     Two reasons this is a blind spot and not a live bug, and both are worth
     stating precisely because the difference decides whether it needs fixing

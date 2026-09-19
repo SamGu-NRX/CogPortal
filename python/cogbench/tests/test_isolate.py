@@ -25,8 +25,7 @@ def _segfault():
     # A signal, not a real null dereference. The wait status is identical
     # (WIFSIGNALED, SIGSEGV), which is all `_describe_death` reads, and a
     # genuine EXC_BAD_ACCESS makes macOS write a crash report for every run
-    # of this suite: 25 of them landed in ~/Library/Logs/DiagnosticReports on
-    # 2026-09-04 and read as the machine crashing.
+    # of this suite.
     import signal
 
     os.kill(os.getpid(), signal.SIGSEGV)
