@@ -61,10 +61,12 @@ def _benchmark_block(benchmark_id: str, mode: str) -> dict:
     """
 
     from cogbench.plugins import load_benchmark
+    from cogworks_runner.prepared_environment import SANDBOX_CONTRACTS
 
     plugin = load_benchmark(benchmark_id)
     return {
         "id": benchmark_id,
+        "sandboxContract": SANDBOX_CONTRACTS[benchmark_id],
         "version": plugin.benchmark_version,
         "contractVersion": plugin.contract_version,
         "pluginVersion": plugin.plugin_version,
@@ -84,7 +86,9 @@ def build_job(benchmark_id: str, repo: str, sha: str, mode: str) -> dict:
         "mode": mode,
         "preparedArtifactId": None,
         "source": {
-            "repositoryId": 0,
+            # None is the admissible "not known" value; 0 is not a repository id
+            # and fails the prepared-environment record shape.
+            "repositoryId": None,
             "fullName": repo,
             "sha": sha,
             "archiveUrl": "https://api.github.com/repos/{}/tarball/{}".format(repo, sha),
@@ -182,7 +186,7 @@ def main() -> int:
     with modal.enable_output(), modal.runner.run_app(modal_app.app):
         try:
             print("prepare...", flush=True)
-            snapshot = modal_app._prepare(job, reporter)
+            snapshot, _evidence = modal_app._prepare(job, reporter)
             print("  snapshot {}".format(snapshot), flush=True)
 
             print("evaluate...", flush=True)
