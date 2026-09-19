@@ -123,14 +123,21 @@ editing, and fix what it reports before deploying.
 Secrets do not copy between environments, so set each one twice. Names only;
 never put a value in `wrangler.jsonc`.
 
+Generate the two runner signing values first and keep them in the shell: step 9
+puts the same bytes into the matching Modal secrets, and a Worker whose value
+differs from its runner's gets 401 on every dispatch.
+
 ```sh
 cd apps/portal
+RUNNER_SIGNING_SECRET=$(openssl rand -hex 32)
+PROD_RUNNER_SIGNING_SECRET=$(openssl rand -hex 32)
 for name in ACTIVITY_SESSION_SECRET BETTER_AUTH_SECRET DISCORD_BOT_TOKEN \
-            DISCORD_CLIENT_SECRET GITHUB_CLIENT_SECRET PLATFORM_OWNER_LOGINS \
-            RUNNER_SIGNING_SECRET; do
+            DISCORD_CLIENT_SECRET GITHUB_CLIENT_SECRET PLATFORM_OWNER_LOGINS; do
   pnpm exec wrangler secret put "$name"
   pnpm exec wrangler secret put "$name" --env production
 done
+printf %s "$RUNNER_SIGNING_SECRET" | pnpm exec wrangler secret put RUNNER_SIGNING_SECRET
+printf %s "$PROD_RUNNER_SIGNING_SECRET" | pnpm exec wrangler secret put RUNNER_SIGNING_SECRET --env production
 ```
 
 Notes on three of them:
@@ -142,8 +149,8 @@ Notes on three of them:
   owners manage the staff roster; see `apps/portal/worker/auth/roles.ts`. An
   unset value means nobody is an owner.
 - `RUNNER_SIGNING_SECRET` must be byte-identical to the value inside the Modal
-  secret for the same environment. Generate it once, in step 9, and set it in
-  both places from that one value.
+  secret for the same environment, which is why step 9 reads the two shell
+  variables set above rather than generating its own.
 
 ## 7. Apply the migrations
 
@@ -204,8 +211,8 @@ uv pip install --python .venv-deploy/bin/python "modal>=1.0,<2" "fastapi>=0.115,
 `docs/runbooks/hosted-benchmarks.md` has the remaining installs, including the
 benchmark packages the images build from.
 
-Create the shared volume and one signing secret per environment. Generate the
-signing value once and reuse it for the matching Cloudflare secret from step 6:
+Create the shared volume and one signing secret per environment, from the two
+values step 6 generated and stored in the Workers:
 
 ```sh
 modal volume create cogworks-hidden-datasets --version=2

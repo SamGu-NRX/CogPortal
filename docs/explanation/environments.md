@@ -93,13 +93,14 @@ directly so that a dev release cannot move an image underneath it.
 `docs/runbooks/platform.md`, "Production runs the same ids without the names",
 is the procedure.
 
-Rolling back is redeploying the previous commit. There is no separate rollback
-path for the portal, and switching `EXECUTION_PROVIDER` to `fixture` is not one:
-fixture mode does not stop execution, it fabricates it, and it would write
-simulated metrics into the production database. For the bot,
-`wrangler rollback <version-id> --name cogbot` restores a recorded version
+Rolling back a Worker is `wrangler rollback <version-id> --name <worker>`, for
+`cogportal`, `cogportal-production` or `cogbot`: it restores a recorded version
 without rebuilding, which is why the version id is worth capturing before a
-cutover.
+cutover. It rolls back the Worker only, not the runner or its images;
+`docs/runbooks/platform.md`, section 7, has the runner side. Switching
+`EXECUTION_PROVIDER` to `fixture` is not a rollback: fixture mode does not stop
+execution, it fabricates it, and it would write simulated metrics into the
+production database.
 
 ## The word "staging" is retired
 
