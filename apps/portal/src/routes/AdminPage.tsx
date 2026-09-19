@@ -89,8 +89,6 @@ export function AdminPage() {
   );
 }
 
-/* ── What a row says about a team ──────────────────────────────────────── */
-
 function hostedRuns(team: AdminTeamSummary): number {
   return team.practiceUsed + team.officialUsed;
 }
@@ -113,8 +111,7 @@ function runState(team: AdminTeamSummary): string {
 /**
  * A team the platform has never run for is the row a TA has to act on, so it
  * sorts first. Aging the rest by their last run needs the field the contract
- * does not carry, so they stay alphabetical, which is at least an order a TA
- * can predict between visits.
+ * does not carry, so they stay alphabetical.
  */
 function triageOrder(teams: AdminTeamSummary[]): AdminTeamSummary[] {
   return [...teams].sort((left, right) => {
@@ -124,8 +121,6 @@ function triageOrder(teams: AdminTeamSummary[]): AdminTeamSummary[] {
     return left.name.localeCompare(right.name);
   });
 }
-
-/* ── Unassigned students ───────────────────────────────────────────────── */
 
 /**
  * The panel holds the result of an assignment rather than the row, because a
@@ -182,8 +177,6 @@ function UnassignedPanel({
     </Panel>
   );
 }
-
-/* ── Platform staff roster (owner only) ────────────────────────────────── */
 
 /**
  * The roster that decides who has staff access to the portal, editable here

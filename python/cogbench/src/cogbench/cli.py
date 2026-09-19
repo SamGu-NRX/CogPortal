@@ -176,8 +176,7 @@ def _setup_payload(
     }
     # Two of the four checks are about one benchmark: the install line names a
     # single distribution and wiring resolves that benchmark's entry points.
-    # Without this the portal recorded them against the student and the team
-    # only, and the setup page credited whichever track it happened to be
+    # Without this the setup page credits whichever track it happens to be
     # showing. Omitted rather than sent empty when there is no benchmark, so a
     # portal that predates the field still accepts the request.
     if benchmark:
@@ -473,10 +472,9 @@ def _read_repository(
         outcome = Outcome(COMPLETED, value=_check_view(name, project_root, as_json))
 
     # The child runs from the repository, which is where `cogworks run`
-    # imports a declared submission from. Left on the default scratch
-    # directory, a `submission.py` that reads a relative file at import time
-    # failed the check and then worked on the run, which is the disagreement
-    # this whole path exists to remove. Discovery still imports their modules
+    # imports a declared submission from. On the default scratch directory, a
+    # `submission.py` that reads a relative file at import time fails the
+    # check and then works on the run. Discovery still imports their modules
     # from a scratch directory of its own; that is `discover`'s business.
     elif backend is isolate.run_operation:
         outcome = backend("check", {
@@ -881,11 +879,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return 0
     # The student's repository, resolved once, before any benchmark runs.
     # A benchmark plugin may change the process working directory: Week 1
-    # chdirs into a private scratch directory because one audited repository
-    # keeps a module-global relative `db.pkl`. Calling Path.cwd() after that
-    # wrote the report into the scratch directory (which is deleted) and read
-    # git state from a directory that is not a worktree, so `cogworks report`
-    # after a successful run said "No local reports found".
+    # chdirs into a private scratch directory. Calling Path.cwd() after that
+    # writes the report into a directory that is then deleted and reads git
+    # state from somewhere that is not a worktree.
     project_root = Path.cwd()
     try:
         if args.command in ("check", "doctor"):
@@ -910,18 +906,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 # without fork this platform cannot offer crash containment.
                 outcome = Outcome(COMPLETED, value=_run_view(args, project_root))
             else:
-                # The native import crash in test_isolate also affects run/test.
-                # Keep the adapter and the whole scored run inside this boundary.
+                # The native import crash in test_isolate also affects
+                # run/test. Keep the adapter and the whole scored run inside
+                # this boundary.
                 #
                 # No budget. The boundary is here to contain a crash, and its
-                # defaults are discovery's: 300 seconds of CPU and 3 GiB, sized
-                # for reading a repository rather than for scoring one. The
-                # measurement that bears on a local run is a local one:
-                # carti4ce/week1_capstone took 381 seconds of evaluation on a
-                # laptop (worker/execution/runner.ts records it beside the
-                # hosted timings), so discovery's 300 would have cut a working
-                # submission short and called it a timeout. Local runs had no
-                # limit before this boundary existed and they still have none.
+                # defaults are discovery's: 300 seconds of CPU and 3 GiB,
+                # sized for reading a repository rather than for scoring one.
+                # One corpus repository took 381 seconds of evaluation on a
+                # laptop, so discovery's 300 would have cut a working
+                # submission short and called it a timeout.
                 sys.stdout.flush()
                 sys.stderr.flush()
                 if backend is isolate.run_operation:

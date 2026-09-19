@@ -415,6 +415,11 @@ def attach_recognition_gold(payload: bytes, gold: Sequence[Mapping[str, Any]]) -
         for position, slot in enumerate(plan.after_slots):
             slots[slot] = images[int(after[position])]
 
+        # Before the loop and in both directions, because zip() truncates
+        # either way: a plan with more counts than the gold has identities
+        # leaves `cursor` short and silently shifts every slice after it.
+        if len(plan.known_query_counts) != len(record["known"]):
+            raise ValueError("Official recognition gold names a different identity count.")
         cursor = 0
         known = []
         for identity, count in zip(record["known"], plan.known_query_counts):
@@ -426,8 +431,6 @@ def attach_recognition_gold(payload: bytes, gold: Sequence[Mapping[str, Any]]) -
                 )
             )
             cursor += count
-        if len(known) != len(record["known"]):
-            raise ValueError("Official recognition gold names a different identity count.")
         unknown_queries = slots[cursor : cursor + plan.unknown_count]
         cursor += plan.unknown_count
         cases.append(
