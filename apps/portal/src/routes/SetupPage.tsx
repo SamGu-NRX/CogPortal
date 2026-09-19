@@ -22,6 +22,7 @@ import {
   setupSteps,
   useSetupChecks,
   type SetupEntry,
+  verifiedSteps,
 } from "@/lib/setup-progress";
 
 export function SetupPage() {
@@ -95,7 +96,7 @@ function SetupGuide({
       return next;
     });
   };
-  const terminal = replay ? [] : (setupState.data?.verified ?? []);
+  const terminal = replay ? [] : verifiedSteps(setupState.data, benchmarkId);
   const terminalSet = new Set<SetupStep>(terminal);
   const teammates = replay ? false : team.members.length >= 2;
   const deviceLinked = replay ? false : (connections.data?.cliDevices.length ?? 0) > 0;
