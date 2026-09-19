@@ -378,7 +378,6 @@ function TerminalCheckoff({
       <p className="text-[12px] text-ink-faint">
         Done here? Run this in the same terminal and the box ticks itself.
       </p>
-      {/* Keep the signed token plain and on one scrollable line. */}
       <CopyBlock
         className="mt-1.5"
         lang="text"
