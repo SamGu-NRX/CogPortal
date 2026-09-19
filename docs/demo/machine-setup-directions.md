@@ -1,253 +1,211 @@
-# Directions for the agent that sets up the demo machine
+# Demo machine setup
 
-Hand this to a computer-use agent on Sam's Mac before the meeting. This is the
-one rehearsal guide; `pitch-walkthrough.md` covers what Sam says and points
-here for everything that has to be true first.
+The demo runs against production, `https://cogportal.sillion.app`, from Sam's
+Mac. Most of the setup is already done and has to stay that way.
+[The pitch walkthrough](pitch-walkthrough.md) covers what Sam says and points
+here rather than repeating any of it.
 
-Do not improvise. If a step does not produce what it says, stop and report the
-step number and what you saw instead.
+Every identifier below was observed during the production rehearsal on
+2026-09-15. Run the checks in section 3 on the day.
+Do not start a hosted evaluation to reconfirm a number already recorded here,
+because each one spends a practice attempt.
 
-**Leave Sam's state alone.** He works with many windows, tabs, and editor
-buffers open, and you cannot put them back. Open new windows for the demo.
-Never close, quit, or sign out of anything you did not open.
+## 1. What is already done
 
-Timings below are dated. Each one was measured once, on the date given, and the
-CLI and portal have both moved since. Treat them as the last known good number
-and re-time the warm-up on the day rather than promising a figure on stage.
+The account is through onboarding. This is the starting position, not a screen
+to reset.
 
-## What you are setting up
+- Signed in as `@SamGu-NRX`, on team CogPortal in the BWSI CogWorks 2026 cohort.
+- Connected repository `SamGu-NRX/cogportal-demo-week1`.
+- Setup reports 5 of 5 verified for Audio.
+- The CLI is paired to production as device `d940 production rehearsal`, which
+  expires Nov 14.
+- Discord user SamG is linked and the team channel is bound, so a hosted run
+  posts its progress there.
+- Three hosted practice runs are saved. Practice usage is 3 of 10, which leaves
+  seven. No official attempt has been used.
 
-Three surfaces, in this order on screen: a slide deck, a terminal, and a
-browser. Sam talks over the deck, runs commands in the terminal, then shows the
-site. Nothing here needs the network except the browser and one device link.
+Saved results, newest first:
 
-## 0. Before anything
+| Run | Score | Wall clock | Source |
+| --- | --- | --- | --- |
+| [`run_4e15c756d0`](https://cogportal.sillion.app/runs/run_4e15c756d0) | 0.5375 | 2m56s | `e515ff6` |
+| [`run_b647f110de`](https://cogportal.sillion.app/runs/run_b647f110de) | 0.5375 | 2m18s | `e515ff6` |
+| `run_6c658516d2` | 0.5375 | 2m01s | `e515ff6` |
 
-- The repository is `/Users/samgu/BWSI/2026/CogPortal`.
-- The demo clone is
-  `/Users/samgu/BWSI/2026/CogPortal/.cache/demo/cogportal-demo-week1`.
-- The prepared virtualenv is
-  `/Users/samgu/BWSI/2026/CogPortal/.cache/demo/student-venv-final-proof`.
-- The site is `https://cogportal-dev.sillion.app`.
+Ten of the eleven metrics the site displays match the saved local report
+exactly. The one that differs is an unscored timing, which is what you would
+expect from two different machines.
 
-Confirm the demo clone is on the right commit:
+**Known limitation on the fallback.** These are real results and they stay
+useful if a live run is slow, but one of them is a saved run from earlier
+today, not a new result, so say which it is. These successful runs also say
+nothing about capacity, which has not been tested. Production returned 503
+earlier, before the latest recovery, and that has not been diagnosed.
 
-    cd /Users/samgu/BWSI/2026/CogPortal/.cache/demo/cogportal-demo-week1
-    git status --porcelain
-    git log --oneline -1
+## 2. The environment
 
-Expect two untracked Cursor paths, `.cogbench/` if the cache has been warmed,
-and nothing else, then
-`7125804 Merge pull request #7 from SP02028/topo-rerank`. Stop and report if a
-tracked file is modified or HEAD is different. Do not discard anything.
+Three things carry the demo, and all three already exist.
 
-Then confirm which CLI that virtualenv actually resolves to. It holds an
-editable install, so it points at a working tree rather than a fixed copy, and
-that tree moves:
+**The student checkout** is `/Users/samgu/Programming Projects/CogPortal-rehearsal-student`.
+It sits on branch `codex/demo-rehearsal-d9405278` at commit
+`e515ff619e02c16be903985d8536bc5ee6d7a2e9`, which is pushed and clean. That
+commit adds thirteen lines to `README.md` and nothing else. `main` is still at
+`7125804`, untouched.
 
-    source /Users/samgu/BWSI/2026/CogPortal/.cache/demo/student-venv-final-proof/bin/activate
-    python -c "import cogbench; print(cogbench.__file__)"
-    git -C /Users/samgu/BWSI/2026/CogPortal log --oneline -1
+**The CLI** is an isolated virtualenv holding `cogworks` 0.2.0. It keeps its
+configuration outside the global one, so nothing here disturbs another CLI on
+this machine. Paste this block into the demo terminal before anything else. It
+ends in the student checkout on purpose, because `check` and `run` read the
+directory you are standing in:
 
-Report both. If the printed path is inside a repository whose HEAD you cannot
-identify, say so rather than rehearsing against an unknown version.
+```sh
+cd '/Users/samgu/Programming Projects/CogPortal-rehearsal-student'
+source /tmp/cogportal-rehearsal-venv/bin/activate
+export COGBENCH_CONFIG=/tmp/cogportal-rehearsal-state/config.json
+export PYTHONDONTWRITEBYTECODE=1
+export NUMBA_CACHE_DIR=/tmp/cogportal-rehearsal-caches/numba
+export MPLCONFIGDIR=/tmp/cogportal-rehearsal-caches/matplotlib
+```
 
-## 0b. Which checkout and which environment
+Those paths are all under `/tmp`, which a reboot or a cleanup sweep can take
+with it. Section 5 says what to do if that happens.
 
-There are two ways to rehearse and they are not interchangeable.
+**The browser** is Helium, because it holds the signed-in session. Chrome is
+also on this machine and is not the one to use. Open a new window rather than
+reusing one of Sam's.
 
-**The demo clone**, above, is what Sam shows on stage: a real student
-repository at a fixed commit.
+## 3. Checks on the day
 
-**The rehearsal worktree** is where the CLI itself was exercised end to end on
-2026-09-09: a detached worktree of this repository at
-`/Users/samgu/Programming Projects/cogportal-demo-rehearsal`, with its tracked
-tree clean. It exists so a rehearsal cannot disturb the working tree, which
-usually carries parallel work.
+Four checks, about two minutes. Each one has an expected result, so stop and
+report anything else rather than working around it.
 
-The environment used for that rehearsal was a fresh Python 3.11.15 virtualenv
-outside the repository, holding only what the setup page asks for plus the
-course packages. Device credentials for it live in the operator's own private
-configuration, never in this repository and never in the global CLI
-configuration. Do not copy them here.
+1. Confirm the CLI still points at production. After the export block above,
+   run `cogworks status`. It prints `@SamGu-NRX`, team CogPortal, repository
+   `SamGu-NRX/cogportal-demo-week1`, a chosen Discord team channel, the device
+   name, its expiry, and `Portal   https://cogportal.sillion.app`. If the
+   command is not found, the virtualenv is gone; see section 5.
 
-The tool's install line carries `--force-reinstall`. The version does not
-change between pins, and pip treats an equal version as already satisfied, so
-`--upgrade` alone exits zero and leaves the previous commit in place. Measured
-on 2026-09-09: `--upgrade` from one pin to the next left the installed
-`direct_url.json` naming the old commit, and forcing it replaced the package.
-The tool declares no dependencies, so forcing it reinstalls nothing else.
+2. Confirm the checkout is where the story starts:
 
-**The two install commands on the setup page are not the whole environment.**
-They install `cogworks-benchmark` and the Audio benchmark, and nothing else.
-A student's own code imports the course stack, librosa, numba, numpy and the
-rest, and those come from the CogWeb conda environment for the week. The CLI
-declares that list (`cogbench/environment.py`, `requirement_strings`) and
-`cogworks check` reports which of them this machine is missing, so run `check`
-before concluding the environment is ready. On 2026-09-09 the fresh environment
-also lacked Flask, which one file in the demo repository imports; `check` said
-so, skipped that file, and scored anyway.
+   ```sh
+   cd '/Users/samgu/Programming Projects/CogPortal-rehearsal-student'
+   git status --short --branch
+   git log -1 --oneline
+   ```
 
-## 1. Terminal
+   Expect `## codex/demo-rehearsal-d9405278...origin/codex/demo-rehearsal-d9405278`
+   with no file lines, and `e515ff6`. If a tracked file is modified, report it
+   and do not discard it.
 
-Open a new terminal window with two tabs.
+3. Open `https://cogportal.sillion.app/setup` in Helium. It must show the
+   CogPortal team and 5 of 5 verified. If it shows the sign-in page, tell Sam
+   and let him sign in himself.
 
-**Tab 1, the demo tab.** Font large enough to read from a projector, at least
-18 point. Then:
+4. Open `https://cogportal.sillion.app/dashboard`, taking care it is that
+   address and not the dev one. Set the track to Song Identification, because
+   the run log is scoped to the selected benchmark and the default is not
+   necessarily Audio. Three succeeded runs at 0.5375 should be listed. After
+   any navigation or reload, confirm the **Branch** menu still reads
+   `codex/demo-rehearsal-d9405278`, and reselect it if it does not.
 
-    cd /Users/samgu/BWSI/2026/CogPortal/.cache/demo/cogportal-demo-week1
-    source /Users/samgu/BWSI/2026/CogPortal/.cache/demo/student-venv-final-proof/bin/activate
-    clear
+## 4. Before the hosted run, match the branch
 
-Leave it there, with nothing typed. The first command he runs must be visible
-from a clean screen.
+The prepared Helium tab was left with `codex/demo-rehearsal-d9405278` already
+selected, so check it rather than assume it. The selection lives in component
+state (`apps/portal/src/routes/DashboardPage.tsx:334`), which means any reload
+or fresh navigation drops it back to the repository's default branch, `main`.
 
-Warm the discovery cache in tab 2, not tab 1:
+That is the one step that quietly produces the wrong demo. If Sam pushes to
+`codex/demo-rehearsal-d9405278` and then clicks **Run practice benchmark** with
+the menu sitting on `main`, the hosted run scores `main` at `7125804`, and the
+commit he just made on stage is not the one in the result.
 
-    cogworks check --benchmark audio-identification
+Select `codex/demo-rehearsal-d9405278` in the **Branch** menu first, then start
+the run. When the run appears, the panel reads
+`practice · codex/demo-rehearsal-d9405278 · <short sha>`. Read that line once
+before moving on.
 
-On 2026-09-04 the first run in a fresh shell took about 18 seconds and the
-second about 2. The answer is cached under `.cogbench/` in the demo clone,
-keyed on the contents of the files the search read, so warming it from either
-tab helps and any edit to those files clears it. Expect the first command after
-a live edit to be slow again. Then `clear` tab 2.
+If the branch is missing from the menu, the menu is offering the default branch
+alone. That happens whenever the repository's branch list has not resolved, and
+the repository list not having loaded yet is only one of the reasons
+(`apps/portal/src/routes/DashboardPage.tsx:65-67`). Reload the dashboard once.
 
-**Tab 2, the spare.** Same directory, same virtualenv, for anything that goes
-wrong. Keep it behind tab 1.
+If it is still missing after that reload, stop, and do not start the run. The
+only branch you could start is `main`, which scores the wrong commit and makes
+the point backwards. Show the saved result at
+`https://cogportal.sillion.app/runs/run_b647f110de` instead, and tell Sam
+before he is on stage rather than during it.
 
-Then, still in tab 2, point the tool at the site:
+## 5. If the /tmp environment is gone
 
-    cogworks link --portal https://cogportal-dev.sillion.app --no-browser
+The virtualenv and its configuration live under `/tmp`, so a reboot or a
+cleanup sweep can remove them. If `cogworks` is missing or `cogworks status`
+reports no portal, rebuild rather than improvise:
 
-Use `--no-browser`. Without it the CLI opens the operating system's default
-browser, which may not be the one holding Sam's signed-in session. Paste the
-printed URL into the Helium window from step 3 instead. It shows a page headed
-"Approve device" with the code. Stop there and tell Sam to press Approve
-himself; it needs his session. Once he has, `cogworks status` prints
-`Portal   https://cogportal-dev.sillion.app`. Without this, `cogworks sync` in
-the demo posts to a local portal that is not running.
+1. Activate the course Audio environment first. The two install commands on
+   the Setup page install the tool and the benchmark and nothing else, and the
+   student's own code imports librosa, numba, scipy, soundfile and the rest
+   from the CogWeb environment for the week. The Setup page says this above its
+   first install line.
+2. Run the install commands from `https://cogportal.sillion.app/setup` into
+   that environment.
+3. Run `cogworks link --portal https://cogportal.sillion.app --no-browser`,
+   then paste the printed URL into the Helium window that holds Sam's session.
+   Approving the device needs his session, so ask him to press **Approve**.
+4. Change into the student checkout, then confirm the wiring:
 
-## 2. Editor
+   ```sh
+   cd '/Users/samgu/Programming Projects/CogPortal-rehearsal-student'
+   cogworks check --benchmark audio-identification
+   ```
 
-Open the demo clone in a **new** Cursor window:
+   `check` and `run` both read the directory you are standing in
+   (`project_root = Path.cwd()`, `python/cogbench/src/cogbench/cli.py:890`), so
+   running either from the virtualenv's own directory inspects the wrong
+   project and reports nothing useful.
 
-    cursor /Users/samgu/BWSI/2026/CogPortal/.cache/demo/cogportal-demo-week1
+`check` names any course package the graded run installs and this machine
+lacks, and it still exits successfully when some are missing. Read that list
+rather than trusting the exit code. If the course stack cannot be rebuilt in
+time, drop the local scoring pass from the walkthrough and show the saved
+hosted result. The hosted runner is unaffected by any of this, because it
+builds its own environment.
 
-`code` is not on this machine. If `cursor` is not on the PATH, open Cursor from
-Applications and open that folder in a new window. Do not close anything
-already open, in this window or any other.
+Use `--no-browser`. Without it the CLI opens the system default browser, which
+may not be the one holding the signed-in session.
 
-Open exactly one file in the new window and leave it on screen:
+Do not invent a credential, reset the setup guide, or create a second account
+to get past a missing environment. The saved run at
+`https://cogportal.sillion.app/runs/run_b647f110de` carries the demo on its own
+if the CLI cannot be rebuilt in time.
 
-    create_fingerprints.py
+## 6. What a fresh participant does
 
-That file holds the one-line change he may demonstrate: the `fanout` default on
-`peaks_to_fingerprints`, currently 15. Changing it to 5 raises the score from
-0.5375 to 0.5500. Do not make the change. He makes it live if he chooses to.
+Sam's account is past all of this, and the walkthrough describes the path
+rather than performing it. Keep the two apart on stage. A new participant:
 
-## 3. Browser
+1. Starts at `https://cogportal.sillion.app/signin` and signs in with their own
+   GitHub account.
+2. Enters the cohort join code, which an instructor gives out privately.
+3. Picks a repository that account can reach through the GitHub app.
+4. Installs Git and the course Audio prerequisites, then runs the versioned
+   install commands listed on Setup.
+5. Pairs their machine with `cogworks link --portal https://cogportal.sillion.app`
+   and approves it in their own browser.
 
-Open a **new Helium window** with exactly four tabs, in this order, and leave
-tab 1 focused. Helium is the browser Sam uses and the one holding his signed-in
-session; Chrome is also installed on this machine and is not the one to use.
-
-1. `https://cogportal-dev.sillion.app/dashboard`
-2. `https://cogportal-dev.sillion.app/team`
-3. `https://cogportal-dev.sillion.app/leaderboard`
-4. `https://github.com/SamGu-NRX/cogportal-demo-week1`
-
-Sam must already be signed in on the first three. If any shows the sign-in
-page, stop and tell him; do not attempt to sign in for him.
-
-Leave every other window, tab, and extension exactly as it is. If an extension
-draws over the page, that is a problem for this new window only, and worth
-reporting rather than fixing in his working profile.
-
-## 4. What must be true before he starts
-
-Two preconditions. The order no longer matters: runs are scoped to the
-connected repository, so a run against a different repository is set aside and
-the panel says so rather than showing the wrong week.
-
-**The connected repository.** On the team page, the repository must be
-`SamGu-NRX/cogportal-demo-week1`. If it is anything else, use Change repository
-on that page and pick it. That fork carries the original student team's
-history across the five stages of the assignment, which is what makes the team
-page worth showing. Sam's own CogPortal repository has one contributor and the
-page will say so.
-
-**A succeeded run against that repository.** Set the track to Song
-Identification first: the dashboard's run log is scoped to the selected
-benchmark, and the default selection is not necessarily audio. The top row
-should then read `RUN 5436`, score 0.5375, from 2026-09-09.
-
-If it is missing or failed, click Run practice benchmark on the Audio track and
-wait. Two hosted runs of this repository have finished, at 133 seconds on
-2026-09-04 and 2 minutes 11 seconds on 2026-09-09. The sandbox ceiling is 900
-seconds and a run still reading `queued` is failed automatically after ten
-minutes. Tell Sam if it is still queued at ten minutes, or still running past
-twelve.
-
-**The team page must show people on the stages.** Open the Team page and read
-"Where the work went". It lists five stages, with the people who committed to
-each. Report how many names it shows; a teammate who committed under two
-identities appears twice, which is not a fault.
-
-If instead it says the history could not be read, read which sentence it is.
-One names the sign-in and already carries its own instruction; reload once
-first, because the answer is no longer cached, and only then tell Sam to sign
-out and back in. The other says the history could not be read just now: wait a
-minute and reload, and do not sign him out. Do not sign him in or out yourself
-in either case.
-
-## 4b. What has actually been measured, and when
-
-Keep these apart from the timings in this document. These are dated results
-against the real portal and the real runner; the timings elsewhere are
-warm-up measurements, and the test suites are neither.
-
-- 2026-09-09, hosted: practice run of `SamGu-NRX/cogportal-demo-week1` at
-  `7125804` scored 0.5375 in 2 minutes 11 seconds on the Modal runner, through
-  the deployed dev portal. Observed from queued to succeeded in the browser.
-- 2026-09-09, local: `cogworks run --benchmark audio-identification` in the
-  rehearsal environment scored 0.5375 at the same commit and exited zero. The
-  report synced and appeared on the dashboard as SELF-REPORTED, NOT PROMOTABLE.
-  Hosted practice usage stayed 2/10 and official 0/3.
-- 2026-09-09, setup: `check --update-setup` moved the setup page to 5 of 5
-  verified.
-
-The two 0.5375 figures agreeing is worth saying out loud on stage, and worth
-not overstating: the hosted runner is Python 3.8.20 and the rehearsal
-environment was 3.11.15, so equal scores show this submission is stable across
-those two environments, not that the environments are identical.
-
-## 5. Deck
-
-Open the deck full screen on the display he is presenting from, on the title
-slide, and leave the browser and terminal on the other display or behind it.
-Check that advancing works before he needs it.
-
-## 6. Report back
-
-Tell him, in this order:
-
-1. Whether the demo clone is on `7125804`, and anything untracked beyond the
-   two Cursor paths.
-2. What `cogbench.__file__` printed, and the HEAD of the repository it points
-   into.
-3. The wall-clock time of the warm-up `check`, both runs.
-4. Which repository the team page is connected to.
-5. Whether `RUN 5436` is the top row of the Song Identification run log at
-   0.5375, or what a new run did.
-6. How many names "Where the work went" shows across the five stages.
-7. Whether `cogworks status` names the site as the portal.
-8. Anything you could not do.
+Discord linking is optional and starts with `/cog` in the course server.
 
 ## Do not
 
-- Do not commit, push, or discard anything in any repository.
-- Do not edit `create_fingerprints.py` or any file in the demo clone.
-- Do not touch `apps/portal/.dev.vars` or any file with a credential in it.
-- Do not sign in to anything on Sam's behalf.
+- Do not sign Sam in or out of anything.
+- Do not use **Promote to official** during the walkthrough. Official attempts
+  are 0 of 3 and should stay there.
+- Do not press **Reset guide** if it appears on the Setup page. It clears the
+  verified setup state, and the demo depends on that state reading 5 of 5.
+- Do not commit, push, or discard anything in the student checkout beyond the
+  one deliberate demo edit the walkthrough describes.
+- Do not open or print any file holding a credential, including the CLI
+  configuration and any `.dev.vars` in a CogPortal checkout.
 - Do not close windows, tabs, or editor buffers you did not open, and do not
   quit an application that was already running.
