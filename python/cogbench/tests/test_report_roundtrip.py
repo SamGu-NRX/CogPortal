@@ -91,7 +91,7 @@ class ReportRoundTrips(unittest.TestCase):
 
     def test_run_discovery_reuses_the_child_local_spec(self):
         spec = object()
-        submission = SimpleNamespace(discovery=None)
+        submission = SimpleNamespace(to_dict=dict)
         with patch.object(cli, 'load_benchmark', side_effect=AssertionError('spec rebuilt')), \
              patch.object(cli, 'from_spec', return_value=submission) as resolve:
             result, survey, unavailable = cli._discover('fixture', Path('/tmp'), True, spec=spec)
