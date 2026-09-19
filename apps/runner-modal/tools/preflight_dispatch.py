@@ -140,11 +140,6 @@ def unknown(name: str, reason: str, fix: str) -> Check:
     return Check(name, UNKNOWN, reason, fix)
 
 
-# --------------------------------------------------------------------------
-# Reading the environment
-# --------------------------------------------------------------------------
-
-
 def parse_env_file(text: str) -> Dict[str, str]:
     """The subset of dotenv syntax `.dev.vars` actually uses.
 
@@ -187,11 +182,6 @@ def load_values(env_file: Optional[Path], environ: Dict[str, str]) -> Tuple[Dict
         if supplied:
             values[name] = supplied
     return values, found
-
-
-# --------------------------------------------------------------------------
-# Variable checks
-# --------------------------------------------------------------------------
 
 
 def check_required_variables(values: Dict[str, str]) -> List[Check]:
@@ -359,11 +349,6 @@ def check_image_digest(values: Dict[str, str]) -> Check:
         "{} is neither a Modal image id (im-...) nor an OCI digest (sha256:...)".format(value),
         fix,
     )
-
-
-# --------------------------------------------------------------------------
-# The signing boundary
-# --------------------------------------------------------------------------
 
 
 def extract_typescript_function(source: str, name: str) -> str:
@@ -592,11 +577,6 @@ def check_callback_direction(
     return ok("callback signing", "canonical event bytes sign identically in both directions")
 
 
-# --------------------------------------------------------------------------
-# The job the endpoint would receive
-# --------------------------------------------------------------------------
-
-
 def sandbox_floors(source: str) -> Dict[str, float]:
     """The lower bounds `modal.Sandbox.create` is called with, read from source.
 
@@ -805,11 +785,6 @@ def check_job_bounds(node: str, workdir: Path, label: str, job: Dict[str, Any]) 
     )
 
 
-# --------------------------------------------------------------------------
-# Benchmark rows against installed plugins
-# --------------------------------------------------------------------------
-
-
 def local_d1_path() -> Optional[Path]:
     if not D1_STATE.is_dir():
         return None
@@ -934,11 +909,6 @@ def check_benchmark_versions(benchmarks: Sequence[Dict[str, Any]]) -> List[Check
                 )
             )
     return checks
-
-
-# --------------------------------------------------------------------------
-# Assembly
-# --------------------------------------------------------------------------
 
 
 def run_checks(

@@ -558,9 +558,8 @@ function pipelineSentences(signals: ProcessSignals): string[] {
         ? UNAUTHORIZED_HISTORY_REASON
         : "The commit history could not be read from GitHub just now, so the stages below are blank; the runs are the portal's own record and still hold.",
     );
-    // Two branches on one fact. `historyUnavailableReason` above picks the
-    // per-stage wording from the same reason; keep them together if either
-    // sentence changes.
+    // `historyUnavailableReason` above picks the per-stage wording from this same
+    // reason; if either sentence changes, both do.
   }
 
   if (signals.firstLight.firstScoredAt === null) {
