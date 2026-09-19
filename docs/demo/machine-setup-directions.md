@@ -1,8 +1,7 @@
 # Demo machine setup
 
 The demo runs against production, `https://cogportal.sillion.app`, from Sam's
-Mac. Most of the setup is already done and has to stay that way, so this file
-records the state, the commands, and the checks worth running on the day.
+Mac. Most of the setup is already done and has to stay that way.
 [The pitch walkthrough](pitch-walkthrough.md) covers what Sam says and points
 here rather than repeating any of it.
 
