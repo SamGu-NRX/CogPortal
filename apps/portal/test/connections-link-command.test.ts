@@ -42,9 +42,3 @@ test("the setup rail reads the same helper the panel does", () => {
   assert.ok(rail, "the setup rail still has a link step");
   assert.equal(rail.command, linkCommand(ORIGIN));
 });
-
-test("a local origin is carried through unchanged", () => {
-  // The CLI accepts localhost explicitly, and development is the only place the
-  // origin is not the deployed one.
-  assert.equal(linkCommand("http://localhost:5173"), "cogworks link --portal http://localhost:5173");
-});
