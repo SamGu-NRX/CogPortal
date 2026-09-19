@@ -21,7 +21,8 @@ WHERE surface_id IN (SELECT id FROM run_surfaces WHERE team_id IN (
     'team_archive_w2_a',
     'team_archive_w3_a',
     'team_archive_w3_b',
-    'team_archive_w3_c'
+    'team_archive_w3_c',
+    'team_archive_w3_d'
 ));
 DELETE FROM local_run_sessions WHERE team_id IN (
     'team_demo',
@@ -37,7 +38,8 @@ DELETE FROM local_run_sessions WHERE team_id IN (
     'team_archive_w2_a',
     'team_archive_w3_a',
     'team_archive_w3_b',
-    'team_archive_w3_c'
+    'team_archive_w3_c',
+    'team_archive_w3_d'
 );
 DELETE FROM run_surfaces WHERE team_id IN (
     'team_demo',
@@ -53,7 +55,8 @@ DELETE FROM run_surfaces WHERE team_id IN (
     'team_archive_w2_a',
     'team_archive_w3_a',
     'team_archive_w3_b',
-    'team_archive_w3_c'
+    'team_archive_w3_c',
+    'team_archive_w3_d'
 );
 DELETE FROM leaderboard_selections WHERE team_id IN (
     'team_demo',
@@ -69,7 +72,8 @@ DELETE FROM leaderboard_selections WHERE team_id IN (
     'team_archive_w2_a',
     'team_archive_w3_a',
     'team_archive_w3_b',
-    'team_archive_w3_c'
+    'team_archive_w3_c',
+    'team_archive_w3_d'
 );
 DELETE FROM official_attempts WHERE team_id IN (
     'team_demo',
@@ -85,7 +89,8 @@ DELETE FROM official_attempts WHERE team_id IN (
     'team_archive_w2_a',
     'team_archive_w3_a',
     'team_archive_w3_b',
-    'team_archive_w3_c'
+    'team_archive_w3_c',
+    'team_archive_w3_d'
 );
 DELETE FROM run_events
 WHERE run_id IN (SELECT id FROM runs WHERE team_id IN (
@@ -102,7 +107,8 @@ WHERE run_id IN (SELECT id FROM runs WHERE team_id IN (
     'team_archive_w2_a',
     'team_archive_w3_a',
     'team_archive_w3_b',
-    'team_archive_w3_c'
+    'team_archive_w3_c',
+    'team_archive_w3_d'
 ));
 DELETE FROM run_metrics
 WHERE run_id IN (SELECT id FROM runs WHERE team_id IN (
@@ -119,7 +125,8 @@ WHERE run_id IN (SELECT id FROM runs WHERE team_id IN (
     'team_archive_w2_a',
     'team_archive_w3_a',
     'team_archive_w3_b',
-    'team_archive_w3_c'
+    'team_archive_w3_c',
+    'team_archive_w3_d'
 ));
 DELETE FROM run_phases
 WHERE run_id IN (SELECT id FROM runs WHERE team_id IN (
@@ -136,7 +143,8 @@ WHERE run_id IN (SELECT id FROM runs WHERE team_id IN (
     'team_archive_w2_a',
     'team_archive_w3_a',
     'team_archive_w3_b',
-    'team_archive_w3_c'
+    'team_archive_w3_c',
+    'team_archive_w3_d'
 ));
 DELETE FROM outbox_events
 WHERE aggregate_id IN (SELECT id FROM runs WHERE team_id IN (
@@ -153,7 +161,8 @@ WHERE aggregate_id IN (SELECT id FROM runs WHERE team_id IN (
     'team_archive_w2_a',
     'team_archive_w3_a',
     'team_archive_w3_b',
-    'team_archive_w3_c'
+    'team_archive_w3_c',
+    'team_archive_w3_d'
 ))
    OR aggregate_id IN (
     'team_demo',
@@ -169,7 +178,8 @@ WHERE aggregate_id IN (SELECT id FROM runs WHERE team_id IN (
     'team_archive_w2_a',
     'team_archive_w3_a',
     'team_archive_w3_b',
-    'team_archive_w3_c'
+    'team_archive_w3_c',
+    'team_archive_w3_d'
 );
 DELETE FROM setup_verifications WHERE team_id IN (
     'team_demo',
@@ -185,7 +195,8 @@ DELETE FROM setup_verifications WHERE team_id IN (
     'team_archive_w2_a',
     'team_archive_w3_a',
     'team_archive_w3_b',
-    'team_archive_w3_c'
+    'team_archive_w3_c',
+    'team_archive_w3_d'
 );
 DELETE FROM team_nudges WHERE team_id IN (
     'team_demo',
@@ -201,7 +212,8 @@ DELETE FROM team_nudges WHERE team_id IN (
     'team_archive_w2_a',
     'team_archive_w3_a',
     'team_archive_w3_b',
-    'team_archive_w3_c'
+    'team_archive_w3_c',
+    'team_archive_w3_d'
 );
 DELETE FROM team_process_signals WHERE team_id IN (
     'team_demo',
@@ -217,7 +229,8 @@ DELETE FROM team_process_signals WHERE team_id IN (
     'team_archive_w2_a',
     'team_archive_w3_a',
     'team_archive_w3_b',
-    'team_archive_w3_c'
+    'team_archive_w3_c',
+    'team_archive_w3_d'
 );
 DELETE FROM team_tas WHERE team_id IN (
     'team_demo',
@@ -233,7 +246,8 @@ DELETE FROM team_tas WHERE team_id IN (
     'team_archive_w2_a',
     'team_archive_w3_a',
     'team_archive_w3_b',
-    'team_archive_w3_c'
+    'team_archive_w3_c',
+    'team_archive_w3_d'
 );
 DELETE FROM team_members WHERE team_id IN (
     'team_demo',
@@ -249,7 +263,8 @@ DELETE FROM team_members WHERE team_id IN (
     'team_archive_w2_a',
     'team_archive_w3_a',
     'team_archive_w3_b',
-    'team_archive_w3_c'
+    'team_archive_w3_c',
+    'team_archive_w3_d'
 );
 DELETE FROM runs WHERE team_id IN (
     'team_demo',
@@ -265,7 +280,8 @@ DELETE FROM runs WHERE team_id IN (
     'team_archive_w2_a',
     'team_archive_w3_a',
     'team_archive_w3_b',
-    'team_archive_w3_c'
+    'team_archive_w3_c',
+    'team_archive_w3_d'
 );
 DELETE FROM teams WHERE id IN (
     'team_demo',
@@ -281,7 +297,8 @@ DELETE FROM teams WHERE id IN (
     'team_archive_w2_a',
     'team_archive_w3_a',
     'team_archive_w3_b',
-    'team_archive_w3_c'
+    'team_archive_w3_c',
+    'team_archive_w3_d'
 );
 
 INSERT INTO teams
@@ -311,7 +328,10 @@ VALUES
    'archive', 'week-3-team-b', 'archive/week-3-team-b', '', 'main', NULL, NULL, NULL, 'archive'),
   ('team_archive_w3_c', 'cohort_bwsi26', 'Week 3 team C',
    'A 2026 CogWorks team, scored after the course from the repository as they left it. Name replaced.',
-   'archive', 'week-3-team-c', 'archive/week-3-team-c', '', 'main', NULL, NULL, NULL, 'archive');
+   'archive', 'week-3-team-c', 'archive/week-3-team-c', '', 'main', NULL, NULL, NULL, 'archive'),
+  ('team_archive_w3_d', 'cohort_bwsi26', 'Week 3 team D',
+   'A 2026 CogWorks team, scored after the course from the repository as they left it. Name replaced.',
+   'archive', 'week-3-team-d', 'archive/week-3-team-d', '', 'main', NULL, NULL, NULL, 'archive');
 
 -- The sha column holds a digest of the scored commit, not the commit itself: a real
 -- SHA resolves to its repository through GitHub search, which would undo the
@@ -358,7 +378,7 @@ VALUES
    'official', 'succeeded', 'main', '970d1b6a51ef28b53a3abfcf6937ec0d86c3fe8e', NULL, 1, NULL, NULL, NULL, 0, NULL,
    1788390376000, 1788390376000, 'archive', '1', NULL, NULL, 'language-search-official-v1', 'retrieval-v4',
    'week3-cpu-v1', 0, -1, NULL, NULL, NULL, NULL, NULL, NULL, NULL, '[]'),
-  ('run_archive_w3_d_language', 'team_archive_w1_c', 'language-search', 1, 'cogworks.submissions.v2',
+  ('run_archive_w3_d_language', 'team_archive_w3_d', 'language-search', 1, 'cogworks.submissions.v2',
    'official', 'succeeded', 'main', 'f3262ee6b97c0a0320c19e82281b51cc2f449ac6', NULL, 1, NULL, NULL, NULL, 0, NULL,
    1788390376000, 1788390376000, 'archive', '1', NULL, NULL, 'language-search-official-v1', 'retrieval-v4',
    'week3-cpu-v1', 0, -1, NULL, NULL, NULL, NULL, NULL, NULL, NULL, '[]');
@@ -486,7 +506,7 @@ VALUES
   ('attempt_archive_w3_a_language', 'team_archive_w3_a', 'language-search', 1, 'run_archive_w3_a_language', 1, 1, 1788390376000),
   ('attempt_archive_w3_b_language', 'team_archive_w3_b', 'language-search', 1, 'run_archive_w3_b_language', 1, 1, 1788390376000),
   ('attempt_archive_w3_c_language', 'team_archive_w3_c', 'language-search', 1, 'run_archive_w3_c_language', 1, 1, 1788390376000),
-  ('attempt_archive_w3_d_language', 'team_archive_w1_c', 'language-search', 1, 'run_archive_w3_d_language', 1, 1, 1788390376000);
+  ('attempt_archive_w3_d_language', 'team_archive_w3_d', 'language-search', 1, 'run_archive_w3_d_language', 1, 1, 1788390376000);
 
 INSERT INTO leaderboard_selections
   (team_id, benchmark_id, benchmark_version, run_id, selected_at)
@@ -499,4 +519,4 @@ VALUES
   ('team_archive_w3_a', 'language-search', 1, 'run_archive_w3_a_language', 1788390376000),
   ('team_archive_w3_b', 'language-search', 1, 'run_archive_w3_b_language', 1788390376000),
   ('team_archive_w3_c', 'language-search', 1, 'run_archive_w3_c_language', 1788390376000),
-  ('team_archive_w1_c', 'language-search', 1, 'run_archive_w3_d_language', 1788390376000);
+  ('team_archive_w3_d', 'language-search', 1, 'run_archive_w3_d_language', 1788390376000);
