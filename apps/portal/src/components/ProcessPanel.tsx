@@ -11,8 +11,6 @@ import { MemberAvatar } from "./MemberAvatar";
 import { ShaChip } from "./ShaChip";
 
 /**
- * The process layer, on the page where a team looks at itself.
- *
  * A score says how the pipeline did. These signals say where the work went
  * and when the pieces first fit together, which is the question the course
  * owner named and a leaderboard cannot answer (see
@@ -23,9 +21,7 @@ import { ShaChip } from "./ShaChip";
  * touched it, never how much. Anything that could be read as a grade by a
  * seventeen-year-old is not drawn, whatever caveat sits beside it.
  *
- * The second constraint came from a reader of the deployed version, who said
- * he could not tell what the panel was. Two things follow from that. The
- * title and the sentence under it stay outside the collapsing region, so a
+ * The title and the sentence under it stay outside the collapsing region, so a
  * closed panel still says what it reads and why; and there is no detector red
  * anywhere in here. Red in this system means a detection or a failure, and
  * nothing this panel reports is either, so the whole thing is drawn in rule,
@@ -56,7 +52,6 @@ export function ProcessPanel({ members }: { members: TeamDetail["members"] }) {
 
   // Panel's own chrome, rebuilt here because a Panel header cannot be a
   // button and this one has to be: the whole header row is the hit target.
-  // If a second panel ever needs to collapse, that belongs in Panel.tsx.
   return (
     <section className="relative mt-4 border border-rule bg-paper-raised">
       <header className={open ? "border-b border-rule-soft" : undefined}>
@@ -118,8 +113,6 @@ export function ProcessPanel({ members }: { members: TeamDetail["members"] }) {
   );
 }
 
-/* ── Remembering the panel's state ─────────────────────────────────────── */
-
 const OPEN_KEY = "cogportal.process-panel.open";
 
 /**
@@ -148,8 +141,6 @@ function storeOpen(open: boolean): void {
     /* see readStoredOpen */
   }
 }
-
-/* ── The body ──────────────────────────────────────────────────────────── */
 
 function Signals({
   signals,
@@ -186,8 +177,6 @@ function Signals({
 }
 
 /**
- * The readings, as lines rather than prose.
- *
  * Four at most (`MAX_FINDING_SENTENCES` in `process-signals.ts`), so this can
  * be a plain list with no lead sentence set apart from the rest. The first
  * line carries slightly more weight because it is always the frame the others
@@ -216,7 +205,7 @@ function Findings({ sentences }: { sentences: string[] }) {
   );
 }
 
-/* ── Stage footprint and ownership breadth, drawn as one thing ──────────
+/* Stage footprint and ownership breadth are drawn as one thing.
    They answer the same question from two sides: which people touched a
    stage, and when it was worked on. Drawn separately, a reader would have to
    join two lists by stage name to answer either. */
@@ -399,8 +388,6 @@ function StageRail({
   );
 }
 
-/* ── What the benchmark loads, and what has changed in it ──────────────── */
-
 /** The list is evidence for the sentence above it, not a log; past a handful
  *  of rows a reader is scrolling rather than reading. */
 const MAX_CHURN_ROWS = 5;
@@ -473,8 +460,6 @@ function ContractFiles({
     </section>
   );
 }
-
-/* ── Helpers ───────────────────────────────────────────────────────────── */
 
 /**
  * Dates read in UTC because the finding sentences above them are formatted

@@ -2,14 +2,6 @@ import { isBenchmarkScopedStep, type Benchmark, type SetupStep } from "@cogworks
 import { COGBENCH_SOURCE, benchmarkPackage } from "./benchmark-packages";
 
 /**
- * How far setup has got, and the commands that measure it.
- *
- * The setup page and the dashboard nudge both report progress, and they used
- * to count different things: the nudge counted milestones (a team exists, a
- * teammate exists) while the page counted commands. Two "of 6" figures that
- * disagreed read as a bug. Both now build the same array here and count it, so
- * a student can literally count the ticks and get the number in the masthead.
- *
  * Everything counted is something CogPortal observed: CLI evidence for the
  * four machine steps, a registered device for the link. Nothing depends on a
  * browser checkbox, so no step is unreachable by one student working alone.

@@ -176,8 +176,6 @@ export function LeaderboardPage() {
 }
 
 /**
- * One track's standings.
- *
  * `active` is about the current cohort, not about whether there is anything to
  * read. An uncalibrated track used to render its empty state over the top of
  * real archive rows, so Audio showed "Standings open when the track is
