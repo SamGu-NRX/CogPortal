@@ -127,12 +127,13 @@ RUN_STALE_AFTER_SECONDS="3600"
 #   Not a secret, and optional: runner.ts falls back to a constant when it is
 #   unset. It selects nothing. Modal picks a sandbox image by name, and this
 #   value's only use is as one of three inputs to the environmentDigest
-#   reported on a completed run. So a placeholder cannot fail a dispatch; what
-#   it does is make every run's reproducibility record a hash of the same word,
-#   so two runs on genuinely different images are recorded as identical. Set it
-#   from the id `python apps/runner-modal/tools/deploy.py` prints, which looks
-#   like `published cogworks-runner-week3 -> im-...`. Writing it as
-#   <name>@<id> keeps both facts in the record.
+#   reported on a completed run. That was before the prepared-environment
+#   record existed; nothing in the runner reads it now. That digest is built from the prepared-environment record, the evaluation
+#   script and the plugin and scorer versions, so a placeholder cannot fail a
+#   dispatch or collapse the record. Set it from an id
+#   `python apps/runner-modal/tools/deploy.py` prints, which looks like
+#   `published cogworks-runner-week3 -> im-...`, written as <name>@<id>. One
+#   string cannot name all three images, so this names at most one track.
 #
 # RUNNER_PYTHON_VERSION
 #   Not a secret, and it does not apply to every benchmark. Weeks 1 and 3

@@ -85,8 +85,13 @@ function surfaceSnapshot(): RunSurfaceSnapshot {
     officialRunId: null,
     published: false,
     refusalHeadline: null,
+    promotionRefusal: null,
+    retryRefusal: null,
     nextOfficialAttempt: 2,
     events: [],
+    executionHistory: [],
+    executionGeneration: 0,
+    snapshotRevision: 1,
     actions: ["open_console", "open_portal", "verify_hosted", "run_again"],
     simulated: true,
   };
@@ -131,6 +136,9 @@ const basePortal: PortalRpcContract = {
     throw new Error("not configured");
   },
   async rerunHosted() {
+    throw new Error("not configured");
+  },
+  async retryRun() {
     throw new Error("not configured");
   },
   async getRerunCommand() {
@@ -252,6 +260,21 @@ test("/cog shows the one useful next run action instead of a bulky menu", async 
   assert.deepEqual(buttons(response).map((item) => item.label), ["Verify hosted", "Open Cog*Portal"]);
   assert.match(responseText(response), /Face Recognition.*local/);
   assert.doesNotMatch(responseText(response), /bbbbbbb/);
+
+  latest.stage = "hosted";
+  latest.status = "failed";
+  latest.practiceRunId = "run_0123456789";
+  assert.ok(!buttons(await executeCommand(command(), portal, guildId, portalOrigin))
+    .some((item) => item.label === "Retry"), "failure alone must not expose Retry");
+  latest.actions = ["retry", "open_console", "open_portal"];
+  const retry = buttons(await executeCommand(command(), portal, guildId, portalOrigin))
+    .find((item) => item.label === "Retry");
+  assert.equal(retry?.custom_id, `cog:surface:${latest.id}:retry:${latest.practiceRunId}`);
+  assert.ok(retry!.custom_id!.length <= 100);
+
+  latest.practiceRunId = null;
+  assert.ok(!buttons(await executeCommand(command(), portal, guildId, portalOrigin))
+    .some((item) => item.label === "Retry"), "Retry needs an execution target");
 });
 
 test("surface mutations require a private confirmation before invoking Portal", async () => {
@@ -286,6 +309,67 @@ test("surface mutations require a private confirmation before invoking Portal", 
   assert.equal(calls, 1);
   assert.equal(confirmed.type, RESPONSE_UPDATE_MESSAGE);
   assert.match(responseText(confirmed), /Bench updated/);
+});
+
+test("Retry binds confirmation and replay to the original failed execution", async () => {
+  const failedRunId = "run_0123456789";
+  let latest: RunSurfaceSnapshot = {
+    ...surfaceSnapshot(), stage: "hosted", status: "failed",
+    practiceRunId: failedRunId, actions: ["retry", "open_portal"],
+  };
+  const calls: string[][] = [];
+  const portal = portalWith({
+    async getRunSurface() { return latest; },
+    async retryRun(...args) {
+      calls.push(args);
+      return { ...latest, status: "running", phase: "queued" };
+    },
+  });
+  const initialId = `cog:surface:${latest.id}:retry:${failedRunId}`;
+  const preview = await executeCommand(component(initialId), portal, guildId, portalOrigin);
+  assert.equal(calls.length, 0);
+  assert.equal(preview.data?.flags, EPHEMERAL | IS_COMPONENTS_V2);
+  assert.match(responseText(preview), /same source/);
+  assert.doesNotMatch(responseText(preview), /quota|free|charge|spend|attempt/i);
+  const confirmation = buttons(preview).find((item) => item.label === "Retry");
+  assert.equal(confirmation?.custom_id, `${initialId}:confirm`);
+  assert.ok(confirmation!.custom_id!.length <= 100);
+  assert.ok(buttons(preview).some((item) => item.label === "Not now"));
+
+  for (const status of ["running", "failed"] as const) {
+    latest = { ...latest, practiceRunId: "run_abcdef0123", status,
+      actions: status === "failed" ? ["retry"] : ["open_console"] };
+    const replay = await executeCommand(component(confirmation!.custom_id!), portal, guildId, portalOrigin);
+    assert.equal(replay.type, RESPONSE_UPDATE_MESSAGE);
+    assert.ok(buttons(replay).some((item) => item.url === `${portalOrigin}/run-surfaces/${latest.id}`));
+  }
+  assert.deepEqual(calls, Array.from({ length: 2 }, () => [guildId, "discord-1", latest.id, failedRunId]));
+
+  const stale = await executeCommand(component(initialId), portal, guildId, portalOrigin);
+  assert.match(responseText(stale), /out of date/);
+  assert.equal(calls.length, 2);
+});
+
+test("Retry rejects missing targets and unavailable actions without invoking Portal mutations", async () => {
+  const latest: RunSurfaceSnapshot = {
+    ...surfaceSnapshot(), stage: "hosted", status: "failed",
+    practiceRunId: "run_0123456789", actions: ["open_portal"],
+  };
+  let calls = 0;
+  const portal = portalWith({
+    async getRunSurface() { return latest; },
+    async retryRun() { calls += 1; return latest; },
+  });
+  for (const suffix of ["retry", "retry:confirm", "retry::confirm", "retry:run_0123456789:confirm:extra"]) {
+    const response = await executeCommand(component(`cog:surface:${latest.id}:${suffix}`), portal, guildId, portalOrigin);
+    assert.match(responseText(response), /no valid execution ID/);
+    assert.ok(!buttons(response).some((item) => item.label === "Retry"));
+  }
+  const unavailable = await executeCommand(
+    component(`cog:surface:${latest.id}:retry:${latest.practiceRunId}`), portal, guildId, portalOrigin,
+  );
+  assert.match(responseText(unavailable), /out of date/);
+  assert.equal(calls, 0);
 });
 
 test("quota-spending confirmations carry the consequence in the button and a receipt", async () => {

@@ -8,7 +8,7 @@ import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { Hono } from "hono";
 import type { Database } from "../worker/db/client.ts";
-import { cohorts, leaderboardSelections, officialAttempts, outboxEvents, runEvents, runMetrics, runPhases, runs, teams } from "../worker/db/schema.ts";
+import { cohorts, leaderboardSelections, outboxEvents, runEvents, runMetrics, runPhases, runs, teams } from "../worker/db/schema.ts";
 import type { AppEnv, Env } from "../worker/env.ts";
 import { hmacSignature } from "../worker/execution/runner.ts";
 import { handleError } from "../worker/http/errors.ts";
@@ -16,7 +16,9 @@ import { registerRunnerEventRoutes } from "../worker/routes/runner-events.ts";
 import { maintainPlatform } from "../worker/execution/maintenance.ts";
 import { serializeRunDetail } from "../worker/http/serializers.ts";
 import { publishOfficialRun, type RunActor } from "../worker/services/run-actions.ts";
+import { readRunAccounting } from "../worker/services/run-accounting.ts";
 import { FIXTURE_REPO } from "@cogworks/contracts/fixtures";
+import { PreparedEnvironmentV1Schema, RunJobV1Schema, type PreparedEnvironmentV1 } from "@cogworks/contracts/protocol";
 
 /**
  * What the portal is allowed to say when it answers a runner event.
@@ -272,17 +274,6 @@ async function seedRun(db: Database, options: { mode?: "practice" | "official" }
     // null keeps these tests off the Durable Object binding entirely.
     surfaceId: null,
   });
-  if (mode !== "official") return;
-  await db.insert(officialAttempts).values({
-    id: "attempt_run_1",
-    teamId: "team_1",
-    benchmarkId: AUDIO,
-    benchmarkVersion: 1,
-    runId: "run_1",
-    attemptNumber: 1,
-    consumed: false,
-    claimedAt: NOW,
-  });
 }
 
 function completedEvent() {
@@ -326,6 +317,159 @@ function completedEvent() {
   };
 }
 
+function provisioningEvidence(): PreparedEnvironmentV1 {
+  const fixture = PreparedEnvironmentV1Schema.parse(JSON.parse(readFileSync(new URL("../../../protocols/v1/fixtures/prepared-environment.valid.json", import.meta.url), "utf8")));
+  return { ...fixture, artifactId: "im-testsnapshot", benchmarkId: AUDIO,
+    source: { ...fixture.source, repositoryId: null } };
+}
+
+test("signed completion binds to the recorded dispatch source after the team repository is renamed", async () => {
+  const { db, binding } = freshHarness();
+  await seedRun(db, { mode: "practice" });
+  const evidence = provisioningEvidence();
+  const fixture = RunJobV1Schema.parse(JSON.parse(readFileSync(new URL("../../../protocols/v1/fixtures/run-job.valid.json", import.meta.url), "utf8")));
+  const job = RunJobV1Schema.parse({
+    ...fixture, runId: "run_1", mode: "practice", preparedArtifactId: null, preparedEnvironment: null,
+    source: { ...evidence.source, archiveUrl: `https://api.github.com/repos/${evidence.source.fullName}/tarball/${evidence.source.sha}` },
+    benchmark: { ...fixture.benchmark, id: AUDIO, version: 1, sandboxContract: evidence.sandboxContract },
+  });
+  const dispatchJobJson = JSON.stringify(job);
+  await db.update(runs).set({ dispatchJobJson }).where(eq(runs.id, "run_1"));
+  await db.update(teams).set({ repoName: "renamed", repoFullName: "cogworks-test/renamed" }).where(eq(teams.id, "team_1"));
+  const app = route();
+  const tampered = { ...evidence, source: { ...evidence.source, fullName: "cogworks-test/renamed" } };
+  assert.equal((await post(app, binding, { ...completedEvent(), preparedEnvironment: tampered })).status, 400);
+  const [unchanged] = await db.select().from(runs).where(eq(runs.id, "run_1"));
+  assert.equal(unchanged.status, "evaluating");
+  assert.equal(unchanged.preparedEnvironmentJson, null);
+  assert.equal((await db.select().from(runEvents)).length, 0);
+  assert.equal((await db.select().from(runMetrics)).length, 0);
+
+  assert.equal((await post(app, binding, { ...completedEvent(), preparedEnvironment: evidence })).status, 200);
+  const [completed] = await db.select().from(runs).where(eq(runs.id, "run_1"));
+  assert.equal(completed.status, "succeeded");
+  assert.equal(completed.dispatchJobJson, dispatchJobJson);
+  assert.deepEqual(JSON.parse(completed.preparedEnvironmentJson!), evidence);
+  assert.equal((await db.select().from(runEvents)).length, 1);
+});
+
+for (const field of ["artifact", "benchmark", "sha", "repository", "fullName"] as const) {
+  test(`authenticated completion rejects ${field} binding tamper before storing evidence`, async () => {
+    const { db, binding } = freshHarness();
+    await seedRun(db, { mode: "practice" });
+    const evidence = provisioningEvidence();
+    if (field === "artifact") evidence.artifactId = "im-other";
+    if (field === "benchmark") evidence.benchmarkId = "language-search";
+    if (field === "sha") evidence.source.sha = "b".repeat(40);
+    if (field === "repository") evidence.source.repositoryId = 42;
+    if (field === "fullName") evidence.source.fullName = "other/repo";
+    const result = await post(route(), binding, { ...completedEvent(), preparedEnvironment: evidence });
+    assert.equal(result.status, 400);
+    const [run] = await db.select().from(runs);
+    assert.equal(run.status, "evaluating");
+    assert.equal(run.preparedEnvironmentJson, null);
+    assert.equal(run.preparedArtifactId, null);
+    assert.equal((await db.select().from(runEvents)).length, 0);
+    assert.equal((await db.select().from(runMetrics)).length, 0);
+  });
+}
+
+test("a body changed after signing cannot supply provisioning evidence", async () => {
+  const { db, binding } = freshHarness();
+  await seedRun(db, { mode: "practice" });
+  const body = JSON.stringify(completedEvent());
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  const response = await route().fetch(new Request("http://localhost:5173/internal/v1/runner/events", {
+    method: "POST", body: JSON.stringify({ ...completedEvent(), preparedEnvironment: provisioningEvidence() }),
+    headers: { "X-Cogworks-Key-Id": "runner-v1", "X-Cogworks-Timestamp": timestamp,
+      "X-Cogworks-Signature": `v1=${await hmacSignature(SECRET, timestamp, body)}` },
+  }), env(binding));
+  assert.equal(response.status, 401);
+  assert.equal((await db.select().from(runs))[0].preparedEnvironmentJson, null);
+  assert.equal((await db.select().from(runEvents)).length, 0);
+});
+
+for (const omitted of [false, true]) {
+  test(`reused official completion ${omitted ? "omits" : "forwards"} evidence without replacing its original observation`, async () => {
+    const { db, binding } = freshHarness();
+    await seedRun(db);
+    const evidence = provisioningEvidence();
+    await db.update(runs).set({ preparedArtifactId: evidence.artifactId, preparedEnvironmentJson: JSON.stringify(evidence) });
+    assert.equal((await post(route(), binding, { ...completedEvent(), ...(omitted ? {} : { preparedEnvironment: evidence }) })).status, 200);
+    const [run] = await db.select().from(runs);
+    assert.deepEqual(JSON.parse(run.preparedEnvironmentJson!), evidence);
+    assert.equal(run.status, "succeeded");
+  });
+}
+
+for (const change of ["baseImageId", "sdkVersion", "pythonVersion", "sandboxContract", "moduleHash", "artifactId"] as const) {
+  test(`reused official completion cannot replace ${change} provisioning fact`, async () => {
+    const { db, binding } = freshHarness();
+    await seedRun(db);
+    const evidence = provisioningEvidence();
+    await db.update(runs).set({ preparedArtifactId: evidence.artifactId, preparedEnvironmentJson: JSON.stringify(evidence) });
+    const replacement = structuredClone(evidence);
+    if (change === "moduleHash") replacement.modules[0].sha256 = "f".repeat(64);
+    else if (change === "sandboxContract") replacement.sandboxContract = 2;
+    else replacement[change] = "different";
+    assert.equal((await post(route(), binding, { ...completedEvent(), preparedEnvironment: replacement })).status, 400);
+    const [run] = await db.select().from(runs);
+    assert.equal(run.status, "evaluating");
+    assert.deepEqual(JSON.parse(run.preparedEnvironmentJson!), evidence);
+  });
+}
+
+test("racing late completions cannot replace the first saved provisioning observation", async () => {
+  const harness = freshHarness();
+  await seedRun(harness.db);
+  const app = route();
+  await post(app, harness.binding, infrastructureFailureEvent());
+  const barrier = harness.pauseAfterRead(/^select "id", "team_id", .* from "runs"/i);
+  const alternate = { ...provisioningEvidence(), artifactId: "im-another-snapshot" };
+  const delayed = post(app, harness.binding, { ...completedEvent(), eventId: "evt_delayed", sequence: 7,
+    preparedArtifactId: alternate.artifactId, preparedEnvironment: alternate });
+  await barrier.reached;
+  try {
+    assert.equal((await post(app, harness.binding, { ...completedEvent(), sequence: 6, preparedEnvironment: provisioningEvidence() })).status, 200);
+  } finally { barrier.release(); }
+  await delayed;
+  const [run] = await harness.db.select().from(runs);
+  assert.equal(run.status, "failed");
+  assert.equal(run.lastEventSequence, 6);
+  assert.equal(run.preparedArtifactId, provisioningEvidence().artifactId);
+  assert.deepEqual(JSON.parse(run.preparedEnvironmentJson!), provisioningEvidence());
+});
+
+test("contract-check provider failure settles only its execution and a late completion stays history", async () => {
+  const { db, binding } = freshHarness();
+  await seedRun(db);
+  const evidence = provisioningEvidence();
+  await db.update(runs).set({ preparedArtifactId: evidence.artifactId, preparedEnvironmentJson: JSON.stringify(evidence) });
+  const failure = { ...infrastructureFailureEvent(), failure: {
+    category: "provider", phase: "contract_check", detail: "Saved sandbox contract 1 does not match required contract 2.", infrastructure: true,
+  } };
+  const app = route();
+  assert.equal((await post(app, binding, failure)).status, 200);
+  assert.equal((await post(app, binding, failure)).body.duplicate, true);
+  const [failed] = await db.select().from(runs);
+  assert.equal(failed.status, "failed");
+  assert.equal(failed.failureCategory, "provider");
+  assert.equal(failed.failurePhase, "contract_check");
+  assert.equal(failed.failureDetail, failure.failure.detail);
+  assert.equal(failed.failureConsumedAttempt, false);
+  assert.equal((await post(app, binding, { ...completedEvent(), sequence: 6, preparedEnvironment: evidence })).status, 200);
+  const [late] = await db.select().from(runs);
+  assert.equal(late.status, "failed");
+  assert.equal(late.finishedAt, failed.finishedAt);
+  assert.equal(late.failureDetail, failed.failureDetail);
+  assert.deepEqual(JSON.parse(late.preparedEnvironmentJson!), evidence);
+  assert.equal((await db.select().from(runMetrics)).length, 2);
+  const accounting = await readRunAccounting(db, { teamId: late.teamId, benchmarkId: AUDIO, benchmarkVersion: 1 });
+  assert.equal(accounting.officialUsed, 0);
+  assert.equal(accounting.officialReserved, 0);
+  assert.equal(accounting.activeRuns, 0);
+});
+
 /** A failure that is ours, so the attempt goes back. */
 function infrastructureFailureEvent() {
   return {
@@ -351,10 +495,10 @@ async function counts(db: Database) {
   const [run] = await db.select().from(runs).where(eq(runs.id, "run_1")).limit(1);
   return {
     run,
+    accounting: await readRunAccounting(db, { teamId: "team_1", allBenchmarks: true }),
     metrics: (await db.select().from(runMetrics).where(eq(runMetrics.runId, "run_1"))).length,
     events: (await db.select().from(runEvents).where(eq(runEvents.runId, "run_1"))).length,
     outbox: (await db.select().from(outboxEvents).where(eq(outboxEvents.aggregateId, "run_1"))).length,
-    attempts: (await db.select().from(officialAttempts).where(eq(officialAttempts.runId, "run_1"))).length,
   };
 }
 
@@ -478,13 +622,14 @@ test("an interrupted failure transaction releases the reservation exactly once o
   const app = route();
   const event = infrastructureFailureEvent();
 
-  // Fail after deleting the claim but before the terminal write commits.
+  // Fail after inserting the terminal notice but before the run write commits.
   harness.interruptOn(/update "runs" set "status"/i);
   const first = await post(app, harness.binding, event);
   assert.equal(first.status, 500);
 
   const midway = await counts(harness.db);
-  assert.equal(midway.attempts, 1, "the claim deletion rolled back");
+  assert.equal(midway.outbox, 0, "the terminal notice rolled back");
+  assert.equal(midway.accounting.officialReserved, 1);
   assert.equal(midway.run?.status, "evaluating");
   assert.equal(midway.events, 0);
 
@@ -492,9 +637,11 @@ test("an interrupted failure transaction releases the reservation exactly once o
   assert.equal(replay.status, 200);
 
   const after = await counts(harness.db);
-  assert.equal(after.attempts, 0, "still one settlement, not two");
   assert.equal(after.run?.refundedAt, null, "no refund ledger is written");
   assert.equal(after.run?.status, "failed");
+  assert.equal(after.outbox, 1);
+  assert.equal(after.accounting.officialReserved, 0);
+  assert.equal(after.accounting.officialUsed, 0);
   assert.equal(after.run?.failureConsumedAttempt, false);
   assert.equal(
     after.run?.failureDetail,
@@ -505,8 +652,7 @@ test("an interrupted failure transaction releases the reservation exactly once o
   const third = await post(app, harness.binding, event);
   assert.equal(third.body.duplicate, true);
   const settled = await counts(harness.db);
-  assert.equal(settled.attempts, 0);
-  assert.equal(settled.run?.refundedAt, after.run?.refundedAt, "the third post moved nothing");
+  assert.deepEqual(settled, after, "the third post moved nothing");
 });
 
 test("two deliveries of one event racing each other settle it once", async () => {
@@ -549,18 +695,19 @@ for (const mode of ["practice", "official"] as const) {
     await maintainPlatform(env(harness.binding), NOW + 3_600_001);
     const reaped = await counts(harness.db);
     assert.equal(reaped.run.status, "failed");
-    assert.equal(reaped.attempts, 0);
 
     const response = await post(app, harness.binding, completedEvent());
     assert.equal(response.status, 200);
     const recovered = await counts(harness.db);
     assert.equal(recovered.run.status, "failed");
+    assert.deepEqual(recovered.accounting, {
+      practiceUsed: 0, officialUsed: 0, practiceReserved: 0, officialReserved: 0, activeRuns: 0,
+    });
     assert.equal(recovered.metrics, 2);
     assert.equal(recovered.run.failureCategory, reaped.run.failureCategory);
     assert.equal(recovered.run.failureDetail, reaped.run.failureDetail);
     assert.equal(recovered.run.finishedAt, reaped.run.finishedAt);
     assert.equal(recovered.run.refundedAt, reaped.run.refundedAt);
-    assert.equal(recovered.attempts, 0);
     assert.deepEqual(JSON.parse(recovered.run.diagnosticsJson!), ["the first note", "the second note"]);
     const actor = await publicationActor(harness.db);
     const detail = await serializeRunDetail(harness.db, recovered.run, actor.team);
@@ -593,16 +740,6 @@ test("a failed execution's late completion cannot replace a subsequently publish
     failureDetail: null,
     lastEventSequence: 0,
   });
-  await harness.db.insert(officialAttempts).values({
-    id: "attempt_run_2",
-    teamId: "team_1",
-    benchmarkId: AUDIO,
-    benchmarkVersion: 1,
-    runId: "run_2",
-    attemptNumber: 1,
-    consumed: false,
-    claimedAt: NOW + 3_600_002,
-  });
   assert.equal((await post(app, harness.binding, {
     protocolVersion: "1",
     eventId: "evt_evaluating_2",
@@ -621,21 +758,20 @@ test("a failed execution's late completion cannot replace a subsequently publish
   const actor = await publicationActor(harness.db);
   await publishOfficialRun(env(harness.binding), actor, "run_2");
   const selection = await harness.db.select().from(leaderboardSelections);
-  const attempts = await harness.db.select().from(officialAttempts);
+  const accounting = (await counts(harness.db)).accounting;
+  assert.equal(accounting.officialUsed, 1);
   assert.equal(selection[0].runId, "run_2");
-  assert.equal(attempts[0].consumed, false, "evaluation phases do not charge attempts");
 
   assert.equal((await post(app, harness.binding, completedEvent())).status, 200);
   const recovered = await counts(harness.db);
   assert.equal(recovered.run.status, "failed");
   assert.equal(recovered.metrics, 2);
   assert.equal(recovered.run.refundedAt, reaped.run.refundedAt);
-  assert.equal(recovered.attempts, 0);
   await assert.rejects(publishOfficialRun(env(harness.binding), actor, "run_1"), { code: "not_selectable" });
   assert.equal((await post(app, harness.binding, completedEvent())).body.duplicate, true);
   await maintainPlatform(env(harness.binding), NOW + 7_200_000);
   assert.deepEqual(await harness.db.select().from(leaderboardSelections), selection);
-  assert.deepEqual(await harness.db.select().from(officialAttempts), attempts);
+  assert.deepEqual((await counts(harness.db)).accounting, accounting);
 });
 
 test("out-of-order status callbacks cannot reopen a reaped run or block its late result", async () => {
@@ -656,7 +792,6 @@ test("out-of-order status callbacks cannot reopen a reaped run or block its late
     })).status, 200);
     const after = await counts(harness.db);
     assert.deepEqual(after.run, reaped.run);
-    assert.equal(after.attempts, 0);
   }
   assert.equal((await post(app, harness.binding, completedEvent())).status, 200);
   const recovered = await counts(harness.db);
@@ -664,7 +799,6 @@ test("out-of-order status callbacks cannot reopen a reaped run or block its late
   assert.equal(recovered.run.lastEventSequence, 5);
   assert.equal(recovered.run.refundedAt, reaped.run.refundedAt);
   assert.equal(recovered.metrics, 2);
-  assert.equal(recovered.attempts, 0);
 });
 
 for (const status of ["evaluating", "scoring"] as const) {
@@ -679,7 +813,6 @@ for (const status of ["evaluating", "scoring"] as const) {
       ]);
       const snapshot = async () => ({
         run: (await counts(harness.db)).run,
-        attempts: await harness.db.select().from(officialAttempts),
         phases: await harness.db.select().from(runPhases),
       });
       // Skip the route's id-only existence check. Hold applyEvent's full run
@@ -697,7 +830,6 @@ for (const status of ["evaluating", "scoring"] as const) {
         await maintainPlatform(env(harness.binding), NOW + 3_600_001);
         reaped = await snapshot();
         assert.equal(reaped.run.status, "failed");
-        assert.equal(reaped.attempts.length, 0);
         assert.equal(reaped.run.refundedAt, null);
       } finally {
         barrier.release();
@@ -743,7 +875,9 @@ for (const mode of ["practice", "official"] as const) {
       const after = await counts(harness.db);
       assert.equal(after.run.status, "failed");
       assert.equal(after.run.failureConsumedAttempt, false);
-      assert.equal(after.attempts, 0);
+      assert.deepEqual(after.accounting, {
+        practiceUsed: 0, officialUsed: 0, practiceReserved: 0, officialReserved: 0, activeRuns: 0,
+      });
       assert.equal(after.outbox, 1);
       assert.equal(after.events, 1);
       assert.equal(after.run.refundedAt, null);
@@ -760,8 +894,9 @@ for (const mode of ["practice", "official"] as const) {
     const after = await counts(harness.db);
     assert.equal(after.run.status, "succeeded");
     assert.equal(after.metrics, 1);
+    assert.equal(after.accounting[mode === "official" ? "officialUsed" : "practiceUsed"], 1);
+    assert.equal(after.accounting.activeRuns, 0);
     assert.equal(after.outbox, 1);
-    assert.equal(after.attempts, mode === "official" ? 1 : 0);
     assert.deepEqual(JSON.parse(after.run.diagnosticsJson!), event.result.diagnostics);
   });
 }
@@ -787,7 +922,6 @@ for (const eventType of ["completed", "failed"] as const) {
     assert.equal(after.run.status, "failed");
     assert.equal(after.run.finishedAt, failed.run.finishedAt);
     assert.equal(after.run.failureDetail, failed.run.failureDetail);
-    assert.equal(after.attempts, 0);
     assert.equal(after.outbox, 1, "only the winning reaper emits a terminal notice");
     assert.equal(after.metrics, eventType === "completed" ? 2 : 0);
   });
@@ -807,7 +941,6 @@ test("a reaper snapshot taken before completion cannot fail the completed execut
   await pending;
   const after = await counts(harness.db);
   assert.equal(after.run.status, "succeeded");
-  assert.equal(after.attempts, 1);
   assert.equal(after.outbox, 1);
 });
 

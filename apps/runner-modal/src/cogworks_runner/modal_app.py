@@ -18,6 +18,11 @@ from fastapi import Request, Response
 
 from .image_bake import WEEK3_DATA_DIR, cache_facenet_checkpoint, cache_week3_artifacts
 from .protocol import canonical_json, signature, validate_job, verify_signature
+from .prepared_environment import (
+    bind_environment,
+    validate_observation,
+    validate_prepared_environment,
+)
 
 # Every request the runner makes to the portal or to GitHub carries this.
 # urllib's default is "Python-urllib/3.11", and Cloudflare's managed rules
@@ -1289,7 +1294,7 @@ def _student_python(job: Dict[str, Any]) -> str:
     }.get(job["benchmark"]["id"], "python")
 
 
-def _prepare(job: Dict[str, Any], reporter: LiveReporter) -> str:
+def _prepare(job: Dict[str, Any], reporter: LiveReporter) -> Tuple[str, Dict[str, Any]]:
     sandbox = None
     try:
         callback = urlsplit(job["callback"]["url"])
@@ -1323,15 +1328,40 @@ def _prepare(job: Dict[str, Any], reporter: LiveReporter) -> str:
         ]
         if callback.hostname and callback.hostname not in allowlist:
             allowlist.append(callback.hostname)
+        image = _sandbox_image(job)
         sandbox = modal.Sandbox.create(
-            image=_sandbox_image(job),
+            image=image,
             app=app,
             cpu=(0.5, job["runtime"]["cpu"]),
             memory=(512, job["runtime"]["memoryMb"]),
             timeout=job["runtime"]["timeoutSeconds"],
             outbound_domain_allowlist=allowlist,
         )
+        # Modal 1.5.5 rejects direct hydration of a named image. Sandbox.create
+        # resolves this same handle, so its base image id is available only now.
+        base_image_id = image.object_id
         reporter.status("preparing")
+        # Only this pristine image is platform-owned. Neither the archive nor
+        # an installer has run. Preserve the observation in controller memory;
+        # reading it back after student code runs would cross the trust boundary.
+        pristine = sandbox.exec(
+            _student_python(job), "-m", "cogworks_runner.prepared_environment",
+            job["benchmark"]["id"],
+        )
+        pristine.wait()
+        if pristine.returncode != 0:
+            raise RunnerFailure(
+                "provider", "preparing",
+                "The published environment cannot establish its execution contract.", True,
+            )
+        try:
+            observation = json.loads(pristine.stdout.read())
+            validate_observation(job, observation)
+        except (ValueError, TypeError) as error:
+            raise RunnerFailure(
+                "provider", "preparing",
+                "The published environment does not satisfy the current execution contract.", True,
+            ) from error
         sandbox.filesystem.write_text(PREPARE_SCRIPT, "/tmp/cog-prepare.py")
         reporter.status("installing")
         with StatusHeartbeat(reporter, "installing"):
@@ -1367,7 +1397,8 @@ def _prepare(job: Dict[str, Any], reporter: LiveReporter) -> str:
                 )
             raise RunnerFailure("dependency_install", "installing", detail or "Install failed.", False)
         reporter.status("contract_check")
-        return sandbox.snapshot_filesystem().object_id
+        snapshot_id = sandbox.snapshot_filesystem().object_id
+        return snapshot_id, bind_environment(job, observation, snapshot_id, base_image_id)
     except RunnerFailure:
         raise
     except Exception as error:
@@ -2212,8 +2243,11 @@ def _platform_owned_evaluation_failure() -> None:
     that process emits is evidence about us. That is the rule, and it is why
     this is not fixed by a harder-to-forge channel.
 
-    Nothing is lost by not asking. Every condition the marker reported is
-    verified by this process, before the sandbox is created:
+    Saved-environment compatibility is checked separately against the retained
+    pre-install observation. It proves provisioning, not that installation left
+    those modules intact. Never replace it with a read from the restored image.
+
+    The conditions the old marker reported are checked outside student execution:
 
       _week1_cases   re-renders the corpus from its seeds and checks it
                      against the same pinned sha256 digests
@@ -2466,11 +2500,20 @@ def execute_job(job_value: Dict[str, Any]) -> None:
     phase = "queued"
     try:
         prepared_this_run = job["preparedArtifactId"] is None
-        snapshot_id = job["preparedArtifactId"] or _prepare(job, reporter)
+        if prepared_this_run:
+            snapshot_id, prepared_environment = _prepare(job, reporter)
+        else:
+            phase = "contract_check"
+            reporter.status("contract_check")
+            snapshot_id = job["preparedArtifactId"]
+            prepared_environment = job.get("preparedEnvironment")
+            incompatibility = validate_prepared_environment(job, prepared_environment)
+            if incompatibility:
+                raise RunnerFailure("provider", "contract_check", incompatibility, True)
+        # This evidence came from before installation, over the signed job.
+        # Later package changes or prediction claims cannot change attribution.
         weights_supplied = [weight["path"] for weight in job.get("weights", [])]
         phase = "contract_check"
-        if job["preparedArtifactId"]:
-            reporter.status("contract_check")
         benchmark = _load_benchmark(job)
         week3 = job["benchmark"]["id"] == "language-search"
         week1 = job["benchmark"]["id"] == "audio-identification"
@@ -2521,13 +2564,15 @@ def execute_job(job_value: Dict[str, Any]) -> None:
         output_digest = hashlib.sha256(
             json.dumps(predictions, sort_keys=True, separators=(",", ":")).encode("utf-8")
         ).hexdigest()
-        environment_digest = hashlib.sha256(
-            "{}:{}:{}".format(
-                snapshot_id,
-                job["runtime"]["imageDigest"],
-                job["benchmark"]["pluginVersion"],
-            ).encode("utf-8")
-        ).hexdigest()
+        # Preparation identity is preserved separately from this evaluator.
+        # Requested image labels cannot describe a restored filesystem.
+        environment_digest = hashlib.sha256(canonical_json({
+            "preparedEnvironment": prepared_environment,
+            "evaluationScriptSha256": hashlib.sha256(EVALUATE_SCRIPT.encode("utf-8")).hexdigest(),
+            "controllerPython": sys.version,
+            "pluginVersion": benchmark.plugin_version,
+            "scorerVersion": benchmark.scorer_version,
+        })).hexdigest()
         result = {
             "protocolVersion": "1",
             "benchmarkId": job["benchmark"]["id"],
@@ -2597,6 +2642,7 @@ def execute_job(job_value: Dict[str, Any]) -> None:
         "completed",
         result=result,
         preparedArtifactId=snapshot_id,
+        preparedEnvironment=prepared_environment,
         environmentDigest=environment_digest,
         sanitizedLog=student_log if job["mode"] == "practice" else None,
     )
