@@ -44,7 +44,7 @@ pnpm deploy:portal
 ```
 
 Confirm `/api/v1/benchmarks`, GitHub sign-in, repository connection, a fixture
-practice run, promotion/refund behavior, and the Connections page before
+practice run, promotion behavior, and the Connections page before
 continuing.
 
 ## 3. Pass the Modal M0 gate
@@ -102,8 +102,7 @@ M0 is not complete until operators also verify:
 - CPU, memory, wall-clock, log, and prediction limits terminate cleanly;
 - a snapshot can be restored into a fresh network-blocked sandbox;
 - duplicate jobs/events do not duplicate metrics or consume quota twice;
-- queue/provider/callback failures become infrastructure failures and refund an
-  official attempt;
+- queue/provider/callback failures become infrastructure failures;
 - hidden labels never appear in the sandbox, practice logs, callbacks, or D1.
 
 Create the external resources only after that review:
@@ -111,8 +110,13 @@ Create the external resources only after that review:
 ```sh
 modal volume create cogworks-hidden-datasets --version=2
 modal secret create cogworks-runner-signing RUNNER_SIGNING_SECRET="$RUNNER_SIGNING_SECRET" RUNNER_SIGNING_KEY_ID=runner-v1
-modal deploy -m cogworks_runner.modal_app
 ```
+
+Then deploy with `python apps/runner-modal/tools/deploy.py`, not `modal deploy`.
+`_prepare` builds its sandbox from inside a Modal container, where the
+repository the image definitions read does not exist, so `modal deploy` cannot
+build the runner images. `docs/runbooks/gate-1-modal.md` has the full reason and
+the stale-`build/` tree it refuses to run against.
 
 Upload reviewed hidden JSON through an approved operator path to
 `/hidden/<benchmark-id>/<dataset-version>.json`. Never put hidden data in this
@@ -174,7 +178,8 @@ the real controller path, and writes signed runner events to a local sink.
 
 The one-hour stale threshold must exceed the queue delay plus both sandbox
 timeouts. Lower values are rejected below 15 minutes. The scheduled handler
-runs every five minutes and refunds stale official attempts idempotently.
+runs every five minutes, failing stale runs and releasing the capacity they
+reserved, idempotently.
 
 ## 5. Deploy CogBot
 

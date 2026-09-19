@@ -163,6 +163,6 @@ After an interrupt the local report file is exactly as it was. `sync` is the onl
 - The upload has a 15 second timeout, no retry, and no progress line, while the ceiling it enforces is 200 MiB. Those two numbers do not sit well together: a file anywhere near the cap cannot finish inside the timeout on an ordinary connection. Whether any real Week 3 checkpoint approaches the cap was not measured.
 - The tracked check lost its timeout during the in-flight edits. Whether that was deliberate was not established.
 - Whether a hosted run discloses that it used uploaded weights, on any screen, was not confirmed. The run record has a column for it (`runs.weights_supplied_json`) and the runner event carries it; no view was traced. **Unverified.**
-- This document was rewritten twice during the drafting pass as the feature landed, and the source moved again between the last read and the last edit. Treat every line number here as a hint rather than a citation.
+- The source moved between the last read and the last edit. Treat every line number here as a hint rather than a citation.
 
 Verified against Cog\*Portal commit `5a74e74`.

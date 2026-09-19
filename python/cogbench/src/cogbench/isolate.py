@@ -67,10 +67,10 @@ DEFAULT_TIMEOUT_SECONDS = 300
 
 #: Bound only the wait after publication or pipe closure, never student work.
 #: `_child` closes the descriptor and calls `os._exit` with the bulk flush
-#: already behind it, so a child on its way out is gone in microseconds and a
-#: whole second is generous. A child still alive after that is lingering, which
-#: is the shape of the forged-payload case, so it loses its payload. This is a
-#: cleanup policy, not a measured maximum for interpreter teardown.
+#: already behind it, so a child on its way out is gone in microseconds. A
+#: child still alive after that is lingering, which is the shape of the
+#: forged-payload case, so it loses its payload. A cleanup policy, not a
+#: measured maximum for interpreter teardown.
 UNBOUNDED_REAP_SECONDS = 1.0
 
 #: Address space ceiling for the child. Above the measured peak of a real
@@ -208,11 +208,9 @@ def ensure_pinned_hash_seed(command: Optional[list] = None) -> bool:
     if os.name == "nt":
         # Windows has no exec: `os.execve` starts a second process and ends
         # this one, so the caller sees an exit code from a process that did
-        # no work. Measured in CI, where `cogworks --version` printed nothing
-        # and exited 1 the first time the job got far enough to run it.
-        # Staying unpinned is a state this function already allows, and a
-        # hosted run is unaffected because its image sets the variable for
-        # every process in the sandbox.
+        # no work. Staying unpinned is a state this function already allows,
+        # and a hosted run is unaffected because its image sets the variable
+        # for every process in the sandbox.
         return False
     if os.environ.get(_REEXEC_MARK):
         # Already tried and the seed still did not take. Re-executing again
@@ -735,9 +733,7 @@ def _collect(pid, read_fd, timeout_seconds, memory_bytes) -> Outcome:
     # descriptor is reachable from the child, so code running there can write a
     # correctly framed "completed" envelope, close it, and hang: the parent
     # would accept that, kill the process at its deadline, and report the
-    # forged success. For `check` the forged value can have the right shape, so
-    # `--update-setup` would record setup evidence for a run we killed. The
-    # payload is a claim; the exit is the evidence for it.
+    # forged success. The payload is a claim; the exit is the evidence for it.
     if outcome is not None and (fired or not reaped):
         outcome = None
         reason = reason or ("alarm" if fired else "killed_before_exit")
