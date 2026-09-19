@@ -63,13 +63,6 @@ export async function isRosteredStaff(db: Database, login: string): Promise<bool
   return Boolean(row);
 }
 
-/**
- * Staff if the roster says so, or if the environment says this is an owner.
- *
- * Reads the database, so it takes one. Before migration 0031 the roster was a
- * comma-separated environment variable and this was synchronous; changing who
- * is staff meant editing a Cloudflare secret and redeploying.
- */
 export async function platformRole(
   db: Database,
   env: Env,
@@ -84,8 +77,7 @@ export async function requireStaff(c: Context<AppEnv>): Promise<AuthState> {
   const login = authorizationLogin(c.env, auth.user);
   if (isPlatformOwner(c.env, login)) return auth;
   // A team's assigned TA is staff without appearing on the platform roster,
-  // which predates this table (migration 0008). Both reads are independent, so
-  // they go together rather than one after the other.
+  // which predates this table (migration 0008).
   const db = getDb(c.env);
   const [rostered, [assignment]] = await Promise.all([
     isRosteredStaff(db, login),

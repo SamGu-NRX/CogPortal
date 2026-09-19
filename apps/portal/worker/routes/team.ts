@@ -219,11 +219,9 @@ function forConnectedRepository(repositoryId: number | null) {
 }
 
 /**
- * Whether the team has scored runs that the scoping above set aside.
- *
- * The difference between "you have not scored yet" and "your scored runs are
- * not from this repository" is the whole of what the panel gets wrong without
- * it, and the portal can see which is true.
+ * The difference between "you have not scored yet" and "your scored runs are not
+ * from this repository" is the whole of what the panel gets wrong without this,
+ * and the portal can see which is true.
  */
 export async function hasRunsElsewhere(
   db: Database,

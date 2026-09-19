@@ -56,7 +56,7 @@ At ten completed practice evaluations, the team cannot start another hosted prac
 
 At three completed official evaluations, neither promotion nor an official Retry can start another evaluation on that version. Existing eligible official results can still be selected for the leaderboard without cost.
 
-The dashboard reports completed usage in its attempt-budget cells; the staff view reports completed totals. The terminal has no per-benchmark quota display. See [starting a practice run](../portal/start-a-practice-run.md) and [terminal status](../terminal/status.md). Browser copy and recovery controls are being assembled separately from this backend checkpoint; this document does not certify their final presentation.
+The dashboard reports completed usage in its attempt-budget cells; the staff view reports completed totals. The terminal has no per-benchmark quota display. See [starting a practice run](../portal/start-a-practice-run.md) and [terminal status](../terminal/status.md).
 
 ## Modifiers
 

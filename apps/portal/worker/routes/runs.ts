@@ -54,11 +54,11 @@ export function registerRunRoutes(app: Hono<AppEnv>): void {
     return respond(c, z.array(RunSummarySchema), summaries);
   });
 
-  app.get("/v1/runs/:id/weights/*", async (c) => {
+  app.get("/v1/runs/:id/weights/:path{.+}", async (c) => {
     // Weight URLs are minted before preparation starts, so they use the same
     // 900-second window as the prepare timeout in execution/runner.ts.
     await verifyRunnerSignature(c, new URL(c.req.url).pathname, 900);
-    const path = validateWeightPath(c.req.param("*") ?? "");
+    const path = validateWeightPath(c.req.param("path"));
     const [record] = await getDb(c.env)
       .select({ run: runs, repositoryFullName: teams.repoFullName })
       .from(runs)

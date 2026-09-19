@@ -328,8 +328,7 @@ export function registerRunnerEventRoutes(app: Hono<AppEnv>): void {
     // the insert and the publish leaves the phase unannounced with the record
     // already written. This is the run surface, not the result, so a missed
     // phase costs a progress line rather than a score, and it behaved this way
-    // before the ordering changed. Worth naming rather than implying the
-    // surface has seen everything the record has.
+    // before the ordering changed.
     if (!duplicate && updated?.surfaceId && updated.lastEventSequence === event.sequence &&
         (event.type !== "completed" || updated.status === "succeeded") &&
         (event.type !== "failed" || updated.status === "failed") &&

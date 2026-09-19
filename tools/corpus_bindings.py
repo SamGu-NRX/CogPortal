@@ -22,19 +22,18 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 CORPUS = ROOT / ".cache" / "student-repos"
 
-#: (benchmark, week directory, repository directory, subdirectory within it).
-#: rutvim holds three weeks in one repository, so its week is a subdirectory.
+#: (benchmark, week directory, repository directory).
 CASES = [
-    ("audio-identification", "week1", "CogWorks-2026-Team-Asterisk__Week1-Capstone-Shazam", ""),
-    ("audio-identification", "week1", "Cog-gurts__Shazam-Project", ""),
-    ("audio-identification", "week1", "KrazeeCoder__week1-capstone-team4", ""),
-    ("audio-identification", "week1", "carti4ce__week1_capstone", ""),
-    ("audio-identification", "week1", "rutvim2009__BWSI_CogWorks_Team_1", ""),
-    ("vision-clustering", "week2", "CogWorks-2026-Team-Asterisk__Week2-Capstone", ""),
-    ("vision-clustering", "week2", "Cog-gurts__CoggurtFilter", ""),
-    ("vision-clustering", "week2", "LashikaKapoor28__Vision_Module_Capstone", ""),
-    ("vision-clustering", "week2", "BagelBreaker__week2_capstone", ""),
-    ("vision-clustering", "week2", "rutvim2009__BWSI_CogWorks_Team_1", ""),
+    ("audio-identification", "week1", "CogWorks-2026-Team-Asterisk__Week1-Capstone-Shazam"),
+    ("audio-identification", "week1", "Cog-gurts__Shazam-Project"),
+    ("audio-identification", "week1", "KrazeeCoder__week1-capstone-team4"),
+    ("audio-identification", "week1", "carti4ce__week1_capstone"),
+    ("audio-identification", "week1", "rutvim2009__BWSI_CogWorks_Team_1"),
+    ("vision-clustering", "week2", "CogWorks-2026-Team-Asterisk__Week2-Capstone"),
+    ("vision-clustering", "week2", "Cog-gurts__CoggurtFilter"),
+    ("vision-clustering", "week2", "LashikaKapoor28__Vision_Module_Capstone"),
+    ("vision-clustering", "week2", "BagelBreaker__week2_capstone"),
+    ("vision-clustering", "week2", "rutvim2009__BWSI_CogWorks_Team_1"),
 ]
 
 
@@ -65,7 +64,7 @@ print(json.dumps(record, indent=1, sort_keys=True, default=repr))
 
 def main() -> int:
     out = {}
-    for benchmark, week, name, _sub in CASES:
+    for benchmark, week, name in CASES:
         repo = CORPUS / name
         key = "{}::{}".format(week, name)
         if not repo.is_dir():

@@ -102,8 +102,6 @@ export async function authToSession(env: Env, auth: AuthState | null): Promise<S
   const login = accountLogin(auth.user);
   const roleLogin = authorizationLogin(env, auth.user);
   const db = getDb(env);
-  // The staff roster is a table since migration 0031, so the role is a read.
-  // It is independent of the TA lookup, so the two go together.
   const [[taAssignment], role] = await Promise.all([
     db
       .select({ teamId: teamTas.teamId })
