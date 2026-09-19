@@ -823,10 +823,6 @@ def _accepts_capture(hook: Callable[..., Any]) -> bool:
     except (TypeError, ValueError):
         return False
     wanted = parameters.get("capture")
-    # By kind, not by name alone. A parameter swallowed by `**kwargs` is
-    # named `capture` in the signature object and is never bound to one, so
-    # the hook would load the original and the run would describe bytes
-    # nothing retained.
     return wanted is not None and wanted.kind in (
         inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY,
     )
@@ -2662,12 +2658,6 @@ class _Trial:
             self._chain = None
             self.state = None
 
-    def __enter__(self) -> "_Trial":
-        return self
-
-    def __exit__(self, *_exc: Any) -> None:
-        self.close()
-
     def steps(self) -> Any:
         """The chain the week's acceptance test is handed for this trial.
 
@@ -2696,9 +2686,6 @@ class _Trial:
         except Unmapped as error:
             raise NoDatabase(str(error)) from None
 
-    def _map_all(self, candidates: Sequence[Candidate]) -> Tuple[Candidate, ...]:
-        return tuple(self._map(candidate) for candidate in candidates)
-
     def _begin(self) -> None:
         """Make this trial's database, once, at the moment it is first used.
 
@@ -2719,7 +2706,9 @@ class _Trial:
                 self._call = self._map(self._store).call
                 if self._ask is not None:
                     self._asking = self._map(self._ask)
-                self._reading = self._map_all(self._shape.readers)
+                self._reading = tuple(
+                    self._map(reader) for reader in self._shape.readers
+                )
                 # Read before anything is enrolled, and on this trial's own
                 # object: what their store filled is the difference between
                 # the object now and the object afterwards.
