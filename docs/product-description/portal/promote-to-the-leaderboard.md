@@ -184,6 +184,6 @@ Dismissing an armed confirmation starts nothing. Once admitted, the execution su
 - Nothing warns a team that one member is about to spend a shared official attempt, and nothing records who spent it in a place the team can read. Whether that matters was not established.
 - Final console confirmation wording remains subject to the portal owner's integration and the separate browser verification pass.
 
-- A refresh failure after admission can leave the browser briefly stale without undoing the execution. Reopening the view must show its current execution. Assembled browser behavior remains unverified.
+- A refresh failure after admission can leave the browser briefly stale without undoing the execution. Reopening the view must show its current execution.
 
 Verified against Cog\*Portal commit `a0e8eac` for recovery policy; unchanged layout references remain from the earlier draft. Browser integration remains unverified.
