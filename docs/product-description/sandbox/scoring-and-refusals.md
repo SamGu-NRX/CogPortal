@@ -8,7 +8,7 @@ This document owns two questions. What has to be true for a number to appear on 
 
 Scoring is the last stage of a hosted run. The evaluate sandbox has already run the team's code and written a results file; the controller reads that file back, checks it against what the benchmark's `score()` can actually read, scores it, and posts one event carrying metrics, diagnostics, an optional difficulty curve, and a digest. There is no screen called "scoring". What a student sees is the RESULTS panel on the run page, the sentence above it, and, when the check refuses, a failure card with the code `E-OUTPUT`.
 
-Every refusal here carries category `output_invalid`, phase `evaluating`, and `infrastructure=False`, which means it spends the official attempt. That is deliberate, and both alternatives to it were measured. See [Why the check exists](#why-the-check-exists).
+An invalid-output failure uses no quota. A completed evaluation with valid low or partial results still counts. The checks below decide whether predictions can be scored and what explanation the team receives.
 
 ## The simple case
 
@@ -45,17 +45,17 @@ Nothing is asked. Scoring is not something a student starts; it is what happens 
 
 One condition ends scoring before any of the team's results are read. The controller compares five fields of the loaded plugin against the five the job named: benchmark id, version, contract version, plugin version, scorer version. Any mismatch fails at once with category `data_download`, phase `contract_check`, and `infrastructure=True`, carrying the detail "Trusted benchmark plugin version does not match the run job." (`apps/runner-modal/src/cogworks_runner/modal_app.py:926`).
 
-The student reads a card headed "Benchmark data is not ready", code `E-DATA`, explaining that a data bundle "could not be downloaded or did not match its reviewed checksum" (`packages/contracts/src/failures.ts:54`). Nothing was downloaded and no checksum was compared. The attempt is refunded, so the cost is a wrong sentence rather than a lost attempt.
+The student reads a card headed "Benchmark data is not ready", code `E-DATA`, explaining that a data bundle "could not be downloaded or did not match its reviewed checksum" (`packages/contracts/src/failures.ts:54`). Nothing was downloaded and no checksum was compared. The failure uses no quota, but the wrong sentence can still misdirect the team.
 
 ### The work begins
 
-The moment `process.wait()` returns in one of the four evaluate lanes and the controller starts reading the file. Credit was spent much earlier, when the run row was written (see [`../foundations/the-run.md`](../foundations/the-run.md)). What commits here is narrower and matters more: from this point every path either spends the official attempt or refunds it, and which one is decided entirely by the category the controller picks in the next few milliseconds.
+The controller reads predictions after evaluation exits. Invalid output produces a failed execution without quota use. Valid output continues to scoring; only a completed evaluation counts.
 
 ### While it works
 
 Nothing streams. The `evaluating` heartbeat posts every 2 seconds until the lane returns (`modal_app.py:901`), then the controller posts one final `evaluating` status at `case_count / case_count` (`modal_app.py:2305`) and only then runs the prediction check.
 
-That ordering is deliberate. Anything raised once the phase is `scoring` and is not already a structured failure becomes category `scorer` with `infrastructure=True`, which tells the team the platform broke and refunds the attempt (`modal_app.py:2306`). Checking before the phase moves is what keeps a bad payload from buying a free retry. What a student sees is a progress bar reading 100 percent while the platform decides whether to refuse.
+Checking predictions before scoring lets the portal distinguish malformed output from a trusted scorer failure. Both failures use no quota, but the explanations call for different repairs.
 
 ### How it ends
 
@@ -100,7 +100,7 @@ Two things go wrong without a second check on the controller's side, and both we
 
 A short results list is not a crash. `zip()` truncates, so four Week 1 results covering a submission's two correct queries score `identification_score` 1.0 where the honest twelve score 0.2, and one perfect Week 2 clustering scenario out of four scores `clustering_pairwise_f1` 1.0 against 0.54. A short list inflates the score.
 
-A wrong element type is an uncaught `AttributeError` inside `score()`, and `execute_job` labels anything raised during the scoring phase as `scorer` with `infrastructure=True`. That copy tells the team the platform broke and refunds the attempt, so a wrong type buys unlimited official retries.
+A wrong element type is an uncaught `AttributeError` inside `score()`, and `execute_job` labels anything raised during the scoring phase as `scorer` with `infrastructure=True`. That copy incorrectly tells the team the platform broke. Invalid output should be explained as invalid output, regardless of the free-failure policy.
 
 The most expensive case is null embeddings. Week 3's `text_first_relevant_ranks` excludes a caption from its own results by writing negative infinity on the score matrix diagonal, then sorts by score descending. With an all-NaN matrix the diagonal is the only non-NaN entry, and numpy sorts NaN after every real value including positive infinity, so each caption ranks itself first and every co-caption lands at rank 1. Against the public-evaluation text block, an honest random submission scores `text_mrr` 0.0101 and an every-value-null one scores 1.0000, with `overall` going 0.0034 to 0.3333 (`modal_app.py:1440`). The exclusion that makes the metric meaningful is what the NaN defeats.
 
@@ -132,7 +132,7 @@ A field that should hold a list and does not (`modal_app.py:1646`). A field that
 
 > "In result {}, \"{}\" came back as {} where scoring reads a list. Check what your adapter puts in that field."
 
-Four sentences cover the fields handed to numpy, where the check goes to the leaves because a JSON `null` reaches numpy as NaN without raising (`modal_app.py:1505`). A row that is not a list; an empty row, refused because a zero-width matrix scored `text_mrr` 0.6667 on a four-caption case where honest work scored less, since an empty row makes every pair tie; rows of different lengths, refused because numpy raises `ValueError` on a ragged list and an uncaught raise once the phase is `scoring` is the refunded-attempt path; and a leaf that is not a number, where only the first offender is named because a submission that got this wrong usually got it wrong everywhere.
+Four sentences cover the fields handed to numpy, where the check goes to the leaves because a JSON `null` reaches numpy as NaN without raising (`modal_app.py:1505`). A row that is not a list; an empty row, refused because a zero-width matrix scored `text_mrr` 0.6667 on a four-caption case where honest work scored less, since an empty row makes every pair tie; rows of different lengths, refused because numpy raises `ValueError` on a ragged list and an uncaught raise once the phase is `scoring` would incorrectly blame the scorer; and a leaf that is not a number, where only the first offender is named because a submission that got this wrong usually got it wrong everywhere.
 
 > "In result {}, row {} of \"{}\" came back as {}. Each row holds one list of numbers."
 >
@@ -148,7 +148,7 @@ Two more belong to Week 2 recognition, and they live where the shuffled batches 
 >
 > "In result {}, \"{}\" came back as {}, and recognize returns one label per image. Check what your adapter returns for that batch."
 
-Only `scores` may be null, because Week 1's driver writes `"scores": None` when the submission returned candidates without them (`modal_app.py:1422`). A boolean cluster label is allowed, because scoring treats `True` as 1 and returns a correct partition for it, and refusing a payload that scores correctly would cost a team an attempt for nothing. Ranking rows may be ragged and empty, because a query that matched nothing legitimately returns none and is scored as a miss. The plain words the sentences use for types come from one table: "a dictionary", "a list", "a string", "a true/false value", "a number", "None" (`modal_app.py:1309`).
+Only `scores` may be null, because Week 1's driver writes `"scores": None` when the submission returned candidates without them (`modal_app.py:1422`). A boolean cluster label is allowed, because scoring treats `True` as 1 and returns a correct partition for it, and refusing a payload that scores correctly would discard a valid result. Ranking rows may be ragged and empty, because a query that matched nothing legitimately returns none and is scored as a miss. The plain words the sentences use for types come from one table: "a dictionary", "a list", "a string", "a true/false value", "a number", "None" (`modal_app.py:1309`).
 
 ### What the failure card says around them
 
@@ -162,7 +162,7 @@ The sentence above is the failure's `detail`. It arrives inside a card whose tit
 
 Three of those claims do not describe what ran. Extra fields are not rejected; the check reads only the fields the shape table names and ignores the rest. No value range is checked anywhere. And the copyable command, `cogworks test --benchmark {benchmark}`, runs the contract check, which is a different check and does not validate a predictions file. The vision override goes further and says "out-of-range boxes are all rejected" (`failures.ts:208`), which is object-detection vocabulary; Week 2 scores recognition and clustering and has no boxes.
 
-The one line in the card that is right is the last: `defaultConsumesAttempt: true` (`failures.ts:146`), and the run page reads the run's own `consumedAttempt` rather than that flag, so the number a student is told is the real one.
+Failure cost no longer comes from a category default. Invalid-output failures use no quota, just like other failures.
 
 ## The difficulty curve
 
@@ -211,7 +211,7 @@ Three of the four are longer than the 240 characters `execute_job` truncates a d
 | Who you are | No effect. There is no privileged view: an instructor sees the same metrics, the same refusal sentence, and the same withheld set a student does. | No effect. |
 | Where your team and repository stand | Decides what there is to score. A repository whose modules will not import never reaches this stage; one whose image side never bound reaches it and has numbers withheld. | No effect. A push mid-run does not change what is scored. |
 | Which week's benchmark | Decides which shape-table entry applies (`modal_app.py:1407`), which sentences are reachable, and whether withholding exists at all. Week 3 is the only benchmark that withholds; Week 2 clustering is the only one whose elements are a flat list rather than a dictionary. A v2 benchmark with no table entry still gets the count check, which is the deliberate failure mode for a week added later. | No effect. |
-| Practice or leaderboard | A practice run scores the public split and gets the sanitized log back; an official run scores the hidden split and gets none (`modal_app.py:2347`). A refusal on a practice run costs nothing, because only official runs claim attempts (`apps/portal/worker/routes/runner-events.ts:32`). Every sentence above is identical in both. | No effect. Mode is fixed when the run row is written. |
+| Practice or leaderboard | Practice retains a sanitized log; official evaluation suppresses it. Invalid-output failures use no quota in either mode. | Mode is fixed for the execution. |
 | Flags, options, and where you are typing | Nothing a student types reaches this stage. The same scoring runs locally through `cogworks run`, capped the same way (`python/cogbench/src/cogbench/models.py:129`). Discord shows the primary metric and up to 300 characters of a refusal headline. | No effect. |
 
 ## Cancel and interrupt
@@ -224,7 +224,7 @@ Three of the four are longer than the 240 characters `execute_job` truncates a d
 | The network or the portal fails | No effect; nothing has been sent. | The `completed` event is retried three times with 0.25 s doubling backoff, honoring `Retry-After`, on 429, 500, 502, 503, and 504 (`modal_app.py:844`). If all three fail the run is scored, the portal never hears, and the stale-run reaper settles it an hour later as a provider failure. |
 | The page or the process goes away | No effect. | A killed controller loses the metrics: the predictions file lives in a sandbox terminated in a `finally` block, and nothing re-reads it. The reaper settles the run. |
 | The thing being measured changes | The plugin's five version fields are compared against the job before any results are read, and a mismatch fails as `data_download`. | No effect. The plugin object was loaded before the sandbox ran. |
-| The platform refuses or credit runs out | Credit was checked and spent when the run row was written, so a refusal here never runs out of it. | Every refusal here spends the attempt, and no refund is available: `output_invalid` is in `CONSUMING_FAILURES` and `infrastructure` is False (`runner-events.ts:25`). |
+| The platform refuses or credit runs out | Admission already reserved capacity. | Invalid output fails the execution and frees that reservation without adding to used quota. |
 
 ## Interactions with other systems
 
@@ -232,7 +232,7 @@ Three of the four are longer than the 240 characters `execute_job` truncates a d
 
 **The team owns it.** Every metric, diagnostic, and refusal is about the team's repository at one commit. There are no per-person numbers here and no field shaped like one.
 
-**Credit.** The category chosen here decides the money. `output_invalid`, `student_runtime`, `timeout`, and `memory_limit` consume, and only when the mode is official, `infrastructure` is False, and the phase is `evaluating` or `scoring` (`runner-events.ts:32`). Everything else refunds, up to a per-team, per-benchmark cap. See [`../cross-cutting/credit-and-quota.md`](../cross-cutting/credit-and-quota.md).
+**Credit.** Failure categories explain the problem rather than decide cost. Failed executions use no quota. Valid completed evaluations count, including partial or low results. See [credit and quota](../cross-cutting/credit-and-quota.md).
 
 **What the portal claims.** A withheld number is never rendered as zero, and a refusal is a sentence with a reason rather than a failure. Both words are defined in [`../foundations/what-the-portal-claims.md`](../foundations/what-the-portal-claims.md).
 
@@ -268,4 +268,4 @@ Three of the four are longer than the 240 characters `execute_job` truncates a d
 - Whether a student can tell a `reported` probe from a scored metric at a glance was not observed. The row is indented and marked `not scored`, which reads correctly in the source. **Unverified.**
 - The Week 3 sentences are being edited today. Re-read `plugins.py` and `roles.py` before trusting any quote in [Week 3 withholds the overall](#week-3-withholds-the-overall).
 
-Verified against Cog\*Portal commit `f74e087`.
+Verified against Cog\*Portal commit `a0e8eac` for quota policy; unchanged scorer descriptions retain their earlier references.

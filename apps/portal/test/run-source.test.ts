@@ -200,7 +200,7 @@ test("the backfill fills a run whose own id proves the repository, and no other"
   sqlite.exec(readFileSync(join(MIGRATIONS, "0046_run_repository_name.sql"), "utf8"));
 
   const named = new Map(
-    (await db.select().from(runs)).map((row) => [row.id, row.repositoryFullName]),
+    (await db.select({ id: runs.id, repositoryFullName: runs.repositoryFullName }).from(runs)).map((row) => [row.id, row.repositoryFullName]),
   );
   assert.equal(named.get("run_same"), OLD, "a run whose id matches the team was left unnamed");
   assert.equal(named.get("run_moved"), null, "a run from another repository was given this one's name");

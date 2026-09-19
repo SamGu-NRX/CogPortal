@@ -128,6 +128,7 @@ export async function serializeRunDetail(
 
   return {
     ...summary,
+    surfaceId: row.surfaceId,
     contractVersion: row.contractVersion,
     parentRunId: row.parentRunId,
     // One sentence under both PROMOTE and PUBLISH, so it names no single
