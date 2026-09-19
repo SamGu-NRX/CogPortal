@@ -9,6 +9,7 @@ function snapshot(revision: number, generation = 1): RunSurfaceSnapshot {
     benchmark: { id: "vision-recognition", version: 1, title: "Vision Recognition" },
     actor: { login: "ada", name: "Ada" },
     sha: "a".repeat(40), shortSha: "aaaaaaa", branch: "main", dirty: false,
+    source: null, sourceRefusal: null,
     stage: "hosted", status: "running", phase: "queued",
     createdAt: 1_780_000_000_000, updatedAt: 1_780_000_001_000,
     finishedAt: null, elapsedMs: 1_000, progress: null, primaryMetric: null,
@@ -60,4 +61,17 @@ test("legacy cached payloads decode at revision zero and yield to numbered paylo
   for (const invalid of [-1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
     assert.equal(RunSurfaceSnapshotSchema.safeParse({ ...legacy, snapshotRevision: invalid }).success, false);
   }
+});
+
+test("the wire contract still requires the fields an older writer omitted", () => {
+  // The hub treats a payload without these as a cache miss. That is a decision
+  // about stored bytes only; their absence stays invalid on the wire.
+  const { source: _source, sourceRefusal: _refusal, ...historical } = snapshot(1);
+  const parsed = RunSurfaceSnapshotSchema.safeParse(historical);
+  assert.equal(parsed.success, false);
+  assert.deepEqual(
+    parsed.error?.issues.map((issue) => issue.path.join(".")).sort(),
+    ["source", "sourceRefusal"],
+  );
+  assert.equal(RunSurfaceSnapshotSchema.safeParse({ ...historical, source: null, sourceRefusal: null }).success, true);
 });

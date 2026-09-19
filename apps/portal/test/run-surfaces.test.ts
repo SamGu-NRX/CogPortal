@@ -38,6 +38,7 @@ function renderOfficialDetail(publishable: boolean, selected = false): string {
     parentRunId: null,
     failure: null,
     repo: { owner: "course", name: "team", fullName: "course/team", url: "https://github.com/course/team", defaultBranch: "main" },
+    sourceRefusal: null,
     phases: [],
     metrics: [],
     diagnostics: ["The image stage returned no embeddings."],
@@ -88,14 +89,10 @@ test("run detail requires the server's publication decision", () => {
   assert.equal(RunDetailSchema.shape.publishable.safeParse(undefined).success, false);
 });
 
-test("a refunded official result keeps its finding and explains why Publish is absent", () => {
+test("an unpublishable official result keeps its finding without refund bookkeeping", () => {
   const html = renderOfficialDetail(false);
   assert.match(html, /The image stage returned no embeddings/);
-  assert.match(html, /ATTEMPT REFUNDED/);
-  assert.match(html, /stopped hearing from this run and returned your attempt before/);
-  assert.match(html, /its results arrived/);
-  assert.match(html, /findings are preserved above/);
-  assert.doesNotMatch(html, /Publish to leaderboard|Confirm, make this the public result|PROMOTE/);
+  assert.doesNotMatch(html, /ATTEMPT REFUNDED|returned your attempt|Publish to leaderboard|Confirm, make this the public result|PROMOTE/);
 });
 
 test("an eligible official result still offers Publish and a selected result links to the leaderboard", () => {
@@ -164,6 +161,8 @@ function snapshot(status: RunSurfaceSnapshot["status"] = "running"): RunSurfaceS
     sha: "b".repeat(40),
     shortSha: "bbbbbbb",
     branch: "main",
+    source: null,
+    sourceRefusal: null,
     dirty: false,
     stage: "local",
     status,

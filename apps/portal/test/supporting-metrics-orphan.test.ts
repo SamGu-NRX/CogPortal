@@ -49,6 +49,18 @@ function render(metrics: Metric[], rolesRecorded = true): string {
   );
 }
 
+/**
+ * How many metrics claimed a direction.
+ *
+ * The sentence, not the arrow. The arrow is a Hugeicons path that says nothing
+ * about which way it points, and it is aria-hidden in both components; the
+ * words beside it are what a reader gets, visibly in the primary and on an
+ * sr-only span in a supporting row. Counting those counts the claims.
+ */
+function directionClaims(html: string): number {
+  return (html.match(/higher is better|lower is better/g) ?? []).length;
+}
+
 test("a floor beside its parent is drawn as that parent's scale, not a row", () => {
   const html = render([PARENT, FLOOR]);
   assert.ok(html.includes("Retrieval MRR"), "the parent should render");
@@ -63,8 +75,7 @@ test("a floor whose parent is withheld keeps a row instead of disappearing", () 
   // Standalone or not, a floor never carries a direction: it is a fact about
   // the dataset, so "higher is better" would be advice about a number the
   // submission does not control.
-  assert.ok(!html.includes("higher is better"), "a floor claimed a direction");
-  assert.ok(!html.includes("▲"), "a floor drew an arrow");
+  assert.equal(directionClaims(html), 0, "a floor claimed a direction");
 });
 
 test("a probe whose parent is the primary metric keeps a row", () => {
@@ -168,7 +179,7 @@ test("a floor moved beside the primary keeps its explanation", () => {
   assert.ok(html.includes("None of the capstone"), "the second floor lost its explanation");
   // Still no direction claim on a property of the dataset. The primary draws
   // exactly one arrow; neither floor adds another.
-  assert.equal((html.match(/▲|▼/g) || []).length, 1, "a floor drew a direction arrow");
+  assert.equal(directionClaims(html), 1, "a floor drew a direction arrow");
 });
 
 test("a benchmark that sends no floor help renders exactly as before", () => {
@@ -197,7 +208,7 @@ test("a reported metric keeps a direction the benchmark actually declared", () =
 
   const html = render([timing]);
   assert.ok(html.includes("not scored"), "a reported metric must say it is not scored");
-  assert.ok(html.includes("▼"), "it lost the direction its benchmark declared");
+  assert.ok(html.includes("lower is better"), "it lost the direction its benchmark declared");
 });
 
 test("a reported probe with no declared direction still claims none", () => {
@@ -215,7 +226,7 @@ test("a reported probe with no declared direction still claims none", () => {
 
   const html = render([probe]);
   assert.ok(html.includes("not scored"));
-  assert.ok(!html.includes("▲"), "a probe with no declared direction drew one");
+  assert.equal(directionClaims(html), 0, "a probe with no declared direction drew one");
 });
 
 test("a run that recorded no roles claims no direction, and keeps every value", () => {
@@ -232,7 +243,7 @@ test("a run that recorded no roles claims no direction, and keeps every value", 
   const html = render(historical, false);
   assert.ok(html.includes("0.789"), "a value was lost");
   assert.ok(html.includes("0.010"), "a value was lost");
-  assert.equal((html.match(/▲|▼/g) || []).length, 0, "a direction was claimed without evidence");
+  assert.equal(directionClaims(html), 0, "a direction was claimed without evidence");
 });
 
 test("the same metrics claim their direction once the run records roles", () => {
@@ -240,7 +251,7 @@ test("the same metrics claim their direction once the run records roles", () => 
   // metadata is trusted exactly as before.
   const scored = metric({ key: "text_mrr", label: "Text MRR", value: 0.7888, role: "scored" });
   assert.equal(claimsDirection(scored, true), true);
-  assert.ok(render([scored]).includes("▲"));
+  assert.ok(render([scored]).includes("higher is better"));
 });
 
 test("an unclassified metric in a run that did record roles keeps its arrow", () => {
@@ -261,5 +272,22 @@ test("an unclassified metric in a run that did record roles keeps its arrow", ()
   assert.equal(claimsDirection(unclassified, true), true);
   const html = render([classified, unclassified], true);
   assert.ok(html.includes("Clean top-1"));
-  assert.equal((html.match(/▲|▼/g) || []).length, 1, "the unclassified metric lost its arrow");
+  assert.equal(directionClaims(html), 1, "the unclassified metric lost its arrow");
+});
+
+test("the arrow points the way the sentence says", () => {
+  // Counting sentences cannot catch a swapped icon, and the path data is not
+  // worth pinning. That the two directions draw different arrows is the part
+  // a reader depends on.
+  const drawn = (higherIsBetter: boolean) =>
+    render([metric({ key: "text_mrr", label: "Text MRR", value: 0.5, higherIsBetter, role: "scored" })]);
+  const svg = (html: string) => {
+    const start = html.indexOf("<svg");
+    assert.notEqual(start, -1, "the direction mark drew no icon");
+    return html.slice(start, html.indexOf("</svg>", start));
+  };
+
+  assert.ok(drawn(true).includes("higher is better"));
+  assert.ok(drawn(false).includes("lower is better"));
+  assert.notEqual(svg(drawn(true)), svg(drawn(false)), "both directions drew the same arrow");
 });

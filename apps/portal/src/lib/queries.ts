@@ -8,6 +8,8 @@ import {
   ACTIVE_RUN_POLL_MS,
   isBenchmarkScopedStep,
   isTerminal,
+  shouldReplaceRunSurfaceSnapshot,
+  type RunSurfaceSnapshot,
   type AdminOverview,
   type AdminStaffRoster,
 } from "@cogworks/contracts/schema";
@@ -126,7 +128,8 @@ export function useMutateRunSurface() {
       ? api.mutateRunSurface(input.surfaceId, "retry", { runId: input.runId })
       : api.mutateRunSurface(input.surfaceId, input.action),
     onSuccess: (snapshot) => {
-      qc.setQueryData(["run-surface", snapshot.id], snapshot);
+      qc.setQueryData<RunSurfaceSnapshot>(["run-surface", snapshot.id], (current) =>
+        !current || shouldReplaceRunSurfaceSnapshot(current, snapshot) ? snapshot : current);
       void qc.invalidateQueries({ queryKey: ["dashboard"] });
       void qc.invalidateQueries({ queryKey: ["runs"] });
     },
@@ -312,8 +315,11 @@ export function useChangeTeamRepo() {
  */
 export function useSetupState(benchmarkId?: string) {
   return useQuery({
-    queryKey: ["setup-state"],
-    queryFn: api.setupState,
+    // The track is part of the key because the response is about it: its
+    // scoped evidence, and check-off commands signed for it. A shared entry
+    // would hand one track's commands to another.
+    queryKey: ["setup-state", benchmarkId ?? null],
+    queryFn: () => api.setupState(benchmarkId),
     staleTime: 3_000,
     refetchInterval: (query) => {
       const data = query.state.data;
@@ -321,9 +327,14 @@ export function useSetupState(benchmarkId?: string) {
       // The visible checklist's own completion set. SETUP_STEPS also carries
       // test/run milestones the checklist never shows, so waiting on every
       // step kept a finished page polling forever.
+      // A checked-off step stops the poll too: the box is ticked and nothing
+      // further is going to arrive for it on its own.
       const scoped = (benchmarkId && data.verifiedByBenchmark[benchmarkId]) || [];
+      const scopedChecked = (benchmarkId && data.checkedByBenchmark[benchmarkId]) || [];
       const complete = CHECKLIST_MACHINE_STEPS.every((step) =>
-        isBenchmarkScopedStep(step) ? scoped.includes(step) : data.verified.includes(step),
+        isBenchmarkScopedStep(step)
+          ? scoped.includes(step) || scopedChecked.includes(step)
+          : data.verified.includes(step) || data.checked.includes(step),
       );
       return complete ? false : 2_500;
     },

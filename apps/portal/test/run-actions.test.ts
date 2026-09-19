@@ -4,7 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, ne, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { Hono } from "hono";
 import { maintainPlatform } from "../worker/execution/maintenance.ts";
@@ -13,19 +13,35 @@ import { registerRunnerEventRoutes } from "../worker/routes/runner-events.ts";
 import { appendRunStreamEvent, buildRunSurfaceSnapshot, publishRunSurface } from "../worker/services/run-surfaces.ts";
 import { runSurfaceHubs } from "./fixtures/run-surface-hub.ts";
 import { FIXTURE_REPO } from "@cogworks/contracts/fixtures";
-import { DashboardSchema, RunDetailSchema, RUN_PHASES } from "@cogworks/contracts/schema";
+import {
+  DashboardSchema,
+  RunDetailSchema,
+  RUN_PHASES,
+  RunSurfaceSnapshotSchema,
+  type Dashboard,
+  type RunSurfaceSnapshot,
+} from "@cogworks/contracts/schema";
+import * as React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { StaticRouter } from "react-router";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { DashboardPage } from "../src/routes/DashboardPage.tsx";
+import { serializeRunDetail } from "../worker/http/serializers.ts";
 import { insertRunWithCapacity, readRunAccounting } from "../worker/services/run-accounting.ts";
 import type { Database } from "../worker/db/client.ts";
 import {
   benchmarks,
+  cliDevices,
   cohorts,
+  leaderboardSelections,
+  localRunSessions,
   officialAttempts,
   localReports,
-  leaderboardSelections,
-  teamMembers,
   runs,
   runPhases,
   runSurfaces,
+  runMetrics,
+  teamMembers,
   teams,
   users,
 } from "../worker/db/schema.ts";
@@ -34,15 +50,16 @@ import { ApiHttpError, handleError } from "../worker/http/errors.ts";
 import { createAuth } from "../worker/auth/better-auth.ts";
 import { registerRunRoutes } from "../worker/routes/runs.ts";
 import { registerDashboardRoutes } from "../worker/routes/dashboard.ts";
+import { runSourceRefusal } from "../worker/services/run-source.ts";
 import { savedEnvironmentEligibility } from "../worker/services/run-eligibility.ts";
 import { PreparedEnvironmentV1Schema, RunJobV1Schema } from "@cogworks/contracts/protocol";
 import {
+  performRunSurfaceMutation,
   promotePracticeRun,
   publishOfficialRun,
-  startPracticeRun,
   rerunHostedSurface,
+  startPracticeRun,
   retryRun,
-  performRunSurfaceMutation,
   type RunActor,
 } from "../worker/services/run-actions.ts";
 
@@ -54,9 +71,14 @@ const PRACTICE_RUN_ID = "run_practice";
 // dispatch tests below now reach that publish, because a run the provider
 // accepted is no longer failed on the way past.
 const SURFACE_ID = "surface_0a1b2c3d4e5f60718293";
+// Deliberately not the team's current name: the practice run below ran before
+// a rename, which keeps the repository id and changes the name.
+const RAN_FROM = "some-org/the-repository-it-ran-from";
 const PREPARED = {
   ...PreparedEnvironmentV1Schema.parse(JSON.parse(readFileSync(new URL("../../../protocols/v1/fixtures/prepared-environment.valid.json", import.meta.url), "utf8"))),
-  source: { repositoryId: FIXTURE_REPO.repositoryId, fullName: FIXTURE_REPO.fullName, sha: "a".repeat(40) },
+  // The runner writes this from the job it received, and the job names the
+  // repository the run recorded.
+  source: { repositoryId: FIXTURE_REPO.repositoryId, fullName: RAN_FROM, sha: "a".repeat(40) },
 };
 
 interface Harness {
@@ -117,6 +139,10 @@ function freshDb(): Harness {
   return { db: drizzle(binding as never), binding };
 }
 
+/** Counts snapshot publications, so a refusal can be shown to have had no
+ *  observable effect rather than only to have thrown. */
+let hubPublications = 0;
+
 function env(binding: unknown, provider: "fixture" | "modal", queue?: { send(): Promise<void> }): Env {
   const runtime = {
     DB: binding,
@@ -128,7 +154,19 @@ function env(binding: unknown, provider: "fixture" | "modal", queue?: { send(): 
     RUNNER_SIGNING_SECRET: "test-signing-secret-that-is-long-enough",
     RUN_QUEUE: queue,
   } as unknown as Env;
-  runtime.RUN_SURFACES = runSurfaceHubs(runtime).namespace;
+  const namespace = runSurfaceHubs(runtime).namespace;
+  // Keep the refusal tests' publication counter while exercising the real hub's
+  // revision stamping; an empty response no longer satisfies the snapshot API.
+  // SAFETY: snapshot callers use only idFromName and fetch(url, init).
+  runtime.RUN_SURFACES = {
+    idFromName: (name: string) => namespace.idFromName(name),
+    get: (id: DurableObjectId) => ({
+      fetch: (url: string, init: RequestInit) => {
+        if (new URL(url).pathname === "/publish") hubPublications += 1;
+        return namespace.get(id).fetch(url, init);
+      },
+    }),
+  } as unknown as Env["RUN_SURFACES"];
   return runtime;
 }
 
@@ -200,6 +238,10 @@ async function seedPromotion(db: Database): Promise<RunActor> {
     branch: "main",
     sha: "a".repeat(40),
     repositoryId: FIXTURE_REPO.repositoryId,
+    // An official attempt has to inherit the repository its practice run used,
+    // and a promotion that read the team instead would come back with
+    // FIXTURE_REPO.fullName.
+    repositoryFullName: RAN_FROM,
     parentRunId: null,
     attemptNumber: null,
     failureCategory: null,
@@ -256,6 +298,7 @@ for (const mode of ["practice", "official"] as const) {
     assert.equal(next.refundedAt, null);
     for (const snapshot of snapshots) {
       assert.equal(snapshot.id, SURFACE_ID);
+      assert.deepEqual(snapshot.source, before.source);
       assert.equal(mode === "official" ? snapshot.officialRunId : snapshot.practiceRunId, next.id);
       assert.equal(snapshot.executionGeneration, before.executionGeneration + 1);
       assert.equal(snapshot.actions.includes("retry"), false);
@@ -281,6 +324,7 @@ for (const mode of ["practice", "official"] as const) {
     const [original] = await db.select().from(runs).where(eq(runs.id, failedId));
     assert.equal(original?.status, "failed");
     assert.equal(original?.failureDetail, "Original failure");
+    assert.equal(next.repositoryFullName, original?.repositoryFullName);
   });
 }
 
@@ -326,6 +370,19 @@ test("Retry refuses changed provider, repository, configuration, and nonfailed e
   await assert.rejects(retryRun(env(binding, "fixture"), actor, SURFACE_ID, PRACTICE_RUN_ID), /source is no longer/);
   await db.update(runs).set({ repositoryId: FIXTURE_REPO.repositoryId, scorerVersion: "changed" }).where(eq(runs.id, PRACTICE_RUN_ID));
   await assert.rejects(retryRun(env(binding, "fixture"), actor, SURFACE_ID, PRACTICE_RUN_ID), /configuration has changed/);
+  assert.equal((await db.select().from(runs)).length, 1);
+});
+
+test("Retry revalidates the connected team and refuses unknown repository identity", async () => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  await db.update(runs).set({ status: "failed", provider: "fixture" }).where(eq(runs.id, PRACTICE_RUN_ID));
+  // The request's actor still names the old repository after the stored team changes.
+  await db.update(teams).set({ repoId: FIXTURE_REPO.repositoryId + 1 }).where(eq(teams.id, actor.team.id));
+  await assert.rejects(retryRun(env(binding, "fixture"), actor, SURFACE_ID, PRACTICE_RUN_ID), /source is no longer/);
+  await db.update(teams).set({ repoId: null }).where(eq(teams.id, actor.team.id));
+  await db.update(runs).set({ repositoryId: null }).where(eq(runs.id, PRACTICE_RUN_ID));
+  await assert.rejects(retryRun(env(binding, "fixture"), actor, SURFACE_ID, PRACTICE_RUN_ID), /source is no longer/);
   assert.equal((await db.select().from(runs)).length, 1);
 });
 
@@ -475,11 +532,16 @@ for (const proof of ["compatible", "missing", "tampered", "replaced-repository",
     const expectedReason = eligibility.eligible ? null : eligibility.reason;
     const { app, runtime, cookie, promote } = await authenticatedPromotion(db, binding);
     if (proof !== "compatible") {
+      // Moving the team off the run's repository trips the source check first,
+      // and that sentence is the more useful one: it names the repository to
+      // start a fresh run on. The artifact's own refusal still reaches every
+      // surface below, because the two answer different questions.
+      const sourceRefusal = runSourceRefusal(team, before, "promote it");
       const response = await promote();
       assert.equal(response.status, 409);
       const body = await response.json() as { error: { code: string; message: string } };
-      assert.equal(body.error.code, "not_promotable");
-      assert.equal(body.error.message, expectedReason);
+      assert.equal(body.error.code, sourceRefusal ? "source_changed" : "not_promotable");
+      assert.equal(body.error.message, sourceRefusal ?? expectedReason);
       assert.equal((await db.select().from(runs)).length, 1);
     }
     const snapshot = await buildRunSurfaceSnapshot(runtime, SURFACE_ID);
@@ -506,6 +568,34 @@ for (const proof of ["compatible", "missing", "tampered", "replaced-repository",
     assert.equal(RunDetailSchema.parse({ ...detail, promotionRefusal: undefined }).promotionRefusal, null);
   });
 }
+
+test("a candidate whose saved environment cannot be reused loses Promote and says why", async () => {
+  // The dashboard carries two refusals now. This one is the artifact's, with
+  // the run's repository untouched, and it has to survive the whole path: the
+  // eligibility check, the response, and the panel the student reads.
+  const { db, binding } = freshDb();
+  await seedPromotion(db);
+  await db.update(benchmarks).set({ active: false }).where(and(eq(benchmarks.id, BENCHMARK_ID), ne(benchmarks.version, 1)));
+  await db.insert(runMetrics).values({ runId: PRACTICE_RUN_ID, key: "accuracy", label: "Accuracy",
+    value: 0.8, unit: null, higherIsBetter: true, isPrimary: true, precision: 2 });
+  await db.update(runs).set({ preparedEnvironmentJson: JSON.stringify({ ...PREPARED, sandboxContract: 2 }) })
+    .where(eq(runs.id, PRACTICE_RUN_ID));
+  const { app, cookie, runtime } = await authenticatedPromotion(db, binding);
+
+  const response = await app.fetch(new Request(`http://localhost:5173/dashboard?benchmark=${BENCHMARK_ID}`, { headers: { cookie } }), runtime);
+  assert.equal(response.status, 200);
+  const dashboard = DashboardSchema.parse(await response.json());
+  assert.equal(dashboard.latestCandidate?.sourceRefusal, null, "the repository is still the connected one");
+  assert.ok(dashboard.promotionRefusal);
+
+  const html = renderDashboard(dashboard);
+  // The whole sentence, not a fragment of it. React escapes the apostrophe in
+  // "isn't", which is the only difference between the two.
+  assert.ok(html.includes(dashboard.promotionRefusal.replaceAll("'", "&#x27;")));
+  assert.match(html, /Previous result/);
+  assert.doesNotMatch(html, /Candidate ready/);
+  assert.doesNotMatch(html, /Promote to official/);
+});
 
 test("authenticated completion, promotion and signed dispatch preserve provisioning across a scorer change", async () => {
   const { db, binding } = freshDb();
@@ -834,6 +924,12 @@ for (const callbackLanded of [false, true]) {
       if (callbackLanded) assert.equal(official.lastEventSequence, 0);
       assert.equal(official.failureCategory, null);
       assert.equal(official.failureDetail, null);
+      assert.equal(
+        official.repositoryFullName,
+        "some-org/the-repository-it-ran-from",
+        "the official attempt lost the repository its practice run used",
+      );
+      assert.equal((await readRunAccounting(db, ACCOUNTING_SCOPE)).officialReserved, 1);
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -899,6 +995,384 @@ test("dispatch failure remains terminal and blocks same-surface re-promotion", a
       return true;
     },
   );
+});
+
+test("a practice run records the repository it is starting from", async () => {
+  // The one place the name is written. Without this, deleting that line leaves
+  // every run unattributed and every other test still green.
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  const started = await startPracticeRun(env(binding, "fixture"), actor, {
+    benchmarkId: BENCHMARK_ID,
+  });
+
+  const [row] = await db.select().from(runs).where(eq(runs.id, started.runId));
+  assert.ok(row);
+  assert.equal(row.repositoryFullName, FIXTURE_REPO.fullName);
+  assert.equal(row.repositoryId, FIXTURE_REPO.repositoryId, "the id and the name disagree");
+});
+
+/* ── Acting on a run after the repository changed ─────────────────────── */
+
+/**
+ * A team has one connected repository and every write is authorised against
+ * it, so a new promotion, rerun or publication has to be about that
+ * repository. History stays readable and an existing selection stays selected;
+ * only new mutations are refused. Matched on the id, so a rename keeps working.
+ */
+
+/**
+ * Leave the run recording a repository the team is not connected to.
+ *
+ * Equivalent to the team having moved on, and isolated from it on purpose: the
+ * permission check ahead of this rule short-circuits only for the fixture
+ * repository, so moving the team would fail on GitHub access first and never
+ * reach the rule under test. The real end-to-end switch is exercised through
+ * POST /team/repository in the browser.
+ */
+async function runCameFromElsewhere(db: Database, runId: string): Promise<void> {
+  await db
+    .update(runs)
+    .set({
+      repositoryId: FIXTURE_REPO.repositoryId + 1,
+      repositoryFullName: "some-student/week3-capstone",
+    })
+    .where(eq(runs.id, runId));
+}
+
+test("a run from a repository the team has left cannot be promoted", async () => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  await runCameFromElsewhere(db, PRACTICE_RUN_ID);
+
+  await assert.rejects(
+    promotePracticeRun(env(binding, "fixture"), actor, PRACTICE_RUN_ID),
+    (error: unknown) => error instanceof ApiHttpError && error.code === "source_changed",
+  );
+
+  // Nothing was written: no official row, and no attempt claimed against the
+  // team's budget for a run it refused.
+  const official = await db.select().from(runs).where(eq(runs.mode, "official"));
+  assert.equal(official.length, 0);
+  assert.equal((await db.select().from(officialAttempts)).length, 0);
+});
+
+test("a run with no recorded repository cannot be promoted either", async () => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  await db.update(runs).set({ repositoryId: null }).where(eq(runs.id, PRACTICE_RUN_ID));
+
+  await assert.rejects(
+    promotePracticeRun(env(binding, "fixture"), actor, PRACTICE_RUN_ID),
+    (error: unknown) => error instanceof ApiHttpError && error.code === "source_changed",
+  );
+  assert.equal((await db.select().from(officialAttempts)).length, 0);
+});
+
+test("a renamed repository keeps the same id, so its runs stay actionable", async () => {
+  // The seeded practice run records a different NAME from the team's, with the
+  // same id: exactly what a rename leaves behind. It has to keep working.
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  const [parent] = await db.select().from(runs).where(eq(runs.id, PRACTICE_RUN_ID));
+  assert.notEqual(parent!.repositoryFullName, actor.team.repoFullName, "fixture no longer covers a rename");
+  assert.equal(parent!.repositoryId, actor.team.repoId);
+
+  const promoted = await promotePracticeRun(env(binding, "fixture"), actor, PRACTICE_RUN_ID);
+  assert.ok(promoted.runId);
+});
+
+test("publishing a result from a repository the team has left is refused, and the selection stands", async () => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  const officialId = await seedOfficial(db, "succeeded");
+  await db.insert(leaderboardSelections).values({
+    teamId: "team_test",
+    benchmarkId: BENCHMARK_ID,
+    benchmarkVersion: 1,
+    runId: officialId,
+    selectedAt: 1,
+  });
+  await runCameFromElsewhere(db, officialId);
+
+  await assert.rejects(
+    publishOfficialRun(env(binding, "fixture"), actor, officialId),
+    (error: unknown) => error instanceof ApiHttpError && error.code === "source_changed",
+  );
+
+  // What is already published stays published. The refusal is about choosing
+  // a new one, not about withdrawing the old.
+  const [selection] = await db.select().from(leaderboardSelections);
+  assert.equal(selection!.runId, officialId);
+  assert.equal(selection!.selectedAt, 1, "the refused publication rewrote the selection");
+});
+
+test("rerunning a run from a repository the team has left is refused, with no new run", async () => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  const [parent] = await db.select().from(runs).where(eq(runs.id, PRACTICE_RUN_ID));
+  await runCameFromElsewhere(db, PRACTICE_RUN_ID);
+  const before = (await db.select().from(runs)).length;
+
+  await assert.rejects(
+    rerunHostedSurface(env(binding, "fixture"), actor, parent!.surfaceId!),
+    (error: unknown) => error instanceof ApiHttpError && error.code === "source_changed",
+  );
+  assert.equal((await db.select().from(runs)).length, before, "a refused rerun still created a run");
+});
+
+test("the shared boundary refuses before it publishes anything", async () => {
+  // Every client arrives here: Portal HTTP, the Activity and CogBot RPC. A
+  // refusal must not reach the realtime hub, which broadcasts a snapshot and
+  // can wake a Discord update.
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  await runCameFromElsewhere(db, PRACTICE_RUN_ID);
+  hubPublications = 0;
+
+  for (const action of ["promote_official", "rerun_hosted"] as const) {
+    await assert.rejects(
+      performRunSurfaceMutation(env(binding, "fixture"), actor, SURFACE_ID, action),
+      (error: unknown) => error instanceof ApiHttpError && error.code === "source_changed",
+      action,
+    );
+  }
+
+  assert.equal(hubPublications, 0, "a refused mutation published a snapshot");
+  assert.equal((await db.select().from(officialAttempts)).length, 0);
+});
+
+test("hosted verification of a local run from another repository is refused", async () => {
+  // verify_hosted resolves the local session's commit against the connected
+  // repository, so it is a rerun by another name and takes the same rule.
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  await db.insert(cliDevices).values({
+    id: "device_1",
+    userId: actor.userId,
+    name: "laptop",
+    tokenHash: "hash",
+    createdAt: 1,
+    expiresAt: Date.now() + 86_400_000,
+    lastUsedAt: null,
+    revokedAt: null,
+  } as never);
+  await db.insert(localRunSessions).values({
+    id: "local_1",
+    teamId: "team_test",
+    userId: actor.userId,
+    deviceId: "device_1",
+    benchmarkId: BENCHMARK_ID,
+    benchmarkVersion: 1,
+    repositoryId: FIXTURE_REPO.repositoryId + 1,
+    repositoryFullName: "some-student/week3-capstone",
+    sha: "c".repeat(40),
+    branch: "main",
+    dirty: false,
+    status: "succeeded",
+    phase: "complete",
+    createdAt: 1,
+    updatedAt: 2,
+    lastEventSequence: 0,
+  } as never);
+  await db
+    .update(runSurfaces)
+    .set({ localRunId: "local_1" })
+    .where(eq(runSurfaces.id, SURFACE_ID));
+
+  await assert.rejects(
+    performRunSurfaceMutation(env(binding, "fixture"), actor, SURFACE_ID, "verify_hosted"),
+    (error: unknown) => error instanceof ApiHttpError && error.code === "source_changed",
+  );
+});
+
+async function seedLocalSource(db: Database): Promise<void> {
+  await db.insert(cliDevices).values({
+    id: "device_source", userId: "user_test", name: "laptop", tokenHash: "source-hash",
+    createdAt: NOW, expiresAt: NOW + 86_400_000,
+  });
+  await db.insert(localRunSessions).values({
+    id: "local_source", teamId: "team_test", userId: "user_test", deviceId: "device_source",
+    benchmarkId: BENCHMARK_ID, benchmarkVersion: 1,
+    repositoryId: FIXTURE_REPO.repositoryId, repositoryFullName: "old-name/local-source",
+    sha: "a".repeat(40), branch: "main", dirty: false, status: "succeeded", phase: "complete",
+    createdAt: NOW, updatedAt: NOW + 1_000, finishedAt: NOW + 1_000,
+  });
+  await db.update(runSurfaces).set({ localRunId: "local_source" }).where(eq(runSurfaces.id, SURFACE_ID));
+}
+
+test("local-only console keeps recorded source and uses the verification refusal after a repository change", async () => {
+  const { db, binding } = freshDb();
+  await seedPromotion(db);
+  await seedLocalSource(db);
+  await db.delete(runs).where(eq(runs.id, PRACTICE_RUN_ID));
+
+  const matching = await buildRunSurfaceSnapshot(env(binding, "modal"), SURFACE_ID);
+  assert.equal(matching.source?.fullName, "old-name/local-source");
+  assert.equal(matching.sha, "a".repeat(40));
+  assert.equal(matching.sourceRefusal, null);
+  assert.ok(matching.actions.includes("verify_hosted"));
+
+  await db.update(teams).set({ repoId: FIXTURE_REPO.repositoryId + 1 }).where(eq(teams.id, "team_test"));
+  const changed = await buildRunSurfaceSnapshot(env(binding, "modal"), SURFACE_ID);
+  assert.deepEqual(changed.source, matching.source);
+  assert.match(changed.sourceRefusal ?? "", /verify it here/);
+  assert.ok(!changed.actions.includes("verify_hosted"));
+
+  await db.update(localRunSessions).set({ repositoryId: null }).where(eq(localRunSessions.id, "local_source"));
+  const unknown = await buildRunSurfaceSnapshot(env(binding, "modal"), SURFACE_ID);
+  assert.deepEqual(unknown.source, matching.source);
+  assert.match(unknown.sourceRefusal ?? "", /predates/);
+  assert.ok(!unknown.actions.includes("verify_hosted"));
+});
+
+test("a hosted console pairs its current stage's source and commit without borrowing local metadata", async () => {
+  const { db, binding } = freshDb();
+  await seedPromotion(db);
+  await seedLocalSource(db);
+  // Distinct metadata makes a mixed-stage projection detectable even though
+  // normal verification preserves the local commit.
+  // The saved environment moves with the commit, so this stays a test of which
+  // stage's metadata the console shows rather than of promotion eligibility.
+  await db.update(runs).set({
+    sha: "b".repeat(40), branch: "hosted-branch",
+    preparedEnvironmentJson: JSON.stringify({ ...PREPARED, source: { ...PREPARED.source, sha: "b".repeat(40) } }),
+  }).where(eq(runs.id, PRACTICE_RUN_ID));
+  const snapshot = await buildRunSurfaceSnapshot(env(binding, "modal"), SURFACE_ID);
+  assert.equal(snapshot.stage, "hosted");
+  assert.equal(snapshot.source?.fullName, "some-org/the-repository-it-ran-from");
+  assert.equal(snapshot.sha, "b".repeat(40));
+  assert.equal(snapshot.shortSha, "b".repeat(7));
+  assert.equal(snapshot.branch, "hosted-branch");
+  assert.equal(snapshot.sourceRefusal, null);
+
+  // Legacy verification accepted local sessions before their source was known.
+  await db.update(localRunSessions).set({ repositoryId: null }).where(eq(localRunSessions.id, "local_source"));
+  const legacyHosted = await buildRunSurfaceSnapshot(env(binding, "modal"), SURFACE_ID);
+  assert.equal(legacyHosted.sourceRefusal, null);
+  assert.ok(legacyHosted.actions.includes("promote_official"));
+  assert.ok(legacyHosted.actions.includes("rerun_hosted"));
+  await db.update(runs).set({ mode: "official" }).where(eq(runs.id, PRACTICE_RUN_ID));
+  const legacyOfficial = await buildRunSurfaceSnapshot(env(binding, "modal"), SURFACE_ID);
+  assert.equal(legacyOfficial.stage, "official");
+  assert.equal(legacyOfficial.sourceRefusal, null);
+  assert.ok(legacyOfficial.actions.includes("publish_result"));
+});
+
+test("missing hosted stages reject mutations before realtime publication", async () => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  hubPublications = 0;
+  await assert.rejects(
+    performRunSurfaceMutation(env(binding, "fixture"), actor, SURFACE_ID, "publish_result"),
+    (error: unknown) => error instanceof ApiHttpError && error.code === "not_selectable",
+  );
+  await seedLocalSource(db);
+  await db.delete(runs).where(eq(runs.id, PRACTICE_RUN_ID));
+  for (const [action, code] of [["promote_official", "not_promotable"], ["rerun_hosted", "not_found"], ["publish_result", "not_selectable"]] as const) {
+    await assert.rejects(
+      performRunSurfaceMutation(env(binding, "fixture"), actor, SURFACE_ID, action),
+      (error: unknown) => error instanceof ApiHttpError && error.code === code,
+    );
+  }
+  assert.equal(hubPublications, 0);
+});
+
+function renderDashboard(dashboard: Dashboard): string {
+  (globalThis as typeof globalThis & { React: typeof React }).React = React;
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+  client.setQueryData(["benchmarks"], [dashboard.benchmark]);
+  client.setQueryData(["dashboard", dashboard.benchmark.id], dashboard);
+  client.setQueryData(["local-reports", dashboard.benchmark.id], []);
+  client.setQueryData(["repositories"], []);
+  return renderToStaticMarkup(React.createElement(QueryClientProvider, { client },
+    React.createElement(StaticRouter, { location: "/dashboard" }, React.createElement(DashboardPage))));
+}
+
+test("dashboard API and rendered candidate agree with detail for unknown, changed and renamed sources", async () => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  await db.update(benchmarks).set({ active: false }).where(and(eq(benchmarks.id, BENCHMARK_ID), ne(benchmarks.version, 1)));
+  await db.insert(runMetrics).values({ runId: PRACTICE_RUN_ID, key: "accuracy", label: "Accuracy",
+    value: 0.8, unit: null, higherIsBetter: true, isPrimary: true, precision: 2 });
+  const testEnv = { ...env(binding, "modal"), DEV_AUTH: "enabled" as const,
+    BETTER_AUTH_SECRET: "a-secure-development-secret-32-chars", BETTER_AUTH_URL: "http://localhost:5173" };
+  const signedIn = await createAuth(testEnv).api.signUpEmail({
+    body: { email: "dashboard-source@example.test", password: "cogportal-local-dev-password", name: "Source reader" },
+    returnHeaders: true,
+  });
+  await db.insert(teamMembers).values({ teamId: actor.team.id, userId: signedIn.response.user.id, role: "admin" });
+  const cookie = signedIn.headers.getSetCookie().map((value) => value.split(";")[0]).join("; ");
+  const app = new Hono<AppEnv>();
+  registerDashboardRoutes(app);
+  for (const repositoryId of [null, FIXTURE_REPO.repositoryId + 1, FIXTURE_REPO.repositoryId]) {
+    await db.update(runs).set({ repositoryId }).where(eq(runs.id, PRACTICE_RUN_ID));
+    const response = await app.fetch(new Request(`http://localhost:5173/dashboard?benchmark=${BENCHMARK_ID}`, { headers: { cookie } }), testEnv);
+    assert.equal(response.status, 200);
+    const dashboard = DashboardSchema.parse(await response.json());
+    const [row] = await db.select().from(runs).where(eq(runs.id, PRACTICE_RUN_ID));
+    assert.ok(row);
+    const detail = await serializeRunDetail(db, row, actor.team);
+    assert.equal(dashboard.latestCandidate?.id, PRACTICE_RUN_ID);
+    // Each panel's own call to action, stated independently: the dashboard
+    // only offers promotion, and the run detail shares one sentence with
+    // PUBLISH. Compared in full so a changed clause cannot pass unnoticed.
+    assert.equal(dashboard.latestCandidate?.sourceRefusal, runSourceRefusal(actor.team, row, "promote it"));
+    assert.equal(detail.sourceRefusal, runSourceRefusal(actor.team, row, "act on it"));
+    assert.equal(dashboard.latestCandidate?.repo?.fullName, "some-org/the-repository-it-ran-from");
+    const html = renderDashboard(dashboard);
+    if (repositoryId === FIXTURE_REPO.repositoryId) {
+      assert.equal(dashboard.latestCandidate?.sourceRefusal, null, "a same-ID rename remains eligible");
+      assert.match(html, /Candidate ready/);
+      assert.match(html, /Promote to official/);
+      assert.match(renderDashboard({ ...dashboard, quota: { ...dashboard.quota, officialUsed: dashboard.quota.officialLimit } }), /disabled=""[^>]*>Promote to official/);
+    } else {
+      assert.match(html, /Previous result/);
+      assert.ok(detail.sourceRefusal);
+      assert.ok(dashboard.latestCandidate?.sourceRefusal);
+      assert.ok(html.includes(dashboard.latestCandidate.sourceRefusal));
+      assert.match(dashboard.latestCandidate.sourceRefusal, /to promote it\.$/);
+      assert.doesNotMatch(html, /Promote to official/);
+      assert.doesNotMatch(html, /Candidate ready/);
+    }
+  }
+  await db.update(runs).set({ mode: "official", attemptNumber: 1 }).where(eq(runs.id, PRACTICE_RUN_ID));
+  await db.insert(leaderboardSelections).values({
+    teamId: actor.team.id, benchmarkId: BENCHMARK_ID, benchmarkVersion: 1,
+    runId: PRACTICE_RUN_ID, selectedAt: NOW,
+  });
+  const response = await app.fetch(new Request(`http://localhost:5173/dashboard?benchmark=${BENCHMARK_ID}`, { headers: { cookie } }), testEnv);
+  assert.equal(response.status, 200);
+  const published = DashboardSchema.parse(await response.json());
+  assert.equal(published.selection?.source?.fullName, "some-org/the-repository-it-ran-from");
+  assert.equal(published.selection?.runId, PRACTICE_RUN_ID);
+  assert.match(renderDashboard(published), /PUBLISHED RESULT[\s\S]*some-org\/the-repository-it-ran-from/);
+
+  const firstRun = renderDashboard({
+    ...published,
+    benchmark: { ...published.benchmark, id: "language-search", title: "Semantic Image Search", module: "language" },
+    runs: [], latestCandidate: null, selection: null,
+    quota: { ...published.quota, practiceUsed: 0, officialUsed: 0 },
+  });
+  assert.match(firstRun, /FIRST RUN/);
+  // Grid items must shrink so Code scrolls internally instead of widening the page.
+  assert.match(firstRun, /<div class="min-w-0"><h3 class="u-kicker">On your machine/);
+  assert.match(firstRun, /<div class="min-w-0"><h3 class="u-kicker">Here, from your pushed commit/);
+  assert.match(firstRun, /class="code-block /);
+  assert.match(firstRun, /cogworks check --benchmark language-search\ncogworks run --benchmark language-search\ncogworks sync/);
+  assert.match(firstRun, /<select[^>]*>[\s\S]*main/);
+});
+
+test("the rule answers every combination of missing and differing ids", () => {
+  const team = { repoId: 7, repoFullName: "owner/connected" };
+  assert.equal(runSourceRefusal(team, { repositoryId: 7 }, "act"), null);
+  assert.match(runSourceRefusal(team, { repositoryId: 8 }, "act") ?? "", /no longer connected/);
+  assert.match(runSourceRefusal(team, { repositoryId: null }, "act") ?? "", /predates/);
+  assert.match(runSourceRefusal(team, null, "act") ?? "", /predates/);
+  // A team with no recorded repository cannot authorise anything against one.
+  const unknownTeam = { repoId: null, repoFullName: "owner/connected" };
+  assert.match(runSourceRefusal(unknownTeam, { repositoryId: 7 }, "act") ?? "", /no longer connected/);
+  assert.match(runSourceRefusal(unknownTeam, { repositoryId: null }, "act") ?? "", /predates/);
 });
 
 const ACCOUNTING_SCOPE = { teamId: "team_test", benchmarkId: BENCHMARK_ID, benchmarkVersion: 1 };
@@ -1373,4 +1847,147 @@ test("missing snapshot context retains its 404 across the DO request boundary", 
   await assert.rejects(buildRunSurfaceSnapshot(env(binding, "modal"), SURFACE_ID), {
     status: 404, code: "not_found", message: "Run surface context no longer exists.",
   });
+});
+
+// Older writers omitted these required fields. The tests drive the real hub
+// against Map-backed storage; they do not exercise workerd's storage.
+function historicalPayload(snapshot: RunSurfaceSnapshot): string {
+  const { source: _source, sourceRefusal: _refusal, ...rest } = snapshot;
+  assert.equal(RunSurfaceSnapshotSchema.safeParse(rest).success, false, "the fixture must predate this contract");
+  return JSON.stringify(rest);
+}
+
+test("a payload from an older writer is a cache miss, and the fresh refusal is served", async (t) => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  const runtime = env(binding, "modal");
+  const hubs = runSurfaceHubs(runtime);
+  runtime.RUN_SURFACES = hubs.namespace;
+  const warnings: string[] = [];
+  t.mock.method(console, "warn", (line: string) => { warnings.push(line); });
+
+  const before = await buildRunSurfaceSnapshot(runtime, SURFACE_ID);
+  assert.equal(before.sourceRefusal, null);
+  // The team moves off the run's repository, so the fresh read carries a
+  // refusal the cached payload could not have known about.
+  await db.update(teams).set({ repoId: 999_999_999 }).where(eq(teams.id, actor.team.id));
+  hubs.get(SURFACE_ID).values.set("latest", historicalPayload(before));
+  hubs.get(SURFACE_ID).restart();
+
+  const read = await buildRunSurfaceSnapshot(runtime, SURFACE_ID);
+  assert.ok(read.sourceRefusal, "the discarded cache was served instead of the fresh read");
+  assert.equal(read.actions.includes("promote_official"), false);
+  // The separate counter still orders the reply; only the unreadable payload went.
+  assert.equal(read.snapshotRevision, before.snapshotRevision + 1);
+  const stored = hubs.get(SURFACE_ID).values.get("latest");
+  assert.ok(typeof stored === "string");
+  assert.equal(RunSurfaceSnapshotSchema.safeParse(JSON.parse(stored)).success, true);
+
+  const warned = warnings.map((line) => JSON.parse(line) as Record<string, unknown>)
+    .filter((entry) => entry.event === "run_surface_cache_discarded");
+  assert.equal(warned.length, 1);
+  assert.equal(warned[0].surfaceId, SURFACE_ID);
+  assert.equal(warned[0].reason, "schema_mismatch");
+  assert.deepEqual(warned[0].fields, ["source", "sourceRefusal"]);
+  // Field paths only: the payload names a repository and a commit.
+  assert.doesNotMatch(warnings.join(""), new RegExp(before.sha));
+  assert.doesNotMatch(warnings.join(""), /cogworks-demo|some-org/);
+});
+
+test("a historical payload with no counter restarts the sequence at one", async () => {
+  const { db, binding } = freshDb();
+  await seedPromotion(db);
+  const runtime = env(binding, "modal");
+  const hubs = runSurfaceHubs(runtime);
+  runtime.RUN_SURFACES = hubs.namespace;
+  const first = await buildRunSurfaceSnapshot(runtime, SURFACE_ID);
+  hubs.get(SURFACE_ID).values.set("latest", historicalPayload(first));
+  hubs.get(SURFACE_ID).values.delete("snapshotRevision");
+  hubs.get(SURFACE_ID).restart();
+  assert.equal((await buildRunSurfaceSnapshot(runtime, SURFACE_ID)).snapshotRevision, 1);
+});
+
+test("the alarm replaces an unreadable payload instead of retrying the parse", async (t) => {
+  const { db, binding } = freshDb();
+  await seedPromotion(db);
+  const runtime = env(binding, "modal");
+  const hubs = runSurfaceHubs(runtime);
+  runtime.RUN_SURFACES = hubs.namespace;
+  const warnings: string[] = [];
+  t.mock.method(console, "warn", (line: string) => { warnings.push(line); });
+  const errors: string[] = [];
+  t.mock.method(console, "error", (line: string) => { errors.push(line); });
+
+  const first = await buildRunSurfaceSnapshot(runtime, SURFACE_ID);
+  assert.equal(first.status, "succeeded");
+  hubs.get(SURFACE_ID).values.set("surfaceId", SURFACE_ID);
+  hubs.get(SURFACE_ID).values.set("latest", historicalPayload(first));
+  hubs.get(SURFACE_ID).restart();
+
+  await hubs.get(SURFACE_ID).alarm();
+  assert.equal(errors.filter((line) => line.includes("run_surface_tick_failed")).length, 0);
+  // Terminal, so nothing is rescheduled: the 2s error retry would have been.
+  assert.equal(hubs.get(SURFACE_ID).scheduledAlarm, null);
+  const stored = hubs.get(SURFACE_ID).values.get("latest");
+  assert.ok(typeof stored === "string");
+  assert.equal(RunSurfaceSnapshotSchema.safeParse(JSON.parse(stored)).success, true);
+
+  warnings.length = 0;
+  await hubs.get(SURFACE_ID).alarm();
+  assert.equal(warnings.filter((line) => line.includes("run_surface_cache_discarded")).length, 0);
+});
+
+test("a connection is issued over an unreadable payload rather than failing", async (t) => {
+  const { db, binding } = freshDb();
+  await seedPromotion(db);
+  const runtime = env(binding, "modal");
+  const hubs = runSurfaceHubs(runtime);
+  runtime.RUN_SURFACES = hubs.namespace;
+  t.mock.method(console, "warn", () => {});
+  const sent: string[] = [];
+  const previousPair = Object.getOwnPropertyDescriptor(globalThis, "WebSocketPair");
+  Object.assign(globalThis, {
+    WebSocketPair: class { 0 = {}; 1 = { send(payload: string) { sent.push(payload); }, close() {} }; },
+  });
+  t.after(() => {
+    if (previousPair) Object.defineProperty(globalThis, "WebSocketPair", previousPair);
+    else Reflect.deleteProperty(globalThis, "WebSocketPair");
+  });
+  const NativeResponse = Response;
+  t.mock.method(globalThis, "Response", class extends NativeResponse {
+    constructor(body?: BodyInit | null, init?: ResponseInit) {
+      super(body, init?.status === 101 ? { ...init, status: 200 } : init);
+      if (init?.status === 101) Object.defineProperty(this, "status", { value: 101 });
+    }
+  });
+
+  const first = await buildRunSurfaceSnapshot(runtime, SURFACE_ID);
+  hubs.get(SURFACE_ID).values.set("latest", historicalPayload(first));
+  hubs.get(SURFACE_ID).restart();
+  const response = await hubs.get(SURFACE_ID).fetch(new Request(`https://run-surface.internal/connect?surfaceId=${SURFACE_ID}`, {
+    headers: { Upgrade: "websocket" },
+  }));
+  assert.equal(response.status, 101);
+  assert.equal(RunSurfaceSnapshotSchema.safeParse(JSON.parse(sent[0])).success, true);
+});
+
+test("a truncated payload is the same cache miss", async (t) => {
+  const { db, binding } = freshDb();
+  await seedPromotion(db);
+  const runtime = env(binding, "modal");
+  const hubs = runSurfaceHubs(runtime);
+  runtime.RUN_SURFACES = hubs.namespace;
+  const warnings: string[] = [];
+  t.mock.method(console, "warn", (line: string) => { warnings.push(line); });
+
+  const first = await buildRunSurfaceSnapshot(runtime, SURFACE_ID);
+  hubs.get(SURFACE_ID).values.set("latest", JSON.stringify(first).slice(0, 80));
+  hubs.get(SURFACE_ID).restart();
+  const read = await buildRunSurfaceSnapshot(runtime, SURFACE_ID);
+  assert.equal(read.snapshotRevision, first.snapshotRevision + 1);
+  const warned = warnings.map((line) => JSON.parse(line) as Record<string, unknown>)
+    .filter((entry) => entry.event === "run_surface_cache_discarded");
+  assert.equal(warned.length, 1);
+  assert.equal(warned[0].reason, "malformed_json");
+  assert.deepEqual(warned[0].fields, []);
 });

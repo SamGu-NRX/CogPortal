@@ -1,3 +1,5 @@
+import { ArrowUpRight01Icon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type {
   RunLifecycleStage,
@@ -11,6 +13,9 @@ import {
   runSurfaceCurrentRunId,
 } from "@cogworks/contracts/schema";
 import type { StreamState } from "@/lib/run-surface-stream";
+import type { RunSurfaceMutationInput } from "@/lib/api";
+import { Code } from "./Code";
+import { Veil } from "./Veil";
 
 type Mutation = "verify_hosted" | "promote_official" | "publish_result" | "rerun_hosted";
 
@@ -74,7 +79,7 @@ function stageMark(snapshot: RunSurfaceSnapshot, stage: RunLifecycleStage): stri
 }
 
 function statusCopy(snapshot: RunSurfaceSnapshot): string {
-  if (snapshot.status === "failed") return "Stopped during evaluation";
+  if (snapshot.status === "failed") return "Run failed";
   if (snapshot.status === "cancelled") return "Stopped before completion";
   if (snapshot.status === "succeeded") return "Bench clear";
   const phase = snapshot.phase.replaceAll("_", " ");
@@ -117,6 +122,7 @@ export function RunConsole({
   streamState,
   onAction,
   onOpenPortal,
+  onOpenRun,
   busyAction = null,
   error = null,
   embedded = false,
@@ -124,14 +130,20 @@ export function RunConsole({
 }: {
   snapshot: RunSurfaceSnapshot;
   streamState: StreamState;
-  onAction?: (action: Mutation) => void | Promise<void>;
+  onAction?: (input: RunSurfaceMutationInput) => void | Promise<void>;
   onOpenPortal?: () => void;
+  onOpenRun?: (runId: string) => void;
   busyAction?: Mutation | "retry" | null;
   error?: string | null;
   embedded?: boolean;
   compact?: boolean;
 }) {
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const retryFocusedRef = useRef(false);
+  const retryInFlightRef = useRef(false);
   const logRef = useRef<HTMLUListElement>(null);
+  const logFocusedRef = useRef(false);
+  const historyToggleRef = useRef<HTMLButtonElement>(null);
   const atBottomRef = useRef(true);
   const [newEvents, setNewEvents] = useState(0);
   const currentRunId = runSurfaceCurrentRunId(snapshot);
@@ -147,7 +159,34 @@ export function RunConsole({
   const [historyExpanded, setHistoryExpanded] = useState(false);
   const terminal = snapshot.status !== "running";
   const timelineEvents = collapseRepeatedRunEvents(currentEvents);
+  const failed = snapshot.status === "failed";
+  const retryOffered = snapshot.actions.includes("retry") && currentRunId !== null && Boolean(onAction);
+
+  const retry = async () => {
+    if (!retryOffered || !onAction || !currentRunId || retryInFlightRef.current || busyAction) return;
+    retryInFlightRef.current = true;
+    try {
+      await onAction({ surfaceId: snapshot.id, action: "retry", runId: currentRunId });
+    } finally {
+      retryInFlightRef.current = false;
+    }
+  };
+
+  useLayoutEffect(() => {
+    if (!retryOffered && retryFocusedRef.current) {
+      headingRef.current?.focus();
+      retryFocusedRef.current = false;
+    }
+  }, [retryOffered]);
+  const failureEvent = [...currentEvents].reverse().find((event) => event.code.startsWith("run.failed."));
+  const failureReason = snapshot.refusalHeadline || (failureEvent ? EVENT_COPY[failureEvent.code] : null);
   const visibleEvents = terminal && !historyExpanded ? timelineEvents.slice(-3) : timelineEvents;
+  const historyToggle = failed
+    ? { open: "Hide details", closed: "Show details" }
+    : { open: "Show summary", closed: `Show all ${timelineEvents.length}` };
+  const recordedMetrics = snapshot.metrics.length > 0
+    ? snapshot.metrics
+    : snapshot.primaryMetric ? [snapshot.primaryMetric] : [];
 
   useLayoutEffect(() => {
     if (
@@ -176,9 +215,17 @@ export function RunConsole({
     }
   }, [currentEvents.length, currentRunId, snapshot.id, terminal]);
 
+  // Removing the focused log must not strand keyboard focus on the document.
+  useLayoutEffect(() => {
+    if (failed && !historyExpanded && logFocusedRef.current) {
+      historyToggleRef.current?.focus();
+      logFocusedRef.current = false;
+    }
+  }, [failed, historyExpanded]);
+
   useEffect(() => {
     setHistoryExpanded(false);
-  }, [snapshot.id, snapshot.stage, snapshot.status]);
+  }, [snapshot.id, currentRunId, snapshot.stage, snapshot.status]);
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -240,7 +287,7 @@ export function RunConsole({
         </div>
         <div className={`${compact ? "mt-3" : "mt-5"} grid gap-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-end`}>
           <div className="min-w-0">
-            <h1 className="text-[clamp(1.55rem,4vw,2.45rem)]">{snapshot.benchmark.title}</h1>
+            <h1 ref={headingRef} tabIndex={-1} className="text-[clamp(1.55rem,4vw,2.45rem)]">{snapshot.benchmark.title}</h1>
             <p className={`${compact ? "mt-1" : "mt-2"} flex flex-wrap gap-x-3 gap-y-1 text-[13px] text-ink-secondary`}>
               <span>{snapshot.team.name}</span><span aria-hidden="true">·</span>
               <span>@{snapshot.actor.login}</span><span aria-hidden="true">·</span>
@@ -248,13 +295,51 @@ export function RunConsole({
               <span className="u-tnum">{formatElapsed(snapshot.elapsedMs)}</span>
             </p>
           </div>
-          {snapshot.primaryMetric && (
+          {snapshot.status === "succeeded" && snapshot.primaryMetric && (
             <div className="min-w-36 border-l-2 border-verify pl-4">
               <div className="u-kicker">{snapshot.primaryMetric.label}</div>
               <div className="mt-1 font-serif text-3xl font-semibold u-tnum">{formatMetric(snapshot)}</div>
             </div>
           )}
         </div>
+        {failed && failureReason && (
+          <p className="mt-3 max-w-prose break-words text-[13px] text-ink-secondary">{failureReason}</p>
+        )}
+        {failed && snapshot.stage === "local" && snapshot.actions.includes("run_again") && (
+          <div className="mt-4">
+            <button
+              type="button"
+              className="u-pressable min-h-11 border border-ink bg-ink px-5 text-[13px] font-medium text-paper-raised"
+              onClick={() => ask("run_again")}
+            >
+              Run again
+            </button>
+          </div>
+        )}
+        {retryOffered && (
+          <div className="mt-4">
+            <button
+              type="button"
+              className="u-pressable min-h-11 border border-ink bg-ink px-5 text-[13px] font-medium text-paper-raised aria-disabled:opacity-60"
+              aria-disabled={busyAction !== null}
+              onFocus={() => { retryFocusedRef.current = true; }}
+              onBlur={() => { retryFocusedRef.current = false; }}
+              onClick={() => { void retry(); }}
+            >
+              {busyAction === "retry" ? "Retrying…" : "Retry"}
+            </button>
+            <p className="mt-2 text-[12px] text-ink-secondary">Runs the same submission again.</p>
+          </div>
+        )}
+        {/* The slot Retry would occupy. The server only sends this when the
+            recorded inputs themselves cannot be sent again, so it is the only
+            case we can name; its absence says nothing about quota or access. */}
+        {failed && !retryOffered && snapshot.retryRefusal && (
+          <p className="mt-4 max-w-prose text-[12px] leading-relaxed text-ink-secondary">
+            {snapshot.retryRefusal}
+          </p>
+        )}
+        {error && <p role="alert" className="mt-4 border-l-2 border-detect pl-3 text-[12px] text-detect-deep">{error}</p>}
         {snapshot.status === "running" && (
           <div className="mt-4 border-t border-rule-soft pt-3" role="status" aria-live="polite">
             <div className="mb-2 flex min-w-0 items-center justify-between gap-3">
@@ -282,6 +367,9 @@ export function RunConsole({
         )}
       </header>
 
+      {/* `compact` is the console's own width, not the window's: a 352px tile
+          can sit on a 768px screen, so the tile reads no breakpoint. Names
+          stack under the mark where a quarter of the row cannot hold both. */}
       <ol className="grid grid-cols-4 border-b border-rule" aria-label="Run lifecycle">
         {STAGES.map((stage) => {
           const mark = stageMark(snapshot, stage.id);
@@ -289,10 +377,13 @@ export function RunConsole({
             <li
               key={stage.id}
               aria-current={stage.id === snapshot.stage ? "step" : undefined}
-              className={`flex items-center justify-center gap-2 border-r border-rule-soft px-2 last:border-r-0 sm:justify-start sm:px-4 ${compact ? "min-h-11" : "min-h-14"}`}
+              className={`flex flex-col items-center justify-center gap-0.5 border-r border-rule-soft px-1 py-1.5 last:border-r-0 ${compact ? "min-h-11" : "min-h-14 sm:flex-row sm:justify-start sm:gap-2 sm:px-4 sm:py-0"}`}
             >
-              <span className={`font-mono text-[15px] ${mark === "×" ? "text-detect" : mark === "○" ? "text-ink-faint" : "text-verify"}`} aria-hidden="true">{mark}</span>
-              <span className={`${compact ? "hidden sm:inline" : "hidden min-[420px]:inline"} text-[11px] font-medium uppercase tracking-[0.05em]`}>{stage.label}</span>
+              <span className={`font-mono text-[15px] leading-none ${mark === "×" ? "text-detect" : mark === "○" ? "text-ink-faint" : "text-verify"}`} aria-hidden="true">{mark}</span>
+              {/* The gallery's 360px viewport leaves a 277px compact row.
+                  Four-pixel padding keeps "Published" on one line with the
+                  loaded font; narrower rows can still wrap rather than clip. */}
+              <span className={`text-center leading-tight font-medium uppercase tracking-[0.05em] [overflow-wrap:anywhere] ${compact ? "text-[10px]" : "text-[10px] sm:text-[11px]"}`}>{stage.label}</span>
               <span className="sr-only">{mark === "✓" ? "complete" : mark === "●" ? "active" : mark === "×" ? "failed" : "pending"}</span>
             </li>
           );
@@ -303,20 +394,31 @@ export function RunConsole({
       <div className="grid md:grid-cols-[minmax(0,1fr)_15rem]">
         <div className="relative border-b border-rule md:border-r md:border-b-0">
           <div className="flex items-center justify-between border-b border-rule-soft px-4 py-3">
-            <span className="u-kicker">{terminal ? "Run summary" : "Safe event stream"}</span>
-            {terminal && timelineEvents.length > 3 && (
+            <span className="u-kicker">{failed ? "Run history" : terminal ? "Run summary" : "Safe event stream"}</span>
+            {terminal && (failed || timelineEvents.length > 3) && (
               <button
                 type="button"
                 className="min-h-9 px-2 text-[11px] text-ink-secondary underline decoration-rule underline-offset-4"
+                ref={historyToggleRef}
                 aria-expanded={historyExpanded}
                 onClick={() => setHistoryExpanded((expanded) => !expanded)}
               >
-                {historyExpanded ? "Show summary" : `Show all ${timelineEvents.length}`}
+                {historyExpanded ? historyToggle.open : historyToggle.closed}
               </button>
             )}
           </div>
-          <ul
+          {failed && historyExpanded && recordedMetrics.length > 0 && (
+            <div className="space-y-2 border-b border-rule-soft px-4 py-3 text-[12px] text-ink-secondary">
+              <p>Saved results</p>
+              {recordedMetrics.map((metric) => (
+                <p key={metric.key}>{metric.label}: {metric.value.toFixed(metric.precision)}{metric.unit ? ` ${metric.unit}` : ""}</p>
+              ))}
+            </div>
+          )}
+          {(!failed || historyExpanded) && <ul
             ref={logRef}
+            onFocus={() => { logFocusedRef.current = true; }}
+            onBlur={() => { logFocusedRef.current = false; }}
             tabIndex={terminal && !historyExpanded ? undefined : 0}
             aria-label={terminal ? "Run event summary" : "Live run events"}
             className={`log-scroll bg-paper-sunken/30 focus-visible:outline-offset-[-2px] ${terminal && !historyExpanded ? "" : "h-[min(34vh,18rem)] overflow-y-auto"}`}
@@ -328,10 +430,10 @@ export function RunConsole({
             }}
           >
             {visibleEvents.length ? visibleEvents.map((event) => <EventLine key={event.eventId} event={event} />) : (
-              <li className="px-5 py-12 text-center text-[13px] text-ink-faint">Waiting for the first structured event.</li>
+              <li className="px-5 py-12 text-center text-[13px] text-ink-faint">{terminal ? "No structured events were recorded." : "Waiting for the first structured event."}</li>
             )}
-          </ul>
-          {newEvents > 0 && (
+          </ul>}
+          {!terminal && newEvents > 0 && (
             <button
               type="button"
               className="absolute bottom-3 left-1/2 min-h-9 -translate-x-1/2 border border-rule bg-ink px-3 text-[12px] text-paper-raised shadow-md"
@@ -352,12 +454,26 @@ export function RunConsole({
         <aside className="p-4 sm:p-5">
           <div className="u-kicker">Run reference</div>
           <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-[12px]">
+            <dt className="text-ink-faint">Repository</dt>
+            <dd className="min-w-0 truncate font-mono">
+              {snapshot.source ? snapshot.source.fullName : "not recorded"}
+            </dd>
             <dt className="text-ink-faint">Commit</dt><dd className="min-w-0 truncate font-mono">{snapshot.sha}</dd>
             <dt className="text-ink-faint">Branch</dt><dd className="min-w-0 truncate font-mono">{snapshot.branch ?? "detached"}</dd>
             <dt className="text-ink-faint">Workspace</dt><dd>{snapshot.dirty ? "Uncommitted changes" : "Clean"}</dd>
           </dl>
+          {/* The server refuses these for a run that is not about the connected
+              repository, or whose saved environment can no longer be reused, so
+              the buttons are gone. Saying why beats a panel that quietly lost
+              its controls. One sentence: the source answer comes first on the
+              server, so it is the one that applies. */}
+          {(snapshot.sourceRefusal ?? snapshot.promotionRefusal) && (
+            <p className="mt-4 max-w-prose text-[12px] leading-relaxed text-ink-secondary">
+              {snapshot.sourceRefusal ?? snapshot.promotionRefusal}
+            </p>
+          )}
           <div className="mt-6 grid gap-2">
-            {snapshot.actions.filter((action) => ACTION_COPY[action]).map((action) => (
+            {snapshot.actions.filter((action) => !failed && ACTION_COPY[action]).map((action) => (
               <button
                 key={action}
                 type="button"
@@ -378,17 +494,32 @@ export function RunConsole({
               </p>
             )}
             {onOpenPortal && (
-              <button type="button" className="min-h-11 px-3 text-left text-[12px] text-ink-secondary underline decoration-rule underline-offset-4" onClick={onOpenPortal}>
-                Open Cog*Portal ↗
+              <button type="button" className="inline-flex min-h-11 items-center gap-1 px-3 text-left text-[12px] text-ink-secondary underline decoration-rule underline-offset-4" onClick={onOpenPortal}>
+                Open Cog*Portal
+                <HugeiconsIcon icon={ArrowUpRight01Icon} size={12} strokeWidth={1.8} aria-hidden="true" />
               </button>
             )}
           </div>
-          {error && <p role="alert" className="mt-4 border-l-2 border-detect pl-3 text-[12px] text-detect-deep">{error}</p>}
-          {snapshot.status === "failed" && (
-            <p className="mt-4 text-[12px] text-ink-secondary">The useful detail is still in the runner's terminal.</p>
-          )}
         </aside>
       </div>
+      )}
+
+      {snapshot.executionHistory.length > 0 && (
+        <div className="border-t border-rule px-4 py-3 sm:px-6">
+          <Veil count={snapshot.executionHistory.length} peek={0} moreLabel="Show run history" fewerLabel="Hide run history">
+            <ol className="divide-y divide-rule-soft" aria-label="Run history">
+              {snapshot.executionHistory.map((run) => (
+                <li key={run.id} className="flex flex-wrap items-center justify-between gap-2 py-3 text-[12px]">
+                  <div>
+                    <p className="capitalize">{run.mode} · {run.status.replaceAll("_", " ")}{run.id === currentRunId ? " · Current" : ""}</p>
+                    <time className="text-ink-faint" dateTime={new Date(run.createdAt).toISOString()}>{new Date(run.createdAt).toLocaleString()}</time>
+                  </div>
+                  {onOpenRun && <button type="button" className="min-h-11 px-2 underline decoration-rule underline-offset-4" onClick={() => onOpenRun(run.id)}>View details<span className="sr-only"> for {run.mode} run from {new Date(run.createdAt).toLocaleString()}</span></button>}
+                </li>
+              ))}
+            </ol>
+          </Veil>
+        </div>
       )}
 
       {(pendingAction || showCommand) && (
@@ -402,7 +533,9 @@ export function RunConsole({
             <div className="u-kicker">{showCommand ? "Run locally" : "Confirm action"}</div>
             <h2 id="run-action-title" className="mt-2 text-2xl">{showCommand ? "Back to the bench" : ACTION_COPY[pendingAction ?? "run_again"]}</h2>
             {showCommand ? (
-              <code className="mt-4 block overflow-x-auto border border-rule bg-paper-sunken/45 p-3 text-[12px]">cogworks run --benchmark {snapshot.benchmark.id} --live</code>
+              <div className="mt-4">
+                <Code lang="bash" code={`cogworks run --benchmark ${snapshot.benchmark.id} --live`} wrap />
+              </div>
             ) : <p className="mt-3 text-[14px] text-ink-secondary">{confirmation}</p>}
             <div className="mt-6 flex justify-end gap-2">
               <button type="button" className="min-h-11 border border-rule px-4 text-[13px]" onClick={closeDialog}>Close</button>
@@ -410,7 +543,7 @@ export function RunConsole({
                 <button type="button" className="min-h-11 bg-detect px-4 text-[13px] font-medium text-paper-raised" onClick={() => {
                   const action = pendingAction;
                   setPendingAction(null);
-                  void onAction?.(action);
+                  void onAction?.({ surfaceId: snapshot.id, action });
                 }}>Confirm</button>
               )}
             </div>
