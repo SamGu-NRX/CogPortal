@@ -1356,7 +1356,6 @@ def _prepare(job: Dict[str, Any], reporter: LiveReporter) -> Tuple[str, Dict[str
         if callback.hostname and callback.hostname not in allowlist:
             allowlist.append(callback.hostname)
         image = _sandbox_image(job)
-        image.hydrate()
         sandbox = modal.Sandbox.create(
             image=image,
             app=app,
@@ -1365,6 +1364,9 @@ def _prepare(job: Dict[str, Any], reporter: LiveReporter) -> Tuple[str, Dict[str
             timeout=job["runtime"]["timeoutSeconds"],
             outbound_domain_allowlist=allowlist,
         )
+        # Modal 1.5.5 rejects direct hydration of a named image. Sandbox.create
+        # resolves this same handle, so its base image id is available only now.
+        base_image_id = image.object_id
         reporter.status("preparing")
         # Only this pristine image is platform-owned. Neither the archive nor
         # an installer has run. Preserve the observation in controller memory;
@@ -1423,7 +1425,7 @@ def _prepare(job: Dict[str, Any], reporter: LiveReporter) -> Tuple[str, Dict[str
             raise RunnerFailure("dependency_install", "installing", detail or "Install failed.", False)
         reporter.status("contract_check")
         snapshot_id = sandbox.snapshot_filesystem().object_id
-        return snapshot_id, bind_environment(job, observation, snapshot_id, image.object_id)
+        return snapshot_id, bind_environment(job, observation, snapshot_id, base_image_id)
     except RunnerFailure:
         raise
     except Exception as error:
