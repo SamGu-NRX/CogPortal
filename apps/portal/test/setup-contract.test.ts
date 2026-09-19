@@ -4,7 +4,7 @@ import {
   SetupEvidenceRequestSchema,
   SetupStateSchema,
 } from "@cogworks/contracts/schema";
-import { setupSteps } from "../src/lib/setup-progress.ts";
+import { setupSteps, verifiedSteps } from "../src/lib/setup-progress.ts";
 
 const validEvidence = {
   schemaVersion: 1,
@@ -57,4 +57,15 @@ test("legacy browser checks cannot impersonate CLI-verified machine facts", () =
     { teammates: false, terminal: [] },
   );
   assert.deepEqual(progress, { done: 2, total: 6 });
+});
+
+test("a check scoped to the shown benchmark counts, and the nudge counts any benchmark's", () => {
+  const state = SetupStateSchema.parse({
+    verified: ["clone"],
+    verifiedByBenchmark: { "vision-recognition": ["environment", "project", "wiring"] },
+  });
+  assert.deepEqual(verifiedSteps(state, "vision-recognition"), ["clone", "environment", "project", "wiring"]);
+  assert.deepEqual(verifiedSteps(state, "audio-identification"), ["clone"]);
+  assert.deepEqual(verifiedSteps(state), ["clone", "environment", "project", "wiring"]);
+  assert.deepEqual(verifiedSteps(undefined), []);
 });
