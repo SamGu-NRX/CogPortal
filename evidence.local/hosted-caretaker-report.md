@@ -112,3 +112,32 @@ None ready. Every PR here descends from #1 (`feat/automatic-discovery`),
 which is open. Checks are green on all fourteen heads (Macroscope skipping by
 policy); merge state CLEAN everywhere. #8 becomes the first candidate once #1
 merges and #8 is retargeted to main.
+
+## Merging #1's sweep (da36ac8) up the group, 2026-09-19
+
+#1's head moved from `d55ce44e` to `da36ac8` (its owner's deslop sweep plus
+`11bca3f`) and #8 went DIRTY. The new head was merged into every owned branch
+and tested at each step; the conflicts were:
+
+- `modal_app.py` (#8, #16): comment hunks where #1's sweep and #8's
+  refund-wording rewrite touched the same lines; resolved to #1's text, #8's
+  code kept.
+- `maintenance.ts` (#8): #1's sweep re-touched the reaper next to a line #8
+  had removed (`a0e8eac` dropped the official-attempt release), leaving a
+  `const eligibleExists` nothing reads and no `exists` import; the line is
+  dropped. Left in, `tsx` threw at runtime and 14 reaper tests failed.
+- Weight routes (#24): #1's `11bca3f` fixed the Hono 4 `c.req.param("*")`
+  bug by switching both routes to `:path{.+}`; #24 fixed the same bug with
+  `weightPathFromRoute`, which reads the raw pathname so `%2F` in a segment is
+  refused rather than decoded into a separator, and which requires the `*`
+  route. The merge keeps #24's handlers and restores the `*` registrations.
+  When #1 lands on main, #24's diff will show that route change reverting; the
+  merge commit `e264e1d` says why.
+- `benchmark-packages.ts` and `platform.md` (#23): #1 reworded text #23 had
+  replaced; resolved to #23's.
+
+Heads after the merge: #8 `c7efcdc`, #13 `f26c3bd`, #15 `12df96f`, #16
+`0ac41e6`, #23 `b85155a`, #26 `6af6a06`, #30 `2a5a837`, #37 `4ed02ed`, #42
+`e4cdfeb`, #19 `c701d34`, #24 `e264e1d`, #27 `7f1e9bc`. Runner suite (Python
+3.8), `pnpm check`, portal and bot tests green locally at every step that
+carries the affected code.
