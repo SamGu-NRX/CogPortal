@@ -192,7 +192,7 @@ Four entries describe work that landed during the drafting pass and may already 
 - **Reproduce:** Run `/cog`, choose "Verify hosted", read the confirmation, and compare the dashboard's practice counter before and after.
 - **Why (from the code):** The earlier confirmation was in `apps/discord-bot/src/commands.ts:514`. Current usage comes from completed executions in `apps/portal/worker/services/run-accounting.ts`.
 - **Severity:** `high`. A confirmation dialog that misstates the cost of the thing it is confirming, on the surface where the student is least able to see the counter.
-- **Status:** The earlier source repair remains unverified in a guild. Recheck its confirmation against the completed-only policy at `a0e8eac`; this documentation correction does not certify Discord presentation.
+- **Status:** The earlier source repair remains unverified in a guild. Recheck its confirmation against the completed-only policy at `a0e8eac`.
 - **Decision needed:** `fix`.
 - **Raised by:** [`cross-cutting/credit-and-quota.md`](cross-cutting/credit-and-quota.md#open-questions-and-verification), [`discord/commands.md`](discord/commands.md#open-questions-and-verification)
 
