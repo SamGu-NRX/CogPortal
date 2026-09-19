@@ -83,13 +83,8 @@ def load_plugin(group: str, name: str, instantiate_classes: bool = True) -> Any:
         installed = plugin_names(group)
         # Two readers, two sentences. A benchmark that is simply not
         # installed is the ordinary case and the student's next step is one
-        # command, so say that and nothing else. `cogworks check` has always
-        # said it plainly ("Nothing was searched for, because X is not
-        # installed here"), and `cogworks run` answered the same situation
-        # with 'Entry-point group "cogworks.benchmarks.v1" has no
-        # "audio-identification" registration (available: none)', which names
-        # a Python packaging concept and no next step. Same cause, and the
-        # worse sentence was the one a student reaches after doing more work.
+        # command, so say that and nothing else rather than naming the
+        # entry-point group.
         #
         # The group and what is installed still matter when something IS
         # installed, because then the likely fault is a name or a version

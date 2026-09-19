@@ -1,6 +1,4 @@
 /**
- * A person, at the size the row around them needs.
- *
  * The fallback is the first letter in a bordered box rather than a generated
  * shape or color, because a color assigned to a person is a label the portal
  * did not earn and cannot explain.

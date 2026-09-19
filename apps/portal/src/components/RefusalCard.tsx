@@ -81,7 +81,6 @@ export function stageFromHeadline(headline: string): string | null {
   return /the (\S+) step/.exec(headline)?.[1] ?? null;
 }
 
-/** The exception class in ink, the rest of the line as it was reported. */
 function Raised({ message }: { message: string }) {
   const cls = errorClass(message);
   if (!cls) return <>{message}</>;

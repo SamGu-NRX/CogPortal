@@ -3,8 +3,7 @@
 Delivery already retries three times inside `_post_event`. When those are
 exhausted the completed event existed only in the local frame of `execute_job`,
 so a run that had really scored became unrecoverable: the portal never heard,
-the stale sweep eventually failed it, and in official mode that spent an
-attempt against a result that existed.
+and the stale sweep eventually failed it.
 
 Storing the result is half of it. The other half is something that tries
 again, and that is Modal's own retry policy on `execute_job` rather than a

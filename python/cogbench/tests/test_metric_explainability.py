@@ -20,15 +20,9 @@ import sys
 import unittest
 from pathlib import Path
 
-# Its own path, rather than whichever sibling ran first.
-#
-# This file had no sys.path line and passed anyway, because `test_cli.py` and
-# two others insert the source directory and unittest discovers them in
-# alphabetical order. Run alone it raised ModuleNotFoundError in setUp, which
-# unittest counts as an error rather than a failure, so `pytest
-# test_metric_explainability.py` reported five errors while the full suite
-# reported OK. A test that only runs when a neighbour runs first is a test
-# nobody can check.
+# Its own path, rather than whichever sibling ran first. Without this line the
+# file passed only under full discovery, because alphabetically earlier tests
+# insert the source directory, and raised ModuleNotFoundError run alone.
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "python" / "cogbench" / "src"))
 
