@@ -21,7 +21,6 @@ BENCHMARK = ROOT / "benchmarks" / "week3"
 #
 # No version in PLUGIN_EXPECTATIONS moves: a complete grid scores identically,
 # so this is not a scorer bump and needs no migration.
-# Count original cases before dictionaries can hide repeated verbatim/search rungs.
 REVIEWED_COMMIT = "1004766b66a4405ceda1a1b014a0438098a6570e"
 
 PLUGIN_EXPECTATIONS = {
