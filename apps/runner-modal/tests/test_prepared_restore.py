@@ -86,6 +86,59 @@ class Reporter:
         return {"type": kind, "runId": self.job["runId"], **values}
 
 
+class LazyImage:
+    """A `modal.Image.from_name` reference, which carries no id until resolved.
+
+    Two behaviors of modal 1.5.5 matter to `_prepare` and both are modeled
+    here. `Image.hydrate()` is overridden to refuse on-demand resolution
+    (modal/_image.py:3050), and an unhydrated image is instead resolved inside
+    `Sandbox.create`, which loads it through the resolver and hydrates this
+    same object in place (modal/sandbox.py:479). The earlier fake handed out
+    `object_id` immediately and accepted any `hydrate()` call, so a premature
+    hydrate passed here while failing every hosted preparation.
+    """
+
+    #: The message modal raises, as ExecutionError. `_prepare` only ever sees
+    #: it through `except Exception`, so the class is not what is under test.
+    REFUSAL = (
+        "Images cannot currently be hydrated on demand; you can build an "
+        "Image by running an App that uses it."
+    )
+
+    def __init__(self, events):
+        self._events = events
+        self._id = None
+
+    def hydrate(self):
+        raise RuntimeError(self.REFUSAL)
+
+    def resolve(self):
+        self._events.append("resolve-image")
+        self._id = "im-base"
+
+    @property
+    def object_id(self):
+        if self._id is None:
+            raise AttributeError("Attempting to get object_id of unhydrated Image")
+        return self._id
+
+
+def shape_valid_observation():
+    """An observation good enough for binding, with nothing installed.
+
+    The tests that need the probe's real output call `probe`, which needs the
+    track's packages and so runs in one CI lane. Image resolution timing does
+    not depend on what the probe found, so the test below uses this instead
+    and runs in every lane.
+    """
+    return {
+        "sandboxContract": 1,
+        "pythonVersion": "3.11.9",
+        "sdkVersion": "0.2.0",
+        "modules": [{"name": "cogbench", "path": "/opt/cogbench/__init__.py", "sha256": "0" * 64}],
+    }
+
+
 class RestoreDependencyGate(unittest.TestCase):
     def test_available_dependency_does_not_hide_a_probe_contract_defect(self):
         with mock.patch(__name__ + ".require_benchmark"):
@@ -103,7 +156,10 @@ class PreparedRestore(unittest.TestCase):
 
     def prepare_space(self, observation, fail_probe=False):
         events = []
-        image = types.SimpleNamespace(object_id="im-base", hydrate=lambda: events.append("hydrate"))
+
+        def select_image(job):
+            events.append("select-image")
+            return LazyImage(events)
 
         class Files:
             def write_text(self, text, path):
@@ -128,10 +184,14 @@ class PreparedRestore(unittest.TestCase):
             def terminate(self):
                 events.append("terminate")
 
+        def create(**kwargs):
+            kwargs["image"].resolve()
+            return Sandbox()
+
         space = functions(
             "RunnerFailure", "_prepare",
-            modal=types.SimpleNamespace(Sandbox=types.SimpleNamespace(create=lambda **kwargs: Sandbox())),
-            app=object(), _sandbox_image=lambda job: image, _student_python=lambda job: sys.executable,
+            modal=types.SimpleNamespace(Sandbox=types.SimpleNamespace(create=create)),
+            app=object(), _sandbox_image=select_image, _student_python=lambda job: sys.executable,
             PREPARE_SCRIPT="student installation", StatusHeartbeat=lambda *args: contextlib.nullcontext(),
             LiveReporter=Reporter,
         )
@@ -140,11 +200,26 @@ class PreparedRestore(unittest.TestCase):
     def test_pristine_probe_precedes_any_student_files_or_installation(self):
         space, events = self.prepare_space(self.observation())
         snapshot, evidence = space["_prepare"](job(), Reporter(job()))
-        self.assertEqual(events, ["hydrate", "probe", "write-prepare", "student-install", "snapshot", "terminate"])
+        self.assertEqual(
+            events,
+            ["select-image", "resolve-image", "probe", "write-prepare", "student-install", "snapshot", "terminate"],
+        )
         self.assertEqual(evidence["artifactId"], snapshot)
         self.assertEqual(evidence["baseImageId"], "im-base")
         self.assertTrue(all(Path(module["path"]).is_file() for module in evidence["modules"]))
         self.assertEqual(evidence["source"], {key: job()["source"][key] for key in ("repositoryId", "fullName", "sha")})
+
+    def test_base_image_id_comes_from_the_image_sandbox_creation_resolved(self):
+        """`Sandbox.create` is what turns the published name into an id, so
+        the id has to be read after it returns. The earlier code called
+        `Image.hydrate()` beforehand, which modal 1.5.5 refuses the way this
+        image does, and every hosted run failed in the preparing phase."""
+        space, events = self.prepare_space(shape_valid_observation())
+        _, evidence = space["_prepare"](job(), Reporter(job()))
+        self.assertEqual(events.count("select-image"), 1)
+        self.assertLess(events.index("select-image"), events.index("resolve-image"))
+        self.assertLess(events.index("resolve-image"), events.index("probe"))
+        self.assertEqual(evidence["baseImageId"], "im-base")
 
     def test_bad_pristine_probe_never_installs_or_snapshots(self):
         for observed, fail in (({}, False), (self.observation(), True)):
