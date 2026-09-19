@@ -17,9 +17,6 @@ import {
 import { useTrack } from "@/lib/track";
 
 /**
- * Slim dashboard reminder that the setup guide keeps your place. Disappears
- * on completion, or for good when dismissed.
- *
  * It counts the setup page's own command sheet rather than a second measure of
  * its own. The two used to disagree (this said "2 of 6 steps done" against the
  * page's "0 of 6 verified") because this counted milestones a student never

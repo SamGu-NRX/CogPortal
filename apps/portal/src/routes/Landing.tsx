@@ -7,9 +7,6 @@ import { useSession } from "@/lib/queries";
 import { pendingConnectionReturn } from "@/lib/pending-return";
 
 /**
- * The front door, for someone who has been sent a link and does not yet know
- * what this is.
- *
  * It cannot carry the setup commands: those need a clone URL and a track, and
  * a signed-out page has neither, so a student who followed them literally
  * reached "cogworks: command not found". The commands live on /setup, which
