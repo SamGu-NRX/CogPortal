@@ -956,7 +956,11 @@ test("dashboard API and rendered candidate agree with detail for unknown, change
     assert.ok(row);
     const detail = await serializeRunDetail(db, row, actor.team);
     assert.equal(dashboard.latestCandidate?.id, PRACTICE_RUN_ID);
-    assert.equal(dashboard.latestCandidate?.sourceRefusal, detail.sourceRefusal);
+    // Each panel's own call to action, stated independently: the dashboard
+    // only offers promotion, and the run detail shares one sentence with
+    // PUBLISH. Compared in full so a changed clause cannot pass unnoticed.
+    assert.equal(dashboard.latestCandidate?.sourceRefusal, runSourceRefusal(actor.team, row, "promote it"));
+    assert.equal(detail.sourceRefusal, runSourceRefusal(actor.team, row, "act on it"));
     assert.equal(dashboard.latestCandidate?.repo?.fullName, "some-org/the-repository-it-ran-from");
     const html = renderDashboard(dashboard);
     if (repositoryId === FIXTURE_REPO.repositoryId) {
@@ -967,7 +971,10 @@ test("dashboard API and rendered candidate agree with detail for unknown, change
     } else {
       assert.match(html, /Previous result/);
       assert.ok(detail.sourceRefusal);
-      assert.ok(html.includes(detail.sourceRefusal));
+      // The panel renders its own sentence, which ends in "promote it".
+      assert.ok(dashboard.latestCandidate?.sourceRefusal);
+      assert.ok(html.includes(dashboard.latestCandidate.sourceRefusal));
+      assert.match(dashboard.latestCandidate.sourceRefusal, /to promote it\.$/);
       assert.doesNotMatch(html, /Promote to official/);
       assert.doesNotMatch(html, /Candidate ready/);
     }
