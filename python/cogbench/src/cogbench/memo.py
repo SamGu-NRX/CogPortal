@@ -31,6 +31,8 @@ from typing import Any, Dict, List, Optional, Sequence, Set
 from .pipeline import _under_clock
 from .storage import _checkout_path, _replace_text, workspace_dir
 
+from .execution import ExecutionPaths
+
 __all__ = ["fingerprint", "read", "write", "cache_path"]
 
 #: Bumped when a change would make an old entry wrong: a different search
@@ -107,13 +109,22 @@ def _inputs(digest: Any, value: Any, active: Set[int]) -> None:
         raise ValueError("unsupported memo input type")
 
 
-def fingerprint(paths: Sequence[Path], *, benchmark: str, inputs: Any = None) -> str:
+def fingerprint(
+    paths: Sequence[Path],
+    *,
+    benchmark: str,
+    inputs: Any = None,
+    project: Optional[ExecutionPaths] = None,
+) -> str:
     """Hash file paths, their bytes, and explicitly represented search inputs.
 
     Contents, not modification times: checkouts and branch switches rewrite
     timestamps without changing code. Paths are sorted; input dicts are not.
     Unsupported inputs or unreadable files return an empty key so the caller
     can skip the optional memo. Omitting inputs is equivalent to passing None.
+
+    With an execution copy, paths are hashed under their original names: a
+    fresh temporary directory per run would otherwise miss every entry.
     """
 
     try:
@@ -124,7 +135,8 @@ def fingerprint(paths: Sequence[Path], *, benchmark: str, inputs: Any = None) ->
         for path in sorted(Path(p) for p in paths):
             if not path.is_file():
                 return ""
-            _field(digest, b"p", str(path).encode("utf-8", "surrogatepass"))
+            name = path if project is None else project.source_path(path)
+            _field(digest, b"p", str(name).encode("utf-8", "surrogatepass"))
             contents = hashlib.sha256()
             # Resource/model files can be large; never allocate the whole file.
             with path.open("rb") as stream:

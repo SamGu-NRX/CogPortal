@@ -112,6 +112,9 @@ class Outcome:
 
     def diagnostics(self) -> dict:
         """Configured budgets and observed outcome, not proof rlimits took."""
+        # Exec pays plugin-import CPU inside RLIMIT_CPU; fork inherited those
+        # imports for free. Heavy imports leave less CPU for a native fit.
+        # Check also loads the plugin in the parent for benchmarkLoadable.
         return {
             "status": self.status, "detail": self.detail, "signal": self.signal,
             "alarmFired": self.alarm_fired, "readReason": self.read_reason,
@@ -331,6 +334,7 @@ def _child(
     student code that registered one of those would run it here.
     """
 
+    owner_pid = os.getpid()
     exit_code = 0
     try:
         os.setsid()
@@ -356,6 +360,10 @@ def _child(
                 "status": RAISED,
                 "detail": "{}: {}".format(type(error).__name__, str(error)[:300]),
             }).encode("utf-8")
+        # An ordinary fork inside work inherits this stack and pipe. Only the
+        # direct child may publish when those inherited calls return or raise.
+        if os.getpid() != owner_pid:
+            os._exit(0)
         # Publish completion only after serialization and stream flushing.
         # Serialization may itself print. Fatal signals and asynchronous writers can
         # still lose output; a completed payload no longer races this flush.
@@ -487,7 +495,7 @@ def _read_payload(
         if status == COMPLETED:
             _json_value(record["value"])
         return Outcome(status, value=record.get("value"), detail=record["detail"])
-    except _Alarm:
+    except (_Alarm, MemoryError):
         raise
     except BaseException as error:
         raise _PayloadError("invalid_outcome") from error
@@ -569,6 +577,7 @@ def run_isolated(
     timeout_seconds: Optional[int] = DEFAULT_TIMEOUT_SECONDS,
     memory_bytes: Optional[int] = DEFAULT_MEMORY_BYTES,
     scratch: Optional[Path] = None,
+    on_poll: Optional[Callable[[], None]] = None,
 ) -> Outcome:
     """Run ``work`` in a child process and report what became of it.
 
@@ -624,7 +633,7 @@ def run_isolated(
             raise AssertionError("unreachable")
 
         os.close(write_fd)
-        return _collect(pid, read_fd, timeout_seconds, memory_bytes)
+        return _collect(pid, read_fd, timeout_seconds, memory_bytes, on_poll)
 
 
 def run_operation(
@@ -632,40 +641,49 @@ def run_operation(
     timeout_seconds: Optional[int] = DEFAULT_TIMEOUT_SECONDS,
     memory_bytes: Optional[int] = DEFAULT_MEMORY_BYTES,
     scratch: Optional[Path] = None,
+    on_poll: Optional[Callable[[], None]] = None,
+    pass_fds: tuple = (),
 ) -> Outcome:
     """Reconstruct one SDK operation after exec, without carrying live objects.
 
     macOS high-level APIs cannot safely run in a raw fork of the CLI. Popen
-    uses no Python preexec callback; limits are installed in the interpreter
-    before importing the operation owner or any student module.
+    uses no Python preexec callback. Limits precede SDK operation dispatch,
+    but Python's environment-owned site hooks have already run.
     """
     import json
     import subprocess
 
-    if operation not in ("check", "run", "survey"):
+    if operation not in ("check", "run", "survey", "live_identity"):
         raise ValueError("unknown isolated SDK operation: {!r}".format(operation))
     with tempfile.TemporaryDirectory(prefix="cogworks-discovery-") as temporary:
         workspace = Path(scratch).resolve() if scratch else Path(temporary)
         request = Path(temporary) / "operation.json"
-        request.write_text(json.dumps({"operation": operation, "arguments": arguments,
-                                      "memory": memory_bytes, "timeout": timeout_seconds,
-                                      "workspace": str(workspace)}),
-                           encoding="utf-8")
-        read_fd, write_fd = os.pipe()
         environment = dict(os.environ, PYTHONHASHSEED="0")
-        # Site processing precedes our bootstrap. Keep student paths out of
-        # its search path so their sitecustomize cannot run before limits.
-        # Environment-owned .pth files remain trusted setup; disabling site
-        # would also disable the editable installs used by the course.
+        # Environment-owned .pth/sitecustomize hooks still run before limits.
+        # Exclude both project paths from the explicit startup search path;
+        # this is not a guarantee about code those environment hooks import.
         repository = Path(arguments["repository"]).resolve()
+        original = Path(arguments.get("original", repository)).resolve()
+        from .execution import ExecutionPaths
+        project = ExecutionPaths(repository, original)
         startup_paths = [str(Path(__file__).resolve().parent.parent)]
+        project_paths = []
         for entry in sys.path:
-            if not entry:
-                continue
-            path = Path(entry).resolve()
-            if path != repository and repository not in path.parents:
+            path = Path(entry or os.getcwd()).resolve()
+            if project.environment_path(path):
+                startup_paths.append(str(path))
+            elif path == original or original in path.parents:
+                project_paths.append(str(repository / path.relative_to(original)))
+            elif path == repository or repository in path.parents:
+                project_paths.append(str(path))
+            elif entry:
                 startup_paths.append(str(path))
         environment["PYTHONPATH"] = os.pathsep.join(startup_paths)
+        request.write_text(json.dumps({"operation": operation, "arguments": arguments,
+                                      "memory": memory_bytes, "timeout": timeout_seconds,
+                                      "workspace": str(workspace), "project_paths": project_paths}),
+                           encoding="utf-8")
+        read_fd, write_fd = os.pipe()
         _flush_streams()
         try:
             process = subprocess.Popen(
@@ -674,7 +692,7 @@ def run_operation(
                 # Bootstrap outside the repository: a student json.py must
                 # not be imported before the child installs its limits.
                 cwd=temporary, env=environment, stdin=subprocess.DEVNULL,
-                pass_fds=(write_fd,), start_new_session=True,
+                pass_fds=(write_fd,) + pass_fds, start_new_session=True,
             )
         except BaseException:
             os.close(read_fd)
@@ -682,7 +700,7 @@ def run_operation(
         finally:
             os.close(write_fd)
         try:
-            return _collect(process.pid, read_fd, timeout_seconds, memory_bytes)
+            return _collect(process.pid, read_fd, timeout_seconds, memory_bytes, on_poll)
         finally:
             # _collect owns waitpid and process-group cleanup, including SIGINT.
             process.wait()
@@ -696,16 +714,28 @@ def _operation_child() -> None:
     arguments = request["arguments"]
 
     def work():
-        # _child has installed limits before invoking this function. Student
-        # imports can now use their root without exposing it to site startup.
-        sys.path.insert(0, str(Path(arguments["repository"]).resolve()))
+        # _child applied limits before this dispatch. Python's environment
+        # hooks ran earlier; this is where SDK-directed student imports begin.
+        from .execution import ExecutionPaths
+        project = ExecutionPaths(
+            Path(arguments["repository"]), Path(arguments.get("original", arguments["repository"]))
+        )
+        if operation == "live_identity":
+            from .cli import _live_identity
+            return _live_identity(arguments["name"], project.original)
+        # Restore project-local import directories only after startup and limits.
+        sys.path[:0] = [str(project.execution)] + request["project_paths"]
         if operation == "check":
             from .cli import _check_view
-            return _check_view(arguments["name"], Path(arguments["repository"]), arguments["as_json"])
+            return _check_view(arguments["name"], project.execution, arguments["as_json"], project=project)
         if operation == "run":
             import argparse
-            from .cli import _run_view
-            return _run_view(argparse.Namespace(**arguments["args"]), Path(arguments["repository"]))
+            from functools import partial
+            from .cli import _run_view, _send_progress
+            progress_fd = arguments.get("progress_fd")
+            progress = partial(_send_progress, progress_fd) if progress_fd is not None else None
+            return _run_view(argparse.Namespace(**arguments["args"]), project.execution,
+                             project=project, progress=progress)
         if operation == "survey":
             from .discover import _survey_work
             return _survey_work(Path(arguments["repository"]), arguments["declared_root"],
@@ -716,7 +746,7 @@ def _operation_child() -> None:
            request["memory"], request["timeout"])
 
 
-def _collect(pid, read_fd, timeout_seconds, memory_bytes) -> Outcome:
+def _collect(pid, read_fd, timeout_seconds, memory_bytes, on_poll=None) -> Outcome:
     """Wait for the child and describe what became of it.
 
     One monotonic deadline, held by this thread and checked where the work
@@ -753,6 +783,10 @@ def _collect(pid, read_fd, timeout_seconds, memory_bytes) -> Outcome:
 
     def exited():
         nonlocal status, reaped, harvested
+        # Parent-side observation begins after fork/exec, so live delivery can
+        # start threads without leaving their locks in the child's fork state.
+        if on_poll is not None:
+            on_poll()
         if not reaped:
             while True:
                 try:
@@ -770,6 +804,8 @@ def _collect(pid, read_fd, timeout_seconds, memory_bytes) -> Outcome:
                 outcome = _read_payload(read_fd, exited, deadline)
             except _PayloadError as error:
                 reason = str(error)
+            except MemoryError:
+                reason = "payload_allocation_failed"
             except OSError as error:
                 reason = "read_error: {}".format(error)
             if not reaped and (outcome is not None or reason in ("eof", "truncated_header", "truncated_body")):
@@ -813,7 +849,7 @@ def _collect(pid, read_fd, timeout_seconds, memory_bytes) -> Outcome:
         finally:
             _terminate(pid, reaped=harvested)
             if not reaped:
-                final_status = _reap_exact(pid)
+                final_status = _reap(pid)[1]
                 # Waited on, so the number is no longer ours to signal.
                 # `reaped` stays False: this death is one we caused, and it is
                 # not evidence that a payload the child published can be
@@ -831,6 +867,20 @@ def _collect(pid, read_fd, timeout_seconds, memory_bytes) -> Outcome:
     # forged success. For `check` the forged value can have the right shape, so
     # `--update-setup` would record setup evidence for a run we killed. The
     # payload is a claim; the exit is the evidence for it.
+    # And an exit the parent saw fail is evidence against it. `_terminate`
+    # always fires, so a cleanup SIGKILL is ours and is not counted here;
+    # `status` at this point is the child's own exit, because the cleanup path
+    # above discards a SIGKILL it cannot attribute.
+    if outcome is not None and reaped and status is not None and not fired:
+        if os.WIFSIGNALED(status):
+            died = "signal_{}".format(os.WTERMSIG(status))
+        elif os.WIFEXITED(status) and os.WEXITSTATUS(status) != 0:
+            died = "exit_{}".format(os.WEXITSTATUS(status))
+        else:
+            died = ""
+        if died:
+            outcome = None
+            reason = "result_published_then_" + died
     if outcome is not None and (fired or not reaped):
         outcome = None
         reason = reason or ("alarm" if fired else "killed_before_exit")
@@ -886,6 +936,10 @@ def _terminate(pid: int, reaped: bool = False) -> None:
             os.kill(target, sig)
         except OSError:
             continue
+
+
+def _reap(pid: int):
+    return pid, _reap_exact(pid)
 
 
 def _reap_bounded(pid: int, seconds: float):
