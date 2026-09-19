@@ -202,9 +202,7 @@ export function registerConnectionRoutes(app: Hono<AppEnv>): void {
         .limit(1);
       const stillLinkable = existing?.consumedAt != null || (existing?.expiresAt ?? 0) > now;
       if (existing?.approvedAt && existing.userId === auth.user.id && stillLinkable) {
-        // This user already approved this code and the CLI either finished
-        // linking or still can; a reload re-offering the form is the only way
-        // here. An approved code the CLI never consumed before expiry falls
+        // An approved code the CLI never consumed before expiry falls
         // through to the refusal, because "the terminal will finish linking"
         // would be false.
         return c.json({ ok: true }, 200);

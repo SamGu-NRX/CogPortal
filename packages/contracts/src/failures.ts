@@ -61,12 +61,9 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
   adapter_missing: {
     code: "E-ADAPTER",
     title: "Nothing here could be scored",
-    // Written before the platform could find a team's code by running it.
-    // The old copy said "your package installed, but no entry point was
-    // registered" and told them to add one to pyproject.toml, which is
-    // packaging metadata that none of the thirteen 2026 capstones has and
-    // that the platform no longer needs. Sending a team to write it would
-    // cost them an afternoon on the wrong problem.
+    // Says nothing about pyproject.toml entry points: that is packaging
+    // metadata none of the thirteen 2026 capstones has, and the platform no
+    // longer needs it now that it finds a team's code by running it.
     explanation:
       "We look for the functions this week asks for by running the code in your repository. Nothing here did the job end to end, and the reason is below.",
     action:
