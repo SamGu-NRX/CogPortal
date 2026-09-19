@@ -36,7 +36,6 @@
 
   // Staging's trained-file storage. `cogportal-artifacts-dev` is private: no
   // r2.dev public URL, no custom domain, reached only through this binding.
-  // Production has no R2 block until one is separately authorized.
   "r2_buckets": [
     { "binding": "ARTIFACTS", "bucket_name": "cogportal-artifacts-dev" }
   ],
