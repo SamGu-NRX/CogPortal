@@ -335,7 +335,6 @@ class _Scoreable(NamedTuple):
     """
 
     factory: Optional[Callable[..., Any]]
-    #: The scored weight names, always.
     weight_names: List[str]
     #: One receipt per name, or ``None`` when consumption was not established.
     #: Carried beside the names rather than derived from them: in that state
@@ -403,8 +402,6 @@ def _scoreable(name: str, benchmark, project_root: Path, *, as_json: bool, spec=
             None, [], [], None, submission, survey,
             declared_source, declared_detail, declared_error, unavailable,
         )
-    # The receipts, not the names: the report has to carry the digest and the
-    # length that were measured when the bytes were retained.
     captured = submission.weights_captured
     weights = None if captured is None else [dict(item) for item in captured]
     return _Scoreable(

@@ -162,9 +162,6 @@ def render_check(
     hosted_python: Optional[str],
     benchmark_ready: bool,
     repository: Optional[str],
-    #: Whether a Git checkout was found, which is a different question from
-    #: whether it has a GitHub remote. Defaults to False so a caller that does
-    #: not know says the smaller thing rather than claiming a checkout.
     git_checkout: bool = False,
     submission: Optional[SubmissionReport] = None,
     survey: Optional[Dict[str, object]] = None,

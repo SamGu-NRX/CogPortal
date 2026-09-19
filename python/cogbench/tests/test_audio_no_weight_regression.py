@@ -58,7 +58,6 @@ class TheRealAudioReportStillRoundTrips(unittest.TestCase):
     def test_saving_it_again_changes_nothing_a_reader_depends_on(self):
         before = json.loads(self.raw)
         after = json.loads(self.report.to_json())
-        # The one added key is the provenance field, which stays null here.
         self.assertEqual(set(after) - set(before), {"weightsUploaded"})
         self.assertIsNone(after["weightsUploaded"])
         for key in before:
@@ -86,7 +85,6 @@ class SyncingItUploadsNothing(unittest.TestCase):
         self.assertEqual(code, 0, err.getvalue())
         upload.assert_not_called()
         self.assertIn("LOCAL · SELF-REPORTED", out.getvalue())
-        # The eleven metrics and their roles reach the portal unchanged.
         sent = sync.call_args[0][2]
         self.assertEqual(len(sent["metrics"]), 11)
         self.assertEqual(sent["weightsUsed"], [])
