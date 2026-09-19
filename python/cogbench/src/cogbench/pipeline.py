@@ -37,7 +37,9 @@ later stage is reached by feeding it a real upstream result.
 
 from __future__ import annotations
 
+import ast
 import contextlib
+import copy
 import inspect
 import io
 import os
@@ -46,9 +48,12 @@ import re
 import signal
 import sys
 import tempfile
+import textwrap
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, Callable, Dict, FrozenSet, List, Optional, Sequence, Tuple
+from typing import (
+    Any, Callable, Dict, FrozenSet, List, Mapping, Optional, Sequence, Tuple,
+)
 
 from .raised import Raised, message_of, where_it_raised
 
@@ -378,6 +383,86 @@ class _Partial:
     forward: int = 0
 
 
+_MISSING_RECEIVER = object()
+_RUNTIME_SCOPE = object()
+
+
+@dataclass(eq=False)
+class _Receiver:
+    """One construction's owner, even after the chain carries a projection.
+
+    Unscoped sequential replay keeps its owner here. Inside runtime_pool the
+    same handle keys _RUNTIME, so nested runs can restore the outer owner.
+    """
+
+    value: Any = field(default=_MISSING_RECEIVER, compare=False, repr=False)
+
+    def get(self) -> Any:
+        if _RUNTIME_SCOPE in _RUNTIME:
+            return _RUNTIME.get(self, _MISSING_RECEIVER)
+        return self.value
+
+    def put(self, value: Any) -> None:
+        if _RUNTIME_SCOPE in _RUNTIME:
+            _RUNTIME[self] = value
+        else:
+            self.value = value
+
+
+@dataclass(frozen=True)
+class _FitProvenance:
+    """Locate the declaring fixture before fit stages are removed from a role.
+
+    Branch-local stage names can repeat. Replay needs the role path and original
+    index to select the benchmark's pristine input, not the probed fixture.
+    """
+
+    role_path: Tuple[str, ...]
+    stage_index: int
+    export_attribute: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class _Described:
+    """Where a step's code lives, in words rather than as the object itself.
+
+    `_namespace.Project.rebind` finds the same code in a fresh reading by
+    module and qualified name, so this is everything it reads. A binding kept
+    only to be replayed carries this instead of the search's own function or
+    class: those hold the module they came from, and the module holds whatever
+    one of their files parked in a global.
+
+    ``kind`` is how the search reached the code, which decides how a reading
+    reaches it again. A ``"method"`` names the class, and `Candidate.attribute`
+    names the method on it.
+    """
+
+    module: str
+    qualname: str
+    kind: str
+
+    @classmethod
+    def of(cls, candidate: "Candidate") -> "_Described":
+        """Where this candidate's code lives, described or still held."""
+
+        if candidate._described is not None:
+            return candidate._described
+        held = candidate.owner if candidate.owner is not None else candidate.call
+        return cls(
+            module=getattr(held, "__module__", None) or candidate.module,
+            qualname=(
+                getattr(held, "__qualname__", None)
+                or getattr(held, "__name__", None)
+                or ""
+            ),
+            kind=(
+                "method" if candidate.owner is not None
+                else "class" if isinstance(held, type)
+                else "function"
+            ),
+        )
+
+
 @dataclass(frozen=True)
 class Candidate:
     """One callable that might serve one stage."""
@@ -437,6 +522,18 @@ class Candidate:
     plan: Tuple[str, ...] = ()
     #: Extras passed by keyword instead of by position, by parameter name.
     keywords: Tuple[str, ...] = ()
+    #: Arguments this step passes by keyword, as ``(parameter name, slot)``,
+    #: where the slot is one of the same four `plan` uses, ``extra:<name>``
+    #: included.
+    #:
+    #: `plan` places positional arguments only, so a required keyword-only
+    #: parameter could be filled from `keywords` or not at all, and
+    #: `adj_list(paths, *, threshold)` was never called.
+    #:
+    #: Beside it, `keywords` is only a list of extras to pass under their own
+    #: names. Writing the parameter and its slot down separately is what lets
+    #: a keyword argument hold a tuning or the item's own identity.
+    keyword_plan: Tuple[Tuple[str, str], ...] = ()
     #: What the plan's named slots hold. Not compared and not stored: the
     #: values are the benchmark's own resources, sometimes hundreds of
     #: megabytes, and a replay looks them up again by name.
@@ -476,6 +573,9 @@ class Candidate:
     #: holds the fixture. Set by `_resolve_branches` as it carries methods
     #: forward; None for every method used inside its own chain.
     branch: Optional[str] = field(default=None, compare=False)
+    #: Shared only by one constructor extension and its reached methods.
+    #: Runtime ownership is not binding evidence or part of its record.
+    receiver: Optional[_Receiver] = field(default=None, compare=False, repr=False)
 
     #: Which reading of the upstream value this step was called with, when
     #: the search took the value apart before handing it over: None for the
@@ -496,6 +596,22 @@ class Candidate:
     #: difference is a score rather than an error.
     handoff: Optional[str] = None
 
+    #: A lazy runtime mapper receives the original arguments and applies this
+    #: recorded call plan once, after resolving the callable in its namespace.
+    _runtime_call: Optional[Callable[..., Any]] = field(
+        default=None, compare=False, repr=False,
+    )
+
+    #: Present only on selected fits. Module-value fits identify their export
+    #: together with `module`, without inspecting the search-time closure.
+    _fit_provenance: Optional[_FitProvenance] = field(default=None, repr=False)
+
+    #: Present on a step kept only to be replayed, where `call` and `owner`
+    #: have been taken off. See `_Described` and `resolve._replayed`.
+    _described: Optional[_Described] = field(
+        default=None, compare=False, repr=False,
+    )
+
     @property
     def bound(self) -> Callable[..., Any]:
         """The callable, called the way the search called it.
@@ -505,16 +621,20 @@ class Candidate:
         and a chain that had been proved raised on its first call.
         """
 
+        if self._runtime_call is not None:
+            return self._runtime_call
         if (
             self.tuning is None
             and not self.plan
             and not self.keywords
+            and not self.keyword_plan
             and not self.per_item
             and self.element is None
             and not self.self_only
             and self.handoff is None
             and self.attribute is None
             and not self.in_place
+            and self.receiver is None
         ):
             return self.call
         return lambda *args: _invoke(self, args)
@@ -524,6 +644,7 @@ class Candidate:
         plan: Sequence[str],
         supplied: Optional[Dict[str, Any]] = None,
         keywords: Sequence[str] = (),
+        keyword_plan: Sequence[Tuple[str, str]] = (),
     ) -> "Candidate":
         """The same candidate called a different way.
 
@@ -532,6 +653,9 @@ class Candidate:
         carries the note saying so, and building a shape out of it must not
         drop that note: it is the only record that the step the chain ran
         was not one of their functions.
+
+        The call is stated in full each time: a shape that names no keyword
+        arguments has none, rather than inheriting a previous shape's.
         """
 
         merged = dict(self.supplied)
@@ -540,6 +664,7 @@ class Candidate:
             self,
             plan=tuple(plan),
             keywords=tuple(keywords),
+            keyword_plan=tuple((name, slot) for name, slot in keyword_plan),
             supplied=merged,
         )
 
@@ -550,15 +675,16 @@ class Candidate:
 #: than the search fixture's. Measured before this existed: a prepare step
 #: bound with supplied={"image": <fixture rows>} built the scored database
 #: from the fixture's projected descriptors, not the run's.
-_RUNTIME: Dict[str, Any] = {}
+_RUNTIME: Dict[Any, Any] = {}
 
 
 @contextlib.contextmanager
-def runtime_pool(values: Dict[str, Any]):
+def runtime_pool(values: Dict[Any, Any]):
     """Make ``values`` the live side inputs for every step called inside."""
 
     previous = dict(_RUNTIME)
     _RUNTIME.update(values)
+    _RUNTIME[_RUNTIME_SCOPE] = True
     try:
         yield
     finally:
@@ -566,10 +692,74 @@ def runtime_pool(values: Dict[str, Any]):
         _RUNTIME.update(previous)
 
 
+@contextlib.contextmanager
+def _sequential_owners():
+    """Run a block with the ownership a handed-over binding runs under.
+
+    A binding is renewed for the caller with no pool open, so each renewed
+    constructor's object is its receiver's own and the pool a week's adapter
+    opens masks it: what the adapter builds is what its own later calls read.
+    A verifier renews inside the pool `_resolve_chain` holds over the probe's
+    receivers, where those objects are pool entries that the adapter's pool
+    puts back when it exits, so the week's test judged a driver on the search
+    fixture's database rather than on the one it had just built.
+
+    What the pool held is restored on the way out, so the branches still being
+    searched are unaffected.
+    """
+
+    pooled = dict(_RUNTIME)
+    _RUNTIME.clear()
+    try:
+        yield
+    finally:
+        _RUNTIME.clear()
+        _RUNTIME.update(pooled)
+
+
 def _supplied_now(candidate: Candidate, name: str) -> Any:
     if name in _RUNTIME:
         return _RUNTIME[name]
     return candidate.supplied[name]
+
+
+def _slot_value(
+    candidate: Candidate, slot: str, values: List[Any], index: Optional[int]
+) -> Any:
+    """What one named slot of a recorded call holds, right now.
+
+    The one place a slot becomes a value, so a positional argument and a
+    keyword argument of the same kind are filled from the same line. ``values``
+    is consumed in the order the slots ask for it.
+    """
+
+    if slot == "value":
+        if not values:
+            raise TypeError("the plan asks for more values than there are")
+        return values.pop(0)
+    if slot == "tuning":
+        return candidate.tuning
+    if slot == "identity":
+        # This run's items, not the search's. The identity slot holds the
+        # names of the photos the benchmark is passing, and the search bound
+        # it on the fixture's copies; a scored run writes its own and then
+        # reads the answer back by those names. Measured on week 2's Bagel
+        # repository, whose `Whispers(vectors, names, threshold)` stores each
+        # name on its node and whose `sorted_images` returns the groups keyed
+        # by them: replaying the search's names made every group name a photo
+        # this run had never seen, and placing the answer raised instead of
+        # scoring.
+        identities = (
+            _RUNTIME["identity"]
+            if "identity" in _RUNTIME
+            else candidate.supplied.get("identity", ())
+        )
+        return identities[index] if index is not None else list(identities)
+    if slot.startswith("extra:"):
+        return _supplied_now(candidate, slot[len("extra:"):])
+    raise TypeError(  # pragma: no cover - a plan is built here and nowhere else
+        "unknown argument slot {!r}".format(slot)
+    )
 
 
 def _arguments(candidate: Candidate, positional: Sequence[Any], index: Optional[int] = None):
@@ -581,83 +771,69 @@ def _arguments(candidate: Candidate, positional: Sequence[Any], index: Optional[
     builds a graph takes every descriptor and every name.
     """
 
-    if not candidate.plan:
+    if not candidate.plan and not candidate.keyword_plan:
         args = tuple(positional)
         if candidate.tuning is not None:
             args = args + (candidate.tuning,)
         return args, {}
 
     values = list(positional)
-    args: List[Any] = []
-    for slot in candidate.plan:
-        if slot == "value":
-            if not values:
-                raise TypeError("the plan asks for more values than there are")
-            args.append(values.pop(0))
-        elif slot == "tuning":
-            args.append(candidate.tuning)
-        elif slot == "identity":
-            # This run's items, not the search's. The identity slot holds the
-            # names of the photos the benchmark is passing, and the search
-            # bound it on the fixture's copies; a scored run writes its own
-            # and then reads the answer back by those names. Measured on week
-            # 2's Bagel repository, whose `Whispers(vectors, names, threshold)`
-            # stores each name on its node and whose `sorted_images` returns
-            # the groups keyed by them: replaying the search's names made
-            # every group name a photo this run had never seen, and placing
-            # the answer raised instead of scoring.
-            identities = (
-                _RUNTIME["identity"]
-                if "identity" in _RUNTIME
-                else candidate.supplied.get("identity", ())
-            )
-            args.append(identities[index] if index is not None else list(identities))
-        elif slot.startswith("extra:"):
-            args.append(_supplied_now(candidate, slot[len("extra:"):]))
-        else:  # pragma: no cover - a plan is built here and nowhere else
-            raise TypeError("unknown argument slot {!r}".format(slot))
+    args = [_slot_value(candidate, slot, values, index) for slot in candidate.plan]
     keywords = {name: _supplied_now(candidate, name) for name in candidate.keywords}
+    # After the positional slots, so a plan that spends the chain's values
+    # positionally and a plan that spends one of them by keyword read the
+    # arguments in the order they were written down.
+    for name, slot in candidate.keyword_plan:
+        keywords[name] = _slot_value(candidate, slot, values, index)
     return tuple(args), keywords
 
 
 def _rebound(candidate: Candidate, positional: Sequence[Any]) -> Callable[..., Any]:
-    """This step's callable, taken off the object the chain is carrying now.
-
-    A method reached through a constructor stage is stored as the bound
-    method of the object the SEARCH built, out of the search's fixture. A
-    scored run builds that object again from the benchmark's real input, and
-    a step that kept calling the first one answers about the fixture:
-    `Good([1]).read()` bound during the search still returned `[1]` after the
-    constructor was replayed with `[9]`, so a run could report fixture state
-    as the student's answer.
-
-    The chain already carries the new object -- it is what the constructor
-    step just returned and what this step is called with -- so the method is
-    taken off that. Falls back to the stored callable whenever the carried
-    value is not one of these objects, which is every step that is not a
-    method of a constructor stage's instance, so nothing else changes.
-    """
+    """Take the method off its runtime owner, without mistaking query data for it."""
 
     if candidate.attribute is None:
         return candidate.call
-    # The object this run built, in one of two places: carried by the chain
-    # as the value the constructor step just returned, or, for a method
-    # reached from ANOTHER branch, in the runtime pool under that branch's
-    # name. Measured before the second was read: a search branch bound to
-    # `Store([1]).search` from the prepare branch kept answering about
-    # `[1]` after the scored run had built `Store([9])`.
-    holders: List[Any] = []
-    if positional:
-        holders.append(positional[0])
-    if candidate.branch is not None and candidate.branch in _RUNTIME:
-        holders.append(_RUNTIME[candidate.branch])
-    for held in holders:
+
+    def method(held: Any) -> Optional[Callable[..., Any]]:
         if candidate.owner is not None and not isinstance(held, candidate.owner):
-            continue
+            return None
         later = getattr(held, candidate.attribute, None)
-        if callable(later):
+        return later if callable(later) else None
+
+    # A branch may return a projection of the owner's own type. Its populated
+    # construction handle still identifies the owner that ran the earlier methods.
+    if candidate.receiver is not None:
+        held = candidate.receiver.get()
+        if held is not _MISSING_RECEIVER:
+            later = method(held)
+            if later is None:
+                raise TypeError("{} has no valid runtime receiver".format(candidate.label))
+            return later
+    # A named branch can supply an owner when no explicit runtime owner exists.
+    # It still takes precedence over a same-type query for legacy candidates.
+    if candidate.branch is not None and candidate.branch in _RUNTIME:
+        later = method(_RUNTIME[candidate.branch])
+        if later is not None:
+            return later
+    if candidate.receiver is not None:
+        raise RuntimeError(
+            "{} needs its constructor to run before this method".format(candidate.label)
+        )
+    # Legacy candidates have no construction handle. Keep their carried-owner
+    # behavior, including never treating a named branch's query as its owner.
+    if candidate.branch is None and positional:
+        later = method(positional[0])
+        if later is not None:
             return later
     return candidate.call
+
+
+def _publish(candidate: Candidate, result: Any) -> Any:
+    """Remember the actual constructor result, not a reconstructed fixture."""
+
+    if candidate.receiver is not None and isinstance(candidate.call, type):
+        candidate.receiver.put(result)
+    return result
 
 
 def _handed(candidate: Candidate, positional: Sequence[Any]) -> Tuple[Any, ...]:
@@ -712,14 +888,8 @@ def _invoke(candidate: Candidate, positional: Sequence[Any]) -> Any:
 
     positional = _handed(candidate, positional)
     if candidate.self_only:
-        return _carried(candidate, positional, _rebound(candidate, positional)())
-    if candidate.attribute is not None and candidate.branch is not None:
-        # A method of an object another branch built. The object is not in
-        # this chain's arguments, so it is looked up by branch name, and the
-        # arguments go to the method as they are.
-        call = _rebound(candidate, ())
-        args, keywords = _arguments(candidate, positional)
-        return _carried(candidate, positional, call(*args, **keywords))
+        result = _publish(candidate, _rebound(candidate, positional)())
+        return _carried(candidate, positional, result)
     if candidate.per_item:
         if not positional:
             raise TypeError("a per-item step needs the items to run over")
@@ -728,7 +898,8 @@ def _invoke(candidate: Candidate, positional: Sequence[Any]) -> Any:
         produced = []
         for index, item in enumerate(items):
             args, keywords = _arguments(candidate, (item,) + rest, index)
-            produced.append(candidate.call(*args, **keywords))
+            call = _rebound(candidate, (item,) + rest)
+            produced.append(_publish(candidate, call(*args, **keywords)))
         if candidate.in_place and all(row is None for row in produced):
             # Each item was changed where it sat; the items go forward.
             return items
@@ -736,7 +907,10 @@ def _invoke(candidate: Candidate, positional: Sequence[Any]) -> Any:
             return [row[candidate.element] for row in produced]
         return produced
     args, keywords = _arguments(candidate, positional)
-    return _carried(candidate, positional, candidate.call(*args, **keywords))
+    return _carried(
+        candidate, positional,
+        _publish(candidate, _rebound(candidate, positional)(*args, **keywords)),
+    )
 
 
 def _carried(candidate: Candidate, positional: Sequence[Any], result: Any) -> Any:
@@ -843,7 +1017,7 @@ class Refusal:
     #: Anything the search learned about why nothing bound that the stage and
     #: the furthest chain do not say. A refusal names the hand-off that
     #: failed, which is the right headline and is sometimes not the reason:
-    #: see `_folders_of_their_own`, where the reason is a constructor the
+    #: see `_folders_we_could_not_fill`, where the reason is a constructor the
     #: search had to refuse three stages earlier.
     notes: Tuple[str, ...] = ()
     #: The candidates this search called that raised from inside their own
@@ -869,14 +1043,43 @@ def _reaches_outside(value: Any) -> bool:
 
     text = ""
     try:
-        text = inspect.getsource(value)
-    except (OSError, TypeError):
+        # Syntax excludes comments and docstrings but retains executable
+        # expressions inside f-strings, including on Python 3.8.
+        tree = ast.parse(textwrap.dedent(inspect.getsource(value)))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name):
+                text += " " + node.id
+            elif isinstance(node, ast.Call):
+                if isinstance(node.func, ast.Name):
+                    text += " " + node.func.id + "("
+                elif isinstance(node.func, ast.Attribute):
+                    text += " " + node.func.attr + "("
+            elif isinstance(node, ast.Attribute):
+                parts = [node.attr]
+                parent = node.value
+                while isinstance(parent, ast.Attribute):
+                    parts.append(parent.attr)
+                    parent = parent.value
+                if isinstance(parent, ast.Name):
+                    text += " " + ".".join(reversed(parts + [parent.id]))
+    except (OSError, TypeError, SyntaxError):
         pass
     code = getattr(value, "__code__", None)
-    if code is not None:
-        text += " ".join(code.co_names) + " " + " ".join(
-            name for name in getattr(code, "co_consts", ()) if isinstance(name, str)
+    pending = [code] if code is not None else []
+    docstring_flag = getattr(inspect, "CO_HAS_DOCSTRING", None)
+    while pending:
+        block = pending.pop()
+        # Python 3.14 omits the old None slot when a function has no docstring.
+        # Its flag distinguishes documentation from a first live string constant.
+        has_docstring = (
+            bool(block.co_flags & docstring_flag) if docstring_flag is not None
+            else not block.co_name.startswith("<")
         )
+        constants = block.co_consts[1:] if has_docstring else block.co_consts
+        text += " ".join(block.co_names) + " " + " ".join(
+            name for name in constants if isinstance(name, str)
+        )
+        pending.extend(item for item in constants if isinstance(item, type(block)))
     return any(word in text for word in _SIDE_EFFECTING)
 
 
@@ -892,6 +1095,50 @@ def _is_probeable(name: str, value: Any, module_name: str) -> bool:
     return not _reaches_outside(value)
 
 
+def _names_of(container: Any) -> List[str]:
+    """The string attribute names of one module or object, in a stable order.
+
+    ``dir`` runs their own ``__dir__`` when they define one, and a repository
+    that generates its exports can define one that raises. The fallback reads
+    the namespace dictionaries instead, so a bug in one of their files does
+    not stop the repository being enumerated.
+
+    A namespace is keyed by anything hashable, and a key that is not a string
+    makes the result unsortable and is not a name `getattr` can be asked for.
+    Dropping those keeps one ``globals()[7] = ...`` from throwing out every
+    export a module has.
+    """
+
+    try:
+        return sorted(name for name in dir(container) if isinstance(name, str))
+    except BaseException:  # noqa: BLE001 - __dir__ is their code
+        pass
+    names = set()
+    for holder in (container,) + tuple(getattr(type(container), "__mro__", ())):
+        try:
+            keys = list(vars(holder))
+        except BaseException:  # noqa: BLE001 - __dict__ can be their property too
+            continue
+        names.update(key for key in keys if isinstance(key, str))
+    return sorted(names)
+
+
+def _attribute_of(container: Any, name: str) -> Any:
+    """One attribute, or None when reading it is what raises.
+
+    A module-level ``__getattr__`` runs for any name ordinary lookup misses,
+    so a name their ``__dir__`` advertised and their ``__getattr__`` refuses
+    raises out of `getattr`, which its default only catches for
+    AttributeError. One unreadable name is not a reason to stop reading the
+    rest.
+    """
+
+    try:
+        return getattr(container, name, None)
+    except BaseException:  # noqa: BLE001 - __getattr__ is their code
+        return None
+
+
 def callables_in(modules: Sequence[Any]) -> List[Candidate]:
     """Every function a stage could plausibly be, in a stable order.
 
@@ -903,8 +1150,8 @@ def callables_in(modules: Sequence[Any]) -> List[Candidate]:
     found: List[Candidate] = []
     for module in modules:
         module_name = getattr(module, "__name__", "?")
-        for name in sorted(dir(module)):
-            value = getattr(module, name, None)
+        for name in _names_of(module):
+            value = _attribute_of(module, name)
             if _is_probeable(name, value, module_name):
                 found.append(
                     Candidate("{}.{}".format(module_name, name), value, module_name)
@@ -969,8 +1216,8 @@ def instances_in(modules: Sequence[Any]) -> List[Tuple[str, Any]]:
     built: List[Tuple[str, Any]] = []
     for module in modules:
         module_name = getattr(module, "__name__", "?")
-        for name in sorted(dir(module)):
-            value = getattr(module, name, None)
+        for name in _names_of(module):
+            value = _attribute_of(module, name)
             if not isinstance(value, type):
                 continue
             if getattr(value, "__module__", None) != module_name:
@@ -981,6 +1228,8 @@ def instances_in(modules: Sequence[Any]) -> List[Tuple[str, Any]]:
                 signature = inspect.signature(value)
                 signature.bind()
             except (TypeError, ValueError):
+                continue
+            if _reaches_outside(getattr(value, "__init__", None)):
                 continue
             try:
                 built.append(("{}.{}()".format(module_name, name), value()))
@@ -1015,8 +1264,8 @@ def constructors_in(modules: Sequence[Any]) -> List[Candidate]:
     found: List[Candidate] = []
     for module in modules:
         module_name = getattr(module, "__name__", "?")
-        for name in sorted(dir(module)):
-            value = getattr(module, name, None)
+        for name in _names_of(module):
+            value = _attribute_of(module, name)
             if not isinstance(value, type):
                 continue
             if getattr(value, "__module__", None) != module_name:
@@ -1061,8 +1310,8 @@ def folder_readers_in(modules: Sequence[Any]) -> List[Candidate]:
     found: List[Candidate] = []
     for module in modules:
         module_name = getattr(module, "__name__", "?")
-        for name in sorted(dir(module)):
-            value = getattr(module, name, None)
+        for name in _names_of(module):
+            value = _attribute_of(module, name)
             if not isinstance(value, type):
                 continue
             if getattr(value, "__module__", None) != module_name:
@@ -1111,21 +1360,18 @@ def methods_of(
 
     found: List[Candidate] = []
     owner = type(instance)
-    for name in sorted(dir(instance)):
+    for name in _names_of(instance):
         if name.startswith("_") or _named_for_something_else(name):
             continue
         if name not in vars(owner) and not any(name in vars(base) for base in owner.__mro__):
             continue
+        if isinstance(inspect.getattr_static(instance, name, None), property):
+            # Properties compute values; enumerating methods must not run them.
+            continue
         try:
             value = getattr(instance, name, None)
         except BaseException:  # noqa: BLE001 - reading an attribute runs their code
-            # A property is their code, and reading one runs it. Week 2's
-            # Lashika repository has `Profile.average_descriptor`, a property
-            # that averages the descriptors it was built with; on an object
-            # the search constructed out of a cutoff there are none, and
-            # `np.mean(0.3, axis=0)` raises. Enumerating what an object can
-            # do must never end discovery, so an attribute that will not be
-            # read is simply not a candidate.
+            # A custom descriptor can also raise while returning a method.
             continue
         if not callable(value) or isinstance(value, type):
             continue
@@ -1364,7 +1610,9 @@ def _call(
     except (TypeError, ValueError):
         return False, None
     try:
-        result = _under_clock(candidate.call, *args, **keywords)
+        result = _under_clock(
+            lambda: _publish(candidate, _rebound(candidate, positional)(*args, **keywords))
+        )
     except BaseException as error:  # noqa: BLE001 - student code raises anything
         _record_raise(candidate, error)
         return False, None
@@ -1373,12 +1621,6 @@ def _call(
 
 def _under_clock(call: Callable[..., Any], *args: Any, **keywords: Any) -> Any:
     """Call one of their callables muted and under the per-call clock.
-
-    Every place the search runs their code goes through here, so the clock is
-    one implementation rather than one per caller. `resolve._read_further`
-    probes readers without `_call`'s argument planning and needs the same
-    clock; before it had one, a single reader that slept took the search with
-    it, measured at 56 seconds for four calls against this 10-second limit.
 
     Windows has no SIGALRM. There the clock is not enforced and a probe that
     hangs is caught only by the whole-of-discovery wall clock in
@@ -1393,7 +1635,12 @@ def _under_clock(call: Callable[..., Any], *args: Any, **keywords: Any) -> Any:
     # raise as "not a reader of this value" would quietly drop a working one.
     # So it degrades to no clock, which is what a platform without SIGALRM
     # already gets.
+    # SIGALRM has one timer per process. An enclosing probe or caller already
+    # using it owns its timing, even when longer than our default. Replacing
+    # that timer and cancelling ours would silently remove the caller's clock.
     alarm = hasattr(signal, "SIGALRM")
+    if alarm and hasattr(signal, "getitimer"):
+        alarm = signal.getitimer(signal.ITIMER_REAL)[0] == 0
     previous = None
     if alarm:
         try:
@@ -1421,24 +1668,32 @@ def _under_clock(call: Callable[..., Any], *args: Any, **keywords: Any) -> Any:
             signal.signal(signal.SIGALRM, previous)
 
 
+class _DiscardedOutput(io.StringIO):
+    def write(self, text):
+        if self.closed:
+            raise ValueError("I/O operation on closed file")
+        return len(text)
+
+
 @contextlib.contextmanager
 def _muted():
     """Probe without the student's console.
 
     Their functions narrate: one prints every fingerprint it built, which is
     thousands of lines per call and tens of thousands across a search. Their
-    output belongs to their run, not to ours, so probing captures it and
-    throws it away. What a student sees is the report, which says what was
+    output belongs to their run, not to ours, so probing discards it without
+    retaining it in memory. What a student sees is the report, which says what was
     tried and what came back.
     """
 
     saved_out, saved_err = sys.stdout, sys.stderr
-    sys.stdout = io.StringIO()
-    sys.stderr = io.StringIO()
-    try:
-        yield
-    finally:
-        sys.stdout, sys.stderr = saved_out, saved_err
+    # Opening devnull here would be mistaken for a student read by _watching.
+    with _DiscardedOutput() as out, _DiscardedOutput() as err:
+        sys.stdout, sys.stderr = out, err
+        try:
+            yield
+        finally:
+            sys.stdout, sys.stderr = saved_out, saved_err
 
 
 def probe_sources(
@@ -1581,13 +1836,17 @@ def _bind_one(
     resource is not mistaken for a cutoff.
     """
 
+    if isinstance(candidate.call, type):
+        candidate = replace(candidate, receiver=_Receiver())
     if stage.folder:
         found = _from_a_folder(stage, candidate, positional)
         if found is not None:
+            bound, value = found
+            _publish(bound, value)
             return found
     shapes = _shapes(stage, candidate, len(positional), pool, identities)
     for shape in shapes:
-        if "tuning" in shape.plan:
+        if _holds_tuning(shape):
             # This shape reserved a slot for one of the benchmark's values,
             # so calling it before choosing one passes None into a required
             # argument. Their function may well accept None and return
@@ -1659,29 +1918,45 @@ _SCRATCH: Optional["Path"] = None
 #: What one zero-argument constructor read and returned when dry-called
 #: during this search, by constructor and fixture files. Cleared with the
 #: scratch directory, because the answer is about files that live there.
-#: The last entry is the folder of their own the call read instead of ours,
-#: when it read one; see `_folder_of_their_own`.
+#: The last entry is what to say when there was nowhere to hand that call the
+#: benchmark's files; see `_folders_we_could_not_fill`.
 _DRY_CALLS: Dict[
     Tuple[int, Tuple[str, ...]], Tuple[Optional[str], bool, Any, Optional[str]]
 ] = {}
 
-#: The zero-argument constructors that answered out of a folder of their own,
-#: by label, and the folder each one read. A refusal turns these into the one
-#: sentence that says why a repository whose whole pipeline hangs off such a
-#: constructor could not be wired up. Cleared with `_DRY_CALLS`.
-_FOLDER_OF_THEIR_OWN: Dict[str, str] = {}
+#: The zero-argument constructors the benchmark had nowhere to put its files
+#: for, by label, and what was observed about each. A refusal turns these into
+#: the one sentence that says why a repository whose whole pipeline hangs off
+#: such a constructor could not be wired up. Cleared with `_DRY_CALLS`.
+_COULD_NOT_FILL: Dict[str, str] = {}
 
-#: The audit events that mean "this code is reading a directory". `open` is
-#: here because a folder read often ends in one, and its argument is what
-#: names the folder.
-_FOLDER_EVENTS = ("os.listdir", "os.scandir", "glob.glob", "pathlib.Path.glob", "open")
+#: The audit events that mean "this code listed a directory". Each names that
+#: directory in its first argument, `pathlib.Path.glob` included: its first
+#: argument is the path the pattern is walked from.
+#:
+#: One gap, measured on 3.8.20, 3.11.15 and 3.13.12: only the last two raise
+#: `pathlib.Path.glob` at all, and on 3.8 `Path.glob` swallows the failed
+#: `os.scandir` underneath it, so a team who reaches a folder that way is
+#: invisible there until the folder exists. Nothing is inferred to cover it. A
+#: directory guessed where nothing was observed is a folder of the benchmark's
+#: photos written somewhere nobody asked for one.
+_LISTING_EVENTS = ("os.listdir", "os.scandir", "glob.glob", "pathlib.Path.glob")
+
+#: The events watched, the listings plus `open`. A folder read often ends in
+#: one, and the file it opens says which folder it was reading.
+_FOLDER_EVENTS = _LISTING_EVENTS + ("open",)
 
 
 def _audit(event: str, arguments) -> None:  # pragma: no cover - process-wide hook
     if _WATCHED is None or event not in _FOLDER_EVENTS or not arguments:
         return
     try:
-        _WATCHED.append(str(arguments[0]))
+        # The event is kept, not only the path: which of these fired is the
+        # difference between a path that is a directory and one that is a file
+        # inside it, and it is the only evidence of that before the folder
+        # exists. Reading it off the name instead ("a dot means a file")
+        # mistook `my.photos/` for a file and `LICENSE` for a folder.
+        _WATCHED.append((event, str(arguments[0])))
     except Exception:  # noqa: BLE001 - an audit hook must never raise
         pass
 
@@ -1694,7 +1969,7 @@ def _watching():
     if not _HOOK_INSTALLED:
         sys.addaudithook(_audit)
         _HOOK_INSTALLED = True
-    seen: List[str] = []
+    seen: List[Tuple[str, str]] = []
     _WATCHED = seen
     try:
         yield seen
@@ -1714,20 +1989,23 @@ def _from_a_folder(
     photos are the benchmark's own, which is input in exactly the sense the
     week 2 fixture already is when it writes the same photos out as paths.
 
-    Nothing is guessed. The call is made once; if it raises, the audit hook
-    says which directory it was reading; and the files are written under that
-    directory's own name in the scratch working directory, which is the only
-    place this ever writes.
+    Nothing is guessed. The audit hook says which directory the call read, the
+    benchmark's files are written under that directory's name in the scratch
+    working directory, which is the only place this ever writes, and the call
+    is then made again over them.
 
-    Two limits, both deliberate. A call that succeeds while reading a
-    directory outside the scratch one answered about somebody else's data,
-    so it is refused rather than bound: measured on one 2026 repository,
-    `clusterCreator()` resolves `baseImages` from `Path(__file__)` and
-    describes the 34 photos of their own team, and binding that would score
-    their answer about their photos as if it were an answer about ours. And
-    that same shape is not rescued either, because the folder their code
-    computes is inside their checkout and writing there is not something a
-    benchmark may do. Both cases end in a refusal that names the stage.
+    What a binding here claims, and it claims nothing further: their code
+    asked for a directory of that name, this pair's own files were in it
+    before the call that bound, and the stage's own output check passed.
+    Whether what came back was computed from those files is not observable
+    from a list of paths their code touched, and is not asserted anywhere.
+    The week's acceptance test on a fresh reading is what settles it.
+
+    One shape is refused rather than bound: a call that reads a directory the
+    benchmark has nowhere to write, so there is no way to hand it the input at
+    all. Measured on one 2026 repository, `clusterCreator()` resolves
+    `baseImages` from `Path(__file__)` and returns 34 names with none of ours
+    on disk. The refusal names the stage and the path that was read.
     """
 
     if _required_parameters(candidate.call) != []:
@@ -1745,16 +2023,16 @@ def _from_a_folder(
     key = (id(candidate.call), tuple(str(f) for f in files))
     trial = replace(candidate, self_only=True)
     if key in _DRY_CALLS:
-        folder, ok, value, theirs = _DRY_CALLS[key]
+        folder, ok, value, note = _DRY_CALLS[key]
     else:
-        folder, ok, value, theirs = _dry_call_over_a_folder(trial, files)
-        _DRY_CALLS[key] = (folder, ok, value, theirs)
-    if theirs is not None:
+        folder, ok, value, note = _dry_call_over_a_folder(trial, files)
+        _DRY_CALLS[key] = (folder, ok, value, note)
+    if note is not None:
         # Refused just below, and the only place that knows both which
         # constructor it was and what it read. A repository whose pipeline
         # starts here has nothing else to offer, so the refusal that follows
-        # is the one place a team will look; see `_folders_of_their_own`.
-        _FOLDER_OF_THEIR_OWN[candidate.label] = theirs
+        # is the one place a team will look; see `_folders_we_could_not_fill`.
+        _COULD_NOT_FILL[candidate.label] = note
     if folder is None or not ok or value is None:
         return None
     # The stage's own output check is applied per stage and never memoized:
@@ -1772,173 +2050,166 @@ def _from_a_folder(
 def _dry_call_over_a_folder(
     trial: Candidate, files: Sequence[Any]
 ) -> Tuple[Optional[str], bool, Any, Optional[str]]:
-    """Call once, hand over the folder it asked for, and say what it read.
+    """Find the folder this call reads, fill it with these files, call again.
 
-    Returns ``(folder, ok, value, theirs)``: the folder the call read here or
-    was given, what it returned, and the folder of their own it answered out
-    of instead. ``folder`` is None when the call read no folder, read one
-    outside the scratch directory, or asked for one that could not be
-    written; ``theirs`` is set only in the middle case, so that a refusal can
-    say which folder it was. Memoized by the caller because the second call,
-    made after the folder exists, cannot be repeated: replaying only the
-    first half against a folder that now exists reads "nothing was wanted"
-    and refuses a class the first pass had bound.
+    Returns ``(folder, ok, value, note)``: the folder under the scratch
+    directory their code reads, what the second call returned over this pair's
+    own files, and what to say when there was nowhere to hand them over at
+    all. ``folder`` is None when the call read no folder we can fill.
+
+    The first call is an observation and only an observation. It settles which
+    directory their code looks in, and nothing else: a call that succeeds on
+    the first try read a folder some earlier probe in this same scratch
+    directory left behind, holding whatever files that probe was handed. So
+    the folder is refilled with this pair's files and the call repeated either
+    way, and the answer kept is the one made after they were there. Without
+    the refill, one probe's leftovers scored the next probe's input: a
+    two-file answer was retained for a one-file call, and a stage that checks
+    how many results came back then refused a reader that works.
+
+    Memoized by the caller per constructor and per input, because these two
+    calls cannot be replayed separately: their class may remember its first
+    answer, and replaying only the first half against a folder that now exists
+    reads "nothing was wanted".
     """
 
     with _watching() as seen:
         ok, value = _call(trial, ())
-    if ok and value is not None:
-        if _read_elsewhere(seen):
-            return None, ok, value, _folder_of_their_own(seen, trial.call)
-        return _folder_read_here(seen), ok, value, None
-    name = _folder_wanted(seen)
-    if name is None or not _materialize(name, files):
-        return None, False, None, None
+    answered = ok and value is not None
+    # Two answers to the same question, and the call returning is not what
+    # tells them apart. `_folder_read_here` is a fact about the disk and only
+    # has one when the folder was already there, left by an earlier probe in
+    # this same scratch directory. `_folder_wanted` is what the call asked
+    # for, which is all there is when the folder is missing, and a call can be
+    # missing its folder and still return: `glob.glob` over a directory that
+    # does not exist answers with an empty list rather than raising.
+    wanted, unwritable = _folder_wanted(seen)
+    here = _folder_read_here(seen)
+    if here is not None:
+        wanted = [here] + [name for name in wanted if name != here]
+    nothing_to_fill = _nowhere_to_put_them(seen) if answered else unwritable
+    if not wanted:
+        return None, ok, value, nothing_to_fill
+    # Each folder their code asked for, in the order it asked, until one can
+    # be filled. `_write_folder` is what decides that, so `../photos` and an
+    # escaping name are refused there, before anything is written, and a
+    # contained folder asked for later in the same call still wins.
+    filled, refused = None, None
+    for name in wanted:
+        reason = _materialize(name, files)
+        if reason is None:
+            filled = name
+            break
+        if refused is None:
+            refused = "asked for {}, and {}".format(name, reason)
+    if filled is None:
+        return None, False, None, refused or nothing_to_fill
     ok, value = _call(trial, ())
     if not ok or value is None:
         return None, False, None, None
-    return name, ok, value, None
+    return filled, ok, value, None
 
 
-def _folder_of_their_own(seen: Sequence[str], call: Any) -> Optional[str]:
-    """The folder of theirs, beside their own file, that this call listed.
+def _folder_named_by(event: str, read: str) -> Optional[str]:
+    """The directory one observation names, written the way their code wrote it.
 
-    Two filters, and both are what make the sentence a refusal writes out of
-    this true rather than merely plausible.
+    A listing event names its directory outright. `glob.glob` names it in the
+    part of the pattern before the first wildcard, and a wildcard inside a
+    segment (`da*/photos`) leaves that segment naming no directory at all.
+    `open` names a file, so the directory is its parent.
 
-    Only a directory counts. The audit hook records the path of every event
-    it watches and not which event it was, and a call that reads a folder of
-    photos also opens a model's weights and whatever its imports touch. A
-    listing names a directory; every one of those others names a file.
-
-    And only a directory under their own file. `~/.cache/torch/checkpoints`
-    is outside the scratch directory too, and saying their pipeline reads it
-    next to its own file would be false. What is being reported is a folder
-    they shipped, which is the one thing the benchmark cannot hand over and
-    cannot write into.
+    Nothing here touches the disk, because the caller that most needs an
+    answer is looking at a call that failed precisely because the folder was
+    not there. None means this observation named no directory.
     """
 
-    from pathlib import Path as _Path
-
-    if _SCRATCH is None:
-        return None
-    for read in seen:
-        try:
-            where = _Path(str(read)).resolve()
-        except OSError:
-            continue
-        if not where.is_dir():
-            continue
-        try:
-            where.relative_to(_SCRATCH)
-        except ValueError:
-            named = _their_name_for(where, call)
-            if named is not None:
-                return named
-    return None
+    text = str(read)
+    if event == "glob.glob":
+        cut = min((at for at in (text.find("*"), text.find("?")) if at >= 0), default=-1)
+        if cut >= 0:
+            head = text[:cut]
+            text = head if head.endswith(("/", "\\")) else os.path.dirname(head)
+    elif event == "open":
+        text = os.path.dirname(text)
+    text = text.rstrip("/\\")
+    return text or None
 
 
-def _their_name_for(folder: "Path", call: Any) -> Optional[str]:
-    """One folder of theirs, written the way the file that read it wrote it.
-
-    Relative to whichever directory above their file holds it, which for a
-    folder inside their checkout is the path they typed. None when no
-    directory above their file holds it, and the folder's own name when it
-    does but the path there is longer than anything they would have written.
-    """
-
-    from pathlib import Path as _Path
-
-    # A class is a harder thing to place than a function: `inspect.getfile`
-    # reads a class's file out of `sys.modules`, and a module discovery
-    # imported under a name of its own making is not there under the name the
-    # class remembers. Its `__init__` carries the filename in its own code
-    # object, which is the file the class was written in either way.
-    written = call if inspect.isfunction(call) else getattr(call, "__init__", call)
-    try:
-        theirs = _Path(inspect.getfile(written)).resolve().parent
-    except (TypeError, OSError):
-        return None
-    for anchor in (theirs, *theirs.parents):
-        if anchor == anchor.parent:
-            # The filesystem root holds everything, which says nothing.
-            break
-        try:
-            named = _Path(*folder.relative_to(anchor).parts)
-        except ValueError:
-            continue
-        # The first anchor that holds it is the closest one, so this is the
-        # shortest way to say where the folder is. Anything longer is a path
-        # across the machine rather than a name out of their code.
-        return str(named) if len(named.parts) <= 3 else folder.name
-    return None
-
-
-def _folder_read_here(seen: Sequence[str]) -> Optional[str]:
+def _folder_read_here(seen: Sequence[Tuple[str, str]]) -> Optional[str]:
     """The scratch folder this call read, when it read one.
 
-    Named as the top-level directory under the scratch working directory,
-    which is the name `_materialize` writes the benchmark's files under and
-    so the name a run page can put in a sentence.
+    Named by its whole path relative to the scratch working directory, which
+    is the path `_materialize` writes the benchmark's files under and so the
+    one a run page can put in a sentence. A team who reads `data/photos` is
+    handed `data/photos`; naming it `data` wrote the photos one directory
+    above where their own code then looked.
 
-    Returns None when the call touched no folder at all, which is the
-    difference between a pipeline written over a directory and a function
-    that happens to take no arguments.
+    Returns None when the call touched no folder under that directory, which
+    covers both a function that happens to take no arguments and one that
+    answered out of a directory somewhere else on the machine. The second is
+    refused by the caller, because a folder the benchmark cannot write is a
+    folder it cannot hand the input over in.
     """
-
-    from pathlib import Path as _Path
 
     if _SCRATCH is None:
         return None
-    for read in seen:
-        text = str(read)
-        if "*" in text or "?" in text:
-            text = text.split("*", 1)[0].split("?", 1)[0]
-        text = text.rstrip("/\\")
-        if not text:
+    for event, read in seen:
+        named = _folder_named_by(event, read)
+        if named is None:
             continue
-        where = _Path(text)
+        where = Path(named)
         try:
             resolved = (where if where.is_absolute() else _SCRATCH / where).resolve()
         except OSError:
             continue
-        # A listing names the folder; an `open` names a file inside it.
-        folder = resolved if resolved.is_dir() else resolved.parent
+        # This call succeeded, so the folder it read exists and can be asked
+        # what it is rather than inferred from its name.
+        if not resolved.is_dir():
+            continue
         try:
-            inside = folder.relative_to(_SCRATCH)
+            inside = resolved.relative_to(_SCRATCH)
         except ValueError:
             continue
         if not inside.parts:
             continue
-        return inside.parts[0]
+        return inside.as_posix()
     return None
 
 
-def _read_elsewhere(seen: Sequence[str]) -> bool:
-    """Whether this call got its data from outside the scratch directory.
+def _nowhere_to_put_them(seen: Sequence[Tuple[str, str]]) -> Optional[str]:
+    """What a call that read no folder of ours did read, for the refusal.
 
-    A zero-argument reader that succeeded because a folder it owns is full of
-    its own photos has answered a question about its own data. That answer is
-    not about the benchmark's input, however plausible its shape, so it is
-    not a binding.
+    Only a listing counts. A call that reads a folder of photos also opens
+    whatever its imports touch, and reporting one of those as the directory it
+    wanted names a file in site-packages as the reason a repository could not
+    be wired up.
+
+    The path is reported as it was read, with nothing inferred about whose
+    directory it is or what is in it. All that was observed is that their code
+    listed it, that it is not under the directory this search owns, and so
+    that there was nowhere to put the benchmark's files for this call.
     """
 
-    from pathlib import Path as _Path
-
     if _SCRATCH is None:
-        return True
-    for read in seen:
-        try:
-            where = _Path(str(read)).resolve()
-        except OSError:
+        return None
+    for event, read in seen:
+        if event not in _LISTING_EVENTS:
             continue
-        if not where.exists():
+        named = _folder_named_by(event, read)
+        if named is None:
+            continue
+        try:
+            where = Path(named).resolve()
+        except OSError:
             continue
         try:
             where.relative_to(_SCRATCH)
         except ValueError:
-            return True
-    return False
+            return (
+                "listed {}, which is not under the directory this run owns, so "
+                "the benchmark had nowhere to put its files for it".format(where)
+            )
+    return None
 
 
 def _files_in(positional: Sequence[Any]) -> List[Any]:
@@ -1962,63 +2233,177 @@ def _files_in(positional: Sequence[Any]) -> List[Any]:
     return [item for item in candidates if _Path(item).is_file()]
 
 
-def _folder_wanted(seen: Sequence[str]) -> Optional[str]:
-    """The name of a directory the failed call read and did not find here.
+def _folder_wanted(
+    seen: Sequence[Tuple[str, str]]
+) -> Tuple[List[str], Optional[str]]:
+    """The directories a failed call read and did not find here.
 
-    The name only. A path is a location on the machine that wrote it, and the
-    part of it that means anything to us is what the folder is called.
+    Returns ``(names, note)``: every relative folder their code asked for, in
+    the order it asked, and what to say when it asked only for places off this
+    machine's scratch directory.
+
+    Only a listing counts. The folder is not on the disk to be asked what it
+    is, so the event is the whole of the evidence, and reading an `open` as a
+    listing makes a folder out of the config file their constructor failed to
+    find, with the photos going somewhere their code never lists.
+
+    A relative name is one this search may be able to fill, since the call is
+    made from the scratch directory and reads it from there, and it is kept
+    whole: `data/photos` is neither `data` nor `photos`. An absolute path names
+    a place on the machine that ran, so it is reported rather than turned into
+    a folder of the same basename under the scratch directory, where their code
+    would never look and the retry would fail again with nothing said. All the
+    relative ones are handed back because only the caller's write settles which
+    of them this run can fill.
     """
 
-    from pathlib import Path as _Path
-
-    for read in seen:
-        text = str(read)
-        # A glob pattern names its directory in everything before the
-        # wildcard.
-        if "*" in text or "?" in text:
-            text = text.split("*", 1)[0].split("?", 1)[0]
-        name = _Path(text.rstrip("/\\")).name
-        if not name or "." in name:
+    names: List[str] = []
+    unwritable = None
+    for event, read in seen:
+        if event not in _LISTING_EVENTS:
             continue
-        here = _Path.cwd() / name
-        if here.exists() and any(here.iterdir()):
+        named = _folder_named_by(event, read)
+        if named is None:
             continue
-        return name
-    return None
+        if Path(named).is_absolute():
+            if unwritable is None:
+                unwritable = (
+                    "asked for {}, which names a place on the machine that ran "
+                    "rather than a folder this run can write".format(named)
+                )
+            continue
+        # One spelling per directory, the one `_folder_read_here` reports, so
+        # the name a binding records does not depend on which of the two
+        # produced it. Their `os.path.join("data", "photos")` is read as
+        # `data\photos` on Windows and names the same folder as `data/photos`;
+        # where a backslash is an ordinary character in a filename, this
+        # leaves the name alone.
+        wanted = Path(named).as_posix()
+        # A folder some earlier probe in this same scratch directory left
+        # behind, holding that probe's files. Emptying it to make room would
+        # be this call claiming a folder it never asked about.
+        here = Path.cwd() / wanted
+        if here.is_dir() and any(here.iterdir()):
+            continue
+        if wanted not in names:
+            names.append(wanted)
+    return names, unwritable
 
 
-def _materialize(name: str, files: Sequence[Any]) -> bool:
+def _materialize(name: str, files: Sequence[Any]) -> Optional[str]:
     """Write the benchmark's files into a folder of that name, here.
 
+    None means they are there. A string is why they are not, in the words a
+    refusal would use.
+
     Here means the scratch working directory the search already probes from,
-    and nowhere else: the check below refuses any destination that is not
+    and nowhere else: `_write_folder` refuses any destination that is not
     under it, so a repository being read cannot be written to whatever a
     student's code asked for.
     """
 
-    import shutil
-    from pathlib import Path as _Path
-
-    root = _Path.cwd().resolve()
+    root = Path.cwd().resolve()
     # The throwaway directory `_scratch_cwd` made, and nothing else. A
     # comparison against the working directory alone is not enough: a caller
     # that probes a stage without going through the search would then write
     # a folder of photos into whatever directory it happened to be in, which
     # during this change was a checkout of this repository.
     if _SCRATCH is None or root != _SCRATCH:
-        return False
-    folder = (root / name).resolve()
+        return "this search owns no directory to write a folder in"
+    return _write_folder(root, name, files)
+
+
+def _write_folder(root: Any, name: str, files: Sequence[Any]) -> Optional[str]:
+    """Put these files in ``<root>/<name>``, or say why they could not go.
+
+    None means the folder now holds exactly these files and nothing else; a
+    string is the reason, in the words a refusal would use.
+
+    One function for the search, which writes the folder to find out whether
+    their code reads one, and for a scored run, which writes it again with
+    that run's own files. "What is in that folder" has one correct answer, and
+    two implementations of it drifted apart once already.
+
+    Strict about four things, each of them a way the folder could end up
+    holding something other than what this call was handed. All four are
+    settled before anything is removed, so a refused write leaves whatever was
+    there for the last call still standing.
+
+    An escaping or absolute name is refused rather than clamped. The name came
+    out of their code, and a benchmark that quietly rewrites ``../photos`` into
+    a folder of its own choosing has written somewhere nobody asked it to.
+
+    Every source has to be a file on disk. Copying the ones that exist and
+    leaving out the rest would run their code over a smaller batch than the
+    benchmark handed over and score what came back as if it were the whole
+    answer.
+
+    Two sources with the same basename are refused rather than one silently
+    overwriting the other. Their code would see one file where the benchmark
+    handed over two, and count them.
+
+    Sources that already live in the destination are refused too, since
+    emptying it would delete the very files being copied. This checks the
+    paths as given; a directory being rewritten underneath us while this runs
+    is not something it defends against.
+
+    Whatever was there is then removed, so a second call with different files
+    finds this call's input and not the last call's as well.
+    """
+
+    import shutil
+
+    root = Path(root).resolve()
+    if not name or Path(name).is_absolute():
+        return "{!r} is not a folder name this run can write".format(name)
     try:
-        folder.relative_to(root)
-    except ValueError:
-        return False
+        # Resolved rather than merely normalized, so a symlink sitting at that
+        # name is followed here and caught by the check below, instead of
+        # being removed along with whatever it points at.
+        resolved = (root / name).resolve()
+        resolved.relative_to(root)
+    except (OSError, ValueError):
+        return "{!r} is outside the folder this run owns".format(name)
+
+    sources = [Path(source) for source in files]
+    missing = []
+    for source in sources:
+        try:
+            if not source.is_file():
+                missing.append(str(source))
+        except OSError:
+            missing.append(str(source))
+    if missing:
+        return "{} {} not a file on disk".format(
+            ", ".join(sorted(missing)), "is" if len(missing) == 1 else "are"
+        )
+    together: Dict[str, int] = {}
+    for source in sources:
+        together[source.name] = together.get(source.name, 0) + 1
+    repeated = sorted(base for base, count in together.items() if count > 1)
+    if repeated:
+        return (
+            "two of the benchmark's files are both called {}, and a folder "
+            "holds one of each name".format(", ".join(repeated))
+        )
+    for source in sources:
+        try:
+            source.resolve().relative_to(resolved)
+        except (OSError, ValueError):
+            continue
+        return "the benchmark's files are already inside {}".format(name)
+
     try:
-        folder.mkdir(parents=True, exist_ok=True)
-        for source in files:
-            shutil.copyfile(str(source), str(folder / _Path(source).name))
-    except OSError:
-        return False
-    return True
+        if resolved.is_dir():
+            shutil.rmtree(str(resolved))
+        elif resolved.exists():
+            resolved.unlink()
+        resolved.mkdir(parents=True)
+        for source in sources:
+            shutil.copyfile(str(source), str(resolved / source.name))
+    except OSError as error:
+        return "{}/ could not be written: {}".format(name, error)
+    return None
 
 
 def _pick_element(stage: Stage, produced: Sequence[Any]) -> Tuple[Optional[int], Any]:
@@ -2170,6 +2555,88 @@ def _required_parameters(call: Any) -> Optional[List[inspect.Parameter]]:
     ]
 
 
+def _required_keywords(call: Any) -> Optional[List[inspect.Parameter]]:
+    """The keyword-only parameters a call demands, or None if it cannot say.
+
+    Only the ones with no default, for the reason the plain call is tried
+    first everywhere else here: a team who defaulted theirs is calling the
+    same function a shorter way, and the benchmark has nothing to add.
+    """
+
+    try:
+        signature = inspect.signature(call)
+    except (TypeError, ValueError):
+        return None
+    return [
+        parameter
+        for parameter in signature.parameters.values()
+        if parameter.kind is inspect.Parameter.KEYWORD_ONLY
+        and parameter.default is inspect.Parameter.empty
+    ]
+
+
+def _keyword_slots(
+    stage: Stage,
+    candidate: Candidate,
+    pool: Dict[str, Any],
+    identities: Sequence[Any],
+) -> Optional[Tuple[Tuple[str, str], ...]]:
+    """Which slot fills each keyword-only argument this call demands.
+
+    A declared side input first, then the item's own identity where the name
+    asks for one, then the week's tuning for one argument that is neither.
+
+    Order matters because the three overlap. `_asks_for_identity` says yes to
+    `names`, and a week declaring ``extras=("names",)`` has handed over a
+    value under that exact parameter name: what the benchmark named wins over
+    what the search would guess.
+
+    ``None`` when one of them asks for something the benchmark has no slot
+    for. Nothing built here could be called at all, and the plain shape
+    `_shapes` offers first is the honest attempt.
+    """
+
+    required = _required_keywords(candidate.call)
+    if required is None:
+        return None
+    assigned: List[Tuple[str, str]] = []
+    used_tuning = False
+    for parameter in required:
+        if parameter.name in stage.extras and parameter.name in pool:
+            assigned.append((parameter.name, "extra:" + parameter.name))
+        elif stage.identity and identities and _asks_for_identity(parameter.name):
+            assigned.append((parameter.name, "identity"))
+        elif stage.tunings and not used_tuning:
+            assigned.append((parameter.name, "tuning"))
+            used_tuning = True
+        else:
+            return None
+    return tuple(assigned)
+
+
+def _supplied_for(
+    slots: Sequence[Tuple[str, str]], pool: Dict[str, Any], identities: Sequence[Any]
+) -> Dict[str, Any]:
+    """What the named slots of a keyword plan need looked up by name."""
+
+    supplied: Dict[str, Any] = {}
+    for _name, slot in slots:
+        if slot == "identity":
+            supplied["identity"] = tuple(identities)
+        elif slot.startswith("extra:"):
+            extra = slot[len("extra:"):]
+            supplied[extra] = pool[extra]
+    return supplied
+
+
+def _holds_tuning(candidate: Candidate) -> bool:
+    """Whether a shape already reserved a slot for one of the week's tunings."""
+
+    return "tuning" in candidate.plan or any(
+        slot == "tuning" for _name, slot in candidate.keyword_plan
+    )
+
+
 def _shapes(
     stage: Stage,
     candidate: Candidate,
@@ -2182,29 +2649,54 @@ def _shapes(
     The plain call first, always, so a team that defaulted everything is
     unaffected and a week that declares nothing gets exactly the search it
     had. Then the declared side inputs after the value, then before it, then
-    by the names the signature uses. Then, last, the item's identity in any
-    required slot still empty.
+    by the names the signature uses. Then the arguments a signature will only
+    take by keyword. Then, last, the item's identity in any required slot
+    still empty.
     """
 
     shapes: List[Candidate] = [candidate.with_plan(())]
     slots = ["value"] * values
 
+    # Every arrangement of the positional arguments, in the order the search
+    # has always tried them. The first is the values alone, already offered
+    # above as the plain call; it is listed so a keyword argument can be
+    # composed onto it.
+    arrangements: List[Tuple[List[str], Dict[str, Any], List[str]]] = [
+        (list(slots), {}, [])
+    ]
     names = [name for name in stage.extras if name in pool]
     if names:
         supplied = {name: pool[name] for name in names}
         extras = ["extra:" + name for name in names]
-        shapes.append(candidate.with_plan(slots + extras, supplied))
-        shapes.append(candidate.with_plan(extras + slots, supplied))
+        arrangements.append((slots + extras, supplied, []))
+        arrangements.append((extras + slots, supplied, []))
         by_name = [name for name in names if name in _parameter_names(candidate.call)]
         if by_name:
-            shapes.append(
-                candidate.with_plan(
-                    slots, {name: pool[name] for name in by_name}, keywords=by_name
-                )
+            arrangements.append(
+                (list(slots), {name: pool[name] for name in by_name}, by_name)
             )
+    shapes.extend(
+        candidate.with_plan(plan, held, keywords)
+        for plan, held, keywords in arrangements[1:]
+    )
+
+    by_keyword = _keyword_slots(stage, candidate, pool, identities) or ()
+    # Only when a keyword-only argument wants something `keywords` cannot
+    # carry. A keyword-only side input is already covered by the by-name
+    # shape above, and offering the same call twice costs a call per
+    # candidate across the whole search.
+    if any(slot in ("tuning", "identity") for _name, slot in by_keyword):
+        named = _supplied_for(by_keyword, pool, identities)
+        # Onto every arrangement, not only the bare one: a signature that
+        # takes a side input by position and a cutoff by keyword needs one
+        # call filling both, and the two halves offered apart fill neither.
+        for plan, held, keywords in arrangements:
+            merged = dict(held)
+            merged.update(named)
+            shapes.append(candidate.with_plan(plan, merged, keywords, by_keyword))
 
     if stage.identity and identities:
-        shape = _identity_shape(stage, candidate, values, pool, identities)
+        shape = _identity_shape(stage, candidate, values, pool, identities, by_keyword)
         if shape is not None:
             shapes.append(shape)
     return shapes
@@ -2216,6 +2708,7 @@ def _identity_shape(
     values: int,
     pool: Dict[str, Any],
     identities: Sequence[Any],
+    by_keyword: Sequence[Tuple[str, str]] = (),
 ) -> Optional[Candidate]:
     """Fill this call's required slots, offering identity where it is asked for.
 
@@ -2223,6 +2716,10 @@ def _identity_shape(
     argument that wants a name sits in the middle: Bagel's
     `Whispers(vectors, names, threshold)` takes the descriptors, then one
     label per descriptor, then a cutoff.
+
+    ``by_keyword`` is what the same call's keyword-only arguments take,
+    carried through so a signature that splits the two
+    (`Whispers(vectors, names, *, threshold)`) gets one shape filling both.
     """
 
     parameters = _required_parameters(candidate.call)
@@ -2230,8 +2727,9 @@ def _identity_shape(
         return None
     plan: List[str] = ["value"] * values
     supplied: Dict[str, Any] = {"identity": tuple(identities)}
-    used_tuning = False
-    used_identity = False
+    supplied.update(_supplied_for(by_keyword, pool, identities))
+    used_tuning = any(slot == "tuning" for _name, slot in by_keyword)
+    used_identity = any(slot == "identity" for _name, slot in by_keyword)
     for parameter in parameters[values:]:
         if _asks_for_identity(parameter.name):
             plan.append("identity")
@@ -2248,7 +2746,7 @@ def _identity_shape(
         return None
     if not used_identity:
         return None
-    return candidate.with_plan(plan, supplied)
+    return candidate.with_plan(plan, supplied, keyword_plan=by_keyword)
 
 
 def _tuned(candidate: Candidate, tuning: Any) -> Candidate:
@@ -2256,10 +2754,10 @@ def _tuned(candidate: Candidate, tuning: Any) -> Candidate:
 
     A plain call keeps its empty plan, so the tuning lands where it always
     did: appended after the value. A shape that already reserved a slot for
-    one fills that slot instead.
+    one, positional or keyword, fills that slot instead.
     """
 
-    if not candidate.plan or "tuning" in candidate.plan:
+    if _holds_tuning(candidate) or not candidate.plan:
         return replace(candidate, tuning=tuning)
     return replace(candidate, plan=candidate.plan + ("tuning",), tuning=tuning)
 
@@ -2417,6 +2915,7 @@ def resolve_chain(
     fixture: Sequence[Any],
     *,
     verify: Optional[Callable[[Sequence[Candidate]], bool]] = None,
+    verify_binding: Optional[Callable[[Binding], bool]] = None,
     beam: int = BEAM_WIDTH,
     seed: int = 0,
     extras: Optional[Dict[str, Any]] = None,
@@ -2426,42 +2925,71 @@ def resolve_chain(
 
     Search is a beam over real values: probe the first stage with the fixture,
     then extend each surviving partial chain by feeding its actual output
-    forward. ``verify`` is the only thing that can accept a complete chain, and
-    it is expected to run the benchmark's own end-to-end case.
+    forward. The verifier is expected to run the benchmark's own end-to-end
+    case. ``verify`` receives the legacy chain argument; ``verify_binding``
+    instead receives a tentative Binding with its selected fits and evidence.
+    Passing both raises ValueError before any student code runs.
 
     ``extras`` is the benchmark's own resources, by name, for stages that
     declare them. A role made of branches resolves each branch over this same
     pool, and hands ``verify`` a dict of branch name to bound chain rather
-    than one chain.
+    than one chain. A branch ``verify_binding`` call sees all visible branches
+    in binding order, with root fits followed by accepted branch fits and the
+    tentative branch's fits. Its steps, observations, and _value describe that
+    tentative branch; _reach includes methods reached by the selected chains.
 
     Returns the binding, or a refusal naming the furthest point reached.
     """
 
     global _THEIR_ROOT
 
+    if verify is not None and verify_binding is not None:
+        raise ValueError("pass only one of verify and verify_binding")
+
     with _scratch_cwd():
         _THEIR_ROOT = _their_root(modules)
-        if role.branches:
-            return _resolve_branches(
-                role,
-                modules,
-                fixture,
-                verify=verify,
-                beam=beam,
-                seed=seed,
-                extras=extras,
-                identities=identities,
-            )
-        return _resolve_chain(
+        resolve = _resolve_branches if role.branches else _resolve_chain
+        binding, refusal = resolve(
             role,
             modules,
             fixture,
             verify=verify,
+            verify_binding=verify_binding,
+            role_path=(role.name,),
             beam=beam,
             seed=seed,
             extras=extras,
             identities=identities,
         )
+        return _empty_receivers(binding) if binding is not None else None, refusal
+
+
+def _empty_receivers(binding: Binding) -> Binding:
+    """Detach public replay handles from probe owners, preserving their sharing.
+
+    Internal branch searches still need their live associations. Only the public
+    return resets them; _value remains the intentional discovery evidence.
+    """
+
+    receivers: Dict[_Receiver, _Receiver] = {}
+
+    def clone(candidate: Candidate) -> Candidate:
+        if candidate.receiver is None:
+            return candidate
+        if candidate.receiver not in receivers:
+            receivers[candidate.receiver] = _Receiver()
+        return replace(candidate, receiver=receivers[candidate.receiver])
+
+    return replace(
+        binding,
+        steps=tuple(clone(step) for step in binding.steps),
+        fits=tuple((name, clone(step)) for name, step in binding.fits),
+        branches={
+            name: tuple(clone(step) for step in chain)
+            for name, chain in binding.branches.items()
+        },
+        _reach=tuple(clone(step) for step in binding._reach),
+    )
 
 
 @dataclass(frozen=True)
@@ -2477,12 +3005,12 @@ class _Attempt:
     #: Per bound branch, the fixture form its first step bound with and how
     #: many forms it was offered.
     forms: Dict[str, Tuple[Optional[int], int]]
-    #: Branches whose input existed and were searched, bound or not.
-    searched: set
     #: Bound branches in the order they bound.
     order: List[str]
     values: Dict[str, Any]
     branch_fits: Dict[str, List[Tuple[str, Candidate]]]
+    #: Complete reached-method evidence per branch. Search separately keeps only
+    #: the first candidate per label; verification must retain distinct owners.
     carried: Dict[str, List[Candidate]]
 
 
@@ -2492,6 +3020,8 @@ def _resolve_branches(
     fixture: Sequence[Any],
     *,
     verify: Optional[Callable[[Dict[str, Sequence[Candidate]]], bool]] = None,
+    verify_binding: Optional[Callable[[Binding], bool]] = None,
+    role_path: Optional[Tuple[str, ...]] = None,
     beam: int = BEAM_WIDTH,
     seed: int = 0,
     extras: Optional[Dict[str, Any]] = None,
@@ -2523,6 +3053,9 @@ def _resolve_branches(
     answers nothing the benchmark asked for.
     """
 
+    if verify is not None and verify_binding is not None:
+        raise ValueError("pass only one of verify and verify_binding")
+    role_path = (role.name,) if role_path is None else role_path
     pool: Dict[str, Any] = dict(extras or {})
     carried: List[Candidate] = []
     chains: Dict[str, Tuple[Candidate, ...]] = {}
@@ -2531,7 +3064,10 @@ def _resolve_branches(
     # would compute it again per branch and, worse, let two branches bind two
     # different tables.
     candidates = callables_in(modules) + constructors_in(modules)
-    fits, missing = _fits_of(role, candidates, pool, identities, values_in(modules))
+    fits, missing = _fits_of(
+        role, candidates, pool, identities, values_in(modules),
+        role_path=role_path,
+    )
     if missing is not None:
         return None, Refusal(
             role.name,
@@ -2563,6 +3099,12 @@ def _resolve_branches(
         branch_fits: Dict[str, List[Tuple[str, Candidate]]] = {}
         carried_by: Dict[str, List[Candidate]] = {}
         order: List[str] = []
+
+        def carry_for_search(reached: Sequence[Candidate]) -> None:
+            for candidate in reached:
+                if not any(held.label == candidate.label for held in carried_now):
+                    carried_now.append(candidate)
+
         if keep is not None and before is not None:
             for name in keep.order:
                 if name == before:
@@ -2574,11 +3116,10 @@ def _resolve_branches(
                 branch_fits[name] = list(keep.branch_fits[name])
                 fits_now.extend(keep.branch_fits[name])
                 carried_by[name] = list(keep.carried[name])
-                carried_now.extend(keep.carried[name])
+                carry_for_search(keep.carried[name])
                 order.append(name)
         pending = [branch for branch in role.branches if branch.name not in chains_now]
         refusals: Dict[str, Refusal] = {}
-        searched: set = set()
         while pending:
             progressed = False
             waiting: List[Role] = []
@@ -2606,7 +3147,6 @@ def _resolve_branches(
                     )
                     waiting.append(branch)
                     continue
-                searched.add(branch.name)
 
                 # The week's test judges each branch as it binds, with every
                 # branch bound so far beside it, so a chain the test rejects
@@ -2617,23 +3157,39 @@ def _resolve_branches(
                 # loose width check; the test refused it (409-d against
                 # 200-d text) and the role was reported as ran-but-wrong
                 # while their `descriptor_to_embedding` was never asked.
-                def _judge(steps: Sequence[Candidate], _name: str = branch.name) -> bool:
-                    if verify is None:
-                        return True
+                def _judge(tentative: Binding, _name: str = branch.name) -> bool:
                     trial = dict(chains_now)
-                    trial[_name] = tuple(steps)
-                    return bool(verify(trial))
+                    trial[_name] = tentative.steps
+                    if verify_binding is not None:
+                        return bool(verify_binding(replace(
+                            tentative,
+                            role=role.name,
+                            branches=trial,
+                            fits=tuple(fits_now) + tentative.fits,
+                            _reach=tuple(
+                                step for name in order for step in carried_by[name]
+                            ) + tentative._reach,
+                        )))
+                    return verify is None or bool(verify(trial))
 
                 binding, refusal = _resolve_chain(
                     branch,
                     modules,
                     own,
-                    verify=_judge,
+                    verify_binding=_judge,
+                    role_path=role_path + (branch.name,),
                     beam=beam,
                     seed=seed,
                     extras=pool_now,
                     identities=identities,
                     carried=carried_now,
+                    # The verifier receives every resolved branch, including ones
+                    # whose owners this independent branch never calls itself.
+                    verification_context=tuple(
+                        step for chain in chains_now.values() for step in chain
+                    ) + tuple(step for _name, step in fits_now) + tuple(
+                        step for name in order for step in carried_by[name]
+                    ),
                     skip_forms=banned.get(branch.name, frozenset()),
                 )
                 if binding is None:
@@ -2662,13 +3218,9 @@ def _resolve_branches(
                 # What this branch built, handed to the next one: only what
                 # a constructor stage actually produced, and only after the
                 # branch was accepted.
-                mine: List[Candidate] = []
-                for reached in binding._reach:
-                    if not any(held.label == reached.label for held in carried_now):
-                        stamped = replace(reached, branch=branch.name)
-                        carried_now.append(stamped)
-                        mine.append(stamped)
+                mine = [replace(reached, branch=branch.name) for reached in binding._reach]
                 carried_by[branch.name] = mine
+                carry_for_search(mine)
                 order.append(branch.name)
             pending = waiting
             if not progressed:
@@ -2679,7 +3231,6 @@ def _resolve_branches(
             pending,
             refusals,
             forms_now,
-            searched,
             order,
             values_now,
             branch_fits,
@@ -2711,7 +3262,11 @@ def _resolve_branches(
     attempts = 1
     while stack and attempts < _FORM_ATTEMPTS:
         attempt, forced = stack.pop()
-        if not any(branch.name in attempt.searched for branch in attempt.pending):
+        if not attempt.pending:
+            # Every branch bound, so no other set of forms can cover more.
+            # Anything still pending is worth going back for, including a
+            # branch never searched because its input never appeared: that is
+            # the case another form of a bound branch changes.
             continue
         for name in reversed(attempt.order):
             used, total = attempt.forms[name]
@@ -2769,6 +3324,9 @@ def _resolve_branches(
             _stage_names=tuple(best.chains),
             _received=tuple("" for _ in best.chains),
             _returned=tuple("" for _ in best.chains),
+            _reach=tuple(
+                step for name in best.order for step in best.carried[name]
+            ),
         ),
         None,
     )
@@ -2783,7 +3341,7 @@ _UNREADY = object()
 def _fixture_for(
     branch: Role,
     outer: Sequence[Any],
-    pool: Dict[str, Any],
+    pool: Mapping[str, Any],
     chains: Dict[str, Tuple[Candidate, ...]],
 ) -> Any:
     """This branch's own input, made at the moment the branch is resolved.
@@ -2798,6 +3356,11 @@ def _fixture_for(
     Raising is how the week says "not yet". The pool and the chains are
     copies, so a week that reads them cannot change what the search is
     carrying.
+
+    A dict pool gets a shallow copy. Renewal can supply a lazy mapping whose
+    `__copy__` isolates local assignments without reading its values. Using
+    `dict(pool)` instead would request every resource before the fixture runs,
+    including resources it never uses. Values themselves are not copied here.
     """
 
     own = branch.fixture
@@ -2806,7 +3369,7 @@ def _fixture_for(
     if not callable(own):
         return own
     try:
-        made = own(dict(pool), dict(chains))
+        made = own(copy.copy(pool), dict(chains))
     except (KeyError, LookupError):
         # The pool does not hold what this fixture reads yet. That is the
         # "not yet" this function exists for, and the fixpoint comes back.
@@ -2843,10 +3406,10 @@ def values_in(modules: Sequence[Any]) -> List[Tuple[str, str, Any]]:
     found: List[Tuple[str, str, Any]] = []
     for module in modules:
         module_name = getattr(module, "__name__", "?")
-        for name in sorted(dir(module)):
+        for name in _names_of(module):
             if name.startswith("_"):
                 continue
-            value = getattr(module, name, None)
+            value = _attribute_of(module, name)
             if value is None or callable(value) or inspect.ismodule(value):
                 continue
             found.append(("{}.{}".format(module_name, name), module_name, value))
@@ -2859,6 +3422,8 @@ def _fits_of(
     pool: Dict[str, Any],
     identities: Sequence[Any],
     values: Sequence[Tuple[str, str, Any]] = (),
+    *,
+    role_path: Optional[Tuple[str, ...]] = None,
 ) -> Tuple[List[Tuple[str, Candidate]], Optional[str]]:
     """Run this role's fit stages into the pool, or name the one that failed.
 
@@ -2868,7 +3433,8 @@ def _fits_of(
     """
 
     found: List[Tuple[str, Candidate]] = []
-    for stage in role.stages:
+    role_path = (role.name,) if role_path is None else role_path
+    for stage_index, stage in enumerate(role.stages):
         if not stage.fit:
             continue
         hit = _fit(stage, candidates, pool, identities, values)
@@ -2876,7 +3442,10 @@ def _fits_of(
             if stage.optional:
                 continue
             return found, stage.name
-        candidate, value = hit
+        candidate, value, export_attribute = hit
+        candidate = replace(candidate, _fit_provenance=_FitProvenance(
+            role_path, stage_index, export_attribute,
+        ))
         pool[stage.name] = value
         found.append((stage.name, candidate))
     return found, None
@@ -2888,7 +3457,7 @@ def _fit(
     pool: Dict[str, Any],
     identities: Sequence[Any],
     values: Sequence[Tuple[str, str, Any]] = (),
-) -> Optional[Tuple[Candidate, Any]]:
+) -> Optional[Tuple[Candidate, Any, Optional[str]]]:
     """Run the one of their functions that produces this side input.
 
     Probed exactly like a first stage, against this stage's own fixture. It
@@ -2906,7 +3475,8 @@ def _fit(
         stage, candidates, stage.fixture, extras=pool, identities=identities
     )
     if hits:
-        return hits[0]
+        candidate, value = hits[0]
+        return candidate, value, None
     # No function of theirs produces it. A value their module built when it
     # loaded may be the same table (see `values_in`); it is offered only
     # after every function has been tried, so a team with a function is
@@ -2931,6 +3501,7 @@ def _fit(
                 supplied={"value": note},
             ),
             value,
+            label[len(module_name) + 1:],
         )
     return None
 
@@ -3022,12 +3593,17 @@ def _reachable(
     # handoff this step bound with, so rebuilding must not read them again:
     # a constructor bound on `element:1` would take element 1 of its own
     # argument the second time round.
-    plain = replace(candidate, handoff=None)
+    # This rebuild repeats fixture arguments only, not later method mutations.
+    # It must not publish into the chain's runtime receiver.
+    plain = replace(candidate, handoff=None, receiver=None)
 
     def _build() -> Any:
         return _invoke(plain, arguments)
 
-    return tuple(methods_of(candidate.label, value, build=_build))
+    return tuple(
+        replace(method, receiver=candidate.receiver)
+        for method in methods_of(candidate.label, value, build=_build)
+    )
 
 
 @contextlib.contextmanager
@@ -3053,22 +3629,24 @@ def _scratch_cwd():
             _SCRATCH = was
             _THEIR_ROOT = None
             _DRY_CALLS.clear()
-            _FOLDER_OF_THEIR_OWN.clear()
+            _COULD_NOT_FILL.clear()
             _RAISED.clear()
             os.chdir(previous)
 
 
-def _folders_of_their_own() -> Tuple[str, ...]:
-    """Why a constructor that reads a folder of their own could not be used.
+def _folders_we_could_not_fill() -> Tuple[str, ...]:
+    """Why a constructor that reads a folder could not be given one.
 
     A pipeline written over a directory is a shape the search supports: a
-    constructor that takes nothing is handed the benchmark's photos in a
-    folder of the name its code looks for. That only works while the folder
-    it looks for is one the benchmark can write. A constructor that resolves
-    its folder from its own file finds its own photos instead, succeeds, and
-    has answered a question about their data rather than ours, so it is
-    refused; writing the benchmark's photos into their checkout to make it
-    ours is not something a benchmark may do.
+    constructor that takes nothing is handed the benchmark's files in a folder
+    of the name its code looks for. That only works while the folder it looks
+    for is one the benchmark can write, and a constructor that resolves its
+    folder from its own file or from an absolute path reads somewhere a
+    benchmark may not write.
+
+    The observation half of each sentence is written where it is observed, by
+    `_nowhere_to_put_them` and `_folder_wanted`; this adds what to change and
+    sorts them.
 
     The refusal that follows names the hand-off that failed, which for such a
     repository is three stages downstream and true but useless. Measured on
@@ -3081,11 +3659,10 @@ def _folders_of_their_own() -> Tuple[str, ...]:
     """
 
     return tuple(
-        "{}() reads {}/ next to its own file, which holds your photos rather "
-        "than the benchmark's, so it cannot be given the benchmark's photos; "
-        "a constructor that takes the folder path as an argument, or reads it "
-        "relative to the working directory, can.".format(label, folder)
-        for label, folder in sorted(_FOLDER_OF_THEIR_OWN.items())
+        "{}() {}; a constructor that takes the folder path as an argument, or "
+        "reads one relative to the working directory, can be handed "
+        "them.".format(label, note)
+        for label, note in sorted(_COULD_NOT_FILL.items())
     )
 
 
@@ -3095,13 +3672,19 @@ def _resolve_chain(
     fixture: Sequence[Any],
     *,
     verify: Optional[Callable[[Sequence[Candidate]], bool]] = None,
+    verify_binding: Optional[Callable[[Binding], bool]] = None,
     beam: int = BEAM_WIDTH,
     seed: int = 0,
     extras: Optional[Dict[str, Any]] = None,
     identities: Sequence[Any] = (),
     carried: Optional[List[Candidate]] = None,
+    verification_context: Sequence[Candidate] = (),
     skip_forms: FrozenSet[int] = frozenset(),
+    role_path: Optional[Tuple[str, ...]] = None,
 ) -> Resolution:
+    if verify is not None and verify_binding is not None:
+        raise ValueError("pass only one of verify and verify_binding")
+    role_path = (role.name,) if role_path is None else role_path
     random.seed(seed)
     pool: Dict[str, Any] = dict(extras or {})
     candidates = callables_in(modules)
@@ -3124,7 +3707,10 @@ def _resolve_chain(
     # The side inputs their own code computes, once, before anything else
     # runs. Each joins the pool under its stage's name, which is how a later
     # stage asks for it (`Stage.extras`).
-    fits, missing = _fits_of(role, candidates, pool, identities, values_in(modules))
+    fits, missing = _fits_of(
+        role, candidates, pool, identities, values_in(modules),
+        role_path=role_path,
+    )
     if missing is not None:
         return None, Refusal(
             role.name,
@@ -3216,7 +3802,7 @@ def _resolve_chain(
             "nothing accepted the {} the benchmark passes".format(
                 "arguments" if first.arity > 1 else "input"
             ),
-            notes=_folders_of_their_own(),
+            notes=_folders_we_could_not_fill(),
             errors=_raised_in_this_search(),
         )
 
@@ -3475,7 +4061,7 @@ def _resolve_chain(
                     furthest[-1] if furthest else "the last step"
                 ),
                 last_returned=last_returned,
-                notes=_folders_of_their_own(),
+                notes=_folders_we_could_not_fill(),
                 errors=_raised_in_this_search(),
             )
         frontier = nxt
@@ -3522,6 +4108,7 @@ def _resolve_chain(
                 step.label,
                 step.plan,
                 step.keywords,
+                step.keyword_plan,
                 repr(step.tuning),
                 step.form,
                 step.per_item,
@@ -3535,20 +4122,38 @@ def _resolve_chain(
         if key in asked:
             continue
         asked.add(key)
-        if verify is None or verify(partial.chain):
-            return (
-                Binding(
-                    role.name,
-                    partial.chain,
-                    fits=tuple(fits),
-                    _stage_names=partial.stages,
-                    _received=partial.received,
-                    _returned=partial.returned,
-                    _reach=partial.reach,
-                    _value=partial.value,
-                ),
-                None,
-            )
+        tentative = Binding(
+            role.name,
+            partial.chain,
+            fits=tuple(fits),
+            _stage_names=partial.stages,
+            _received=partial.received,
+            _returned=partial.returned,
+            _reach=partial.reach,
+            _value=partial.value,
+        )
+        try:
+            # Verifiers replay constructors on their own cases. Keep those
+            # publications out of the probe owners later branches still need.
+            # Read before entering the scope, which hides unscoped defaults.
+            receivers = {
+                step.receiver: step.receiver.get()
+                for step in (
+                    tuple(verification_context) + tentative.steps + tentative._reach
+                    + tuple(step for _name, step in tentative.fits)
+                )
+                if step.receiver is not None
+            }
+            with runtime_pool(receivers):
+                if verify_binding is not None:
+                    accepted = bool(verify_binding(tentative))
+                else:
+                    accepted = verify is None or bool(verify(partial.chain))
+        except BaseException:
+            # Verification can call student code or inspect its malformed answer.
+            continue
+        if accepted:
+            return tentative, None
 
     return None, Refusal(
         role.name,

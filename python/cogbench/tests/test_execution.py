@@ -281,8 +281,10 @@ class LocalCommands(TinyProject):
                 discovery = record["discovery"]
                 self.assertEqual(discovery["recalled"], expected_recalled)
                 self.assertEqual(discovery["discovery"]["root"], str(self.root))
-                self.assertEqual(discovery["weightsUsed"], [str(self.root / "weights.bin")])
-                self.assertTrue(all(Path(path).is_file() for path in discovery["weightsUsed"]))
+                # Repository-relative, so the name cannot name the copy at all.
+                self.assertEqual(discovery["weightsUsed"], ["weights.bin"])
+                self.assertTrue(all((self.root / path).is_file()
+                                    for path in discovery["weightsUsed"]))
                 self.assertNotIn("cogworks-execution-", json.dumps(record))
                 cached = memo.cache_path(self.root).read_text()
                 self.assertNotIn("cogworks-execution-", cached)

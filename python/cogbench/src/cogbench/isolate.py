@@ -37,6 +37,7 @@ import signal
 import struct
 import sys
 import tempfile
+import threading
 import time
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -417,28 +418,49 @@ class _PayloadError(Exception):
 #: outcome this constant exists to produce.
 MAX_PAYLOAD_BYTES = 8 * 1024 * 1024
 
-#: Bound individual read requests independently of the child's declared size.
-#: JSON decoding and object construction still allocate beyond this buffer.
+#: How much of the body one `os.read` may ask for. Without it a body at the
+#: cap is requested whole, so the parent holds the accumulated bytes and an
+#: equally large read buffer at once. This halves that peak; the cap is what
+#: bounds it at all.
 _READ_CHUNK = 64 * 1024
 
 
-def _read_payload(read_fd: int, exited: Optional[Callable[[], bool]] = None) -> Outcome:
+def _read_payload(
+    read_fd: int,
+    exited: Optional[Callable[[], bool]] = None,
+    deadline: Optional[float] = None,
+) -> Outcome:
     child_exited = False
 
     def read(size):
         nonlocal child_exited
-        if exited is not None:
-            # Polling avoids a busy wait, without imposing a work deadline.
-            # Once exit is observed, even this polling delay is unnecessary.
+        # Before the poll, not only inside it. A child writing steadily keeps
+        # the descriptor readable, so `select` returns at once every time and
+        # a check living only in the loop below would never run: continual
+        # output would buy unlimited wall time.
+        if deadline is not None and time.monotonic() >= deadline:
+            raise _Alarm()
+        if exited is not None or deadline is not None:
+            # Polling avoids a busy wait. Once exit is observed, even this
+            # polling delay is unnecessary.
             while not select.select([read_fd], [], [], 0 if child_exited else 0.05)[0]:
-                # There is no deadline while the direct child works. After
-                # its exit, publication is over: drain bytes already present,
-                # but do not wait for EOF withheld by an inherited writer.
+                if deadline is not None and time.monotonic() >= deadline:
+                    raise _Alarm()
+                if exited is None:
+                    continue
+                # After the child's exit, publication is over: drain bytes
+                # already present, but do not wait for EOF withheld by an
+                # inherited writer.
                 child_exited = child_exited or exited()
                 if child_exited:
                     if not select.select([read_fd], [], [], 0)[0]:
                         raise _PayloadError("child_exited_before_payload")
                     break
+        # After the poll as well. A body that becomes readable once the
+        # deadline has passed was read and decoded, and the run came back
+        # `completed` at a clock past its own budget.
+        if deadline is not None and time.monotonic() >= deadline:
+            raise _Alarm()
         return os.read(read_fd, size)
 
     header = b""
@@ -449,13 +471,15 @@ def _read_payload(read_fd: int, exited: Optional[Callable[[], bool]] = None) -> 
         header += chunk
     (size,) = struct.unpack("!I", header)
     if size > MAX_PAYLOAD_BYTES:
+        # Refused before the read, so a declared length no payload could have
+        # costs nothing to reject.
         raise _PayloadError("payload_too_large: declared {} bytes".format(size))
-    body = bytearray()
+    body = b""
     while len(body) < size:
         chunk = read(min(size - len(body), _READ_CHUNK))
         if not chunk:
             raise _PayloadError("truncated_body")
-        body.extend(chunk)
+        body += chunk
     # JSON stops child bytes becoming code in the parent, and this envelope
     # stops the child claiming a death the parent did not observe. It cannot
     # stop a child lying about its result; the parent re-verifies elsewhere.
@@ -579,7 +603,30 @@ def run_isolated(
         # the parent's pending output a second time.
         sys.stdout.flush()
         sys.stderr.flush()
-        pid = os.fork()
+        try:
+            pid = os.fork()
+        except OSError as error:
+            # A machine out of processes is a condition to report, not an
+            # exception to propagate: every other way this can fail returns an
+            # Outcome, and a caller that handles those would be taken down by
+            # this one alone. The pipe is closed here because nothing else
+            # will; measured before this, two descriptors leaked per attempt,
+            # which is the shape that turns one exhausted fork into many.
+            for descriptor in (read_fd, write_fd):
+                try:
+                    os.close(descriptor)
+                except OSError:
+                    pass
+            # The budgets travel with it, as they do on every other return
+            # from here. `diagnostics()` reports them, and a failure that
+            # alone said "no limits were configured" would read as a
+            # different kind of failure than it is.
+            return Outcome(
+                CRASHED,
+                detail="could not start a process for this work: {}".format(error),
+                timeout_seconds=timeout_seconds,
+                memory_bytes=memory_bytes,
+            )
         if pid == 0:
             os.close(read_fd)
             _child(work, write_fd, workspace, memory_bytes, timeout_seconds)
@@ -685,8 +732,6 @@ def _operation_child() -> None:
             import argparse
             from functools import partial
             from .cli import _run_view, _send_progress
-            # The whole parser namespace is intentional: worker behavior
-            # follows whatever flags the CLI parser defines, not a second schema.
             progress_fd = arguments.get("progress_fd")
             progress = partial(_send_progress, progress_fd) if progress_fd is not None else None
             return _run_view(argparse.Namespace(**arguments["args"]), project.execution,
@@ -702,17 +747,42 @@ def _operation_child() -> None:
 
 
 def _collect(pid, read_fd, timeout_seconds, memory_bytes, on_poll=None) -> Outcome:
+    """Wait for the child and describe what became of it.
+
+    One monotonic deadline, held by this thread and checked where the work
+    already waits: the `select` loop in `_read_payload` and the non-blocking
+    `waitpid` polling in `_reap_bounded`. `timeout_seconds=None` means no
+    deadline; the child's own CPU limits are separate and untouched.
+
+    Nothing is installed in the caller's process and no second thread is
+    started, which is the point. A deadline split across a signal handler, a
+    timer and blocking waits leaves no single owner of "has the child been
+    waited on", and every arrangement of locks over that closed one race and
+    opened another.
+
+    Two flags, not one. `harvested` means the child has been waited on, so its
+    number is no longer ours to signal. `reaped` means it exited before we
+    killed it, which is the evidence a published payload is judged against.
+    Merging them let a forced kill count as a clean exit.
+    """
+
     outcome = None
     fired = False
     reason = None
     status = None
     reaped = False
-    armed = (timeout_seconds is not None and hasattr(signal, "SIGALRM")
-             and hasattr(signal, "alarm"))
-    previous = None
+    deadline = (None if timeout_seconds is None
+                else time.monotonic() + timeout_seconds)
+
+    #: Whether the child has been waited on, so its number is no longer ours
+    #: to signal. Deliberately not `reaped`: that one means the child exited
+    #: before we killed it, which is the evidence a published payload is
+    #: judged against. Sharing one flag for both let a child that published
+    #: and then had to be killed keep its result.
+    harvested = False
 
     def exited():
-        nonlocal status, reaped
+        nonlocal status, reaped, harvested
         # Parent-side observation begins after fork/exec, so live delivery can
         # start threads without leaving their locks in the child's fork state.
         if on_poll is not None:
@@ -725,16 +795,13 @@ def _collect(pid, read_fd, timeout_seconds, memory_bytes, on_poll=None) -> Outco
                 except InterruptedError:
                     continue
             if done:
-                status, reaped = observed, True
+                status, reaped, harvested = observed, True, True
         return reaped
 
     try:
-        if armed:
-            previous = signal.signal(signal.SIGALRM, _on_alarm)
-            signal.alarm(timeout_seconds)
         try:
             try:
-                outcome = _read_payload(read_fd, exited)
+                outcome = _read_payload(read_fd, exited, deadline)
             except _PayloadError as error:
                 reason = str(error)
             except MemoryError:
@@ -744,29 +811,28 @@ def _collect(pid, read_fd, timeout_seconds, memory_bytes, on_poll=None) -> Outco
             if not reaped and (outcome is not None or reason in ("eof", "truncated_header", "truncated_body")):
                 # EOF can precede a waitable exit on Linux. Reap before any
                 # cleanup signal so a self/external SIGKILL keeps its identity.
-                # Keep the existing deadline armed: code holding the descriptor
-                # can close it and remain alive, despite _child's normal
-                # ordering. The alarm can therefore land inside this wait, and
-                # that is a real timeout rather than a lost status, so it falls
-                # through to the cleanup path with `fired` set.
-                try:
-                    observed = (_reap_exact(pid) if armed
-                                else _reap_bounded(pid, UNBOUNDED_REAP_SECONDS))
-                except _Alarm:
-                    fired, observed = True, None
+                # Bounded by the same deadline, because code holding the
+                # descriptor can close it and remain alive: without a bound
+                # this wait is where such a child would hang the command.
+                left = (UNBOUNDED_REAP_SECONDS if deadline is None
+                        else max(0.0, deadline - time.monotonic()))
+                observed = _reap_bounded(pid, left)
                 if observed is not None:
-                    status, reaped = observed, True
+                    status, reaped, harvested = observed, True, True
+            # Outside that branch, because whether the child happened to be
+            # harvested while the envelope was still arriving does not change
+            # what the clock says. Inside it, a run whose decoding crossed the
+            # deadline came back `completed` when `exited()` had already
+            # reaped, and `timed_out` when it had not, for the same payload.
+            # Expiry is authoritative either way: a result collected after the
+            # budget ran out is still a run that took longer than allowed.
+            if deadline is not None and time.monotonic() >= deadline:
+                fired = True
         except _Alarm:
             fired, outcome = True, None
             reason = reason or "alarm"
     finally:
         try:
-            if armed:
-                signal.alarm(0)
-                # None denotes a handler installed outside Python. It cannot
-                # be passed to signal.signal, but our timer must still stop.
-                if previous is not None:
-                    signal.signal(signal.SIGALRM, previous)
             try:
                 os.close(read_fd)
             except OSError:
@@ -779,16 +845,21 @@ def _collect(pid, read_fd, timeout_seconds, memory_bytes, on_poll=None) -> Outco
                 except OSError:
                     done = 0
                 if done:
-                    reaped, status = True, observed
+                    reaped, status, harvested = True, observed, True
         finally:
-            _terminate(pid)
+            _terminate(pid, reaped=harvested)
             if not reaped:
                 final_status = _reap(pid)[1]
+                # Waited on, so the number is no longer ours to signal.
+                # `reaped` stays False: this death is one we caused, and it is
+                # not evidence that a payload the child published can be
+                # trusted.
+                harvested = True
                 # A different signal or ordinary exit could arrive between
                 # WNOHANG and cleanup. Those cannot have come from our SIGKILL.
                 if final_status is not None and not (os.WIFSIGNALED(final_status)
                         and os.WTERMSIG(final_status) == signal.SIGKILL):
-                    status, reaped = final_status, True
+                    status = final_status
     # A result is only trustworthy if the child exited on its own. The result
     # descriptor is reachable from the child, so code running there can write a
     # correctly framed "completed" envelope, close it, and hang: the parent
@@ -796,13 +867,10 @@ def _collect(pid, read_fd, timeout_seconds, memory_bytes, on_poll=None) -> Outco
     # forged success. For `check` the forged value can have the right shape, so
     # `--update-setup` would record setup evidence for a run we killed. The
     # payload is a claim; the exit is the evidence for it.
-    # And an exit the parent saw fail is evidence against it. A child that
-    # writes a valid `completed` envelope and then exits 23, or kills itself,
-    # did not complete: something went wrong after it produced the value, and
-    # reporting the value is the lie. `_terminate` always fires, so a cleanup
-    # SIGKILL is ours and is not counted here; `status` at this point is the
-    # child's own exit, because the cleanup path above discards a SIGKILL it
-    # cannot attribute.
+    # And an exit the parent saw fail is evidence against it. `_terminate`
+    # always fires, so a cleanup SIGKILL is ours and is not counted here;
+    # `status` at this point is the child's own exit, because the cleanup path
+    # above discards a SIGKILL it cannot attribute.
     if outcome is not None and reaped and status is not None and not fired:
         if os.WIFSIGNALED(status):
             died = "signal_{}".format(os.WTERMSIG(status))
@@ -833,17 +901,37 @@ def _collect(pid, read_fd, timeout_seconds, memory_bytes, on_poll=None) -> Outco
 
 
 class _Alarm(Exception):
-    pass
+    """Raised where the wall-clock deadline is observed, not by a signal."""
 
 
-def _on_alarm(signum, frame):  # noqa: ARG001 - signal handler shape
-    raise _Alarm()
+def _terminate(pid: int, reaped: bool = False) -> None:
+    """Take down the child and anything it started.
 
+    The group first, because that is what reaches anything the child started
+    and is the descendant cleanup this must not lose.
 
-def _terminate(pid: int) -> None:
-    """Take down the child and anything it started."""
+    The child itself only while it is still ours. Once it has been reaped the
+    number is free for the kernel to hand to someone else, and signalling it
+    then is at best addressed to nobody and at worst to an unrelated process.
+    The group signal is kept in that case: a descendant can outlive the child,
+    and it is the only thing that reaches one. That is a narrower risk than
+    signalling the child's own number, not none: a process-group id can be
+    reused as well, so this is the best available reach for a descendant
+    rather than a proof that nothing else receives it.
 
-    for target, sig in ((-pid, signal.SIGKILL), (pid, signal.SIGKILL)):
+    Known limit, not a defect to be fixed here. A descendant that leaves the
+    group, by calling `setsid` or being started detached, is not reachable
+    from either signal and survives this. Catching it would need a process
+    supervisor or a cgroup, and the scope this was built for is ordinary
+    student code that did not mean to outlive its run, not code written to
+    escape. What this promises is that a crash or a hang stays inside the
+    child and its group; it does not promise that nothing can leave.
+    """
+
+    targets = [(-pid, signal.SIGKILL)]
+    if not reaped:
+        targets.append((pid, signal.SIGKILL))
+    for target, sig in targets:
         try:
             os.kill(target, sig)
         except OSError:
@@ -855,12 +943,13 @@ def _reap(pid: int):
 
 
 def _reap_bounded(pid: int, seconds: float):
-    """Wait up to `seconds` for `pid`, without a deadline to interrupt us.
+    """Wait up to `seconds` for `pid`.
 
-    `test` and `run` impose no wall-clock budget, so nothing arms an alarm and
-    a blocking wait here is unbounded. Student code that closes the result
+    Polling rather than a blocking wait, so the caller's deadline can be
+    honoured here too. `test` and `run` impose no wall-clock budget, and a
+    blocking wait then had no way out: student code that closes the result
     descriptor and then lingers, or leaves a descendant holding it, hung the
-    command with no way out but Ctrl+C.
+    command until Ctrl+C.
 
     Normal serialization and output flushing precede publication. A child
     that remains alive beyond this cleanup budget loses its payload, even if
@@ -869,6 +958,10 @@ def _reap_bounded(pid: int, seconds: float):
 
     deadline = time.monotonic() + seconds
     while True:
+        if seconds <= 0 and time.monotonic() >= deadline:
+            # Nothing left to wait with. Asking `waitpid` first let an already
+            # waitable child answer a wait that had no time in it.
+            return None
         try:
             done, status = os.waitpid(pid, os.WNOHANG)
         except InterruptedError:

@@ -25,7 +25,7 @@ BENCHMARK_INSTALLS: Dict[str, BenchmarkInstall] = {
     "audio-identification": BenchmarkInstall(
         "cogworks-week1-audio-benchmark",
         "git+https://github.com/SamGu-NRX/cogworks-week1-audio-benchmark.git"
-        "@b156644aecc810e0b93535e320098f96c39ae04e",
+        "@ad055874436e45b2d8ef0bdb48deedbf2a0a2a90",
     ),
     "vision-recognition": BenchmarkInstall(
         "cogworks-week2-vision-benchmark",
@@ -85,6 +85,13 @@ def load_plugin(group: str, name: str, instantiate_classes: bool = True) -> Any:
     matches = [point for point in _unique_entry_points(group) if point.name == name]
     if not matches:
         installed = plugin_names(group)
+        if not group.startswith("cogworks.benchmarks."):
+            raise PluginError(
+                '"{}" is not installed in "{}" (available: {}). Install the '
+                "package that provides it and run this again.".format(
+                    name, group, ", ".join(installed) or "none"
+                )
+            )
         # Two readers, two sentences. A benchmark that is simply not
         # installed is the ordinary case and the student's next step is one
         # command, so say that and nothing else. `cogworks check` has always

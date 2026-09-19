@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import os
 import signal
+import struct
 import sys
+import threading
 import tempfile
 import time
 import unittest
@@ -11,6 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "python" / "cogbench" / "src"))
 
+from cogbench import isolate as isolate_module  # noqa: E402
 from cogbench.isolate import (  # noqa: E402
     COMPLETED,
     CRASHED,
@@ -19,17 +22,21 @@ from cogbench.isolate import (  # noqa: E402
     _original_command,
     run_isolated,
 )
+from cogbench.isolate import _describe_death  # noqa: E402
 
 
-def _segfault():
-    # A signal, not a real null dereference. The wait status is identical
-    # (WIFSIGNALED, SIGSEGV), which is all `_describe_death` reads, and a
-    # genuine EXC_BAD_ACCESS makes macOS write a crash report for every run
-    # of this suite: 25 of them landed in ~/Library/Logs/DiagnosticReports on
-    # 2026-09-04 and read as the machine crashing.
+def _killed():
+    # SIGKILL, not SIGSEGV. Sending SIGSEGV was believed to avoid the crash
+    # report a genuine EXC_BAD_ACCESS writes; it does not. Fifty-three reports
+    # landed in ~/Library/Logs/DiagnosticReports between 02:23 and 02:37 on
+    # 2026-09-14, one per execution of the fixtures in this file and in
+    # test_discover, and they read to the owner as the machine crashing.
+    # SIGKILL is a real fatal signal no `except` clause can catch, which is
+    # what these tests are about, and it writes no report. The wording for a
+    # segfault is pinned separately, against the formatter.
     import signal
 
-    os.kill(os.getpid(), signal.SIGSEGV)
+    os.kill(os.getpid(), signal.SIGKILL)
 
 
 def _spin():
@@ -68,11 +75,25 @@ class IsolationTests(unittest.TestCase):
         self.assertIn("ZeroDivisionError", outcome.detail)
         self.assertFalse(outcome.ok)
 
-    def test_the_parent_survives_a_segfault(self):
+    def test_the_parent_survives_a_child_killed_outright(self):
         """One repository's mp3 splitter aborts the interpreter through a
         second native audio backend. No except clause can catch that."""
 
-        outcome = run_isolated(_segfault)
+        outcome = run_isolated(_killed)
+
+        self.assertEqual(outcome.status, CRASHED)
+        self.assertTrue(outcome.detail)
+        self.assertFalse(outcome.ok)
+
+    def test_a_segfault_is_named_as_one(self):
+        """The wording, without the report. `_describe_death` reads only the
+        wait status, so a synthetic one says everything running a real
+        segfault said, and says it on every platform rather than only where
+        the signal can be raised."""
+
+        import signal
+
+        outcome = _describe_death(signal.SIGSEGV)
 
         self.assertEqual(outcome.status, CRASHED)
         self.assertIn("segfaulted", outcome.detail)
@@ -225,7 +246,7 @@ assert outcome.status == {status!r}, outcome
         before_cwd = Path.cwd()
         before_pid = os.getpid()
 
-        run_isolated(_segfault)
+        run_isolated(_killed)
         run_isolated(_spin, timeout_seconds=2)
         run_isolated(lambda: 1)
 
@@ -411,9 +432,9 @@ class NoBudgetIsAllowed(unittest.TestCase):
 
     @unittest.skipUnless(hasattr(os, "fork"), "needs fork")
     def test_a_crash_is_still_contained_without_limits(self):
-        outcome = run_isolated(_segfault, timeout_seconds=None, memory_bytes=None)
+        outcome = run_isolated(_killed, timeout_seconds=None, memory_bytes=None)
         self.assertEqual(outcome.status, CRASHED)
-        self.assertIn("segfault", outcome.detail.lower())
+        self.assertTrue(outcome.detail)
 
 
 class WindowsDoesNotReplaceItself(unittest.TestCase):
@@ -431,6 +452,277 @@ class WindowsDoesNotReplaceItself(unittest.TestCase):
                 patch.object(os, "execve", lambda *a: calls.append(a)):
             self.assertFalse(ensure_pinned_hash_seed(["python", "-m", "cogbench"]))
         self.assertEqual(calls, [], "nothing was re-executed")
+
+
+
+class TheCallerKeepsWhatItBroughtIn(unittest.TestCase):
+    """`_collect` installs no handler at all now, so a caller's own alarm is
+    not something it can lose. It used to arm `SIGALRM` and discard whatever
+    was pending: a caller holding four seconds got zero back and its handler
+    never ran, with nothing raised to say the timer had gone. This keeps
+    watching that, because the guarantee outlives the mechanism that broke
+    it."""
+
+    @unittest.skipUnless(hasattr(signal, "alarm"), "needs SIGALRM")
+    def test_an_alarm_the_caller_already_had_is_given_back(self):
+        fired = []
+        previous = signal.signal(signal.SIGALRM, lambda *_: fired.append(True))
+        signal.alarm(4)
+        try:
+            outcome = run_isolated(lambda: 1, timeout_seconds=2)
+            left = signal.alarm(0)
+        finally:
+            signal.signal(signal.SIGALRM, previous)
+
+        self.assertEqual(outcome.status, COMPLETED)
+        self.assertEqual(fired, [])
+        # One second of slack: `alarm` counts in whole seconds, so what comes
+        # back is the remainder rounded down, not the exact figure.
+        self.assertGreaterEqual(left, 1)
+        self.assertLessEqual(left, 4)
+
+
+class AWorkerThreadGetsAnOutcomeLikeEveryOtherCaller(unittest.TestCase):
+    """`signal.signal` raises off the main thread, and it raised out of
+    `run_isolated` rather than returning. A caller that handles a crash, a
+    timeout and a memory limit as results was taken down by this one alone."""
+
+    @unittest.skipUnless(hasattr(os, "fork"), "needs fork")
+    def test_running_off_the_main_thread_returns_rather_than_raises(self):
+        result = {}
+
+        def work():
+            try:
+                result["outcome"] = run_isolated(lambda: 2, timeout_seconds=5)
+            except BaseException as error:  # noqa: BLE001 - reported, not raised
+                result["raised"] = "{}: {}".format(type(error).__name__, error)
+
+        worker = threading.Thread(target=work)
+        worker.start()
+        worker.join(timeout=30)
+
+        self.assertFalse(worker.is_alive())
+        self.assertNotIn("raised", result)
+        self.assertEqual(result["outcome"].status, COMPLETED)
+        self.assertEqual(result["outcome"].value, 2)
+
+    @unittest.skipUnless(hasattr(os, "fork"), "needs fork")
+    def test_a_sleeping_child_on_a_worker_still_hits_its_deadline(self):
+        """A worker thread gets the same deadline as any other caller: one
+        monotonic value checked where the collector already waits. An earlier
+        attempt skipped the parent's alarm off the main thread and claimed the
+        child's own limit covered it, which was wrong, because that limit is
+        RLIMIT_CPU and a sleeping or blocked child never spends it. The
+        containment owner measured `sleep(3)` under a one-second budget
+        returning COMPLETED after 3.01 seconds."""
+
+        result = {}
+
+        def sleeper():
+            time.sleep(6)
+            return 42
+
+        def work():
+            result["outcome"] = run_isolated(
+                sleeper, timeout_seconds=1, memory_bytes=None
+            )
+
+        worker = threading.Thread(target=work)
+        started = time.monotonic()
+        worker.start()
+        worker.join(timeout=60)
+        elapsed = time.monotonic() - started
+
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(result["outcome"].status, TIMED_OUT)
+        self.assertIsNone(result["outcome"].value)
+        self.assertLess(elapsed, 5)
+
+    @unittest.skipUnless(hasattr(os, "fork"), "needs fork")
+    def test_a_spinning_child_on_a_worker_also_stops(self):
+        result = {}
+
+        def work():
+            result["outcome"] = run_isolated(_spin, timeout_seconds=2)
+
+        worker = threading.Thread(target=work)
+        worker.start()
+        worker.join(timeout=60)
+
+        self.assertFalse(worker.is_alive())
+        self.assertNotEqual(result["outcome"].status, COMPLETED)
+        self.assertTrue(result["outcome"].detail)
+
+
+class AReapedChildIsNotSignalledAgain(unittest.TestCase):
+    """Cleanup fired at the child's own pid whether or not it had been reaped.
+    A reaped number is free for the kernel to hand to someone else, so that
+    signal is addressed to nobody at best and to an unrelated process at
+    worst. The group signal stays: a descendant can outlive the child and
+    nothing else reaches one."""
+
+    @unittest.skipUnless(hasattr(os, "fork"), "needs fork")
+    def test_cleanup_after_a_clean_exit_signals_only_the_group(self):
+        sent = []
+        real = os.kill
+
+        def watch(pid, number):
+            sent.append(pid)
+            return real(pid, number)
+
+        os.kill = watch
+        try:
+            outcome = run_isolated(lambda: 3, timeout_seconds=5)
+        finally:
+            os.kill = real
+
+        self.assertEqual(outcome.status, COMPLETED)
+        self.assertTrue(all(pid < 0 for pid in sent), sent)
+
+
+class AFailedForkIsReportedLikeAnyOtherFailure(unittest.TestCase):
+    """A machine out of processes is a condition to report, not an exception
+    to propagate. It also leaked the result pipe, two descriptors per attempt,
+    which is the shape that turns one exhausted fork into many."""
+
+    @unittest.skipUnless(hasattr(os, "fork"), "needs fork")
+    def test_it_returns_an_outcome_and_closes_its_pipe(self):
+        before = len(os.listdir("/dev/fd"))
+        real = os.fork
+
+        def refuse():
+            raise OSError(35, "Resource temporarily unavailable")
+
+        os.fork = refuse
+        try:
+            outcome = run_isolated(lambda: 4, timeout_seconds=2)
+        finally:
+            os.fork = real
+
+        self.assertEqual(outcome.status, CRASHED)
+        self.assertIn("could not start a process", outcome.detail)
+        self.assertLessEqual(len(os.listdir("/dev/fd")), before)
+        # The budgets travel with it like every other return from here, so
+        # `diagnostics()` does not report this as an unlimited run.
+        self.assertEqual(outcome.timeout_seconds, 2)
+        self.assertIsNotNone(outcome.memory_bytes)
+
+class TheDeadlineHasOneOwner(unittest.TestCase):
+    """One monotonic deadline, checked where the collector already waits.
+    There is no timer thread and no caller signal handler, so the races that
+    needed synchronizing cannot occur: a callback cannot outlive the collector
+    if there is no callback, and a caller's alarm cannot be discarded if none
+    is installed. These assert the machinery is absent and the deadline still
+    holds, rather than rebuilding a timer to test one."""
+
+    def test_an_expired_deadline_is_not_even_polled(self):
+        """It pins the other half. The existing
+        readable-descriptor test passes if either check outside the poll loop
+        survives; this one fails unless the check before the poll does, since
+        it asserts `select` is never reached."""
+
+        calls = []
+
+        def refuse(*arguments):
+            calls.append(arguments)
+            return ([], [], [])
+
+        read_fd, write_fd = os.pipe()
+        held = isolate_module.select.select
+        isolate_module.select.select = refuse
+        try:
+            with self.assertRaises(isolate_module._Alarm):
+                isolate_module._read_payload(read_fd, None, time.monotonic() - 1)
+        finally:
+            isolate_module.select.select = held
+            os.close(read_fd)
+            os.close(write_fd)
+
+        self.assertEqual(calls, [])
+
+    @unittest.skipUnless(hasattr(os, "fork"), "needs fork to reach _collect")
+    def test_no_timer_thread_is_started_for_a_deadline(self):
+        """Run from a worker, because that is the only place the old code
+        built one. Asserting it from the main thread passed against the
+        version that still had the timer."""
+
+        started = []
+        held = isolate_module.threading.Timer
+
+        class Watched(held):  # pragma: no cover - records if it is ever used
+            def __init__(self, *arguments, **named):
+                started.append(arguments)
+                super(Watched, self).__init__(*arguments, **named)
+
+        isolate_module.threading.Timer = Watched
+        result = {}
+        try:
+            worker = threading.Thread(
+                target=lambda: result.update(
+                    got=run_isolated(lambda: 5, timeout_seconds=2)
+                )
+            )
+            worker.start()
+            worker.join(timeout=30)
+        finally:
+            isolate_module.threading.Timer = held
+        self.assertFalse(worker.is_alive())
+        outcome = result["got"]
+
+        self.assertEqual(outcome.status, COMPLETED)
+        self.assertEqual(started, [])
+
+    @unittest.skipUnless(hasattr(os, "fork"), "needs fork to reach _collect")
+    @unittest.skipUnless(hasattr(signal, "alarm"), "needs SIGALRM")
+    def test_no_handler_is_installed_in_the_callers_process(self):
+        """The caller's alarm used to be discarded and then restored. Nothing
+        touches it now, so there is nothing to restore and nothing to lose."""
+
+        fired = []
+        previous = signal.signal(signal.SIGALRM, lambda *_: fired.append(True))
+        signal.alarm(4)
+        try:
+            installed = []
+
+            def watch(number, handler):
+                installed.append(number)
+                return previous
+
+            held = signal.signal
+            signal.signal = watch
+            try:
+                outcome = run_isolated(lambda: 6, timeout_seconds=2)
+            finally:
+                signal.signal = held
+            left = signal.alarm(0)
+        finally:
+            signal.signal(signal.SIGALRM, previous)
+
+        self.assertEqual(outcome.status, COMPLETED)
+        self.assertEqual(installed, [])
+        self.assertEqual(fired, [])
+        self.assertGreaterEqual(left, 1)
+
+    @unittest.skipUnless(hasattr(os, "fork"), "needs fork")
+    def test_steady_output_does_not_buy_unlimited_time(self):
+        """A child writing constantly keeps the descriptor readable, so the
+        poll never blocks. A deadline checked only inside that poll would
+        never be reached."""
+
+        read_fd, write_fd = os.pipe()
+        # Always readable, so `select` returns at once every time and the
+        # check inside the poll loop is never reached. What this pins is that
+        # some check outside that loop exists; either the one before the poll
+        # or the one after it catches this, and removing both does not.
+        os.write(write_fd, b"x" * 4096)
+        try:
+            with self.assertRaises(isolate_module._Alarm):
+                isolate_module._read_payload(
+                    read_fd, None, time.monotonic() - 1
+                )
+        finally:
+            os.close(read_fd)
+            os.close(write_fd)
 
 
 if __name__ == "__main__":

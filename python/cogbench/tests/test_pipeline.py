@@ -1,28 +1,115 @@
 from __future__ import annotations
 
+import contextlib
 import shutil
 import signal
 import sys
 import tempfile
 import time
+import tracemalloc
 import unittest
+from collections import ChainMap
+from collections.abc import Mapping, MutableMapping
+from dataclasses import replace
 from pathlib import Path
 from types import ModuleType
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "python" / "cogbench" / "src"))
 
+from cogbench import pipeline
 from cogbench.pipeline import (
     Candidate,
     Fixtures,
     Role,
     Stage,
+    _MISSING_RECEIVER,
+    _Broken,
+    _Receiver,
+    _UNREADY,
+    _empty_receivers,
+    _fixture_for,
     _named_for_something_else,
+    _reachable,
+    _under_clock,
+    _write_folder,
     callables_in,
+    constructors_in,
     extend,
+    methods_of,
     probe_sources,
     resolve_chain,
+    runtime_pool,
 )
+
+
+@unittest.skipUnless(
+    hasattr(signal, "SIGALRM") and hasattr(signal, "getitimer"),
+    "clock ownership requires POSIX interval timers",
+)
+class ClockOwnershipTests(unittest.TestCase):
+    def setUp(self):
+        if signal.getitimer(signal.ITIMER_REAL)[0]:
+            self.skipTest("the test runner already owns an alarm")
+        self.previous_handler = signal.getsignal(signal.SIGALRM)
+        self.addCleanup(signal.signal, signal.SIGALRM, self.previous_handler)
+        self.addCleanup(signal.setitimer, signal.ITIMER_REAL, 0)
+
+    def test_a_callers_timer_and_handler_survive_success_and_failure(self):
+        def caller_handler(signum, frame):
+            self.fail("the caller's twelve-second timer expired during a short test")
+
+        for raises in (False, True):
+            with self.subTest(raises=raises):
+                signal.signal(signal.SIGALRM, caller_handler)
+                signal.setitimer(signal.ITIMER_REAL, 12, 0.25)
+
+                def call():
+                    self.assertIs(signal.getsignal(signal.SIGALRM), caller_handler)
+                    remaining, interval = signal.getitimer(signal.ITIMER_REAL)
+                    self.assertGreater(remaining, 1)
+                    self.assertEqual(interval, 0.25)
+                    if raises:
+                        raise ValueError("their call failed")
+                    return "answer"
+
+                with patch("cogbench.pipeline.CALL_TIMEOUT_SECONDS", 1):
+                    if raises:
+                        with self.assertRaisesRegex(ValueError, "their call failed"):
+                            _under_clock(call)
+                    else:
+                        self.assertEqual(_under_clock(call), "answer")
+                self.assertIs(signal.getsignal(signal.SIGALRM), caller_handler)
+                remaining, interval = signal.getitimer(signal.ITIMER_REAL)
+                self.assertGreater(remaining, 1)
+                self.assertEqual(interval, 0.25)
+                signal.setitimer(signal.ITIMER_REAL, 0)
+
+    def test_nested_probes_do_not_cancel_the_outer_deadline(self):
+        for raises in (False, True):
+            with self.subTest(raises=raises):
+                def outer():
+                    before = signal.getitimer(signal.ITIMER_REAL)[0]
+                    handler = signal.getsignal(signal.SIGALRM)
+
+                    def inner():
+                        if raises:
+                            raise ValueError("inner failure")
+
+                    if raises:
+                        with self.assertRaisesRegex(ValueError, "inner failure"):
+                            _under_clock(inner)
+                    else:
+                        _under_clock(inner)
+                    after = signal.getitimer(signal.ITIMER_REAL)[0]
+                    self.assertGreater(after, 0)
+                    self.assertLessEqual(after, before)
+                    self.assertIs(signal.getsignal(signal.SIGALRM), handler)
+
+                _under_clock(outer)
+                self.assertEqual(signal.getitimer(signal.ITIMER_REAL)[0], 0)
+                self.assertIs(signal.getsignal(signal.SIGALRM), self.previous_handler)
 
 
 def _module(name: str, **members) -> ModuleType:
@@ -228,6 +315,58 @@ class ChainTests(unittest.TestCase):
 
         self.assertIsNone(binding)
         self.assertIn("did not return the right answer", refusal.detail)
+
+    def test_chatty_candidates_do_not_accumulate_probe_output(self):
+        chunk = "x" * 65536
+
+        def source(samples, rate):
+            for index in range(128):
+                sys.stdout.write(chunk + str(index))
+                sys.stderr.write(chunk + str(index))
+            return _spectrogram(samples, rate)
+
+        module = _module("anything", alpha=source, beta=_peaks, gamma=_fanout)
+        saved_out, saved_err = sys.stdout, sys.stderr
+        tracemalloc.start()
+        try:
+            binding, refusal = resolve_chain(ROLE, [module], FIXTURE)
+            _, peak = tracemalloc.get_traced_memory()
+        finally:
+            tracemalloc.stop()
+
+        self.assertIsNone(refusal)
+        self.assertIsNotNone(binding)
+        self.assertIs(sys.stdout, saved_out)
+        self.assertIs(sys.stderr, saved_err)
+        self.assertLess(peak, 1024 * 1024)
+
+    def test_a_raising_verifier_rejects_the_chain(self):
+        module = _module("anything", alpha=_spectrogram, beta=_peaks, gamma=_fanout)
+
+        def verify(chain):
+            raise ValueError("malformed answer")
+
+        binding, refusal = resolve_chain(ROLE, [module], FIXTURE, verify=verify)
+
+        self.assertIsNone(binding)
+        self.assertTrue(refusal.ran_to_the_end)
+
+    def test_a_raising_verifier_does_not_prevent_a_later_binding(self):
+        module = _module("anything", alpha=_spectrogram, other=_spectrogram,
+                         beta=_peaks, gamma=_fanout)
+        attempted = []
+
+        def verify(chain):
+            attempted.append(chain[0].label)
+            if len(attempted) == 1:
+                raise ValueError("malformed answer")
+            return True
+
+        binding, refusal = resolve_chain(ROLE, [module], FIXTURE, verify=verify)
+
+        self.assertIsNone(refusal)
+        self.assertGreater(len(attempted), 1)
+        self.assertEqual(binding.steps[0].label, attempted[-1])
 
     def test_an_empty_repository_refuses_at_the_first_stage(self):
         binding, refusal = resolve_chain(ROLE, [], FIXTURE)
@@ -721,7 +860,11 @@ class AClassThatDemandsItsDataIsAStep(unittest.TestCase):
             [s.label for s in binding.steps], ["theirs.Store", "theirs.Store.ids"]
         )
         self.assertTrue(binding.steps[1].self_only)
-        self.assertEqual(binding.steps[1].bound(None), [2, 4])
+        # Public bindings cannot answer from the probe's constructor instance.
+        with self.assertRaisesRegex(RuntimeError, "needs its constructor to run"):
+            binding.steps[1].bound(None)
+        built = binding.steps[0].bound([1, 2])
+        self.assertEqual(binding.steps[1].bound(built), [2, 4])
 
     def test_a_class_that_builds_for_free_is_still_left_to_instances_in(self):
         from cogbench.pipeline import constructors_in
@@ -1151,7 +1294,7 @@ class TheirPipelineOverAFolder(unittest.TestCase):
         self.assertIsNone(binding)
         self.assertEqual(refusal.stage, "d")
 
-    def test_the_refusal_says_which_folder_of_theirs_was_in_the_way(self):
+    def test_the_refusal_says_which_directory_was_read_instead(self):
         """Refusing the constructor is right and, on its own, unreadable.
 
         A repository whose whole pipeline hangs off such a constructor has
@@ -1160,6 +1303,11 @@ class TheirPipelineOverAFolder(unittest.TestCase):
         a hand-off that is true and beside the point. Measured on week 2's
         CoggurtFilter, which was told that nothing took what its profile class
         returned, a class its team never meant to be part of the pipeline.
+
+        The sentence is the path that was listed, and nothing around it. It
+        used to say the folder "holds your photos", which nothing here opened
+        it to find out, and then that it is "inside your repository", which was
+        read off a walk up from their file rather than observed.
         """
 
         checkout = self.tmp / "checkout"
@@ -1188,11 +1336,11 @@ class TheirPipelineOverAFolder(unittest.TestCase):
         self.assertEqual(
             refusal.notes,
             (
-                "clustering.Album() reads photos/ next to its own file, which "
-                "holds your photos rather than the benchmark's, so it cannot "
-                "be given the benchmark's photos; a constructor that takes "
-                "the folder path as an argument, or reads it relative to the "
-                "working directory, can.",
+                "clustering.Album() listed {}, which is not under the "
+                "directory this run owns, so the benchmark had nowhere to put "
+                "its files for it; a constructor that takes the folder path as "
+                "an argument, or reads one relative to the working directory, "
+                "can be handed them.".format(photos.resolve()),
             ),
         )
 
@@ -1219,6 +1367,461 @@ class TheirPipelineOverAFolder(unittest.TestCase):
 
         self.assertEqual(set(here.iterdir()), before)
         self.assertEqual(set(self.tmp.iterdir()), set(self.files))
+
+
+def _raises_the_pathlib_glob_event():
+    """Whether this interpreter tells an audit hook about `Path.glob`.
+
+    Asked rather than read off the version, because the answer is the thing the
+    search depends on and a version table is a claim about interpreters nobody
+    here ran. Measured absent on 3.8.20, present on 3.11.15 and 3.13.12.
+
+    An audit hook cannot be removed once installed, so this one stops recording
+    when the probe is over rather than watching the rest of the suite.
+    """
+
+    fired = []
+    probing = True
+
+    def watch(event, _arguments):
+        if probing and event == "pathlib.Path.glob":
+            fired.append(event)
+
+    sys.addaudithook(watch)
+    list(Path(tempfile.gettempdir()).glob("cogworks-no-such-thing-*"))
+    probing = False
+    return bool(fired)
+
+
+class TheFolderKeepsThePathTheirCodeAskedFor(unittest.TestCase):
+    """The name a folder binding records is the path their own code reads, whole.
+
+    Naming it by its first segment wrote `data/photos` into `data/`, one
+    directory above where their code then looked, so the retry read an empty
+    folder and a working repository did not bind. Naming it by its basename
+    had the same effect from the other end. Both are gone, and so is the rule
+    that a name with a dot in it is a file: the audit event says which of a
+    listing and an `open` fired, and the path is kept as it was written.
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.files = []
+        for name in ("one.png", "two.png"):
+            path = self.tmp / name
+            path.write_bytes(b"pretend photo")
+            self.files.append(path)
+        self.role = Role(
+            "cluster",
+            (
+                Stage(
+                    "d",
+                    produces=lambda v: isinstance(v, list) and len(v) == 2,
+                    folder=True,
+                ),
+            ),
+        )
+
+    def _bind(self, body):
+        module = _written("theirs", body)
+        return resolve_chain(self.role, [module], (self.files,))
+
+    def test_a_nested_folder_is_written_where_their_code_reads_it(self):
+        binding, refusal = self._bind(
+            "import os\n"
+            "def build():\n"
+            "    return sorted(os.listdir('data/photos'))\n"
+        )
+
+        self.assertIsNone(refusal)
+        self.assertEqual(binding.steps[0].supplied["folder"], "data/photos")
+
+    def test_a_nested_glob_names_the_folder_before_the_wildcard(self):
+        binding, refusal = self._bind(
+            "import glob, os\n"
+            "def build():\n"
+            "    return sorted(os.path.basename(p) for p in glob.glob('data/photos/*.png'))\n"
+        )
+
+        self.assertIsNone(refusal)
+        self.assertEqual(binding.steps[0].supplied["folder"], "data/photos")
+
+    @unittest.skipUnless(
+        _raises_the_pathlib_glob_event(),
+        "this interpreter raises no pathlib.Path.glob audit event; measured "
+        "absent on 3.8.20 and present on 3.11.15 and 3.13.12",
+    )
+    def test_a_pathlib_glob_names_the_directory_it_walks(self):
+        binding, refusal = self._bind(
+            "from pathlib import Path\n"
+            "def build():\n"
+            "    return sorted(p.name for p in Path('data/photos').glob('*.png'))\n"
+        )
+
+        self.assertIsNone(refusal)
+        self.assertEqual(binding.steps[0].supplied["folder"], "data/photos")
+
+    def test_a_folder_whose_name_has_a_dot_in_it_still_binds(self):
+        binding, refusal = self._bind(
+            "import os\n"
+            "def build():\n"
+            "    return sorted(os.listdir('my.photos'))\n"
+        )
+
+        self.assertIsNone(refusal)
+        self.assertEqual(binding.steps[0].supplied["folder"], "my.photos")
+
+    def test_a_file_opened_beside_their_code_names_no_folder(self):
+        """`open('config.json')` in the directory the probe runs from names the
+        scratch directory itself, which is not a folder to fill. Before the
+        event was recorded this was told apart by the dot in the name."""
+
+        binding, refusal = self._bind(
+            "import os\n"
+            "def build():\n"
+            "    open('config.json', 'w').write('{}')\n"
+            "    return sorted(os.listdir('photos'))\n"
+        )
+
+        self.assertIsNone(refusal)
+        self.assertEqual(binding.steps[0].supplied["folder"], "photos")
+
+    def test_a_nested_folder_left_by_an_earlier_probe_keeps_its_whole_path(self):
+        """The other half of the naming question, and the only one the disk can
+        answer.
+
+        A first candidate fills `data/photos` and then fails the stage's output
+        check. The second candidate's first call therefore succeeds, so its
+        folder is named from what it read rather than from what it asked for.
+        Naming it by its first segment refilled `data/` and left the photos one
+        directory above where the second candidate looks.
+        """
+
+        module = _written(
+            "theirs",
+            "import os\n"
+            "class A:\n"
+            "    def __init__(self):\n"
+            "        self.count = len(os.listdir('data/photos'))\n"
+            "class B:\n"
+            "    def __init__(self):\n"
+            "        self.where = sorted(os.listdir('data/photos'))\n"
+            "    def names(self):\n"
+            "        return list(self.where)\n",
+        )
+        role = Role(
+            "cluster",
+            (
+                Stage(
+                    "d",
+                    produces=lambda v: hasattr(v, "names") and len(v.names()) == 2,
+                    folder=True,
+                ),
+            ),
+        )
+
+        binding, refusal = resolve_chain(role, [module], (self.files,))
+
+        self.assertIsNone(refusal)
+        self.assertEqual(binding.steps[0].label, "theirs.B")
+        self.assertEqual(binding.steps[0].supplied["folder"], "data/photos")
+
+    def test_a_config_their_constructor_could_not_open_is_not_the_folder(self):
+        """The open comes first and fails, the listing comes second. Making a
+        folder out of the opened file's directory filled `config/` with photos
+        and left `photos/` empty, so the retry failed the same way and a
+        working repository did not bind."""
+
+        binding, refusal = self._bind(
+            "import os\n"
+            "def build():\n"
+            "    try:\n"
+            "        open('config/settings.json')\n"
+            "    except OSError:\n"
+            "        pass\n"
+            "    return sorted(os.listdir('photos'))\n"
+        )
+
+        self.assertIsNone(refusal)
+        self.assertEqual(binding.steps[0].supplied["folder"], "photos")
+
+
+class AFolderOutsideThisRunIsRefusedBeforeAnythingIsWritten(unittest.TestCase):
+    """`_write_folder` owns containment, and it settles it before it removes or
+    copies anything, so a name that climbs out leaves the disk as it was."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.files = [self.tmp / "one.png"]
+        self.files[0].write_bytes(b"pretend photo")
+        self.role = Role(
+            "cluster",
+            (Stage("d", produces=lambda v: isinstance(v, list), folder=True),),
+        )
+
+    def test_a_climbing_name_is_refused_and_named(self):
+        module = _written(
+            "theirs",
+            "import os\n"
+            "def build():\n"
+            "    return sorted(os.listdir('../photos'))\n",
+        )
+        before = set(self.tmp.iterdir())
+
+        binding, refusal = resolve_chain(self.role, [module], (self.files,))
+
+        self.assertIsNone(binding)
+        self.assertEqual(len(refusal.notes), 1)
+        self.assertIn("../photos", refusal.notes[0])
+        self.assertIn("outside the folder this run owns", refusal.notes[0])
+        self.assertEqual(set(self.tmp.iterdir()), before)
+
+    def test_a_contained_folder_asked_for_later_still_wins(self):
+        """A constructor that reads a sibling directory of its own and then its
+        photos from a folder here asked for both. The one this run can fill is
+        the one it is handed."""
+
+        module = _written(
+            "theirs",
+            "import os\n"
+            "def build():\n"
+            "    try:\n"
+            "        os.listdir('../elsewhere')\n"
+            "    except OSError:\n"
+            "        pass\n"
+            "    return sorted(os.listdir('photos'))\n",
+        )
+
+        binding, refusal = resolve_chain(self.role, [module], (self.files,))
+
+        self.assertIsNone(refusal)
+        self.assertEqual(binding.steps[0].supplied["folder"], "photos")
+
+
+class OneProbeLeavesTheFolderBehindForTheNext(unittest.TestCase):
+    """Every probe in a search shares one scratch directory, so the folder the
+    last one wrote is sitting there when the next one is called.
+
+    That is what makes the first call an observation and nothing more. It
+    settles which directory their code reads; the answer it returned came out
+    of whatever the previous probe left, so the folder is refilled with this
+    probe's own files and the call made again before anything is kept.
+
+    Both of these bound the wrong way before that second call existed: the
+    first refused a working reader outright, the second retained an answer
+    computed over another probe's input.
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.checkout = self.tmp / "checkout"
+        (self.checkout / "models").mkdir(parents=True)
+        (self.checkout / "models" / "config.txt").write_text("threshold = 0.5\n")
+
+    def _photos(self, where, names):
+        directory = self.tmp / where
+        directory.mkdir(parents=True, exist_ok=True)
+        made = []
+        for name in names:
+            path = directory / name
+            path.write_bytes(b"pretend photo")
+            made.append(path)
+        return made
+
+    def _two_candidates(self):
+        """A probed first, so the folder exists by the time B is called.
+
+        `constructors_in` reads a module in definition order, which is what
+        puts A first. A fills the folder and then fails the stage's output
+        check; B reads the same folder and its own config file and answers.
+        """
+
+        (self.checkout / "theirs.py").write_text(
+            "import os\n"
+            "from pathlib import Path\n"
+            "class A:\n"
+            "    def __init__(self):\n"
+            "        self.count = len(os.listdir('baseImages'))\n"
+            "class B:\n"
+            "    def __init__(self):\n"
+            "        here = Path(__file__).resolve().parent / 'models'\n"
+            "        sorted(os.listdir(here))\n"
+            "        self.config = (here / 'config.txt').read_text()\n"
+            "        self.where = sorted(os.listdir('baseImages'))\n"
+            "    def names(self):\n"
+            "        return list(self.where)\n"
+        )
+        module = _imported("theirs", self.checkout / "theirs.py")
+        self.addCleanup(sys.modules.pop, "theirs", None)
+        return module
+
+    def test_a_reader_that_also_opens_its_own_config_still_binds(self):
+        """A was refused for reading outside the scratch directory and so was
+        B, because the rule looked at every path a call touched rather than at
+        which folder it was handed."""
+
+        module = self._two_candidates()
+        role = Role(
+            "cluster",
+            (
+                Stage("make", produces=lambda v: hasattr(v, "names"), folder=True),
+                Stage("read", produces=lambda v: isinstance(v, list) and len(v) == 2),
+            ),
+        )
+
+        binding, refusal = resolve_chain(
+            role, [module], (self._photos("a", ["one.png", "two.png"]),)
+        )
+
+        self.assertIsNone(refusal)
+        self.assertEqual(binding.steps[0].supplied["folder"], "baseImages")
+        self.assertEqual(binding.steps[0].label, "theirs.B")
+
+    def test_a_second_probe_is_answered_over_its_own_files(self):
+        """Two inputs of different sizes through one scratch directory. The
+        second probe's call succeeds immediately, on the first probe's two
+        photos, and a stage that checks how many came back then refused a
+        reader that works."""
+
+        module = _written(
+            "plain",
+            "import os\n"
+            "def build():\n"
+            "    return sorted(os.listdir('baseImages'))\n",
+        )
+        first = self._photos("a", ["one.png", "two.png"])
+        second = self._photos("b", ["three.png"])
+        two = Role(
+            "cluster",
+            (
+                Stage(
+                    "d",
+                    produces=lambda v: isinstance(v, list) and len(v) == 2,
+                    folder=True,
+                ),
+            ),
+        )
+        one = Role(
+            "cluster",
+            (
+                Stage(
+                    "d",
+                    produces=lambda v: isinstance(v, list) and len(v) == 1,
+                    folder=True,
+                ),
+            ),
+        )
+
+        with pipeline._scratch_cwd():
+            before, _ = pipeline._resolve_chain(two, [module], (first,))
+            after, refusal = pipeline._resolve_chain(one, [module], (second,))
+
+        self.assertIsNotNone(before)
+        self.assertIsNone(refusal)
+        self.assertEqual(after.steps[0].supplied["folder"], "baseImages")
+
+
+class WhatGoesInThatFolderHasOneCorrectAnswer(unittest.TestCase):
+    """`_write_folder` is the one thing that fills a folder of ours, for the
+    search that discovers the binding and for the run that is scored.
+
+    They were two functions once, and the scored side never ran at all, so the
+    difference was invisible. Testing it here rather than only through a
+    resolved binding is deliberate: each of these has exactly one right answer
+    and none of them needs a repository to ask the question.
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.root = self.tmp / "home"
+        self.root.mkdir()
+
+    def _photo(self, where, name, body=b"pretend photo"):
+        path = self.tmp / where
+        path.mkdir(parents=True, exist_ok=True)
+        path = path / name
+        path.write_bytes(body)
+        return path
+
+    def test_the_files_land_under_the_name_their_code_asked_for(self):
+        one = self._photo("a", "one.png")
+        two = self._photo("a", "two.png")
+
+        self.assertIsNone(_write_folder(self.root, "baseImages", [one, two]))
+
+        self.assertEqual(
+            sorted(p.name for p in (self.root / "baseImages").iterdir()),
+            ["one.png", "two.png"],
+        )
+
+    def test_a_nested_name_is_made_the_whole_way_down(self):
+        one = self._photo("a", "one.png")
+
+        self.assertIsNone(_write_folder(self.root, "data/photos", [one]))
+
+        self.assertTrue((self.root / "data" / "photos" / "one.png").is_file())
+
+    def test_a_second_call_replaces_rather_than_adds_to_the_first(self):
+        """Their code lists the folder, so a file left behind by the last call
+        is an extra item in this call's answer."""
+
+        first = self._photo("a", "one.png")
+        second = self._photo("b", "three.png")
+        _write_folder(self.root, "baseImages", [first])
+
+        self.assertIsNone(_write_folder(self.root, "baseImages", [second]))
+
+        self.assertEqual(
+            [p.name for p in (self.root / "baseImages").iterdir()], ["three.png"]
+        )
+
+    def test_two_files_of_one_name_are_refused_rather_than_one_overwritten(self):
+        """A folder holds one file per name, so copying both would hand their
+        code one photo where the benchmark meant two, and nothing would say
+        so."""
+
+        one = self._photo("a", "one.png")
+        other = self._photo("b", "one.png", b"a different photo")
+
+        reason = _write_folder(self.root, "baseImages", [one, other])
+
+        self.assertIn("both called one.png", reason)
+        self.assertFalse((self.root / "baseImages").exists())
+
+    def test_a_name_that_climbs_out_is_refused_rather_than_clamped(self):
+        one = self._photo("a", "one.png")
+
+        for name in ("../elsewhere", str(self.tmp / "elsewhere")):
+            with self.subTest(name=name):
+                reason = _write_folder(self.root, name, [one])
+
+                self.assertIsNotNone(reason)
+                self.assertFalse((self.tmp / "elsewhere").exists())
+
+    def test_files_already_inside_the_destination_are_refused_not_deleted(self):
+        """Emptying the folder first is what makes a second call honest, and it
+        is also what would delete these before they could be copied."""
+
+        (self.root / "baseImages").mkdir()
+        theirs = self.root / "baseImages" / "one.png"
+        theirs.write_bytes(b"pretend photo")
+
+        reason = _write_folder(self.root, "baseImages", [theirs])
+
+        self.assertIn("already inside", reason)
+        self.assertTrue(theirs.is_file())
+
+    def test_copies_are_made_so_their_code_writes_to_ours_and_not_the_original(self):
+        one = self._photo("a", "one.png")
+
+        _write_folder(self.root, "baseImages", [one])
+        (self.root / "baseImages" / "one.png").write_bytes(b"they rewrote it")
+
+        self.assertEqual(one.read_bytes(), b"pretend photo")
 
 
 class TheNameFilterSkipsWordsAndNotSubstrings(unittest.TestCase):
@@ -1451,6 +2054,25 @@ class AnOrdinaryParameterIsNotAnIdentitySlot(unittest.TestCase):
             self.assertEqual(refusal.stage, "g")
 
 
+class MethodDiscoveryTests(unittest.TestCase):
+    def test_enumerating_methods_does_not_evaluate_properties(self):
+        accessed = []
+
+        class Store:
+            @property
+            def average(self):
+                accessed.append(True)
+                return 1
+
+            def query(self, value):
+                return value
+
+        candidates = methods_of("store", Store())
+
+        self.assertEqual(accessed, [])
+        self.assertEqual([candidate.label for candidate in candidates], ["store.query"])
+
+
 class AConstructorsMethodsFollowTheObjectTheChainCarries(unittest.TestCase):
     """A method reached through a constructor stage is stored bound to the
     object the SEARCH built, out of the search's fixture. A scored run builds
@@ -1481,6 +2103,35 @@ class AConstructorsMethodsFollowTheObjectTheChainCarries(unittest.TestCase):
         self.assertEqual(len(binding.steps), 2)
         return binding
 
+    def test_projected_value_does_not_lose_its_constructor_owner(self):
+        class Store:
+            def __init__(self, rows):
+                self.rows = list(rows)
+                self.projected = False
+
+            def project(self):
+                self.projected = True
+                return [[row * 10] for row in self.rows]
+
+            def search(self, query):
+                return {"rows": self.rows, "query": query, "projected": self.projected}
+
+        role = Role("projection", (
+            Stage("build", produces=lambda value: isinstance(value, Store)),
+            Stage("project", produces=lambda value: isinstance(value, list)),
+            Stage("search", produces=lambda value: isinstance(value, dict)),
+        ))
+        binding, refusal = resolve_chain(role, [_module("store", Store=Store)], ([1],))
+        self.assertIsNone(refusal)
+        self.assertEqual(len(binding.steps), 3)
+        for rows in ([9], [4]):
+            value = rows
+            for step in binding.steps:
+                value = step.bound(value)
+            self.assertEqual(value, {
+                "rows": rows, "query": [[rows[0] * 10]], "projected": True,
+            })
+
     def test_the_second_step_answers_about_the_object_it_was_given(self):
         build, read = self._binding().steps
 
@@ -1490,6 +2141,366 @@ class AConstructorsMethodsFollowTheObjectTheChainCarries(unittest.TestCase):
         rebuilt = build.bound([9])
 
         self.assertEqual(read.bound(rebuilt), [9])
+
+    def test_a_named_branch_remains_the_receiver_when_the_argument_has_its_type(self):
+        class Store:
+            def __init__(self, name):
+                self.name = name
+
+            def compare(self, other):
+                return self.name, other.name
+
+        fixture, catalog, query = Store("fixture"), Store("catalog"), Store("query")
+        for per_item in (False, True):
+            with self.subTest(per_item=per_item):
+                candidate = Candidate(
+                    "store.compare", fixture.compare, "store", attribute="compare",
+                    owner=Store, branch="prepare", per_item=per_item,
+                )
+                with runtime_pool({"prepare": catalog}):
+                    answer = candidate.bound([query] if per_item else query)
+                expected = ("catalog", "query")
+                self.assertEqual(answer, [expected] if per_item else expected)
+
+    def test_argument_taking_methods_use_the_carried_instance(self):
+        class Store:
+            def __init__(self, value):
+                self.value = value
+
+            def read(self, upstream):
+                return self.value
+
+        original, current = Store("fixture"), Store("run")
+        candidate = Candidate("store.read", original.read, "store", attribute="read", owner=Store)
+        self.assertEqual(candidate.bound(current), "run")
+
+    def test_per_item_methods_use_each_carried_instance(self):
+        class Store:
+            def __init__(self, value):
+                self.value = value
+
+            def read(self, upstream):
+                return self.value
+
+        original = Store("fixture")
+        candidate = Candidate("store.read", original.read, "store", attribute="read",
+                              owner=Store, per_item=True)
+        self.assertEqual(candidate.bound([Store("first"), Store("second")]),
+                         ["first", "second"])
+
+    def test_a_same_type_projection_is_query_data_not_the_receiver(self):
+        class Store:
+            def __init__(self, value):
+                self.value = value
+
+            def project(self):
+                self.value += 10
+                return Store(-1)
+
+            def search(self, query):
+                return {"owner": self.value, "query": query.value}
+
+        role = Role("projection", (
+            Stage("build", produces=lambda v: isinstance(v, Store)),
+            Stage("project", prefers=("project",), produces=lambda v: isinstance(v, Store)),
+            Stage("search", produces=lambda v: isinstance(v, dict)),
+        ))
+        binding, refusal = resolve_chain(role, [_module("store", Store=Store)], (1,))
+        self.assertIsNone(refusal)
+        self.assertEqual([s.label for s in binding.steps],
+                         ["store.Store", "store.Store.project", "store.Store.search"])
+        self.assertEqual(binding._value, {"owner": 11, "query": -1})
+        for value in (9, 4):
+            result = value
+            for step in binding.steps:
+                result = step.bound(result)
+            self.assertEqual(result, {"owner": value + 10, "query": -1})
+
+    def test_a_projected_branch_keeps_its_constructor_for_another_branch(self):
+        class Store:
+            def __init__(self, rows):
+                self.rows = list(rows)
+                self.projected = False
+
+            def project(self):
+                self.projected = True
+                return [row * 10 for row in self.rows]
+
+            def search(self, query):
+                return {"rows": self.rows, "query": query, "projected": self.projected}
+
+        prepare = Role("prepare", (
+            Stage("build", produces=lambda v: isinstance(v, Store)),
+            Stage("project", produces=lambda v: isinstance(v, list)),
+        ), fixture=([1],))
+        search = Role("search", (Stage("ask", produces=lambda v: isinstance(v, dict)),),
+                      fixture=(2,))
+        binding, refusal = resolve_chain(Role("all", (), branches=(prepare, search)),
+                                         [_module("store", Store=Store)], ())
+        self.assertIsNone(refusal)
+        build, project = binding.branches["prepare"]
+        ask, = binding.branches["search"]
+        self.assertIs(build.receiver, project.receiver)
+        self.assertIs(build.receiver, ask.receiver)
+        with self.assertRaisesRegex(RuntimeError, "needs its constructor to run"):
+            ask.bound(2)
+        for rows in ([9], [4]):
+            with runtime_pool({}):
+                projected = project.bound(build.bound(rows))
+                with runtime_pool({"prepare": projected}):
+                    self.assertEqual(ask.bound(2),
+                                     {"rows": rows, "query": 2, "projected": True})
+
+    def test_same_type_branch_projection_does_not_replace_its_constructor_owner(self):
+        class Store:
+            def __init__(self, value):
+                self.value = value
+
+            def project(self):
+                self.value += 10
+                return Store(-1)
+
+            def search(self, query):
+                return {"owner": self.value, "query": query}
+
+        prepare = Role("prepare", (
+            Stage("build", produces=lambda v: isinstance(v, Store)),
+            Stage("project", prefers=("project",), produces=lambda v: isinstance(v, Store)),
+        ), fixture=(1,))
+        search = Role("search", (Stage("ask", produces=lambda v: isinstance(v, dict)),),
+                      fixture=(2,))
+        binding, refusal = resolve_chain(Role("all", (), branches=(prepare, search)),
+                                         [_module("store", Store=Store)], ())
+        self.assertIsNone(refusal)
+        build, project = binding.branches["prepare"]
+        ask, = binding.branches["search"]
+        for value in (9, 4):
+            with runtime_pool({}):
+                projection = project.bound(build.bound(value))
+                self.assertEqual(projection.value, -1)
+                with runtime_pool({"prepare": projection}):
+                    self.assertEqual(ask.bound(2), {"owner": value + 10, "query": 2})
+
+    def test_prepare_verification_does_not_replace_the_next_branchs_probe_owner(self):
+        class Store:
+            def __init__(self, rows):
+                self.rows = list(rows)
+
+            def search(self, query):
+                if self.rows != [1]:
+                    raise ValueError("the search probe lost its fixture owner")
+                return {"rows": self.rows, "query": query}
+
+        prepare = Role("prepare", (Stage("build", produces=lambda v: isinstance(v, Store)),),
+                       fixture=([1],))
+        search = Role("search", (Stage("ask", produces=lambda v: isinstance(v, dict)),),
+                      fixture=(2,))
+        observed = []
+
+        def verify(chains):
+            if "search" not in chains:
+                build, = chains["prepare"]
+                observed.append(list(build.receiver.get().rows))
+                self.assertEqual(build.bound([9]).rows, [9])
+            else:
+                ask, = chains["search"]
+                observed.append(list(ask.receiver.get().rows))
+                self.assertEqual(ask.bound(2), {"rows": [1], "query": 2})
+            return True
+
+        binding, refusal = resolve_chain(Role("all", (), branches=(prepare, search)),
+                                         [_module("store", Store=Store)], (), verify=verify)
+        self.assertIsNone(refusal)
+        self.assertIsNotNone(binding)
+        self.assertEqual(observed, [[1], [1]])
+
+    def test_independent_branch_verification_can_read_an_earlier_branchs_owner(self):
+        module = self._module()
+
+        def query(value):
+            return {"query": value}
+
+        module.query = query
+        query.__module__ = module.__name__
+        prepare = Role("prepare", (
+            Stage("build", produces=lambda v: isinstance(v, module.Good)),
+            Stage("read", produces=lambda v: isinstance(v, list)),
+        ), fixture=([1],))
+        independent = Role("query", (
+            Stage("query", produces=lambda v: isinstance(v, dict)),
+        ), fixture=(2,))
+        observed = []
+
+        def verify(chains):
+            rows = chains["prepare"][-1].bound(None)
+            observed.append((tuple(chains), rows))
+            return rows == [1]
+
+        binding, refusal = resolve_chain(
+            Role("all", (), branches=(prepare, independent)), [module], (), verify=verify,
+        )
+        self.assertIsNone(refusal)
+        self.assertIsNotNone(binding)
+        self.assertEqual(observed, [(("prepare",), [1]), (("prepare", "query"), [1])])
+        self.assertIsNone(binding.branches["query"][0].receiver)
+
+    def test_rejected_verification_restores_probe_receiver_associations(self):
+        module = self._module()
+        role = Role("build", (Stage("build", produces=lambda v: isinstance(v, module.Good)),))
+        for raises in (False, True):
+            for scoped in (False, True):
+                with self.subTest(raises=raises, scoped=scoped):
+                    captured = []
+
+                    def verify(chain):
+                        build, = chain
+                        captured.append(build.receiver)
+                        self.assertEqual(build.receiver.get().rows, [1])
+                        build.bound([9])
+                        if raises:
+                            raise ValueError("verification failed")
+                        return False
+
+                    scope = runtime_pool({}) if scoped else contextlib.nullcontext()
+                    with scope:
+                        binding, refusal = resolve_chain(role, [module], ([1],), verify=verify)
+                        self.assertIsNone(binding)
+                        self.assertTrue(refusal.ran_to_the_end)
+                        self.assertEqual(len(captured), 1)
+                        self.assertEqual(captured[0].get().rows, [1])
+
+    def test_discovered_per_item_constructors_replay_each_input(self):
+        # Per-item construction is supported; reaching methods through the
+        # resulting list of owners is not part of this search contract.
+        class Item:
+            def __init__(self, value):
+                if not isinstance(value, int):
+                    raise TypeError("one integer is required")
+                self.value = value
+
+        role = Role("items", (Stage("build", per_item=True,
+                    produces=lambda v: isinstance(v, list)
+                    and all(isinstance(item, Item) for item in v)),))
+        binding, refusal = resolve_chain(role, [_module("items", Item=Item)], ([1, 2],))
+        self.assertIsNone(refusal)
+        build, = binding.steps
+        self.assertTrue(build.per_item)
+        self.assertEqual(binding._reach, ())
+        for values in ([9, 4], [3]):
+            self.assertEqual([item.value for item in build.bound(values)], values)
+
+    def test_nested_runtime_pools_restore_the_outer_constructor_owner(self):
+        build, read = self._binding().steps
+        build.bound([3])
+        with runtime_pool({}):
+            # A scoped run cannot borrow the binding's unscoped default.
+            with self.assertRaisesRegex(RuntimeError, "needs its constructor to run"):
+                read.bound(None)
+            build.bound([9])
+            with self.assertRaisesRegex(ValueError, "inner failure"):
+                with runtime_pool({}):
+                    build.bound([4])
+                    self.assertEqual(read.bound(None), [4])
+                    raise ValueError("inner failure")
+            self.assertEqual(read.bound(None), [9])
+        self.assertEqual(read.bound(None), [3])
+        with runtime_pool({}):
+            with self.assertRaisesRegex(RuntimeError, "needs its constructor to run"):
+                read.bound(None)
+
+    def test_two_extensions_of_the_same_constructor_have_distinct_handles(self):
+        module = self._module()
+        constructor = constructors_in([module])[0]
+        stage = Stage("build", produces=lambda v: isinstance(v, module.Good))
+        first, value_a, passed_a = extend(stage, [constructor], [1])[0]
+        second, value_b, passed_b = extend(stage, [constructor], [2])[0]
+        read_stage = Stage("read", produces=lambda v: isinstance(v, list))
+        read_a = extend(read_stage, _reachable(first, value_a, (passed_a,)), value_a)[0][0]
+        read_b = extend(read_stage, _reachable(second, value_b, (passed_b,)), value_b)[0][0]
+        self.assertIsNot(first.receiver, second.receiver)
+        self.assertIs(first.receiver, read_a.receiver)
+        self.assertIs(second.receiver, read_b.receiver)
+        self.assertEqual(read_a.bound(None), [1])
+        self.assertEqual(read_b.bound(None), [2])
+        for scoped in (False, True):
+            scope = runtime_pool({}) if scoped else contextlib.nullcontext()
+            with scope:
+                first.bound([9])
+                second.bound([4])
+                self.assertEqual(read_a.bound(None), [9])
+                self.assertEqual(read_b.bound(None), [4])
+
+    def test_explicit_receiver_precedes_named_branch_for_each_call_shape(self):
+        class Store:
+            def __init__(self, value):
+                self.value = value
+
+            def read(self, query):
+                return self.value, query.value
+
+        fixture, explicit, named, query = (Store(v) for v in (1, 2, 3, 4))
+        receiver = _Receiver()
+        candidate = Candidate("store.read", fixture.read, "store", attribute="read",
+                              owner=Store, branch="prepare", receiver=receiver)
+        for per_item in (False, True):
+            step = replace(candidate, per_item=per_item)
+            with runtime_pool({"prepare": named}):
+                receiver.put(explicit)
+                answer = step.bound([query] if per_item else query)
+                self.assertEqual(answer, [(2, 4)] if per_item else (2, 4))
+            with runtime_pool({"prepare": named}):
+                # Missing explicit owners may still use a supplied branch owner.
+                answer = step.bound([query] if per_item else query)
+                self.assertEqual(answer, [(3, 4)] if per_item else (3, 4))
+            with runtime_pool({}):
+                with self.assertRaisesRegex(RuntimeError, "needs its constructor to run"):
+                    step.bound([query] if per_item else query)
+            with runtime_pool({"prepare": object()}):
+                receiver.put(explicit)
+                answer = step.bound([query] if per_item else query)
+                self.assertEqual(answer, [(2, 4)] if per_item else (2, 4))
+
+    def test_public_finalization_clones_shared_handles_without_changing_evidence(self):
+        binding = self._binding()
+        build, read = binding.steps
+        fixture = build.bound([1])
+        original = replace(binding, fits=(("fit", build),),
+                           branches={"build": (build,), "read": (read,)}, _value=fixture)
+        fresh = _empty_receivers(original)
+        receiver = fresh.steps[0].receiver
+        self.assertIsNot(receiver, build.receiver)
+        self.assertIs(receiver.get(), _MISSING_RECEIVER)
+        for step in (fresh.steps[1], fresh.fits[0][1], fresh.branches["build"][0],
+                     fresh.branches["read"][0], *fresh._reach):
+            self.assertIs(step.receiver, receiver)
+        self.assertIs(fresh._value, fixture)
+        self.assertEqual(fresh, original)
+        self.assertEqual(repr(fresh.steps), repr(original.steps))
+        self.assertEqual(fresh.describe(), original.describe())
+        self.assertEqual([row.to_dict() for row in fresh.observations()],
+                         [row.to_dict() for row in original.observations()])
+        self.assertEqual(read.bound(None), [1])
+        with self.assertRaisesRegex(RuntimeError, "needs its constructor to run"):
+            fresh.steps[1].bound(fixture)
+
+    def test_runtime_hook_receives_raw_arguments_and_applies_metadata_once(self):
+        seen = []
+        candidate = Candidate("t.f", lambda value, tuning: (value, tuning), "t",
+                              tuning=7, plan=("value", "tuning"), handoff="element:1")
+
+        def mapped(*args):
+            seen.append(args)
+            return candidate.bound(*args)
+
+        hooked = replace(candidate, _runtime_call=mapped)
+        call = hooked.bound
+        self.assertEqual(seen, [])
+        self.assertEqual(call(("unused", 9)), (9, 7))
+        self.assertEqual(seen, [(("unused", 9),)])
+        self.assertEqual(hooked, candidate)
+        self.assertEqual(repr(hooked), repr(candidate))
+        self.assertEqual((hooked.tuning, hooked.plan, hooked.handoff),
+                         (7, ("value", "tuning"), "element:1"))
 
     def test_the_search_itself_is_unchanged(self):
         build, read = self._binding().steps
@@ -2132,7 +3143,8 @@ class AMethodCarriedAcrossBranchesIsTakenOffThisRunsObject(unittest.TestCase):
         self.assertIsNone(refusal)
         ask = binding.branches["search"][0]
         self.assertEqual(ask.branch, "prepare")
-        self.assertEqual(ask.bound(2), [2])
+        with self.assertRaisesRegex(RuntimeError, "needs its constructor to run"):
+            ask.bound(2)
 
         scored_store = binding.branches["prepare"][0].bound([9, 9])
         with runtime_pool({"prepare": scored_store}):
@@ -2695,6 +3707,722 @@ class OptionalFitStageTests(unittest.TestCase):
         found, failed = _fits_of(role, [], {}, [])
         self.assertEqual(found, [])
         self.assertEqual(failed, "idfs")
+
+
+class ClockOwnershipTests(unittest.TestCase):
+    """The per-call clock is one timer in a process that has one timer.
+
+    SIGALRM is process-wide, so a probe that installs its own handler and
+    cancels its own alarm cancels whatever the caller was timing, whether that
+    is a runner's deadline or an enclosing probe's.
+    """
+
+    def setUp(self):
+        if not hasattr(signal, "SIGALRM") or not hasattr(signal, "getitimer"):
+            self.skipTest("clock ownership requires POSIX interval timers")
+        if signal.getitimer(signal.ITIMER_REAL)[0]:
+            self.skipTest("the test runner already owns an alarm")
+        self.previous_handler = signal.getsignal(signal.SIGALRM)
+        self.addCleanup(signal.signal, signal.SIGALRM, self.previous_handler)
+        self.addCleanup(signal.setitimer, signal.ITIMER_REAL, 0)
+
+    def test_a_callers_timer_and_handler_survive_success_and_failure(self):
+        def caller_handler(signum, frame):
+            self.fail("the caller's twelve-second timer expired during a short test")
+
+        for raises in (False, True):
+            with self.subTest(raises=raises):
+                signal.signal(signal.SIGALRM, caller_handler)
+                signal.setitimer(signal.ITIMER_REAL, 12, 0.25)
+
+                def call():
+                    self.assertIs(signal.getsignal(signal.SIGALRM), caller_handler)
+                    remaining, interval = signal.getitimer(signal.ITIMER_REAL)
+                    self.assertGreater(remaining, 1)
+                    self.assertEqual(interval, 0.25)
+                    if raises:
+                        raise ValueError("their call failed")
+                    return "answer"
+
+                with patch("cogbench.pipeline.CALL_TIMEOUT_SECONDS", 1):
+                    if raises:
+                        with self.assertRaisesRegex(ValueError, "their call failed"):
+                            _under_clock(call)
+                    else:
+                        self.assertEqual(_under_clock(call), "answer")
+                self.assertIs(signal.getsignal(signal.SIGALRM), caller_handler)
+                remaining, interval = signal.getitimer(signal.ITIMER_REAL)
+                self.assertGreater(remaining, 1)
+                self.assertEqual(interval, 0.25)
+                signal.setitimer(signal.ITIMER_REAL, 0)
+
+    def test_nested_probes_do_not_cancel_the_outer_deadline(self):
+        for raises in (False, True):
+            with self.subTest(raises=raises):
+                def outer():
+                    before = signal.getitimer(signal.ITIMER_REAL)[0]
+                    handler = signal.getsignal(signal.SIGALRM)
+
+                    def inner():
+                        if raises:
+                            raise ValueError("inner failure")
+
+                    if raises:
+                        with self.assertRaisesRegex(ValueError, "inner failure"):
+                            _under_clock(inner)
+                    else:
+                        _under_clock(inner)
+                    after = signal.getitimer(signal.ITIMER_REAL)[0]
+                    self.assertGreater(after, 0)
+                    self.assertLessEqual(after, before)
+                    self.assertIs(signal.getsignal(signal.SIGALRM), handler)
+
+                _under_clock(outer)
+                self.assertEqual(signal.getitimer(signal.ITIMER_REAL)[0], 0)
+                self.assertIs(signal.getsignal(signal.SIGALRM), self.previous_handler)
+
+
+def _keep(items):
+    return list(items)
+
+
+def _use(items):
+    return "-".join(str(item) for item in items)
+
+
+class ABranchThatNeverGotItsInputIsStillWorthGoingBackFor(unittest.TestCase):
+    """A branch waiting on another branch's value is the reason to try another
+    form of that branch.
+
+    A branch whose fixture reads an upstream value is never searched while
+    that value is missing, and the form search skipped any attempt with no
+    searched pending branch. So a first branch that bound on the form
+    producing nothing stranded the second one on every pass.
+    """
+
+    @staticmethod
+    def _later(pool, _chains):
+        value = pool.get("first")
+        return (value,) if value else None
+
+    def _role(self, forms):
+        return Role(
+            "week",
+            (),
+            branches=(
+                Role(
+                    "first",
+                    (Stage("keep", produces=lambda v: isinstance(v, list)),),
+                    fixture=Fixtures(forms),
+                ),
+                Role(
+                    "later",
+                    (Stage("use", produces=lambda v: isinstance(v, str) and v),),
+                    fixture=self._later,
+                    optional=True,
+                ),
+            ),
+        )
+
+    @staticmethod
+    def _modules():
+        return [_module("theirs", keep=_keep, use=_use)]
+
+    def test_another_form_of_the_bound_branch_is_offered(self):
+        role = self._role(((([],), ([1, 2],))))
+
+        binding, refusal = self._resolve(role)
+
+        self.assertIsNone(refusal, refusal.detail if refusal else "")
+        self.assertIn("later", binding.branches)
+        self.assertEqual(binding.branches["first"][0].form, 1)
+        self.assertEqual(binding.missing, {})
+
+    def test_a_complete_attempt_does_not_go_back_for_another_form(self):
+        """Every branch bound, so no other set of forms can cover more. Going
+        back would re-run the whole fixpoint for a result that cannot win."""
+
+        role = self._role((([1, 2],), ([],)))
+        original = pipeline._resolve_chain
+        searched = []
+
+        def counted(branch, *args, **keywords):
+            searched.append(branch.name)
+            return original(branch, *args, **keywords)
+
+        pipeline._resolve_chain = counted
+        self.addCleanup(setattr, pipeline, "_resolve_chain", original)
+
+        binding, refusal = self._resolve(role)
+
+        self.assertIsNone(refusal)
+        self.assertEqual(searched, ["first", "later"])
+        self.assertEqual(binding.branches["first"][0].form, 0)
+
+    def test_a_role_whose_branches_all_wait_on_each_other_still_answers(self):
+        """Nothing was ever searched, so there is no bound branch to offer
+        another form of. The search has to end rather than circle."""
+
+        waiting = Role(
+            "week",
+            (),
+            branches=(
+                Role(
+                    "one",
+                    (Stage("use", produces=lambda v: isinstance(v, str)),),
+                    fixture=lambda pool, _chains: pool.get("missing"),
+                ),
+                Role(
+                    "two",
+                    (Stage("use", produces=lambda v: isinstance(v, str)),),
+                    fixture=lambda pool, _chains: pool.get("absent"),
+                ),
+            ),
+        )
+
+        binding, refusal = self._resolve(waiting)
+
+        self.assertIsNone(binding)
+        self.assertEqual(refusal.role, "week.one")
+        self.assertIn("not produced by any other branch", refusal.detail)
+
+    def _resolve(self, role):
+        return resolve_chain(role, self._modules(), ([1, 2],))
+
+
+class AKeywordOnlyArgumentCanHoldATuningOrAnIdentity(unittest.TestCase):
+    """`plan` names positional arguments only, so a week's tuning values and
+    the item's own identity had no route to a keyword-only parameter.
+
+    The shapes built for them appended a positional argument the signature
+    would not take, so `adj_list(paths, *, threshold)` was never called and
+    the repository was reported as having nothing that accepted the input.
+    """
+
+    @staticmethod
+    def _bind(stage, call, fixture, identities=()):
+        module = _module("theirs", build=call)
+        found = probe_sources(
+            stage, callables_in([module]), fixture, identities=identities
+        )
+        return found[0] if found else (None, None)
+
+    def test_a_keyword_only_tuning_is_offered_the_weeks_values(self):
+        def build(paths, *, threshold):
+            return [p for p in paths if p > threshold]
+
+        stage = Stage(
+            "group",
+            produces=lambda v: isinstance(v, list) and len(v) == 1,
+            tunings=(1, 3),
+        )
+
+        candidate, value = self._bind(stage, build, ([1, 5],))
+
+        self.assertIsNotNone(candidate)
+        self.assertEqual(candidate.keyword_plan, (("threshold", "tuning"),))
+        self.assertEqual(candidate.plan, ("value",))
+        self.assertEqual(candidate.tuning, 1)
+        self.assertEqual(value, [5])
+
+    def test_a_keyword_only_identity_is_offered_the_items_own_names(self):
+        def build(vectors, *, names):
+            return ["{}={}".format(name, vector) for name, vector in zip(names, vectors)]
+
+        stage = Stage(
+            "group",
+            produces=lambda v: isinstance(v, list) and v and isinstance(v[0], str),
+            identity=True,
+        )
+
+        candidate, value = self._bind(stage, build, ([1, 2],), identities=("a", "b"))
+
+        self.assertIsNotNone(candidate)
+        self.assertEqual(candidate.keyword_plan, (("names", "identity"),))
+        self.assertEqual(candidate.supplied["identity"], ("a", "b"))
+        self.assertEqual(value, ["a=1", "b=2"])
+
+    def test_a_call_that_wants_both_by_keyword_gets_both(self):
+        def build(vectors, *, names, threshold):
+            return [
+                "{}={}".format(name, vector)
+                for name, vector in zip(names, vectors)
+                if vector > threshold
+            ]
+
+        stage = Stage(
+            "group",
+            produces=lambda v: isinstance(v, list) and len(v) == 1,
+            identity=True,
+            tunings=(1, 3),
+        )
+
+        candidate, value = self._bind(stage, build, ([1, 5],), identities=("a", "b"))
+
+        self.assertIsNotNone(candidate)
+        self.assertEqual(
+            candidate.keyword_plan,
+            (("names", "identity"), ("threshold", "tuning")),
+        )
+        self.assertEqual(candidate.tuning, 1)
+        self.assertEqual(value, ["b=5"])
+
+    def test_a_signature_that_splits_them_fills_both_halves(self):
+        """Bagel's `Whispers(vectors, names, threshold)` with the cutoff moved
+        behind a star. The positional walk fills the names and has to know the
+        cutoff is already spoken for."""
+
+        def build(vectors, names, *, threshold):
+            return [
+                "{}={}".format(name, vector)
+                for name, vector in zip(names, vectors)
+                if vector > threshold
+            ]
+
+        stage = Stage(
+            "group",
+            produces=lambda v: isinstance(v, list) and len(v) == 1,
+            identity=True,
+            tunings=(1, 3),
+        )
+
+        candidate, value = self._bind(stage, build, ([1, 5],), identities=("a", "b"))
+
+        self.assertIsNotNone(candidate)
+        self.assertEqual(candidate.plan, ("value", "identity"))
+        self.assertEqual(candidate.keyword_plan, (("threshold", "tuning"),))
+        self.assertEqual(candidate.tuning, 1)
+        self.assertEqual(value, ["b=5"])
+
+    def test_a_keyword_only_argument_with_a_default_is_left_alone(self):
+        """The plain call first, everywhere. A team who defaulted theirs is
+        calling the same function a shorter way."""
+
+        def build(paths, *, threshold=0):
+            return [p for p in paths if p > threshold]
+
+        stage = Stage(
+            "group",
+            produces=lambda v: isinstance(v, list) and len(v) == 2,
+            tunings=(1, 3),
+        )
+
+        candidate, value = self._bind(stage, build, ([1, 5],))
+
+        self.assertIsNotNone(candidate)
+        self.assertEqual(candidate.keyword_plan, ())
+        self.assertEqual(candidate.plan, ())
+        self.assertIsNone(candidate.tuning)
+        self.assertEqual(value, [1, 5])
+
+    def test_a_declared_side_input_wins_over_the_identity_slot(self):
+        """`names` asks for an identity by its name and is also what this week
+        declared as a side input. The benchmark chose the value it handed
+        over; reading the name as an identity instead ran their function on
+        data nobody chose, and it answered."""
+
+        def build(rows, *, names, threshold):
+            return [
+                "{}:{}".format(name, row)
+                for name, row in zip(names, rows)
+                if row > threshold
+            ]
+
+        stage = Stage(
+            "group",
+            produces=lambda v: isinstance(v, list) and len(v) == 1,
+            extras=("names",),
+            identity=True,
+            tunings=(1, 3),
+        )
+        module = _module("theirs", build=build)
+
+        found = probe_sources(
+            stage,
+            callables_in([module]),
+            ([1, 5],),
+            extras={"names": ("given-a", "given-b")},
+            identities=("guessed-a", "guessed-b"),
+        )
+
+        self.assertTrue(found)
+        candidate, value = found[0]
+        self.assertEqual(
+            candidate.keyword_plan,
+            (("names", "extra:names"), ("threshold", "tuning")),
+        )
+        self.assertEqual(value, ["given-b:5"])
+
+    def test_a_side_input_by_position_and_a_cutoff_by_keyword_compose(self):
+        """Their function takes the week's resource positionally and the
+        cutoff behind a star. Offered apart, the positional shapes left the
+        cutoff empty and the keyword shape left the resource empty."""
+
+        def build(rows, weights, *, threshold):
+            return [
+                row * weight
+                for row, weight in zip(rows, weights)
+                if row > threshold
+            ]
+
+        stage = Stage(
+            "group",
+            produces=lambda v: isinstance(v, list) and len(v) == 1,
+            extras=("weights",),
+            tunings=(1,),
+        )
+        module = _module("theirs", build=build)
+
+        found = probe_sources(
+            stage, callables_in([module]), ([1, 5],), extras={"weights": [10, 20]},
+        )
+
+        self.assertTrue(found)
+        candidate, value = found[0]
+        self.assertEqual(candidate.plan, ("value", "extra:weights"))
+        self.assertEqual(candidate.keyword_plan, (("threshold", "tuning"),))
+        self.assertEqual(candidate.tuning, 1)
+        self.assertEqual(value, [100])
+
+    def test_the_identity_slot_holds_this_runs_items_not_the_searchs(self):
+        made = []
+
+        def build(vector, *, name):
+            made.append((vector, name))
+            return "{}={}".format(name, vector)
+
+        candidate = Candidate(
+            "theirs.build",
+            build,
+            "theirs",
+            plan=("value",),
+            keyword_plan=(("name", "identity"),),
+            per_item=True,
+            supplied={"identity": ("search-a", "search-b")},
+        )
+
+        with runtime_pool({"identity": ("run-a", "run-b")}):
+            answered = candidate.bound([7, 8])
+
+        self.assertEqual(made, [(7, "run-a"), (8, "run-b")])
+        self.assertEqual(answered, ["run-a=7", "run-b=8"])
+
+    def test_a_replay_makes_the_one_call_the_search_made(self):
+        """The handoff, the extras, the tuning and the keyword arguments in
+        one call, because a step re-called differently is a different
+        program."""
+
+        made = []
+
+        def build(vector, glove, *, name, threshold):
+            made.append((vector, glove, name, threshold))
+            return "ok"
+
+        candidate = Candidate(
+            "theirs.build",
+            build,
+            "theirs",
+            plan=("value", "extra:glove"),
+            keyword_plan=(("name", "identity"), ("threshold", "tuning")),
+            tuning=0.4,
+            handoff="element:1",
+            supplied={"identity": ("a",), "glove": "vectors"},
+        )
+
+        self.assertEqual(candidate.bound(("skip", "take")), "ok")
+        self.assertEqual(made, [("take", "vectors", ["a"], 0.4)])
+
+
+class AModuleThatRefusesToListItself(unittest.TestCase):
+    """A module can define `__dir__` and `__getattr__`, and one that generates
+    its exports can define them badly.
+
+    Either raises out of the enumeration and takes the whole search with it.
+    One unreadable name is a bug in one of their files, not a reason to stop
+    reading the repository.
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def _module(self, name, source):
+        path = self.tmp / (name + ".py")
+        path.write_text(source, encoding="utf-8")
+        self.addCleanup(sys.modules.pop, name, None)
+        return _imported(name, path)
+
+    def test_a_name_that_cannot_be_read_does_not_hide_the_rest(self):
+        module = self._module(
+            "advertised",
+            "def real(value):\n"
+            "    return [value]\n"
+            "def __dir__():\n"
+            "    return ['ghost', 'real']\n"
+            "def __getattr__(name):\n"
+            "    raise RuntimeError('the generated exports are not ready')\n",
+        )
+
+        self.assertEqual(
+            [candidate.label for candidate in callables_in([module])],
+            ["advertised.real"],
+        )
+
+    def test_a_listing_that_raises_falls_back_to_what_the_module_bound(self):
+        module = self._module(
+            "unlistable",
+            "def real(value):\n"
+            "    return [value]\n"
+            "def __dir__():\n"
+            "    raise RuntimeError('this module refuses to list itself')\n",
+        )
+
+        self.assertEqual(
+            [candidate.label for candidate in callables_in([module])],
+            ["unlistable.real"],
+        )
+
+    def test_a_namespace_key_that_is_not_a_name_keeps_the_real_exports(self):
+        """A module dictionary is keyed by anything hashable, and one key that
+        is not a string makes the fallback unsortable, so a single
+        `globals()[7] = ...` threw out every export the module had."""
+
+        module = self._module(
+            "mixedkeys",
+            "def real(value):\n"
+            "    return [value]\n"
+            "globals()[7] = 'not a name'\n"
+            "def __dir__():\n"
+            "    raise RuntimeError('this module refuses to list itself')\n",
+        )
+
+        self.assertEqual(
+            [candidate.label for candidate in callables_in([module])],
+            ["mixedkeys.real"],
+        )
+
+    def test_a_listing_of_things_that_are_not_names_enumerates_nothing(self):
+        """Their `__dir__` answered, so it is honoured, and what it named
+        cannot be asked of `getattr`. Nothing is found and the search goes on,
+        rather than ending on an AttributeError over a name that was never
+        one."""
+
+        module = self._module(
+            "numberlisting",
+            "def real(value):\n"
+            "    return [value]\n"
+            "def __dir__():\n"
+            "    return [7, 8]\n",
+        )
+
+        self.assertEqual(callables_in([module]), [])
+
+    def test_a_constructor_is_still_found_and_a_static_method_still_is_not(self):
+        """A function parked inside a class as a static method is deliberately
+        not a candidate, and a module that cannot list itself must not become
+        the way one gets in."""
+
+        module = self._module(
+            "silent",
+            "class Store:\n"
+            "    def __init__(self, rows):\n"
+            "        self.rows = list(rows)\n"
+            "    @staticmethod\n"
+            "    def helper(rows):\n"
+            "        return list(rows)\n"
+            "def __dir__():\n"
+            "    raise RuntimeError('no listing')\n",
+        )
+
+        self.assertEqual(
+            [candidate.label for candidate in constructors_in([module])],
+            ["silent.Store"],
+        )
+        self.assertEqual(callables_in([module]), [])
+
+    def test_a_module_that_gives_up_nothing_refuses_rather_than_raises(self):
+        module = self._module(
+            "opaque",
+            "def __dir__():\n"
+            "    raise RuntimeError('no listing')\n"
+            "def __getattr__(name):\n"
+            "    raise RuntimeError('nothing here')\n",
+        )
+        role = Role("week", (Stage("only"),))
+
+        binding, refusal = resolve_chain(role, [module], ([1],))
+
+        self.assertIsNone(binding)
+        self.assertEqual(refusal.detail, "no functions to try")
+
+
+class _Watched(Mapping):
+    """A resource pool that records every key read and refuses the guarded ones.
+
+    Stands in for a benchmark that builds each resource the first time it is
+    asked for. Reading a key nobody wanted is the cost this exists to catch,
+    so the guarded keys say so rather than returning quietly.
+    """
+
+    def __init__(self, values, guarded=()):
+        self._values = dict(values)
+        self._guarded = frozenset(guarded)
+        self.read = []
+
+    def __getitem__(self, key):
+        self.read.append(key)
+        if key in self._guarded:
+            raise AssertionError("{!r} was built and nothing asked for it".format(key))
+        return self._values[key]
+
+    def __iter__(self):
+        return iter(self._values)
+
+    def __len__(self):
+        return len(self._values)
+
+
+class _LazyPool(MutableMapping):
+    """A local layer over a source that is expensive to read, with `__copy__`.
+
+    Assignments land locally and lookups fall through to the source. This
+    test double rejects enumeration to detect eager copying at the fixture
+    boundary; it does not restrict what the consumer's mapping may support.
+    """
+
+    def __init__(self, source, local=None):
+        self._source = source
+        self.local = dict(local or {})
+
+    def __copy__(self):
+        return _LazyPool(self._source, self.local)
+
+    def __getitem__(self, key):
+        if key in self.local:
+            return self.local[key]
+        return self._source[key]
+
+    def __setitem__(self, key, value):
+        self.local[key] = value
+
+    def __delitem__(self, key):
+        del self.local[key]
+
+    def __iter__(self):
+        raise AssertionError("the pool was enumerated and nothing needs every key")
+
+    def __len__(self):
+        raise AssertionError("the pool was measured and nothing needs every key")
+
+
+class ABranchFixtureReadsThePoolWithoutEmptyingIt(unittest.TestCase):
+    """A branch fixture is handed the pool so it can read what it needs.
+
+    Copying must preserve lazy lookup and isolate local assignments. These
+    tests also cover ordinary dicts and ChainMap copying, but make no claim
+    about ChainMap enumeration: Python 3.8 reads underlying values while
+    Python 3.13 enumerates only keys.
+    """
+
+    @staticmethod
+    def _branch(fixture):
+        return Role("later", (Stage("use"),), fixture=fixture)
+
+    def test_copying_a_lazy_pool_does_not_read_its_entries(self):
+        source = _Watched(
+            {"text": ["a caption"], "weights": "expensive"}, guarded=("weights",)
+        )
+
+        made = _fixture_for(
+            self._branch(lambda handed, _chains: (handed["text"],)),
+            ("outer",),
+            _LazyPool(source),
+            {},
+        )
+
+        self.assertEqual(made, (["a caption"],))
+        self.assertEqual(source.read, ["text"])
+
+    def test_a_lazy_pools_local_layer_belongs_to_the_copy(self):
+        source = _Watched({"weights": "expensive"}, guarded=("weights",))
+        pool = _LazyPool(source, {"text": ["ours"]})
+
+        def fixture(handed, _chains):
+            handed["text"] = ["theirs"]
+            handed["added"] = True
+            return (handed["text"],)
+
+        made = _fixture_for(self._branch(fixture), ("outer",), pool, {})
+
+        self.assertEqual(made, (["theirs"],))
+        self.assertEqual(pool.local, {"text": ["ours"]})
+        self.assertEqual(source.read, [])
+
+    def test_a_chain_map_pool_builds_only_the_key_the_fixture_reads(self):
+        watched = _Watched(
+            {"text": ["a caption"], "weights": "expensive"}, guarded=("weights",)
+        )
+        pool = ChainMap({}, watched)
+
+        made = _fixture_for(
+            self._branch(lambda handed, _chains: (handed["text"],)),
+            ("outer",),
+            pool,
+            {},
+        )
+
+        self.assertEqual(made, (["a caption"],))
+        self.assertEqual(watched.read, ["text"])
+
+    def test_a_chain_map_pool_keeps_the_callers_top_layer(self):
+        top = {"text": ["ours"]}
+        watched = _Watched({"weights": "expensive"}, guarded=("weights",))
+        pool = ChainMap(top, watched)
+
+        def fixture(handed, _chains):
+            handed["text"] = ["theirs"]
+            handed["added"] = True
+            return (handed["text"],)
+
+        made = _fixture_for(self._branch(fixture), ("outer",), pool, {})
+
+        self.assertEqual(made, (["theirs"],))
+        self.assertEqual(top, {"text": ["ours"]})
+        self.assertEqual(watched.read, [])
+
+    def test_an_ordinary_dict_pool_is_copied_the_way_it_always_was(self):
+        rows = ["shared"]
+        pool = {"text": rows}
+
+        def fixture(handed, _chains):
+            handed["added"] = True
+            return (handed["text"],)
+
+        made = _fixture_for(self._branch(fixture), ("outer",), pool, {})
+
+        # Shallow: the copy holds the same list, so nothing of the
+        # benchmark's is duplicated on the way to a fixture that only reads.
+        self.assertIs(made[0], rows)
+        self.assertEqual(pool, {"text": rows})
+
+    def test_a_key_the_pool_has_not_got_yet_is_still_not_yet(self):
+        made = _fixture_for(
+            self._branch(lambda handed, _chains: (handed["absent"],)),
+            ("outer",),
+            _LazyPool(_Watched({})),
+            {},
+        )
+
+        self.assertIs(made, _UNREADY)
+
+    def test_a_fixture_that_failed_for_its_own_reason_is_still_broken(self):
+        def fixture(_handed, _chains):
+            raise ValueError("the week's own fixture is wrong")
+
+        made = _fixture_for(self._branch(fixture), ("outer",), {}, {})
+
+        self.assertIsInstance(made, _Broken)
+        self.assertIsInstance(made.error, ValueError)
 
 
 if __name__ == "__main__":

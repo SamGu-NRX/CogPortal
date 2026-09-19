@@ -111,7 +111,7 @@ class ReportRoundTrips(TinyProjectTest):
 
     def test_run_discovery_reuses_the_child_local_spec(self):
         spec = object()
-        submission = SimpleNamespace(discovery=None)
+        submission = SimpleNamespace(to_dict=dict)
         with patch.object(cli, 'load_benchmark', side_effect=AssertionError('spec rebuilt')), \
              patch.object(cli, 'from_spec', return_value=submission) as resolve:
             result, survey, unavailable = cli._discover('fixture', self.root, True, spec=spec)
@@ -239,7 +239,6 @@ class AMalformedOperationResultIsCategorizedNotRaised(TinyProjectTest):
         self.assertEqual(renderer.call_args.kwargs['survey'], survey)
 
     def test_a_malformed_run_report_exits_two_with_a_reason(self):
-        import io
         import json as _json
 
         # 1e999 decodes to inf and the int conversions inside from_wire raise

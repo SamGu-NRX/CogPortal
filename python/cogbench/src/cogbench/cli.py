@@ -38,7 +38,7 @@ from .client import (
     update_setup_checks,
 )
 from .models import LocalReport
-from .resolve import SubmissionReport, from_spec, resolve
+from .resolve import SubmissionReport, from_spec
 from .discover import _Redirects
 from .plugins import (
     PluginError,
@@ -219,8 +219,8 @@ def _print_report(report: LocalReport, as_json: bool = False) -> None:
         precision = max(metric.precision, 4) if metric.primary else metric.precision
         value = ("{:.%df}" % precision).format(metric.value)
         unit = metric.unit
-        # Older plugins omitted the unit for timing metrics. The key is the
-        # only remaining evidence that the value is measured in seconds.
+        # runner._metric carries no unit for any metric, so the key suffix is
+        # the only evidence that a value is seconds.
         if not unit and metric.key.endswith("_seconds"):
             unit = "s"
         print("{}: {}{}".format(metric.label, value, " " + unit if unit else ""))
@@ -327,8 +327,11 @@ def _discover(benchmark: str, project_root: Path, as_json: bool, *, spec=None, p
             watcher.done()
         return None, None, "{}: {}".format(type(error).__name__, error)
 
-    found = submission.discovery
-    return submission, (found.to_dict() if found is not None else None), None
+    # Off the record, not off `submission.discovery`. A binding that is handed
+    # over lets the search's reading go and keeps what it found on the record
+    # (`resolve.Submission.fresh`), so reading the attribute here reported no
+    # search at all for exactly the repositories that resolved through one.
+    return submission, submission.to_dict().get("discovery"), None
 
 
 class _Scoreable(NamedTuple):
@@ -719,8 +722,6 @@ def _check(benchmark: str, as_json: bool, project_root: Path) -> int:
     elif checks["benchmarkInstalled"]:
         load_benchmark(benchmark)
         checks["benchmarkLoadable"] = True
-    # Everything that reads the repository happens in one call, in a child
-    # process, and answers the same question `run` asks.
     submission = None
     survey = None
     installed_reference = False
@@ -1084,8 +1085,7 @@ def _run_view(args: argparse.Namespace, project_root: Path, *, project=None, pro
                 smoke=args.command == "test",
                 progress=progress,
             )
-            serialized = json.dumps(project.describe(json.loads(report.to_json())))
-            return serialized
+            return json.dumps(project.describe(json.loads(report.to_json())))
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:

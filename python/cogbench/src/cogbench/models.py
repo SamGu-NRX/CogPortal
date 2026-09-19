@@ -134,6 +134,16 @@ class LocalReport:
         predictions: List[Any],
     ) -> "LocalReport":
         encoded = json.dumps(predictions, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        retained = diagnostics[:32]
+        # The wire allows 32 lines. Reserve one for each retained record before
+        # spending spare lines on wrapping, so an early note cannot hide a cause.
+        spare = 32 - len(retained)
+        notes: List[str] = []
+        for item in retained:
+            lines = _diagnostic_lines(item)
+            extra = min(spare, len(lines) - 1)
+            notes.extend(lines[:1 + extra])
+            spare -= extra
         return cls(
             report_id="local_" + uuid.uuid4().hex,
             benchmark_id=benchmark_id,
@@ -145,11 +155,7 @@ class LocalReport:
             started_at=started_at,
             finished_at=finished_at,
             metrics=metrics,
-            diagnostics=[
-                line
-                for item in diagnostics
-                for line in _diagnostic_lines(item)
-            ][:32],
+            diagnostics=notes,
             output_digest=hashlib.sha256(encoded).hexdigest(),
         )
 

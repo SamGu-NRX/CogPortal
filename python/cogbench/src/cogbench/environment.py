@@ -333,13 +333,23 @@ def missing_here(modules: Sequence[str]) -> Tuple[str, ...]:
     than answering, and a broken installation can raise almost anything from
     its finder. Either way the honest answer is that we could not confirm the
     package is here, so it is reported as missing rather than assumed present.
+
+    Scope: this reports what the interpreter can locate, not what it can
+    import, so a package whose files are present but whose import raises reads
+    as here. The module depending on it is still skipped and still names it;
+    only this earlier warning is missed.
     """
 
     absent = []
     for name in modules:
         try:
             found = importlib.util.find_spec(name)
-        except (ImportError, ValueError, AttributeError, TypeError):
+        except Exception:  # noqa: BLE001 - any finder on the path may raise
+            # Every exception, not a list of four. A finder already on
+            # `sys.meta_path` raising `OSError` ended the caller, and what a
+            # third-party finder raises is not ours to enumerate. The answer
+            # is unchanged either way: a package this cannot confirm is
+            # reported as missing rather than assumed present.
             found = None
         if found is None:
             absent.append(name)

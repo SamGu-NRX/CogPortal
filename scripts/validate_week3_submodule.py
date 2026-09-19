@@ -26,8 +26,6 @@ MIGRATION_EXPECTATIONS = (
     "week3-cpu-v1",
 )
 
-#: The catalog row the hosted runner reads, as the migrations leave it. The
-#: last one wins, which is what applying them in order does.
 #: The migration that last moves the row, so a later re-seed is detectable.
 LAST_SCORER_MIGRATION = "0032_week3_scorer_v4.sql"
 
