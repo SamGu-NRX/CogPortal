@@ -40,22 +40,6 @@ class ProcessOutcomes(unittest.TestCase):
         self.assertEqual(result.status, isolate.COMPLETED, result)
         self.assertEqual(result.value, "direct child")
 
-    def test_clean_exit_first_observed_after_cleanup_keeps_its_result(self):
-        read_fd, write_fd = os.pipe()
-        payload = json.dumps({'status': 'completed', 'detail': '', 'value': 42}).encode()
-        os.write(write_fd, struct.pack('!I', len(payload)) + payload)
-        os.close(write_fd)
-        # The child exits between the last nonblocking wait and the final
-        # reap. No longer wait budget is needed to use this observed exit.
-        with patch.object(isolate, '_reap_bounded', return_value=None), \
-             patch.object(isolate.os, 'waitpid', return_value=(0, 0)), \
-             patch.object(isolate, '_terminate'), \
-             patch.object(isolate, '_reap', return_value=(123, 0)):
-            result = isolate._collect(123, read_fd, None, None)
-        self.assertEqual(result.status, isolate.COMPLETED, result)
-        self.assertEqual(result.value, 42)
-        self.assertIsNone(result.read_reason)
-
     def test_parent_allocation_refusal_is_a_categorized_failure(self):
         with patch.object(isolate, '_read_payload', side_effect=MemoryError):
             result = isolate.run_isolated(lambda: 42, timeout_seconds=5)

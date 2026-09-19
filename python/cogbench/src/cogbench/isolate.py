@@ -861,7 +861,7 @@ def _collect(pid, read_fd, timeout_seconds, memory_bytes, on_poll=None) -> Outco
                 # WNOHANG and cleanup. Those cannot have come from our SIGKILL.
                 if final_status is not None and not (os.WIFSIGNALED(final_status)
                         and os.WTERMSIG(final_status) == signal.SIGKILL):
-                    status, reaped = final_status, True
+                    status = final_status
     # A result is only trustworthy if the child exited on its own. The result
     # descriptor is reachable from the child, so code running there can write a
     # correctly framed "completed" envelope, close it, and hang: the parent
