@@ -66,7 +66,7 @@ otherwise, on the strength of three rows with `active = 0`. Those are
 superseded benchmarks kept so old runs still resolve their own version, and
 the local database holds the same three. Filtering on `active` is the
 difference between "this environment is a month stale" and "this environment
-is current," and I reported the first before checking.
+is current."
 
 Two active benchmarks are missing from the deployed database rather than
 stale: `audio-identification` is absent, and `language-search` is present but

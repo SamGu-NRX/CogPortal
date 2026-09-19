@@ -9,12 +9,11 @@ counts as having done the job, and how a store might want an item handed to it.
 That is the benchmark's to say, so the benchmark says it, here. A plugin
 returns one of these from ``discovery()`` and every surface can then resolve
 that week without containing a line of week-specific code. A benchmark with no
-``discovery()`` is not broken, it just cannot be searched for automatically,
-and the surfaces report exactly that rather than pretending.
+``discovery()`` cannot be searched for automatically, and the surfaces report
+that rather than pretending.
 
 The alternative was a table in the resolver naming each week's functions, which
-does not survive the first team that names things differently and does not
-survive a new week at all.
+does not survive the first team that names things differently.
 """
 
 from __future__ import annotations
@@ -46,11 +45,9 @@ class DiscoverySpec:
     #: ``query_call`` may be None, and a week whose task ends in a database
     #: must answer that call: enroll the fixture and return ``(True, detail)``
     #: when all of it went in, ``(False, detail)`` when it did not, without
-    #: querying anything. Whether a store takes an enrolment is a property of
-    #: the store, the arrangement and the shape it is offered in -- the query
-    #: is not one of its inputs -- so the resolver asks it once per store and
-    #: then pairs only the stores that said yes, instead of re-asking it for
-    #: every query it might be paired with.
+    #: querying anything. Whether a store takes an enrolment does not depend
+    #: on the query, so the resolver asks it once per store and pairs only the
+    #: stores that said yes.
     accepts: Callable[..., Any]
 
     #: The orders in which a store might want one item offered. Teams write
@@ -66,9 +63,8 @@ class DiscoverySpec:
     #:
     #: A reader reads a value and returns another, so whether it can read a
     #: given answer, and whether what it produced is better, are both settled
-    #: by one call and one grading. Proving the same thing by re-running the
-    #: whole acceptance test per candidate tail cost one 2026 repository
-    #: 125,104 enrol-and-query runs.
+    #: by one call and one grading. Re-running the whole acceptance test per
+    #: candidate tail cost one corpus repository 125,104 enrol-and-query runs.
     grades: Optional[Callable[[Any], Any]] = None
 
     #: Directory names worth preferring when a repository holds several weeks.
@@ -107,18 +103,16 @@ class DiscoverySpec:
     #: read once the root is known: ``prepare(root, modules) -> dict`` is
     #: merged into the extras pool before the search, with their loaded
     #: modules alongside so a week can build one of their objects around a
-    #: file. Week 3's trained projection is the case. It is a file the team
-    #: committed, so `discovery()` cannot know it when it runs (before any
-    #: repository is chosen), and without it every repository read as having
-    #: no weights. A hook that raises refuses the search with its message,
-    #: because a week that could not read what it needs from a repository
-    #: has nothing honest to bind.
+    #: file. Week 3's trained projection is the case: a file the team
+    #: committed, which `discovery()` cannot know when it runs, before any
+    #: repository is chosen. A hook that raises refuses the search with its
+    #: message.
     prepare: Optional[Callable[[Path, Sequence[Any]], Mapping[str, Any]]] = None
 
     #: The right answer to that test, in the week's own words, for the
     #: headline of a chain that ran end to end and answered something else.
     #: "one group per person" for week 2, "the enrolled song at rank 1" for
-    #: week 1. The default is a sentence that is true of every week; the
-    #: week 2 sentence was hard-coded in the resolver and a week 3 team read
-    #: that their caption search "answered a different grouping".
+    #: week 1. The default is a sentence that is true of every week; hard-coded
+    #: in the resolver, week 2's sentence told a week 3 team their caption
+    #: search "answered a different grouping".
     expects: str = "the answer the benchmark's own case has"
