@@ -63,8 +63,6 @@ export function CopyBlock({
       >
         {text}
       </code>
-      {/* Same control as the code block's, so one gesture means one thing
-          across the page. */}
       <button
         type="button"
         onClick={copy}
