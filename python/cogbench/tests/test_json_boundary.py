@@ -137,9 +137,6 @@ class ADeclaredLengthIsNotAnAllocationOrder(unittest.TestCase):
     seen, and the MemoryError escapes `_read_payload` and `_collect` as an
     exception rather than as a categorized failure. Only the header is written
     here; nothing large is allocated and nothing is exhausted.
-
-    Ported from the process-containment owner's public fix 5c18573, with the
-    corrected cap and chunk wording from a27a7a3. Their finding, their fix.
     """
 
     def _declare(self, size):

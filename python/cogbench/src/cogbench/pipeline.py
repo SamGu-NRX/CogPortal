@@ -3266,9 +3266,7 @@ def _resolve_branches(
             # Every branch bound, so no other set of forms can cover more.
             # Anything still pending is worth going back for, including a
             # branch never searched because its input never appeared: that is
-            # the case another form of a bound branch changes. The test here
-            # used to require a pending branch to have been searched, which
-            # skipped exactly that one.
+            # the case another form of a bound branch changes.
             continue
         for name in reversed(attempt.order):
             used, total = attempt.forms[name]
@@ -4138,7 +4136,6 @@ def _resolve_chain(
             # Verifiers replay constructors on their own cases. Keep those
             # publications out of the probe owners later branches still need.
             # Read before entering the scope, which hides unscoped defaults.
-            # This restores associations, not mutations to the objects themselves.
             receivers = {
                 step.receiver: step.receiver.get()
                 for step in (

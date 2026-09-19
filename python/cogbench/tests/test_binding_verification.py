@@ -11,7 +11,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from cogbench.pipeline import (
-    Binding, Fixtures, Role, Stage, _MISSING_RECEIVER, _RUNTIME,
+    Fixtures, Role, Stage, _MISSING_RECEIVER, _RUNTIME,
     _resolve_branches, _resolve_chain, resolve_chain, runtime_pool,
 )
 

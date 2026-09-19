@@ -2478,7 +2478,7 @@ class AReturnedSubmissionCanStillImportItsOwnModules(_Submission):
         """A counter is not enough. Entering A, then B, then A again has to
         put A's names back the second time; treating the inner A as already
         installed left B's modules in place, and A's own function read B's
-        state. Found by the PR7 owner against real files on 3.8."""
+        state."""
 
         one, two = self.submission("a", "repo-a"), self.submission("b", "repo-b")
         call_one, call_two = self.caller(one), self.caller(two)
@@ -2514,8 +2514,7 @@ class AReturnedSubmissionCanStillImportItsOwnModules(_Submission):
         neither eviction test could see them and they outlived the block. The
         surviving shell still held the first team's notebook as an attribute,
         and the second team's `from ipynb.fs.defs import nine` was answered
-        from it without their finder ever being asked. Found by the
-        acceptance reviewer."""
+        from it without their finder ever being asked."""
 
         submissions = []
         for name, token in (("nbA", "A"), ("nbB", "B")):
