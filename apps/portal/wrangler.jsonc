@@ -34,8 +34,9 @@
     }
   ],
 
-  // Staging's trained-file storage. `cogportal-artifacts-dev` is private: no
-  // r2.dev public URL, no custom domain, reached only through this binding.
+  // The dev environment's trained-file storage. `cogportal-artifacts-dev` is
+  // private: no r2.dev public URL, no custom domain, reached only through this
+  // binding.
   // Production has no R2 block until one is separately authorized.
   "r2_buckets": [
     { "binding": "ARTIFACTS", "bucket_name": "cogportal-artifacts-dev" }
@@ -57,11 +58,14 @@
     }
   ],
 
-  // ── Top level = the CURRENT deployment (worker "cogportal", cogportal-dev).
-  // Per the owner this is the STAGING environment. `wrangler deploy` (no --env)
-  // targets it. `env.production` below is a separate worker for the real course.
+  // ── Top level = the DEV environment (worker "cogportal", cogportal-dev).
+  // `wrangler deploy` (no --env) targets it, and every change is checked here
+  // against real GitHub and real Modal before the same commit reaches
+  // production. `env.production` below is a separate worker for the real
+  // course. ENVIRONMENT names this environment; it does not select behavior,
+  // because both hosted values behave alike (worker/env.ts).
   "vars": {
-    "ENVIRONMENT": "production",
+    "ENVIRONMENT": "dev",
     "DEV_AUTH": "disabled",
     "ONBOARDING_DEV_TOOLS": "disabled",
     "GITHUB_CLIENT_ID": "Iv23liATo0NWltd5sZgi",
@@ -81,8 +85,9 @@
     // Build provenance is per image, in the probe receipts; see the runbook.
     "RUNNER_IMAGE_DIGEST": "cogworks-python-3.11:unpublished",
     "RUN_STALE_AFTER_SECONDS": "3600",
-    // Staging's own Modal app. Production runs cogworks-runner-production,
-    // so a deploy here cannot move production's controller or images. Which
+    // This environment's own Modal app. Production runs
+    // cogworks-runner-production, so a deploy here cannot move production's
+    // controller or images. Which
     // version and commit are live moves with every deploy, so read it from
     // `modal app history cogworks-runner` rather than from a line here.
     "MODAL_RUNNER_URL": "https://samgu-nrx--cogworks-runner-submit-job.modal.run",
@@ -115,7 +120,7 @@
   //      create a separate prod GitHub App and replace GITHUB_CLIENT_ID + the
   //      GITHUB_CLIENT_SECRET secret.
   //   3. Set ALL prod secrets on the cogportal-production worker (they do not
-  //      copy from the staging worker): BETTER_AUTH_SECRET, GITHUB_CLIENT_SECRET,
+  //      copy from the dev worker): BETTER_AUTH_SECRET, GITHUB_CLIENT_SECRET,
   //      DISCORD_BOT_TOKEN, DISCORD_CLIENT_SECRET, ACTIVITY_SESSION_SECRET,
   //      PLATFORM_OWNER_LOGINS, RUNNER_SIGNING_SECRET,
   //      via `wrangler secret put <NAME> --env production`.
@@ -160,7 +165,7 @@
         }
       ],
       // No r2_buckets here on purpose. Production gets its own bucket under
-      // separate authorization, and it must never name the staging bucket.
+      // separate authorization, and it must never name the dev bucket.
       "durable_objects": {
         "bindings": [{ "name": "RUN_SURFACES", "class_name": "RunSurfaceHub" }]
       },
@@ -175,7 +180,7 @@
         "PUBLIC_ORIGIN": "https://cogportal.sillion.app",
         "BETTER_AUTH_URL": "https://cogportal.sillion.app",
         "ACTIVITY_ORIGIN": "https://cogactivity.sillion.app",
-        // Same application and guild as staging, confirmed against live
+        // Same application and guild as dev, confirmed against live
         // metadata. What is not readable from here is the app's own settings;
         // see the runbook.
         "DISCORD_CLIENT_ID": "1526706029356646460",
@@ -186,12 +191,12 @@
         // environments keep the same id and different secret values.
         "RUNNER_SIGNING_KEY_ID": "runner-v1",
         "RUNNER_PYTHON_VERSION": "3.11",
-        // Placeholder for the reason given in the staging block.
+        // Placeholder for the reason given in the dev block.
         "RUNNER_IMAGE_DIGEST": "cogworks-python-3.11:unpublished",
         "RUN_STALE_AFTER_SECONDS": "3600",
         // Production's own Modal app, cogworks-runner-production, which pins
         // each sandbox image to an immutable id instead of the names a
-        // staging release republishes. Modal derives this hostname from the
+        // dev release republishes. Modal derives this hostname from the
         // app and function names; read it back from the deploy output before
         // this Worker is deployed rather than trusting the pattern.
         "MODAL_RUNNER_URL": "https://samgu-nrx--cogworks-runner-production-submit-job.modal.run",
