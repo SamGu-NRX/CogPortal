@@ -309,8 +309,7 @@ class NonFiniteTests(unittest.TestCase):
 
     def test_integer_too_wide_for_float_is_refused(self):
         # float(2 ** 1024) raises OverflowError, and scoring calls float() on
-        # submission numbers (week1 _margin, _v2_metrics). Uncaught, that is
-        # the refunded-attempt path.
+        # submission numbers (week1 _margin, _v2_metrics).
         with self.assertRaises(FAILURE):
             LOAD("[{}]".format(2 ** 1100))
 
@@ -496,8 +495,7 @@ class FieldTypeTests(unittest.TestCase):
     def test_boolean_cluster_labels_are_allowed(self):
         # The driver refuses these inside the sandbox as a contract matter,
         # but scoring reads True as 1 and False as 0 and returns a correct
-        # partition for them. Refusing a payload that scores correctly would
-        # cost a team an attempt for nothing.
+        # partition for them.
         CHECK(_Benchmark("vision-clustering"), [[True, True, False]], 1)
 
     def test_dict_cluster_label_is_refused(self):
@@ -587,8 +585,7 @@ class NumericLeafTests(unittest.TestCase):
             self.assertIn(field, str(caught.exception))
 
     def test_null_inside_rankings_is_refused(self):
-        # int(None) is TypeError inside search_ranks, raised once the phase is
-        # "scoring", which is the refunded-attempt path.
+        # int(None) is TypeError inside search_ranks.
         with self.assertRaises(FAILURE) as caught:
             CHECK(
                 _Benchmark("language-search"),
@@ -637,7 +634,7 @@ class NumericLeafTests(unittest.TestCase):
     def test_ragged_embedding_rows_are_refused(self):
         # np.asarray raises ValueError on a ragged nested list, and an
         # uncaught raise during the scoring phase is category "scorer" with
-        # infrastructure=True, which refunds the attempt.
+        # infrastructure=True.
         with self.assertRaises(FAILURE) as caught:
             CHECK(
                 _Benchmark("language-search"),
@@ -693,9 +690,8 @@ class NumericLeafTests(unittest.TestCase):
 class NumericLeafValidTests(unittest.TestCase):
     """The half that matters more: honest matrices are not refused.
 
-    A wrongly refused submission costs a team one of three official attempts
-    for work that was correct, which is worse than the score inflation the
-    checks above exist to stop.
+    Refusing correct work is worse than the score inflation the checks above
+    exist to stop.
     """
 
     def test_ranking_rows_may_be_ragged_and_empty(self):
@@ -709,8 +705,7 @@ class NumericLeafValidTests(unittest.TestCase):
         )
 
     def test_string_image_ids_are_allowed_in_rankings(self):
-        # search_ranks reads them through int(), and int("3") is 3. Refusing
-        # a payload that scores correctly would cost a team an attempt.
+        # search_ranks reads them through int(), and int("3") is 3.
         CHECK(
             _Benchmark("language-search"),
             [{"ok": True, "kind": "search", "rankings": [["3", "1"]]}],
@@ -773,9 +768,7 @@ class RealDriverPayloadTests(unittest.TestCase):
     Every other valid-payload test in this file uses a literal written by
     hand, which proves the checks agree with what the test author believed the
     drivers produce. These build the payload by running a driver, so they
-    disagree loudly if that belief is wrong. A wrongly refused submission
-    costs a team one of three official attempts for correct work, and that is
-    worse than any score inflation these checks prevent.
+    disagree loudly if that belief is wrong.
 
     Each skips rather than fails when its benchmark is not checked out, which
     is how the other suites in this directory handle the submodules.

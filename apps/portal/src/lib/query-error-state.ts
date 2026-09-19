@@ -7,9 +7,6 @@
  * POST or DELETE and never reach this path at all. Grouping by next action
  * instead of by code keeps the number of states a student has to learn equal
  * to the number of things they can actually do.
- *
- * Kept as a pure function, separate from the component, so the mapping is
- * testable without a DOM and so a route cannot quietly grow its own variant.
  */
 import { ApiRequestError } from "./api";
 

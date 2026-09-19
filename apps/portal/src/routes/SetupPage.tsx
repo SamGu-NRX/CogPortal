@@ -312,10 +312,6 @@ function SetupGuide({
           {/* Not an empty sheet and not a blocked page: the commands below are
               still correct. What failed is the read of what we have observed,
               which is why the gutter shows dashes instead of empty boxes. */}
-          {/* No children: the mapping's own way out is already the right one
-              here. A plain fault offers retry and no link, and the cases that
-              do carry a link (session ended, cohort or team required) send the
-              student exactly where they need to go. */}
           <QueryError
             error={setupState.error ?? connections.error}
             retry={retryEvidence}
