@@ -58,7 +58,6 @@ test("setup state keeps observed evidence apart from a student's own check-off",
   assert.deepEqual(withTokens.checked, ["clone"]);
   assert.equal(withTokens.tokens?.clone, "signed.token");
 
-  // Still strict about everything else.
   assert.throws(() =>
     SetupStateSchema.parse({
       verified: ["clone"],

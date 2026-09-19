@@ -105,15 +105,6 @@ export async function serializeRunSummary(db: Database, row: RunRow): Promise<Ru
   };
 }
 
-/**
- * A run, in full, from the run's own row.
- *
- * The team is here for one question only: whether a new promotion of this run
- * could still be authorised, which is genuinely about the team as it is now.
- * What the run *was* still comes from the run. Those two were the same
- * expression once, and that is what made every old run claim the team's
- * current repository.
- */
 export async function serializeRunDetail(
   db: Database,
   row: RunRow,

@@ -10,7 +10,6 @@ import { StaticRouter } from "react-router";
 import { Step, StepRail } from "../src/components/StepRail.tsx";
 import {
   BENCHMARK_PACKAGES,
-  benchmarkEnvironment,
   benchmarkPackage,
 } from "../src/lib/benchmark-packages.ts";
 import { setupCommandLines, stepState } from "../src/lib/setup-progress.ts";
@@ -41,12 +40,12 @@ function lines(
 }
 
 
-
 function commandFor(fragment: string): string {
   const found = lines().find((line) => line.command.includes(fragment));
   assert.ok(found, `no command containing ${fragment}`);
   return found.command;
 }
+
 test("the tool is installed from a commit, like every other package here", () => {
   // Neither TestPyPI nor main serves a usable tool: both hold cogbench 0.1.0,
   // and main is 112 commits back with no resolve.py, so `check` there cannot
@@ -142,6 +141,7 @@ test("the clone command names the team's own repository", () => {
     "git clone https://github.com/demo-org/rooks-nest.git && cd rooks-nest",
   );
 });
+
 test("a gutter cell fills only for a step the portal has observed", () => {
   const none = lines();
   assert.equal(none.filter((line) => line.verified).length, 0);
