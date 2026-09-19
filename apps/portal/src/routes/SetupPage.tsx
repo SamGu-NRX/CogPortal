@@ -127,8 +127,6 @@ function SetupGuide({
   const benchmarkTitle = track.benchmark?.title ?? track.benchmarkId;
   const environment = benchmarkEnvironment(track.benchmarkId);
 
-  // Both pip lines can meet this refusal, so the sentence is written once and
-  // attached to each.
   const pipRefusal = (
     <>
       If pip answers{" "}
