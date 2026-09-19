@@ -320,8 +320,9 @@ OCI_DIGEST = re.compile(r"\bsha256:[a-f0-9]{64}\b")
 def check_image_digest(values: Dict[str, str]) -> Check:
     """Why a placeholder is still reported, and what it no longer costs.
 
-    It selects nothing: `_sandbox_image` picks an image by name. Nothing in
-    the runner reads this value any more either. The completed event's
+    It selects nothing: `_sandbox_image` picks an image by name. The Worker
+    still sends it on every job as `runtime.imageDigest`, and nothing in the
+    Modal runner reads it. The completed event's
     `environmentDigest` hashes the prepared-environment record, the evaluation
     script, the controller's Python and the plugin and scorer versions
     (`environment_digest` in modal_app), so the record already differs whenever
