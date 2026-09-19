@@ -28,7 +28,6 @@ from typing import Any, Dict, Optional
 # sandbox execution. Only the controller scorer reads them, from its retained
 # cases. test_saved_contract_pairs verifies old/current execution equivalence
 # on an expanded official fixture, including nonzero stability findings.
-# Advance a contract when required execution behavior becomes incompatible.
 SANDBOX_CONTRACTS = {
     "audio-identification": 1,
     "vision-recognition": 1,

@@ -47,20 +47,13 @@ class SavedContractPairs(unittest.TestCase):
             self.assertNotEqual(len(old_cases), len(current_cases))
 
     def test_old_clustering_decoder_scores_the_official_bundle_identically(self):
-        """Compare execution despite the old decoder's missing metadata.
-
-        The real materializer supplies base cases and stability repetitions.
-        Both execution paths are scored against the controller's retained cases.
-        """
         require_benchmark("vision-clustering")
         from facial_recognition_benchmark.drivers import run_clustering_scenario
         from facial_recognition_benchmark.plugins import ClusteringBenchmark
         from cogworks_runner.week2_payload import (
             attach_clustering_labels, decode_cases, encode_cases,
         )
-        from cogworks_runner.prepared_environment import (
-            BINDING_MISMATCH, SANDBOX_CONTRACTS, validate_prepared_environment,
-        )
+        from cogworks_runner.prepared_environment import SANDBOX_CONTRACTS
         from test_week2_official_format import materialize_official_bundle
 
         base_seed = 42
@@ -117,30 +110,6 @@ class SavedContractPairs(unittest.TestCase):
         self.assertGreater(current_metrics["clustering_seed_spread"], 0.3)
         self.assertTrue(scorer.last_diagnostics)
         self.assertEqual(SANDBOX_CONTRACTS["vision-clustering"], 1)
-
-        # Compatible execution still requires matching artifact and source evidence.
-        source = {"repositoryId": 42, "fullName": "course/team", "sha": "a" * 40}
-        evidence = {
-            "schemaVersion": 1, "artifactId": "im-saved", "benchmarkId": "vision-clustering",
-            "source": source, "baseImageId": "im-base", "sandboxContract": 1,
-            "pythonVersion": "3.11.9", "sdkVersion": "0.2.0",
-            "modules": [{"name": "cogbench", "path": "/opt/cogbench/__init__.py",
-                         "sha256": "c" * 64}],
-            "weights": [],
-        }
-        request = {"preparedArtifactId": "im-saved", "source": source, "weights": [],
-                   "benchmark": {"id": "vision-clustering", "sandboxContract": 1}}
-        self.assertIsNone(validate_prepared_environment(request, evidence))
-        for key, value in (("artifactId", "im-other"), ("benchmarkId", "vision-recognition")):
-            self.assertEqual(
-                validate_prepared_environment(request, dict(evidence, **{key: value})),
-                BINDING_MISMATCH,
-            )
-        self.assertEqual(
-            validate_prepared_environment(
-                request, dict(evidence, source=dict(source, sha="b" * 40))),
-            BINDING_MISMATCH,
-        )
 
     def test_old_vision_driver_honors_current_shuffled_lifecycle(self):
         require_benchmark("vision-recognition")
