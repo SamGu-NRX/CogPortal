@@ -65,10 +65,15 @@ export function CopyBlock({
             : "overflow-x-auto whitespace-pre focus-visible:outline-offset-[-2px]"
         } [&_pre]:m-0 [&_pre]:bg-transparent [&_pre]:p-0 [&_pre]:font-mono [&_pre]:text-[12.5px] [&_pre]:[white-space:inherit] [&_pre]:[overflow-wrap:inherit]`}
       >
+<<<<<<< HEAD
         {/* Not focusable: this box is already the tab stop when it scrolls,
             and a wrapped one deliberately has none. */}
         <CodeContent code={text} lang={lang} plainAs="code" focusable={false} />
       </div>
+=======
+        {text}
+      </code>
+>>>>>>> feat/same-console-recovery-20260911
       <button
         type="button"
         onClick={copy}

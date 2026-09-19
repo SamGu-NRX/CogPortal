@@ -2,7 +2,6 @@ import { Copy01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useRef, useState } from "react";
 
-/** Shows the short commit SHA; copies the full scientific record. */
 export function ShaChip({ sha, shortSha }: { sha: string; shortSha: string }) {
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
   const copying = useRef(false);

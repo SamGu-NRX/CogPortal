@@ -69,13 +69,12 @@ const REAL_SHA = "71258046e60fecd3295c0b52236fc6e476b0e9cf";
 /** One repository per team: the unique index is (cohort, repo full name). */
 const fullNameFor = (teamId: string) => `some-student/${teamId}`;
 const REAL_FULL_NAME = fullNameFor("team_live");
-/** Built the way the page builds it, from the name the run recorded. */
 const REAL_URL = `https://github.com/${REAL_FULL_NAME}`;
 
 /** The same binding the read model will use, for a test that has to change a
  *  row after seeding. */
 function dbFor(env: Env) {
-  return drizzle((env as unknown as { DB: unknown }).DB as never);
+  return drizzle(env.DB);
 }
 
 async function seeded() {
@@ -117,9 +116,6 @@ async function seeded() {
       status: "succeeded",
       branch: "main",
       sha: REAL_SHA,
-      // What this run ran from, recorded on the run itself. The link comes
-      // from here rather than from the team, so it survives the team changing
-      // its repository.
       repositoryFullName: fullNameFor(row.id),
       attemptNumber: 1,
       createdAt: 10,
@@ -192,9 +188,6 @@ test("a published row links the repository the run used, not the team's current 
 });
 
 test("a run that recorded no repository links nowhere rather than somewhere wrong", async () => {
-  // Runs predating the recorded name have an unknown source. The page omits
-  // the row rather than showing the team's current repository as if it were
-  // the one that produced the score.
   const env = await seeded();
   await dbFor(env).update(runs).set({ repositoryFullName: null }).where(eq(runs.id, "run_team_live"));
 

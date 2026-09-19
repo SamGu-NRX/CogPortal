@@ -762,13 +762,6 @@ test("a practice run records the repository it is starting from", async () => {
 /* ── Acting on a run after the repository changed ─────────────────────── */
 
 /**
- * A team has one connected repository and every write is authorised against
- * it, so a new promotion, rerun or publication has to be about that
- * repository. History stays readable and an existing selection stays selected;
- * only new mutations are refused. Matched on the id, so a rename keeps working.
- */
-
-/**
  * Leave the run recording a repository the team is not connected to.
  *
  * Equivalent to the team having moved on, and isolated from it on purpose: the
@@ -847,8 +840,6 @@ test("publishing a result from a repository the team has left is refused, and th
     (error: unknown) => error instanceof ApiHttpError && error.code === "source_changed",
   );
 
-  // What is already published stays published. The refusal is about choosing
-  // a new one, not about withdrawing the old.
   const [selection] = await db.select().from(leaderboardSelections);
   assert.equal(selection!.runId, officialId);
   assert.equal(selection!.selectedAt, 1, "the refused publication rewrote the selection");
@@ -890,8 +881,6 @@ test("the shared boundary refuses before it publishes anything", async () => {
 });
 
 test("hosted verification of a local run from another repository is refused", async () => {
-  // verify_hosted resolves the local session's commit against the connected
-  // repository, so it is a rerun by another name and takes the same rule.
   const { db, binding } = freshDb();
   const actor = await seedPromotion(db);
   await db.insert(cliDevices).values({
@@ -1071,7 +1060,6 @@ test("dashboard API and rendered candidate agree with detail for unknown, change
     } else {
       assert.match(html, /Previous result/);
       assert.ok(detail.sourceRefusal);
-      // The panel renders its own sentence, which ends in "promote it".
       assert.ok(dashboard.latestCandidate?.sourceRefusal);
       assert.ok(html.includes(dashboard.latestCandidate.sourceRefusal));
       assert.match(dashboard.latestCandidate.sourceRefusal, /to promote it\.$/);
