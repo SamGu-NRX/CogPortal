@@ -33,7 +33,7 @@ const SIGN_IN_ERRORS: Record<string, string> = {
   state_mismatch:
     "Your sign-in expired or began in another tab. Start again from this page.",
   invalid_code:
-    "GitHub didn't accept the sign-in code, which usually means it was already used. Start again from this page.",
+    "GitHub didn't accept the sign-in code. Start again from this page.",
   unable_to_get_user_info:
     "GitHub didn't answer when we asked who you are. Try again shortly.",
   email_not_found:
@@ -140,10 +140,15 @@ export function SignInPage() {
                   last line under a full-width control. */}
               <p className="text-[13px] text-detect-deep">{signInErrorMessage(oauthError)}</p>
               {/* The raw code stays on screen for every outcome, so a TA
-                  reading over a student's shoulder has something to search. */}
-              <p className="mt-1.5 font-mono text-[11px] tracking-[0.06em] text-ink-faint">
-                {oauthError}
-              </p>
+                  reading over a student's shoulder has something to search.
+                  Only something shaped like a Better Auth code, though: this
+                  is a public route and the query string is whatever the link
+                  said, so the page prints no other text as its own. */}
+              {/^[a-z0-9_]{1,64}$/.test(oauthError) && (
+                <p className="mt-1.5 font-mono text-[11px] tracking-[0.06em] text-ink-faint">
+                  {oauthError}
+                </p>
+              )}
             </div>
           )}
         </div>
