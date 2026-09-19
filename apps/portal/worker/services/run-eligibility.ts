@@ -67,8 +67,6 @@ export function savedEnvironmentEligibility(
 }
 
 /**
- * Why a fixture execution cannot be retried, or null.
- *
  * A fixture run records no dispatch job, so the labels on its own row are the
  * only evidence of what it ran; Modal's equivalent is `recordedJob`. Admission
  * and the console read this one function, so the console cannot offer a Retry

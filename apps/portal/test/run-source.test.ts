@@ -258,7 +258,6 @@ test("the run detail's refusal names no single action, because two panels share 
   assert.match(detail.sourceRefusal ?? "", /to act on it\.$/);
   assert.doesNotMatch(detail.sourceRefusal ?? "", /promote it|publish a result|verify it here|run it again/);
   assert.match(detail.sourceRefusal ?? "", /no longer connected to/);
-  // The recorded selection and the gate both survive the wording change.
   assert.equal(detail.selected, true, "the team's published entry was withdrawn");
   assert.equal(detail.publishable, true);
   assert.equal(detail.status, "succeeded");

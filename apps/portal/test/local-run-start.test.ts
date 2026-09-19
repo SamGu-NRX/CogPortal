@@ -44,7 +44,7 @@ const OTHER_REPO_ID = 999_999_999;
  *  already exists and the conflict branch is the one under test. */
 interface Race { hideSessionSelect: number; queries: string[] }
 
-function freshDb(race: Race = { hideSessionSelect: 0, queries: [] }): { db: Database; binding: unknown; race: Race } {
+function freshDb(race: Race = { hideSessionSelect: 0, queries: [] }): { db: Database; binding: unknown } {
   const sqlite = new DatabaseSync(":memory:");
   for (const file of readdirSync(MIGRATIONS)
     .filter((name) => name.endsWith(".sql"))
@@ -90,7 +90,7 @@ function freshDb(race: Race = { hideSessionSelect: 0, queries: [] }): { db: Data
   };
   // SAFETY: this shim implements the prepared-statement methods used here;
   // Cloudflare's D1 type also requires host methods these tests never call.
-  return { db: drizzle(binding as never), binding, race };
+  return { db: drizzle(binding as never), binding };
 }
 
 async function seed(db: Database, teamRepoId: number | null = FIXTURE_REPO.repositoryId): Promise<void> {

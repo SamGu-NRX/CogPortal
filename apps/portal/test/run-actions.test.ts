@@ -1329,7 +1329,6 @@ test("dashboard API and rendered candidate agree with detail for unknown, change
     } else {
       assert.match(html, /Previous result/);
       assert.ok(detail.sourceRefusal);
-      // The panel renders its own sentence, which ends in "promote it".
       assert.ok(dashboard.latestCandidate?.sourceRefusal);
       assert.ok(html.includes(dashboard.latestCandidate.sourceRefusal));
       assert.match(dashboard.latestCandidate.sourceRefusal, /to promote it\.$/);
@@ -1933,7 +1932,6 @@ test("the alarm replaces an unreadable payload instead of retrying the parse", a
   assert.ok(typeof stored === "string");
   assert.equal(RunSurfaceSnapshotSchema.safeParse(JSON.parse(stored)).success, true);
 
-  // The replacement is readable, so a second pass discards nothing.
   warnings.length = 0;
   await hubs.get(SURFACE_ID).alarm();
   assert.equal(warnings.filter((line) => line.includes("run_surface_cache_discarded")).length, 0);

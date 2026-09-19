@@ -523,13 +523,6 @@ test("enqueue retains a recorded job through queue failure and rejects changed s
   } finally { sqlite.close(); }
 });
 
-/**
- * The fixture console and fixture admission read one rule.
- *
- * `retryRun` has always refused a fixture retry whose recorded labels no
- * longer match the catalog, but the snapshot only ran Modal's check, so the
- * console offered a Retry that answered 409 on the press.
- */
 const FIXTURE_DRIFT: Record<string, Partial<BenchmarkRow>> = {
   contract: { contractVersion: "cogworks.submissions.v2" },
   scorer: { scorerVersion: "changed" },
@@ -551,7 +544,6 @@ for (const [name, drift] of Object.entries(FIXTURE_DRIFT)) {
       const snapshot = await harness.snapshot();
       assert.equal(snapshot.actions.includes("retry"), false, "the console offered a refused Retry");
       assert.equal(snapshot.retryRefusal, "The recorded benchmark configuration has changed. Start a new candidate.");
-      // The same sentence the server answers with, from the same function.
       assert.equal(snapshot.status, "failed");
       assert.equal(snapshot.refusalHeadline, null);
     } finally { harness.sqlite.close(); }

@@ -466,15 +466,6 @@ test("live hook rejects old generations, old responses and closed-console frames
   assert.equal(current().id, other.id);
 });
 
-/**
- * Publishing a run whose repository the team has left.
- *
- * `publishable` stays a fact about the run: it is what keeps history readable
- * and an existing public entry intact after a repository change. The server
- * refuses only a *new* publication (`requireRunSource` in
- * services/run-actions.ts), and this panel used to offer one anyway.
- */
-
 function official(overrides: Partial<RunDetail> = {}): RunDetail {
   return run({
     id: "run_official_123", mode: "official", status: "succeeded",
@@ -489,7 +480,6 @@ const LEFT_REPOSITORY =
 test("an official run from a repository the team left offers no publication", async (t) => {
   const { container } = await mount(t, page(t, official({ sourceRefusal: LEFT_REPOSITORY })));
   assert.match(container.textContent, /no longer connected to/);
-  // The button and the promise beside it both go: the server would refuse it.
   assert.equal([...container.querySelectorAll("button")]
     .some((node) => node.textContent.includes("Publish to leaderboard")), false);
   assert.doesNotMatch(container.textContent, /switch to another successful official run/);
