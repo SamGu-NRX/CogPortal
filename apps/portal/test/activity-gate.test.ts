@@ -30,9 +30,6 @@ test("a student who accepted it has", () => {
 });
 
 test("a client too old to report a result is treated as having opened it", () => {
-  // Discord clients before December 2024 answer `null` whatever happened.
-  // Refusing to advance would strand every one of those students on a card
-  // whose button they had already pressed.
   assert.equal(openedExternally({ opened: null }), true);
 });
 
@@ -55,8 +52,6 @@ test("an expired Activity session belongs on the entry screen", () => {
 });
 
 test("a single request that did not land leaves the card where it is", () => {
-  // 403 and 500 are answerable by pressing the button again; 401 is not,
-  // because the cookie the request needs is gone for the rest of the hour.
   assert.equal(isExpiredActivitySession(new ActivityRequestError(403, "no team")), false);
   assert.equal(isExpiredActivitySession(new ActivityRequestError(500, "upstream")), false);
   assert.equal(isExpiredActivitySession(new Error("offline")), false);
@@ -64,10 +59,6 @@ test("a single request that did not land leaves the card where it is", () => {
 });
 
 test("reopening the link while a check is running does not move the card", () => {
-  // The reopen link stays pressable during a check. Letting its resolution set
-  // "away" cleared the guard on the check, so a second one could start and an
-  // older answer could land after a newer one, putting a linked student back on
-  // the gate. Found in review; this is the sequence.
   assert.equal(phaseAfterOpen("checking"), "checking");
 });
 

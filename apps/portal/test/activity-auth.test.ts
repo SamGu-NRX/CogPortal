@@ -47,14 +47,10 @@ test("Discord's reason for refusing the exchange is recorded", () => {
 });
 
 test("an identifier we have never seen is recorded, not flattened", () => {
-  // The whole point of the record is the response nobody predicted. Keeping
-  // only recognised values would drop exactly those.
   assert.equal(activityTokenRejection(400, { error: "authorization_pending" }).logged.error, "authorization_pending");
 });
 
 test("a response with no error field still says so, next to its status", () => {
-  // Discord's rate-limit body carries message/retry_after/global and no error
-  // at all, and an edge failure returns HTML. 429 beside "none" is the answer.
   assert.equal(activityTokenRejection(429, { message: "You are being rate limited.", retry_after: 4.2 }).logged.error, "none");
   assert.equal(activityTokenRejection(502, null).logged.error, "none");
 });
