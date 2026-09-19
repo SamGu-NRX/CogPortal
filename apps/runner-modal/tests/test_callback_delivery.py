@@ -1,6 +1,6 @@
 """What happens to a run event when the portal does not answer the first time.
 
-Gate 1 asks whether a retry duplicates a metric or spends an attempt twice.
+Gate 1 asks whether a retry duplicates a metric.
 Three mechanisms answer that, and none of them had a test. Job dedupe and event
 dedupe both need a Modal Dict or a D1 database, so they stay runbook steps. The
 third is `_post_event`, which is ordinary Python over HTTP and can be driven
@@ -150,8 +150,7 @@ def completed_event() -> dict:
 
     A dropped status event only means a stale progress bar. A dropped completed
     event means a run that succeeded is reported as a provider failure an hour
-    later, and in official mode that refunds an attempt the team already spent
-    successfully.
+    later.
     """
 
     return {
@@ -383,8 +382,7 @@ class ADeliveryFailureIsNotAScoringFailure(unittest.TestCase):
     They shared one `except`, whose handler maps anything raised while the
     phase is `scoring` to `category: "scorer"`. So a portal that would not
     answer turned a run that scored into a scorer failure: the team's real
-    number was replaced by a claim that our scorer broke, and in official mode
-    that refunds an attempt against a result that exists.
+    number was replaced by a claim that our scorer broke.
     """
 
     def setUp(self):

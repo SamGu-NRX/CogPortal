@@ -68,7 +68,7 @@ export async function maintainPlatform(env: Env, now = Date.now()): Promise<void
     );
     const eligibleExists = exists(db.select({ id: runs.id }).from(runs).where(eligible));
     // Failure, release and notification commit together. A concurrent completion
-    // wins or loses against this transaction, never against a later refund pass.
+    // wins or loses against this transaction.
     await db.batch([
       db.insert(outboxEvents).select(db.select({
         id: sql<string>`${`outbox_stale_${run.id}`}`.as("id"),
