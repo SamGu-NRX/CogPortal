@@ -171,7 +171,7 @@ Promotion reuses the prepared environment and evaluates the saved commit against
 
 > "### Start a new hosted run?" / "This starts a fresh hosted run on the same commit. The current run stays as history." / button "Start hosted run" (`commands.ts:533`)
 
-Retry adds a confirmation for the failed execution. It preserves practice or official mode and the saved source, with at most one successor for that failure. The old failure stays in history. Final Discord presentation remains unverified.
+Retry adds a confirmation for the failed execution. It preserves practice or official mode and the saved source, with at most one successor for that failure. The old failure stays in history.
 
 #### After a confirmation
 
