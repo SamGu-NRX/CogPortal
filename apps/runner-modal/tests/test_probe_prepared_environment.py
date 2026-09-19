@@ -274,8 +274,6 @@ class PlatformRootsArePinned(unittest.TestCase):
 
 class InstalledSourceFidelity(unittest.TestCase):
     def test_a_stale_installed_benchmark_fails_even_with_fresh_platform_trees(self):
-        # The case the user asked for: /opt carries the accepted SDK and runner,
-        # and the installed benchmark package is from an older build.
         manifests = _manifests()
         stale = [dict(row) for row in manifests["benchmark"]["files"]]
         stale[0] = dict(stale[0], sha256="f" * 64)

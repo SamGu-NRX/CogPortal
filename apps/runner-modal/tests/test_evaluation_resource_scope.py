@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import ast
 import contextlib
-import json
 import os
 import sys
 import types
@@ -289,8 +288,6 @@ class EveryBranchHasTheSameShape(unittest.TestCase):
             )
 
     def test_every_load_student_call_takes_both_halves(self):
-        """Every branch has to unpack the factory and the scope."""
-
         tree = ast.parse(evaluate_script())
         calls = 0
         for node in ast.walk(tree):
