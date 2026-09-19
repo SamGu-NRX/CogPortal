@@ -321,8 +321,11 @@ def _discover(benchmark: str, project_root: Path, as_json: bool, *, spec=None):
         print("Could not read your repository: {}".format(error), file=sys.stderr)
         return None, None, None
 
-    found = submission.discovery
-    return submission, (found.to_dict() if found is not None else None), None
+    # Off the record, not off `submission.discovery`. A binding that is handed
+    # over lets the search's reading go and keeps what it found on the record
+    # (`resolve.Submission.fresh`), so reading the attribute here reported no
+    # search at all for exactly the repositories that resolved through one.
+    return submission, submission.to_dict().get("discovery"), None
 
 
 class _Scoreable(NamedTuple):
