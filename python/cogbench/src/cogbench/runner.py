@@ -107,9 +107,6 @@ def execute(
         metrics=list(metrics),
         diagnostics=list(diagnostics),
         predictions=predictions,
-        # The names and the receipts travel separately. A run whose weight
-        # provenance was not established has names and no receipts, and
-        # deriving either from the other would lose one of them.
         weights_used=None if weight_names is None else [str(n) for n in weight_names],
         weights_uploaded=None if weights is None else [dict(item) for item in weights],
     )
@@ -290,9 +287,6 @@ def _execute_v2(
         metrics=metrics,
         diagnostics=list(getattr(benchmark, "last_diagnostics", [])),
         predictions=outputs,
-        # The names and the receipts travel separately. A run whose weight
-        # provenance was not established has names and no receipts, and
-        # deriving either from the other would lose one of them.
         weights_used=None if weight_names is None else [str(n) for n in weight_names],
         weights_uploaded=None if weights is None else [dict(item) for item in weights],
     )
