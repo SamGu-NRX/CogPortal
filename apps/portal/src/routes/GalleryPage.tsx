@@ -1,9 +1,11 @@
 import { CommandSheet } from "@/components/CommandSheet";
+import { ConnectGate } from "@/components/ConnectGate";
 import { Finding } from "@/components/Finding";
 import { Panel } from "@/components/Panel";
 import { PrimaryMetric, SupportingMetrics } from "@/components/MetricBlock";
 import { SweepTrace } from "@/components/SweepTrace";
 import { WiringTrace, type WiredStep } from "@/components/WiringTrace";
+import type { GateOutcome, GatePhase, GateVariant } from "@/lib/activity-gate";
 import { setupCommandLines } from "@/lib/setup-progress";
 import type { Metric, RunDetail as RunDetailType } from "@cogworks/contracts/schema";
 
@@ -285,6 +287,71 @@ const SETUP_NOTES = {
   check: { title: "Check it, and tell this page", why: "The last command is the one that reports." },
 } as const;
 
+const GATES: {
+  title: string;
+  caption: string;
+  variant: GateVariant;
+  phase: GatePhase;
+  outcome: GateOutcome | null;
+  error: string | null;
+  compact: boolean;
+}[] = [
+  {
+    title: "Link · first look",
+    caption: "The first launch, before the student has gone anywhere.",
+    variant: "link",
+    phase: "idle",
+    outcome: null,
+    error: null,
+    compact: false,
+  },
+  {
+    title: "Link · back from the browser",
+    caption: "After Discord reports it opened the link. The primary swaps rather than gaining a neighbour.",
+    variant: "link",
+    phase: "away",
+    outcome: null,
+    error: null,
+    compact: false,
+  },
+  {
+    title: "Link · checked, nothing moved",
+    caption: "The one outcome that owes a sentence, because the card is otherwise identical.",
+    variant: "link",
+    phase: "away",
+    outcome: "unchanged",
+    error: null,
+    compact: false,
+  },
+  {
+    title: "Link · the check itself failed",
+    caption: "Same slot, different sentence. It must not read as \u201cnot linked yet\u201d, which the portal did not observe.",
+    variant: "link",
+    phase: "away",
+    outcome: null,
+    error: "The live bench could not be reached.",
+    compact: false,
+  },
+  {
+    title: "Team · first look",
+    caption: "Second step, same mechanism. The destination stays /connect.",
+    variant: "team",
+    phase: "idle",
+    outcome: null,
+    error: null,
+    compact: false,
+  },
+  {
+    title: "Team · picture-in-picture, waiting",
+    caption: "Discord shrinks the Activity to a tile. Kicker and the reopen link go; the sentence and the action stay. The tile size here is a guess, so treat it as a floor rather than a measurement.",
+    variant: "team",
+    phase: "away",
+    outcome: null,
+    error: null,
+    compact: true,
+  },
+];
+
 export function GalleryPage() {
   return (
     <div className="mx-auto w-full max-w-4xl py-10">
@@ -293,7 +360,36 @@ export function GalleryPage() {
         States that need a specific run to reach. Development only.
       </p>
 
-      <h2 className="mt-10 font-serif text-xl font-semibold text-ink">Finding</h2>
+      <h2 className="mt-10 font-serif text-xl font-semibold text-ink">Activity connect gate</h2>
+      <p className="mb-2 max-w-prose text-[13px] text-ink-faint">
+        Reaching these for real needs a Discord launch and an unlinked account. The buttons
+        are inert here.
+      </p>
+      <div className="grid gap-6 sm:grid-cols-2">
+        {GATES.map((example) => (
+          <section key={example.title}>
+            <div className="u-kicker">{example.title}</div>
+            <p className="mb-2 text-[13px] text-ink-faint">{example.caption}</p>
+            <div
+              className={`grid place-items-center overflow-hidden border border-rule bg-paper p-5 ${
+                example.compact ? "h-[220px] w-[300px]" : "h-[460px]"
+              }`}
+            >
+              <ConnectGate
+                variant={example.variant}
+                phase={example.phase}
+                outcome={example.outcome}
+                error={example.error}
+                compact={example.compact}
+                onOpen={() => undefined}
+                onCheck={() => undefined}
+              />
+            </div>
+          </section>
+        ))}
+      </div>
+
+      <h2 className="mt-12 font-serif text-xl font-semibold text-ink">Finding</h2>
       {CASES.map((example) => (
         <section key={example.title} className="mt-6">
           <div className="u-kicker">{example.title}</div>
