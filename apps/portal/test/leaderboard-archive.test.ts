@@ -4,8 +4,8 @@ import { DatabaseSync } from "node:sqlite";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { drizzle } from "drizzle-orm/d1";
 import { eq } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/d1";
 import {
   benchmarkFamilies,
   benchmarkFamilyComponents,
@@ -66,7 +66,16 @@ function freshBinding(): unknown {
 }
 
 const REAL_SHA = "71258046e60fecd3295c0b52236fc6e476b0e9cf";
-const REAL_URL = "https://github.com/some-student/week1-capstone";
+/** One repository per team: the unique index is (cohort, repo full name). */
+const fullNameFor = (teamId: string) => `some-student/${teamId}`;
+const REAL_FULL_NAME = fullNameFor("team_live");
+const REAL_URL = `https://github.com/${REAL_FULL_NAME}`;
+
+/** The same binding the read model will use, for a test that has to change a
+ *  row after seeding. */
+function dbFor(env: Env) {
+  return drizzle(env.DB);
+}
 
 async function seeded() {
   const binding = freshBinding();
@@ -91,8 +100,8 @@ async function seeded() {
       name: row.id,
       repoOwner: "some-student",
       repoName: "week1-capstone",
-      repoFullName: `some-student/${row.id}`,
-      repoUrl: REAL_URL,
+      repoFullName: fullNameFor(row.id),
+      repoUrl: `https://github.com/${fullNameFor(row.id)}`,
       defaultBranch: "main",
       provenance: row.provenance,
     });
@@ -107,6 +116,7 @@ async function seeded() {
       status: "succeeded",
       branch: "main",
       sha: REAL_SHA,
+      repositoryFullName: fullNameFor(row.id),
       attemptNumber: 1,
       createdAt: 10,
       finishedAt: 20,
@@ -156,6 +166,36 @@ test("a live row keeps both, because its score is a claim about readable code", 
   assert.equal(live.repoUrl, REAL_URL);
   assert.equal(live.sha, REAL_SHA);
   assert.equal(live.shortSha, REAL_SHA.slice(0, 7));
+});
+
+test("a published row links the repository the run used, not the team's current one", async () => {
+  // The team moved after publishing. The row still has to send a reader to the
+  // repository that holds the commit beside it; the new one never did.
+  const env = await seeded();
+  await dbFor(env)
+    .update(teams)
+    .set({
+      repoFullName: "some-student/somewhere-else",
+      repoUrl: "https://github.com/some-student/somewhere-else",
+    })
+    .where(eq(teams.id, "team_live"));
+
+  const board = await getLeaderboardReadModel(env, "audio-identification");
+  const live = board.entries.find((entry) => entry.provenance === "live");
+  assert.ok(live);
+  assert.equal(live.repoUrl, REAL_URL, "the link followed the team instead of the run");
+  assert.equal(live.sha, REAL_SHA);
+});
+
+test("a run that recorded no repository links nowhere rather than somewhere wrong", async () => {
+  const env = await seeded();
+  await dbFor(env).update(runs).set({ repositoryFullName: null }).where(eq(runs.id, "run_team_live"));
+
+  const board = await getLeaderboardReadModel(env, "audio-identification");
+  const live = board.entries.find((entry) => entry.provenance === "live");
+  assert.ok(live);
+  assert.equal(live.repoUrl, null);
+  assert.equal(live.sha, REAL_SHA, "the commit is still the run's own");
 });
 
 for (const excluded of [

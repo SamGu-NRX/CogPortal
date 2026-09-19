@@ -190,6 +190,10 @@ async function seedPromotion(db: Database): Promise<RunActor> {
     branch: "main",
     sha: "a".repeat(40),
     repositoryId: FIXTURE_REPO.repositoryId,
+    // Deliberately not the team's current name. An official attempt has to
+    // inherit the repository its practice run used, and a promotion that read
+    // the team instead would come back with FIXTURE_REPO.fullName.
+    repositoryFullName: "some-org/the-repository-it-ran-from",
     parentRunId: null,
     attemptNumber: null,
     failureCategory: null,
@@ -527,6 +531,11 @@ for (const callbackLanded of [false, true]) {
       if (callbackLanded) assert.equal(official.lastEventSequence, 0);
       assert.equal(official.failureCategory, null);
       assert.equal(official.failureDetail, null);
+      assert.equal(
+        official.repositoryFullName,
+        "some-org/the-repository-it-ran-from",
+        "the official attempt lost the repository its practice run used",
+      );
       const claims = await db.select().from(officialAttempts);
       assert.equal(claims.length, 1);
       assert.equal(claims[0].runId, official.id);
@@ -611,6 +620,21 @@ test("dispatch-failure cleanup commits the failed run and the claim release toge
       return true;
     },
   );
+});
+
+test("a practice run records the repository it is starting from", async () => {
+  // The one place the name is written. Without this, deleting that line leaves
+  // every run unattributed and every other test still green.
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  const started = await startPracticeRun(env(binding, "fixture"), actor, {
+    benchmarkId: BENCHMARK_ID,
+  });
+
+  const [row] = await db.select().from(runs).where(eq(runs.id, started.runId));
+  assert.ok(row);
+  assert.equal(row.repositoryFullName, FIXTURE_REPO.fullName);
+  assert.equal(row.repositoryId, FIXTURE_REPO.repositoryId, "the id and the name disagree");
 });
 
 const ACCOUNTING_SCOPE = { teamId: "team_test", benchmarkId: BENCHMARK_ID, benchmarkVersion: 1 };
