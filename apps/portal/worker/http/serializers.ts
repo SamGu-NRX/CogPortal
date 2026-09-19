@@ -71,23 +71,33 @@ export function serializeMetric(row: RunMetricRow): Metric {
   };
 }
 
+/** D1 binds at most 100 parameters per statement; one of them here is the
+ *  primary flag, so an id list is read in pages of 99. */
+const IDS_PER_STATEMENT = 99;
+
 /**
- * The primary metric of each run named, in one statement.
+ * The primary metric of each run named, in as few statements as D1 allows.
  *
  * A page that lists runs reads this once for the whole page instead of once
- * per run. D1 allows 100 bound parameters per statement, so a caller's id list
- * has to stay under that.
+ * per run, and hands over whatever list it has: the run list has no page
+ * bound, so the paging lives here rather than at each caller.
  */
 export async function readPrimaryMetrics(
   db: Database,
   runIds: string[],
 ): Promise<Map<string, RunMetricRow>> {
-  if (runIds.length === 0) return new Map();
-  const rows = await db
-    .select()
-    .from(runMetrics)
-    .where(and(inArray(runMetrics.runId, runIds), eq(runMetrics.isPrimary, true)));
-  return new Map(rows.map((row) => [row.runId, row]));
+  const primaries = new Map<string, RunMetricRow>();
+  for (let start = 0; start < runIds.length; start += IDS_PER_STATEMENT) {
+    const rows = await db
+      .select()
+      .from(runMetrics)
+      .where(and(
+        inArray(runMetrics.runId, runIds.slice(start, start + IDS_PER_STATEMENT)),
+        eq(runMetrics.isPrimary, true),
+      ));
+    for (const row of rows) primaries.set(row.runId, row);
+  }
+  return primaries;
 }
 
 export function buildRunSummary(row: RunRow, primary: RunMetricRow | null): RunSummary {
