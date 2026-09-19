@@ -79,8 +79,6 @@ export async function discordRunActor(env: Env, discordUserId: string): Promise<
 }
 
 /**
- * The actor with its team re-read at mutation time.
- *
  * `requireTeam` resolves the team when the request arrives, and an admin can
  * change the repository between then and the write. Re-reading narrows that
  * window for both the permission check and the source rule, which previously
