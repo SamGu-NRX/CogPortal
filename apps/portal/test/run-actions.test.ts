@@ -39,7 +39,9 @@ import {
   users,
 } from "../worker/db/schema.ts";
 import type { AppEnv, Env } from "../worker/env.ts";
-import { ApiHttpError } from "../worker/http/errors.ts";
+import { ApiHttpError, handleError } from "../worker/http/errors.ts";
+import { registerRunRoutes } from "../worker/routes/runs.ts";
+import { weightObjectKey } from "../worker/services/weights.ts";
 import { runSourceRefusal } from "../worker/services/run-source.ts";
 import {
   performRunSurfaceMutation,
@@ -1201,3 +1203,28 @@ for (const successSlot of [1, 3]) {
     assert.equal((await readRunAccounting(db, ACCOUNTING_SCOPE)).officialUsed, 1);
   });
 }
+
+test("a weight download reads the repository the run recorded, not the team's current name", async () => {
+  // enqueueRun builds the manifest under the run's recorded repository, so the
+  // download route has to resolve the same key or a rename between queue and
+  // fetch turns every uploaded weight into a 404 during preparation.
+  const { db, binding } = freshDb();
+  await seedPromotion(db);
+  const keys: string[] = [];
+  const runtime = {
+    ...env(binding, "modal"),
+    ARTIFACTS: { get: async (key: string) => { keys.push(key); return null; } },
+  } as unknown as Env;
+  const app = new Hono<AppEnv>();
+  registerRunRoutes(app);
+  app.onError(handleError);
+  const path = `/v1/runs/${PRACTICE_RUN_ID}/weights/models/search.pkl`;
+  const timestamp = String(Math.floor(Date.now() / 1_000));
+  const response = await app.fetch(new Request(`http://localhost${path}`, { headers: {
+    "X-Cogworks-Key-Id": "runner-v1",
+    "X-Cogworks-Timestamp": timestamp,
+    "X-Cogworks-Signature": `v1=${await hmacSignature("test-signing-secret-that-is-long-enough", timestamp, path)}`,
+  } }), runtime);
+  assert.equal(response.status, 404, `the stub holds no object, so the route reports none: ${await response.text()}`);
+  assert.deepEqual(keys, [weightObjectKey("some-org/the-repository-it-ran-from", "a".repeat(40), "models/search.pkl")]);
+});
