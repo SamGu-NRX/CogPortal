@@ -28,6 +28,10 @@
 --
 -- Existing rows in `runs` keep the scorer_version that scored them. That
 -- column records what a run measured.
+--
+-- Version 1 changes in place because no team has published against it: the
+-- Sept 15 production view check found no published results on any current
+-- benchmark version, and the only production Language run is a practice run.
 UPDATE benchmarks
 SET scorer_version = 'retrieval-v4'
 WHERE id = 'language-search' AND version = 1;
