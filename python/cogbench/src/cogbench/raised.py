@@ -1,12 +1,11 @@
 """Where in a repository's own code an exception was raised.
 
 A student reads a compiler error by its location: file, line, message. The
-platform holds that location on every exception their code raises during a
-search, and until now dropped it. One 2026 repository whose ``create_graph``
-raises ``AttributeError`` at ``whispers.py:66`` (its first line is
-``from pyexpat import model``, so ``model.detect`` is a module attribute that
-does not exist) was told only that nothing accepted the input the descriptors
-step passes. True, and nothing a team can act on.
+search holds that location on every exception their code raises, and until
+now dropped it: the 2026 repository whose ``create_graph`` raises
+``AttributeError`` at ``whispers.py:66`` was told only that nothing accepted
+the input the descriptors step passes, which is true and not something a team
+can act on.
 
 The rule is one sentence and is the whole of this module: **their frame is the
 innermost traceback frame whose file is inside their repository**. A raise

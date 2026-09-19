@@ -1,6 +1,5 @@
 """No-network comparison of macOS proxy lookup before/after the SDK fork."""
 import json
-import os
 import subprocess
 import sys
 from pathlib import Path
