@@ -78,6 +78,15 @@ export interface SetupCommand {
 }
 
 /**
+ * The one place this command is written. Setup's rail and the Connections
+ * device panel both offer it, and a device request only reaches the right
+ * portal if the two agree on the origin.
+ */
+export function linkCommand(portalOrigin: string): string {
+  return `cogworks link --portal ${portalOrigin}`;
+}
+
+/**
  * The commands, in run order, for one team's repository and one track.
  *
  * A student pastes these literally, so the pins, the flag on `check`, and the
@@ -135,7 +144,7 @@ export function setupCommandLines(input: {
   lines.push(
     {
       id: "link",
-      command: `cogworks link --portal ${input.portalOrigin}`,
+      command: linkCommand(input.portalOrigin),
       verified: input.deviceLinked,
       benchmarkScoped: false,
       evidenceSource: "devices",
