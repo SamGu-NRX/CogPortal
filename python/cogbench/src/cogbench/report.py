@@ -162,6 +162,7 @@ def render_check(
     hosted_python: Optional[str],
     benchmark_ready: bool,
     repository: Optional[str],
+    git_checkout: bool = False,
     submission: Optional[SubmissionReport] = None,
     survey: Optional[Dict[str, object]] = None,
     local_gap_note: str = "",
@@ -213,7 +214,17 @@ def render_check(
                 "{} (the hidden evaluation runs on this)".format(hosted_python),
             )
         )
-    lines.append(_line("repository", repository or "not a git repository"))
+    # `repository` is the GitHub owner/name, which a perfectly good checkout
+    # can lack. Saying "not a git repository" there sent a student to `git
+    # init` in a clean worktree with a valid commit; what they actually need
+    # is an `origin` remote on GitHub.
+    if repository:
+        described = repository
+    elif git_checkout:
+        described = "a git checkout with no GitHub `origin` remote"
+    else:
+        described = "not a git repository"
+    lines.append(_line("repository", described))
 
     if survey:
         lines.append("")

@@ -6,7 +6,7 @@ import json
 import os
 import time
 from pathlib import Path
-from typing import Any, Callable, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from . import __version__
 from .models import LocalReport, Metric
@@ -68,10 +68,13 @@ def execute(
     cwd: Path,
     smoke: bool = False,
     progress: Optional[Callable[..., None]] = None,
-    weights: Optional[List[str]] = None,
+    weight_names: Optional[List[str]] = None,
+    weights: Optional[List[Dict[str, Any]]] = None,
 ) -> LocalReport:
     if str(getattr(benchmark, "contract_version", "")) == "cogworks.submissions.v2":
-        return _execute_v2(benchmark, adapter, cwd, smoke, progress, weights)
+        return _execute_v2(
+            benchmark, adapter, cwd, smoke, progress, weight_names, weights
+        )
     if progress:
         _progress(progress, "contract_check")
     cases = list(benchmark.public_cases())
@@ -104,7 +107,8 @@ def execute(
         metrics=list(metrics),
         diagnostics=list(diagnostics),
         predictions=predictions,
-        weights_used=weights,
+        weights_used=None if weight_names is None else [str(n) for n in weight_names],
+        weights_uploaded=None if weights is None else [dict(item) for item in weights],
     )
 
 
@@ -197,7 +201,8 @@ def _execute_v2(
     cwd: Path,
     smoke: bool,
     progress: Optional[Callable[..., None]],
-    weights: Optional[List[str]] = None,
+    weight_names: Optional[List[str]] = None,
+    weights: Optional[List[Dict[str, Any]]] = None,
     model_factory: Callable[[], Any] = _facenet_model,
 ) -> LocalReport:
     tier = "test" if smoke else "evaluation"
@@ -282,7 +287,8 @@ def _execute_v2(
         metrics=metrics,
         diagnostics=list(getattr(benchmark, "last_diagnostics", [])),
         predictions=outputs,
-        weights_used=weights,
+        weights_used=None if weight_names is None else [str(n) for n in weight_names],
+        weights_uploaded=None if weights is None else [dict(item) for item in weights],
     )
 
 
