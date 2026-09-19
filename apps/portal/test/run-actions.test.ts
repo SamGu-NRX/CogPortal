@@ -41,7 +41,9 @@ import {
   users,
 } from "../worker/db/schema.ts";
 import type { AppEnv, Env } from "../worker/env.ts";
-import { ApiHttpError } from "../worker/http/errors.ts";
+import { ApiHttpError, handleError } from "../worker/http/errors.ts";
+import { registerRunRoutes } from "../worker/routes/runs.ts";
+import { weightObjectKey } from "../worker/services/weights.ts";
 import { runSourceRefusal } from "../worker/services/run-source.ts";
 import {
   performRunSurfaceMutation,
@@ -760,13 +762,6 @@ test("a practice run records the repository it is starting from", async () => {
 /* ── Acting on a run after the repository changed ─────────────────────── */
 
 /**
- * A team has one connected repository and every write is authorised against
- * it, so a new promotion, rerun or publication has to be about that
- * repository. History stays readable and an existing selection stays selected;
- * only new mutations are refused. Matched on the id, so a rename keeps working.
- */
-
-/**
  * Leave the run recording a repository the team is not connected to.
  *
  * Equivalent to the team having moved on, and isolated from it on purpose: the
@@ -845,8 +840,6 @@ test("publishing a result from a repository the team has left is refused, and th
     (error: unknown) => error instanceof ApiHttpError && error.code === "source_changed",
   );
 
-  // What is already published stays published. The refusal is about choosing
-  // a new one, not about withdrawing the old.
   const [selection] = await db.select().from(leaderboardSelections);
   assert.equal(selection!.runId, officialId);
   assert.equal(selection!.selectedAt, 1, "the refused publication rewrote the selection");
@@ -888,8 +881,6 @@ test("the shared boundary refuses before it publishes anything", async () => {
 });
 
 test("hosted verification of a local run from another repository is refused", async () => {
-  // verify_hosted resolves the local session's commit against the connected
-  // repository, so it is a rerun by another name and takes the same rule.
   const { db, binding } = freshDb();
   const actor = await seedPromotion(db);
   await db.insert(cliDevices).values({
@@ -1054,7 +1045,11 @@ test("dashboard API and rendered candidate agree with detail for unknown, change
     assert.ok(row);
     const detail = await serializeRunDetail(db, row, actor.team);
     assert.equal(dashboard.latestCandidate?.id, PRACTICE_RUN_ID);
-    assert.equal(dashboard.latestCandidate?.sourceRefusal, detail.sourceRefusal);
+    // Each panel's own call to action, stated independently: the dashboard
+    // only offers promotion, and the run detail shares one sentence with
+    // PUBLISH. Compared in full so a changed clause cannot pass unnoticed.
+    assert.equal(dashboard.latestCandidate?.sourceRefusal, runSourceRefusal(actor.team, row, "promote it"));
+    assert.equal(detail.sourceRefusal, runSourceRefusal(actor.team, row, "act on it"));
     assert.equal(dashboard.latestCandidate?.repo?.fullName, "some-org/the-repository-it-ran-from");
     const html = renderDashboard(dashboard);
     if (repositoryId === FIXTURE_REPO.repositoryId) {
@@ -1065,7 +1060,9 @@ test("dashboard API and rendered candidate agree with detail for unknown, change
     } else {
       assert.match(html, /Previous result/);
       assert.ok(detail.sourceRefusal);
-      assert.ok(html.includes(detail.sourceRefusal));
+      assert.ok(dashboard.latestCandidate?.sourceRefusal);
+      assert.ok(html.includes(dashboard.latestCandidate.sourceRefusal));
+      assert.match(dashboard.latestCandidate.sourceRefusal, /to promote it\.$/);
       assert.doesNotMatch(html, /Promote to official/);
       assert.doesNotMatch(html, /Candidate ready/);
     }
@@ -1581,4 +1578,29 @@ test("missing snapshot context retains its 404 across the DO request boundary", 
   await assert.rejects(buildRunSurfaceSnapshot(env(binding, "modal"), SURFACE_ID), {
     status: 404, code: "not_found", message: "Run surface context no longer exists.",
   });
+});
+
+test("a weight download reads the repository the run recorded, not the team's current name", async () => {
+  // enqueueRun builds the manifest under the run's recorded repository, so the
+  // download route has to resolve the same key or a rename between queue and
+  // fetch turns every uploaded weight into a 404 during preparation.
+  const { db, binding } = freshDb();
+  await seedPromotion(db);
+  const keys: string[] = [];
+  const runtime = {
+    ...env(binding, "modal"),
+    ARTIFACTS: { get: async (key: string) => { keys.push(key); return null; } },
+  } as unknown as Env;
+  const app = new Hono<AppEnv>();
+  registerRunRoutes(app);
+  app.onError(handleError);
+  const path = `/v1/runs/${PRACTICE_RUN_ID}/weights/models/search.pkl`;
+  const timestamp = String(Math.floor(Date.now() / 1_000));
+  const response = await app.fetch(new Request(`http://localhost${path}`, { headers: {
+    "X-Cogworks-Key-Id": "runner-v1",
+    "X-Cogworks-Timestamp": timestamp,
+    "X-Cogworks-Signature": `v1=${await hmacSignature("test-signing-secret-that-is-long-enough", timestamp, path)}`,
+  } }), runtime);
+  assert.equal(response.status, 404, `the stub holds no object, so the route reports none: ${await response.text()}`);
+  assert.deepEqual(keys, [weightObjectKey("some-org/the-repository-it-ran-from", "a".repeat(40), "models/search.pkl")]);
 });

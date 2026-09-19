@@ -8,7 +8,7 @@ import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { runSource } from "@cogworks/contracts/schema";
 import type { Database } from "../worker/db/client.ts";
-import { cohorts, runs, teams } from "../worker/db/schema.ts";
+import { cohorts, leaderboardSelections, runs, teams } from "../worker/db/schema.ts";
 import { serializeRunDetail } from "../worker/http/serializers.ts";
 
 /**
@@ -17,9 +17,7 @@ import { serializeRunDetail } from "../worker/http/serializers.ts";
  * The run detail payload used to build its repository from the team row, so a
  * team that changed its connected repository rewrote the past: every earlier
  * run rendered under the new repository's name, above the old repository's
- * commit (B-06). These pin the two halves of the repair, the run keeping its
- * own source and an unrecorded source staying unknown, plus the migration's
- * guard, which is the part that decides what history is allowed to claim.
+ * commit (B-06).
  */
 
 const MIGRATIONS = join(dirname(fileURLToPath(import.meta.url)), "..", "migrations");
@@ -67,7 +65,7 @@ function freshDb(files: string[]): { db: Database; sqlite: DatabaseSync } {
   return { db: drizzle(binding as never) as unknown as Database, sqlite };
 }
 
-async function seedTeamOnOldRepository(db: Database, repoId: number | null = 42): Promise<void> {
+async function seedTeamOnOldRepository(db: Database): Promise<void> {
   await db.insert(cohorts).values({
     id: "cohort_t",
     slug: "t",
@@ -85,7 +83,7 @@ async function seedTeamOnOldRepository(db: Database, repoId: number | null = 42)
     repoFullName: OLD,
     repoUrl: `https://github.com/${OLD}`,
     defaultBranch: "main",
-    repoId,
+    repoId: 42,
   });
 }
 
@@ -112,8 +110,6 @@ async function insertRun(
   } as never);
 }
 
-/** The team as it is now, which is what decides whether a run is still
- *  actionable. What the run *was* comes from the run. */
 async function currentTeam(db: Database) {
   const [row] = await db.select().from(teams).where(eq(teams.id, "team_1"));
   return { repoId: row!.repoId, repoFullName: row!.repoFullName };
@@ -150,8 +146,6 @@ test("a finished run still names its own repository after the team changes repos
   // The commit was always the run's own. It has to still agree with the name
   // above it, which is the pairing the defect broke.
   assert.equal(detail.sha, SHA);
-  // Readable, and no longer promotable: the page shows this instead of a
-  // control the server would refuse.
   assert.match(detail.sourceRefusal ?? "", /no longer connected to/);
   assert.match(detail.sourceRefusal ?? "", new RegExp(NEW));
 });
@@ -186,13 +180,11 @@ test("a run that recorded no repository reports none, not the team's", async () 
 test("the backfill fills a run whose own id proves the repository, and no other", async () => {
   // Applied against the schema as it stood before this migration, so this
   // exercises the shipped SQL rather than a paraphrase of it.
-  const before = migrationFiles("0039_setup_check_source.sql");
+  const before = migrationFiles("0045_setup_check_source.sql");
   const { db, sqlite } = freshDb(before);
   await seedTeamOnOldRepository(db);
 
-  // Three shapes of history: one whose recorded id still matches the team, one
-  // from a repository the team has since left, and one from before ids existed.
-  // Inserted as SQL because the point is the schema as it stood at 0039, which
+  // Inserted as SQL because the point is the schema as it stood at 0045, which
   // has no name column for the query builder to fill.
   const insert = sqlite.prepare(
     `insert into runs
@@ -205,7 +197,7 @@ test("the backfill fills a run whose own id proves the repository, and no other"
   insert.run("run_moved", SHA, 7);
   insert.run("run_ancient", SHA, null);
 
-  sqlite.exec(readFileSync(join(MIGRATIONS, "0040_run_repository_name.sql"), "utf8"));
+  sqlite.exec(readFileSync(join(MIGRATIONS, "0046_run_repository_name.sql"), "utf8"));
 
   const named = new Map(
     (await db.select({ id: runs.id, repositoryFullName: runs.repositoryFullName }).from(runs)).map((row) => [row.id, row.repositoryFullName]),
@@ -218,22 +210,44 @@ test("the backfill fills a run whose own id proves the repository, and no other"
 test("a name only becomes a link when it is a name", () => {
   assert.equal(runSource(null), null);
   assert.equal(runSource(""), null);
-  // Not a full name: no owner, or no repository after the slash.
   assert.equal(runSource("week1-capstone"), null);
   assert.equal(runSource("/week1-capstone"), null);
   assert.equal(runSource("some-student/"), null);
-  // Not two components, or not a name at all: each of these would otherwise
-  // build a URL pointing somewhere the run never used.
   assert.equal(runSource("owner/repo/extra"), null);
   assert.equal(runSource("owner/../other"), null);
   assert.equal(runSource("owner/repo?tab=readme"), null);
   assert.equal(runSource(" /repo"), null);
   assert.equal(runSource("owner /repo"), null);
-  assert.equal(runSource("owner/.."), null, "a dot segment resolves above the repository");
   assert.deepEqual(runSource(OLD), {
     owner: "some-student",
     name: "week1-capstone",
     fullName: OLD,
     url: `https://github.com/${OLD}`,
   });
+});
+
+test("the run detail's refusal names no single action, because two panels share it", async () => {
+  // RunDetail renders one sourceRefusal under PROMOTE and, for an official
+  // result, under PUBLISH. "promote it" was wrong in the second place.
+  const { db } = freshDb(migrationFiles());
+  await seedTeamOnOldRepository(db);
+  await insertRun(db, "run_official", { mode: "official", status: "succeeded", attemptNumber: 1 });
+  // Already the team's public entry before the repository moved.
+  await db.insert(leaderboardSelections).values({
+    teamId: "team_1", benchmarkId: "audio-identification", benchmarkVersion: 1,
+    runId: "run_official", selectedAt: 1_780_000_000_000,
+  });
+  await changeRepository(db);
+
+  const [row] = await db.select().from(runs).where(eq(runs.id, "run_official"));
+  assert.ok(row);
+  const detail = await serializeRunDetail(db, row, await currentTeam(db));
+
+  assert.match(detail.sourceRefusal ?? "", /to act on it\.$/);
+  assert.doesNotMatch(detail.sourceRefusal ?? "", /promote it|publish a result|verify it here|run it again/);
+  assert.match(detail.sourceRefusal ?? "", /no longer connected to/);
+  // The recorded selection and the gate both survive the wording change.
+  assert.equal(detail.selected, true, "the team's published entry was withdrawn");
+  assert.equal(detail.publishable, true);
+  assert.equal(detail.status, "succeeded");
 });

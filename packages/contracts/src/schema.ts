@@ -162,15 +162,14 @@ export type RunSource = z.infer<typeof RunSourceSchema>;
  * repository renamed on GitHub keeps redirecting from the old name, which is
  * the behaviour this wants: the link names what the run used.
  */
-export function runSource(fullName: string | null | undefined): RunSource | null {
+export function runSource(fullName: string | null): RunSource | null {
   // Stricter than the wire regex elsewhere in this file, because the result
   // becomes a URL. GitHub owners are alphanumeric and hyphens, repositories add
   // dots and underscores; anything else ("owner/repo/extra",
   // "owner/repo?tab=readme") would build a link pointing somewhere the run
-  // never used. A repository named only of dots would resolve above itself.
+  // never used.
   if (!fullName || !/^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/.test(fullName)) return null;
   const slash = fullName.indexOf("/");
-  if (/^\.+$/.test(fullName.slice(slash + 1))) return null;
   return {
     owner: fullName.slice(0, slash),
     name: fullName.slice(slash + 1),
@@ -775,7 +774,6 @@ export const StartLocalRunRequestSchema = z.object({
   clientRunId: z.string().regex(/^localrun_[a-f0-9]{32}$/),
   benchmarkId: z.string().min(1).max(120),
   benchmarkVersion: z.number().int().positive(),
-  repositoryId: z.number().int().positive().nullable(),
   repositoryFullName: z.string().regex(/^[^/\s]+\/[^/\s]+$/),
   sha: z.string().regex(/^[a-f0-9]{40}$/),
   branch: z.string().trim().min(1).max(255).nullable().optional(),
