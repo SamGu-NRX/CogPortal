@@ -11,9 +11,8 @@
 >   `_repository_slug`, the `/opt/adapters` image copies, or the staging block, and
 >   `apps/runner-modal/tests/test_prepare_rungs.py` and `test_archive_safety.py` were edited to
 >   match. This document describes the source without them.
-> - **`cogworks sync` uploading a local run's weights landed mid-pass and is now whole.** An
->   earlier draft said no such mechanism existed; that is wrong. `upload_weight` PUTs raw bytes to
->   `/api/v1/local-reports/{reportId}/weights/{path}` (`python/cogbench/src/cogbench/client.py:158`),
+> - **`cogworks sync` uploading a local run's weights landed mid-pass and is now whole.**
+>   `upload_weight` PUTs raw bytes to `/api/v1/local-reports/{reportId}/weights/{path}` (`python/cogbench/src/cogbench/client.py:158`),
 >   the worker registers that route (`apps/portal/worker/routes/local-reports.ts:26`) and a signed
 >   read-back at `GET /v1/runs/:id/weights/*` (`apps/portal/worker/routes/runs.ts:57`), the job
 >   carries a `weights` array (`protocol.py:33`), and prepare fetches each file. It has not been run.
