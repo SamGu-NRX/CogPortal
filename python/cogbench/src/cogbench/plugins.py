@@ -25,7 +25,7 @@ BENCHMARK_INSTALLS: Dict[str, BenchmarkInstall] = {
     "audio-identification": BenchmarkInstall(
         "cogworks-week1-audio-benchmark",
         "git+https://github.com/SamGu-NRX/cogworks-week1-audio-benchmark.git"
-        "@b156644aecc810e0b93535e320098f96c39ae04e",
+        "@ad055874436e45b2d8ef0bdb48deedbf2a0a2a90",
     ),
     "vision-recognition": BenchmarkInstall(
         "cogworks-week2-vision-benchmark",
