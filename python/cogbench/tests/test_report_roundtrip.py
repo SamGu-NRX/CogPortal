@@ -239,7 +239,6 @@ class AMalformedOperationResultIsCategorizedNotRaised(TinyProjectTest):
         self.assertEqual(renderer.call_args.kwargs['survey'], survey)
 
     def test_a_malformed_run_report_exits_two_with_a_reason(self):
-        import io
         import json as _json
 
         # 1e999 decodes to inf and the int conversions inside from_wire raise

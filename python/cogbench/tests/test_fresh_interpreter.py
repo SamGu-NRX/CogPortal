@@ -211,7 +211,6 @@ Path(%r).write_text(json.dumps(list(resource.getrlimit(resource.RLIMIT_CPU))))
                 view, status, detail = cli._read_repository('boundary-fixture', self.repo, True)
             self.assertEqual(status, isolate.COMPLETED, detail)
             self.assertTrue(view['ready'])
-            # The repository's own sitecustomize never ran at startup.
             self.assertFalse(
                 marker.exists(),
                 'a sitecustomize in the repository ran during interpreter startup',

@@ -1085,8 +1085,7 @@ def _run_view(args: argparse.Namespace, project_root: Path, *, project=None, pro
                 smoke=args.command == "test",
                 progress=progress,
             )
-            serialized = json.dumps(project.describe(json.loads(report.to_json())))
-            return serialized
+            return json.dumps(project.describe(json.loads(report.to_json())))
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:

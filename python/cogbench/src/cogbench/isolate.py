@@ -867,13 +867,10 @@ def _collect(pid, read_fd, timeout_seconds, memory_bytes, on_poll=None) -> Outco
     # forged success. For `check` the forged value can have the right shape, so
     # `--update-setup` would record setup evidence for a run we killed. The
     # payload is a claim; the exit is the evidence for it.
-    # And an exit the parent saw fail is evidence against it. A child that
-    # writes a valid `completed` envelope and then exits 23, or kills itself,
-    # did not complete: something went wrong after it produced the value, and
-    # reporting the value is the lie. `_terminate` always fires, so a cleanup
-    # SIGKILL is ours and is not counted here; `status` at this point is the
-    # child's own exit, because the cleanup path above discards a SIGKILL it
-    # cannot attribute.
+    # And an exit the parent saw fail is evidence against it. `_terminate`
+    # always fires, so a cleanup SIGKILL is ours and is not counted here;
+    # `status` at this point is the child's own exit, because the cleanup path
+    # above discards a SIGKILL it cannot attribute.
     if outcome is not None and reaped and status is not None and not fired:
         if os.WIFSIGNALED(status):
             died = "signal_{}".format(os.WTERMSIG(status))

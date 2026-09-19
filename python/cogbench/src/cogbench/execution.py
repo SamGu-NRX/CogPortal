@@ -94,10 +94,9 @@ def private_project(root: Path):
     """Copy once; never copy student-created outputs back to the project.
 
     The SDK still stores its own reports and binding cache under the original
-    project's .cogbench directory. Student resources are never copied back.
-    Ordinary copies cost the project's resource bytes. There is no measured
-    throughput guarantee or size exemption: linking writable files back to the
-    original would let native SQLite and image writers change the student's data.
+    project's .cogbench directory. Linking writable files back to the original
+    instead of copying them would let native SQLite and image writers change
+    the student's data.
     """
     root = Path(root).resolve()
     temporary = None

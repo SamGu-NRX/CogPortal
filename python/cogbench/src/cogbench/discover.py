@@ -1548,9 +1548,8 @@ def _mirror_into(source: Path, destination: Path) -> None:
 def _reading_from(folder: Path, *, private_copy: bool = False):
     """Retry from the module's folder, already private for CLI operations.
 
-    Direct SDK discovery returns live modules without owning their lifetime.
-    It retains the older import-only mirror described below; that mirror does
-    not provide the CLI's complete-operation preservation.
+    Direct SDK discovery returns live modules without owning their lifetime,
+    so it still uses the import-only mirror described below.
 
     The retry below re-executes a module with its own directory as the
     working directory, because a module that reads ``data/trumpet.wav`` at
