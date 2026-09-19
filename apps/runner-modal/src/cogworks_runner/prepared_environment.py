@@ -184,14 +184,14 @@ def _validate_interpreter(benchmark_id: str, python_version: str) -> None:
         raise PreparedEnvironmentError(INCOMPATIBLE_PYTHON)
 
 
-def student_python(benchmark_id: str, py38_venv: str, default: str = "python") -> str:
+def student_python(benchmark_id: str, py38_venv: str) -> str:
     """Select the pinned venv for tracks requiring Python 3.8.
 
     Callers supply cogbench's venv path so this module needs no cogbench import
     when the sandbox runs its pristine compatibility probe.
     """
 
-    return py38_venv if benchmark_id in _REQUIRED_PYTHON else default
+    return py38_venv if benchmark_id in _REQUIRED_PYTHON else "python"
 
 
 def validate_observation(job: Dict[str, Any], observation: Any) -> None:

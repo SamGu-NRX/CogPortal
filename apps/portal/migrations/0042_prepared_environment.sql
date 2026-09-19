@@ -7,7 +7,7 @@ ALTER TABLE benchmarks ADD COLUMN sandbox_contract INTEGER
 -- Dependent decoder changes must advance their own catalog contract explicitly.
 -- Catalog and runner updates are not atomic. For a later contract transition,
 -- pause admission with NULL, drain already-dispatched jobs, deploy the matching
--- runner/image, then set the new contract. A decoder cannot claim both grids.
+-- runner/image, then set the new contract.
 -- No historical snapshot gains provisioning evidence from this catalog seed.
 UPDATE benchmarks SET sandbox_contract = 1
 WHERE id IN ('audio-identification', 'language-search', 'vision-recognition', 'vision-clustering');

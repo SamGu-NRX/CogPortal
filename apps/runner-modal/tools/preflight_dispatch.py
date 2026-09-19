@@ -318,35 +318,25 @@ OCI_DIGEST = re.compile(r"\bsha256:[a-f0-9]{64}\b")
 
 
 def check_image_digest(values: Dict[str, str]) -> Check:
-    """What the digest is for, and what the placeholder actually costs.
+    """Why a placeholder is still reported, and what it no longer costs.
 
-    It selects nothing. `_sandbox_image` picks an image by name, not by digest.
-    Its only consumer is the SHA-256 `environmentDigest` on the completed
-    event, which the runner builds from three inputs: the prepared snapshot id,
-    this value, and the plugin version (`environment_digest` in modal_app).
-
-    So the placeholder does not collapse that record. The snapshot id is the
-    first input and already differs whenever the image differs, so two runs on
-    different images hash differently today. The cost is narrower: one of the
-    three inputs carries no information, so the record adds nothing to what the
-    snapshot id already says.
-
-    A real value is only ever partly true. The Worker sends one string for
-    every benchmark while the runner picks one of three published images from
-    the benchmark id, so whatever is set here names at most one track's image.
-    Setting it beats a placeholder, but the field cannot become a provenance
-    record while it lives on the Worker, because the Worker chooses before the
-    runner does and can be bypassed entirely by snapshot reuse.
+    It selects nothing: `_sandbox_image` picks an image by name. Nothing in
+    the runner reads this value any more either. The completed event's
+    `environmentDigest` hashes the prepared-environment record, the evaluation
+    script, the controller's Python and the plugin and scorer versions
+    (`environment_digest` in modal_app), so the record already differs whenever
+    the image differs. What is left is a placeholder word in a deployed config
+    that an operator reads back as if it named an image. One string could not
+    name the three published images anyway.
     """
 
     value = values.get("RUNNER_IMAGE_DIGEST", "").strip()
     fix = (
         "Run `python apps/runner-modal/tools/deploy.py` and copy an id it "
         "prints (`published cogworks-runner-week3 -> im-...`). Set "
-        "RUNNER_IMAGE_DIGEST to `<name>@<id>` so the input carries a real id "
-        "instead of a placeholder word. The event stores a hash, not the "
-        "name, and one string cannot cover three images, so pick the track "
-        "you most want recorded and treat the rest as unresolved."
+        "RUNNER_IMAGE_DIGEST to `<name>@<id>` so the config names a real id "
+        "instead of a placeholder word. One string cannot cover three images, "
+        "so pick the track you most want named and treat the rest as unresolved."
     )
     if not value:
         return bad(
@@ -358,8 +348,7 @@ def check_image_digest(values: Dict[str, str]) -> Check:
     if "unpublished" in value.lower():
         return bad(
             "image digest",
-            "{} is the placeholder, so this input tells the record nothing "
-            "the snapshot id did not already say".format(value),
+            "{} is the placeholder word, not an image id".format(value),
             fix,
         )
     if IMAGE_ID.search(value) or OCI_DIGEST.search(value):

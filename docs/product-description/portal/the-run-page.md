@@ -206,7 +206,7 @@ The refusal's `notes` field is not rendered at all, for the same reason the head
 
 **Full**, for every other failure, it is titled `FAILED DURING {PHASE}` in capitals, with the phase taken from the failure itself, and a mono code chip in the panel's corner. Under it: a serif title, an explanation, the raw `failureDetail` in a preformatted block when there is one, a `What to do` block, a `Reproduce locally` copy block when a command applies, and for an official run one line stating the cost.
 
-Failed practice and official executions use no quota. Legacy consumed-attempt wording is not a separate policy. The final browser copy remains subject to assembled UI verification.
+Failed practice and official executions use no quota. Legacy consumed-attempt wording is not a separate policy.
 
 The copy comes from a fixed catalog of twelve categories, sharpened per module where the concept genuinely differs (`packages/contracts/src/failures.ts:31`).
 

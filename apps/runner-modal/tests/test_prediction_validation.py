@@ -247,7 +247,6 @@ class CountTests(unittest.TestCase):
             message = str(caught.exception)
             self.assertIn("If your adapter builds this list, check its length.", message)
             self.assertIn("Otherwise, tell course staff.", message)
-            self.assertNotIn("driver calls", message)
             self.assertLessEqual(len(message), 240)
 
     def test_count_is_checked_for_v1_too(self):

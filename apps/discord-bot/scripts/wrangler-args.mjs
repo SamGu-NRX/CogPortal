@@ -17,11 +17,6 @@ const COMMANDS = ["build", "deploy", "dev"];
 
 const USAGE = `Usage: node scripts/wrangler-safe.mjs <${COMMANDS.join("|")}> [wrangler flags...]`;
 
-/**
- * @param {string[]} argv `process.argv.slice(2)`: the command, then its flags.
- * @returns {string[]} arguments for the Wrangler CLI.
- * @throws {Error} when the command is not one of `build`, `deploy`, `dev`.
- */
 export function buildArgs(argv) {
   const [command, ...passthrough] = argv;
   if (!COMMANDS.includes(command)) throw new Error(USAGE);

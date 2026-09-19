@@ -28,7 +28,6 @@ test("the Week 3 preview reports the two probes that are never scored", () => {
   for (const key of ["retrieval_mrr_verbatim", "search_mrr_verbatim"]) {
     const metric = metrics.get(key);
     assert.ok(metric, `${key} is missing from the preview`);
-    // The label must distinguish reported probes from scored metrics.
     assert.match(metric.label, /not scored/);
   }
 });
