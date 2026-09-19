@@ -416,7 +416,9 @@ class WhenTheCheckCouldNotLook(unittest.TestCase):
             )
         )
         self.assertIn("could not read one of your files", text)
-        self.assertIn("missing a package it imports", text)
+        # The headline says what was lost, not why: these skips do not share
+        # one cause. The reason for each is in the coverage below it.
+        self.assertIn("could not finish looking", text)
         self.assertNotIn("12 packages", text)
 
     def test_multiple_unreadable_files_keep_the_plural_headline(self):
@@ -425,7 +427,7 @@ class WhenTheCheckCouldNotLook(unittest.TestCase):
         coverage = Coverage(skipped=(("one", "missing cv2", "ours"), ("two", "missing scipy", "ours")))
         verdict = could_not_look(coverage)
         self.assertIn("could not read 2 of your files", verdict.headline)
-        self.assertIn("missing packages they import", verdict.headline)
+        self.assertIn("could not finish looking", verdict.headline)
 
     def test_the_caveat_still_prints_when_the_run_was_not_stopped_by_it(self):
         """A repository that resolved anyway still deserves the warning: the

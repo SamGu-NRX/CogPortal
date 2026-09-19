@@ -15,6 +15,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 from cogbench import cli, isolate
 
 
+def _spent_budget(pid, seconds):
+    """A reap that uses its whole budget without the child becoming waitable.
+
+    The deadline is a monotonic clock the collector checks itself, so there is
+    no signal a test can fire inside the wait. Spending the budget is what
+    reaching the deadline there looks like.
+    """
+
+    time.sleep(seconds)
+    return None
+
+
 @unittest.skipUnless(hasattr(os, 'fork'), 'requires POSIX isolation')
 class ProcessOutcomes(unittest.TestCase):
     def test_forked_work_cannot_publish_the_grandchilds_return(self):
@@ -119,14 +131,16 @@ class ProcessOutcomes(unittest.TestCase):
         calls = []
         def waitpid(pid, options):
             calls.append(('wait', options))
-            # Force the Linux timing: a nonblocking wait sees no exit yet.
-            return (0, 0) if options == os.WNOHANG else (pid, signal.SIGKILL)
+            # Force the Linux timing: the first poll after EOF sees no exit yet.
+            return (0, 0) if len(calls) == 1 else (pid, signal.SIGKILL)
         read_fd, write_fd = os.pipe()
         os.close(write_fd)
         with patch.object(isolate.os, 'waitpid', side_effect=waitpid), \
-             patch.object(isolate, '_terminate', side_effect=lambda pid: calls.append(('kill', pid))):
+             patch.object(isolate, '_terminate',
+                          side_effect=lambda pid, reaped=False: calls.append(('kill', pid, reaped))):
             result = isolate._collect(123, read_fd, 10, 1234)
-        self.assertEqual(calls, [('wait', 0), ('kill', 123)])
+        self.assertEqual(
+            calls, [('wait', os.WNOHANG), ('wait', os.WNOHANG), ('kill', 123, True)])
         self.assertEqual(result.status, isolate.CRASHED)
         self.assertEqual(result.signal, 9)
         self.assertFalse(result.alarm_fired)
@@ -174,11 +188,11 @@ class ProcessOutcomes(unittest.TestCase):
             # Start the helper only once the child exists: no student work is
             # forked from a test process containing this helper thread.
             real_read = isolate._read_payload
-            def read(fd, exited=None):
+            def read(fd, exited=None, deadline=None):
                 thread = threading.Thread(target=kill_child)
                 thread.start()
                 try:
-                    return real_read(fd, exited)
+                    return real_read(fd, exited, deadline)
                 finally:
                     thread.join()
             with patch.object(isolate, '_read_payload', side_effect=read):
@@ -280,18 +294,18 @@ class ProcessOutcomes(unittest.TestCase):
         self.assertFalse(result.alarm_fired)
         self.assertIsNone(result.value)
 
-    def test_forged_payload_is_rejected_when_alarm_fires_then_child_is_reaped(self):
+    def test_forged_payload_is_rejected_when_the_deadline_expires_in_the_reap(self):
+        # A published payload is a claim; the child's own exit is the evidence
+        # for it. Here the budget runs out while the collector is still trying
+        # to confirm that exit, so the claim goes with it.
         read_fd, write_fd = os.pipe()
         payload = json.dumps({'status': 'completed', 'detail': 'forged', 'value': {'ready': True}}).encode()
         os.write(write_fd, struct.pack('!I', len(payload)) + payload)
         os.close(write_fd)
-        def waitpid(pid, flags):
-            if flags == 0:
-                raise isolate._Alarm()
-            return pid, 0
-        with patch.object(isolate.os, 'waitpid', side_effect=waitpid), \
+        with patch.object(isolate, '_reap_bounded', side_effect=_spent_budget), \
+             patch.object(isolate.os, 'waitpid', return_value=(123, 0)), \
              patch.object(isolate, '_terminate'):
-            result = isolate._collect(123, read_fd, 5, None)
+            result = isolate._collect(123, read_fd, .05, None)
         self.assertEqual(result.status, isolate.TIMED_OUT)
         self.assertTrue(result.alarm_fired)
         self.assertIsNone(result.value)
@@ -339,14 +353,15 @@ class ReapFailureModes(unittest.TestCase):
     """Force wait and cleanup failures without relying on OS scheduling."""
 
     def test_a_wait_that_fails_does_not_become_a_clean_exit(self):
-        # `_reap` used to report a failed wait as status 0, which reads as "exited
+        # A failed wait used to be reported as status 0, which reads as "exited
         # normally, no signal". Used as the authoritative record that turned a
-        # self-SIGKILL into a child that apparently exited fine.
+        # self-SIGKILL into a child that apparently exited fine. The collector
+        # waits with WNOHANG now, so that is the wait to interrupt.
         calls = []
         real = isolate.os.waitpid
 
         def flaky(pid, flags=0):
-            if flags == 0 and not calls:
+            if flags == os.WNOHANG and not calls:
                 calls.append(pid)
                 raise OSError(4, 'Interrupted system call')
             return real(pid, flags)
@@ -359,19 +374,21 @@ class ReapFailureModes(unittest.TestCase):
         self.assertEqual(result.signal, 9, 'a failed wait was reported as a clean exit')
         self.assertFalse(result.alarm_fired)
 
-    def test_an_alarm_inside_the_reap_keeps_an_observable_signal(self):
+    def test_a_deadline_that_expires_inside_the_reap_keeps_an_observable_signal(self):
+        # The run is a timeout, and the child's SIGKILL is still the signal
+        # the report carries. Losing it is how a self-kill became an
+        # unexplained deadline.
         read_fd, write_fd = os.pipe()
         os.close(write_fd)
-        calls = []
-        def interrupted_wait(pid, flags):
-            calls.append(flags)
-            if flags == 0:
-                raise isolate._Alarm()
+        waits = []
+        def wait(pid, flags):
+            waits.append(flags)
             return pid, signal.SIGKILL
-        with patch.object(isolate.os, 'waitpid', side_effect=interrupted_wait), \
+        with patch.object(isolate, '_reap_bounded', side_effect=_spent_budget), \
+             patch.object(isolate.os, 'waitpid', side_effect=wait), \
              patch.object(isolate, '_terminate'):
-            result = isolate._collect(123, read_fd, 5, 1234)
-        self.assertEqual(calls, [0, os.WNOHANG])
+            result = isolate._collect(123, read_fd, .05, 1234)
+        self.assertEqual(waits, [os.WNOHANG])
         self.assertTrue(result.alarm_fired)
         self.assertEqual(result.status, isolate.TIMED_OUT)
         self.assertEqual(result.signal, 9)
@@ -386,9 +403,11 @@ class ReapFailureModes(unittest.TestCase):
                 raise OSError(4, 'Interrupted system call')
             return pid, signal.SIGKILL
         with patch.object(isolate.os, 'waitpid', side_effect=interrupted_wait), \
-             patch.object(isolate, '_terminate', side_effect=lambda pid: calls.append(('kill', pid))):
+             patch.object(isolate, '_terminate',
+                          side_effect=lambda pid, reaped=False: calls.append(('kill', pid, reaped))):
             result = isolate._collect(123, read_fd, 5, 1234)
-        self.assertEqual(calls, [('wait', 0), ('wait', 0), ('kill', 123)])
+        self.assertEqual(
+            calls, [('wait', os.WNOHANG), ('wait', os.WNOHANG), ('kill', 123, True)])
         self.assertEqual(result.status, isolate.CRASHED)
         self.assertEqual(result.signal, 9)
         self.assertFalse(result.alarm_fired)
@@ -409,19 +428,7 @@ class ReapFailureModes(unittest.TestCase):
         self.assertEqual(result.read_reason, 'invalid_outcome')
         self.assertIsNone(result.signal)
         self.assertNotIn('exited without', result.detail)
-        terminate.assert_called_once_with(123)
-
-    def test_native_previous_handler_does_not_leave_our_alarm_armed(self):
-        read_fd, write_fd = os.pipe()
-        os.close(write_fd)
-        with patch.object(isolate.signal, 'signal', return_value=None) as handler, \
-             patch.object(isolate.signal, 'alarm') as alarm, \
-             patch.object(isolate.os, 'waitpid', return_value=(123, 0)), \
-             patch.object(isolate, '_terminate'):
-            result = isolate._collect(123, read_fd, 5, 1234)
-        self.assertFalse(result.alarm_fired)
-        self.assertEqual([call.args for call in alarm.call_args_list], [(5,), (0,)])
-        handler.assert_called_once_with(signal.SIGALRM, isolate._on_alarm)
+        terminate.assert_called_once_with(123, reaped=False)
 
 
 @unittest.skipUnless(hasattr(os, 'fork'), 'requires POSIX isolation')
@@ -474,4 +481,3 @@ class APublishedResultDoesNotOutrankAnObservedDeath(unittest.TestCase):
         self.assertEqual(result.status, isolate.COMPLETED)
         self.assertEqual(result.value, 42)
         self.assertIsNone(result.read_reason)
-

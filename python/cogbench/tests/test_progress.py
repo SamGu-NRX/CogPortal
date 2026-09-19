@@ -51,6 +51,30 @@ class SilenceTests(unittest.TestCase):
         progress.note("hm")
         progress.done()
 
+    def test_a_closed_stream_disables_every_progress_callback(self):
+        stream = io.StringIO()
+        stream.close()
+        progress = TerminalProgress(stream, clock=_Clock())
+        self.assertFalse(progress.enabled)
+        progress.phase("Looking")
+        progress.attempts(1, 10)
+        progress.found("peaks", "theirs.find_peaks")
+        progress.note("A note")
+        progress.done()
+
+    def test_an_unavailable_terminal_check_disables_progress(self):
+        class Unavailable(_Terminal):
+            def isatty(self):
+                raise OSError("terminal disconnected")
+
+        with Unavailable() as stream:
+            progress = TerminalProgress(stream, clock=_Clock())
+            self.assertFalse(progress.enabled)
+            progress.phase("Looking")
+            progress.attempts(1, 10)
+            progress.done()
+            self.assertEqual(stream.getvalue(), "")
+
     def test_a_broken_stream_does_not_take_the_run_with_it(self):
         stream = _Terminal()
         progress = TerminalProgress(stream, clock=_Clock())

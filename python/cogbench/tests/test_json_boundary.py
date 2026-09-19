@@ -113,10 +113,10 @@ class JsonEnvelope(unittest.TestCase):
         # before reading to isolate envelope rejection from cleanup timing.
         real_read = isolate._read_payload
         status = []
-        def read(fd, exited=None):
+        def read(fd, exited=None, deadline=None):
             pid, observed = os.wait()
             status.append((pid, observed))
-            return real_read(fd, exited)
+            return real_read(fd, exited, deadline)
         real_wait = os.waitpid
         def wait(pid, options):
             if status:
@@ -139,6 +139,9 @@ class ADeclaredLengthIsNotAnAllocationOrder(unittest.TestCase):
     seen, and the MemoryError escapes `_read_payload` and `_collect` as an
     exception rather than as a categorized failure. Only the header is written
     here; nothing large is allocated and nothing is exhausted.
+
+    Ported from the process-containment owner's public fix 5c18573, with the
+    corrected cap and chunk wording from a27a7a3. Their finding, their fix.
     """
 
     def _declare(self, size):
@@ -161,25 +164,31 @@ class ADeclaredLengthIsNotAnAllocationOrder(unittest.TestCase):
 
         self.assertGreater(isolate.MAX_PAYLOAD_BYTES, 100 * 2710)
 
-    @unittest.skipUnless(hasattr(os, 'fork'), 'requires POSIX process isolation')
+    @unittest.skipUnless(hasattr(os, 'fork'), 'needs fork to outrun the pipe buffer')
     def test_a_large_but_legitimate_payload_still_arrives_whole(self):
-        """The cap must not become a length limit on real results."""
+        """The cap must not become a length limit on real results, and the
+        body is now read in 64 KiB pieces rather than one call. A payload
+        several chunks long is what tells the two apart; a pipe holds about
+        one chunk, so the writer has to be another process.
+        """
 
         value = 'x' * (256 * 1024)
-        body = json.dumps({'status': 'completed', 'detail': '', 'value': value}).encode('utf-8')
+        body = json.dumps(
+            {'status': 'completed', 'detail': '', 'value': value}
+        ).encode('utf-8')
         read_fd, write_fd = os.pipe()
         child = os.fork()
-        if child == 0:  # pragma: no cover - child
+        if child == 0:  # pragma: no cover - runs in the forked child
             os.close(read_fd)
-            frame = struct.pack('!I', len(body)) + body
-            while frame:
-                frame = frame[os.write(write_fd, frame):]
+            os.write(write_fd, struct.pack('!I', len(body)) + body)
+            os.close(write_fd)
             os._exit(0)
         os.close(write_fd)
         try:
-            result = isolate._read_payload(read_fd)
+            outcome = isolate._read_payload(read_fd)
         finally:
             os.close(read_fd)
             os.waitpid(child, 0)
-        self.assertEqual(result.status, isolate.COMPLETED)
-        self.assertEqual(result.value, value)
+
+        self.assertEqual(outcome.status, isolate.COMPLETED)
+        self.assertEqual(outcome.value, value)
