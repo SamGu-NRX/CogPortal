@@ -3,17 +3,11 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { SetupCommand, SetupCommandId } from "@/lib/setup-progress";
 
-/**
- * What "Copy all" puts on the clipboard: the commands, in order, and nothing
- * else. A student pastes this into a terminal.
- */
 export function commandText(lines: readonly SetupCommand[]): string {
   return lines.map((line) => line.command).join("\n");
 }
 
-/** What the page says about one command, beside the command itself. */
 export interface CommandNote {
-  /** What this step is, in the words a student would use for it. */
   title: string;
   /** Why it matters. One or two sentences, before the command. */
   why: ReactNode;
@@ -29,10 +23,6 @@ export interface CommandNote {
 type CellState = "verified" | "unverified" | "unknown";
 
 /**
- * The setup page's instrument: the commands in run order, each under its title
- * and reason, each with a gutter cell recording whether the portal has seen its
- * result yet.
- *
  * The gutter, rather than a step number, is what carries progress. A single
  * `check` reports four facts in one request (cli.py sends clone, environment,
  * project and wiring together), so cells fill in groups and a numbered list
@@ -147,8 +137,7 @@ export function CommandSheet({
   );
 }
 
-/** An empty rule box until the portal sees the result, then a tick. The tick
- *  is what moves when a check reports; `anim-rise` is the same 200ms quartic
+/** The tick is what moves when a check reports; `anim-rise` is the same 200ms quartic
  *  the rest of the interface enters on, and app.css drops it under reduced
  *  motion. Only a newly mounted tick animates, so a report that fills three
  *  cells does not re-run the ones already filled.

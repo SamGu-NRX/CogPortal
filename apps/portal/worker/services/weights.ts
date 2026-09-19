@@ -11,12 +11,8 @@ export function validateWeightPath(path: string): string {
   return path;
 }
 
-export function weightPrefix(repositoryFullName: string, sha: string): string {
-  return `weights/${repositoryFullName}/${sha}/`;
-}
-
 export function weightObjectKey(repositoryFullName: string, sha: string, path: string): string {
-  return weightPrefix(repositoryFullName, sha) + validateWeightPath(path);
+  return `weights/${repositoryFullName}/${sha}/` + validateWeightPath(path);
 }
 
 function hex(bytes: ArrayBuffer): string {

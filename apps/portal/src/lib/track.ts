@@ -3,12 +3,8 @@ import type { Benchmark, Module } from "@cogworks/contracts/schema";
 import { DEFAULT_BENCHMARK, useBenchmarks } from "./queries";
 
 /**
- * Which benchmark the authenticated surfaces are currently showing.
- *
  * Every active benchmark is a "track" a team can run against, and each one
- * carries its own quota, runs, and setup commands. Before Week 3 the portal
- * assumed exactly one (vision-recognition), which also meant a team could
- * never reach vision-clustering from the dashboard.
+ * carries its own quota, runs, and setup commands.
  *
  * The choice lives in the browser rather than the database: it is a view
  * preference, not team state, and putting it in D1 would mean a migration

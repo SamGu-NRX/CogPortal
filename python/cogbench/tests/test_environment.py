@@ -314,10 +314,9 @@ class AdviceIsWrittenAgainstTheRightImage(unittest.TestCase):
         module = ast.parse(source)
 
         # Both calls live inside PREPARE_SCRIPT and EVALUATE_SCRIPT, which are
-        # string constants executed in the sandbox. Walking the file's own
-        # tree finds neither, so the scripts are parsed as the programs they
-        # are. An earlier version of this test walked only the file and passed
-        # against the very code it was written to catch.
+        # string constants executed in the sandbox, so walking the file's own
+        # tree finds neither and passes against the code this was written to
+        # catch.
         trees = [module]
         for node in module.body:
             if isinstance(node, ast.Assign) and any(
@@ -326,10 +325,8 @@ class AdviceIsWrittenAgainstTheRightImage(unittest.TestCase):
                 trees.append(ast.parse(ast.literal_eval(node.value)))
 
         # Which name the runner calls is read off its own imports rather than
-        # spelled here. This test named `resolve` literally, the runner moved
-        # to `from_spec`, and the test went on passing against zero calls: it
-        # asserted `len(calls) >= 2` on a list that could only be empty. A
-        # check whose subject can vanish is not a check.
+        # spelled here. Named literally, the assertion went on passing against
+        # zero calls once the runner renamed the function.
         entries = {
             alias.asname or alias.name
             for tree in trees

@@ -8,11 +8,10 @@
  * rests on, so it is shown rather than assumed: a team can read this and see
  * whether we ran the code they think we ran.
  *
- * When the chain is incomplete, the same list is the most useful thing on the
- * page. It says how far the search got and what the next step was offered,
- * which is where a team should look first. It offers no diagnosis, because the
- * platform cannot know which of their lines is wrong and a confident wrong
- * guess costs more than silence.
+ * When the chain is incomplete, the same list says how far the search got and
+ * what the next step was offered, which is where a team should look first. It
+ * offers no diagnosis: the platform cannot know which of their lines is wrong,
+ * and a confident wrong guess costs more than silence.
  */
 export interface WiredStep {
   /** The benchmark's name for this step: "peaks", or "spectrogram + peaks"

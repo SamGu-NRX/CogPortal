@@ -228,8 +228,7 @@ export function TeamPage() {
         {t.isAdmin && <ChangeRepository currentFullName={t.repo.fullName} />}
       </Panel>
 
-      {/* ── Where the work went, read from this team's commits and runs ──
-          Last on the page, and the only panel here that is a reading rather
+      {/* Last on the page, and the only panel here that is a reading rather
           than a setting: everything above it is something you change. */}
       <ProcessPanel members={t.members} />
 
