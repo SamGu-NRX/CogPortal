@@ -1849,8 +1849,27 @@ def _collect_wiring(sandbox) -> None:
         steps = json.loads(sandbox.filesystem.read_text("/tmp/cog-wiring.json"))
     except Exception:
         return
-    if isinstance(steps, list):
-        _WIRING.extend(steps[:16])
+    if not isinstance(steps, list):
+        return
+    # Clipped to WiredStepSchema in packages/contracts/src/protocol.ts. The
+    # portal validates the completed event as one object, so a step past those
+    # lengths costs the run rather than the panel it draws, and nothing
+    # upstream bounds them: `function` is `module.function` as it appears in
+    # the team's repository, and this file sits on a filesystem their code runs
+    # on after the evaluate step writes it.
+    for step in steps[:16]:
+        if not isinstance(step, dict):
+            continue
+        stage = step.get("stage")
+        function = step.get("function")
+        if not (isinstance(stage, str) and stage and isinstance(function, str) and function):
+            continue
+        kept = {"stage": stage[:60], "function": function[:200]}
+        for field in ("received", "returned"):
+            value = step.get(field)
+            if isinstance(value, str):
+                kept[field] = value[:200]
+        _WIRING.append(kept)
 
 
 def _evaluate(job: Dict[str, Any], snapshot_id: str, inputs: List[Any]) -> Tuple[List[Any], str]:
