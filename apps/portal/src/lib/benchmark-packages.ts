@@ -54,10 +54,17 @@ const WEEK2_VISION: BenchmarkPackage = {
     "git+https://github.com/SamGu-NRX/cogworks-week2-vision-benchmark.git@b9055031bf25a18594651d89610f3fbcd7462db8",
 };
 
+// Matches the verified staging image, which runs 6dc63fe. Earlier revisions
+// counted the SDK's retained copy of a trained model as a second candidate for
+// the trained image projection and withheld the weight inputs, so a student
+// checking locally on one saw their image side unbound while a hosted run
+// scored it. Observed on staging run_28df471772; this revision also stops
+// repeating the chance baselines as notes and names the metric its chart
+// draws, so a local check and a hosted result read the same way.
 const WEEK3_LANGUAGE: BenchmarkPackage = {
   distribution: "cogworks-week3-language-benchmark",
   source:
-    "git+https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git@fff786537567939936bf65042c09cdea27c90798",
+    "git+https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git@6dc63fe8f6af2b3554a21f7707debb138f31ae4e",
 };
 
 export const BENCHMARK_PACKAGES: Readonly<Record<string, BenchmarkPackage>> = {
