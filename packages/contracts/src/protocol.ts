@@ -33,15 +33,14 @@ export const ProtocolMetricSchema = z.object({
    * on all three, which reads as advice to raise a number the submission
    * does not control.
    *
-   * `floorOf` and `reportedFor` name the metric this one belongs beside. A
-   * floor is the scale its metric sits on, so it renders inline rather than
+   * A floor is the scale its metric sits on, so it renders inline rather than
    * as its own row. A reported metric is run and deliberately not scored,
    * and it only means anything next to its scored counterpart: Week 3's
    * verbatim probes are answerable from the file the submission is handed,
    * so the gap between them and the scored number is the reading.
    *
-   * Absent means "scored", which is what every metric was before this
-   * existed, so a benchmark that declares nothing renders exactly as it did.
+   * Absent means scored, so a benchmark that declares nothing renders as it did
+   * before the field existed.
    */
   role: z.enum(METRIC_ROLES).optional(),
   /** The metric this one is the floor of, or is reported alongside. */

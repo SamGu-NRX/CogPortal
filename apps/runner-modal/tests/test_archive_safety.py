@@ -59,8 +59,8 @@ def _prepare_script() -> str:
 
 SCRIPT = _prepare_script()
 
-#: The cap PREPARE_SCRIPT enforces. Read from the script rather than restated,
-#: so raising the limit there does not leave a test quietly checking the old one.
+#: The cap PREPARE_SCRIPT enforces, restated here and asserted against the
+#: script below so raising it there cannot leave a test checking the old one.
 MAX_ARCHIVE_BYTES = 100 * 1024 * 1024
 assert "max_archive_bytes = 100 * 1024 * 1024" in SCRIPT, (
     "the archive cap moved; update MAX_ARCHIVE_BYTES and the oversize tests"
@@ -447,10 +447,12 @@ class RefusalsAreAttributedToTheRightOwner(unittest.TestCase):
         ]
         self.assertGreaterEqual(len(messages), 3, messages)
         for message in messages:
+            # "source archive", not "archive": the filter above already selected
+            # on "rchive", so the weaker phrase was true by construction.
             self.assertIn(
-                "archive",
+                "source archive",
                 message.lower(),
-                "a refusal that does not say 'archive' is attributed to the wrong owner",
+                "a refusal that does not name the source archive is attributed to the wrong owner",
             )
 
 

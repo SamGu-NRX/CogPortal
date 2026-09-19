@@ -49,12 +49,10 @@ const serverSchema = {
    * Comma-separated GitHub logins of the platform's owners, matched
    * case-insensitively (auth/roles.ts).
    *
-   * The only role that lives in configuration. Owners manage the staff roster,
-   * which is the `platform_staff` table since migration 0031, so an owner list
-   * the application could write would let anyone who reached that roster make
-   * themselves an owner. Keeping it here also makes an empty roster
-   * recoverable: owners receive staff access automatically, so somebody can
-   * always add the first row.
+   * The only role that lives in configuration. Owners manage the `platform_staff`
+   * roster, so an owner list the application could write would let anyone who
+   * reached that roster make themselves an owner. It also keeps an empty roster
+   * recoverable, since owners get staff access automatically.
    *
    * Optional, and an unset value means nobody is an owner. That is the correct
    * reading of "no owners were configured", and it fails closed.
