@@ -247,7 +247,7 @@ export const setupVerifications = sqliteTable(
     benchmarkId: text("benchmark_id").notNull().default(""),
     verifiedAt: integer("verified_at").notNull(),
     /** "cli" when a linked device reported it, "self" when the student ran
-     *  the check-off command from this page (migration 0039). */
+     *  the check-off command from this page (migration 0045). */
     source: text("source").notNull().default("cli"),
   },
   (table) => [
