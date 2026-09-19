@@ -178,7 +178,6 @@ async function locateRecordedWeight<T extends StoredObject>(
   return storedBytesMatch(legacy, weight) ? { status: "matched", object: legacy } : { status: "mismatched" };
 }
 
-/** Availability check for a recorded weight; reads no bytes. */
 export function headRecordedWeight(
   bucket: Pick<R2Bucket, "head">,
   repositoryFullName: string,

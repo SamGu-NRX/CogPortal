@@ -86,7 +86,6 @@ function hexBytes(digest: string): ArrayBuffer {
   return Uint8Array.from(bytes.map((byte) => parseInt(byte, 16))).buffer;
 }
 
-/** Just enough of an R2 body for this route: size, checksum, metadata, bytes. */
 function storedObject(body: string, digest: string | null, size = body.length) {
   return {
     size,
@@ -205,7 +204,6 @@ test("a signed weight URL serves the bytes the dispatched run recorded", async (
     assert.equal(response.headers.get("Content-Length"), "3");
     assert.equal(await response.text(), "abc");
     assert.deepEqual(reads, [key]);
-    assert.equal(reads.some((read) => read.includes("renamed")), false);
   } finally { sqlite.close(); }
 });
 
