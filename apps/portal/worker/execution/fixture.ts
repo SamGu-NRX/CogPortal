@@ -87,8 +87,11 @@ export function fixtureMetrics(
     // perfect 1.0000 on the retrieval one. Averaging four here would show a
     // preview of a scorer that no longer exists.
     const search = round4((keywords + truncated + typo) / 3);
+    const retrievalKeywords = round4(retrieval * 1.063);
+    const retrievalTruncated = round4(retrieval * 0.649);
+    const retrievalTypo = round4(retrieval * 0.877);
     const retrievalScored = round4(
-      Math.max(0, (retrieval * (1.063 + 0.649 + 0.877)) / 3),
+      (retrievalKeywords + retrievalTruncated + retrievalTypo) / 3,
     );
     // The plugin's own pairs (benchmarks/week3, metric_roles and
     // metric_relations), not ours. Without them the fixture drew three chance
@@ -105,10 +108,11 @@ export function fixtureMetrics(
       retrieval_mrr_verbatim: "retrieval_mrr",
       search_mrr_verbatim: "search_mrr",
     };
-    // Also the plugin's. Without these the preview drew four diagnostics among
-    // the scored results, so the surface built to show the separation did not
-    // show it.
+    // Match the plugin's diagnostic roles so these rows stay separate from scores.
     const diagnostics = new Set([
+      "retrieval_mrr_keywords",
+      "retrieval_mrr_truncated",
+      "retrieval_mrr_typo",
       "retrieval_recall_at_1",
       "retrieval_recall_at_5",
       "retrieval_recall_at_10",
@@ -160,6 +164,9 @@ export function fixtureMetrics(
         "Search MRR, caption unchanged (not scored)",
         verbatim,
       ),
+      metric("retrieval_mrr_keywords", "Retrieval MRR, keywords only", retrievalKeywords),
+      metric("retrieval_mrr_truncated", "Retrieval MRR, first three words", retrievalTruncated),
+      metric("retrieval_mrr_typo", "Retrieval MRR, one typo", retrievalTypo),
       metric("search_mrr_keywords", "Search MRR, keywords only", keywords),
       metric("search_mrr_truncated", "Search MRR, first three words", truncated),
       metric("search_mrr_typo", "Search MRR, one typo", typo),

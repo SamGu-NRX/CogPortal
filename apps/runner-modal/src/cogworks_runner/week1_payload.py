@@ -16,7 +16,8 @@ song the clip belongs to, or whether the clip belongs to an enrolled song
 at all. The controller re-attaches the real ids to its own copy with
 ``attach_gold`` before scoring.
 
-``extract_gold`` and ``attach_gold`` mirror week3_payload.py so the official
+``extract_gold`` and ``attach_gold`` are week 1's own pair; week 3's
+``attach_gold`` has since moved into that benchmark. The official
 volume layout (payload.zip beside gold.json) is one shape for both tracks.
 """
 
