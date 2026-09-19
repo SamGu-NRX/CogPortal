@@ -60,16 +60,18 @@ export function registerRunRoutes(app: Hono<AppEnv>): void {
     await verifyRunnerSignature(c, new URL(c.req.url).pathname, 900);
     const path = validateWeightPath(c.req.param("path"));
     const [record] = await getDb(c.env)
-      .select({ run: runs, repositoryFullName: teams.repoFullName })
+      .select({ run: runs, teamRepository: teams.repoFullName })
       .from(runs)
       .innerJoin(teams, eq(runs.teamId, teams.id))
       .where(eq(runs.id, c.req.param("id")))
       .limit(1);
     if (!record) throw new ApiHttpError(404, "not_found", "Run not found.");
     if (!c.env.ARTIFACTS) throw new ApiHttpError(404, "not_found", "Weight file not found.");
-    const object = await c.env.ARTIFACTS.get(
-      weightObjectKey(record.repositoryFullName, record.run.sha, path),
-    );
+    // The same lookup enqueueRun built the manifest from: weights live under
+    // the repository the run recorded, and the team row only names it for a
+    // run from before the name was recorded.
+    const repository = record.run.repositoryFullName ?? record.teamRepository;
+    const object = await c.env.ARTIFACTS.get(weightObjectKey(repository, record.run.sha, path));
     if (!object) throw new ApiHttpError(404, "not_found", "Weight file not found.");
     if (object.size > MAX_WEIGHT_BYTES) {
       throw new ApiHttpError(413, "invalid_request", "Weight files may not exceed 100 MiB.");
@@ -89,6 +91,6 @@ export function registerRunRoutes(app: Hono<AppEnv>): void {
       .limit(1);
     if (!row) throw new ApiHttpError(404, "not_found", "Run not found.");
     const run = await syncRun(db, row);
-    return respond(c, RunDetailSchema, await serializeRunDetail(db, run));
+    return respond(c, RunDetailSchema, await serializeRunDetail(db, run, auth.team));
   });
 }

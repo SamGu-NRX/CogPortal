@@ -8,7 +8,7 @@ import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { runSource } from "@cogworks/contracts/schema";
 import type { Database } from "../worker/db/client.ts";
-import { cohorts, runs, teams } from "../worker/db/schema.ts";
+import { cohorts, leaderboardSelections, runs, teams } from "../worker/db/schema.ts";
 import { serializeRunDetail } from "../worker/http/serializers.ts";
 
 /**
@@ -110,6 +110,11 @@ async function insertRun(
   } as never);
 }
 
+async function currentTeam(db: Database) {
+  const [row] = await db.select().from(teams).where(eq(teams.id, "team_1"));
+  return { repoId: row!.repoId, repoFullName: row!.repoFullName };
+}
+
 /** The team moves to another repository, the way POST /team/repository does. */
 async function changeRepository(db: Database): Promise<void> {
   await db
@@ -132,7 +137,7 @@ test("a finished run still names its own repository after the team changes repos
   await changeRepository(db);
 
   const [row] = await db.select().from(runs).where(eq(runs.id, "run_old"));
-  const detail = await serializeRunDetail(db, row!);
+  const detail = await serializeRunDetail(db, row!, await currentTeam(db));
 
   assert.equal(detail.repo?.fullName, OLD, "the old run followed the team to its new repository");
   assert.equal(detail.repo?.url, `https://github.com/${OLD}`);
@@ -141,6 +146,8 @@ test("a finished run still names its own repository after the team changes repos
   // The commit was always the run's own. It has to still agree with the name
   // above it, which is the pairing the defect broke.
   assert.equal(detail.sha, SHA);
+  assert.match(detail.sourceRefusal ?? "", /no longer connected to/);
+  assert.match(detail.sourceRefusal ?? "", new RegExp(NEW));
 });
 
 test("a run started after the change names the new repository", async () => {
@@ -153,8 +160,8 @@ test("a run started after the change names the new repository", async () => {
   const [older] = await db.select().from(runs).where(eq(runs.id, "run_old"));
   const [newer] = await db.select().from(runs).where(eq(runs.id, "run_new"));
 
-  assert.equal((await serializeRunDetail(db, older!)).repo?.fullName, OLD);
-  assert.equal((await serializeRunDetail(db, newer!)).repo?.fullName, NEW);
+  assert.equal((await serializeRunDetail(db, older!, await currentTeam(db))).repo?.fullName, OLD);
+  assert.equal((await serializeRunDetail(db, newer!, await currentTeam(db))).repo?.fullName, NEW);
 });
 
 test("a run that recorded no repository reports none, not the team's", async () => {
@@ -163,10 +170,11 @@ test("a run that recorded no repository reports none, not the team's", async () 
   await insertRun(db, "run_legacy", { repositoryId: null, repositoryFullName: null });
 
   const [row] = await db.select().from(runs).where(eq(runs.id, "run_legacy"));
-  const detail = await serializeRunDetail(db, row!);
+  const detail = await serializeRunDetail(db, row!, await currentTeam(db));
 
   assert.equal(detail.repo, null, "an unknown source was reported as the current repository");
   assert.equal(detail.sha, SHA, "the run's own commit is still reported");
+  assert.match(detail.sourceRefusal ?? "", /predates the repository/);
 });
 
 test("the backfill fills a run whose own id proves the repository, and no other", async () => {
@@ -216,4 +224,30 @@ test("a name only becomes a link when it is a name", () => {
     fullName: OLD,
     url: `https://github.com/${OLD}`,
   });
+});
+
+test("the run detail's refusal names no single action, because two panels share it", async () => {
+  // RunDetail renders one sourceRefusal under PROMOTE and, for an official
+  // result, under PUBLISH. "promote it" was wrong in the second place.
+  const { db } = freshDb(migrationFiles());
+  await seedTeamOnOldRepository(db);
+  await insertRun(db, "run_official", { mode: "official", status: "succeeded", attemptNumber: 1 });
+  // Already the team's public entry before the repository moved.
+  await db.insert(leaderboardSelections).values({
+    teamId: "team_1", benchmarkId: "audio-identification", benchmarkVersion: 1,
+    runId: "run_official", selectedAt: 1_780_000_000_000,
+  });
+  await changeRepository(db);
+
+  const [row] = await db.select().from(runs).where(eq(runs.id, "run_official"));
+  assert.ok(row);
+  const detail = await serializeRunDetail(db, row, await currentTeam(db));
+
+  assert.match(detail.sourceRefusal ?? "", /to act on it\.$/);
+  assert.doesNotMatch(detail.sourceRefusal ?? "", /promote it|publish a result|verify it here|run it again/);
+  assert.match(detail.sourceRefusal ?? "", /no longer connected to/);
+  // The recorded selection and the gate both survive the wording change.
+  assert.equal(detail.selected, true, "the team's published entry was withdrawn");
+  assert.equal(detail.publishable, true);
+  assert.equal(detail.status, "succeeded");
 });
