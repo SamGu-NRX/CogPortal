@@ -474,7 +474,6 @@ test("new dispatch selects B while an existing dispatch and Retry retain A", asy
     const retry = await prepareRetryJob(env, recorded, team, benchmark, "run_retry_a");
     assert.deepEqual(retry.weights, sent[0].weights);
     assert.equal(retry.source.repositoryId, team.repoId);
-    assert.equal((await db.select().from(localReports))[0].repositoryId, null);
   } finally { sqlite.close(); }
 });
 

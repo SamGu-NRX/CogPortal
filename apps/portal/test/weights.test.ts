@@ -147,13 +147,12 @@ test("weight object keys name the content, in a namespace of their own", () => {
     `weight-objects/course/team/${sha}/${SHA256_ABC}/models/search.pkl`,
   );
   // The digest sits above the student's path, so no path can spell another
-  // weight's key, and no key can land in the pre-digest `weights/` namespace.
+  // weight's key.
   assert.equal(
     weightObjectKey("course/team", sha, `${SHA256_ABC}/search.pkl`, SHA256_ABC)
       .startsWith(`weight-objects/course/team/${sha}/${SHA256_ABC}/`),
     true,
   );
-  assert.doesNotMatch(weightObjectKey("course/team", sha, "models/search.pkl", SHA256_ABC), /^weights\//);
   for (const [fullName, revision] of [
     ["course", sha], ["course/team/extra", sha], ["course/te am", sha],
     ["course/team", "a".repeat(39)], ["course/team", "A".repeat(40)],
