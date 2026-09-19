@@ -329,12 +329,8 @@ export const runs = sqliteTable("runs", {
   sha: text("sha").notNull(),
   repositoryId: integer("repository_id"),
   /**
-   * The repository this run actually ran from, by name, as it was at the time.
-   *
-   * `repositoryId` identifies the source but reads as a number, so without
-   * this the only readable name available was the team's current one, and a
-   * team that changed its repository rewrote what every earlier run claimed
-   * (B-06). Written once at creation and never updated: a run's source is
+   * The repository this run actually ran from, by name, as it was at the
+   * time. Written once at creation and never updated: a run's source is
    * evidence about that run, not a copy of team state that has to be kept in
    * step with it.
    *

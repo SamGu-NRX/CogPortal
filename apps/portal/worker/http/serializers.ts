@@ -101,13 +101,6 @@ export async function serializeRunSummary(db: Database, row: RunRow): Promise<Ru
   };
 }
 
-/**
- * A run, in full, from the run's own row.
- *
- * It used to take the team as well, only to build the repository block from
- * it. Nothing here needs the team now, and not having it is the point: the
- * current team is what this was mistakenly reporting.
- */
 export async function serializeRunDetail(db: Database, row: RunRow): Promise<RunDetail> {
   const [summary, phases, metrics, selection] = await Promise.all([
     serializeRunSummary(db, row),

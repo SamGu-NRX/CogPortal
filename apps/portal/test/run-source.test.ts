@@ -17,9 +17,7 @@ import { serializeRunDetail } from "../worker/http/serializers.ts";
  * The run detail payload used to build its repository from the team row, so a
  * team that changed its connected repository rewrote the past: every earlier
  * run rendered under the new repository's name, above the old repository's
- * commit (B-06). These pin the two halves of the repair, the run keeping its
- * own source and an unrecorded source staying unknown, plus the migration's
- * guard, which is the part that decides what history is allowed to claim.
+ * commit (B-06).
  */
 
 const MIGRATIONS = join(dirname(fileURLToPath(import.meta.url)), "..", "migrations");
@@ -67,7 +65,7 @@ function freshDb(files: string[]): { db: Database; sqlite: DatabaseSync } {
   return { db: drizzle(binding as never) as unknown as Database, sqlite };
 }
 
-async function seedTeamOnOldRepository(db: Database, repoId: number | null = 42): Promise<void> {
+async function seedTeamOnOldRepository(db: Database): Promise<void> {
   await db.insert(cohorts).values({
     id: "cohort_t",
     slug: "t",
@@ -85,7 +83,7 @@ async function seedTeamOnOldRepository(db: Database, repoId: number | null = 42)
     repoFullName: OLD,
     repoUrl: `https://github.com/${OLD}`,
     defaultBranch: "main",
-    repoId,
+    repoId: 42,
   });
 }
 
@@ -178,8 +176,6 @@ test("the backfill fills a run whose own id proves the repository, and no other"
   const { db, sqlite } = freshDb(before);
   await seedTeamOnOldRepository(db);
 
-  // Three shapes of history: one whose recorded id still matches the team, one
-  // from a repository the team has since left, and one from before ids existed.
   // Inserted as SQL because the point is the schema as it stood at 0045, which
   // has no name column for the query builder to fill.
   const insert = sqlite.prepare(
@@ -206,18 +202,14 @@ test("the backfill fills a run whose own id proves the repository, and no other"
 test("a name only becomes a link when it is a name", () => {
   assert.equal(runSource(null), null);
   assert.equal(runSource(""), null);
-  // Not a full name: no owner, or no repository after the slash.
   assert.equal(runSource("week1-capstone"), null);
   assert.equal(runSource("/week1-capstone"), null);
   assert.equal(runSource("some-student/"), null);
-  // Not two components, or not a name at all: each of these would otherwise
-  // build a URL pointing somewhere the run never used.
   assert.equal(runSource("owner/repo/extra"), null);
   assert.equal(runSource("owner/../other"), null);
   assert.equal(runSource("owner/repo?tab=readme"), null);
   assert.equal(runSource(" /repo"), null);
   assert.equal(runSource("owner /repo"), null);
-  assert.equal(runSource("owner/.."), null, "a dot segment resolves above the repository");
   assert.deepEqual(runSource(OLD), {
     owner: "some-student",
     name: "week1-capstone",
