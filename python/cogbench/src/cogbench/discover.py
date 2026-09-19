@@ -1227,12 +1227,7 @@ def _register_package(directory: Path, directories: Sequence[Path] = ()) -> str:
     the ordinary import system to read the same file a second time into a
     second module. It is also the name a student reads in a wiring log.
 
-    An earlier note here recorded that a friendly ``__name__`` had been
-    measured to fail with ``ModuleNotFoundError: No module named 'core'``.
-    That measurement moved ``__name__`` alone while the ``sys.modules`` key
-    and the finder still answered for the synthetic name, which is a half
-    change and had to fail. Here the name, the key, the spec and the finder
-    move together.
+    Here the name, the key, the spec and the finder move together.
 
     An ``__init__.py`` is executed as the package body, so a package whose
     setup lives there gets that setup. A failure there is deliberately not
@@ -2176,9 +2171,6 @@ def _run_package_body(
     """
 
     module = sys.modules.get(package)
-    notes = _Notes()
-    if module is None:  # _register_package always registers it; belt and braces
-        return None, None, notes
     # _import_one for the whole failure vocabulary: the same caller timeout,
     # the same missing-dependency wording, the same syntax line numbers and
     # the same three retries. `package=None` because the body is not a member
@@ -2605,9 +2597,6 @@ def _qualified(path: Path, directory: Path, directories: Sequence[Path]) -> Opti
     return None
 
 
-#: Why a notebook produced nothing to import, when the reason is the file
-#: rather than its cells. The general sentence below is about a notebook that
-#: is a transcript; these two are about a notebook that is not a notebook.
 def _why_no_module(path: Path) -> str:
     """What is wrong with this .ipynb, in the terms its author would check.
 
@@ -3147,9 +3136,9 @@ class ImportContext:
         # `database.py` this one lacks resolved their lazy `import database`
         # to that other team's module, because nothing displaced a name this
         # context never had.
-        # Every other open block's names. Each of those blocks was suspended
-        # when the one inside it opened, and suspending is what recorded what
-        # it had imported, so an inventory here is complete.
+        # Each of those blocks was suspended when the one inside it opened,
+        # and suspending is what recorded what it had imported, so an
+        # inventory here is complete.
         for other in _LIVE:
             if other is not self:
                 for name in other._modules:

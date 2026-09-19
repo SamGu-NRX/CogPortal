@@ -732,8 +732,6 @@ def _operation_child() -> None:
             import argparse
             from functools import partial
             from .cli import _run_view, _send_progress
-            # The whole parser namespace is intentional: worker behavior
-            # follows whatever flags the CLI parser defines, not a second schema.
             progress_fd = arguments.get("progress_fd")
             progress = partial(_send_progress, progress_fd) if progress_fd is not None else None
             return _run_view(argparse.Namespace(**arguments["args"]), project.execution,

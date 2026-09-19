@@ -38,43 +38,6 @@ __all__ = ["fingerprint", "read", "write", "cache_path"]
 #: Bumped when a change would make an old entry wrong: a different search
 #: order, a different acceptance test, a different set of stages. The key
 #: covers the student's code, and this covers ours.
-#: 5: entries carry the tuning each step was bound with. A 4 entry for a
-#: chain that needed one replayed as a bare call and raised.
-#: 6: entries also carry which input form bound the first step and which
-#: steps answered in place, both of which a replay needs to call the chain
-#: the way the search did.
-#: 7: entries carry the whole argument plan of each step -- the side inputs
-#: it was handed, the item identity it was given, whether it ran once per
-#: item, and which part of each item's result it produced. A 6 entry for a
-#: chain that needed any of those replayed as a plain one-argument call.
-#: 8: entries carry which reading of the upstream value each step was
-#: called with -- the whole thing, spread as arguments, reversed, or one
-#: part of it. A 7 entry left a replay to work that out from the shapes,
-#: and one 2026 repository's fused first step returns both a spectrogram
-#: and its peaks, either of which their next function accepts.
-#: 9: entries carry whether the query was handed the table their store
-#: filled on its own object, and which attribute that was. An 8 entry for
-#: such a binding replayed as `ask(item)`, which for the one 2026
-#: repository with this shape means calling a three-argument matcher with
-#: one argument: the replay raises instead of scoring, and it is a stored
-#: entry, so it would keep raising until the cache was cleared.
-#: 10 (2026-09-03): the search changed what it accepts and what it counts.
-#: Every pairing trial now gets its own store object rather than sharing the
-#: one instance the scan built, so a pairing an earlier trial's leftovers had
-#: made raise is now reachable and a 9 entry can name a worse pairing than
-#: the search would pick today. A store's pre-existing tables no longer count
-#: toward the state form being ambiguous, which is the same kind of change in
-#: the other direction. And `attemptsTried` is now the whole search rather
-#: than the accepted chain's own ordinal, so a 9 entry replays a number that
-#: understates the work by every chain tried before the one that bound.
-#: 11: state snapshots and reader probes now preserve different candidate
-#: state during search. Those changes can select different bindings, so a
-#: version 10 decision must be searched again rather than replayed.
-#: 12: the key now includes current input identity. Source bytes alone do
-#: not distinguish searches given different fixtures, tunings, or resources.
-#: 13: project modules now execute once per discovery and package bodies
-#: enter its candidate namespace. Reconsider bindings chosen before that
-#: loader change and the constructor screening/receiver repairs.
 #: 14: a step now records the keyword arguments it passes, as the parameter
 #: and the slot filling it. A 13 entry does not carry them, so a step the
 #: search called with a keyword-only argument would be replayed without it,
