@@ -616,7 +616,7 @@ class TheDeadlineHasOneOwner(unittest.TestCase):
     holds, rather than rebuilding a timer to test one."""
 
     def test_an_expired_deadline_is_not_even_polled(self):
-        """The reviewer's suggestion, and it pins the other half. The existing
+        """It pins the other half. The existing
         readable-descriptor test passes if either check outside the poll loop
         survives; this one fails unless the check before the poll does, since
         it asserts `select` is never reached."""
