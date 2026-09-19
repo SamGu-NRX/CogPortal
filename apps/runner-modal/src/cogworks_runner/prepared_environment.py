@@ -23,6 +23,11 @@ from typing import Any, Dict, Optional
 # Release declarations, checked against concrete decoder/driver fixtures in
 # test_prepared_environment.py. Language 1 has one text, one retrieval and four
 # search cases. Scorer-only changes do not change this sandbox contract.
+#
+# Clustering's additive scored/scenario_key fields do not change required
+# sandbox execution. Only the controller scorer reads them, from its retained
+# cases. test_saved_contract_pairs verifies old/current execution equivalence
+# on an expanded official fixture, including nonzero stability findings.
 SANDBOX_CONTRACTS = {
     "audio-identification": 1,
     "vision-recognition": 1,
