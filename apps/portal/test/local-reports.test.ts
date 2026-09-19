@@ -329,7 +329,6 @@ test("another benchmark's newer report does not empty this benchmark's weights",
       syncedAt: 10,
     },
     {
-      // The other benchmark names no weights, and it synced last.
       ...reportRow("report_other_benchmark", 1),
       benchmarkId: "other-benchmark",
       sha,
@@ -339,7 +338,6 @@ test("another benchmark's newer report does not empty this benchmark's weights",
     },
   ]);
 
-  // The digest travels; the byte length comes from the stored object.
   assert.deepEqual(await getLatestTeamWeights(env, "team_1", REPO, sha, null, BENCHMARK), {
     weightsUsed: ["data/W_embed.npy"],
     weightsUploaded: [{ path: "data/W_embed.npy", sha256: DIGEST }],
