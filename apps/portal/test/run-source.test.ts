@@ -8,7 +8,7 @@ import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { runSource } from "@cogworks/contracts/schema";
 import type { Database } from "../worker/db/client.ts";
-import { cohorts, runs, teams } from "../worker/db/schema.ts";
+import { cohorts, leaderboardSelections, runs, teams } from "../worker/db/schema.ts";
 import { serializeRunDetail } from "../worker/http/serializers.ts";
 
 /**
@@ -236,4 +236,30 @@ test("a name only becomes a link when it is a name", () => {
     fullName: OLD,
     url: `https://github.com/${OLD}`,
   });
+});
+
+test("the run detail's refusal names no single action, because two panels share it", async () => {
+  // RunDetail renders one sourceRefusal under PROMOTE and, for an official
+  // result, under PUBLISH. "promote it" was wrong in the second place.
+  const { db } = freshDb(migrationFiles());
+  await seedTeamOnOldRepository(db);
+  await insertRun(db, "run_official", { mode: "official", status: "succeeded", attemptNumber: 1 });
+  // Already the team's public entry before the repository moved.
+  await db.insert(leaderboardSelections).values({
+    teamId: "team_1", benchmarkId: "audio-identification", benchmarkVersion: 1,
+    runId: "run_official", selectedAt: 1_780_000_000_000,
+  });
+  await changeRepository(db);
+
+  const [row] = await db.select().from(runs).where(eq(runs.id, "run_official"));
+  assert.ok(row);
+  const detail = await serializeRunDetail(db, row, await currentTeam(db));
+
+  assert.match(detail.sourceRefusal ?? "", /to act on it\.$/);
+  assert.doesNotMatch(detail.sourceRefusal ?? "", /promote it|publish a result|verify it here|run it again/);
+  assert.match(detail.sourceRefusal ?? "", /no longer connected to/);
+  // The recorded selection and the gate both survive the wording change.
+  assert.equal(detail.selected, true, "the team's published entry was withdrawn");
+  assert.equal(detail.publishable, true);
+  assert.equal(detail.status, "succeeded");
 });

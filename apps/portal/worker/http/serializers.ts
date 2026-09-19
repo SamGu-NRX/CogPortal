@@ -142,7 +142,9 @@ export async function serializeRunDetail(
     surfaceId: row.surfaceId,
     contractVersion: row.contractVersion,
     parentRunId: row.parentRunId,
-    sourceRefusal: runSourceRefusal(team, row, "promote it"),
+    // One sentence under both PROMOTE and PUBLISH, so it names no single
+    // action. Same phrase the console uses for the same shared refusal.
+    sourceRefusal: runSourceRefusal(team, row, "act on it"),
     phases: phases
       .sort((a, b) => (phaseOrder.get(a.phase) ?? 0) - (phaseOrder.get(b.phase) ?? 0))
       .map((phase) => ({
