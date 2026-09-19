@@ -24,9 +24,9 @@ export function registerLocalReportRoutes(app: Hono<AppEnv>): void {
     return respond(c, LocalReportSchema, result.report, result.created ? 201 : 200);
   });
 
-  app.put("/v1/local-reports/:reportId/weights/*", async (c) => {
+  app.put("/v1/local-reports/:reportId/weights/:path{.+}", async (c) => {
     const device = await requireDevice(c);
-    const path = validateWeightPath(c.req.param("*") ?? "");
+    const path = validateWeightPath(c.req.param("path"));
     const target = await getWeightUploadTarget(
       c.env,
       device.userId,
