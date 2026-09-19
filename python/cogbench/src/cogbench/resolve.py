@@ -2112,21 +2112,23 @@ def resolve(
                 # could be paired with a store and a query. Saying their
                 # algorithm returned the wrong answer would be wrong twice over:
                 # nothing of theirs was asked for an answer, and the missing
-                # piece is a database rather than a better fingerprint.
+                # piece is a database rather than better work in the step
+                # before it.
+                #
+                # Week 1 stores a song and Week 2 a face, so naming either told
+                # the other week's team about the wrong course. Their own
+                # function is the handle both weeks share, and the headline
+                # already prints it.
+                made = reached[-1].function
                 return finish(Submission(
                     not_wired(
                         "identification",
                         "database",
                         reached,
-                        # Week 1's own words, on every week. A 2026 vision
-                        # repository resolved here during this change and was
-                        # told about its fingerprinting and its songs. The
-                        # sentence says the same thing without naming a task,
-                        # which is what this branch actually knows.
                         next_step=(
-                            "The benchmark ran your steps to the end but found no "
-                            "pair of functions that stores what they produced and "
-                            "names it back."
+                            "Check that two of your functions take what {} "
+                            "returns: one that stores it under a name, and one "
+                            "that looks up a new one and returns the name.".format(made)
                         ),
                         coverage=_coverage_of(found, benchmark),
                     ),
