@@ -58,3 +58,7 @@ build/
 # Browser-driving screenshots from design passes. Regenerate rather than
 # review a binary diff.
 output/
+
+# Benchmark run output. Week 2 wrote 24 CelebA crops here during a local
+# run; regenerate rather than carry a dataset in the repository.
+result/
