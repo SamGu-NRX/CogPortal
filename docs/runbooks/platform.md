@@ -209,10 +209,6 @@ a second deployment would be a second name for an endpoint Discord cannot call.
    Moving the root mapping to `cogactivity.sillion.app` is a separate owner
    action, approved separately. GitHub Confirm access was pending with Sam on
    that date; do not prompt for it a second time.
-
-   The fuller collection lives in the operator's own notes rather than in this
-   repository, which is why the facts that matter are restated above instead of
-   being referenced.
 4. Set `COURSE_GUILD_ID` in both Workers and `PORTAL_ORIGIN` in CogBot. Add
    `DISCORD_PUBLIC_KEY` to CogBot as a secret. Add `DISCORD_BOT_TOKEN` to
    CogPortal as a secret; the interaction Worker itself does not need it.

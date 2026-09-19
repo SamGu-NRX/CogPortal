@@ -755,9 +755,6 @@ def load_student(benchmark_id, contract_version="cogworks.submissions.v1"):
     # Passing repo_root explicitly rather than relying on the working directory
     # keeps this correct even if a submission changes directory during its own
     # import, which several audited repositories do while loading a pickle.
-    #
-    # Returns the factory and the course-file mapping to hold while it runs.
-    # See `_course_files`.
     if adapter_source == "discovery":
         return _discovered_factory(benchmark_id)
     return load_submission(benchmark_id, contract_version, repo_root=repo_root), contextlib.nullcontext()
