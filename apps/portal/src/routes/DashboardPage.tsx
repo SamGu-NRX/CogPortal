@@ -488,7 +488,6 @@ function CurrentRunPanel({
 
   return (
     <Panel label="START A RUN">
-      {/* Practice launch */}
       {launcher}
       {!practiceExhausted && (
         <p className="mt-3 font-mono text-[11px] text-ink-faint">

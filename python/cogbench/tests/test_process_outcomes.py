@@ -118,11 +118,9 @@ class ProcessOutcomes(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             marker = Path(temporary) / 'pid'
             def work():
-                # Written through a temporary name and renamed. `write_text`
-                # creates the file before it has the pid in it, so a reader
-                # watching for existence can find it empty; on Linux that
-                # happened, the killer raised ValueError, nothing was killed,
-                # and the child ran to the deadline instead.
+                # Written through a temporary name and renamed, because
+                # `write_text` creates the file before it has the pid in it
+                # and a reader watching for existence finds it empty.
                 staging = marker.with_suffix('.writing')
                 staging.write_text(str(os.getpid()))
                 os.replace(str(staging), str(marker))
@@ -290,9 +288,8 @@ class ReapFailureModes(unittest.TestCase):
     """Force wait and cleanup failures without relying on OS scheduling."""
 
     def test_a_wait_that_fails_does_not_become_a_clean_exit(self):
-        # `_reap` used to report a failed wait as status 0, which reads as "exited
-        # normally, no signal". Used as the authoritative record that turned a
-        # self-SIGKILL into a child that apparently exited fine.
+        # A failed wait reported as status 0 reads as "exited normally, no
+        # signal", which turns a self-SIGKILL into a clean exit.
         calls = []
         real = isolate.os.waitpid
 

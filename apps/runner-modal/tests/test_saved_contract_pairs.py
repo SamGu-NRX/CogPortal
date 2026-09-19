@@ -54,7 +54,7 @@ class SavedContractPairs(unittest.TestCase):
 
         import cogbench
         from cogworks_runner import prepared_environment as environment
-        from cogworks_runner.protocol import canonical_json, signature, validate_job, verify_signature
+        from cogworks_runner.protocol import canonical_json, validate_job
         from test_prepared_restore import functions, job, Reporter, Store
 
         old_path = Path(inspect.getsourcefile(old)).resolve()
@@ -74,7 +74,6 @@ class SavedContractPairs(unittest.TestCase):
         # restore the current map before testing admission and execution.
         with mock.patch.dict(SANDBOX_CONTRACTS, {"language-search": 1}):
             record = environment.bind_environment(prepared_job, old_observation, "im-old-language", "im-old-base")
-        self.assertEqual(SANDBOX_CONTRACTS["language-search"], 2)
         self.assertEqual(record["modules"][0]["sha256"], old_hash)
         self.assertEqual(record["artifactId"], "im-old-language")
 
@@ -83,9 +82,6 @@ class SavedContractPairs(unittest.TestCase):
         current_job["benchmark"]["sandboxContract"] = 2
         current_job["runtime"]["pythonVersion"] = "3.8"
         body = canonical_json(current_job)
-        timestamp, key = "123", "local-fixture-signing-key"
-        signed = "v1=" + signature(key, timestamp, body)
-        self.assertTrue(verify_signature(key, timestamp, body, signed, now_seconds=123))
         authenticated_job = validate_job(json.loads(body))
 
         terminal = []

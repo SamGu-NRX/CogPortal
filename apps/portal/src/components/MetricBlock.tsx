@@ -154,14 +154,10 @@ export function PrimaryMetric({
 }
 
 /**
- * One row of the supporting-metrics list, with its explanation folded away.
- *
  * The list's job is scanning: label on the left, value on the right, aligned
  * down the column. An always-open explanation would destroy that, and a
  * tooltip would fail on touch and hide two sentences behind a hover. So the
- * row expands in place, the way a marginal note unfolds in a notebook — the
- * value column never moves, and the annotation appears beneath its own row
- * with a rule down the left, which is how a margin note is set in print.
+ * row expands in place, the way a marginal note unfolds in a notebook.
  *
  * The whole row is the button. No help icon: an icon on every row would add
  * eleven pieces of furniture to a list whose value is its quietness, and a

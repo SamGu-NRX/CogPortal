@@ -5,10 +5,6 @@ import { formatMetricValue, formatTimeAgo, runNumberLabel } from "@/lib/format";
 import { StatusChip } from "./StatusChip";
 
 /**
- * The team's run record, newest first; every row answers "what happened and
- * where do I look". Semantic table on wide screens, labeled stacked records
- * on narrow ones (plan §8).
- *
  * A team with no runs gets nothing here, not a placeholder: the dashboard
  * withholds the whole RUN LOG panel until there is a row, and the one thing to
  * do about an empty log is the button in FIRST RUN.
