@@ -1,4 +1,4 @@
-"""Contract-1 decoder/driver goldens and controller evidence validation.
+"""Decoder/driver contract goldens and controller evidence validation.
 
 The wire fixtures below are built independently of the current encoders, so a
 matching encoder/decoder edit cannot silently redefine an existing contract.
@@ -18,6 +18,7 @@ import io
 import json
 import os
 import platform
+import sqlite3
 import subprocess
 import sys
 import unittest
@@ -54,10 +55,10 @@ def require_packages(*names):
         raise unittest.SkipTest("Optional test dependencies are absent: " + ", ".join(missing))
 
 
-def job():
+def job(benchmark_id="language-search"):
     return {
         "preparedArtifactId": "im-snapshot",
-        "benchmark": {"id": "language-search", "sandboxContract": 1,
+        "benchmark": {"id": benchmark_id, "sandboxContract": env.SANDBOX_CONTRACTS[benchmark_id],
                       "benchmarkVersion": 3, "scorerVersion": "new-controller"},
         "source": {"repositoryId": 42, "fullName": "course/team", "sha": "a" * 40,
                    "archiveUrl": "https://api.github.com/repos/course/team/tarball/" + "a" * 40},
@@ -65,14 +66,14 @@ def job():
     }
 
 
-def observation():
-    return {"sandboxContract": 1, "pythonVersion": "3.8.20", "sdkVersion": "0.2.0",
+def observation(benchmark_id="language-search"):
+    return {"sandboxContract": env.SANDBOX_CONTRACTS[benchmark_id], "pythonVersion": "3.8.20", "sdkVersion": "0.2.0",
             "modules": [{"name": "cogbench", "path": "/opt/cogbench/cogbench/__init__.py",
                          "sha256": "c" * 64}]}
 
 
-def evidence():
-    return env.bind_environment(job(), observation(), "im-snapshot", "im-base")
+def evidence(benchmark_id="language-search"):
+    return env.bind_environment(job(benchmark_id), observation(benchmark_id), "im-snapshot", "im-base")
 
 
 def payload(metadata, arrays=None):
@@ -108,11 +109,27 @@ class DependencyGateTest(unittest.TestCase):
 
 
 class EvidenceTest(unittest.TestCase):
-    def test_contract_map_is_the_pr8_baseline(self):
+    def test_only_language_advances_from_the_pr8_baseline(self):
         self.assertEqual(env.SANDBOX_CONTRACTS, {
             "audio-identification": 1, "vision-recognition": 1,
-            "vision-clustering": 1, "language-search": 1,
+            "vision-clustering": 1, "language-search": 2,
         })
+
+    def test_language_migration_advances_all_language_rows_only(self):
+        migrations = ROOT / "apps/portal/migrations"
+        with sqlite3.connect(":memory:") as database:
+            database.executescript("CREATE TABLE runs (id TEXT); CREATE TABLE benchmarks (id TEXT, version INTEGER);")
+            rows = [("language-search", 1), ("language-search", 3),
+                    ("audio-identification", 1), ("vision-recognition", 2),
+                    ("vision-clustering", 1), ("future-track", 1)]
+            database.executemany("INSERT INTO benchmarks VALUES (?, ?)", rows)
+            database.executescript((migrations / "0042_prepared_environment.sql").read_text())
+            baseline = database.execute("SELECT id, version, sandbox_contract FROM benchmarks ORDER BY id, version").fetchall()
+            self.assertEqual([row[2] for row in baseline if row[0] == "language-search"], [1, 1])
+            database.executescript((migrations / "0043_language_sandbox_contract.sql").read_text())
+            updated = database.execute("SELECT id, version, sandbox_contract FROM benchmarks ORDER BY id, version").fetchall()
+            self.assertEqual(updated, [(name, version, 2 if name == "language-search" else contract)
+                                       for name, version, contract in baseline])
 
     def test_binding_uses_only_source_identity_and_requested_digests(self):
         result = evidence()
@@ -166,9 +183,9 @@ class EvidenceTest(unittest.TestCase):
         for change_job in (True, False):
             request, result = job(), evidence()
             if change_job:
-                request["benchmark"]["sandboxContract"] = 2
+                request["benchmark"]["sandboxContract"] = 999
             else:
-                result["sandboxContract"] = 2
+                result["sandboxContract"] = 999
             self.assertEqual(env.validate_prepared_environment(request, result), env.INCOMPATIBLE)
         for key, value in (("artifactId", "im-other"), ("benchmarkId", "vision-clustering")):
             result = evidence()
@@ -185,7 +202,7 @@ class EvidenceTest(unittest.TestCase):
 
     def test_matching_remote_markers_cannot_override_local_catalog_contract(self):
         request, result = job(), evidence()
-        request["benchmark"]["sandboxContract"] = result["sandboxContract"] = 2
+        request["benchmark"]["sandboxContract"] = result["sandboxContract"] = 999
         self.assertEqual(env.validate_prepared_environment(request, result), env.INCOMPATIBLE)
 
     def test_versions_hashes_paths_and_base_images_are_not_eligibility(self):
@@ -196,17 +213,15 @@ class EvidenceTest(unittest.TestCase):
         request = job()
         request["benchmark"].update(benchmarkVersion=999, scorerVersion="another-scorer")
         self.assertIsNone(env.validate_prepared_environment(request, result))
-        result["sandboxContract"] = 2
+        result["sandboxContract"] = 999
         self.assertEqual(env.validate_prepared_environment(request, result), env.INCOMPATIBLE)
 
     def test_python38_requirement_is_only_for_audio_and_language(self):
         for benchmark_id in env.SANDBOX_CONTRACTS:
-            request = job()
-            request["benchmark"]["id"] = benchmark_id
+            request = job(benchmark_id)
             for version in ("3.7.17", "3.8.19", "3.8.20", "3.8.21", "3.9.20", "3.11.15", "3.80.1", "3.8", "3.8.invalid"):
-                observed, result = observation(), evidence()
+                observed, result = observation(benchmark_id), evidence(benchmark_id)
                 observed["pythonVersion"] = result["pythonVersion"] = version
-                result["benchmarkId"] = benchmark_id
                 accepted = benchmark_id.startswith("vision-") or version in ("3.8.19", "3.8.20", "3.8.21")
                 with self.subTest(benchmark=benchmark_id, version=version):
                     if accepted:
@@ -233,7 +248,7 @@ class EvidenceTest(unittest.TestCase):
         with self.assertRaisesRegex(env.PreparedEnvironmentError, "observation has an invalid schema"):
             env.validate_observation(job(), "student stdout SECRET")
         observed = observation()
-        observed["sandboxContract"] = 2
+        observed["sandboxContract"] = 999
         with self.assertRaisesRegex(env.PreparedEnvironmentError, "incompatible"):
             env.validate_observation(job(), observed)
         observed = observation()
@@ -293,7 +308,7 @@ class ProbeTest(unittest.TestCase):
         import cogbench
 
         observed = env.probe(benchmark_id)
-        self.assertEqual(observed["sandboxContract"], 1)
+        self.assertEqual(observed["sandboxContract"], env.SANDBOX_CONTRACTS[benchmark_id])
         self.assertEqual(observed["pythonVersion"], platform.python_version())
         self.assertEqual(observed["sdkVersion"], cogbench.__version__)
         names = {row["name"] for row in observed["modules"]}
@@ -301,8 +316,7 @@ class ProbeTest(unittest.TestCase):
         self.assertIn("cogbench.plugins", names)
         self.assertIn("cogbench.discover", names)
         self.assertIn("cogbench.resolve", names)
-        request = job()
-        request["benchmark"]["id"] = benchmark_id
+        request = job(benchmark_id)
         if benchmark_id in ("audio-identification", "language-search") and sys.version_info[:2] != (3, 8):
             with self.assertRaisesRegex(env.PreparedEnvironmentError, "Python 3.8 requirement"):
                 env.validate_observation(request, observed)
@@ -339,6 +353,8 @@ class ProbeTest(unittest.TestCase):
             ("cogbench.discover", "_Redirects"),
             ("cogbench.discover", "_Redirects.enter"),
             ("cogbench.discover", "_Redirects.leave"),
+            ("cogbench.discover", "_Redirects.__enter__"),
+            ("cogbench.discover", "_Redirects.__exit__"),
         )
         for name, dotted_attribute in required:
             owner = importlib.import_module(name)
@@ -531,7 +547,7 @@ class DecoderDriverGoldenTest(unittest.TestCase):
         with self.assertRaisesRegex(AdapterContractError, "returned 1 labels for 3 images"):
             run_clustering_scenario(lambda model: Broken(), object(), cases[0])
 
-    def test_language_contract1_has_six_cases_and_one_shared_preparation(self):
+    def test_language_contract2_has_nine_cases_and_component_shared_preparation(self):
         require_benchmark("language-search")
         import numpy as np
         from language_search_benchmark.drivers import run_cases
@@ -544,18 +560,30 @@ class DecoderDriverGoldenTest(unittest.TestCase):
         }, {"descriptors.npy": np.eye(2, 8, dtype=np.float32)})
         benchmark_id, showcase, cases = decode_payload(wire)
         self.assertEqual((benchmark_id, showcase), ("language-search", True))
-        self.assertEqual([case.kind for case in cases], ["text", "retrieval", "search", "search", "search", "search"])
+        self.assertEqual([(case.kind, getattr(case, "rung", "verbatim")) for case in cases], [
+            ("text", "verbatim"), ("retrieval", "verbatim"), ("search", "verbatim"),
+            ("retrieval", "keywords"), ("retrieval", "truncated"), ("retrieval", "typo"),
+            ("search", "keywords"), ("search", "truncated"), ("search", "typo"),
+        ])
         self.assertIsNone(cases[0].group_rows)
-        self.assertIsNone(cases[1].gold_rows)
-        self.assertEqual([(case.rung, case.queries) for case in cases[2:]], [
+        retrievals = [case for case in cases if case.kind == "retrieval"]
+        searches = [case for case in cases if case.kind == "search"]
+        expected_queries = [
             ("verbatim", queries), ("keywords", ["man riding horse", "Two cats bed"]),
             ("truncated", ["man riding horse", "Two cats bed"]),
             ("typo", ["A man ruding a horse", "Two cars on a bed"]),
-        ])
-        for case in cases[2:]:
+        ]
+        for component in (retrievals, searches):
+            self.assertEqual([(case.rung, case.queries) for case in component], expected_queries)
+            for case in component:
+                self.assertIs(case.descriptors, component[0].descriptors)
+        for case in retrievals:
+            self.assertIsNone(case.gold_rows)
+        for case in searches:
             self.assertIsNone(case.gold_image_ids)
-            self.assertIs(case.descriptors, cases[1].descriptors)
-            self.assertIs(case.image_ids, cases[2].image_ids)
+            self.assertIs(case.image_ids, searches[0].image_ids)
+        self.assertFalse(np.shares_memory(retrievals[0].descriptors, searches[0].descriptors))
+        np.testing.assert_array_equal(retrievals[0].descriptors, searches[0].descriptors)
         calls = []
 
         class Adapter:
@@ -567,20 +595,24 @@ class DecoderDriverGoldenTest(unittest.TestCase):
 
             def prepare_database(self, image_ids, descriptors):
                 calls.append(list(image_ids))
+                # A mutable search index must not alter later retrieval rungs.
+                descriptors[:] = 9.0
 
             def search(self, query, k):
                 return [20, 10][:k]
 
         outputs = run_cases(lambda resources: Adapter(), object(), cases)
         self.assertEqual(calls, [[10, 20]])
-        self.assertEqual(len(outputs), 6)
+        self.assertEqual(len(outputs), 9)
         for row in outputs:
             self.assertTrue(row["ok"], row)
         np.testing.assert_allclose(outputs[0]["embeddings"], [[0.6, 0.8] + [0.0] * 6] * 2, atol=1e-6)
-        np.testing.assert_allclose(outputs[1]["text"], [[0.6, 0.8] + [0.0] * 6] * 2, atol=1e-6)
-        self.assertEqual(outputs[1]["images"], np.eye(2, 8).tolist())
-        for output in outputs[2:]:
-            self.assertEqual(output, {"ok": True, "kind": "search", "rankings": [[20, 10], [20, 10]]})
+        for case, output in zip(cases[1:], outputs[1:]):
+            if case.kind == "retrieval":
+                np.testing.assert_allclose(output["text"], [[0.6, 0.8] + [0.0] * 6] * 2, atol=1e-6)
+                self.assertEqual(output["images"], np.eye(2, 8).tolist())
+            else:
+                self.assertEqual(output, {"ok": True, "kind": "search", "rankings": [[20, 10], [20, 10]]})
 
 
 if __name__ == "__main__":
