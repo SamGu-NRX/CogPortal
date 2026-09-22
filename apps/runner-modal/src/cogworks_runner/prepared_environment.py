@@ -26,6 +26,11 @@ from typing import Any, Dict, Optional
 # The frozen Language 1 decoder emits only six from the same wire payload;
 # test_saved_contract_pairs.py proves that pair must refuse reuse before scoring.
 # Scorer-only changes do not change a sandbox contract.
+#
+# Clustering's additive scored/scenario_key fields do not change required
+# sandbox execution. Only the controller scorer reads them, from its retained
+# cases. test_saved_contract_pairs verifies old/current execution equivalence
+# on an expanded official fixture, including nonzero stability findings.
 SANDBOX_CONTRACTS = {
     "audio-identification": 1,
     "vision-recognition": 1,
