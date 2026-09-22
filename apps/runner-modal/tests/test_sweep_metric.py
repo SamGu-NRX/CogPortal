@@ -1,19 +1,4 @@
-"""The curve is labelled with the metric it draws.
-
-`_sweep_wire` used to label every curve with the run's primary metric. That is
-right for Week 1, whose curve is its primary score against catalog size, and
-wrong for Week 3, whose curve is search MRR per rewrite rung while its primary
-is `overall`. A hosted Language run drew a chart captioned "overall against how
-far the query is from the caption" and plotted something else.
-
-Week 3 now declares `sweep_metric`. The fallback has to survive that, because
-Week 1 declares none and is correct without one, so both halves are asserted
-here against what the producers actually say rather than against a description
-of them.
-
-`modal_app` imports modal and fastapi at module scope, so the function is taken
-from its own source the way the other tests in this directory do.
-"""
+"""Extract the wire function to test it without importing Modal or FastAPI."""
 
 from __future__ import annotations
 
@@ -48,8 +33,6 @@ SWEEP_WIRE = _sweep_wire_function()
 
 
 class Plugin:
-    """The attributes `_sweep_wire` reads, and nothing else."""
-
     def __init__(self, **declared):
         self.sweep_axis_label = "difficulty"
         self.sweep_x_key = "x"
