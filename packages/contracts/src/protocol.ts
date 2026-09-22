@@ -21,8 +21,18 @@ export const ProtocolMetricSchema = z.object({
    * capstone it corresponds to. Optional because plugins written before it
    * exists do not send one; a metric with no explanation renders without the
    * help affordance rather than with an empty one.
+   *
+   * No maximum. A 600-character cap refused Week 3's `search_mrr`, whose help
+   * is 645 characters, and cost a hosted run a result it had already scored.
+   *
+   * It was not a request bound: `routes/runner-events.ts` reads and verifies
+   * the whole signed body before any field is parsed. It did incidentally bound
+   * what a signed runner can persist and broadcast, since `metrics.help` is an
+   * unbounded TEXT column and run-surface snapshots carry every metric. That is
+   * a real concern and a different one; a rule about how long an explanation a
+   * benchmark may write is not where it gets addressed.
    */
-  help: z.string().max(600).optional(),
+  help: z.string().optional(),
   /**
    * What kind of number this is, which decides how the run page draws it.
    *
