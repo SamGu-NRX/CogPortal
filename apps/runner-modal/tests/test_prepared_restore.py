@@ -283,6 +283,7 @@ class PreparedRestore(unittest.TestCase):
         self.assertEqual(events[0]["preparedEnvironment"], evidence)
         self.assertEqual(events[0]["preparedEnvironment"]["pythonVersion"], observed["pythonVersion"])
 
+    @mock.patch.dict(os.environ, {"RUNNER_SIGNING_SECRET": "prepared-restore-fixture"})
     def test_missing_snapshot_keeps_provider_restore_failure(self):
         observed = self.observation()
         evidence = bind_environment(job(), observed, "im-deleted", "im-base")
@@ -307,6 +308,7 @@ class PreparedRestore(unittest.TestCase):
         self.assertEqual(caught.exception.phase, "evaluating")
         self.assertTrue(caught.exception.infrastructure)
 
+    @mock.patch.dict(os.environ, {"RUNNER_SIGNING_SECRET": "prepared-restore-fixture"})
     def test_student_exception_cannot_request_platform_compatibility_attribution(self):
         self.observation()
         sys.path.insert(0, str(Path(__file__).parent))
