@@ -368,7 +368,7 @@ class EvidenceTest(unittest.TestCase):
 
 class ProbeTest(unittest.TestCase):
     def check_paths_and_hashes(self, benchmark_id):
-        require_benchmark(benchmark_id)
+        require_registered_benchmark(benchmark_id)
         import cogbench
 
         observed = env.probe(benchmark_id)
@@ -442,7 +442,7 @@ class ProbeTest(unittest.TestCase):
         self.assertEqual(str(raised.exception), "Prepared environment platform imports could not be observed.")
 
     def check_cli(self, benchmark_id):
-        require_benchmark(benchmark_id)
+        require_registered_benchmark(benchmark_id)
         # Payload suites also expose source packages via sys.path. The child
         # must observe the same import roots rather than require an extra install.
         child_env = dict(os.environ, PYTHONPATH=os.pathsep.join(sys.path), PYTHONDONTWRITEBYTECODE="1")

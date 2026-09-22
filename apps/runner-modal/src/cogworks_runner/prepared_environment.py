@@ -291,7 +291,7 @@ def _validate_sdk_capabilities(name: str, module: Any) -> None:
 
 
 def probe(benchmark_id: str) -> Dict[str, Any]:
-    """Import installed platform modules without importing the Modal app.
+    """Import platform modules and load the selected benchmark without Modal.
 
     No checkout fallback or sys.path insertion is allowed here: the paths must
     be those this sandbox's interpreter actually imports. The listed modules
@@ -324,6 +324,13 @@ def probe(benchmark_id: str) -> Dict[str, Any]:
         }
     except (ImportError, OSError, TypeError, AttributeError):
         raise PreparedEnvironmentError("Prepared environment platform imports could not be observed.") from None
+    # Registration and construction are required even for explicit adapters.
+    # Optional discovery loads track resources, including Week 3's GloVe, and
+    # must stay lazy. This probe runs before any student installation.
+    try:
+        importlib.import_module("cogbench.plugins").load_benchmark(benchmark_id)
+    except Exception:
+        raise PreparedEnvironmentError("Prepared environment could not load the selected benchmark.") from None
     if not _observation_shape(observation):
         raise PreparedEnvironmentError(INVALID_OBSERVATION)
     return observation

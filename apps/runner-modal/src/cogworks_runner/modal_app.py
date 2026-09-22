@@ -676,9 +676,8 @@ if resolved_by is None and adapter_file is not None:
 #    functions that perform the task. It runs last so a declaration always
 #    wins over inference.
 #
-#    Failure here is never fatal to the sandbox. The report is written either
-#    way and the evaluate step reads it, so a repository that cannot be
-#    resolved produces a verdict a student can act on instead of a traceback.
+#    An unresolved search writes a report before preparation fails, so the
+#    controller can forward its advice to the run page.
 discovery = None
 if resolved_by is None:
     import json
@@ -713,7 +712,7 @@ if resolved_by is None:
         discovery = {
             "verdict": {
                 "status": "not_read",
-                "headline": "The search for your code could not run: {}".format(
+                "headline": "The search for your code could not finish: {}".format(
                     str(error)[:200]
                 ),
                 "nextStep": "",
@@ -721,6 +720,9 @@ if resolved_by is None:
         }
 
     if discovery is not None:
+        verdict = discovery.get("verdict", {})
+        if verdict.get("status") == "not_read" and not verdict.get("nextStep"):
+            verdict["nextStep"] = "Run cogworks check --benchmark {} locally to inspect the search.".format(benchmark_id)
         pathlib.Path("/tmp/discovery.json").write_text(
             json.dumps(discovery), encoding="utf-8"
         )
@@ -731,6 +733,8 @@ if resolved_by is None:
     detail = ""
     if discovery:
         detail = " " + str(discovery.get("verdict", {}).get("headline", ""))[:300]
+        if discovery.get("verdict", {}).get("status") == "not_read":
+            raise RuntimeError("The search for your code could not finish.{}".format(detail))
     raise RuntimeError(
         "No adapter found in {}, and no set of functions in it performed the "
         "benchmark's task.{}".format(project.name, detail)
@@ -1568,16 +1572,21 @@ def _prepare(job: Dict[str, Any], reporter: LiveReporter) -> Tuple[str, Dict[str
             # and tells a student nothing. The message is on the final
             # non-indented line, which is where Python puts it.
             detail = _last_error_line(stderr_text)
-            refusal = _refusal_from(sandbox)
+            try:
+                refusal = _refusal_from(sandbox)
+            except Exception:
+                # Malformed student-writable advice cannot turn a failed
+                # installation into a refundable controller exception.
+                refusal = None
             normalized = (detail + " " + stderr_text[-400:]).lower()
             if "source archive" in normalized:
                 raise RunnerFailure("repository_fetch", "preparing", detail, False)
             if "weight file" in normalized:
                 raise RunnerFailure("data_download", "preparing", detail, False)
-            # "no adapter found" is the message PREPARE_SCRIPT raises when a
-            # repository has neither a submission.py nor an entry point;
-            # "entry point" catches the older ambiguous-registration message.
-            if "no adapter found" in normalized or "entry point" in normalized:
+            # These messages select advice, never refund eligibility: the
+            # installation and discovery process can execute student code.
+            if ("no adapter found" in normalized or "entry point" in normalized
+                    or "the search for your code could not finish" in normalized):
                 raise RunnerFailure(
                     "adapter_missing", "contract_check", detail, False, refusal
                 )
