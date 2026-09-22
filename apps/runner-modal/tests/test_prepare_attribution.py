@@ -179,6 +179,7 @@ class PrepareAttribution(unittest.TestCase):
                 self.assertEqual(failure.refusal["nextStep"],
                                  "Run cogworks check --benchmark vision-recognition locally to inspect the search.")
                 self.assertNotIn("no set of functions", str(failure))
+                self.assertEqual(str(failure).count("The search for your code could not finish"), 1)
                 results.append((str(failure), failure.refusal))
         self.assertEqual(results[0], results[1])
 
@@ -209,6 +210,8 @@ class PrepareAttribution(unittest.TestCase):
                 self.assertEqual((failure.category, failure.phase, failure.infrastructure),
                                  ("adapter_missing", "contract_check", False))
                 self.assertNotIn("no set of functions", str(failure))
+                self.assertIn("The search for your code could not finish", str(failure))
+                self.assertIn("No modules could be read.", str(failure))
                 self.assertEqual(failure.refusal["nextStep"], next_step or
                                  "Run cogworks check --benchmark vision-recognition locally to inspect the search.")
 
