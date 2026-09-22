@@ -734,6 +734,8 @@ if resolved_by is None:
     if discovery:
         detail = " " + str(discovery.get("verdict", {}).get("headline", ""))[:300]
         if discovery.get("verdict", {}).get("status") == "not_read":
+            if detail.lstrip().lower().startswith("the search for your code could not finish"):
+                raise RuntimeError(detail.lstrip())
             raise RuntimeError("The search for your code could not finish.{}".format(detail))
     raise RuntimeError(
         "No adapter found in {}, and no set of functions in it performed the "
