@@ -69,7 +69,7 @@ import json
 import os
 import sys
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from types import ModuleType
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
@@ -992,7 +992,21 @@ def _forget(name: str, package: Optional[str]) -> None:
         if failed is not None and sys.modules.get(name) is failed:
             sys.modules.pop(name, None)
         return
-    sys.modules.pop(name, None)
+    failed = sys.modules.pop(name, None)
+    if (
+        failed is not None
+        and failed.__spec__ is not None
+        and failed.__spec__.submodule_search_locations is not None
+    ):
+        # Children may retain functions from the failed initializer. Reload
+        # them with the next package attempt instead of keeping split globals.
+        children = {
+            id(module) for key, module in sys.modules.items()
+            if key.startswith(name + ".") and module is not None
+        }
+        for key, module in list(sys.modules.items()):
+            if key.startswith(name + ".") or id(module) in children:
+                sys.modules.pop(key, None)
 
 
 #: Where a retry that changed the working directory is reading from, as
@@ -1120,7 +1134,7 @@ def _execute(
     """
 
     try:
-        if source is None and not future_annotations:
+        if source is None:
             if package is not None:
                 spec = _PackageFinder(package, path.parent).find_spec(
                     "{}.{}".format(package, name)
@@ -1162,7 +1176,17 @@ def _execute(
             sys.modules[spec.name] = module
             sys.modules.setdefault(name, module)
             with _quiet_import(), _deadline(timeout):
-                spec.loader.exec_module(module)
+                if future_annotations:
+                    # Retrying annotations must retain the loader's package
+                    # metadata, or relative imports fail on the second call.
+                    text = spec.loader.get_source(spec.name)
+                    code = compile(
+                        text, str(path), "exec",
+                        flags=__future__.annotations.compiler_flag,
+                    )
+                    exec(code, module.__dict__)
+                else:
+                    spec.loader.exec_module(module)
             return module, None, None
 
         # A notebook module is built from lifted definitions rather than
@@ -1170,9 +1194,6 @@ def _execute(
         # relative imports in a notebook cannot be made to work here.
         # `setdefault` keeps it from displacing a .py of the same stem
         # that already loaded, which `_consume` also guards.
-        text = source if source is not None else path.read_text(
-            encoding="utf-8", errors="replace"
-        )
         module = ModuleType(name)
         module.__file__ = str(path)
         if package is not None:
@@ -1181,7 +1202,7 @@ def _execute(
         sys.modules.setdefault(name, module)
         flags = __future__.annotations.compiler_flag if future_annotations else 0
         with _quiet_import(), _deadline(timeout):
-            exec(compile(text, str(path), "exec", flags=flags), module.__dict__)
+            exec(compile(source, str(path), "exec", flags=flags), module.__dict__)
         return module, None, None
     except _ImportTimeout:
         _forget(name, package)
@@ -1431,38 +1452,22 @@ def _note(
 
 
 def _run_package_body(package: str, path: Path) -> Optional[SkippedModule]:
-    """Execute an ``__init__.py`` as the body of its package.
+    """Import the initializer as its package, reporting failures as __init__.
 
-    The package object already exists (``_register_package`` made it, so its
-    members can be found); this runs the file's own statements into it,
-    because a package whose ``__init__.py`` does ``from .core import
-    Detector`` is offering that name.
-
-    A failure here is reported like any other module's, under the name
-    ``__init__``, and the directory's other modules are still imported. Their
-    relative imports keep working, because those resolve through the package
-    object rather than through anything the body defines.
+    On failure, retain the namespace registered for sibling imports so the
+    other modules can still load without the initializer's partial state.
     """
 
-    module = sys.modules.get(package)
-    if module is None:  # _register_package always registers it; belt and braces
-        return None
-    # Reuses _import_one so the failure vocabulary is identical.
-    # `package=None` because the body is not a member of the package, it is
-    # the package.
-    body, failure, _notes = _import_one(
-        "__init__", path, None, IMPORT_TIMEOUT_SECONDS, None
+    namespace = sys.modules[package]
+    # The initializer must run under its package name so relative imports
+    # and its functions share the same namespace. Copying globals does not.
+    _body, failure, _notes = _import_one(
+        package, path, None, IMPORT_TIMEOUT_SECONDS
     )
     if failure is not None:
-        return failure
-    if body is not None:
-        # `__init__` is registered by _import_one under its own bare name,
-        # which would let an unrelated `import __init__` find it and would
-        # leave it behind in the caller's process. It belongs to the package.
-        sys.modules.pop("__init__", None)
-        for key, value in body.__dict__.items():
-            if key not in ("__name__", "__package__", "__spec__", "__path__", "__loader__"):
-                module.__dict__.setdefault(key, value)
+        # A failed body must not stop the remaining package members loading.
+        sys.modules[package] = namespace
+        return replace(failure, name="__init__")
     return None
 
 

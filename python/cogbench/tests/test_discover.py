@@ -585,6 +585,67 @@ class PackageImportTests(unittest.TestCase):
         self.assertTrue(uses, "uses_marker did not import")
         self.assertEqual(uses[0].module.say(), "the package body ran")
 
+    def test_initializer_relative_imports_share_the_discovered_module(self):
+        core = self._core(initializer=True)
+        (core / "__init__.py").write_text(
+            "from .profile import Profile\n"
+            "from . import normalize\n"
+        )
+        (core / "uses_exports.py").write_text(
+            "from . import Profile, normalize\n"
+        )
+
+        found = discover(self.tmp)
+        modules = {entry.name: entry.module for entry in found.modules}
+
+        self.assertEqual(found.skipped, [])
+        self.assertIs(modules["uses_exports"].Profile, modules["profile"].Profile)
+        self.assertIs(modules["uses_exports"].normalize, modules["normalize"])
+
+    def test_initializer_functions_update_the_package_namespace(self):
+        core = self._core(initializer=True)
+        (core / "__init__.py").write_text(
+            "COUNT = 0\n"
+            "def increment():\n"
+            "    global COUNT\n"
+            "    COUNT += 1\n"
+        )
+        (core / "uses_counter.py").write_text(
+            "from . import increment\n"
+            "increment()\n"
+            "from . import COUNT\n"
+        )
+
+        found = discover(self.tmp)
+        modules = {entry.name: entry.module for entry in found.modules}
+
+        self.assertEqual(found.skipped, [])
+        self.assertEqual(modules["uses_counter"].COUNT, 1)
+
+    def test_initializer_annotation_retry_keeps_package_identity(self):
+        core = self._core(initializer=True)
+        (core / "__init__.py").write_text(
+            "COUNT = 0\n"
+            "def increment():\n"
+            "    global COUNT\n"
+            "    COUNT += 1\n"
+            "from . import child\n"
+            "def count() -> UnknownAnnotation:\n"
+            "    return COUNT\n"
+        )
+        (core / "child.py").write_text("from . import increment\n")
+        (core / "uses_counter.py").write_text(
+            "from . import child, count\n"
+            "child.increment()\n"
+            "VALUE = count()\n"
+        )
+
+        found = discover(self.tmp)
+        modules = {entry.name: entry.module for entry in found.modules}
+
+        self.assertEqual(found.skipped, [])
+        self.assertEqual(modules["uses_counter"].VALUE, 1)
+
     def test_a_package_module_keeps_the_plain_name_a_student_would_recognise(self):
         """The synthetic package name is machinery. A report that named a
         student's file `_cogbench_pkg_0_core.database` would be describing our
@@ -699,6 +760,40 @@ class PackageIsolationTests(unittest.TestCase):
             if entry.name == "shared":
                 self.assertEqual(entry.module.where(), entry.path.parent.name)
 
+    def test_initializer_exports_are_isolated_between_repositories(self):
+        before_modules = set(sys.modules)
+        before_finders = [
+            finder for finder in sys.meta_path
+            if isinstance(finder, discover_module._PackageFinder)
+        ]
+        for name in ("alpha", "beta"):
+            repository = self._repository(name, name)
+            core = repository / "core"
+            (core / "__init__.py").write_text("from .normalize import WHERE\n")
+            (core / "database.py").write_text(
+                "from . import WHERE\ndef where():\n    return WHERE\n"
+            )
+
+            found = discover(repository)
+            database = next(e.module for e in found.modules if e.name == "database")
+
+            self.assertEqual(found.skipped, [])
+            self.assertEqual(database.where(), name)
+            self.assertEqual(
+                [
+                    key for key in set(sys.modules) - before_modules
+                    if key.startswith("_cogbench_pkg_") or key == "__init__"
+                ],
+                [],
+            )
+            self.assertEqual(
+                [
+                    finder for finder in sys.meta_path
+                    if isinstance(finder, discover_module._PackageFinder)
+                ],
+                before_finders,
+            )
+
     def test_nothing_from_a_package_is_left_in_the_calling_process(self):
         """A synthetic package has no __file__ when the directory had no
         __init__.py, so eviction by file location alone would leave it behind
@@ -787,6 +882,25 @@ class PackageRegressionTests(unittest.TestCase):
         self.assertIn("__init__", skipped)
         self.assertEqual(skipped["__init__"].reason, "missing_dependency")
         self.assertIn("database", [entry.name for entry in found.modules])
+
+    def test_failed_initializer_does_not_leave_partial_exports_in_children(self):
+        core = self.tmp / "core"
+        core.mkdir()
+        (core / "__init__.py").write_text(
+            "READY = True\n"
+            "from . import child\n"
+            "raise RuntimeError('broken package setup')\n"
+        )
+        (core / "child.py").write_text("from . import READY\n")
+        (core / "independent.py").write_text("VALUE = 7\n")
+
+        found = discover(self.tmp)
+        skipped = {entry.name: entry for entry in found.skipped}
+
+        self.assertEqual(skipped["__init__"].reason, "raised")
+        self.assertIn("broken package setup", skipped["__init__"].detail)
+        self.assertIn("child", skipped)
+        self.assertEqual([entry.name for entry in found.modules], ["independent"])
 
 
 class SurveyIsolationTests(unittest.TestCase):
