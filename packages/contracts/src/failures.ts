@@ -65,7 +65,7 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
     // metadata none of the thirteen 2026 capstones has, and the platform no
     // longer needs it now that it finds a team's code by running it.
     explanation:
-      "We look for the functions this week asks for by running the code in your repository. Nothing here did the job end to end, and the reason is below.",
+      "This run did not reach scoring. The available details are below.",
     action:
       "Run the check below. It says how far your code was followed and what the next step was given, in your own function names.",
     reproCommand: "cogworks check --benchmark {benchmark}",
