@@ -8,6 +8,9 @@ import re
 import subprocess
 from pathlib import Path
 
+from cogbench.plugins import load_plugin
+from validate_metric_metadata import validate_metric_metadata
+
 ROOT = Path(__file__).resolve().parents[1]
 BENCHMARK = ROOT / "benchmarks" / "week3"
 REVIEWED_COMMIT = "6dc63fe8f6af2b3554a21f7707debb138f31ae4e"
@@ -79,6 +82,7 @@ def main() -> None:
             "package; found {}.".format(packages)
         )
 
+    validate_metric_metadata(load_plugin("cogworks.benchmarks.v2", "language-search"))
     plugin_source = (BENCHMARK / "language_search_benchmark" / "plugins.py").read_text(
         encoding="utf-8"
     )
