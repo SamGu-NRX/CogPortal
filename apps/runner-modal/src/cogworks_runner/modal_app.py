@@ -2626,7 +2626,8 @@ def _sweep_wire(benchmark):
         return None
     return {
         "axis": getattr(benchmark, "sweep_axis_label", "difficulty"),
-        "metric": _primary_for_run(benchmark),
+        # Week 3 plots search MRR while its overall score combines components.
+        "metric": getattr(benchmark, "sweep_metric", None) or _primary_for_run(benchmark),
         "points": wire,
     }
 
