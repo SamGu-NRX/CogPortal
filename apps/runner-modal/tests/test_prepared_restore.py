@@ -20,7 +20,7 @@ from typing import Any, Dict, List, Optional, Tuple
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "apps/runner-modal/src"))
 sys.path.insert(0, str(Path(__file__).parent))
-from test_prepared_environment import require_benchmark
+from test_prepared_environment import require_registered_benchmark
 from cogworks_runner.prepared_environment import (
     PreparedEnvironmentError, bind_environment, probe,
     validate_observation, validate_prepared_environment,
@@ -142,7 +142,7 @@ def shape_valid_observation():
 
 class RestoreDependencyGate(unittest.TestCase):
     def test_available_dependency_does_not_hide_a_probe_contract_defect(self):
-        with mock.patch(__name__ + ".require_benchmark"):
+        with mock.patch(__name__ + ".require_registered_benchmark"):
             with mock.patch(__name__ + ".probe", side_effect=PreparedEnvironmentError("real contract defect")):
                 with self.assertRaisesRegex(PreparedEnvironmentError, "real contract defect"):
                     PreparedRestore().observation()
@@ -152,7 +152,7 @@ class PreparedRestore(unittest.TestCase):
     def observation(self):
         # These are real installed modules, not paths or package labels supplied
         # by a student-controlled response. The test lane needs Week 2 installed.
-        require_benchmark("vision-recognition")
+        require_registered_benchmark("vision-recognition")
         return probe("vision-recognition")
 
     def prepare_space(self, observation, fail_probe=False):
