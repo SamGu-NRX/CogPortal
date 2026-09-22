@@ -113,10 +113,6 @@ jobs:
       - run: python scripts/validate_week3_submodule.py
       - run: python -m ruff check benchmarks/week3/language_search_benchmark benchmarks/week3/tools
       - run: pytest benchmarks/week3/tests
-      # The only lane with language_search_benchmark installed, so the only
-      # one where test_week3_payload actually runs instead of skipping. It
-      # guards the property that matters most here: gold never reaches the
-      # sandbox payload.
       - run: python -m unittest discover -s apps/runner-modal/tests -p 'test_*.py'
       - run: cogworks check --benchmark language-search --json
         working-directory: examples/week3-language-submission
