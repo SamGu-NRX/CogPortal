@@ -1868,6 +1868,9 @@ def _audit(event: str, arguments) -> None:  # pragma: no cover - process-wide ho
     if _WATCHED is None or event not in _FOLDER_EVENTS or not arguments:
         return
     try:
+        # Writing a probe log is not evidence that the input was read.
+        if event == "open" and arguments[2] & os.O_WRONLY:
+            return
         _WATCHED.append(str(arguments[0]))
     except Exception:  # noqa: BLE001 - an audit hook must never raise
         pass
@@ -1952,6 +1955,7 @@ def _from_a_folder(
     if stage.produces is not None and not _safe_produces(stage, value):
         return None
     supplied = dict(trial.supplied)
+    # Reporting metadata only: _scratch_cwd removes these files after search.
     supplied["folder"] = folder
     return replace(trial, supplied=supplied), value
 
@@ -1970,6 +1974,10 @@ def _dry_call_over_a_folder(
     made after the folder exists, cannot be repeated: replaying only the
     first half against a folder that now exists reads "nothing was wanted"
     and refuses a class the first pass had bound.
+
+    Watch the retry too: it must read our folder without also listing their
+    own photos. External file reads remain allowed because models load weights
+    outside scratch; _read_elsewhere would reject those readers.
     """
 
     with _watching() as seen:
@@ -1981,9 +1989,15 @@ def _dry_call_over_a_folder(
     name = _folder_wanted(seen)
     if name is None or not _materialize(name, files):
         return None, False, None, None
-    ok, value = _call(trial, ())
+    with _watching() as seen:
+        ok, value = _call(trial, ())
     if not ok or value is None:
         return None, False, None, None
+    theirs = _folder_of_their_own(seen, trial.call)
+    if theirs is not None:
+        return None, ok, value, theirs
+    if _folder_read_here(seen, expected=name) is None:
+        return None, ok, value, None
     return name, ok, value, None
 
 
@@ -2061,12 +2075,15 @@ def _their_name_for(folder: "Path", call: Any) -> Optional[str]:
     return None
 
 
-def _folder_read_here(seen: Sequence[str]) -> Optional[str]:
+def _folder_read_here(
+    seen: Sequence[str], *, expected: Optional[str] = None
+) -> Optional[str]:
     """The scratch folder this call read, when it read one.
 
     Named as the top-level directory under the scratch working directory,
     which is the name `_materialize` writes the benchmark's files under and
-    so the name a run page can put in a sentence.
+    so the name a run page can put in a sentence. A retry must read the
+    expected folder; reads from an unrelated cache cannot establish a binding.
 
     Returns None when the call touched no folder at all, which is the
     difference between a pipeline written over a directory and a function
@@ -2097,7 +2114,8 @@ def _folder_read_here(seen: Sequence[str]) -> Optional[str]:
             continue
         if not inside.parts:
             continue
-        return inside.parts[0]
+        if expected is None or inside.parts[0] == expected:
+            return inside.parts[0]
     return None
 
 

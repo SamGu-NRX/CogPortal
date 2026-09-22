@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import os
 import shutil
 import signal
 import sys
@@ -1293,6 +1294,208 @@ class TheirPipelineOverAFolder(unittest.TestCase):
 
         self.assertEqual(set(here.iterdir()), before)
         self.assertEqual(set(self.tmp.iterdir()), set(self.files))
+
+
+class FolderRetryReads(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.files = []
+        for name in ("one.png", "two.png"):
+            path = self.tmp / name
+            path.write_bytes(b"pretend photo")
+            self.files.append(path)
+        self.checkout = self.tmp / "checkout"
+        (self.checkout / "src").mkdir(parents=True)
+
+    def _role(self):
+        return Role(
+            "cluster",
+            (Stage("d", produces=lambda v: isinstance(v, list), folder=True),),
+        )
+
+    def _theirs(self, source):
+        path = self.checkout / "src" / "clustering.py"
+        path.write_text(source, encoding="utf-8")
+        self.addCleanup(sys.modules.pop, "clustering", None)
+        return _imported("clustering", path)
+
+    def test_a_retry_that_also_read_their_own_photos_is_not_a_binding(self):
+        photos = self.checkout / "photos"
+        photos.mkdir()
+        (photos / "aiken.png").write_bytes(b"their photo")
+        module = self._theirs(
+            "import os\n"
+            "from pathlib import Path\n"
+            "def build():\n"
+            "    names = sorted(os.listdir('baseImages'))\n"
+            "    beside = Path(__file__).resolve().parent.parent / 'photos'\n"
+            "    return names + sorted(os.listdir(beside))\n"
+        )
+
+        binding, refusal = resolve_chain(self._role(), [module], (self.files,))
+
+        self.assertIsNone(binding)
+        self.assertIn("photos/", refusal.notes[0])
+
+    def test_a_retry_that_read_nothing_of_ours_is_not_a_binding(self):
+        module = self._theirs(
+            "import os\n"
+            "_tried = []\n"
+            "def build():\n"
+            "    if not _tried:\n"
+            "        _tried.append(1)\n"
+            "        return sorted(os.listdir('baseImages'))\n"
+            "    return ['remembered.png', 'remembered-too.png']\n"
+        )
+
+        binding, refusal = resolve_chain(self._role(), [module], (self.files,))
+
+        self.assertIsNone(binding)
+        self.assertEqual(refusal.stage, "d")
+
+    def test_a_retry_reading_only_its_cache_is_not_a_binding(self):
+        module = self._theirs(
+            "import os\n"
+            "from pathlib import Path\n"
+            "_tried = False\n"
+            "def build():\n"
+            "    global _tried\n"
+            "    if not _tried:\n"
+            "        _tried = True\n"
+            "        return os.listdir('baseImages')\n"
+            "    Path('cache').mkdir(exist_ok=True)\n"
+            "    Path('cache/result').write_text('remembered')\n"
+            "    return [Path('cache/result').read_text()]\n"
+        )
+
+        binding, refusal = resolve_chain(self._role(), [module], (self.files,))
+
+        self.assertIsNone(binding)
+        self.assertEqual(refusal.stage, "d")
+
+    def test_writing_a_log_in_the_input_folder_is_not_a_read(self):
+        module = self._theirs(
+            "import os\n"
+            "from pathlib import Path\n"
+            "_tried = False\n"
+            "def build():\n"
+            "    global _tried\n"
+            "    if not _tried:\n"
+            "        _tried = True\n"
+            "        return os.listdir('baseImages')\n"
+            "    Path('baseImages/probe.log').write_text('cached result')\n"
+            "    return ['remembered.png']\n"
+        )
+
+        binding, refusal = resolve_chain(self._role(), [module], (self.files,))
+
+        self.assertIsNone(binding)
+        self.assertEqual(refusal.stage, "d")
+
+    def test_a_reader_that_loads_weights_from_outside_still_binds(self):
+        weights = self.tmp / "weights.bin"
+        weights.write_bytes(b"pretend weights")
+        module = self._theirs(
+            "import os\n"
+            "from pathlib import Path\n"
+            "def build():\n"
+            "    with open({!r}, 'rb') as handle:\n"
+            "        handle.read()\n"
+            "    os.makedirs('cache', exist_ok=True)\n"
+            "    Path('cache/probe.log').write_text('loaded weights')\n"
+            "    os.listdir('cache')\n"
+            "    return [p.read_bytes() for p in sorted(Path('baseImages').iterdir())]\n".format(str(weights))
+        )
+        role = Role(
+            "cluster",
+            (
+                Stage(
+                    "d",
+                    produces=lambda v: v == [b"pretend photo", b"pretend photo"],
+                    folder=True,
+                ),
+            ),
+        )
+
+        binding, refusal = resolve_chain(role, [module], (self.files,))
+
+        self.assertIsNone(refusal)
+        self.assertEqual(binding.steps[0].supplied["folder"], "baseImages")
+
+    def test_a_new_search_reads_fresh_inputs_after_scratch_cleanup(self):
+        module = self._theirs(
+            "from pathlib import Path\n"
+            "calls = []\n"
+            "contents = []\n"
+            "def build():\n"
+            "    calls.append(Path.cwd())\n"
+            "    contents[:] = [p.read_bytes() for p in sorted(Path('baseImages').iterdir())]\n"
+            "    return contents\n"
+        )
+
+        for content in (b"first search", b"second search"):
+            with self.subTest(content=content):
+                self.files[0].write_bytes(content)
+                binding, refusal = resolve_chain(self._role(), [module], (self.files,))
+                self.assertIsNone(refusal)
+                self.assertEqual(binding.steps[0].supplied["folder"], "baseImages")
+                self.assertEqual(module.contents, [content, b"pretend photo"])
+                self.assertFalse(module.calls[-1].exists())
+        self.assertEqual(len(module.calls), 4)
+        self.assertNotEqual(module.calls[0], module.calls[2])
+
+
+class FolderBindingLifetime(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.files = []
+        for name in ("one.png", "two.png"):
+            path = self.tmp / name
+            path.write_bytes(b"pretend photo")
+            self.files.append(path)
+
+    def _bound_step(self):
+        module = _written(
+            "theirs",
+            "import os\n"
+            "def build():\n"
+            "    return sorted(os.listdir('baseImages'))\n",
+        )
+        role = Role(
+            "cluster",
+            (Stage("d", produces=lambda v: isinstance(v, list), folder=True),),
+        )
+        binding, _refusal = resolve_chain(role, [module], (self.files,))
+        self.assertEqual(binding.steps[0].supplied["folder"], "baseImages")
+        return binding.steps[0]
+
+    @contextlib.contextmanager
+    def _working_directory(self):
+        here = Path(tempfile.mkdtemp(dir=str(self.tmp))).resolve()
+        was = os.getcwd()
+        os.chdir(str(here))
+        try:
+            yield here
+        finally:
+            os.chdir(was)
+
+    def test_the_step_cannot_be_called_again_once_the_search_has_returned(self):
+        step = self._bound_step()
+
+        with self._working_directory():
+            with self.assertRaises(OSError):
+                step.bound()
+
+    def test_a_folder_of_that_name_beside_the_caller_is_read_instead(self):
+        step = self._bound_step()
+
+        with self._working_directory() as here:
+            decoy = here / "baseImages"
+            decoy.mkdir()
+            (decoy / "not-ours.png").write_bytes(b"somebody else's photo")
+            self.assertEqual(step.bound(), ["not-ours.png"])
 
 
 class TheNameFilterSkipsWordsAndNotSubstrings(unittest.TestCase):
