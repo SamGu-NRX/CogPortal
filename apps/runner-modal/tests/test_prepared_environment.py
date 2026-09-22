@@ -448,14 +448,17 @@ class ProbeTest(unittest.TestCase):
         child_env = dict(os.environ, PYTHONPATH=os.pathsep.join(sys.path), PYTHONDONTWRITEBYTECODE="1")
         command = [sys.executable, "-m", "cogworks_runner.prepared_environment", benchmark_id]
         result = subprocess.run(command, env=child_env, capture_output=True, text=True, check=True)
-        self.assertEqual(json.loads(result.stdout), env.probe(benchmark_id))
         check = subprocess.run([
             sys.executable, "-c",
-            "import sys; from cogworks_runner.prepared_environment import probe; "
-            "probe(sys.argv[1]); assert 'cogworks_runner.modal_app' not in sys.modules; "
+            "import json, sys; from cogworks_runner.prepared_environment import probe; "
+            "print(json.dumps(probe(sys.argv[1]))); assert 'cogworks_runner.modal_app' not in sys.modules; "
             "assert 'modal' not in sys.modules", benchmark_id,
         ], env=child_env, capture_output=True, text=True)
         self.assertEqual(check.returncode, 0, check.stderr)
+        # The suite can import an installed benchmark before another test adds
+        # its checkout to sys.path. Compare two fresh interpreters so both
+        # resolve the same source path, without reusing the parent module cache.
+        self.assertEqual(json.loads(result.stdout), json.loads(check.stdout))
 
     def test_audio_cli(self):
         self.check_cli("audio-identification")
