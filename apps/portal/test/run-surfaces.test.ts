@@ -423,3 +423,37 @@ test("shared event parsing strips raw local detail, paths, predictions, and envi
   });
   assert.doesNotMatch(JSON.stringify(parsed), /COG_SECRET_CANARY|Users\/student|face-17/);
 });
+
+test("repository-controlled text cannot carry Discord formatting into a team channel", () => {
+  // The refusal headline is built from the team's own function names and the
+  // shapes their code returned, and the actor name is whatever their GitHub
+  // profile says. Both land in a channel the whole team reads.
+  // `allowed_mentions: {parse: []}` on the payload already stops @everyone
+  // from pinging; it does nothing about Markdown, so a link would render.
+  const hostile = snapshot("failed");
+  const value: RunSurfaceSnapshot = {
+    ...hostile,
+    actor: { login: "ada", name: "[Staff](https://evil.example)" },
+    refusalHeadline:
+      "@everyone nothing took [click here](https://evil.example) for the `peaks` step\n" +
+      "### Run passed\n-# <t:0:R> see <https://evil.example>",
+  };
+
+  const posted = textContents(value).join("\n");
+  assert.equal(render(value).allowed_mentions.parse.length, 0);
+  // Their brackets and backticks arrive escaped, so a masked link renders as
+  // its own source. The chips around it are ours and stay formatted.
+  assert.ok(posted.includes("by \\[Staff\\](https://evil.example)"), posted);
+  assert.ok(posted.includes("\\[click here\\](https://evil.example)"), posted);
+  assert.ok(posted.includes("\\`peaks\\`"), posted);
+  assert.ok(!posted.includes("[Staff]("), "an unescaped masked link survived");
+  assert.ok(!posted.includes("[click here]("), "an unescaped masked link survived");
+  // A line break of theirs cannot start a heading or a subtext line of ours,
+  // and none of the sequences Discord reads inside angle brackets survive.
+  assert.ok(!/\n#/.test(posted.slice(posted.indexOf("@everyone"))), "their newline opened a heading");
+  assert.ok(!posted.includes("<t:0:R>"), "a timestamp sequence survived");
+  assert.ok(!posted.includes("<https://evil.example>"), "an angle-bracket link survived");
+  // Defused, not censored: the team still reads what the run reported.
+  assert.ok(posted.includes("@everyone nothing took"), posted);
+  assert.ok(posted.includes("Run passed"), "their words are kept, only their markup is not");
+});
