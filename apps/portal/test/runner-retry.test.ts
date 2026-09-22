@@ -45,7 +45,10 @@ function original(mode: "practice" | "official" = "practice", withWeights = fals
   const run: RunRow = {
     id: "run_original", teamId: team.id, benchmarkId: benchmark.id, benchmarkVersion: 1,
     contractVersion: benchmark.contractVersion, mode, status: "failed", branch: "main",
-    sha: "a".repeat(40), repositoryId: team.repoId, provider: "modal", protocolVersion: "1",
+    // No recorded name, so the job falls back to the team's repository. The
+    // drift cases below rename that team, which is what they are testing.
+    sha: "a".repeat(40), repositoryId: team.repoId, repositoryFullName: null,
+    provider: "modal", protocolVersion: "1",
     datasetVersion: mode === "practice" ? "practice-v1" : benchmark.datasetVersion,
     scorerVersion: benchmark.scorerVersion, runtimeVersion: benchmark.runtimeVersion,
     preparedArtifactId: mode === "official" ? "im-prepared" : null,
@@ -196,6 +199,69 @@ test("retry refuses current source, benchmark, runtime, and provider drift", asy
   const official = original("official");
   await assert.rejects(prepareRetryJob(official.env, official.run, team,
     { ...benchmark, datasetVersion: "changed" }, "run_retry"), conflict);
+});
+
+const RENAMED: TeamRow = {
+  ...team,
+  repoName: "renamed", repoFullName: "course/renamed",
+  repoUrl: "https://github.com/course/renamed",
+};
+
+/**
+ * The rename the drift test above deliberately does not cover.
+ *
+ * Those cases move the team's name on a run that recorded none, so the job is
+ * rebuilt from the team and the rename shows up as changed inputs. A run that
+ * did record its name is the opposite case: GitHub keeps the repository id
+ * through a rename, the run still belongs to the team, and Retry has to send
+ * the inputs it saved rather than the ones today's team implies.
+ *
+ * This is the positive half. Nothing here reaches Modal: `validateRetryInputs`
+ * performs no IO, and neither mode carries weights, so no bucket is consulted.
+ */
+for (const mode of ["practice", "official"] as const) {
+  test(`a renamed repository retries its recorded ${mode} inputs`, async () => {
+    const { env, run, job } = original(mode);
+    // The name at run time, which is the team's name before the rename, so the
+    // recorded job already carries it and this changes no input.
+    run.repositoryFullName = team.repoFullName;
+    assert.equal(job.source.fullName, team.repoFullName);
+    assert.notEqual(RENAMED.repoFullName, team.repoFullName, "the rename has to be real");
+    assert.equal(RENAMED.repoId, team.repoId, "a rename keeps the repository id");
+    if (mode === "official") assert.ok(job.preparedEnvironment, "the official run carries provisioning evidence");
+
+    assert.deepEqual(validateRetryInputs(env, run, RENAMED, benchmark), job);
+
+    const retry = await prepareRetryJob(env, run, RENAMED, benchmark, "run_retry");
+    assert.deepEqual({ ...retry, jobId: job.jobId, runId: job.runId, callback: job.callback }, job);
+    assert.equal(retry.runId, "run_retry");
+    assert.notEqual(retry.jobId, job.jobId);
+    // The one input an operator would notice: it fetches the old path, which
+    // GitHub redirects, rather than a path assembled from today's name.
+    assert.match(retry.source.archiveUrl, /repos\/course\/team\/tarball\//);
+
+    // Same rename, same team, no recorded name: the job is rebuilt from the
+    // team instead and the inputs no longer match. Without this the assertions
+    // above would pass on a rename that changed nothing.
+    const legacy = original(mode);
+    legacy.run.repositoryFullName = null;
+    await assert.rejects(prepareRetryJob(legacy.env, legacy.run, RENAMED, benchmark, "run_retry"), conflict);
+  });
+}
+
+test("a renamed repository still advertises Retry on the console, with no refusal", async () => {
+  const { env, run, job } = original("official");
+  run.repositoryFullName = team.repoFullName;
+  const harness = await snapshotDatabase(run, env);
+  try {
+    await harness.db.update(teams).set(RENAMED).where(eq(teams.id, team.id));
+    const snapshot = await harness.snapshot();
+    assert.equal(snapshot.retryRefusal, null);
+    assert.equal(snapshot.sourceRefusal, null, "the repository id is unchanged");
+    assert.equal(snapshot.actions.includes("retry"), true);
+    // The console reports the repository the run came from, not today's name.
+    assert.equal(snapshot.source?.fullName, job.source.fullName);
+  } finally { harness.sqlite.close(); }
 });
 
 test("retry rechecks saved weight size and digest at the original object key", async () => {
@@ -455,4 +521,44 @@ test("enqueue retains a recorded job through queue failure and rejects changed s
     assert.equal(sent, false);
     assert.ok(!queries.some((query) => /local_reports|team_members/.test(query)));
   } finally { sqlite.close(); }
+});
+
+const FIXTURE_DRIFT: Record<string, Partial<BenchmarkRow>> = {
+  contract: { contractVersion: "cogworks.submissions.v2" },
+  scorer: { scorerVersion: "changed" },
+  runtime: { runtimeVersion: "changed" },
+  dataset: { datasetVersion: "official-v2" },
+};
+
+for (const [name, drift] of Object.entries(FIXTURE_DRIFT)) {
+  test(`a fixture run whose ${name} version moved is refused, not advertised`, async () => {
+    // Official mode, because dataset drift is only visible to a run that used
+    // the catalog's dataset; practice pins "practice-v1" whatever it says.
+    const { run, env } = original("official");
+    run.provider = "fixture";
+    run.dispatchJobJson = null;
+    env.EXECUTION_PROVIDER = "fixture";
+    const catalog = { ...benchmark, ...drift };
+    const harness = await snapshotDatabase(run, env, catalog);
+    try {
+      const snapshot = await harness.snapshot();
+      assert.equal(snapshot.actions.includes("retry"), false, "the console offered a refused Retry");
+      assert.equal(snapshot.retryRefusal, "The recorded benchmark configuration has changed. Start a new candidate.");
+      assert.equal(snapshot.status, "failed");
+      assert.equal(snapshot.refusalHeadline, null);
+    } finally { harness.sqlite.close(); }
+  });
+}
+
+test("an unchanged fixture run is still advertised and still carries no refusal", async () => {
+  const { run, env } = original("official");
+  run.provider = "fixture";
+  run.dispatchJobJson = null;
+  env.EXECUTION_PROVIDER = "fixture";
+  const harness = await snapshotDatabase(run, env, { ...benchmark });
+  try {
+    const snapshot = await harness.snapshot();
+    assert.equal(snapshot.actions.includes("retry"), true);
+    assert.equal(snapshot.retryRefusal, null);
+  } finally { harness.sqlite.close(); }
 });

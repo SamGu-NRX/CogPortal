@@ -6,6 +6,7 @@ import {
   RUN_PHASES,
   RunStreamEventSchema,
   RunSurfaceSnapshotSchema,
+  runSource,
   type Metric,
   type RunStreamEvent,
   type RunStreamEventCode,
@@ -13,6 +14,7 @@ import {
   type RunSurfaceSnapshot,
 } from "@cogworks/contracts/schema";
 import { accountLogin } from "../auth/session";
+import { runSourceRefusal } from "./run-source";
 import { getDb } from "../db/client";
 import type { Env } from "../env";
 import {
@@ -34,7 +36,7 @@ import { syncRun } from "../execution/sync";
 import { validateRetryInputs } from "../execution/runner";
 import { serializeMetric } from "../http/serializers";
 import { ApiHttpError } from "../http/errors";
-import { canPublishOfficialRun, currentSurfaceRun, savedEnvironmentEligibility } from "./run-eligibility";
+import { canPublishOfficialRun, currentSurfaceRun, fixtureRetryRefusal, savedEnvironmentEligibility } from "./run-eligibility";
 import { acceptedRunPredicate, readRunAccounting } from "./run-accounting";
 
 const MAX_SURFACE_EVENTS = 250;
@@ -320,6 +322,22 @@ export async function readRunSurfaceSnapshot(
     surface.id,
   );
 
+  // What this surface's work ran from, and whether that still is the team's
+  // repository. The server refuses these actions either way; offering a
+  // control that will be refused is the part this removes.
+  //
+  // Hosted verification is governed by the local session's source, because it
+  // resolves that session's commit against the connected repository. The other
+  // three are governed by the hosted run's.
+  const sourceRun = official ?? practice ?? null;
+  const source = runSource(current.repositoryFullName);
+  const hostedRefusal = sourceRun ? runSourceRefusal(team, sourceRun, "act on it") : null;
+  const localRefusal = local ? runSourceRefusal(team, local, "verify it here") : null;
+  const sourceRefusal = stage === "local" ? localRefusal : hostedRefusal;
+
+  // Separate from the source refusal above: this one is about whether the
+  // artifact the practice run saved can still be reused, not about which
+  // repository the run came from.
   const promotionEligibility = practice && env.EXECUTION_PROVIDER === "modal"
     ? savedEnvironmentEligibility(practice, benchmark, team)
     : null;
@@ -328,14 +346,18 @@ export async function readRunSurfaceSnapshot(
   const actions: RunSurfaceAction[] = ["open_console", "open_portal"];
   if (stage === "local" && status !== "running") {
     actions.push("run_again");
-    if (status === "succeeded" && !local?.dirty) actions.splice(2, 0, "verify_hosted");
-  } else if (stage === "hosted" && status !== "running") {
-    actions.push("rerun_hosted");
-    if (status === "succeeded" && practice?.refundedAt === null &&
-        promotionEligibility?.eligible !== false) {
-      actions.splice(2, 0, "promote_official");
+    if (status === "succeeded" && !local?.dirty && !localRefusal) {
+      actions.splice(2, 0, "verify_hosted");
     }
-  } else if (stage === "official" && official) {
+  } else if (stage === "hosted" && status !== "running") {
+    if (!hostedRefusal) {
+      actions.push("rerun_hosted");
+      if (status === "succeeded" && practice?.refundedAt === null &&
+          promotionEligibility?.eligible !== false) {
+        actions.splice(2, 0, "promote_official");
+      }
+    }
+  } else if (stage === "official" && official && !hostedRefusal) {
     if (canPublishOfficialRun(official)) actions.push("publish_result");
     // Failed executions and historical refunds cannot be promoted again here.
     if (status === "failed" || (status !== "running" && official.refundedAt !== null)) actions.push("rerun_hosted");
@@ -347,13 +369,19 @@ export async function readRunSurfaceSnapshot(
   const occupied = accounting.officialUsed + accounting.officialReserved;
   const nextAttempt = occupied < OFFICIAL_LIMIT ? occupied + 1 : null;
   const execution = official ?? practice;
+  // Each provider's own admission check, so neither advertises a Retry the
+  // server would refuse. A fixture has no recorded job to validate.
   let retryRefusal: string | null = null;
-  if (execution?.status === "failed" && execution.provider === "modal") {
-    try {
-      validateRetryInputs(env, execution, team, benchmark);
-    } catch (error) {
-      if (!(error instanceof ApiHttpError) || error.status !== 409) throw error;
-      retryRefusal = error.message;
+  if (execution?.status === "failed") {
+    if (execution.provider === "modal") {
+      try {
+        validateRetryInputs(env, execution, team, benchmark);
+      } catch (error) {
+        if (!(error instanceof ApiHttpError) || error.status !== 409) throw error;
+        retryRefusal = error.message;
+      }
+    } else {
+      retryRefusal = fixtureRetryRefusal(execution, benchmark);
     }
   }
   const retryCapacity = execution?.mode === "official"
@@ -361,6 +389,7 @@ export async function readRunSurfaceSnapshot(
     : accounting.practiceUsed + accounting.practiceReserved < PRACTICE_LIMIT;
   if (execution?.status === "failed" && benchmark.active && !accounting.activeRuns
     && retryCapacity && execution.provider === env.EXECUTION_PROVIDER
+    && !hostedRefusal
     && execution.repositoryId !== null && execution.repositoryId === team.repoId
     && retryRefusal === null) {
     actions.splice(2, 0, "retry");
@@ -371,9 +400,12 @@ export async function readRunSurfaceSnapshot(
     team: { id: team.id, name: team.name },
     benchmark: { id: benchmark.id, version: benchmark.version, title: benchmark.title },
     actor: { login: accountLogin(actor), name: actor.name },
-    sha: local?.sha ?? practice?.sha ?? official?.sha,
-    shortSha: (local?.sha ?? practice?.sha ?? official?.sha ?? "").slice(0, 7),
-    branch: local?.branch ?? practice?.branch ?? official?.branch ?? null,
+    // Source and commit identify the same stage as its status and metrics.
+    sha: current.sha,
+    shortSha: current.sha.slice(0, 7),
+    branch: current.branch,
+    source,
+    sourceRefusal,
     dirty: local?.dirty ?? false,
     stage,
     status,
