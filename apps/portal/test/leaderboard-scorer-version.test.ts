@@ -84,7 +84,7 @@ async function addRun(db: Database, id: string, benchmarkId = RECOGNITION, overr
   await db.insert(runs).values({
     id, teamId: "team_demo", benchmarkId, benchmarkVersion: 2,
     contractVersion: benchmark.contractVersion, mode: "official", status: "succeeded",
-    branch: "main", sha: "a".repeat(40), repositoryId: 123,
+    branch: "main", sha: "a".repeat(40), repositoryId: FIXTURE_REPO.repositoryId,
     createdAt: 10, finishedAt: 20, provider: "modal",
     scorerVersion: benchmark.scorerVersion, ...overrides,
   });
