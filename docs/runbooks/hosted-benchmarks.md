@@ -60,8 +60,9 @@ objects the container references by name.
 Republishing is cheap when nothing changed: `Image.build` returns the cached
 image. Changing anything under `benchmarks/`, `python/cogbench/`, or
 `apps/runner-modal/src/` requires a redeploy before the sandbox sees it. The
-three benchmarks are git submodules, so `git submodule update --init` before
-deploying, or the images carry whatever commit your tree happens to hold.
+three benchmarks are git submodules, so `git submodule sync --recursive &&
+git submodule update --init` before deploying, or the images carry whatever
+commit your tree happens to hold, from whichever source it was cloned with.
 
 ## Score a repository
 

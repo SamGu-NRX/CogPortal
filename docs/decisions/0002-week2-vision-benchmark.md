@@ -4,9 +4,20 @@ Status: proposed in upstream draft PR 1; parent integration pinned for review.
 
 ## Decision
 
-CogPortal consumes Reynaldo's `iReynaldo/ComputerVisionBenchmark` as the pinned
-HTTPS submodule `benchmarks/week2`. Upstream development happens on
-`sg/week2-benchmark-adapter`; the parent gitlink moves only to reviewed commits.
+The Week 2 benchmark is Reynaldo's work, developed at
+`iReynaldo/ComputerVisionBenchmark`. CogPortal consumes it through
+`SamGu-NRX/cogworks-week2-vision-benchmark`, a fork of that repository, as the
+pinned HTTPS submodule `benchmarks/week2`. The fork shares upstream's history, so
+the commit this parent pins resolves there unchanged, and Week 2 now comes from
+the same account as Week 1 and Week 3. That account matters because every clone
+of CogPortal fetches this submodule: if the source repository goes private, is
+deleted, or rewrites the history holding the pinned commit, the checkout breaks
+for everyone and we cannot repair it from here.
+
+Development happens on `sg/week2-benchmark-adapter`, which the fork carries at
+the same head as upstream; the parent gitlink moves only to reviewed commits, and
+upstream remains the source the fork tracks.
+
 The existing v1 fixture and example remain on disk temporarily with deprecation
 markers, but no active install, runtime, documentation, catalog, or CI path uses
 them.
@@ -57,6 +68,7 @@ must use a real checkout:
 
 ```bash
 git clone --recurse-submodules https://github.com/CogWorksBWSI/CogPortal.git
+git submodule sync --recursive
 git submodule update --init --recursive
 ```
 

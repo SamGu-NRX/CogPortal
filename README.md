@@ -69,6 +69,7 @@ CogWorks prerequisite environment. Your environment may be named
 
 ```sh
 conda activate cogworks_week1
+git submodule sync --recursive
 git submodule update --init --recursive
 python -m pip install -e python/cogbench -e "benchmarks/week2[data]" -e "benchmarks/week2/face_recognition_app[test]"
 cogworks check --benchmark vision-recognition
