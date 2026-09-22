@@ -6,7 +6,7 @@ import { ConfirmButton } from "@/components/ConfirmButton";
 import { FailureCard } from "@/components/FailureCard";
 import { LoadingMark, QueryError } from "@/components/Feedback";
 import { LogView } from "@/components/LogView";
-import { Finding } from "@/components/Finding";
+import { Finding, FINDING_KICKER } from "@/components/Finding";
 import { PrimaryMetric, SupportingMetrics } from "@/components/MetricBlock";
 import { SweepTrace } from "@/components/SweepTrace";
 import { Panel } from "@/components/Panel";
@@ -197,6 +197,12 @@ export function RunDetailPage() {
               )}
               {run.sweep && (
                 <div className={run.diagnostics.length > 0 ? "mt-5 border-t border-rule-soft pt-4" : ""}>
+                  {/* A clean run leaves the scorer nothing to say, so the
+                      curve is the finding and keeps the same introduction
+                      rather than opening the panel unlabelled. */}
+                  {run.diagnostics.length === 0 && (
+                    <div className="u-kicker mb-2">{FINDING_KICKER}</div>
+                  )}
                   <SweepTrace sweep={run.sweep} />
                 </div>
               )}
