@@ -1,18 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { ProtocolMetricSchema } from "@cogworks/contracts/protocol";
+import { ProtocolMetricSchema, RunEventV1Schema } from "@cogworks/contracts/protocol";
 import { MetricSchema } from "@cogworks/contracts/schema";
 
-/**
- * A metric's explanation has to survive the hosted path, not just the local one.
- *
- * This is Week 3's real `search_mrr` help, copied from the result of
- * run_28df471772. The hosted protocol used to cap help at 600 characters and
- * this is 645, so that run answered 400 on its completed event and lost a score
- * it had already measured. Nothing local caught it: the stored side has no
- * limit, so the identical string round-trips through a saved report untouched,
- * and `search_mrr` is only emitted once a submission's search side binds.
- */
+// From run_28df471772: this valid 645-character explanation caused the
+// completed event to return 400 under the former 600-character cap.
 const WEEK3_SEARCH_MRR_HELP =
   "The application end to end: a query string in, ranked image ids out, " +
   "through whatever database the submission built. This is the average over " +
@@ -37,25 +29,55 @@ function metric(help: string) {
   };
 }
 
-test("Week 3's own search_mrr explanation reaches the portal whole", () => {
-  const parsed = ProtocolMetricSchema.safeParse(metric(WEEK3_SEARCH_MRR_HELP));
-  assert.equal(parsed.success, true);
-  // Whole, not truncated: the text a student reads is the text the benchmark
-  // wrote.
-  assert.equal(parsed.success && parsed.data.help, WEEK3_SEARCH_MRR_HELP);
+test("Week 3's 645-character help survives the completed-event and stored schemas", () => {
+  assert.equal(WEEK3_SEARCH_MRR_HELP.length, 645);
+  const event = RunEventV1Schema.parse({
+    protocolVersion: "1",
+    eventId: "event_01",
+    runId: "run_01",
+    sequence: 6,
+    occurredAt: 1784000000000,
+    type: "completed",
+    result: {
+      protocolVersion: "1",
+      benchmarkId: "language-search",
+      benchmarkVersion: 1,
+      metrics: [metric(WEEK3_SEARCH_MRR_HELP)],
+      diagnostics: [],
+      outputDigest: "a".repeat(64),
+    },
+    preparedArtifactId: "snapshot-01",
+    environmentDigest: "b".repeat(64),
+    sanitizedLog: null,
+  });
+  assert.ok(event.type === "completed");
+  const stored = MetricSchema.parse(event.result.metrics[0]);
+  assert.equal(stored.help, WEEK3_SEARCH_MRR_HELP);
 });
 
-test("the wire and the stored report keep the same explanation", () => {
-  const wire = ProtocolMetricSchema.safeParse(metric(WEEK3_SEARCH_MRR_HELP));
-  const stored = MetricSchema.safeParse({ ...metric(WEEK3_SEARCH_MRR_HELP), role: "scored" });
-  assert.equal(wire.success, true);
-  assert.equal(stored.success, true);
-  assert.equal(
-    wire.success && stored.success && wire.data.help === stored.data.help,
-    true,
-  );
+test("long help is retained without a replacement character cap", () => {
+  const help = "x".repeat(5_000);
+  const wire = ProtocolMetricSchema.parse(metric(help));
+  assert.equal(wire.help, help);
+  assert.equal(MetricSchema.parse(wire).help, help);
 });
 
-test("the schema no longer decides how long an explanation may be", () => {
-  assert.equal(ProtocolMetricSchema.safeParse(metric("x".repeat(5_000))).success, true);
+test("uncapped help still requires string metadata", () => {
+  for (const help of [42, {}, ["explanation"]]) {
+    const declared = { ...metric(WEEK3_SEARCH_MRR_HELP), help };
+    for (const schema of [ProtocolMetricSchema, MetricSchema]) {
+      const result = schema.safeParse(declared);
+      assert.ok(!result.success);
+      assert.deepEqual(result.error.issues.map((issue) => issue.path), [["help"]]);
+    }
+  }
+});
+
+test("long help does not bypass the existing metric contract", () => {
+  const result = ProtocolMetricSchema.safeParse({
+    ...metric(WEEK3_SEARCH_MRR_HELP),
+    precision: 7,
+  });
+  assert.ok(!result.success);
+  assert.deepEqual(result.error.issues.map((issue) => issue.path), [["precision"]]);
 });
