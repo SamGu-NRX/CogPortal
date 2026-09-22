@@ -16,19 +16,22 @@ from cogbench.isolate import (  # noqa: E402
     CRASHED,
     RAISED,
     TIMED_OUT,
+    _describe_death,
     _original_command,
     run_isolated,
 )
 
 
-def _segfault():
-    # A signal, not a real null dereference. The wait status is identical
-    # (WIFSIGNALED, SIGSEGV), which is all `_describe_death` reads, and a
-    # genuine EXC_BAD_ACCESS makes macOS write a crash report for every run
-    # of this suite.
+def _killed():
+    # SIGKILL, not SIGSEGV. Sending SIGSEGV does not avoid the crash report a
+    # genuine EXC_BAD_ACCESS writes: 53 landed in
+    # ~/Library/Logs/DiagnosticReports between 02:23 and 02:37 on 2026-09-14,
+    # one per run of the fixtures here and in test_discover. SIGKILL is also a
+    # fatal signal no `except` clause can catch, and writes no report. The
+    # segfault wording is pinned separately, against the formatter.
     import signal
 
-    os.kill(os.getpid(), signal.SIGSEGV)
+    os.kill(os.getpid(), signal.SIGKILL)
 
 
 def _spin():
@@ -67,11 +70,24 @@ class IsolationTests(unittest.TestCase):
         self.assertIn("ZeroDivisionError", outcome.detail)
         self.assertFalse(outcome.ok)
 
-    def test_the_parent_survives_a_segfault(self):
+    def test_the_parent_survives_a_child_killed_outright(self):
         """One repository's mp3 splitter aborts the interpreter through a
         second native audio backend. No except clause can catch that."""
 
-        outcome = run_isolated(_segfault)
+        outcome = run_isolated(_killed)
+
+        self.assertEqual(outcome.status, CRASHED)
+        self.assertTrue(outcome.detail)
+        self.assertFalse(outcome.ok)
+
+    def test_a_segfault_is_named_as_one(self):
+        """`_describe_death` reads only the wait status, so a synthetic one
+        pins the wording on every platform, not just where the signal can be
+        raised, and without the crash report."""
+
+        import signal
+
+        outcome = _describe_death(signal.SIGSEGV)
 
         self.assertEqual(outcome.status, CRASHED)
         self.assertIn("segfaulted", outcome.detail)
@@ -224,7 +240,7 @@ assert outcome.status == {status!r}, outcome
         before_cwd = Path.cwd()
         before_pid = os.getpid()
 
-        run_isolated(_segfault)
+        run_isolated(_killed)
         run_isolated(_spin, timeout_seconds=2)
         run_isolated(lambda: 1)
 
@@ -414,9 +430,9 @@ class NoBudgetIsAllowed(unittest.TestCase):
 
     @unittest.skipUnless(hasattr(os, "fork"), "needs fork")
     def test_a_crash_is_still_contained_without_limits(self):
-        outcome = run_isolated(_segfault, timeout_seconds=None, memory_bytes=None)
+        outcome = run_isolated(_killed, timeout_seconds=None, memory_bytes=None)
         self.assertEqual(outcome.status, CRASHED)
-        self.assertIn("segfault", outcome.detail.lower())
+        self.assertTrue(outcome.detail)
 
 
 class WindowsDoesNotReplaceItself(unittest.TestCase):

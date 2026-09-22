@@ -109,6 +109,12 @@ class DiscoverySpec:
     #: message.
     prepare: Optional[Callable[[Path, Sequence[Any]], Mapping[str, Any]]] = None
 
+    #: Whether the binding the search selected consumed the input `prepare`
+    #: retained, answered once on the resolved submission. Which bindings
+    #: count is the week's question, so the week answers it; absent means
+    #: unestablished, which is what a report says when it cannot tell.
+    weights_consumed: Optional[Callable[[Any], bool]] = None
+
     #: The right answer to that test, in the week's own words, for the
     #: headline of a chain that ran end to end and answered something else.
     #: "one group per person" for week 2, "the enrolled song at rank 1" for

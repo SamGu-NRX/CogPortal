@@ -138,8 +138,15 @@ class LocalReport:
     diagnostics: List[str]
     output_digest: str
     weights_used: List[str] = field(default_factory=list)
-    # None means sync has not compared the files with the report's Git revision.
-    weights_uploaded: Optional[List[Dict[str, str]]] = None
+    #: What was captured for each scored weight, measured from the bytes that
+    #: were copied before loading: ``{"path", "sha256", "size"}``. Empty when
+    #: the week declared no weights. ``None`` only for a report written before
+    #: capture existed, which sync refuses rather than guessing about.
+    #:
+    #: ``size`` is ours. The portal stores path and digest and drops the rest,
+    #: so the length has to survive here or sync would have to measure some
+    #: current file to find it, which is the reread this design removes.
+    weights_uploaded: Optional[List[Dict[str, Any]]] = None
 
     @classmethod
     def create(
@@ -156,6 +163,7 @@ class LocalReport:
         diagnostics: List[str],
         predictions: List[Any],
         weights_used: Optional[List[str]] = None,
+        weights_uploaded: Optional[List[Dict[str, Any]]] = None,
     ) -> "LocalReport":
         encoded = json.dumps(predictions, sort_keys=True, separators=(",", ":")).encode("utf-8")
         return cls(
@@ -176,6 +184,7 @@ class LocalReport:
             ][:32],
             output_digest=hashlib.sha256(encoded).hexdigest(),
             weights_used=weights_used or [],
+            weights_uploaded=weights_uploaded,
         )
 
     def to_wire(self) -> Dict[str, Any]:
@@ -195,7 +204,13 @@ class LocalReport:
             "metrics": [metric.to_wire() for metric in self.metrics],
             "diagnostics": list(self.diagnostics),
             "weightsUsed": list(self.weights_used) if self.weights_used else [],
-            "weightsUploaded": self.weights_uploaded,
+            # None is "this report predates capture", which sync refuses for a
+            # weighted run. [] is "nothing to upload", which is every week but
+            # Language and is not the same statement.
+            "weightsUploaded": (
+                None if self.weights_uploaded is None
+                else [dict(entry) for entry in self.weights_uploaded]
+            ),
         }
 
     def to_json(self) -> str:
@@ -203,22 +218,67 @@ class LocalReport:
         payload["outputDigest"] = self.output_digest
         return json.dumps(payload, indent=2, sort_keys=True)
 
+    @staticmethod
+    def _weights_uploaded(value: Dict[str, Any]) -> Optional[List[Dict[str, Any]]]:
+        """Read the capture receipts back, or say which one is unusable.
+
+        Sync uploads from these, so a receipt that does not describe a file
+        this report scored has to stop the command rather than be dropped:
+        a silently missing weight is a hosted run against different bytes.
+        """
+
+        from .storage import check_weight_path
+
+        entries = value.get("weightsUploaded")
+        if entries is None:
+            return None
+        used = [str(item) for item in value.get("weightsUsed", [])]
+        if len(set(used)) != len(used):
+            # One name, two receipts to satisfy, and no way to say which
+            # bytes the second one meant.
+            raise ValueError("weightsUsed names a path more than once")
+        if not isinstance(entries, list):
+            raise ValueError("weightsUploaded must be a list or null")
+        receipts = []
+        for entry in entries:
+            if not isinstance(entry, dict):
+                raise ValueError("each weightsUploaded entry must be an object")
+            path = entry.get("path")
+            checksum = entry.get("sha256")
+            size = entry.get("size")
+            if path not in used:
+                raise ValueError(
+                    "weightsUploaded names {!r}, which this report did not score".format(path)
+                )
+            if (
+                not isinstance(checksum, str)
+                or len(checksum) != 64
+                or any(character not in "0123456789abcdef" for character in checksum)
+            ):
+                raise ValueError("weightsUploaded needs a SHA-256 digest for {!r}".format(path))
+            if type(size) is not int or size < 0:
+                raise ValueError("weightsUploaded needs a byte length for {!r}".format(path))
+            # The name is read back out of a file, so it is checked again on
+            # the way in: it becomes a path under the workspace and a key.
+            check_weight_path(str(path))
+            receipts.append({"path": str(path), "sha256": checksum, "size": size})
+        if len({entry["path"] for entry in receipts}) != len(receipts):
+            raise ValueError("weightsUploaded names a path more than once")
+        missing = [name for name in used if name not in {r["path"] for r in receipts}]
+        if missing:
+            # A scored weight with no receipt would sync as though the run had
+            # nothing to upload, and the hosted run would score the repository's
+            # own copy instead.
+            raise ValueError(
+                "weightsUploaded is missing {}, which this report scored".format(
+                    ", ".join(sorted(missing))
+                )
+            )
+        return receipts
+
     @classmethod
     def from_json(cls, raw: str) -> "LocalReport":
         value = json.loads(raw)
-        weights_uploaded = value.get("weightsUploaded")
-        if weights_uploaded is not None and (
-            not isinstance(weights_uploaded, list)
-            or any(
-                not isinstance(weight, dict)
-                or weight.get("path") not in value.get("weightsUsed", [])
-                or not isinstance(weight.get("sha256"), str)
-                or len(weight["sha256"]) != 64
-                or any(char not in "0123456789abcdef" for char in weight["sha256"])
-                for weight in weights_uploaded
-            )
-        ):
-            raise ValueError("weightsUploaded must name paths from weightsUsed with SHA-256 digests")
         return cls(
             report_id=str(value["reportId"]),
             benchmark_id=str(value["benchmarkId"]),
@@ -239,5 +299,5 @@ class LocalReport:
             diagnostics=[str(item) for item in value.get("diagnostics", [])],
             output_digest=str(value["outputDigest"]),
             weights_used=[str(item) for item in value.get("weightsUsed", [])],
-            weights_uploaded=weights_uploaded,
+            weights_uploaded=cls._weights_uploaded(value),
         )

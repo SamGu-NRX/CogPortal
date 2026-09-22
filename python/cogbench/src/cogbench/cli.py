@@ -6,7 +6,6 @@ import json
 import os
 import platform
 import queue
-import subprocess
 import sys
 import threading
 import time
@@ -48,6 +47,7 @@ from .progress import TerminalProgress
 from .project import repository_state
 from .report import render_check
 from .runner import ContractError, execute, model_cache_status
+from . import storage
 from .storage import active_portal, latest_report, save_report, save_token, token_for
 
 PROGRAM = "cogworks"
@@ -335,7 +335,12 @@ class _Scoreable(NamedTuple):
     """
 
     factory: Optional[Callable[..., Any]]
-    weights: List[str]
+    weight_names: List[str]
+    #: One receipt per name, or ``None`` when consumption was not established.
+    #: Carried beside the names rather than derived from them: in that state
+    #: there are names and no receipts, and deriving one from the other would
+    #: report the run as having scored no weights.
+    weights: Optional[List[Dict[str, Any]]]
     #: What would actually be scored: "file", "discovery", or None.
     source: Optional[str]
     #: The live resolution, for a caller in the same process. None when
@@ -381,7 +386,7 @@ def _scoreable(name: str, benchmark, project_root: Path, *, as_json: bool, spec=
         )
         if declared_source == "file":
             return _Scoreable(
-                factory, [], "file", None, None, declared_source, declared_detail
+                factory, [], [], "file", None, None, declared_source, declared_detail
             )
     except PluginError as error:
         declared_error = str(error)
@@ -394,12 +399,14 @@ def _scoreable(name: str, benchmark, project_root: Path, *, as_json: bool, spec=
     build = getattr(benchmark, "submission_from_discovery", None)
     if submission is None or not submission.ready or not callable(build):
         return _Scoreable(
-            None, [], None, submission, survey,
+            None, [], [], None, submission, survey,
             declared_source, declared_detail, declared_error, unavailable,
         )
-    weights = [str(path) for path in submission.weights_used]
+    captured = submission.weights_captured
+    weights = None if captured is None else [dict(item) for item in captured]
     return _Scoreable(
         (lambda *args, **kwargs: build(submission)),
+        [str(name) for name in submission.weights_used],
         weights,
         "discovery",
         submission,
@@ -422,7 +429,7 @@ def _submission_for(name: str, benchmark, project_root: Path, *, as_json: bool, 
             "Nothing in this repository could be scored yet. Run "
             "`cogworks check --benchmark {}` to see what was found.".format(name)
         )
-    return scoreable.factory, scoreable.weights
+    return scoreable.factory, scoreable.weight_names, scoreable.weights
 
 
 def _check_view(name: str, project_root: Path, as_json: bool) -> dict:
@@ -596,6 +603,7 @@ def _check(benchmark: str, as_json: bool, project_root: Path) -> int:
             hosted_python=checks["canonicalHostedPython"],
             benchmark_ready=bool(checks["benchmarkLoadable"]),
             repository=checks["repositoryFullName"],
+            git_checkout=bool(checks["gitRepository"]),
             submission=submission,
             survey=survey,
             local_gap_note=gap_note(benchmark, checks["localGap"]),
@@ -823,7 +831,7 @@ def _run_view(args: argparse.Namespace, project_root: Path) -> str:
         # owns resolves to its validated copy, including attribute reads while
         # scoring. The spec and mapping are built here, never sent across exec.
         with _Redirects(dict(getattr(spec, "resource_files", {}) or {})):
-            adapter, weights = _submission_for(
+            adapter, weight_names, weights = _submission_for(
                 args.benchmark, benchmark, project_root, as_json=args.json, spec=spec,
                 spec_error=spec_error
             )
@@ -838,6 +846,7 @@ def _run_view(args: argparse.Namespace, project_root: Path) -> str:
                 project_root,
                 smoke=args.command == "test",
                 progress=live.progress if live else None,
+                weight_names=weight_names,
                 weights=weights,
             )
             if live:
@@ -1002,88 +1011,41 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 raise PortalError("This portal is not linked. Run `cogworks link` first.")
             path = _resolve_report(args.path, project_root)
             report = LocalReport.from_json(path.read_text(encoding="utf-8"))
-            if report.weights_used and not report.repository.sha:
-                raise PortalError("The report has no repository revision for its weights; run the benchmark from a Git commit and sync again.")
-            uploads = []
-            for relative_path in report.weights_used:
-                if Path(relative_path).is_absolute() or ".." in Path(relative_path).parts:
-                    raise PortalError("Weight path must stay inside the repository: {}".format(relative_path))
-                source = project_root / relative_path
-                project_resolved = project_root.resolve()
-                source_resolved = source.resolve()
-                if source.is_symlink() or (
-                    source_resolved != project_resolved
-                    and project_resolved not in source_resolved.parents
-                ):
-                    raise PortalError(
-                        "Weight path must be a regular file inside the repository: {}".format(
-                            relative_path
-                        )
-                    )
-                if not source.is_file():
-                    raise PortalError("Weight file does not exist: {}".format(relative_path))
-
-                if report.repository.sha:
-                    blob = subprocess.run(
-                        ["git", "rev-parse", "--verify", "{}:{}".format(
-                            report.repository.sha, relative_path
-                        )],
-                        cwd=str(project_root), capture_output=True,
-                    )
-                    if blob.returncode == 0:
-                        # Compare raw bytes, without index state or Git clean filters.
-                        local_blob = subprocess.run(
-                            ["git", "hash-object", "--no-filters", "--", str(source)],
-                            cwd=str(project_root), capture_output=True,
-                        )
-                        if local_blob.returncode != 0:
-                            raise PortalError("Could not hash weight {}.".format(relative_path))
-                        if local_blob.stdout.strip() == blob.stdout.strip():
-                            print(
-                                "weights: {} is committed and travels with the repository".format(
-                                    relative_path
-                                )
-                            )
-                            continue
-                        print(
-                            "weights: {} differs from the report commit; uploading it".format(
-                                relative_path
-                            )
-                        )
-
-                # Workers caps request bodies at 100 MB on Free and Pro plans,
-                # and this account's plan is not established. The largest 2026
-                # corpus weight is 411 KB; Week 3's 200 MiB probe is separate.
-                max_weight_bytes = 100 * 1024 * 1024
-                size = source.stat().st_size
-                if size > max_weight_bytes:
-                    raise PortalError(
-                        "Weight files may not exceed 100 MiB: {}".format(relative_path)
-                    )
-                digest = hashlib.sha256()
-                with source.open("rb") as stream:
-                    for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-                        digest.update(chunk)
-                uploads.append((relative_path, source, size, digest.hexdigest()))
-
-            # Publish expected bytes first so an interrupted sync cannot reuse an older upload.
-            report = replace(report, weights_uploaded=[
-                {"path": item[0], "sha256": item[3]} for item in uploads
-            ])
+            # The report goes first: it names the digest each upload is checked
+            # against, so the portal can refuse bytes that are not the ones
+            # this run scored.
             sync_report(portal, token, json.loads(report.to_json()))
-            for relative_path, source, size, digest in uploads:
+            receipts = report.weights_uploaded
+            if receipts is None and report.weights_used:
+                raise PortalError(
+                    "This report doesn't establish which weight bytes were used. "
+                    "Use an explicit weight input or the retained model loader, "
+                    "then run again before uploading or verifying weights."
+                )
+            for receipt in receipts or []:
+                try:
+                    source = storage.retained_input(
+                        project_root, receipt["path"], receipt["sha256"], receipt["size"]
+                    )
+                except storage.RetentionError as error:
+                    raise PortalError(str(error)) from error
                 try:
                     destination = upload_weight(
-                        portal, token, report.report_id, relative_path, source,
-                        expected_sha256=digest,
+                        portal,
+                        token,
+                        report.report_id,
+                        receipt["path"],
+                        source,
+                        expected_sha256=receipt["sha256"],
+                        size=receipt["size"],
                     )
                 except PortalError as error:
                     raise PortalError(
-                        "Failed to sync weight {}: {}".format(relative_path, error)
+                        "Failed to sync weight {}: {}".format(receipt["path"], error)
                     ) from error
                 print(
                     "weights: {} ({} bytes) uploaded to {}".format(
-                        relative_path, size, destination
+                        receipt["path"], receipt["size"], destination
                     )
                 )
             print("Synced {} as LOCAL · SELF-REPORTED.".format(report.report_id))
