@@ -6,18 +6,60 @@ import os
 import tempfile
 import time
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Dict, Optional
 
 from .models import LocalReport
 
-#: A weight path is reported, stored and uploaded under this spelling, so it
-#: has to survive a URL, an R2 key and a JSON field. 500 is the portal's own
-#: limit (`LocalReportInputSchema`); the rest are characters that would make
-#: one of those three mean something other than a file in the repository.
-MAX_WEIGHT_PATH = 500
+def _checkout_path(root: Path, path: Path) -> Path:
+    """Reject preexisting symlinks below the supplied checkout root."""
 
-_READ_CHUNK = 1024 * 1024
+    root = Path(root)
+    path = Path(path)
+    parts = path.relative_to(root).parts
+    current = root
+    for part in parts:
+        current = current / part
+        if current.is_symlink():
+            raise OSError("refusing linked checkout storage path: {}".format(current))
+    return path
+
+
+def _report_filename(report_id: str) -> str:
+    if (
+        not report_id
+        or "\0" in report_id
+        or PurePosixPath(report_id).name != report_id
+        or PureWindowsPath(report_id).name != report_id
+        or report_id in (".", "..")
+    ):
+        raise OSError("report id is not a safe path component")
+    return "{}.json".format(report_id)
+
+
+def _replace_text(path: Path, text: str) -> None:
+    """Replace an already-checked path without changing an existing hard link."""
+
+    temporary: Optional[Path] = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=str(path.parent),
+            prefix=path.name + ".",
+            suffix=".tmp",
+            delete=False,
+        ) as stream:
+            temporary = Path(stream.name)
+            stream.write(text)
+        temporary.replace(path)
+        temporary = None
+    finally:
+        if temporary is not None:
+            try:
+                temporary.unlink()
+            except OSError:
+                pass
 
 
 def workspace_dir(root: Path) -> Path:
@@ -32,24 +74,116 @@ def workspace_dir(root: Path) -> Path:
     its own ignore file the way `.pytest_cache` and `.ruff_cache` do.
     """
 
-    directory = root / ".cogbench"
+    directory = _checkout_path(root, Path(root) / ".cogbench")
     directory.mkdir(parents=True, exist_ok=True)
-    ignore = directory / ".gitignore"
+    ignore = _checkout_path(root, directory / ".gitignore")
     if not ignore.exists():
         ignore.write_text("*\n", encoding="utf-8")
+    elif not ignore.is_file():
+        raise OSError("checkout ignore path is not a file: {}".format(ignore))
     return directory
 
 
 def reports_dir(cwd: Path) -> Path:
-    return cwd / ".cogbench" / "reports"
+    return _checkout_path(cwd, Path(cwd) / ".cogbench" / "reports")
 
 
 def save_report(report: LocalReport, cwd: Path) -> Path:
-    directory = workspace_dir(cwd) / "reports"
+    filename = _report_filename(report.report_id)
+    workspace_dir(cwd)
+    directory = reports_dir(cwd)
     directory.mkdir(parents=True, exist_ok=True)
-    path = directory / "{}.json".format(report.report_id)
-    path.write_text(report.to_json() + "\n", encoding="utf-8")
+    path = _checkout_path(cwd, directory / filename)
+    _replace_text(path, report.to_json() + "\n")
     return path
+
+
+def latest_report(cwd: Path) -> Optional[Path]:
+    try:
+        directory = reports_dir(cwd)
+    except OSError:
+        return None
+    if not directory.is_dir():
+        return None
+    reports = [
+        path
+        for path in directory.glob("local_*.json")
+        if not path.is_symlink() and path.is_file()
+    ]
+    reports.sort(key=lambda path: path.stat().st_mtime)
+    return reports[-1] if reports else None
+
+
+def config_path() -> Path:
+    override = os.environ.get("COGBENCH_CONFIG")
+    return Path(override).expanduser() if override else Path.home() / ".cogbench" / "config.json"
+
+
+def load_config() -> Dict[str, Any]:
+    path = config_path()
+    if not path.exists():
+        return {"portals": {}}
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def save_token(portal: str, token: str, expires_at: int) -> None:
+    path = config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        path.parent.chmod(0o700)
+    except OSError:
+        pass
+    config = load_config()
+    config.setdefault("portals", {})[portal] = {"token": token, "expiresAt": expires_at}
+    config["activePortal"] = portal
+    temporary = path.with_name(path.name + ".tmp")
+    temporary.write_text(
+        json.dumps(config, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    try:
+        temporary.chmod(0o600)
+    except OSError:
+        pass
+    os.replace(str(temporary), str(path))
+
+
+def token_for(portal: str) -> Optional[str]:
+    entry = load_config().get("portals", {}).get(portal)
+    if not isinstance(entry, dict):
+        return None
+    expires_at = entry.get("expiresAt")
+    if not isinstance(expires_at, int) or expires_at <= int(time.time() * 1000):
+        return None
+    token = entry.get("token")
+    return token if isinstance(token, str) else None
+
+
+def active_portal() -> Optional[str]:
+    value = load_config().get("activePortal")
+    return value if isinstance(value, str) and value else None
+
+
+#: A weight path is reported, stored and uploaded under this spelling, so
+#: it has to survive a URL, an R2 key and a JSON field. 500 is the portal's
+#: own limit (`LocalReportInputSchema`); the rest are characters that would
+#: make one of those three mean something other than a file in the repository.
+MAX_WEIGHT_PATH = 500
+
+_READ_CHUNK = 1024 * 1024
+
+
+def _digest_of(path: Path) -> str:
+    """The SHA-256 of the bytes on disk at ``path``, read in one pass."""
+
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        while True:
+            chunk = stream.read(_READ_CHUNK)
+            if not chunk:
+                break
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 class RetentionError(OSError):
@@ -178,13 +312,15 @@ def _refuse_symlinks(root: Path, path: Path) -> None:
             )
 
 
-def retain_input(root: Path, source: Path) -> RetainedInput:
+def retain_input(
+    root: Path, source: Path, *, source_root: Optional[Path] = None
+) -> RetainedInput:
     """Copy one selected input before anything loads it, and measure the copy.
 
     The digest and the length come from the bytes written here, so the
-    receipt describes the copy that was handed to the week. Reading the
-    original again later would describe whatever it holds then, which is the
-    defect this exists to remove.
+    receipt describes what scoring actually read. Reading the original again
+    later would describe whatever it holds then, which is the defect this
+    exists to remove.
 
     The destination keeps the file's own name below the digest, because the
     loaders route on it: ``load_weight_file`` picks ``np.load`` from a
@@ -203,18 +339,21 @@ def retain_input(root: Path, source: Path) -> RetainedInput:
         raise RetentionError("Weight file is a symlink: {}".format(source))
     if not source.is_file():
         raise RetentionError("Weight file does not exist: {}".format(source))
-    name = canonical_weight_path(root, source)
+    # A local run reads a private checkout that is removed after scoring.
+    # Keep its captured bytes under the original project for later sync.
+    name = canonical_weight_path(source_root if source_root is not None else root, source)
 
     # Verified before anything is created, so a planted link cannot take the
     # first write. The staging name is created by mkstemp rather than chosen,
     # so it cannot already be a link either.
     directory = _verified_weights_dir(root)
     handle, staging_name = tempfile.mkstemp(prefix=".incomplete-", dir=str(directory))
+    os.close(handle)
     staging = Path(staging_name)
     digest = hashlib.sha256()
     size = 0
     try:
-        with source.open("rb") as reader, os.fdopen(handle, "wb") as writer:
+        with source.open("rb") as reader, staging.open("wb") as writer:
             while True:
                 chunk = reader.read(_READ_CHUNK)
                 if not chunk:
@@ -227,11 +366,24 @@ def retain_input(root: Path, source: Path) -> RetainedInput:
         _refuse_symlinks(root, destination.parent)
         destination.parent.mkdir(parents=True, exist_ok=True)
         _refuse_symlinks(root, destination)
-        # Always the bytes just hashed, even when something is already at this
-        # address. Keeping whatever is there would mean serving a cached file
-        # nothing in this run verified, and the digest would then be a claim
-        # about bytes this run never read.
-        os.replace(str(staging), str(destination))
+        # The receipt says these bytes are at this address, so whatever is
+        # already there is either overwritten or read and found to be them.
+        # Serving a cached file nothing in this run verified would make the
+        # digest a claim about bytes this run never read.
+        try:
+            os.replace(str(staging), str(destination))
+        except OSError:
+            # Windows refuses to replace a file another handle has open, and
+            # the handle is ordinarily this process's own: a model an earlier
+            # resolution built from the retained copy still holds it while the
+            # next resolution captures the same file. A destination that
+            # cannot be read at all is the refusal it looked like.
+            try:
+                already = _digest_of(destination)
+            except OSError:
+                already = None
+            if already != checksum:
+                raise
     finally:
         # Only an interrupted write of our own is cleaned up here. Retained
         # inputs stay until the student removes the workspace.
@@ -270,75 +422,10 @@ def retained_input(root: Path, path: str, sha256: str, size: int) -> Path:
             "run the benchmark again to recapture it.".format(path)
         )
     actual_size = destination.stat().st_size
-    digest = hashlib.sha256()
-    with destination.open("rb") as stream:
-        while True:
-            chunk = stream.read(_READ_CHUNK)
-            if not chunk:
-                break
-            digest.update(chunk)
-    actual = digest.hexdigest()
+    actual = _digest_of(destination)
     if actual_size != size or actual != sha256:
         raise RetentionError(
             "The retained copy of {} no longer matches the report "
             "({} bytes, {}); run the benchmark again.".format(path, actual_size, actual)
         )
     return destination
-
-
-def latest_report(cwd: Path) -> Optional[Path]:
-    directory = reports_dir(cwd)
-    if not directory.exists():
-        return None
-    reports = sorted(directory.glob("local_*.json"), key=lambda path: path.stat().st_mtime)
-    return reports[-1] if reports else None
-
-
-def config_path() -> Path:
-    override = os.environ.get("COGBENCH_CONFIG")
-    return Path(override).expanduser() if override else Path.home() / ".cogbench" / "config.json"
-
-
-def load_config() -> Dict[str, Any]:
-    path = config_path()
-    if not path.exists():
-        return {"portals": {}}
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
-def save_token(portal: str, token: str, expires_at: int) -> None:
-    path = config_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        path.parent.chmod(0o700)
-    except OSError:
-        pass
-    config = load_config()
-    config.setdefault("portals", {})[portal] = {"token": token, "expiresAt": expires_at}
-    config["activePortal"] = portal
-    temporary = path.with_name(path.name + ".tmp")
-    temporary.write_text(
-        json.dumps(config, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    try:
-        temporary.chmod(0o600)
-    except OSError:
-        pass
-    os.replace(str(temporary), str(path))
-
-
-def token_for(portal: str) -> Optional[str]:
-    entry = load_config().get("portals", {}).get(portal)
-    if not isinstance(entry, dict):
-        return None
-    expires_at = entry.get("expiresAt")
-    if not isinstance(expires_at, int) or expires_at <= int(time.time() * 1000):
-        return None
-    token = entry.get("token")
-    return token if isinstance(token, str) else None
-
-
-def active_portal() -> Optional[str]:
-    value = load_config().get("activePortal")
-    return value if isinstance(value, str) and value else None

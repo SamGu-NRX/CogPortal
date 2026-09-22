@@ -100,6 +100,27 @@ class PluginDiscoveryTests(unittest.TestCase):
             "run this again.",
         )
 
+    @patch("cogbench.plugins._entry_points", return_value=[])
+    def test_missing_non_benchmark_plugins_do_not_suggest_a_benchmark_install(self, _entry_points):
+        for group in ("cogworks.submissions.v1", "other.plugins.v1"):
+            with self.subTest(group=group), self.assertRaises(PluginError) as caught:
+                load_plugin(group, "audio-identification")
+            message = str(caught.exception)
+            self.assertIn(group, message)
+            self.assertIn("package that provides", message)
+            self.assertNotIn("benchmark", message)
+            self.assertNotIn("pip install", message)
+
+    @patch("cogbench.plugins._entry_points")
+    def test_missing_non_benchmark_name_lists_its_own_group(self, entry_points):
+        entry_points.return_value = [FakeEntryPoint("available", "module:Adapter", object())]
+        with self.assertRaises(PluginError) as caught:
+            load_plugin("cogworks.submissions.v1", "missing")
+        message = str(caught.exception)
+        self.assertIn("cogworks.submissions.v1", message)
+        self.assertIn("available", message)
+        self.assertNotIn("benchmarks", message)
+
     @patch("cogbench.plugins._entry_points")
     def test_v2_submission_class_is_loaded_as_raw_factory(self, entry_points):
         class Factory:
@@ -113,10 +134,6 @@ class PluginDiscoveryTests(unittest.TestCase):
             load_submission("vision-recognition", "cogworks.submissions.v2"),
             Factory,
         )
-
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 class AMissingBenchmarkReadsLikeAnAnswer(unittest.TestCase):
@@ -160,3 +177,7 @@ class AMissingBenchmarkReadsLikeAnAnswer(unittest.TestCase):
         # installed; both must name the thing asked for and neither may leak
         # the packaging vocabulary.
         self.assertNotIn("Entry-point", message)
+
+
+if __name__ == "__main__":
+    unittest.main()

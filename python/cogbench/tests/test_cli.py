@@ -32,11 +32,6 @@ class CliContractTests(unittest.TestCase):
         update.assert_not_called()
 
     def test_update_setup_names_the_benchmark_that_was_checked(self):
-        # Two of the four checks are about one benchmark: the install line
-        # names a distribution and wiring resolves that benchmark's entry
-        # points. Without the id the portal recorded them against the student
-        # and team only, and the setup page marked whichever track it was
-        # showing as installed and wired.
         with patch("cogbench.cli._check", return_value=0):
             with patch("cogbench.cli._update_setup") as update:
                 self.assertEqual(

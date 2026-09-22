@@ -51,6 +51,30 @@ class SilenceTests(unittest.TestCase):
         progress.note("hm")
         progress.done()
 
+    def test_a_closed_stream_disables_every_progress_callback(self):
+        stream = io.StringIO()
+        stream.close()
+        progress = TerminalProgress(stream, clock=_Clock())
+        self.assertFalse(progress.enabled)
+        progress.phase("Looking")
+        progress.attempts(1, 10)
+        progress.found("peaks", "theirs.find_peaks")
+        progress.note("A note")
+        progress.done()
+
+    def test_an_unavailable_terminal_check_disables_progress(self):
+        class Unavailable(_Terminal):
+            def isatty(self):
+                raise OSError("terminal disconnected")
+
+        with Unavailable() as stream:
+            progress = TerminalProgress(stream, clock=_Clock())
+            self.assertFalse(progress.enabled)
+            progress.phase("Looking")
+            progress.attempts(1, 10)
+            progress.done()
+            self.assertEqual(stream.getvalue(), "")
+
     def test_a_broken_stream_does_not_take_the_run_with_it(self):
         stream = _Terminal()
         progress = TerminalProgress(stream, clock=_Clock())
@@ -128,15 +152,14 @@ class EstimateTests(unittest.TestCase):
     def _line(self) -> str:
         return self.stream.getvalue().rsplit("\x1b[2K", 1)[-1]
 
-    def test_the_estimate_is_stated_as_an_upper_bound(self):
-        """The search stops at the first pairing that works, so a countdown
-        that read like a prediction would be wrong most of the time."""
+    def test_the_estimate_names_the_observed_rate(self):
+        """Later attempts may take longer than the attempts already measured."""
 
         self.clock.now = 100.0
         self.progress.attempts(1000, 10000)
 
         line = self._line()
-        self.assertIn("at most", line)
+        self.assertIn("at this rate", line)
         self.assertIn("15m 00s", line)  # 0.1s each, 9000 to go
 
     def test_one_slow_first_attempt_does_not_become_the_estimate(self):

@@ -268,35 +268,35 @@ class WhatMayBePublishedAboutAScoredWeight(unittest.TestCase):
 
     def test_a_no_weight_run_is_untouched(self):
         before = self._submission((), ())
-        self.assertIs(resolve_module._publish_weights(before, None), before)
+        self.assertIs(resolve_module._published(before, None), before)
 
     def test_an_absent_hook_leaves_the_receipts_unpublished(self):
         before = self._submission(("W.npy",), ({"path": "W.npy"},))
-        after = resolve_module._publish_weights(before, None)
+        after = resolve_module._published(before, None)
         self.assertIsNone(after.weights_captured)
         self.assertEqual(after.weights_used, ("W.npy",))
 
     def test_a_false_hook_leaves_them_unpublished(self):
         before = self._submission(("W.npy",), ({"path": "W.npy"},))
-        after = resolve_module._publish_weights(before, lambda s: False)
+        after = resolve_module._published(before, lambda s: False)
         self.assertIsNone(after.weights_captured)
 
     def test_a_raising_hook_does_not_fail_the_score(self):
         before = self._submission(("W.npy",), ({"path": "W.npy"},))
         def angry(submission):
             raise RuntimeError("the week's hook is broken")
-        after = resolve_module._publish_weights(before, angry)
+        after = resolve_module._published(before, angry)
         self.assertIsNone(after.weights_captured)
         self.assertEqual(after.weights_used, ("W.npy",))
 
     def test_a_true_hook_cannot_mint_a_receipt_without_a_capture(self):
         before = self._submission(("W.npy",), None)
-        after = resolve_module._publish_weights(before, lambda s: True)
+        after = resolve_module._published(before, lambda s: True)
         self.assertIsNone(after.weights_captured)
 
     def test_a_true_hook_publishes_real_receipts(self):
         before = self._submission(("W.npy",), ({"path": "W.npy"},))
-        after = resolve_module._publish_weights(before, lambda s: True)
+        after = resolve_module._published(before, lambda s: True)
         self.assertEqual(after.weights_captured, ({"path": "W.npy"},))
 
 

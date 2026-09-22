@@ -68,6 +68,49 @@ class SurveyTests(unittest.TestCase):
         self.assertIn("nothing", text)
 
 
+class ASkipIsCountedAsRoutineOnlyWhenItsReasonSaysSo(unittest.TestCase):
+    """The count says "scripts that read files or a microphone this machine
+    does not have". A skip folded into it has to actually be one."""
+
+    def _survey(self, name, detail):
+        return {"modules": [], "skipped": [{"name": name, "detail": detail}]}
+
+    def test_a_missing_data_file_is_routine(self):
+        text = "\n".join(render_survey(self._survey("loader", "FileNotFoundError: data/clips")))
+        self.assertNotIn("loader", text)
+        self.assertIn("script", text)
+
+    def test_a_runner_filename_does_not_hide_a_real_failure(self):
+        # `demo_features` and `run_embeddings` were counted as scripts that
+        # read a missing file, whatever actually went wrong in them.
+        for name, detail in (
+            ("demo_features", "OSError: cannot load library libsndfile"),
+            ("run_embeddings", "SyntaxError: invalid syntax"),
+            ("test_pipeline", "AttributeError: module has no attribute 'peaks'"),
+        ):
+            with self.subTest(name=name):
+                text = "\n".join(render_survey(self._survey(name, detail)))
+                self.assertIn(name, text)
+                self.assertIn(detail.split(":")[0], text)
+
+    def test_a_runner_filename_with_a_routine_reason_is_still_counted(self):
+        text = "\n".join(
+            render_survey(self._survey("run_demo", "FileNotFoundError: data/clips"))
+        )
+        self.assertNotIn("run_demo", text)
+        self.assertIn("script", text)
+
+    def test_a_bare_oserror_is_named_instead_of_counted(self):
+        # OSError is raised for a full disk, too many open files, and an audio
+        # backend that failed to load. Folding those into the routine count
+        # tells a student a reason nobody observed.
+        text = "\n".join(
+            render_survey(self._survey("peaks", "OSError: cannot load library libsndfile"))
+        )
+        self.assertIn("peaks", text)
+        self.assertIn("libsndfile", text)
+
+
 class CheckTests(unittest.TestCase):
     def _ready(self) -> Submission:
         trace = (
@@ -270,9 +313,20 @@ class CheckTests(unittest.TestCase):
                 unread_detail="segfaulted",
             )
         )
-        self.assertIn("ended the process before it finished", text)
+        self.assertIn("Could not finish checking your repository", text)
         self.assertIn("segfaulted", text)
-        self.assertIn("one at a time", text)
+        self.assertNotIn("rather than raising", text)
+
+    def test_copy_refusal_does_not_blame_a_student_import(self):
+        reason = 'No space left on device. The original was not run.'
+        text = '\n'.join(render_check(
+            benchmark='fixture', python_version='3.8', hosted_python=None,
+            benchmark_ready=True, repository='team/repo', submission=None,
+            unread_detail=reason,
+        ))
+        self.assertIn(reason, ' '.join(text.split()))
+        self.assertNotIn('import taking the interpreter down', text)
+        self.assertNotIn('one at a time', text)
 
     def test_a_missing_benchmark_says_so_rather_than_reporting_nothing(self):
         text = "\n".join(
@@ -331,10 +385,6 @@ class LocalReportDiagnosticTests(unittest.TestCase):
         self.assertTrue(all(len(line) <= 240 for line in report.diagnostics))
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class WhenTheCheckCouldNotLook(unittest.TestCase):
     """A run stopped by our own missing packages says so once, not twice.
 
@@ -367,7 +417,9 @@ class WhenTheCheckCouldNotLook(unittest.TestCase):
             )
         )
         self.assertIn("could not read one of your files", text)
-        self.assertIn("missing a package it imports", text)
+        # The headline says what was lost, not why: these skips do not share
+        # one cause. The reason for each is in the coverage below it.
+        self.assertIn("could not finish looking", text)
         self.assertNotIn("12 packages", text)
 
     def test_multiple_unreadable_files_keep_the_plural_headline(self):
@@ -376,7 +428,7 @@ class WhenTheCheckCouldNotLook(unittest.TestCase):
         coverage = Coverage(skipped=(("one", "missing cv2", "ours"), ("two", "missing scipy", "ours")))
         verdict = could_not_look(coverage)
         self.assertIn("could not read 2 of your files", verdict.headline)
-        self.assertIn("missing packages they import", verdict.headline)
+        self.assertIn("could not finish looking", verdict.headline)
 
     def test_the_caveat_still_prints_when_the_run_was_not_stopped_by_it(self):
         """A repository that resolved anyway still deserves the warning: the
@@ -415,3 +467,7 @@ class WhenTheCheckCouldNotLook(unittest.TestCase):
         verdict = self._stopped().verdict
         self.assertNotIn("whispers", verdict.headline)
         self.assertIn("whispers", verdict.coverage.ours)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -118,7 +118,7 @@ def render_survey(record: Dict[str, object]) -> List[str]:
     # read audio from a data/ directory this machine does not have. Listing
     # fifteen of those buries the one skip that matters, so they are counted
     # and the ones that could have held pipeline code are named.
-    notable = [entry for entry in skipped if not _is_their_own_script(entry)]
+    notable = [entry for entry in skipped if not _is_a_routine_skip(entry)]
     routine = len(skipped) - len(notable)
 
     for entry in notable:
@@ -136,20 +136,25 @@ def render_survey(record: Dict[str, object]) -> List[str]:
     return lines
 
 
-def _is_their_own_script(entry: Dict[str, object]) -> bool:
-    """Whether a skipped file is a runner rather than part of the pipeline.
+def _is_a_routine_skip(entry: Dict[str, object]) -> bool:
+    """Whether a skipped file can be counted rather than named.
 
-    A module that could not open an audio file it expects beside itself is a
-    script the team runs by hand, not a stage. Naming every one of those
-    drowns the skip that matters, which is a module the benchmark might have
-    needed.
+    The reason decides, not the filename. `FileNotFoundError` and `EOFError`
+    say what happened and say it about the machine: a data file that is not
+    here, or a script waiting on stdin. There are usually many of those and
+    naming them all drowns the skip that matters.
+
+    Nothing else qualifies. This used to return True for any module called
+    `test*`, `run*` or `*demo*` whatever went wrong, so `demo_features`
+    failing on `OSError: cannot load library libsndfile` was counted as a
+    script that reads a file this machine does not have, and a `SyntaxError`
+    in `run_embeddings` went the same way. A name says a file is a runner
+    rather than a stage. It does not say the failure is uninteresting, and a
+    native library that will not load breaks the real modules too.
     """
 
-    name = str(entry.get("name", "")).lower()
     detail = str(entry.get("detail", ""))
-    if name.startswith("test") or name.startswith("run") or "demo" in name:
-        return True
-    return detail.startswith(("FileNotFoundError", "EOFError", "OSError"))
+    return detail.startswith(("FileNotFoundError", "EOFError"))
 
 
 def render_check(
@@ -167,6 +172,7 @@ def render_check(
     installed_reference: bool = False,
     unread_detail: str = "",
     search_unavailable: str = "",
+    declaration_error: str = "",
 ) -> List[str]:
     """The whole report, in the order a person asks about it.
 
@@ -186,9 +192,9 @@ def render_check(
     scoring it while standing in a student's repository reports somebody
     else's number as theirs.
 
-    ``unread_detail`` is filled when the process reading the repository ended
-    before it reported. Then there is no verdict to print, and saying that is
-    the report.
+    ``unread_detail`` explains why no valid check report arrived, including
+    copy refusal, child failure and malformed results. It does not imply that
+    student code ran or caused the failure.
 
     ``search_unavailable`` is why the search could not run at all, when the
     benchmark could not describe its task right now. It is a different fact
@@ -243,17 +249,15 @@ def render_check(
         lines.append("")
         lines.extend(
             _wrapped(
-                "Reading your repository ended the process before it finished: "
-                "{}.".format(unread_detail)
+                "Could not finish checking your repository: {}".format(unread_detail)
             )
         )
-        lines.extend(
-            _wrapped(
-                "That is an import taking the interpreter down rather than "
-                "raising, so import your modules one at a time to find which "
-                "one does it."
-            )
-        )
+        return lines
+
+    if declaration_error:
+        lines.append("")
+        lines.extend(_wrapped("Your adapter file could not be loaded: {}".format(declaration_error)))
+        lines.extend(_wrapped("Fix the error in that file, then run the check again."))
         return lines
 
     if submission is None:
