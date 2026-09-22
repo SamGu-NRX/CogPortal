@@ -859,8 +859,14 @@ test("incomplete weight uploads fail hosted dispatch without leaving an active r
     });
   }
   assert.equal(sent, 0);
-  assert.equal(checked.length, 4);
+  // Three reads per attempt: the present file resolves at its content-addressed
+  // key, and the absent one costs a second read at the pre-digest key before it
+  // can be called missing.
+  assert.equal(checked.length, 6);
+  assert.ok(checked[1].startsWith("weight-objects/"));
   assert.ok(checked[1].endsWith("models/missing.pkl"));
+  assert.ok(checked[2].startsWith("weights/"));
+  assert.ok(checked[2].endsWith("models/missing.pkl"));
   const failed = (await db.select().from(runs)).filter((run) => run.id !== PRACTICE_RUN_ID);
   assert.equal(failed.length, 2, "retry was not blocked by an active-run row");
   for (const run of failed) {

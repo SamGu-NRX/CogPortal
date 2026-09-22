@@ -53,9 +53,11 @@ export async function teamMemberUserIds(env: Env, teamId: string): Promise<strin
 async function getUserTeamReportScope(
   env: Env,
   userId: string,
-): Promise<{ teamId: string; repoFullName: string; memberUserIds: string[] } | null> {
+): Promise<
+  { teamId: string; repoFullName: string; repoId: number | null; memberUserIds: string[] } | null
+> {
   const [membership] = await getDb(env)
-    .select({ teamId: teamMembers.teamId, repoFullName: teams.repoFullName })
+    .select({ teamId: teamMembers.teamId, repoFullName: teams.repoFullName, repoId: teams.repoId })
     .from(teamMembers)
     .innerJoin(teams, eq(teamMembers.teamId, teams.id))
     .where(eq(teamMembers.userId, userId))
@@ -176,20 +178,33 @@ export async function upsertLocalReport(
   return { report, created: !existing };
 }
 
+/**
+ * Where an upload is allowed to land, decided before any bytes are written.
+ *
+ * The stored object is named by its digest, so admission has to agree with the
+ * report about which digest belongs at which path. A report whose upload list
+ * is unknown, from a CLI too old to send one, cannot supply that agreement, and
+ * the header alone is not a substitute: it would let any digest name any key.
+ * Syncing again is the way out, and the CLI already publishes the list before
+ * it uploads a single file.
+ */
 export async function getWeightUploadTarget(
   env: Env,
   userId: string,
   reportId: string,
   path: string,
+  sha256: string,
 ): Promise<{ repositoryFullName: string; sha: string }> {
   const scope = await getUserTeamReportScope(env, userId);
   if (!scope) throw new ApiHttpError(403, "forbidden", "The uploader does not belong to a team.");
   const [report] = await getDb(env)
     .select({
       userId: localReports.userId,
+      repositoryId: localReports.repositoryId,
       repositoryFullName: localReports.repositoryFullName,
       sha: localReports.sha,
       weightsUsedJson: localReports.weightsUsedJson,
+      weightsUploadedJson: localReports.weightsUploadedJson,
     })
     .from(localReports)
     .where(eq(localReports.reportId, reportId))
@@ -201,9 +216,30 @@ export async function getWeightUploadTarget(
   if (report.repositoryFullName !== scope.repoFullName) {
     throw new ApiHttpError(403, "forbidden", "That report does not belong to the uploader's team repository.");
   }
-  const weights = JSON.parse(report.weightsUsedJson) as unknown;
-  if (!Array.isArray(weights) || !weights.includes(path)) {
-    throw new ApiHttpError(400, "invalid_request", "That weight path is not part of this report.");
+  // Only when both sides know an ID. The CLI's complete pin still reports
+  // none, so this stays inert rather than becoming a second association.
+  if (report.repositoryId != null && scope.repoId != null && report.repositoryId !== scope.repoId) {
+    throw new ApiHttpError(403, "forbidden", "That report names a different repository than the uploader's team.");
+  }
+  const provenance = LocalReportWeightsSchema.safeParse({
+    weightsUsed: JSON.parse(report.weightsUsedJson),
+    weightsUploaded: report.weightsUploadedJson == null
+      ? null
+      : JSON.parse(report.weightsUploadedJson),
+  });
+  if (!provenance.success) {
+    throw new ApiHttpError(409, "invalid_request", "That report has invalid weight provenance; sync the report again.");
+  }
+  const declared = provenance.data.weightsUploaded;
+  if (declared == null) {
+    throw new ApiHttpError(409, "invalid_request", "This report doesn't identify its uploaded weights; update the CLI and sync the report again.");
+  }
+  const required = declared.find((weight) => weight.path === path);
+  if (!required) {
+    throw new ApiHttpError(400, "invalid_request", "That report does not require an upload for that weight path.");
+  }
+  if (required.sha256 !== sha256) {
+    throw new ApiHttpError(409, "invalid_request", "That report declares a different digest for that weight; sync the report again.");
   }
   if (!report.sha) {
     throw new ApiHttpError(400, "invalid_request", "The report has no repository revision for this weight.");
@@ -211,16 +247,34 @@ export async function getWeightUploadTarget(
   return { repositoryFullName: report.repositoryFullName, sha: report.sha };
 }
 
+/**
+ * The weight provenance a dispatch should use: the newest report a team member
+ * synced for this benchmark, repository and revision.
+ *
+ * `repositoryId` is checked after selection, not added to the filter. Filtering
+ * on it would drop a conflicting newest report and quietly dispatch an older
+ * one's weights, which is the opposite of noticing the conflict.
+ *
+ * `benchmarkId` is a filter, because two reports for different benchmarks are
+ * not answering the same question. A team connects one repository and runs
+ * every benchmark from it, so two benchmarks at one commit is ordinary, and
+ * Audio names no weights at all. Selecting Audio's report because it synced
+ * more recently dispatched `weights: []` for Language, whose run then scores
+ * near chance with nothing to read.
+ */
 export async function getLatestTeamWeights(
   env: Env,
   teamId: string,
   repositoryFullName: string,
   sha: string,
+  repositoryId: number | null,
+  benchmarkId: string,
 ): Promise<Pick<LocalReportInput, "weightsUsed" | "weightsUploaded">> {
   const memberUserIds = await teamMemberUserIds(env, teamId);
   if (memberUserIds.length === 0) return { weightsUsed: [], weightsUploaded: null };
   const [report] = await getDb(env)
     .select({
+      repositoryId: localReports.repositoryId,
       weightsUsedJson: localReports.weightsUsedJson,
       weightsUploadedJson: localReports.weightsUploadedJson,
     })
@@ -230,11 +284,15 @@ export async function getLatestTeamWeights(
         inArray(localReports.userId, memberUserIds),
         eq(localReports.repositoryFullName, repositoryFullName),
         eq(localReports.sha, sha),
+        eq(localReports.benchmarkId, benchmarkId),
       ),
     )
     .orderBy(desc(localReports.syncedAt))
     .limit(1);
   if (!report) return { weightsUsed: [], weightsUploaded: null };
+  if (repositoryId != null && report.repositoryId != null && report.repositoryId !== repositoryId) {
+    throw new ApiHttpError(409, "invalid_request", "The newest synced report names a different repository than this execution; sync the report again.");
+  }
   const weights = LocalReportWeightsSchema.safeParse({
     weightsUsed: JSON.parse(report.weightsUsedJson),
     weightsUploaded: report.weightsUploadedJson == null
