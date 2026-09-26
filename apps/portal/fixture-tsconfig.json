@@ -1,0 +1,1 @@
+{"extends":"./tsconfig.app.json","compilerOptions":{"paths":{"@/*":["./src/*"],"@cogworks/contracts/*":["../../packages/contracts/src/*.ts"]}}}
