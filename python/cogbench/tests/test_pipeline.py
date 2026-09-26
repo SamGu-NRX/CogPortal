@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import os
 import shutil
 import signal
 import sys
@@ -1293,6 +1294,185 @@ class TheirPipelineOverAFolder(unittest.TestCase):
 
         self.assertEqual(set(here.iterdir()), before)
         self.assertEqual(set(self.tmp.iterdir()), set(self.files))
+
+
+class ASecondCallIsWatchedTheWayTheFirstIs(unittest.TestCase):
+    """A call that failed for want of a folder is called again once the photos
+    are there, and that second call can answer out of somebody else's data
+    just as the first can. So it is watched too, and asked for two things: no
+    folder of their own among what it read, and something of ours among it."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.files = []
+        for name in ("one.png", "two.png"):
+            path = self.tmp / name
+            path.write_bytes(b"pretend photo")
+            self.files.append(path)
+        self.checkout = self.tmp / "checkout"
+        (self.checkout / "src").mkdir(parents=True)
+
+    def _role(self):
+        return Role(
+            "cluster",
+            (Stage("d", produces=lambda v: isinstance(v, list), folder=True),),
+        )
+
+    def _theirs(self, source):
+        path = self.checkout / "src" / "clustering.py"
+        path.write_text(source, encoding="utf-8")
+        self.addCleanup(sys.modules.pop, "clustering", None)
+        return _imported("clustering", path)
+
+    def test_a_retry_that_also_read_their_own_photos_is_not_a_binding(self):
+        """Their first call raises where the folder should be, which is what
+        tells us its name. The second call, made once the photos are there,
+        reads ours and then the folder beside their file, and returns both.
+        Half of that answer is about their data, so it is refused and named
+        the same way a first call that read their folder is."""
+
+        photos = self.checkout / "photos"
+        photos.mkdir()
+        (photos / "aiken.png").write_bytes(b"their photo")
+        module = self._theirs(
+            "import os\n"
+            "from pathlib import Path\n"
+            "def build():\n"
+            "    names = sorted(os.listdir('baseImages'))\n"
+            "    beside = Path(__file__).resolve().parent.parent / 'photos'\n"
+            "    return names + sorted(os.listdir(beside))\n"
+        )
+
+        binding, refusal = resolve_chain(self._role(), [module], (self.files,))
+
+        self.assertIsNone(binding)
+        self.assertIn("photos/", refusal.notes[0])
+
+    def test_a_retry_that_read_nothing_of_ours_is_not_a_binding(self):
+        """A call that succeeded the second time without touching the folder
+        answered from something it already had. Whatever its shape, it is not
+        an answer about the benchmark's photos. The module counts its own
+        calls because that is the shortest way to write a second call that
+        differs from the first; a real one remembers a loaded database."""
+
+        module = self._theirs(
+            "import os\n"
+            "_tried = []\n"
+            "def build():\n"
+            "    if not _tried:\n"
+            "        _tried.append(1)\n"
+            "        return sorted(os.listdir('baseImages'))\n"
+            "    return ['remembered.png', 'remembered-too.png']\n"
+        )
+
+        binding, refusal = resolve_chain(self._role(), [module], (self.files,))
+
+        self.assertIsNone(binding)
+        self.assertEqual(refusal.stage, "d")
+
+    def test_a_reader_that_loads_weights_from_outside_still_binds(self):
+        """The shape this feature exists for: a constructor that builds a model
+        out of weights somewhere else on the machine, and then describes the
+        photos in the folder it was given. A model load is indistinguishable
+        from any other read outside the scratch directory, so refusing on that
+        alone would refuse this reader, and say nothing about why.
+
+        The stage accepts only our two filenames, so binding at all is the
+        assertion that the answer came from the benchmark's photos."""
+
+        weights = self.tmp / "weights.bin"
+        weights.write_bytes(b"pretend weights")
+        module = self._theirs(
+            "import os\n"
+            "def build():\n"
+            "    with open({!r}, 'rb') as handle:\n"
+            "        handle.read()\n"
+            "    return sorted(os.listdir('baseImages'))\n".format(str(weights))
+        )
+        role = Role(
+            "cluster",
+            (
+                Stage(
+                    "d",
+                    produces=lambda v: v == ["one.png", "two.png"],
+                    folder=True,
+                ),
+            ),
+        )
+
+        binding, refusal = resolve_chain(role, [module], (self.files,))
+
+        self.assertIsNone(refusal)
+        self.assertEqual(binding.steps[0].supplied["folder"], "baseImages")
+
+
+class AFolderBindingIsNotReplayableOnItsOwn(unittest.TestCase):
+    """What `supplied["folder"]` is, and what it is not.
+
+    It is the name the call asked for, which is what a report can say. It is
+    not enough to make the call again: the photos under that name live in the
+    throwaway directory the search deletes on its way out, and nothing here
+    owns them past that. This test states that limit so a caller does not read
+    the recorded name as a promise, and so the day something does own those
+    files, this is where it is written down."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.files = []
+        for name in ("one.png", "two.png"):
+            path = self.tmp / name
+            path.write_bytes(b"pretend photo")
+            self.files.append(path)
+
+    def _bound_step(self):
+        module = _written(
+            "theirs",
+            "import os\n"
+            "def build():\n"
+            "    return sorted(os.listdir('baseImages'))\n",
+        )
+        role = Role(
+            "cluster",
+            (Stage("d", produces=lambda v: isinstance(v, list), folder=True),),
+        )
+        binding, _refusal = resolve_chain(role, [module], (self.files,))
+        self.assertEqual(binding.steps[0].supplied["folder"], "baseImages")
+        return binding.steps[0]
+
+    @contextlib.contextmanager
+    def _working_directory(self):
+        """A directory of this test's own to call the step from, since what
+        the step does depends on where the caller stands."""
+
+        here = Path(tempfile.mkdtemp(dir=str(self.tmp))).resolve()
+        was = os.getcwd()
+        os.chdir(str(here))
+        try:
+            yield here
+        finally:
+            os.chdir(was)
+
+    def test_the_step_cannot_be_called_again_once_the_search_has_returned(self):
+        step = self._bound_step()
+
+        with self._working_directory():
+            with self.assertRaises(OSError):
+                step.bound()
+
+    def test_a_folder_of_that_name_beside_the_caller_is_read_instead(self):
+        """The same limit, in the form that does not announce itself: a caller
+        whose working directory happens to hold a folder of that name gets an
+        answer about whatever is in it."""
+
+        step = self._bound_step()
+
+        with self._working_directory() as here:
+            decoy = here / "baseImages"
+            decoy.mkdir()
+            (decoy / "not-ours.png").write_bytes(b"somebody else's photo")
+            self.assertEqual(step.bound(), ["not-ours.png"])
 
 
 class TheNameFilterSkipsWordsAndNotSubstrings(unittest.TestCase):

@@ -1952,6 +1952,14 @@ def _from_a_folder(
     if stage.produces is not None and not _safe_produces(stage, value):
         return None
     supplied = dict(trial.supplied)
+    # The name the call asked for, which is what a report can say, and not
+    # enough to make the call again: the photos under it are in the scratch
+    # directory `_scratch_cwd` deletes on its way out. Calling this step after
+    # `resolve_chain` returns raises FileNotFoundError, or reads a folder of
+    # that name in the caller's own working directory when one is there; both
+    # are pinned in `AFolderBindingIsNotReplayableOnItsOwn` in
+    # test_pipeline.py. Replaying it needs something that owns those files
+    # past the search, which this module does not have.
     supplied["folder"] = folder
     return replace(trial, supplied=supplied), value
 
@@ -1970,6 +1978,23 @@ def _dry_call_over_a_folder(
     made after the folder exists, cannot be repeated: replaying only the
     first half against a folder that now exists reads "nothing was wanted"
     and refuses a class the first pass had bound.
+
+    Both calls are watched, because a second call that succeeds is not by
+    itself evidence that it succeeded on our photos: it can read the folder
+    beside its own file as well as ours, or answer from something it had
+    already loaded. So the second call is asked for two things: that no
+    folder of their own is among what it read, and that something of ours is.
+
+    `_read_elsewhere`, which is what the first call is asked, is deliberately
+    not the test here. It is true of any existing path outside the scratch
+    directory, model weights and package data included, and the first call
+    only ever applies it to a call that answered before our photos existed.
+    The second call happens only because the first failed for want of a
+    folder, so the reader this exists to support is exactly the one that
+    loads weights from elsewhere and then reads the folder it was given.
+    `_read_elsewhere` refuses that reader, and silently: weights in a cache
+    are not a folder of their own, so a refusal has nothing to name. Both
+    rules are `ASecondCallIsWatchedTheWayTheFirstIs` in test_pipeline.py.
     """
 
     with _watching() as seen:
@@ -1981,9 +2006,17 @@ def _dry_call_over_a_folder(
     name = _folder_wanted(seen)
     if name is None or not _materialize(name, files):
         return None, False, None, None
-    ok, value = _call(trial, ())
+    with _watching() as seen:
+        ok, value = _call(trial, ())
     if not ok or value is None:
         return None, False, None, None
+    theirs = _folder_of_their_own(seen, trial.call)
+    if theirs is not None:
+        return None, ok, value, theirs
+    if _folder_read_here(seen) is None:
+        # Nothing of ours was touched, so whatever came back was not made
+        # from the benchmark's photos, whatever its shape.
+        return None, ok, value, None
     return name, ok, value, None
 
 
