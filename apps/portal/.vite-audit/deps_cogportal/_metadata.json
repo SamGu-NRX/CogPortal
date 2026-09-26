@@ -1,0 +1,138 @@
+{
+  "hash": "9ec72eb8",
+  "configHash": "8cb7b51c",
+  "lockfileHash": "742499bc",
+  "browserHash": "c87d1d12",
+  "optimized": {
+    "@better-auth/drizzle-adapter": {
+      "src": "../../../../../CogPortal-verifier-ui-e8aed6e/node_modules/.pnpm/@better-auth+drizzle-adapter@1.6.23_@better-auth+core@1.6.23_@better-auth+utils@0.4.2_@_464844b35460f80c9829075c33366c29/node_modules/@better-auth/drizzle-adapter/dist/index.mjs",
+      "file": "@better-auth_drizzle-adapter.js",
+      "fileHash": "f8e96c55",
+      "needsInterop": false
+    },
+    "@t3-oss/env-core": {
+      "src": "../../../../../CogPortal-verifier-ui-e8aed6e/node_modules/.pnpm/@t3-oss+env-core@0.13.11_typescript@7.0.2_zod@4.4.3/node_modules/@t3-oss/env-core/dist/index.js",
+      "file": "@t3-oss_env-core.js",
+      "fileHash": "f1f97efe",
+      "needsInterop": false
+    },
+    "better-auth-cloudflare": {
+      "src": "../../../../../CogPortal-verifier-ui-e8aed6e/node_modules/.pnpm/better-auth-cloudflare@0.3.0_@better-auth+drizzle-adapter@1.6.23_@better-auth+core@1.6._ccc1e0386c2c691447ec088d98816cbf/node_modules/better-auth-cloudflare/dist/index.mjs",
+      "file": "better-auth-cloudflare.js",
+      "fileHash": "e20cb996",
+      "needsInterop": false
+    },
+    "better-auth": {
+      "src": "../../../../../CogPortal-verifier-ui-e8aed6e/node_modules/.pnpm/better-auth@1.6.23_@cloudflare+workers-types@5.20260713.1_drizzle-kit@0.31.10_drizzle-o_30acf09c0f00c22f758df1843171fed3/node_modules/better-auth/dist/index.mjs",
+      "file": "better-auth.js",
+      "fileHash": "96d57e2b",
+      "needsInterop": false
+    },
+    "drizzle-orm": {
+      "src": "../../../../../CogPortal-verifier-ui-e8aed6e/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudflare+workers-types@5.20260713.1_kysely@0.29.3/node_modules/drizzle-orm/index.js",
+      "file": "drizzle-orm.js",
+      "fileHash": "1075097c",
+      "needsInterop": false
+    },
+    "drizzle-orm/d1": {
+      "src": "../../../../../CogPortal-verifier-ui-e8aed6e/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudflare+workers-types@5.20260713.1_kysely@0.29.3/node_modules/drizzle-orm/d1/index.js",
+      "file": "drizzle-orm_d1.js",
+      "fileHash": "b6573077",
+      "needsInterop": false
+    },
+    "drizzle-orm/sqlite-core": {
+      "src": "../../../../../CogPortal-verifier-ui-e8aed6e/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudflare+workers-types@5.20260713.1_kysely@0.29.3/node_modules/drizzle-orm/sqlite-core/index.js",
+      "file": "drizzle-orm_sqlite-core.js",
+      "fileHash": "3d27cb10",
+      "needsInterop": false
+    },
+    "hono": {
+      "src": "../../../../../CogPortal-verifier-ui-e8aed6e/node_modules/.pnpm/hono@4.12.30/node_modules/hono/dist/index.js",
+      "file": "hono.js",
+      "fileHash": "155b893d",
+      "needsInterop": false
+    },
+    "hono/cookie": {
+      "src": "../../../../../CogPortal-verifier-ui-e8aed6e/node_modules/.pnpm/hono@4.12.30/node_modules/hono/dist/helper/cookie/index.js",
+      "file": "hono_cookie.js",
+      "fileHash": "4068448d",
+      "needsInterop": false
+    },
+    "zod": {
+      "src": "../../../../../CogPortal-verifier-ui-e8aed6e/node_modules/.pnpm/zod@4.4.3/node_modules/zod/index.js",
+      "file": "zod.js",
+      "fileHash": "7cb36738",
+      "needsInterop": false
+    }
+  },
+  "chunks": {
+    "api-B6O-7oy9": {
+      "file": "api-B6O-7oy9.js",
+      "isDynamicEntry": false
+    },
+    "bun-sqlite-dialect-BW9W1_Ps-CIIh_CWm": {
+      "file": "bun-sqlite-dialect-BW9W1_Ps-CIIh_CWm.js",
+      "isDynamicEntry": true
+    },
+    "compiled-query-BL-MS9JB": {
+      "file": "compiled-query-BL-MS9JB.js",
+      "isDynamicEntry": false
+    },
+    "d1-sqlite-dialect-BLC8LXE6-DZmfd2VF": {
+      "file": "d1-sqlite-dialect-BLC8LXE6-DZmfd2VF.js",
+      "isDynamicEntry": true
+    },
+    "default-query-compiler-BJqNModM": {
+      "file": "default-query-compiler-BJqNModM.js",
+      "isDynamicEntry": false
+    },
+    "dist-BSPS3xCN": {
+      "file": "dist-BSPS3xCN.js",
+      "isDynamicEntry": false
+    },
+    "dist-DlL3nj7L": {
+      "file": "dist-DlL3nj7L.js",
+      "isDynamicEntry": true
+    },
+    "factory-CQ5NbRks": {
+      "file": "factory-CQ5NbRks.js",
+      "isDynamicEntry": false
+    },
+    "kysely-adapter-CwPTyc9L": {
+      "file": "kysely-adapter-CwPTyc9L.js",
+      "isDynamicEntry": true
+    },
+    "kysely-migration-tables-JkVUjPF_-BPRQnw4p": {
+      "file": "kysely-migration-tables-JkVUjPF_-BPRQnw4p.js",
+      "isDynamicEntry": false
+    },
+    "logger-BHLgLV8A": {
+      "file": "logger-BHLgLV8A.js",
+      "isDynamicEntry": false
+    },
+    "node-sqlite-dialect-BBbILLpw": {
+      "file": "node-sqlite-dialect-BBbILLpw.js",
+      "isDynamicEntry": true
+    },
+    "relations-DcOpytzY": {
+      "file": "relations-DcOpytzY.js",
+      "isDynamicEntry": false
+    },
+    "sqlite-adapter-D18gpir9": {
+      "file": "sqlite-adapter-D18gpir9.js",
+      "isDynamicEntry": false
+    },
+    "sqlite-core-LZ_U9UyW": {
+      "file": "sqlite-core-LZ_U9UyW.js",
+      "isDynamicEntry": false
+    },
+    "url-DqZZhS7I": {
+      "file": "url-DqZZhS7I.js",
+      "isDynamicEntry": false
+    },
+    "zod-DJgnLRfl": {
+      "file": "zod-DJgnLRfl.js",
+      "isDynamicEntry": false
+    }
+  }
+}
