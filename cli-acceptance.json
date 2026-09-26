@@ -1,0 +1,9 @@
+{
+  "activePortal": "http://localhost:5192",
+  "portals": {
+    "http://localhost:5192": {
+      "expiresAt": 1794259422804,
+      "token": "cog_12117a446cf3e3a90762b4c3ca2e2a1ae2292d59cd07599ee0dba15fa3179c01"
+    }
+  }
+}
