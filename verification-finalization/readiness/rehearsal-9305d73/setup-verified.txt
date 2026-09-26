@@ -1,0 +1,99 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Dashboard":
+      - /url: /dashboard
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "recovery-local-owner CogPortal owner Account menu for recovery-local-owner":
+    - generic: r
+    - generic: recovery-local-owner
+    - img "CogPortal owner":
+    - generic: Account menu for recovery-local-owner
+- main:
+  - paragraph: Setup · 5 of 5 done
+  - heading "Local copy of browser-evidenced demo connection" [level=1]
+  - button "Song Identification · v1 Change benchmark track. Currently Song Identification.":
+    - text: Song Identification · v1
+    - generic: Change benchmark track. Currently Song Identification.
+  - link "SamGu-NRX/cogportal-demo-week1":
+    - /url: https://github.com/SamGu-NRX/cogportal-demo-week1
+  - generic: r
+  - generic: "@recovery-local-owner"
+  - generic: 1 member
+  - link "Add":
+    - /url: /team
+  - list:
+    - generic: Verified.
+    - heading "Get the code" [level=2]
+    - generic: verified
+    - paragraph: Clone the team's repository. You all work in the same one, and every hosted attempt runs from it rather than from somebody's laptop.
+    - code:
+      - generic: git clone https://github.com/SamGu-NRX/cogportal-demo-week1.git && cd cogportal-demo-week1
+    - button "Copy command":
+      - generic: Copy command
+    - status
+    - generic: Verified.
+    - heading "Set up your environment" [level=2]
+    - generic: verified
+    - paragraph:
+      - text: From your repository's root, with
+      - code: conda activate week1
+      - text: done, the environment you built for the
+      - link "Song Identification prerequisites":
+        - /url: https://rsokl.github.io/CogWeb/Audio/prereqs.html
+        - text: Song Identification prerequisites
+      - text: ":"
+    - code:
+      - generic: python -m pip install --upgrade --force-reinstall "cogworks-benchmark @ git+https://github.com/SamGu-NRX/CogPortal.git@d9405278aac8268cd340e589f36dbad766d1e2a0#subdirectory=python/cogbench"
+    - button "Copy command":
+      - generic: Copy command
+    - status
+    - generic: Verified.
+    - heading "Install the Song Identification benchmark" [level=2]
+    - generic: verified
+    - paragraph: The scorer for Song Identification, its data and its checks live in their own package. Changing the track above changes this line.
+    - code:
+      - generic: python -m pip install "cogworks-week1-audio-benchmark @ git+https://github.com/SamGu-NRX/cogworks-week1-audio-benchmark.git@b156644aecc810e0b93535e320098f96c39ae04e" && python -m pip install --force-reinstall --no-deps "cogworks-week1-audio-benchmark @ git+https://github.com/SamGu-NRX/cogworks-week1-audio-benchmark.git@b156644aecc810e0b93535e320098f96c39ae04e"
+    - button "Copy command":
+      - generic: Copy command
+    - status
+    - generic: Verified.
+    - heading "Link this device" [level=2]
+    - generic: verified
+    - paragraph:
+      - text: Lets a command report back to your team. What reaches CogPortal is check names, package versions and your repository, and you can revoke this device from
+      - link "Connections":
+        - /url: /connections
+      - text: .
+    - code:
+      - generic: cogworks link --portal http://localhost:5218
+    - button "Copy command":
+      - generic: Copy command
+    - status
+    - generic: Verified.
+    - heading "Prove the wiring" [level=2]
+    - generic: verified
+    - paragraph:
+      - code: check
+      - text: reads your repository and says which of your own functions it wired up, and reports what it found. If it doesn't tick, the reason is in your terminal.
+    - code:
+      - generic: cogworks check --benchmark audio-identification --update-setup
+    - button "Copy command":
+      - generic: Copy command
+    - status
+  - heading "SETUP COMPLETE" [level=2]
+  - paragraph: Everything the portal can verify checks out. Whether the code is any good is what runs are for, and there's no limit on local ones.
+  - code:
+    - generic: cogworks run --benchmark audio-identification
+  - button "Copy command":
+    - generic: Copy command
+  - status
+  - link "Open dashboard":
+    - /url: /dashboard
+    - text: Open dashboard
+- document

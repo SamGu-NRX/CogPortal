@@ -1,0 +1,67 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Dashboard":
+      - /url: /dashboard
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "Sam CogPortal owner Account menu for SamGu-NRX":
+    - generic: Sam
+    - img "CogPortal owner":
+    - generic: Account menu for SamGu-NRX
+- main:
+  - region "Live run for Song Identification":
+    - generic: Run failed
+    - generic: Stopped
+    - heading "Song Identification" [level=1]
+    - paragraph:
+      - generic: CogPortal
+      - generic: ·
+      - generic: "@SamGu-NRX"
+      - generic: ·
+      - code: e515ff6
+      - generic: ·
+      - generic: 13s
+    - paragraph: The hosted runner could not finish
+    - button "Retry"
+    - paragraph: Runs the same submission again.
+    - list "Run lifecycle":
+      - generic: ✓
+      - generic: Local
+      - generic: complete
+      - generic: ×
+      - generic: Hosted
+      - generic: failed
+      - generic: ○
+      - generic: Official
+      - generic: pending
+      - generic: ○
+      - generic: Published
+      - generic: pending
+    - generic: Run history
+    - button "Show details"
+    - complementary:
+      - generic: Run reference
+      - term: Repository
+      - definition: SamGu-NRX/cogportal-demo-week1
+      - term: Commit
+      - definition: e515ff619e02c16be903985d8536bc5ee6d7a2e9
+      - term: Branch
+      - definition: codex/demo-rehearsal-d9405278
+      - term: Workspace
+      - definition: Clean
+      - button "Open Cog*Portal":
+        - text: Open Cog*Portal
+    - list:
+      - paragraph: practice · failed · Current
+      - time: 9/14/2026, 9:22:04 PM
+      - button:
+        - text: View details
+        - generic: for practice run from 9/14/2026, 9:22:04 PM
+    - button "Show run history":
+      - generic: Show run history
+- document

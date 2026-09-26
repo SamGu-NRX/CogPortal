@@ -1,0 +1,21 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "verify-staff Account menu for verify-staff":
+    - generic: v
+    - generic: verify-staff
+    - generic: Account menu for verify-staff
+- main:
+  - heading "Join the cohort" [level=1]
+  - paragraph: Enter the join code from your instructor. You do this once.
+  - generic: Join code
+  - textbox "Join code" [active]:
+    - /placeholder: ········
+  - button "Join" [disabled]
+- document

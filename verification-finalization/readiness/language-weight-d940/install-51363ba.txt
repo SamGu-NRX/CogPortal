@@ -1,0 +1,28 @@
+Collecting git+https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git@51363ba42b17ef493357c5da266611ac45b5456c
+  Cloning https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git (to revision 51363ba42b17ef493357c5da266611ac45b5456c) to /private/var/folders/rq/cbyhqh497_b9xwgmxw3qlq680000gn/T/pip-req-build-5xg8xd90
+  Running command git clone --filter=blob:none --quiet https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git /private/var/folders/rq/cbyhqh497_b9xwgmxw3qlq680000gn/T/pip-req-build-5xg8xd90
+  Running command git rev-parse -q --verify 'sha^51363ba42b17ef493357c5da266611ac45b5456c'
+  Running command git fetch -q https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git 51363ba42b17ef493357c5da266611ac45b5456c
+  Running command git checkout -q 51363ba42b17ef493357c5da266611ac45b5456c
+  Resolved https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git to commit 51363ba42b17ef493357c5da266611ac45b5456c
+  Installing build dependencies: started
+  Installing build dependencies: finished with status 'done'
+  Getting requirements to build wheel: started
+  Getting requirements to build wheel: finished with status 'done'
+  Preparing metadata (pyproject.toml): started
+  Preparing metadata (pyproject.toml): finished with status 'done'
+Building wheels for collected packages: cogworks-week3-language-benchmark
+  Building wheel for cogworks-week3-language-benchmark (pyproject.toml): started
+  Building wheel for cogworks-week3-language-benchmark (pyproject.toml): finished with status 'done'
+  Created wheel for cogworks-week3-language-benchmark: filename=cogworks_week3_language_benchmark-0.1.0-py3-none-any.whl size=75972 sha256=e170d3ca16c053a7638b562c5ce84a8aa05e4e59ef959cef71aa9de9f0a7459c
+  Stored in directory: /Users/samgu/Library/Caches/pip/wheels/89/28/c2/ff44d7418408fb31cf204842d9077245639f40176187966282
+Successfully built cogworks-week3-language-benchmark
+Installing collected packages: cogworks-week3-language-benchmark
+  Attempting uninstall: cogworks-week3-language-benchmark
+    Found existing installation: cogworks-week3-language-benchmark 0.1.0
+    Uninstalling cogworks-week3-language-benchmark-0.1.0:
+      Successfully uninstalled cogworks-week3-language-benchmark-0.1.0
+Successfully installed cogworks-week3-language-benchmark-0.1.0
+
+[notice] A new release of pip is available: 24.0 -> 26.2.1
+[notice] To update, run: /tmp/cogportal-language-weight-venv/bin/python -m pip install --upgrade pip

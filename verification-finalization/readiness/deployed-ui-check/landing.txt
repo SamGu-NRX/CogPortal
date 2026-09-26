@@ -1,0 +1,39 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - link "Sign in":
+    - /url: /signin
+- main:
+  - heading "The Cog*Works benchmark." [level=1]
+  - paragraph: Run your capstone against the official evaluation of Cog*Works 2026. It scores the code your team already wrote, on your machine as often as you like and on ours from the commit you pushed.
+  - link "Sign in with GitHub":
+    - /url: /signin
+    - text: Sign in with GitHub
+  - link "Results":
+    - /url: /leaderboard
+  - heading "How it goes" [level=2]
+  - list:
+    - generic: "01"
+    - heading "Bring a repository" [level=3]
+    - paragraph: Your team works in one GitHub repository, and every hosted attempt runs from it rather than from somebody's laptop.
+    - paragraph: A repository your team already has is fine. If your instructor shares a template, forking it is the easy start.
+    - generic: "02"
+    - heading "Set up your machine" [level=3]
+    - paragraph: Clone the repository, activate your week's course environment, and install the CogWorks tool. The setup page has the exact commands for your track.
+    - generic: "03"
+    - heading "Practice on your own machine" [level=3]
+    - paragraph:
+      - code: cogworks run
+      - text: scores your code locally, with the same checks and scorer a hosted run uses, and there's no limit on local runs.
+    - generic: "04"
+    - heading "Run it on our machines" [level=3]
+    - paragraph: A hosted run repeats that scoring from the commit you pushed, so the number belongs to code anyone can check out. Each benchmark gives your team 10 hosted practice runs and 3 official attempts, and you choose which official result goes on the board.
+    - link "Sign in →":
+      - /url: /signin
+- document

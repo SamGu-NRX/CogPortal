@@ -1,0 +1,10 @@
+{
+  "tablesEqualBaseline": {
+    "runs": true,
+    "run_surfaces": true,
+    "local_run_sessions": true,
+    "leaderboard_selections": true
+  },
+  "sourceHead": "7f981f4181fb572f2d3d0953f9a7bdba16663214",
+  "note": "Read projection touched one local surface timestamp; restored after owned server stopped."
+}

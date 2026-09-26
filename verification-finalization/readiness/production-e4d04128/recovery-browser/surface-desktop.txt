@@ -1,0 +1,75 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Dashboard":
+      - /url: /dashboard
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "Sam CogPortal owner Account menu for SamGu-NRX":
+    - generic: Sam
+    - img "CogPortal owner":
+    - generic: Account menu for SamGu-NRX
+- main:
+  - region "Live run for Semantic Image Search":
+    - generic: Bench clear
+    - generic: Complete
+    - heading "Semantic Image Search" [level=1]
+    - paragraph:
+      - generic: CogPortal
+      - generic: ·
+      - generic: "@SamGu-NRX"
+      - generic: ·
+      - code: "8789361"
+      - generic: ·
+      - generic: 15m 31s
+    - generic: Overall
+    - generic: "0.4126"
+    - list "Run lifecycle":
+      - generic: ✓
+      - generic: Local
+      - generic: complete
+      - generic: ✓
+      - generic: Hosted
+      - generic: complete
+      - generic: ○
+      - generic: Official
+      - generic: pending
+      - generic: ○
+      - generic: Published
+      - generic: pending
+    - generic: Run summary
+    - button "Show all 7"
+    - list "Run event summary":
+      - time: 15m 08s
+      - generic: Evaluating · 9/9 cases
+      - time: 15m 10s
+      - generic: Scoring result
+      - time: 15m 31s
+      - generic: Run complete
+    - complementary:
+      - generic: Run reference
+      - term: Repository
+      - definition: SamGu-NRX/Language_Module_Capstone
+      - term: Commit
+      - definition: 8789361ad7dec86fa724431873f674e03b449951
+      - term: Branch
+      - definition: main
+      - term: Workspace
+      - definition: Clean
+      - button "Promote to official"
+      - button "Rerun hosted"
+      - button "Open Cog*Portal":
+        - text: Open Cog*Portal
+    - list:
+      - paragraph: practice · succeeded · Current
+      - time: 9/15/2026, 10:46:02 AM
+      - button:
+        - text: View details
+        - generic: for practice run from 9/15/2026, 10:46:02 AM
+    - button "Show run history":
+      - generic: Show run history
+- document

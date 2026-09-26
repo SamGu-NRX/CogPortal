@@ -1,0 +1,56 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Dashboard":
+      - /url: /dashboard
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "verify-creator Account menu for verify-creator":
+    - generic: v
+    - generic: verify-creator
+    - generic: Account menu for verify-creator
+- main:
+  - link "← Dashboard":
+    - /url: /dashboard
+  - heading "RUN HELD" [level=1]
+  - generic: Practice
+  - generic: Succeeded
+  - generic "Execution provider is in fixture mode. Results are scripted, not real evaluation.": simulated
+  - generic: "Run status: Succeeded"
+  - paragraph:
+    - generic: language-search / v1
+    - generic: "|"
+    - generic: main
+    - button "cbd8e59 Copy full commit SHA cbd8e59d3a0eeb280a188b3d749bf6c24235cf83":
+      - generic: cbd8e59
+      - generic: Copy full commit SHA cbd8e59d3a0eeb280a188b3d749bf6c24235cf83
+    - generic: "|"
+    - generic: Sep 10, 05:35 AM
+    - generic: "|"
+    - generic: 21.2 s
+  - heading "PIPELINE" [level=2]
+  - list "Run pipeline":
+    - text: Queued
+    - generic: ", complete"
+    - text: Prepare
+    - generic: ", complete"
+    - text: Install
+    - generic: ", complete"
+    - text: Contract check
+    - generic: ", complete"
+    - text: Evaluate
+    - generic: ", complete"
+    - text: Score
+    - generic: ", complete"
+    - generic: Complete
+  - heading "PROMOTE" [level=2]
+  - paragraph: Re-runs cbd8e59 against the hidden official inputs. Logs are suppressed.
+  - button "Promote to official"
+  - generic: 2 official attempts remaining
+  - heading "LOG · CAPPED" [level=2]
+  - generic: Injected local display fixture; no scoring performed.
+- document

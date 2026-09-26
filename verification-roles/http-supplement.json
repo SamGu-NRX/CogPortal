@@ -1,0 +1,31 @@
+[
+  {
+    "login": "verify-ta",
+    "method": "DELETE",
+    "path": "/api/admin/teams/team_demo/members/not-a-member",
+    "status": 403,
+    "error": {
+      "code": "forbidden",
+      "message": "This team is not assigned to you."
+    },
+    "memberCount": 0
+  },
+  {
+    "login": "verify-ta",
+    "path": "/api/admin/overview",
+    "cacheControl": "private, no-store"
+  },
+  {
+    "login": "verify-owner",
+    "method": "DELETE",
+    "path": "/api/admin/teams/team_2a7fce668333a7ed/members/verify-creator",
+    "status": 200,
+    "error": null,
+    "memberCount": 2
+  },
+  {
+    "login": "verify-owner",
+    "path": "/api/admin/overview",
+    "cacheControl": "private, no-store"
+  }
+]

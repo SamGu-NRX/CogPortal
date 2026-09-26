@@ -1,0 +1,88 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Dashboard":
+      - /url: /dashboard
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "ui-accept-e8 CogPortal owner Account menu for ui-accept-e8":
+    - generic: u
+    - generic: ui-accept-e8
+    - img "CogPortal owner":
+    - generic: Account menu for ui-accept-e8
+- main:
+  - link "← Dashboard":
+    - /url: /dashboard
+  - heading "RUN CESS" [level=1]
+  - generic: Practice
+  - generic: Succeeded
+  - generic "Execution provider is in fixture mode. Results are scripted, not real evaluation.": simulated
+  - generic: "Run status: Succeeded"
+  - paragraph:
+    - generic: vision-recognition / v1
+    - generic: "|"
+    - link "cogworks-demo/face-finder":
+      - /url: https://github.com/cogworks-demo/face-finder
+    - generic: "|"
+    - generic: improved-thresholds
+    - button "3333333 Copy full commit SHA 3333333333333333333333333333333333333333":
+      - generic: "3333333"
+      - generic: Copy full commit SHA 3333333333333333333333333333333333333333
+    - generic: "|"
+    - generic: Jul 12, 08:46 PM
+    - generic: "|"
+    - generic: 21.2 s
+  - heading "PIPELINE" [level=2]
+  - list "Run pipeline":
+    - text: Queued
+    - generic: ", complete"
+    - generic: 1.2 s
+    - text: Prepare
+    - generic: ", complete"
+    - generic: 3.5 s
+    - text: Install
+    - generic: ", complete"
+    - generic: 5.2 s
+    - text: Contract check
+    - generic: ", complete"
+    - generic: 1.8 s
+    - text: Evaluate
+    - generic: ", complete"
+    - generic: 7.6 s
+    - text: Score
+    - generic: ", complete"
+    - generic: 1.9 s
+    - generic: Complete
+  - heading "RESULTS" [level=2]
+  - figure "▲ higher is better":
+    - generic: Recognition F1
+    - generic: "0.893"
+    - generic: ▲ higher is better
+  - term: Detection recall
+  - definition:
+    - generic: "0.944"
+    - generic: ▲
+    - generic: higher is better
+  - term: Mean latency
+  - definition:
+    - generic: 301 ms
+    - generic: ▼
+    - generic: lower is better
+  - term: Unknown rejection
+  - definition:
+    - generic: "0.861"
+    - generic: ▲
+    - generic: higher is better
+  - paragraph: The scorer had no notes on this run.
+  - paragraph: Public practice split.
+  - heading "PROMOTE" [level=2]
+  - paragraph: Re-runs 3333333 against the hidden official inputs. Logs are suppressed.
+  - button "Promote to official"
+  - generic: 3 official attempts remaining
+  - heading "LOG · CAPPED" [level=2]
+  - generic: "Resolved ref refs/heads/improved-thresholds -> 3333333333333333333333333333333333333333\\ncontract check: 6/6 methods OK\\nscorer summary: recognition_f1=0.8930"
+- document

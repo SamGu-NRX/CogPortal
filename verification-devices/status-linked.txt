@@ -1,0 +1,7 @@
+GitHub   @verify-device-new
+Team     Verification Creator Team
+Repo     cogworks-demo/face-finder
+Discord  team channel not chosen
+Device   dd61 device roundtrip
+Expires  Nov 9 (in 60 days)
+Portal   http://127.0.0.1:5187

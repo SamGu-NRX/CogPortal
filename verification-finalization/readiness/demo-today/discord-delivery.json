@@ -1,0 +1,16 @@
+{
+  "channel": "1515858059405295762",
+  "message": {
+    "id": "chat-messages___chat-messages-1515858059405295762-1548010070854344866",
+    "text": "Cog*BotAPP — 11:39 AMFriday, September 11, 2026 at 11:39 AM Bench clear  0.5375,Song Identification  7125804  by Sam Gu  2:16team best stays 0.5375,,0.033    chance\n1.000    clean top-1\n0.774    margin separation (auc)\n0.031    median identify time,, local   hosted   official   published,,Promote to official,Rerun hosted,Cog*Portal,,, (edited)Friday, September 11, 2026 at 11:41 AM",
+    "times": [
+      "2026-09-11T16:39:21.528Z",
+      "2026-09-11T16:41:35.216Z"
+    ]
+  },
+  "loadedArticles": 14,
+  "todayFinalMessages": 1,
+  "target": "https://cogportal-dev.sillion.app/run-surfaces/surface_01a4954dd1f69660dc21",
+  "observedDestination": "https://cogportal-dev.sillion.app/signin",
+  "limit": "New destination tab requires sign-in; no OAuth started. Original result tab not reloaded."
+}

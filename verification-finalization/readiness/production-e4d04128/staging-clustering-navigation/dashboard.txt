@@ -1,0 +1,79 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Dashboard":
+      - /url: /dashboard
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "Sam CogPortal owner Account menu for SamGu-NRX":
+    - generic: Sam
+    - img "CogPortal owner":
+    - generic: Account menu for SamGu-NRX
+- main:
+  - paragraph: Good morning, Sam
+  - heading "CogPortal" [level=1]:
+    - link "CogPortal":
+      - /url: /team
+  - button "Recognition · v2 Change benchmark track. Currently Recognition.":
+    - text: Recognition · v2
+    - generic: Change benchmark track. Currently Recognition.
+  - generic: Getting set up
+  - generic: 2 of 5 done
+  - link "Continue":
+    - /url: /setup
+    - text: Continue
+  - button "Dismiss the setup reminder":
+  - heading "START A RUN" [level=2]
+  - generic: Branch
+  - combobox "Branch":
+    - option "main" [selected]
+  - button "Run practice benchmark"
+  - paragraph: 9 of 10 hosted runs left
+  - generic: Candidate ready
+  - paragraph:
+    - link "RUN CEEC":
+      - /url: /runs/run_ff26a6ceec
+    - text: scored 0.9250 on main · 29f9cf9
+  - paragraph: SamGu-NRX/week2_capstone
+  - button "Promote to official"
+  - paragraph: Runs the same commit against hidden inputs. Logs are suppressed.
+  - heading "RUN LOG" [level=2]
+  - generic: 2 recorded
+  - list:
+    - link "RUN CEEC practice Succeeded main · 29f9cf9 0.9250 3 min ago":
+      - /url: /runs/run_ff26a6ceec
+      - generic: RUN CEEC
+      - generic: practice
+      - generic: Succeeded
+      - generic: main · 29f9cf9
+      - generic: "0.9250"
+      - generic: 3 min ago
+    - link "RUN 88C3 practice Failed main · 29f9cf9 E-ADAPTER 1 h ago":
+      - /url: /runs/run_158c8e88c3
+      - generic: RUN 88C3
+      - generic: practice
+      - generic: Failed
+      - generic: main · 29f9cf9
+      - generic: E-ADAPTER
+      - generic: 1 h ago
+  - heading "CONNECTED SOURCE" [level=2]
+  - link "SamGu-NRX/week2_capstone":
+    - /url: https://github.com/SamGu-NRX/week2_capstone
+  - generic: last tested
+  - button "Copy full commit SHA 29f9cf94751d6267e00be3ae4816be98a027662e":
+    - generic: 29f9cf9
+  - status
+  - paragraph: week2-cpu-v1 · CPU · network blocked during evaluation
+  - heading "ATTEMPT BUDGET" [level=2]
+  - generic: Hosted practice
+  - generic: 1/10 used
+  - 'img "Hosted practice: 1 of 10 used"'
+  - generic: Official attempts
+  - generic: 0/3 used
+  - 'img "Official attempts: 0 of 3 used"'
+  - paragraph: Completed hosted evaluations count here. Failed runs don't use quota. Local runs are unlimited.
+- document

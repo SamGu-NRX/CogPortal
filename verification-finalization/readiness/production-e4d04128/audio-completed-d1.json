@@ -1,0 +1,156 @@
+[
+  {
+    "results": [
+      {
+        "id": "run_4e15c756d0",
+        "status": "succeeded",
+        "repository_full_name": "SamGu-NRX/cogportal-demo-week1",
+        "sha": "e515ff619e02c16be903985d8536bc5ee6d7a2e9",
+        "branch": "codex/demo-rehearsal-d9405278",
+        "dispatch_attempts": 1,
+        "refunded_at": null,
+        "diagnostics_json": "[\"Identification falls gradually from 68% at 5 songs to 54% at 30, without a single point where it breaks.\",\"21% of queries had the right song somewhere in the list but not near the top. Retrieval found something, so this is the tally losing, not the fingerprints: check that you count matches per time offset rather than summing every hash hit, and that the same code path resamples both what you enroll and what you query.\",\"Clean clips identify at 100% but pitch-shifted clips at 8%. A shifted clip moves every peak to a different frequency bin, so the stored keys stop matching; this is the expected behavior of the capstone design and is worth reporting, not hiding.\",\"Every clip from a song that was never enrolled still came back with a candidate. Nothing in the assignment required an abstain path, so this does not affect the score, but a minimum tally or a first-to-second ratio is what would give you one.\",\"Weakest cell: pitch_+1 at 0% top-1.\",\"Outcome split over 240 scored queries: 129 top_1, 28 top_k, 51 ranking_failure, 32 retrieval_failure.\"]",
+        "surface_id": "surface_b219ca3a12dbfca948c4",
+        "created_at": 1789495266385,
+        "finished_at": 1789495441951
+      }
+    ],
+    "success": true,
+    "meta": {
+      "served_by": "v3-prod",
+      "served_by_region": "WNAM",
+      "served_by_colo": "DFW",
+      "served_by_primary": true,
+      "timings": {
+        "sql_duration_ms": 0.5042
+      },
+      "duration": 0.5042,
+      "changes": 0,
+      "last_row_id": 0,
+      "changed_db": false,
+      "size_after": 659456,
+      "rows_read": 1,
+      "rows_written": 0,
+      "total_attempts": 1
+    }
+  },
+  {
+    "results": [
+      {
+        "key": "chance_top1",
+        "value": 0.03333333333333333
+      },
+      {
+        "key": "clean_top1",
+        "value": 1
+      },
+      {
+        "key": "identification_score",
+        "value": 0.5375
+      },
+      {
+        "key": "margin_separation",
+        "value": 0.7737847222222223
+      },
+      {
+        "key": "median_identify_seconds",
+        "value": 0.0447
+      },
+      {
+        "key": "noisy_top1",
+        "value": 1
+      },
+      {
+        "key": "pitch_top1",
+        "value": 0.075
+      },
+      {
+        "key": "ranking_failure_rate",
+        "value": 0.2125
+      },
+      {
+        "key": "retrieval_failure_rate",
+        "value": 0.13333333333333333
+      },
+      {
+        "key": "short_clip_top1",
+        "value": 1
+      },
+      {
+        "key": "trivial_baseline_top1",
+        "value": 0.24166666666666667
+      }
+    ],
+    "success": true,
+    "meta": {
+      "served_by": "v3-prod",
+      "served_by_region": "WNAM",
+      "served_by_colo": "DFW",
+      "served_by_primary": true,
+      "timings": {
+        "sql_duration_ms": 0.1877
+      },
+      "duration": 0.1877,
+      "changes": 0,
+      "last_row_id": 0,
+      "changed_db": false,
+      "size_after": 659456,
+      "rows_read": 12,
+      "rows_written": 0,
+      "total_attempts": 1
+    }
+  },
+  {
+    "results": [
+      {
+        "mode": "practice",
+        "status": "succeeded",
+        "count": 3
+      }
+    ],
+    "success": true,
+    "meta": {
+      "served_by": "v3-prod",
+      "served_by_region": "WNAM",
+      "served_by_colo": "DFW",
+      "served_by_primary": true,
+      "timings": {
+        "sql_duration_ms": 0.1827
+      },
+      "duration": 0.1827,
+      "changes": 0,
+      "last_row_id": 0,
+      "changed_db": false,
+      "size_after": 659456,
+      "rows_read": 16,
+      "rows_written": 0,
+      "total_attempts": 1
+    }
+  },
+  {
+    "results": [
+      {
+        "discord_channel_id": "1515858059405295762",
+        "discord_message_id": "1549480228399612035"
+      }
+    ],
+    "success": true,
+    "meta": {
+      "served_by": "v3-prod",
+      "served_by_region": "WNAM",
+      "served_by_colo": "DFW",
+      "served_by_primary": true,
+      "timings": {
+        "sql_duration_ms": 0.1373
+      },
+      "duration": 0.1373,
+      "changes": 0,
+      "last_row_id": 0,
+      "changed_db": false,
+      "size_after": 659456,
+      "rows_read": 1,
+      "rows_written": 0,
+      "total_attempts": 1
+    }
+  }
+]

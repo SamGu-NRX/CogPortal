@@ -1,0 +1,22 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "ux-audit-385 Account menu for ux-audit-385":
+    - generic: u
+    - generic: ux-audit-385
+    - generic: Account menu for ux-audit-385
+- main:
+  - heading "Set up your team" [level=1]
+  - button "Join a team Someone on your team went first. Find them among the cohort's 1 team.":
+    - generic: Join a team
+    - generic: Someone on your team went first. Find them among the cohort's 1 team.
+  - button "Start a team Connect a public repository you can push to. You'll be the team's creator.":
+    - generic: Start a team
+    - generic: Connect a public repository you can push to. You'll be the team's creator.
+- document

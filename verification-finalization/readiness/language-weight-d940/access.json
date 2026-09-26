@@ -1,0 +1,22 @@
+{
+  "githubAccount": "SamGu-NRX",
+  "originalRepository": "LashikaKapoor28/Language_Module_Capstone",
+  "originalPublic": true,
+  "permissions": {
+    "pull": true,
+    "push": false,
+    "maintain": false,
+    "admin": false
+  },
+  "existingForkBySamFoundInOriginalForkList": false,
+  "stagingBrowserIdentity": "SamGu-NRX",
+  "stagingTeam": "CogPortal",
+  "stagingCurrentRepository": "SamGu-NRX/cogportal-demo-week1",
+  "normalChangeRepositoryPickerAvailable": true,
+  "pickerCancelledWithoutSelection": true,
+  "githubAppInstalledFor": [
+    "SamGu-NRX",
+    "iReynaldo"
+  ],
+  "nextAccessChoice": "Authorize a public fork preserving commit/model and choose the normal staging team/repository association. Neither was created or changed in this phase."
+}

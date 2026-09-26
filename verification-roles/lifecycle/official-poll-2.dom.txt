@@ -1,0 +1,53 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Dashboard":
+      - /url: /dashboard
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "verify-creator Account menu for verify-creator":
+    - generic: v
+    - generic: verify-creator
+    - generic: Account menu for verify-creator
+- main:
+  - link "← Dashboard":
+    - /url: /dashboard
+  - heading "RUN 0865" [level=1]
+  - generic: Official · attempt 1/3
+  - generic: Evaluating
+  - generic "Execution provider is in fixture mode. Results are scripted, not real evaluation.": simulated
+  - generic: "Run status: Evaluating"
+  - paragraph:
+    - generic: language-search / v1
+    - generic: "|"
+    - generic: main
+    - button "cbd8e59 Copy full commit SHA cbd8e59d3a0eeb280a188b3d749bf6c24235cf83":
+      - generic: cbd8e59
+      - generic: Copy full commit SHA cbd8e59d3a0eeb280a188b3d749bf6c24235cf83
+    - generic: "|"
+    - generic: Sep 10, 05:47 AM
+  - heading "PIPELINE" [level=2]
+  - list "Run pipeline":
+    - text: Queued
+    - generic: ", complete"
+    - generic: 1.2 s
+    - text: Prepare
+    - generic: ", complete"
+    - generic: 3.5 s
+    - text: Install
+    - generic: ", complete"
+    - generic: 5.2 s
+    - text: Contract check
+    - generic: ", complete"
+    - generic: 1.8 s
+    - text: Evaluate
+    - generic: ", in progress"
+    - text: Score
+    - generic: ", not started"
+    - generic: Complete
+  - paragraph: Hidden evaluation; logs are suppressed.
+- document

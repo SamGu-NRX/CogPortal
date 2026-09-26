@@ -1,0 +1,20 @@
+[
+  {
+    "revision": "dac24767b3b167dc25474be99f2a4f6af0f0260d",
+    "database": "/Users/samgu/Programming Projects/CogPortal-verifier-pr20-dac2476/apps/portal/.wrangler/state/v3/d1/miniflare-D1DatabaseObject/8e74cf6628f4d0013a5f1b69b205a4334d7f4ddd23213fede7a88471b665139a.sqlite",
+    "dumpEqual": true,
+    "sessions": 0,
+    "auditStaff": 0,
+    "auditCohort": 0,
+    "status": "?? apps/portal/node_modules\n?? node_modules\n?? packages/contracts/node_modules\n"
+  },
+  {
+    "revision": "a668cf6aef816700da224d14ef52b548ef2118a8",
+    "database": "/Users/samgu/Programming Projects/CogPortal-verifier-pr21-a668cf6/apps/portal/.wrangler/state/v3/d1/miniflare-D1DatabaseObject/8e74cf6628f4d0013a5f1b69b205a4334d7f4ddd23213fede7a88471b665139a.sqlite",
+    "dumpEqual": true,
+    "sessions": 0,
+    "auditStaff": 0,
+    "auditCohort": 0,
+    "status": "?? apps/portal/node_modules\n?? node_modules\n?? packages/contracts/node_modules\n"
+  }
+]

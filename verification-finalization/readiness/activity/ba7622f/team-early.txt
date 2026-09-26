@@ -1,0 +1,19 @@
+- document
+- complementary:
+  - text: LOCAL FIXTURE. Discord identity and API are simulated.
+  - button "Simulate completed browser link"
+  - button "Drop fixture stream for ten seconds"
+  - button "Toggle open cancellation"
+  - button "Expire fixture session"
+  - button "Fail fixture surfaces"
+  - button "Hold session check"
+  - button "Release session check"
+  - status: http://127.0.0.1:5191/connect
+- main:
+  - generic: One step left
+  - heading "Once you're on a team, check here." [level=1]
+  - button "Check for your team"
+  - paragraph:
+    - button "Open team setup again ↗"
+  - status: You're linked, but we don't see a team for you yet. Finish in the browser, then check again.
+- document

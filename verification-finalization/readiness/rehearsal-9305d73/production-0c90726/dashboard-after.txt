@@ -1,0 +1,82 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Dashboard":
+      - /url: /dashboard
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "Sam CogPortal owner Account menu for SamGu-NRX":
+    - generic: Sam
+    - img "CogPortal owner":
+    - generic: Account menu for SamGu-NRX
+- main:
+  - paragraph: Good morning, Sam
+  - heading "CogPortal" [level=1]:
+    - link "CogPortal":
+      - /url: /team
+  - button "Song Identification · v1 Change benchmark track. Currently Song Identification.":
+    - text: Song Identification · v1
+    - generic: Change benchmark track. Currently Song Identification.
+  - heading "START A RUN" [level=2]
+  - generic: Branch
+  - combobox "Branch":
+    - option "main" [selected]
+    - option "codex/demo-rehearsal-d9405278"
+  - button "Run practice benchmark"
+  - paragraph: 9 of 10 hosted runs left
+  - generic: Candidate ready
+  - paragraph:
+    - link "RUN 16D2":
+      - /url: /runs/run_6c658516d2
+    - text: scored 0.5375 on codex/demo-rehearsal-d9405278 · e515ff6
+  - paragraph: SamGu-NRX/cogportal-demo-week1
+  - button "Promote to official"
+  - paragraph: Runs the same commit against hidden inputs. Logs are suppressed.
+  - heading "RUN LOG" [level=2]
+  - generic: 1 recorded
+  - list:
+    - link "RUN 16D2 practice Succeeded codex/demo-rehearsal-d9405278 · e515ff6 0.5375 2 min ago":
+      - /url: /runs/run_6c658516d2
+      - generic: RUN 16D2
+      - generic: practice
+      - generic: Succeeded
+      - generic: codex/demo-rehearsal-d9405278 · e515ff6
+      - generic: "0.5375"
+      - generic: 2 min ago
+  - heading "CONNECTED SOURCE" [level=2]
+  - link "SamGu-NRX/cogportal-demo-week1":
+    - /url: https://github.com/SamGu-NRX/cogportal-demo-week1
+  - generic: last tested
+  - button "Copy full commit SHA e515ff619e02c16be903985d8536bc5ee6d7a2e9":
+    - generic: e515ff6
+  - status
+  - paragraph: week1-cpu-v1 · CPU · network blocked during evaluation
+  - heading "ATTEMPT BUDGET" [level=2]
+  - generic: Hosted practice
+  - generic: 1/10 used
+  - 'img "Hosted practice: 1 of 10 used"'
+  - generic: Official attempts
+  - generic: 0/3 used
+  - 'img "Official attempts: 0 of 3 used"'
+  - paragraph: Local runs are unlimited and are not counted here. An official cell fills the moment you start that attempt, and it comes back if the run fails for a reason on our side.
+  - heading "LOCAL REPORTS" [level=2]
+  - generic: SELF-REPORTED · NOT PROMOTABLE
+  - table "Self-reported local CogBench results":
+    - caption: Self-reported local CogBench results
+    - rowgroup:
+      - row "Student Commit Result Synced":
+        - columnheader "Student"
+        - columnheader "Commit"
+        - columnheader "Result"
+        - columnheader "Synced"
+    - rowgroup:
+      - row "SamGu-NRX e515ff6 0.5375 3 min ago":
+        - cell "SamGu-NRX"
+        - cell "e515ff6"
+        - cell "0.5375"
+        - cell "3 min ago"
+- document

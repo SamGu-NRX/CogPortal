@@ -1,0 +1,82 @@
+{
+  "reports": [
+    {
+      "reportId": "local_ad2343f2e0c94802bc7a36338b5c896b",
+      "metricsEqual": true,
+      "diagnosticsEqual": true,
+      "metricCount": 11,
+      "source": "SamGu-NRX/cogportal-demo-week1",
+      "sha": "71258046e60fecd3295c0b52236fc6e476b0e9cf",
+      "dirty": false,
+      "weightsUsed": []
+    },
+    {
+      "reportId": "local_80f81c268c90464fa0279c6d028e4169",
+      "metricsEqual": true,
+      "diagnosticsEqual": true,
+      "metricCount": 11,
+      "source": "SamGu-NRX/cogportal-demo-week1",
+      "sha": "71258046e60fecd3295c0b52236fc6e476b0e9cf",
+      "dirty": false,
+      "weightsUsed": []
+    }
+  ],
+  "liveSession": {
+    "id": "localrun_de981531853c457995925897d22e6c4b",
+    "status": "succeeded",
+    "phase": "scoring",
+    "surface_id": "surface_457995925897d22e6c4b",
+    "report_id": "local_80f81c268c90464fa0279c6d028e4169",
+    "repository_id": null,
+    "repository_full_name": "SamGu-NRX/cogportal-demo-week1",
+    "sha": "71258046e60fecd3295c0b52236fc6e476b0e9cf",
+    "branch": "main",
+    "dirty": 0,
+    "discord_channel_id": null,
+    "discord_message_id": null
+  },
+  "setupRows": [
+    {
+      "user_id": "HqAaCzFGINLSbuFgyRsrAVmRE812IHNl",
+      "team_id": "team_89c628b62d59570d",
+      "step": "clone",
+      "benchmark_id": "",
+      "verified_at": 1789380518754,
+      "source": "cli"
+    },
+    {
+      "user_id": "HqAaCzFGINLSbuFgyRsrAVmRE812IHNl",
+      "team_id": "team_89c628b62d59570d",
+      "step": "environment",
+      "benchmark_id": "audio-identification",
+      "verified_at": 1789380518754,
+      "source": "cli"
+    },
+    {
+      "user_id": "HqAaCzFGINLSbuFgyRsrAVmRE812IHNl",
+      "team_id": "team_89c628b62d59570d",
+      "step": "project",
+      "benchmark_id": "audio-identification",
+      "verified_at": 1789380518754,
+      "source": "cli"
+    },
+    {
+      "user_id": "HqAaCzFGINLSbuFgyRsrAVmRE812IHNl",
+      "team_id": "team_89c628b62d59570d",
+      "step": "wiring",
+      "benchmark_id": "audio-identification",
+      "verified_at": 1789380518754,
+      "source": "cli"
+    },
+    {
+      "user_id": "HqAaCzFGINLSbuFgyRsrAVmRE812IHNl",
+      "team_id": "team_89c628b62d59570d",
+      "step": "run",
+      "benchmark_id": "",
+      "verified_at": 1789380587883,
+      "source": "cli"
+    }
+  ],
+  "studentHead": "71258046e60fecd3295c0b52236fc6e476b0e9cf",
+  "studentStatus": ""
+}

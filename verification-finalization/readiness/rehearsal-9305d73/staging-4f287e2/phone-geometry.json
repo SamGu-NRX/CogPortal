@@ -1,0 +1,11 @@
+{
+  "logicalRun": {
+    "width": 390,
+    "scrollWidth": 390
+  },
+  "setup": {
+    "highlightedBlocks": 6,
+    "scrollWidth": 375,
+    "width": 390
+  }
+}

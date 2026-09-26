@@ -1,0 +1,161 @@
+{
+  "run": {
+    "id": "run_6deb074208",
+    "team_id": "team_87c7f4a030a52d1e",
+    "status": "succeeded",
+    "repository_full_name": "SamGu-NRX/Language_Module_Capstone",
+    "sha": "8789361ad7dec86fa724431873f674e03b449951",
+    "branch": "main",
+    "benchmark_id": "language-search",
+    "benchmark_version": 1,
+    "contract_version": "cogworks.submissions.v2",
+    "mode": "practice",
+    "weights_supplied_json": "[\"data/W_embed.npy\"]",
+    "diagnostics_json": "[]",
+    "sweep_json": "{\"axis\":\"how far the query is from the caption\",\"metric\":\"search_mrr\",\"points\":[{\"x\":0,\"y\":0.273637282456221,\"label\":\"verbatim\"},{\"x\":1,\"y\":0.28411226044051074,\"label\":\"keywords\"},{\"x\":2,\"y\":0.1723760548091365,\"label\":\"truncated\"},{\"x\":3,\"y\":0.22354662093850342,\"label\":\"typo\"}]}",
+    "dispatch_attempts": 1,
+    "refunded_at": null,
+    "failure_category": null,
+    "failure_detail": null,
+    "created_at": 1789487162177,
+    "finished_at": 1789488093567
+  },
+  "all19ValuesExactlyMatch": true,
+  "all19HelpFieldsMatch": true,
+  "comparisons": [
+    {
+      "key": "chance_mrr",
+      "local": 0.01018430016513033,
+      "hosted": 0.01018430016513033,
+      "equal": true
+    },
+    {
+      "key": "overall",
+      "local": 0.41257518789178643,
+      "hosted": 0.41257518789178643,
+      "equal": true
+    },
+    {
+      "key": "retrieval_median_rank",
+      "local": 8.0,
+      "hosted": 8,
+      "equal": true
+    },
+    {
+      "key": "retrieval_mrr",
+      "local": 0.22810871171646382,
+      "hosted": 0.22810871171646382,
+      "equal": true
+    },
+    {
+      "key": "retrieval_mrr_keywords",
+      "local": 0.28484976589101546,
+      "hosted": 0.28484976589101546,
+      "equal": true
+    },
+    {
+      "key": "retrieval_mrr_truncated",
+      "local": 0.1746000571266954,
+      "hosted": 0.1746000571266954,
+      "equal": true
+    },
+    {
+      "key": "retrieval_mrr_typo",
+      "local": 0.22487631213168063,
+      "hosted": 0.22487631213168063,
+      "equal": true
+    },
+    {
+      "key": "retrieval_mrr_verbatim",
+      "local": 0.27467464748222276,
+      "hosted": 0.27467464748222276,
+      "equal": true
+    },
+    {
+      "key": "retrieval_recall_at_1",
+      "local": 0.16,
+      "hosted": 0.16,
+      "equal": true
+    },
+    {
+      "key": "retrieval_recall_at_10",
+      "local": 0.6133333333333333,
+      "hosted": 0.6133333333333333,
+      "equal": true
+    },
+    {
+      "key": "retrieval_recall_at_5",
+      "local": 0.34,
+      "hosted": 0.34,
+      "equal": true
+    },
+    {
+      "key": "search_chance",
+      "local": 0.006427436197613463,
+      "hosted": 0.006427436197613463,
+      "equal": true
+    },
+    {
+      "key": "search_mrr",
+      "local": 0.2266783120627169,
+      "hosted": 0.2266783120627169,
+      "equal": true
+    },
+    {
+      "key": "search_mrr_keywords",
+      "local": 0.28411226044051074,
+      "hosted": 0.28411226044051074,
+      "equal": true
+    },
+    {
+      "key": "search_mrr_truncated",
+      "local": 0.1723760548091365,
+      "hosted": 0.1723760548091365,
+      "equal": true
+    },
+    {
+      "key": "search_mrr_typo",
+      "local": 0.22354662093850342,
+      "hosted": 0.22354662093850342,
+      "equal": true
+    },
+    {
+      "key": "search_mrr_verbatim",
+      "local": 0.273637282456221,
+      "hosted": 0.273637282456221,
+      "equal": true
+    },
+    {
+      "key": "text_chance",
+      "local": 0.03997975884400964,
+      "hosted": 0.03997975884400964,
+      "equal": true
+    },
+    {
+      "key": "text_mrr",
+      "local": 0.7829385398961786,
+      "hosted": 0.7829385398961786,
+      "equal": true
+    }
+  ],
+  "sweepPointsMatchCorrespondingMetrics": true,
+  "quota": {
+    "practiceUsed": 1,
+    "practiceLimit": 10,
+    "officialUsed": 0,
+    "officialLimit": 3
+  },
+  "discordSurface": {
+    "id": "surface_fe70e26659a47d5411b3",
+    "local_run_id": null,
+    "discord_channel_id": "1515858059405295762",
+    "discord_message_id": "1549446255426543786"
+  },
+  "connectedRepository": "SamGu-NRX/Language_Module_Capstone",
+  "r2Proof": "production-r2-byte-proof.json, reused without redownload",
+  "limits": [
+    "Production rendered results, chart and reload acceptance remain unverified after503.",
+    "Audio restoration and new Audio evaluation deferred under mutation hold.",
+    "Stored model association names path; independent R2 bytes were verified separately."
+  ]
+}

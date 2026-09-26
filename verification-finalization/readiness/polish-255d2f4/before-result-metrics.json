@@ -1,0 +1,50 @@
+[
+  {
+    "svg": [],
+    "text": "Retrieval MRR0.238floor 0.010▲higher is better"
+  },
+  {
+    "svg": [],
+    "text": "Retrieval MRR, caption unchanged (not scored)0.276not scored"
+  },
+  {
+    "svg": [],
+    "text": "Search MRR0.237floor 0.006▲higher is better"
+  },
+  {
+    "svg": [],
+    "text": "Search MRR, caption unchanged (not scored)0.275not scored"
+  },
+  {
+    "svg": [],
+    "text": "Search MRR, keywords only0.292▲higher is better"
+  },
+  {
+    "svg": [],
+    "text": "Search MRR, first three words0.178▲higher is better"
+  },
+  {
+    "svg": [],
+    "text": "Search MRR, one typo0.241▲higher is better"
+  },
+  {
+    "svg": [],
+    "text": "Text MRR0.749floor 0.040▲higher is better"
+  },
+  {
+    "svg": [],
+    "text": "Median rank10.200▼lower is better"
+  },
+  {
+    "svg": [],
+    "text": "Recall@10.144▲higher is better"
+  },
+  {
+    "svg": [],
+    "text": "Recall@100.607▲higher is better"
+  },
+  {
+    "svg": [],
+    "text": "Recall@50.398▲higher is better"
+  }
+]

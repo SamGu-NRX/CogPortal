@@ -1,0 +1,14 @@
+{
+  "execute_job": {
+    "backlog": 0,
+    "num_total_runners": 0,
+    "num_running_inputs": 0,
+    "input_headroom": 0
+  },
+  "submit_job": {
+    "backlog": 0,
+    "num_total_runners": 0,
+    "num_running_inputs": 0,
+    "input_headroom": 0
+  }
+}

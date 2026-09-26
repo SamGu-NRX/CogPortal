@@ -1,0 +1,28 @@
+{
+  "commands": [
+    {
+      "height": 57.3125,
+      "scrollWidth": 2597,
+      "tabIndex": 0,
+      "whiteSpace": "pre",
+      "width": 236.078125
+    },
+    {
+      "height": 57.3125,
+      "scrollWidth": 2859,
+      "tabIndex": 0,
+      "whiteSpace": "pre",
+      "width": 236.078125
+    },
+    {
+      "height": 57.3125,
+      "scrollWidth": 2814,
+      "tabIndex": 0,
+      "whiteSpace": "pre",
+      "width": 236.078125
+    }
+  ],
+  "role": "list",
+  "scrollWidth": 375,
+  "width": 390
+}

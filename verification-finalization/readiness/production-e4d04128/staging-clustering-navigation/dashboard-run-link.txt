@@ -1,0 +1,104 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Dashboard":
+      - /url: /dashboard
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "Sam CogPortal owner Account menu for SamGu-NRX":
+    - generic: Sam
+    - img "CogPortal owner":
+    - generic: Account menu for SamGu-NRX
+- main:
+  - link "Dashboard":
+    - /url: /dashboard
+    - text: Dashboard
+  - link "Open current run":
+    - /url: /run-surfaces/surface_e6e72230a30ca22713e6
+  - heading "RUN CEEC" [level=1]
+  - generic: Practice
+  - generic: Succeeded
+  - generic: "Run status: Succeeded"
+  - paragraph:
+    - generic: vision-recognition / v2
+    - generic: "|"
+    - link "SamGu-NRX/week2_capstone":
+      - /url: https://github.com/SamGu-NRX/week2_capstone
+    - generic: "|"
+    - generic: main
+    - button "Copy full commit SHA 29f9cf94751d6267e00be3ae4816be98a027662e":
+      - generic: 29f9cf9
+    - status
+    - generic: "|"
+    - generic: Sep 15, 11:37 AM
+    - generic: "|"
+    - generic: 56.5 s
+  - heading "PIPELINE" [level=2]
+  - list "Run pipeline":
+    - text: Queued
+    - generic: ", complete"
+    - text: Prepare
+    - generic: ", complete"
+    - generic: 3.1 s
+    - text: Install
+    - generic: ", complete"
+    - generic: 13.3 s
+    - text: Contract check
+    - generic: ", complete"
+    - generic: 3.3 s
+    - text: Evaluate
+    - generic: ", complete"
+    - generic: 23.4 s
+    - text: Score
+    - generic: ", complete"
+    - generic: 1.7 s
+    - generic: Complete
+  - figure:
+    - generic: What this run shows
+    - paragraph: 2 of 10 queries for the newly enrolled person were called unknown rather than named. That is the cutoff being strict, not a descriptor problem.
+  - generic: Your code, as it was run
+  - list:
+    - generic: descriptors
+    - generic: get_descriptor.file_descriptors
+    - generic: took a tuple of 6, starting with an array of shape (218, 178, 3)
+    - text: ·
+    - generic: returned a list of 6, starting with an array of shape (1, 512)
+    - generic: store
+    - generic: vector_db.VectorDatabase().add
+    - generic: query
+    - generic: vector_db.VectorDatabase().predict
+  - heading "RESULTS" [level=2]
+  - figure:
+    - generic: Recognition score
+    - generic: "0.9250"
+    - paragraph: "The mean of known identification and the unknown lifecycle below. Both halves count equally because the capstone is not only recognizing a face it has seen: saying \"I do not know this person\" and then learning them is the other half of the assignment. This is the leaderboard number."
+  - button "Known identification 0.950":
+    - term: Known identification
+    - definition:
+      - generic: "0.950"
+  - paragraph: Of the people already in the database, how often the right name comes back. Averaged per person rather than per image, so someone with many photos cannot carry the score for someone with few. This is the cosine distance between descriptor vectors doing its job.
+  - button "Post-enrollment accuracy 0.800":
+    - term: Post-enrollment accuracy
+    - definition:
+      - generic: "0.800"
+  - paragraph: After a stranger is added to the database, how often they are then identified correctly. A system that rejects unknowns but cannot learn them has only solved half the problem.
+  - button "Unknown lifecycle 0.900":
+    - term: Unknown lifecycle
+    - definition:
+      - generic: "0.900"
+  - paragraph: "The mean of unknown rejection and post-enrollment accuracy: the whole arc of meeting a stranger, saying so, and knowing them next time."
+  - button "Unknown rejection recall 1.000":
+    - term: Unknown rejection recall
+    - definition:
+      - generic: "1.000"
+  - paragraph: "How often a face that is not in the database is correctly called unknown rather than matched to the nearest name. This is the cutoff the course asks you to choose: too generous and every stranger becomes somebody, too strict and nobody is ever recognized."
+  - paragraph: Public practice split.
+  - heading "PROMOTE" [level=2]
+  - paragraph: Re-runs 29f9cf9 against the hidden official inputs. Logs are suppressed.
+  - button "Promote to official"
+  - generic: 3 official attempts remaining
+- document

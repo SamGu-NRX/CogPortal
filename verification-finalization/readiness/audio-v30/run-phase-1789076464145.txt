@@ -1,0 +1,51 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Dashboard":
+      - /url: /dashboard
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "Sam CogPortal owner Account menu for SamGu-NRX":
+    - generic: Sam
+    - img "CogPortal owner":
+    - generic: Account menu for SamGu-NRX
+- main:
+  - link "← Dashboard":
+    - /url: /dashboard
+  - heading "RUN 5495" [level=1]
+  - generic: Practice
+  - generic: Evaluating
+  - generic: "Run status: Evaluating"
+  - paragraph:
+    - generic: audio-identification / v1
+    - generic: "|"
+    - generic: main
+    - button "7125804 Copy full commit SHA 71258046e60fecd3295c0b52236fc6e476b0e9cf":
+      - generic: "7125804"
+      - generic: Copy full commit SHA 71258046e60fecd3295c0b52236fc6e476b0e9cf
+    - generic: "|"
+    - generic: Sep 10, 04:39 PM
+  - heading "PIPELINE" [level=2]
+  - list "Run pipeline":
+    - text: Queued
+    - generic: ", complete"
+    - text: Prepare
+    - generic: ", complete"
+    - generic: 9.2 s
+    - text: Install
+    - generic: ", complete"
+    - generic: 26.4 s
+    - text: Contract check
+    - generic: ", complete"
+    - generic: 34.8 s
+    - text: Evaluate
+    - generic: ", in progress"
+    - text: Score
+    - generic: ", not started"
+    - generic: Complete
+  - paragraph: Updates every 2 s.
+- document

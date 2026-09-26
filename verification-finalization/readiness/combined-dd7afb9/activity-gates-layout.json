@@ -1,0 +1,314 @@
+[
+  {
+    "gates": [
+      {
+        "buttons": [
+          {
+            "height": 44,
+            "text": "Link Cog*Portal",
+            "width": 161.59375
+          }
+        ],
+        "client": 456,
+        "height": 457.828125,
+        "scroll": 456,
+        "title": "Link Cog*Portal to see your team's bench.",
+        "width": 263
+      },
+      {
+        "buttons": [
+          {
+            "height": 44,
+            "text": "Check the link",
+            "width": 132.15625
+          },
+          {
+            "height": 18.59375,
+            "text": "Open the link again",
+            "width": 121.3125
+          }
+        ],
+        "client": 392,
+        "height": 394.296875,
+        "scroll": 392,
+        "title": "Once you've linked it in the browser, check here.",
+        "width": 263
+      },
+      {
+        "buttons": [
+          {
+            "height": 44,
+            "text": "Check the link",
+            "width": 132.15625
+          },
+          {
+            "height": 18.59375,
+            "text": "Open the link again",
+            "width": 121.3125
+          }
+        ],
+        "client": 469,
+        "height": 470.7421875,
+        "scroll": 469,
+        "title": "Once you've linked it in the browser, check here.",
+        "width": 263
+      },
+      {
+        "buttons": [
+          {
+            "height": 44,
+            "text": "Check the link",
+            "width": 132.15625
+          },
+          {
+            "height": 18.59375,
+            "text": "Open the link again",
+            "width": 121.3125
+          }
+        ],
+        "client": 449,
+        "height": 450.59375,
+        "scroll": 449,
+        "title": "Once you've linked it in the browser, check here.",
+        "width": 263
+      },
+      {
+        "buttons": [
+          {
+            "height": 44,
+            "text": "Finish team setup",
+            "width": 175.890625
+          }
+        ],
+        "client": 372,
+        "height": 374.4375,
+        "scroll": 372,
+        "title": "You're linked, but not on a team yet.",
+        "width": 263
+      },
+      {
+        "buttons": [
+          {
+            "height": 44,
+            "text": "Check for your team",
+            "width": 170.546875
+          }
+        ],
+        "client": 164,
+        "height": 166,
+        "scroll": 164,
+        "title": "Once you're on a team, check here.",
+        "width": 258
+      }
+    ],
+    "width": 360
+  },
+  {
+    "gates": [
+      {
+        "buttons": [
+          {
+            "height": 44,
+            "text": "Link Cog*Portal",
+            "width": 161.59375
+          }
+        ],
+        "client": 394,
+        "height": 396.1328125,
+        "scroll": 394,
+        "title": "Link Cog*Portal to see your team's bench.",
+        "width": 302.5
+      },
+      {
+        "buttons": [
+          {
+            "height": 44,
+            "text": "Check the link",
+            "width": 132.15625
+          },
+          {
+            "height": 18.59375,
+            "text": "Open the link again",
+            "width": 121.3125
+          }
+        ],
+        "client": 352,
+        "height": 354.296875,
+        "scroll": 352,
+        "title": "Once you've linked it in the browser, check here.",
+        "width": 302.5
+      },
+      {
+        "buttons": [
+          {
+            "height": 44,
+            "text": "Check the link",
+            "width": 132.15625
+          },
+          {
+            "height": 18.59375,
+            "text": "Open the link again",
+            "width": 121.3125
+          }
+        ],
+        "client": 429,
+        "height": 430.7421875,
+        "scroll": 429,
+        "title": "Once you've linked it in the browser, check here.",
+        "width": 302.5
+      },
+      {
+        "buttons": [
+          {
+            "height": 44,
+            "text": "Check the link",
+            "width": 132.15625
+          },
+          {
+            "height": 18.59375,
+            "text": "Open the link again",
+            "width": 121.3125
+          }
+        ],
+        "client": 388,
+        "height": 390.4453125,
+        "scroll": 388,
+        "title": "Once you've linked it in the browser, check here.",
+        "width": 302.5
+      },
+      {
+        "buttons": [
+          {
+            "height": 44,
+            "text": "Finish team setup",
+            "width": 175.890625
+          }
+        ],
+        "client": 332,
+        "height": 334.4375,
+        "scroll": 332,
+        "title": "You're linked, but not on a team yet.",
+        "width": 302.5
+      },
+      {
+        "buttons": [
+          {
+            "height": 44,
+            "text": "Check for your team",
+            "width": 170.546875
+          }
+        ],
+        "client": 164,
+        "height": 166,
+        "scroll": 164,
+        "title": "Once you're on a team, check here.",
+        "width": 258
+      }
+    ],
+    "width": 768
+  },
+  {
+    "gates": [
+      {
+        "buttons": [
+          {
+            "height": 44,
+            "text": "Link Cog*Portal",
+            "width": 161.59375
+          }
+        ],
+        "client": 332,
+        "height": 334.4375,
+        "scroll": 332,
+        "title": "Link Cog*Portal to see your team's bench.",
+        "width": 394
+      },
+      {
+        "buttons": [
+          {
+            "height": 44,
+            "text": "Check the link",
+            "width": 132.15625
+          },
+          {
+            "height": 18.59375,
+            "text": "Open the link again",
+            "width": 121.3125
+          }
+        ],
+        "client": 312,
+        "height": 314.296875,
+        "scroll": 312,
+        "title": "Once you've linked it in the browser, check here.",
+        "width": 394
+      },
+      {
+        "buttons": [
+          {
+            "height": 44,
+            "text": "Check the link",
+            "width": 132.15625
+          },
+          {
+            "height": 18.59375,
+            "text": "Open the link again",
+            "width": 121.3125
+          }
+        ],
+        "client": 369,
+        "height": 370.59375,
+        "scroll": 369,
+        "title": "Once you've linked it in the browser, check here.",
+        "width": 394
+      },
+      {
+        "buttons": [
+          {
+            "height": 44,
+            "text": "Check the link",
+            "width": 132.15625
+          },
+          {
+            "height": 18.59375,
+            "text": "Open the link again",
+            "width": 121.3125
+          }
+        ],
+        "client": 348,
+        "height": 350.4453125,
+        "scroll": 348,
+        "title": "Once you've linked it in the browser, check here.",
+        "width": 394
+      },
+      {
+        "buttons": [
+          {
+            "height": 44,
+            "text": "Finish team setup",
+            "width": 175.890625
+          }
+        ],
+        "client": 292,
+        "height": 294.4375,
+        "scroll": 292,
+        "title": "You're linked, but not on a team yet.",
+        "width": 394
+      },
+      {
+        "buttons": [
+          {
+            "height": 44,
+            "text": "Check for your team",
+            "width": 170.546875
+          }
+        ],
+        "client": 164,
+        "height": 166,
+        "scroll": 164,
+        "title": "Once you're on a team, check here.",
+        "width": 258
+      }
+    ],
+    "width": 1280
+  }
+]

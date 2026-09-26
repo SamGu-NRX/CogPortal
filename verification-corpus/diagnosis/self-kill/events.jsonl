@@ -1,0 +1,11 @@
+{"event": "before_fork", "pid": 58044, "ppid": 58000, "seconds": 0.051237, "python_threads": ["MainThread"], "stack": ["  File \"/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/diagnosis/trace-boundary.py\", line 91, in <module>\n    result = isolate.run_isolated(work)\n", "  File \"/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/source/portal/python/cogbench/src/cogbench/isolate.py\", line 421, in run_isolated\n    pid = os.fork()\n", "  File \"/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/diagnosis/trace-boundary.py\", line 38, in traced_fork\n    emit(\"before_fork\", python_threads=[t.name for t in threading.enumerate()], stack=traceback.format_stack(limit=12))\n"]}
+{"event": "after_fork", "pid": 58044, "ppid": 58000, "seconds": 0.053663, "fork_return": 58160}
+{"event": "read_payload_start", "pid": 58044, "ppid": 58000, "seconds": 0.055153}
+{"event": "after_fork", "pid": 58160, "ppid": 58044, "seconds": 0.056138, "fork_return": 0}
+{"event": "intentional_self_sigkill", "pid": 58160, "ppid": 58044, "seconds": 0.05965}
+{"event": "kill_requested", "pid": 58160, "ppid": 58044, "seconds": 0.059703, "target": 58160, "signal": 9}
+{"event": "read_payload_return", "pid": 58044, "ppid": 58000, "seconds": 0.060287, "outcome": null}
+{"event": "kill_requested", "pid": 58044, "ppid": 58000, "seconds": 0.060619, "target": -58160, "signal": 9}
+{"event": "kill_requested", "pid": 58044, "ppid": 58000, "seconds": 0.060922, "target": 58160, "signal": 9}
+{"event": "waitpid", "pid": 58044, "ppid": 58000, "seconds": 0.061134, "target": 58160, "raw_status": 9, "signal": 9, "exit_code": null}
+{"event": "isolate_result", "pid": 58044, "ppid": 58000, "seconds": 0.061417, "status": "timed_out", "detail": "stopped after taking longer than the time allowed"}

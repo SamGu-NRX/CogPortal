@@ -1,0 +1,54 @@
+node:internal/modules/package_json_reader:301
+  throw new ERR_MODULE_NOT_FOUND(packageName, fileURLToPath(base), null);
+        ^
+
+Error [ERR_MODULE_NOT_FOUND]: Cannot find package '@/components' imported from /Users/samgu/.codex/worktrees/dd61/CogPortal/apps/portal/src/routes/AdminPage.tsx
+    at Object.getPackageJSONURL (node:internal/modules/package_json_reader:301:9)
+    at packageResolve (node:internal/modules/esm/resolve:784:25)
+    at moduleResolve (node:internal/modules/esm/resolve:873:18)
+    at defaultResolve (node:internal/modules/esm/resolve:1006:11)
+    at #cachedDefaultResolve (node:internal/modules/esm/loader:708:20)
+    at #resolveAndMaybeBlockOnLoaderThread (node:internal/modules/esm/loader:728:38)
+    at nextStep (node:internal/modules/customization_hooks:189:26)
+    at resolveBaseSync (file:///Users/samgu/.codex/worktrees/dd61/CogPortal/node_modules/.pnpm/tsx@4.23.1/node_modules/tsx/dist/register-zZ7SWseA.mjs:2:9102)
+    at resolveDirectorySync (file:///Users/samgu/.codex/worktrees/dd61/CogPortal/node_modules/.pnpm/tsx@4.23.1/node_modules/tsx/dist/register-zZ7SWseA.mjs:2:10315)
+    at resolveTsPathsSync (file:///Users/samgu/.codex/worktrees/dd61/CogPortal/node_modules/.pnpm/tsx@4.23.1/node_modules/tsx/dist/register-zZ7SWseA.mjs:2:11547) {
+  code: 'ERR_MODULE_NOT_FOUND'
+}
+
+Node.js v26.5.0
+✖ test/admin-members.test.ts (2423.709542ms)
+✔ a login on the roster is staff (14.253875ms)
+✔ a login that is not on the roster is a student (8.680292ms)
+✔ an owner is staff with no roster row (9.658542ms)
+✔ the roster cannot make somebody an owner (8.661084ms)
+✔ the roster endpoints refuse an unauthenticated caller (24.540875ms)
+✔ an owner adds a login and that login becomes staff (73.068ms)
+✔ an added login resolves to its account once that person signs in (116.273875ms)
+✔ removing a login takes staff access away (114.432375ms)
+✔ removing a login that is not on the roster is not an error (60.355167ms)
+✔ re-adding somebody keeps the original grant (113.787584ms)
+✔ staff cannot grant or revoke staff (121.025125ms)
+✔ a student cannot read or write the roster (61.563625ms)
+✔ emptying the roster leaves owners with access (65.668375ms)
+✔ an owner who removes their own roster entry keeps access (74.007208ms)
+✔ the cohort join list includes live teams and excludes archive teams (97.9375ms)
+✔ a direct archive join is forbidden before repository access or membership insertion (64.81075ms)
+✔ a live fixture team still accepts a join (64.156625ms)
+ℹ tests 18
+ℹ suites 0
+ℹ pass 17
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2428.850083
+
+✖ failing tests:
+
+test at test/admin-members.test.ts:1:1
+✖ test/admin-members.test.ts (2423.709542ms)
+  'test failed'
+undefined
+/Users/samgu/.codex/worktrees/dd61/CogPortal/apps/portal:
+ ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command failed with exit code 1: tsx --test test/admin-members.test.ts test/team-membership.test.ts test/staff-roster.test.ts

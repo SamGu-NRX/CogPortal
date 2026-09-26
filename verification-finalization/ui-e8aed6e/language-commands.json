@@ -1,0 +1,11 @@
+[
+  "git clone https://github.com/SamGu-NRX/cogportal-demo-week1.git && cd cogportal-demo-week1",
+  "conda activate week3",
+  "python -m pip install --upgrade --force-reinstall \"cogworks-benchmark @ git+https://github.com/SamGu-NRX/CogPortal.git@094a6f1ac109716014492a57a81157e71b70f7ab#subdirectory=python/cogbench\"",
+  "python -c \"import http.client as h; c = h.HTTPConnection('localhost:5192'); c.request('POST', '/api/v1/setup/check-off?t=eyJ1IjoiTEtGMkNQVkN1OU9vSG9VSlNqMEpvcGFlQmtaU3ZoQVMiLCJ0IjoidGVhbV91aV9hY2NlcHRfZTgiLCJzIjoiZW52aXJvbm1lbnQiLCJiIjoibGFuZ3VhZ2Utc2VhcmNoIiwiZXhwIjoxNzg5Njg5NjAwfQ.aF5sk3ZEaym7YiZy91qbsAdXllx4xbRN7MvzdtEv5mE'); print(c.getresponse().read().decode())\"",
+  "python -m pip install \"cogworks-week3-language-benchmark @ git+https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git@b166f5c15e950baccc3785839cdcc660ffe01bb4\"",
+  "python -c \"import http.client as h; c = h.HTTPConnection('localhost:5192'); c.request('POST', '/api/v1/setup/check-off?t=eyJ1IjoiTEtGMkNQVkN1OU9vSG9VSlNqMEpvcGFlQmtaU3ZoQVMiLCJ0IjoidGVhbV91aV9hY2NlcHRfZTgiLCJzIjoicHJvamVjdCIsImIiOiJsYW5ndWFnZS1zZWFyY2giLCJleHAiOjE3ODk2ODk2MDB9.9dcAFKUKe24EK--3XOUELMfGiG1Q_VMK_L9m5vb95r4'); print(c.getresponse().read().decode())\"",
+  "cogworks link --portal http://localhost:5192",
+  "check",
+  "cogworks check --benchmark language-search --update-setup"
+]

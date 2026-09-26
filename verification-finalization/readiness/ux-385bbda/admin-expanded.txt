@@ -1,0 +1,94 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Dashboard":
+      - /url: /dashboard
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "ui-accept-e8 CogPortal owner Account menu for ui-accept-e8":
+    - generic: u
+    - generic: ui-accept-e8
+    - img "CogPortal owner":
+    - generic: Account menu for ui-accept-e8
+- main:
+  - paragraph: Admin
+  - heading "BWSI CogWorks 2026" [level=1]
+  - heading "TEAMS" [level=2]
+  - generic: "7"
+  - list:
+    - button "Cosine Similarity Club cogworks-demo/cosine-similarity-club no hosted runs 0 practice runs · 0 official attempts":
+      - generic "Cosine Similarity Club"
+      - generic: cogworks-demo/cosine-similarity-club
+      - generic: no hosted runs
+      - generic: 0 practice runs · 0 official attempts
+    - button "Eigenfaces United cogworks-demo/eigenfaces-united no hosted runs 0 practice runs · 0 official attempts":
+      - generic "Eigenfaces United"
+      - generic: cogworks-demo/eigenfaces-united
+      - generic: no hosted runs
+      - generic: 0 practice runs · 0 official attempts
+    - button "Gradient Descenders cogworks-demo/gradient-descenders no hosted runs 0 practice runs · 0 official attempts":
+      - generic "Gradient Descenders"
+      - generic: cogworks-demo/gradient-descenders
+      - generic: no hosted runs
+      - generic: 0 practice runs · 0 official attempts
+    - button "Latent Space Cadets cogworks-demo/latent-space-cadets no hosted runs 0 practice runs · 0 official attempts":
+      - generic "Latent Space Cadets"
+      - generic: cogworks-demo/latent-space-cadets
+      - generic: no hosted runs
+      - generic: 0 practice runs · 0 official attempts
+    - button "Manifold Destiny cogworks-demo/manifold-destiny no hosted runs 0 practice runs · 0 official attempts":
+      - generic "Manifold Destiny"
+      - generic: cogworks-demo/manifold-destiny
+      - generic: no hosted runs
+      - generic: 0 practice runs · 0 official attempts
+    - button "UI acceptance demo SamGu-NRX/cogportal-demo-week1 no hosted runs 0 practice runs · 0 official attempts":
+      - generic "UI acceptance demo"
+      - generic: SamGu-NRX/cogportal-demo-week1
+      - generic: no hosted runs
+      - generic: 0 practice runs · 0 official attempts
+    - button "Vector Voyagers cogworks-demo/vector-voyagers 4 runs 3 practice runs · 1 official attempts" [expanded] [active]:
+      - generic "Vector Voyagers"
+      - generic: cogworks-demo/vector-voyagers
+      - generic: 4 runs
+      - generic: 3 practice runs · 1 official attempts
+    - paragraph: Assigned teaching staff
+    - paragraph: No TA assigned.
+    - generic: Assign TA by GitHub login
+    - textbox "Assign TA by GitHub login":
+      - /placeholder: TA github login
+    - button "Assign TA" [disabled]:
+      - text: Assign TA
+    - list
+    - generic: Add member by GitHub login
+    - textbox "Add member by GitHub login":
+      - /placeholder: github login
+    - button "Add" [disabled]:
+      - text: Add
+    - paragraph: Latest published score 0.889 · Face Recognition v1
+  - heading "UNASSIGNED STUDENTS" [level=2]
+  - generic: "0"
+  - paragraph: Everyone in the cohort has a team.
+  - heading "COHORT" [level=2]
+  - generic: enrollment open
+  - generic: Join code
+  - button "VISION26 Copy join code":
+    - text: VISION26
+    - generic: Copy join code
+  - button "Rotate join code"
+  - button "Close enrollment"
+  - heading "PLATFORM STAFF" [level=2]
+  - generic: "1"
+  - list:
+    - generic: ui-accept-e8
+    - generic "Set in the deployment's configuration, so this panel cannot remove it.": owner
+  - paragraph: No staff added yet. Add a GitHub login below.
+  - generic: Add platform staff by GitHub login
+  - textbox "Add platform staff by GitHub login":
+    - /placeholder: github login
+  - button "Add staff" [disabled]:
+    - text: Add staff
+- document

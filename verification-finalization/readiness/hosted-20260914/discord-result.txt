@@ -1,0 +1,30 @@
+Cog*Bot
+APP
+ — 
+9/11/26, 11:39 AM
+Friday, September 11, 2026 at 11:39 AM
+ Bench clear  0.5375
+,
+Song Identification  7125804  by Sam Gu  2:16
+team best stays 0.5375
+,
+,
+0.033    chance
+1.000    clean top-1
+0.774    margin separation (auc)
+0.031    median identify time
+,
+,
+ local   hosted   official   published
+,
+,
+Promote to official
+,
+Rerun hosted
+,
+Cog*Portal
+,
+,
+,
+(edited)
+Friday, September 11, 2026 at 11:41 AM

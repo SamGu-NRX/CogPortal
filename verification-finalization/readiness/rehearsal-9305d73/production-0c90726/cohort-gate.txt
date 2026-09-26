@@ -1,0 +1,21 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "Sam CogPortal owner Account menu for SamGu-NRX":
+    - generic: Sam
+    - img "CogPortal owner":
+    - generic: Account menu for SamGu-NRX
+- main:
+  - heading "Join the cohort" [level=1]
+  - paragraph: Enter the join code from your instructor. You do this once.
+  - generic: Join code
+  - textbox "Join code" [active]:
+    - /placeholder: ········
+  - button "Join" [disabled]
+- document

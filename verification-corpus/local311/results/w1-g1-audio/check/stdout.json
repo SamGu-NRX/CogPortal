@@ -1,0 +1,132 @@
+{
+  "benchmarkInstalled": true,
+  "benchmarkLoadable": true,
+  "canonicalHostedPython": "3.8.20",
+  "contractVersion": "cogworks.submissions.v2",
+  "dataEvaluationCache": {
+    "message": "30 songs, 252 queries, generated locally (no download)",
+    "path": ".",
+    "ready": true
+  },
+  "dataTestCache": {
+    "message": "8 songs, 68 queries, generated locally (no download)",
+    "path": ".",
+    "ready": true
+  },
+  "discovery": {
+    "arrangement": 1,
+    "attemptsTried": 1956,
+    "chain": [
+      "audio_parser.spectrogram_conversion",
+      "fingerprint_maker.generate_fingerprints"
+    ],
+    "discovery": {
+      "considered": [
+        "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g1-audio/Week1"
+      ],
+      "modules": [
+        {
+          "name": "AudioSplicer",
+          "origin": "notebook",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g1-audio/Week1/AudioSplicer.ipynb"
+        },
+        {
+          "name": "audio_parser",
+          "origin": "notebook",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g1-audio/Week1/audio_parser.ipynb"
+        },
+        {
+          "name": "database_design",
+          "origin": "notebook",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g1-audio/Week1/database_design.ipynb"
+        },
+        {
+          "name": "fingerprint_database",
+          "origin": "notebook",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g1-audio/Week1/fingerprint_database.ipynb"
+        },
+        {
+          "name": "fingerprint_maker",
+          "origin": "notebook",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g1-audio/Week1/fingerprint_maker.ipynb"
+        },
+        {
+          "name": "interfaceInspect",
+          "origin": "notebook",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g1-audio/Week1/interfaceInspect.ipynb"
+        },
+        {
+          "name": "metadata",
+          "origin": "notebook",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g1-audio/Week1/metadata.ipynb"
+        },
+        {
+          "name": "songrecognizer",
+          "origin": "notebook",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g1-audio/Week1/songrecognizer.ipynb"
+        }
+      ],
+      "root": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g1-audio/Week1",
+      "rootReason": "code sits at the repository root",
+      "skipped": [],
+      "stubCalls": [],
+      "stubbed": [
+        "streamlit",
+        "microphone",
+        "pyaudio",
+        "camera"
+      ]
+    },
+    "enroll": "fingerprint_database.add_fingerprints",
+    "factory": "fingerprint_database.create_database",
+    "hashRandomization": false,
+    "hashSeed": "0",
+    "query": "fingerprint_database.query_database",
+    "readers": [
+      "fingerprint_database.get_sorted_matches",
+      "fingerprint_database.get_sorted_songs"
+    ],
+    "recalled": false,
+    "verdict": {
+      "coverage": {
+        "read": [],
+        "readEnoughToJudge": true,
+        "skipped": []
+      },
+      "errors": [],
+      "headline": "Your code is wired up and ready to score.",
+      "nextStep": "",
+      "notes": [],
+      "status": "scored",
+      "trace": [
+        {
+          "function": "audio_parser.spectrogram_conversion",
+          "received": "an array of shape (176400,), 44100",
+          "returned": "a tuple of 2, starting with an array of shape (1025, 171)",
+          "stage": "spectrogram + peaks"
+        },
+        {
+          "function": "fingerprint_maker.generate_fingerprints",
+          "received": "a list of 207, starting (0, 1)",
+          "returned": "a list of 609, starting ((1, 262, 9), 0)",
+          "stage": "fingerprints"
+        }
+      ]
+    },
+    "weightsUsed": []
+  },
+  "gitRepository": true,
+  "localGap": [],
+  "modelCache": {
+    "message": "corpus is generated locally",
+    "path": "",
+    "ready": true
+  },
+  "python": "3.11.15",
+  "repositoryFullName": "rutvim2009/BWSI_CogWorks_Team_1",
+  "submissionDetail": null,
+  "submissionError": "We look for your adapter at the repository root, and /Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g1-audio/Week1 has neither submission.py nor benchmark_adapter.py. Create submission.py there, define create_submission, and return your adapter from it. Nothing is registered as \"audio-identification\" in \"cogworks.submissions.v2\" either (installed: none), so if you meant to install your project as a package, reinstall it.",
+  "submissionInstalled": false,
+  "submissionLoadable": true,
+  "submissionSource": "discovery"
+}

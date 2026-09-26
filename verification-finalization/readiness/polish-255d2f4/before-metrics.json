@@ -1,0 +1,162 @@
+{
+  "figures": [
+    "Identification score0.5312▲ higher is betterChance0.0333Trivial baseline0.0812Chance1/N for a catalog of N songs: what naming a song at random scores. The floor every other number on this page should be read against.Trivial baselineWhole-clip mean log spectrum, nearest neighbour. No peaks, no fingerprints, none of the capstone.Top-1 accuracy over clips cut from songs you enrolled, after perturbation. This is the leaderboard number."
+  ],
+  "terms": [
+    {
+      "label": "Identification score",
+      "row": "Identification score0.5312",
+      "svg": 0
+    },
+    {
+      "label": "Repository",
+      "row": "Repositorycogworks-demo/face-finderCommitaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaBranchmainWorkspaceClean",
+      "svg": 0
+    },
+    {
+      "label": "Commit",
+      "row": "Repositorycogworks-demo/face-finderCommitaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaBranchmainWorkspaceClean",
+      "svg": 0
+    },
+    {
+      "label": "Branch",
+      "row": "Repositorycogworks-demo/face-finderCommitaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaBranchmainWorkspaceClean",
+      "svg": 0
+    },
+    {
+      "label": "Workspace",
+      "row": "Repositorycogworks-demo/face-finderCommitaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaBranchmainWorkspaceClean",
+      "svg": 0
+    },
+    {
+      "label": "Repository",
+      "row": "Repositorycogworks-demo/face-finderCommitaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaBranchmainWorkspaceClean",
+      "svg": 0
+    },
+    {
+      "label": "Commit",
+      "row": "Repositorycogworks-demo/face-finderCommitaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaBranchmainWorkspaceClean",
+      "svg": 0
+    },
+    {
+      "label": "Branch",
+      "row": "Repositorycogworks-demo/face-finderCommitaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaBranchmainWorkspaceClean",
+      "svg": 0
+    },
+    {
+      "label": "Workspace",
+      "row": "Repositorycogworks-demo/face-finderCommitaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaBranchmainWorkspaceClean",
+      "svg": 0
+    },
+    {
+      "label": "Repository",
+      "row": "Repositorycogworks-demo/face-finderCommitaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaBranchmainWorkspaceClean",
+      "svg": 0
+    },
+    {
+      "label": "Commit",
+      "row": "Repositorycogworks-demo/face-finderCommitaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaBranchmainWorkspaceClean",
+      "svg": 0
+    },
+    {
+      "label": "Branch",
+      "row": "Repositorycogworks-demo/face-finderCommitaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaBranchmainWorkspaceClean",
+      "svg": 0
+    },
+    {
+      "label": "Workspace",
+      "row": "Repositorycogworks-demo/face-finderCommitaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaBranchmainWorkspaceClean",
+      "svg": 0
+    },
+    {
+      "label": "Repository",
+      "row": "Repositorycogworks-demo/face-finderCommitaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaBranchmainWorkspaceClean",
+      "svg": 0
+    },
+    {
+      "label": "Commit",
+      "row": "Repositorycogworks-demo/face-finderCommitaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaBranchmainWorkspaceClean",
+      "svg": 0
+    },
+    {
+      "label": "Branch",
+      "row": "Repositorycogworks-demo/face-finderCommitaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaBranchmainWorkspaceClean",
+      "svg": 0
+    },
+    {
+      "label": "Workspace",
+      "row": "Repositorycogworks-demo/face-finderCommitaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaBranchmainWorkspaceClean",
+      "svg": 0
+    },
+    {
+      "label": "Retrieval MRR",
+      "row": "Retrieval MRR0.259floor 0.010▲higher is better",
+      "svg": 0
+    },
+    {
+      "label": "Chance MRR",
+      "row": "Chance MRR0.010",
+      "svg": 0
+    },
+    {
+      "label": "Text MRR",
+      "row": "Text MRR0.789floor 0.040▲higher is better",
+      "svg": 0
+    },
+    {
+      "label": "Chance MRR",
+      "row": "Chance MRR0.010",
+      "svg": 0
+    },
+    {
+      "label": "Text MRR",
+      "row": "Text MRR0.789floor 0.040▲higher is better",
+      "svg": 0
+    },
+    {
+      "label": "Chance MRR",
+      "row": "Chance MRR0.010",
+      "svg": 0
+    },
+    {
+      "label": "Chance",
+      "row": "Chance0.0333",
+      "svg": 0
+    },
+    {
+      "label": "Trivial baseline",
+      "row": "Trivial baseline0.0812",
+      "svg": 0
+    },
+    {
+      "label": "Chance",
+      "row": "Chance1/N for a catalog of N songs: what naming a song at random scores. The floor every other number on this page should be read against.",
+      "svg": 0
+    },
+    {
+      "label": "Trivial baseline",
+      "row": "Trivial baselineWhole-clip mean log spectrum, nearest neighbour. No peaks, no fingerprints, none of the capstone.",
+      "svg": 0
+    },
+    {
+      "label": "Clean top-1",
+      "row": "Clean top-11.0000▲higher is better",
+      "svg": 0
+    },
+    {
+      "label": "Noisy top-1",
+      "row": "Noisy top-11.0000▲higher is better",
+      "svg": 0
+    },
+    {
+      "label": "Pitch-shifted top-1",
+      "row": "Pitch-shifted top-10.0625▲higher is better",
+      "svg": 0
+    },
+    {
+      "label": "Library size at the knee",
+      "row": "Library size at the knee20▲higher is better",
+      "svg": 0
+    }
+  ]
+}

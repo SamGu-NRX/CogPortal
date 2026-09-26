@@ -1,0 +1,14 @@
+{
+  "before": "",
+  "isGit": "true",
+  "cliRepository": {
+    "repository_id": null,
+    "full_name": null,
+    "sha": "ec9340011f09ea10a37c6831c2ac29e19748c2bb",
+    "dirty": false,
+    "branch": "main"
+  },
+  "edited": " M README.md\n",
+  "after": "",
+  "head": "a25ddc49fa539e13005657bd58b82d0725835e2b"
+}

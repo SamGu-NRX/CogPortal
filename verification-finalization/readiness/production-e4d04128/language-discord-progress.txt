@@ -1,0 +1,59 @@
+
+      - text: new
+    - 'article "Cog*Bot App , Semantic Image Search , hosted practice 8789361 by Sam Gu 1:34 , Watch live , , :cog_spin: Preparing the bench Contract check Evaluation Scoring , , :cog_done: local :cog_active: hosted :cog_pend: official :cog_pend: published , , (edited) Tuesday, September 15, 2026 at 10:47 AM , 10:46 AM"':
+      - heading "Cog*Bot App 10:46 AM" [level=3]:
+        - button "Cog*Bot"
+        - img "App":
+          - generic: APP
+        - time:
+          - generic: —
+          - text: 10:46 AM
+        - generic: Tuesday, September 15, 2026 at 10:46 AM
+      - heading "Semantic Image Search ," [level=3]:
+        - generic: Semantic Image Search
+        - generic: ","
+      - text: hosted practice
+      - code: "8789361"
+      - text: by Sam Gu
+      - code: 1:34
+      - generic: ","
+      - button "Watch live":
+        - generic: Watch live
+      - generic: ","
+      - generic: ","
+      - button ":cog_spin:":
+        - img ":cog_spin:"
+      - strong: Preparing the bench
+      - generic: Contract check
+      - generic: Evaluation
+      - generic: Scoring
+      - generic: ","
+      - generic: ","
+      - button ":cog_done:":
+        - img ":cog_done:"
+      - text: local
+      - button ":cog_active:":
+        - img ":cog_active:"
+      - text: hosted
+      - button ":cog_pend:":
+        - img ":cog_pend:"
+      - text: official
+      - button ":cog_pend:":
+        - img ":cog_pend:"
+      - text: published
+      - generic: ","
+      - generic: ","
+      - time:
+        - generic: (edited)
+      - generic: Tuesday, September 15, 2026 at 10:47 AM
+  - button "More message options":
+  - generic: "Message #nb-development"
+  - 'textbox "Message #nb-development" [active]'
+  - button "Send a gift":
+  - generic: Upgrade your friends! Gift them awesome chat perks with Nitro.
+  - button "Open GIF picker":
+  - generic: Send GIF
+  - button "Open sticker picker":
+  - button "Add Emoji"
+  - button "Apps":
+- document

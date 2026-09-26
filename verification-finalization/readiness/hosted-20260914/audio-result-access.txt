@@ -1,0 +1,5 @@
+{
+  "requested": "https://cogportal-dev.sillion.app/runs/run_29bfe79342",
+  "actual": "https://cogportal-dev.sillion.app/signin",
+  "dom": "- document\n- link \"Skip to content\":\n  - /url: \"#main\"\n- banner:\n  - link \"Cog*Portal\":\n    - /url: /\n  - navigation \"Primary\":\n    - link \"Leaderboard\":\n      - /url: /leaderboard\n  - link \"Sign in\":\n    - /url: /signin\n- main:\n  - heading \"Sign in\" [level=1]\n  - paragraph: We use your GitHub account for sign-in, so you don't need a separate registration.\n  - link \"Continue with GitHub\":\n    - /url: /api/github/login\n    - text: Continue with GitHub\n- document"
+}

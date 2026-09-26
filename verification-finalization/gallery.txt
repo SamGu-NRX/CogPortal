@@ -1,0 +1,262 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Dashboard":
+      - /url: /dashboard
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "verify-creator Account menu for verify-creator":
+    - generic: v
+    - generic: verify-creator
+    - generic: Account menu for verify-creator
+- main:
+  - heading "Component gallery" [level=1]
+  - paragraph: States that need a specific run to reach. Development only.
+  - heading "Finding" [level=2]
+  - generic: The vote gives way
+  - paragraph: The common shape. Fingerprints are fine, the tally is not.
+  - 'figure "20% of queries had the right song somewhere in the list but not near the top. Every clip from a song that was never enrolled still came back with a candidate. Weakest cell: pitch_-2 at 0% top-1."':
+    - generic: What this run shows
+    - paragraph: Identification holds to a 20-song library, then falls off. The right song is still being found, so the vote is what gives way as the library grows.
+    - list:
+      - generic: 20% of queries had the right song somewhere in the list but not near the top.
+      - generic: Every clip from a song that was never enrolled still came back with a candidate.
+      - generic: "Weakest cell: pitch_-2 at 0% top-1."
+  - generic: The fingerprints give way
+  - paragraph: Different half of the pipeline, different fix.
+  - figure "94% of clips shared no fingerprints with anything the database stored.":
+    - generic: What this run shows
+    - paragraph: Identification holds to a 40-song library, then falls off, and at that point most queries find no matching fingerprints at all. That is the fingerprints rather than the vote.
+    - list:
+      - generic: 94% of clips shared no fingerprints with anything the database stored.
+  - generic: Nothing is size-limited
+  - paragraph: The good answer. No knee metric is reported at all.
+  - figure:
+    - generic: What this run shows
+    - paragraph: Identification holds steady from 5 songs to 30, so nothing in the pipeline is size-limited over this range.
+  - generic: One note only
+  - paragraph: Nothing below the rule. The figure must not leave a dangling border.
+  - figure:
+    - generic: What this run shows
+    - paragraph: Identification falls gradually from 60% at 5 songs to 52% at 30, without a single point where it breaks.
+  - generic: A long sentence
+  - paragraph: Checks the 58ch measure holds and does not run to the window edge.
+  - figure "A second note, for the rule. And a third.":
+    - generic: What this run shows
+    - paragraph: Every clip from a song that was never enrolled still came back with a candidate, and nothing in the assignment required an abstain path, so this does not affect the score, but a minimum tally or a first-to-second ratio is what would give you one.
+    - list:
+      - generic: A second note, for the rule.
+      - generic: And a third.
+  - heading "Sweep trace" [level=2]
+  - generic: A knee
+  - paragraph: Holds, then breaks. The shape the course's own method is looking for.
+  - figure "songs in the library identification score":
+    - img "identification_score against songs in the library, from 0.90 at 5 to 0.21 at 80":
+      - generic: "0.0"
+      - generic: "0.5"
+      - generic: "1.0"
+      - generic: "0.90"
+      - generic: "0.88"
+      - generic: "0.85"
+      - generic: "0.42"
+      - generic: "0.21"
+      - generic: "5"
+      - generic: "80"
+    - generic: songs in the library
+    - generic: identification score
+  - generic: The measured reference
+  - paragraph: Real numbers from the Week 1 reference on the 30-song tier. A gentle slope, no knee.
+  - figure "songs in the library identification score":
+    - img "identification_score against songs in the library, from 0.60 at 5 to 0.52 at 30":
+      - generic: "0.0"
+      - generic: "0.5"
+      - generic: "1.0"
+      - generic: "0.60"
+      - generic: "0.56"
+      - generic: "0.53"
+      - generic: "0.52"
+      - generic: "5"
+      - generic: "30"
+    - generic: songs in the library
+    - generic: identification score
+  - generic: Flat at zero
+  - paragraph: Nothing worked. The trace must not imply a trend; the axis stays pinned to 0..1.
+  - figure "songs in the library identification score":
+    - img "identification_score against songs in the library, from 0.00 at 5 to 0.00 at 30":
+      - generic: "0.0"
+      - generic: "0.5"
+      - generic: "1.0"
+      - generic: "0.00"
+      - generic: "0.00"
+      - generic: "5"
+      - generic: "30"
+    - generic: songs in the library
+    - generic: identification score
+  - generic: Two points
+  - paragraph: The minimum. Fewer than two returns null and draws nothing.
+  - figure "captions per image overall":
+    - img "overall against captions per image, from 0.71 at 1 to 0.44 at 5":
+      - generic: "0.0"
+      - generic: "0.5"
+      - generic: "1.0"
+      - generic: "0.71"
+      - generic: "0.44"
+      - generic: "1"
+      - generic: "5"
+    - generic: captions per image
+    - generic: overall
+  - heading "Supporting metrics, floors" [level=2]
+  - paragraph: "Left: a floor beside the metric it is the scale of, drawn inside that row. Right: the same floor with its parent withheld. It used to be filtered out of the table with nowhere else to go, so the number vanished. Neither draws a direction arrow."
+  - heading "FLOOR WITH ITS PARENT" [level=2]
+  - term: Retrieval MRR
+  - definition:
+    - generic: "0.259"
+    - generic: floor 0.010
+    - generic: ▲
+    - generic: higher is better
+  - heading "FLOOR WHOSE PARENT IS WITHHELD" [level=2]
+  - button "Chance MRR 0.010":
+    - term: Chance MRR
+    - definition:
+      - generic: "0.010"
+  - paragraph: What ranking at random scores on this pool.
+  - heading "Setup sheet, when the progress read fails" [level=2]
+  - paragraph: "Both sheets hold identical commands, all of them finished. On the left CogPortal read its evidence. On the right that request failed, which produces the same empty verified set as a student who has run nothing: empty boxes would report finished work as work nobody did, so the gutter shows dashes and no command is dimmed as complete."
+  - heading "EVIDENCE READ" [level=2]
+  - heading "In your terminal, top to bottom" [level=2]
+  - button "copy all Copy every command":
+    - text: copy all
+    - generic: Copy every command
+  - list "Observed":
+    - heading "Clone your team's repository" [level=3]
+    - paragraph: Every hosted attempt runs from it.
+    - code:
+      - generic: Verified.
+      - text: git clone https://github.com/cogworks-demo/face-finder.git && cd face-finder
+    - heading "Install the CogWorks tool" [level=3]
+    - paragraph: It works out which functions to call.
+    - code:
+      - generic: Verified.
+      - text: python -m pip install --upgrade --force-reinstall "cogworks-benchmark @ git+https://github.com/SamGu-NRX/CogPortal.git@99281c5260e61e1f599a299983071a5f15fe5f1e#subdirectory=python/cogbench"
+    - heading "Install the Audio benchmark" [level=3]
+    - paragraph: The scorer lives in its own package.
+    - code:
+      - generic: Verified.
+      - text: python -m pip install "cogworks-week1-audio-benchmark @ git+https://github.com/SamGu-NRX/cogworks-week1-audio-benchmark.git@b156644aecc810e0b93535e320098f96c39ae04e"
+    - heading "Link this machine" [level=3]
+    - paragraph: This is what lets a command report back.
+    - code:
+      - generic: Verified.
+      - text: cogworks link --portal https://cogportal.example
+    - heading "Check it, and tell this page" [level=3]
+    - paragraph: The last command is the one that reports.
+    - code:
+      - generic: Verified.
+      - text: cogworks check --benchmark audio-identification --update-setup
+  - heading "EVIDENCE UNREADABLE" [level=2]
+  - heading "In your terminal, top to bottom" [level=2]
+  - button "copy all Copy every command":
+    - text: copy all
+    - generic: Copy every command
+  - list "Unavailable":
+    - heading "Clone your team's repository" [level=3]
+    - paragraph: Every hosted attempt runs from it.
+    - generic: –
+    - code:
+      - generic: Progress unknown.
+      - text: git clone https://github.com/cogworks-demo/face-finder.git && cd face-finder
+    - heading "Install the CogWorks tool" [level=3]
+    - paragraph: It works out which functions to call.
+    - generic: –
+    - code:
+      - generic: Progress unknown.
+      - text: python -m pip install --upgrade --force-reinstall "cogworks-benchmark @ git+https://github.com/SamGu-NRX/CogPortal.git@99281c5260e61e1f599a299983071a5f15fe5f1e#subdirectory=python/cogbench"
+    - heading "Install the Audio benchmark" [level=3]
+    - paragraph: The scorer lives in its own package.
+    - generic: –
+    - code:
+      - generic: Progress unknown.
+      - text: python -m pip install "cogworks-week1-audio-benchmark @ git+https://github.com/SamGu-NRX/cogworks-week1-audio-benchmark.git@b156644aecc810e0b93535e320098f96c39ae04e"
+    - heading "Link this machine" [level=3]
+    - paragraph: This is what lets a command report back.
+    - generic: –
+    - code:
+      - generic: Progress unknown.
+      - text: cogworks link --portal https://cogportal.example
+    - heading "Check it, and tell this page" [level=3]
+    - paragraph: The last command is the one that reports.
+    - generic: –
+    - code:
+      - generic: Progress unknown.
+      - text: cogworks check --benchmark audio-identification --update-setup
+  - heading "Wiring trace" [level=2]
+  - paragraph: The second identifier is 200 characters, the longest the contract allows. It has to wrap inside the column, not be cut off at the edge.
+  - generic: Your code, as it was run
+  - list:
+    - generic: spectrogram
+    - generic: audio.processing.spectrogram_utilities.make_spectrogram_with_hann_window_and_overlap
+    - generic: took an array of shape (132300,), 44100
+    - text: ·
+    - generic: returned a tuple of 3, starting with an array of shape (2049, 63)
+    - generic: peaks
+    - generic: fingerprinting.peak_detection.local_maxima.find_peaks_by_iterative_neighbourhood_comparison_over_the_log_spectrogram_with_an_amplitude_floor_and_a_minimum_time_frequency_separation_between_accepted_in
+    - generic: took an array of shape (2049, 63)
+    - text: ·
+    - generic: returned an array of shape (355, 2)
+    - generic: fanout
+    - generic: fingerprinting.make_fgp
+    - generic: took an array of shape (355, 2)
+    - text: ·
+    - generic: returned a list of 5158, starting ((221, 468, 1), 0)
+  - heading "Finding above results, as the run page composes them" [level=2]
+  - 'figure "20% of queries had the right song somewhere in the list but not near the top. Every clip from a song that was never enrolled still came back with a candidate. Weakest cell: pitch_-2 at 0% top-1."':
+    - generic: What this run shows
+    - paragraph: Identification holds to a 20-song library, then falls off. The right song is still being found, so the vote is what gives way as the library grows.
+    - list:
+      - generic: 20% of queries had the right song somewhere in the list but not near the top.
+      - generic: Every clip from a song that was never enrolled still came back with a candidate.
+      - generic: "Weakest cell: pitch_-2 at 0% top-1."
+  - heading "RESULTS" [level=2]
+  - figure "▲ higher is better":
+    - generic: Identification score
+    - generic: "0.5312"
+    - generic: ▲ higher is better
+    - term: Chance
+    - definition: "0.0333"
+    - term: Trivial baseline
+    - definition: "0.0812"
+    - term: Chance
+    - definition: "1/N for a catalog of N songs: what naming a song at random scores. The floor every other number on this page should be read against."
+    - term: Trivial baseline
+    - definition: Whole-clip mean log spectrum, nearest neighbour. No peaks, no fingerprints, none of the capstone.
+    - paragraph: Top-1 accuracy over clips cut from songs you enrolled, after perturbation. This is the leaderboard number.
+  - term: Clean top-1
+  - definition:
+    - generic: "1.0000"
+    - generic: ▲
+    - generic: higher is better
+  - term: Noisy top-1
+  - definition:
+    - generic: "1.0000"
+    - generic: ▲
+    - generic: higher is better
+  - button "Pitch-shifted top-1 0.0625 higher is better":
+    - term: Pitch-shifted top-1
+    - definition:
+      - generic: "0.0625"
+      - generic: ▲
+      - generic: higher is better
+  - paragraph: NOT part of the assignment. A shifted clip moves every peak to a different frequency bin, so the stored keys stop matching.
+  - button "Library size at the knee 20 higher is better":
+    - term: Library size at the knee
+    - definition:
+      - generic: "20"
+      - generic: ▲
+      - generic: higher is better
+  - paragraph: The library size where identification first drops 15 points below its best.
+  - paragraph: Public practice split.
+- document

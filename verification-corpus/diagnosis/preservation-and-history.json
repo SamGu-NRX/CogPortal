@@ -1,0 +1,23 @@
+{
+  "frozenSourceChanged": [],
+  "originalChangedFilesChanged": [],
+  "priorCommit": "8e09a07c6e0cce75c70845d4566fd756f390c83b",
+  "blobsAtPriorAndBaseline": {
+    "isolate.py": [
+      "4bc0cc9b8096e3cbbbbc61557375c7e613a3a57d",
+      "4bc0cc9b8096e3cbbbbc61557375c7e613a3a57d"
+    ],
+    "cli.py": [
+      "b480bc674ce09c198e8b57888f86a8e7d7108a5a",
+      "b480bc674ce09c198e8b57888f86a8e7d7108a5a"
+    ],
+    "discover.py": [
+      "dcb83a27befadce9e2e5f725783aaed717d0a05b",
+      "dcb83a27befadce9e2e5f725783aaed717d0a05b"
+    ],
+    "pipeline.py": [
+      "1f599d71a242dd265ee16e27c740e05ab6cee35a",
+      "1f599d71a242dd265ee16e27c740e05ab6cee35a"
+    ]
+  }
+}

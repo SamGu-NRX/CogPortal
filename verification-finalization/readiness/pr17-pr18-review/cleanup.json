@@ -1,0 +1,29 @@
+{
+  "CogPortal-verifier-pr17-39f6ae4": {
+    "devices": [
+      {
+        "id": "cli_c96f26b25eaed28b",
+        "name": "UI acceptance e8 isolated",
+        "user_id": "LKF2CPVCu9OoHoUJSj0JopaeBkZSvhAS",
+        "revoked_at": 1789075616977
+      },
+      {
+        "id": "cli_8ef1180a6df9c2d1",
+        "name": "PR17 acceptance device",
+        "user_id": "LKF2CPVCu9OoHoUJSj0JopaeBkZSvhAS",
+        "revoked_at": 1789143066122
+      }
+    ]
+  },
+  "CogPortal-verifier-pr18-5a915da": {
+    "devices": [
+      {
+        "id": "cli_c96f26b25eaed28b",
+        "name": "UI acceptance e8 isolated",
+        "user_id": "LKF2CPVCu9OoHoUJSj0JopaeBkZSvhAS",
+        "revoked_at": 1789075616977
+      }
+    ]
+  },
+  "privateCommandAndRevokedConfigRemoved": true
+}

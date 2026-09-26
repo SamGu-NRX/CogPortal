@@ -1,0 +1,83 @@
+[build-system]
+requires = ["setuptools>=61.2", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cogworks-week2-vision-benchmark"
+version = "0.1.0"
+description = "Behavioral benchmark plugins for the CogWorks Week 2 vision capstone"
+readme = "README.md"
+requires-python = ">=3.8,<3.13"
+license = { file = "LICENSE" }
+authors = [{ name = "Reynaldo Jose Morillo Nolasco" }]
+dependencies = [
+  "numpy>=1.24,<2",
+  "Pillow>=10.2,<11",
+  "platformdirs>=4,<5",
+]
+
+[project.optional-dependencies]
+data = ["datasets>=2.20,<4"]
+diagnostics = [
+  "matplotlib>=3.7,<4",
+  "networkx>=3.1,<4",
+  "scikit-image>=0.21,<0.25",
+]
+test = [
+  "build>=1.2,<2",
+  "pytest>=8,<8.4",
+  "ruff>=0.12,<1",
+]
+
+[project.entry-points."cogworks.benchmarks.v2"]
+vision-recognition = "facial_recognition_benchmark.plugins:RecognitionBenchmark"
+vision-clustering = "facial_recognition_benchmark.plugins:ClusteringBenchmark"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["facial_recognition_benchmark*"]
+
+[tool.setuptools.package-data]
+facial_recognition_benchmark = [
+  "descriptor.json",
+  "model-lock.json",
+  "manifests/*.json",
+  "py.typed",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "face_recognition_app/tests", "facial_recognition_benchmark/tests.py"]
+addopts = "-ra"
+# The reference application is a directory of modules rather than an
+# installed package, and two suites import it as `face_recognition`. Without
+# this the collection of those two files fails with ModuleNotFoundError on
+# any interpreter that does not already have the directory on its path,
+# which is every clean checkout.
+pythonpath = ["face_recognition_app"]
+
+[tool.ruff]
+target-version = "py38"
+line-length = 100
+extend-exclude = [
+  "face_recognition_app/face_recognition",
+  "face_recognition_app/example_with_benchmark.py",
+  "face_recognition_app/main.py",
+  "facial_recognition_benchmark/benchmark.py",
+  "facial_recognition_benchmark/celeba_dataset.py",
+  "facial_recognition_benchmark/celeba_example.py",
+  "facial_recognition_benchmark/database.py",
+  "facial_recognition_benchmark/descriptors.py",
+  "facial_recognition_benchmark/detection.py",
+  "facial_recognition_benchmark/distance.py",
+  "facial_recognition_benchmark/example.py",
+  "facial_recognition_benchmark/example_usage.py",
+  "facial_recognition_benchmark/example_with_data.py",
+  "facial_recognition_benchmark/recognition.py",
+  "facial_recognition_benchmark/tests.py",
+  "facial_recognition_benchmark/utils.py",
+  "facial_recognition_benchmark/whispers.py",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+ignore = ["UP006", "UP007", "UP045"]

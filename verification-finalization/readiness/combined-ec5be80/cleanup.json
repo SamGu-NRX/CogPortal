@@ -1,0 +1,16 @@
+{
+  "sameRowsAsBaseline": {
+    "users": true,
+    "sessions": true,
+    "accounts": true,
+    "team_members": true,
+    "setup_verifications": true,
+    "cli_devices": true,
+    "device_authorizations": true
+  },
+  "revokedDevice": {
+    "id": "cli_a187ed45e3418642",
+    "name": "Combined ec5be80 acceptance",
+    "revoked_at": 1789152126882
+  }
+}

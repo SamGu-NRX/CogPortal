@@ -1,0 +1,64 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Dashboard":
+      - /url: /dashboard
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "Sam CogPortal owner Account menu for SamGu-NRX":
+    - generic: Sam
+    - img "CogPortal owner":
+    - generic: Account menu for SamGu-NRX
+- main:
+  - link "← Dashboard":
+    - /url: /dashboard
+  - link "Open current run":
+    - /url: /run-surfaces/surface_91ff0635749f94036092
+  - heading "Song Identification" [level=1]
+  - generic: Practice
+  - generic: Failed
+  - generic: "Run status: Failed"
+  - paragraph:
+    - generic: RUN 1E43
+    - generic: "|"
+    - generic: audio-identification / v1
+    - generic: "|"
+    - link "SamGu-NRX/cogportal-demo-week1":
+      - /url: https://github.com/SamGu-NRX/cogportal-demo-week1
+    - generic: "|"
+    - generic: codex/demo-rehearsal-d9405278
+    - button "Copy full commit SHA e515ff619e02c16be903985d8536bc5ee6d7a2e9":
+      - generic: e515ff6
+    - status
+    - generic: "|"
+    - generic: Sep 14, 09:22 PM
+    - generic: "|"
+    - generic: 13.4 s
+  - heading "PIPELINE" [level=2]
+  - list "Run pipeline":
+    - text: Queued
+    - generic: ", complete"
+    - text: Prepare
+    - generic: ", failed"
+    - text: Install
+    - generic: ", not started"
+    - text: Contract check
+    - generic: ", not started"
+    - text: Evaluate
+    - generic: ", not started"
+    - text: Score
+    - generic: ", not started"
+    - generic: Complete
+  - heading "Run failed" [level=3]
+  - paragraph: The run couldn't finish
+  - paragraph: E-PROVIDER · Prepare
+  - paragraph: The hosted execution could not finish. The recorded details may identify where it stopped.
+  - generic: "Preparation provider failed: Images cannot currently be hydrated on demand; you can build an Image by running an App that uses it."
+  - paragraph: If the run keeps failing, share its details with course staff.
+  - button "Show details":
+    - generic: Show details
+- document

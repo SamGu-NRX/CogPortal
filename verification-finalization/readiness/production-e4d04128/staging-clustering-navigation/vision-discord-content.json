@@ -1,0 +1,4 @@
+{
+  "clustering": "Cog*Bot\nAPP\n — \n11:31 AM\nTuesday, September 15, 2026 at 11:31 AM\n Bench clear  0.7556\n,\nClustering  29f9cf9  by Sam Gu  2:20\n,\n,\n0.705    adjusted rand index\n0.000    spread across seeds\n,\n,\n local   hosted   official   published\n,\n,\nPromote to official\n,\nRerun hosted\n,\nCog*Portal\n,\n,\n,\n(edited)\nTuesday, September 15, 2026 at 11:33 AM",
+  "recognition": "[\n11:37 AM\n]\nTuesday, September 15, 2026 at 11:37 AM\n Bench clear  0.9250\n,\nRecognition  29f9cf9  by Sam Gu  0:56\n,\n,\n0.950    known identification\n0.800    post-enrollment accuracy\n0.900    unknown lifecycle\n1.000    unknown rejection recall\n,\n,\n local   hosted   official   published\n,\n,\nPromote to official\n,\nRerun hosted\n,\nCog*Portal\n,\n,\n,\n(edited)\nTuesday, September 15, 2026 at 11:38 AM"
+}

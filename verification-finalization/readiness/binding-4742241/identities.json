@@ -1,0 +1,21 @@
+{
+  "sdkPath": "/tmp/cogportal-binding-venv/lib/python3.11/site-packages/cogbench/__init__.py",
+  "sdkPin": "1b7fc261abfe0ff006a4a678d936e75002e5bb39",
+  "wheelSha256": "4e35a5b535f8a70e0467d2f462218a848ef570059351be0daf41ea7f23a3f08c",
+  "audioPath": "/Users/samgu/Programming Projects/CogPortal-verifier-ui-e8aed6e/.venv-ui-accept/lib/python3.11/site-packages/audio_identification_benchmark/__init__.py",
+  "audioDirectUrl": {
+    "url": "https://github.com/SamGu-NRX/cogworks-week1-audio-benchmark.git",
+    "vcs_info": {
+      "commit_id": "b156644aecc810e0b93535e320098f96c39ae04e",
+      "requested_revision": "b156644aecc810e0b93535e320098f96c39ae04e",
+      "vcs": "git"
+    }
+  },
+  "repository": {
+    "repository_id": null,
+    "full_name": "SamGu-NRX/cogportal-demo-week1",
+    "sha": "71258046e60fecd3295c0b52236fc6e476b0e9cf",
+    "dirty": false,
+    "branch": "main"
+  }
+}

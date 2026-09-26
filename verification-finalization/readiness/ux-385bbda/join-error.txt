@@ -1,0 +1,23 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "ux-audit-385 Account menu for ux-audit-385":
+    - generic: u
+    - generic: ux-audit-385
+    - generic: Account menu for ux-audit-385
+- main:
+  - heading "Join the cohort" [level=1]
+  - paragraph: Enter the join code from your instructor. You do this once.
+  - generic: Join code
+  - textbox "Join code":
+    - /placeholder: ········
+    - text: WRONGCODE
+  - alert: That code doesn't match. Check the code your instructor shared.
+  - button "Join"
+- document

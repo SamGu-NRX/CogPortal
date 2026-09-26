@@ -1,0 +1,5 @@
+git clone https://github.com/cogworks-demo/face-finder-ready.git && cd face-finder-ready
+python -m pip install --upgrade --force-reinstall "cogworks-benchmark @ git+https://github.com/SamGu-NRX/CogPortal.git@8e09a07c6e0cce75c70845d4566fd756f390c83b#subdirectory=python/cogbench"
+python -m pip install "cogworks-week2-vision-benchmark @ git+https://github.com/iReynaldo/ComputerVisionBenchmark.git@c177cf23cdd4f8dbe55401a2eb4bada4c64d37c2"
+cogworks link --portal http://localhost:5173
+cogworks check --benchmark vision-recognition --update-setup

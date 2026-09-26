@@ -1,0 +1,24 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "Account menu for pr18-firstlink-d0f3":
+    - generic: p
+    - generic: Account menu for pr18-firstlink-d0f3
+- main:
+  - status:
+    - text: A device was waiting for approval, but you need a team first. Finish this step, then run
+    - code: cogworks link --portal http://localhost:5204
+    - text: again.
+  - heading "Join the cohort" [level=1]
+  - paragraph: Enter the join code from your instructor. You do this once.
+  - generic: Join code
+  - textbox "Join code" [active]:
+    - /placeholder: ········
+  - button "Join" [disabled]
+- document

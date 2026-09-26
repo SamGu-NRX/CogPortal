@@ -1,0 +1,60 @@
+													1210 text , , ,
+													1211 container
+														1212 text ( edited )
+													1213 text Tuesday, September 15, 2026 at 3:15 AM Only you can see this • 
+													1214 link Dismiss message
+														1215 text Dismiss message
+											1216 container Cog*Bot App , Song Identification , hosted practice  e515ff6  by Sam Gu  1:51 team best so far 0.5375 , Watch live , , :cog_done: Bench prepared 0:40 :cog_done: Contract passed 1:01 :cog_spin: Evaluating 0/282 Scoring , , :cog_done: local   :cog_active: hosted   :cog_pend: official   :cog_pend: published , , (edited) Tuesday, September 15, 2026 at 3:17 AM , 3:16 AM
+												1217 heading Cog*Bot App 3:16 AM, Value: 3
+													1218 container
+														1219 button Cog*Bot
+														1220 image App
+													1221 container
+														1222 text 3:16 AM
+														1223 text Tuesday, September 15, 2026 at 3:16 AM
+												1224 container
+													1225 heading Song Identification ,, Value: 3
+														1226 text Song Identification ,
+													1227 container
+														1228 text hosted practice   e515ff6   by Sam Gu   1:51
+													1229 text team best so far 0.5375
+													1230 text ,
+													1231 button Watch live
+														1232 text Watch live
+													1233 text , ,
+													1234 button :cog_done:
+														1235 image :cog_done:
+													1236 text  Bench prepared  
+													1237 text 0:40
+													1238 button :cog_done:
+														1239 image :cog_done:
+													1240 text  Contract passed  
+													1241 text 1:01
+													1242 button :cog_spin:
+														1243 image :cog_spin:
+													1244 text Evaluating
+													1245 text 0/282
+													1246 text Scoring
+													1247 text , ,
+													1248 container
+														1249 button :cog_done:
+															1250 image :cog_done:
+														1251 text  local  
+														1252 button :cog_active:
+															1253 image :cog_active:
+														1254 text  hosted  
+														1255 button :cog_pend:
+															1256 image :cog_pend:
+														1257 text  official  
+														1258 button :cog_pend:
+															1259 image :cog_pend:
+														1260 text  published
+													1261 text , ,
+													1262 container
+														1263 text ( edited )
+													1264 text Tuesday, September 15, 2026 at 3:17 AM
+												1265 container Message Actions
+													1266 container
+														1267 button Click to react with thumbsup
+															1268 image
+														1269 text :thumbsup:

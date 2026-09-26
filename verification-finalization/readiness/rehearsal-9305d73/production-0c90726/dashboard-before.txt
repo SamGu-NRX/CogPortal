@@ -1,0 +1,63 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Dashboard":
+      - /url: /dashboard
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "Sam CogPortal owner Account menu for SamGu-NRX":
+    - generic: Sam
+    - img "CogPortal owner":
+    - generic: Account menu for SamGu-NRX
+- main:
+  - paragraph: Good morning, Sam
+  - heading "CogPortal" [level=1]:
+    - link "CogPortal":
+      - /url: /team
+  - button "Song Identification · v1 Change benchmark track. Currently Song Identification.":
+    - text: Song Identification · v1
+    - generic: Change benchmark track. Currently Song Identification.
+  - heading "FIRST RUN" [level=2]
+  - paragraph: Two ways to run Song Identification, scored the same way. Local runs are unlimited, so that's usually where the work happens.
+  - heading "On your machine" [level=3]
+  - paragraph:
+    - text: These need the tool from
+    - link "Setup":
+      - /url: /setup
+    - text: first.
+  - code:
+    - generic: cogworks check --benchmark audio-identification
+    - generic: cogworks run --benchmark audio-identification
+    - generic: cogworks sync
+  - button "Copy command":
+    - generic: Copy command
+  - status
+  - heading "Here, from your pushed commit" [level=3]
+  - paragraph: 10 of 10 hosted practice runs left, and 3 of 3 official attempts. An official attempt is the one that uses the hidden set.
+  - generic: Branch
+  - combobox "Branch":
+    - option "main" [selected]
+    - option "codex/demo-rehearsal-d9405278"
+  - button "Run practice benchmark"
+  - paragraph: SamGu-NRX/cogportal-demo-week1 · week1-cpu-v1 · CPU · network blocked during evaluation
+  - heading "LOCAL REPORTS" [level=2]
+  - generic: SELF-REPORTED · NOT PROMOTABLE
+  - table "Self-reported local CogBench results":
+    - caption: Self-reported local CogBench results
+    - rowgroup:
+      - row "Student Commit Result Synced":
+        - columnheader "Student"
+        - columnheader "Commit"
+        - columnheader "Result"
+        - columnheader "Synced"
+    - rowgroup:
+      - row "SamGu-NRX e515ff6 0.5375 just now":
+        - cell "SamGu-NRX"
+        - cell "e515ff6"
+        - cell "0.5375"
+        - cell "just now"
+- document

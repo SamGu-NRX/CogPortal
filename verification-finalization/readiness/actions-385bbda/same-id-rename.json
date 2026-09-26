@@ -1,0 +1,157 @@
+{
+  "before": {
+    "status": 200,
+    "body": {
+      "id": "run_source_renamed",
+      "repo": {
+        "owner": "cogworks-demo",
+        "name": "previous-name",
+        "fullName": "cogworks-demo/previous-name",
+        "url": "https://github.com/cogworks-demo/previous-name"
+      },
+      "mode": "practice",
+      "status": "succeeded",
+      "benchmarkId": "audio-identification",
+      "benchmarkVersion": 1,
+      "branch": "main",
+      "sha": "71258046e60fecd3295c0b52236fc6e476b0e9cf",
+      "shortSha": "7125804",
+      "createdAt": 1789107550729,
+      "finishedAt": 1789107550729,
+      "attemptNumber": null,
+      "primaryMetric": null,
+      "failure": null,
+      "contractVersion": "cogworks.submissions.v2",
+      "parentRunId": null,
+      "sourceRefusal": null,
+      "phases": [],
+      "metrics": [],
+      "diagnostics": [],
+      "sweep": null,
+      "wiring": [],
+      "refusal": null,
+      "weightsSupplied": [],
+      "log": null,
+      "selected": false
+    }
+  },
+  "surface_before": {
+    "status": 200,
+    "body": {
+      "id": "surface_00000000000000000006",
+      "team": {
+        "id": "team_source_accept",
+        "name": "Source history fixture"
+      },
+      "benchmark": {
+        "id": "audio-identification",
+        "version": 1,
+        "title": "Song Identification"
+      },
+      "actor": {
+        "login": "ui-accept-e8",
+        "name": "ui-accept-e8"
+      },
+      "sha": "71258046e60fecd3295c0b52236fc6e476b0e9cf",
+      "shortSha": "7125804",
+      "branch": "main",
+      "dirty": false,
+      "stage": "hosted",
+      "status": "succeeded",
+      "phase": "succeeded",
+      "createdAt": 1789107550729,
+      "updatedAt": 1789107550729,
+      "finishedAt": 1789107550729,
+      "elapsedMs": 0,
+      "progress": null,
+      "primaryMetric": null,
+      "metrics": [],
+      "teamBest": {
+        "key": "identification_score",
+        "label": "Identification score",
+        "value": 0.5375,
+        "unit": null,
+        "higherIsBetter": true,
+        "primary": true,
+        "precision": 4,
+        "help": null,
+        "role": null,
+        "relatesTo": null
+      },
+      "localRunId": null,
+      "practiceRunId": "run_source_renamed",
+      "officialRunId": null,
+      "published": false,
+      "nextOfficialAttempt": 1,
+      "refusalHeadline": null,
+      "events": [
+        {
+          "eventId": "fixtureevent_run_source_renamed_13",
+          "source": "practice",
+          "sourceRunId": "run_source_renamed",
+          "sourceSequence": 13,
+          "phase": "scoring",
+          "code": "run.completed",
+          "occurredAt": 1789107550729,
+          "elapsedMs": 0,
+          "progress": null
+        }
+      ],
+      "source": {
+        "owner": "cogworks-demo",
+        "name": "previous-name",
+        "fullName": "cogworks-demo/previous-name",
+        "url": "https://github.com/cogworks-demo/previous-name"
+      },
+      "sourceRefusal": null,
+      "actions": [
+        "open_console",
+        "open_portal",
+        "promote_official",
+        "rerun_hosted"
+      ],
+      "simulated": true
+    }
+  },
+  "team": {
+    "id": "team_source_accept",
+    "repo_id": 1,
+    "repo_full_name": "cogworks-demo/face-finder"
+  },
+  "promotion": {
+    "status": 201,
+    "body": {
+      "runId": "run_6fc368c2cb"
+    }
+  },
+  "rows": [
+    {
+      "id": "run_6fc368c2cb",
+      "mode": "official",
+      "status": "queued",
+      "repository_id": 1,
+      "repository_full_name": "cogworks-demo/previous-name",
+      "parent_run_id": "run_source_renamed"
+    },
+    {
+      "id": "run_source_renamed",
+      "mode": "practice",
+      "status": "succeeded",
+      "repository_id": 1,
+      "repository_full_name": "cogworks-demo/previous-name",
+      "parent_run_id": null
+    }
+  ],
+  "claims": [
+    {
+      "id": "attempt_8943453efc95e8f5",
+      "team_id": "team_source_accept",
+      "benchmark_id": "audio-identification",
+      "benchmark_version": 1,
+      "run_id": "run_6fc368c2cb",
+      "attempt_number": 1,
+      "consumed": 0,
+      "claimed_at": 1789107550847
+    }
+  ]
+}

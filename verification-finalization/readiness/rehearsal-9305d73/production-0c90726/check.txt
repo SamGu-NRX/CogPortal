@@ -1,0 +1,21 @@
+benchmark              audio-identification
+python                 3.11.15
+hosted python          3.8.20 (the hidden evaluation runs on this)
+repository             SamGu-NRX/cogportal-demo-week1
+
+looked in              CogPortal-rehearsal-student  (code sits at the repository root)
+read                   17 files: build_eval_database, create_fingerprints, create_spectogram, database, eval_utils, evaluate_rerank, evaluate_retrieval, evaluate_robustness, final_checker, find_matches, find_peaks, load_audio, main, random_clips, run_demo, song_metadata, topological_rerank
+could not read         app: imports flask, which is not installed here
+skipped                1 script that read files or a microphone this machine does not have
+
+Wired up:
+  spectrogram    create_spectogram.create_spectrogram
+  peaks          find_peaks.find_peaks
+  fingerprints   create_fingerprints.peaks_to_fingerprints
+  store          database.AudioDatabase().store_fingerprints
+  query          database.AudioDatabase().query
+
+Your code is wired up and ready to score.
+
+Run `cogworks run --benchmark audio-identification` to score it on your machine.
+setup: updated clone, environment, project, wiring

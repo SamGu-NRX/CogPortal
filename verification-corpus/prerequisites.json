@@ -1,0 +1,16 @@
+{
+  "checkedAt": "2026-09-10T09:41:16.591581+00:00",
+  "execution": "read-only prerequisite inspection; no student code executed",
+  "checkpoint": {
+    "path": "/Users/samgu/.cache/torch/checkpoints/20180402-114759-vggface2.pt",
+    "bytes": 111898327,
+    "sha256": "281cebca8662831adb987a874bdcb36e73f5b1c6dc5ee5878f305e985625d99b"
+  },
+  "cacheFiles": {
+    "/Users/samgu/Library/Caches/cogworks": 0,
+    "/Users/samgu/Library/Caches/cogworks-language-search": 0,
+    "/Users/samgu/Library/Caches/cog_data": 0
+  },
+  "caseValidation": "20 unique pairs, 15 unique projects, 13 unique repositories; every project path and pinned commit exists",
+  "shellValidation": "bash -n run-case.sh passed; wrapper not executed"
+}

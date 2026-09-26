@@ -1,0 +1,11 @@
+{
+  "databaseRestoredExactSqlDump": true,
+  "newRuns": 0,
+  "serverStopped": true,
+  "viewportReset": true,
+  "verifierTabClosed": true,
+  "trackRestored": "language-search",
+  "candidateHead": "adbeb50f0abc3bfdc35a2283d665688045851b37",
+  "trackedDiff": "",
+  "status": "?? apps/portal/node_modules\n?? node_modules\n?? packages/contracts/node_modules"
+}

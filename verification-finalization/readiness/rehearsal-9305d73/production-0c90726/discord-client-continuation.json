@@ -1,0 +1,13 @@
+{
+  "browserId": "1",
+  "sameProfileClientTabs": [
+    {
+      "id": "1693192623",
+      "state": "Discord login redirect to authorized channel"
+    }
+  ],
+  "otherSignedInClientTabAvailable": false,
+  "mappingPreserved": "cogactivity.sillion.app",
+  "nextStep": "Sam completes Discord browser login; then resume /cog production account link and channel binding, verify embedded saved result before the authorized additional practice run.",
+  "additionalRunSubmitted": false
+}

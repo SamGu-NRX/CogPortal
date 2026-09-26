@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "device": "cpu",
+  "facenet_models": {
+    "repository": "https://github.com/CogWorksBWSI/facenet_models.git",
+    "commit": "96b9599b03f26910b66f61ce725a8660e0ba654c"
+  },
+  "dependencies": {
+    "python": "3.8.20",
+    "numpy": "1.24.4",
+    "torch": "2.2.2",
+    "torchvision": "0.17.2",
+    "facenet-pytorch": "2.6.0",
+    "Pillow": "10.2.0",
+    "opencv-python-headless": "4.10.0.84"
+  },
+  "checkpoint": {
+    "name": "20180402-114759-vggface2.pt",
+    "url": "https://github.com/timesler/facenet-pytorch/releases/download/v2.2.9/20180402-114759-vggface2.pt",
+    "size": 111898327,
+    "sha256": "281cebca8662831adb987a874bdcb36e73f5b1c6dc5ee5878f305e985625d99b"
+  }
+}

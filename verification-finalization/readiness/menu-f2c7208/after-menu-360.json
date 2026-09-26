@@ -1,0 +1,93 @@
+{
+  "active": "Dashboard",
+  "clientWidth": 345,
+  "documentWidth": 345,
+  "items": [
+    {
+      "rect": {
+        "bottom": 135.59375,
+        "height": 34.59375,
+        "left": 21,
+        "right": 227,
+        "top": 101,
+        "width": 206,
+        "x": 21,
+        "y": 101
+      },
+      "text": "Dashboard"
+    },
+    {
+      "rect": {
+        "bottom": 170.1875,
+        "height": 34.59375,
+        "left": 21,
+        "right": 227,
+        "top": 135.59375,
+        "width": 206,
+        "x": 21,
+        "y": 135.59375
+      },
+      "text": "Setup guide"
+    },
+    {
+      "rect": {
+        "bottom": 204.78125,
+        "height": 34.59375,
+        "left": 21,
+        "right": 227,
+        "top": 170.1875,
+        "width": 206,
+        "x": 21,
+        "y": 170.1875
+      },
+      "text": "Team settings"
+    },
+    {
+      "rect": {
+        "bottom": 239.375,
+        "height": 34.59375,
+        "left": 21,
+        "right": 227,
+        "top": 204.78125,
+        "width": 206,
+        "x": 21,
+        "y": 204.78125
+      },
+      "text": "Connections"
+    },
+    {
+      "rect": {
+        "bottom": 277.96875,
+        "height": 34.59375,
+        "left": 21,
+        "right": 227,
+        "top": 243.375,
+        "width": 206,
+        "x": 21,
+        "y": 243.375
+      },
+      "text": "Sign out"
+    }
+  ],
+  "menu": {
+    "bottom": 282.96875,
+    "height": 186.96875,
+    "left": 20,
+    "right": 228,
+    "top": 96,
+    "width": 208,
+    "x": 20,
+    "y": 96
+  },
+  "trigger": {
+    "bottom": 88,
+    "height": 44,
+    "left": 20,
+    "right": 74,
+    "top": 44,
+    "width": 54,
+    "x": 20,
+    "y": 44
+  },
+  "viewport": 360
+}

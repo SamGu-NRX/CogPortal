@@ -1,0 +1,31 @@
+{
+  "checkedAt": "2026-09-10T21:10:00.374807+00:00",
+  "candidate": "8459519e65c16a4819e36e83f31940dc5d779845",
+  "candidateStatus": "",
+  "workerVersion": "f5b686b6-03b9-48bb-b5ce-635cfcfb0032",
+  "workerDeployment": "83e8064e-90b7-48c7-bc80-0b57cd5682f7",
+  "workerDeployedAt": "2026-09-10T15:13:15.082434Z",
+  "liveIframeOrigin": "https://1526706029356646460.discordsays.com",
+  "guildId": "1515858059027550321",
+  "channelId": "1515858059405295762",
+  "liveError": "Discord could not authorize the Activity.",
+  "assetFetch": "Unauthenticated direct activity-host GET returned HTTP403; no retry or bypass",
+  "sourceFiles": {
+    "apps/portal/src/activity-main.tsx": {
+      "sha256": "afe471bcb519824e0558892f349678b0ea79fad542365d1dd2b9e977c2aa612d",
+      "matchesPreservedCheckout": true
+    },
+    "apps/portal/src/lib/run-surface-stream.ts": {
+      "sha256": "dadeb646db0da5c9681cfb575415e52ccbf778c383aca061fa7c5a6335cb70dc",
+      "matchesPreservedCheckout": true
+    },
+    "apps/portal/worker/routes/activity.ts": {
+      "sha256": "dc1d0d87ca0298de1ee09f55f4f3bc241981eeb92483d3cd0f79a1df73355d34",
+      "matchesPreservedCheckout": true
+    },
+    "apps/portal/test/activity-auth.test.ts": {
+      "sha256": "5b5073f54a3f40001968ec4fd24ee4f6260773c6949f4eee9783cdfe6bcb11c0",
+      "matchesPreservedCheckout": true
+    }
+  }
+}

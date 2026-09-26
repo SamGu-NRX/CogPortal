@@ -1,0 +1,1684 @@
+{
+  "login": {
+    "status": 200,
+    "body": {
+      "user": {
+        "login": "ui-accept-e8",
+        "name": "ui-accept-e8",
+        "avatarUrl": null,
+        "platformRole": "staff",
+        "isOwner": true,
+        "isTa": false
+      },
+      "cohort": {
+        "slug": "source-accept",
+        "name": "Disposable source acceptance"
+      },
+      "team": {
+        "id": "team_source_accept",
+        "name": "Source history fixture",
+        "description": null,
+        "provenance": "live",
+        "repo": {
+          "owner": "fixture-org",
+          "name": "repo-a",
+          "fullName": "fixture-org/repo-a",
+          "url": "https://github.com/fixture-org/repo-a",
+          "defaultBranch": "main"
+        }
+      },
+      "auth": {
+        "githubConfigured": false,
+        "devAuthEnabled": true,
+        "onboardingDevToolsEnabled": true,
+        "appSlug": null,
+        "templateRepo": null,
+        "executionProvider": "fixture"
+      }
+    }
+  },
+  "before_swap": {
+    "status": 200,
+    "body": {
+      "id": "run_source_old",
+      "repo": {
+        "owner": "fixture-org",
+        "name": "repo-a",
+        "fullName": "fixture-org/repo-a",
+        "url": "https://github.com/fixture-org/repo-a"
+      },
+      "mode": "practice",
+      "status": "succeeded",
+      "benchmarkId": "audio-identification",
+      "benchmarkVersion": 1,
+      "branch": "main",
+      "sha": "71258046e60fecd3295c0b52236fc6e476b0e9cf",
+      "shortSha": "7125804",
+      "createdAt": 1789082252242,
+      "finishedAt": 1789082253242,
+      "attemptNumber": null,
+      "primaryMetric": {
+        "key": "identification_score",
+        "label": "Identification score",
+        "value": 0.5375,
+        "unit": null,
+        "higherIsBetter": true,
+        "primary": true,
+        "precision": 4,
+        "help": null,
+        "role": null,
+        "relatesTo": null
+      },
+      "failure": null,
+      "contractVersion": "cogworks.submissions.v2",
+      "parentRunId": null,
+      "sourceRefusal": null,
+      "phases": [],
+      "metrics": [
+        {
+          "key": "identification_score",
+          "label": "Identification score",
+          "value": 0.5375,
+          "unit": null,
+          "higherIsBetter": true,
+          "primary": true,
+          "precision": 4,
+          "help": null,
+          "role": null,
+          "relatesTo": null
+        }
+      ],
+      "diagnostics": [],
+      "sweep": null,
+      "wiring": [],
+      "refusal": null,
+      "weightsSupplied": [],
+      "log": null,
+      "selected": false
+    }
+  },
+  "swap": {
+    "status": 200,
+    "body": {
+      "id": "team_source_accept",
+      "name": "Source history fixture",
+      "description": null,
+      "provenance": "live",
+      "repo": {
+        "owner": "cogworks-demo",
+        "name": "face-finder",
+        "fullName": "cogworks-demo/face-finder",
+        "url": "https://github.com/cogworks-demo/face-finder",
+        "defaultBranch": "main"
+      },
+      "members": [
+        {
+          "login": "ui-accept-e8",
+          "name": "ui-accept-e8",
+          "avatarUrl": null,
+          "role": "admin"
+        }
+      ],
+      "tas": [],
+      "isAdmin": true
+    }
+  },
+  "fixture_schema": {
+    "runs": [
+      {
+        "cid": 0,
+        "name": "id",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 1
+      },
+      {
+        "cid": 1,
+        "name": "team_id",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 2,
+        "name": "benchmark_id",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 3,
+        "name": "benchmark_version",
+        "type": "INTEGER",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 4,
+        "name": "contract_version",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 5,
+        "name": "mode",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 6,
+        "name": "status",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 7,
+        "name": "branch",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 8,
+        "name": "sha",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 9,
+        "name": "parent_run_id",
+        "type": "TEXT",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 10,
+        "name": "attempt_number",
+        "type": "INTEGER",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 11,
+        "name": "failure_category",
+        "type": "TEXT",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 12,
+        "name": "failure_phase",
+        "type": "TEXT",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 13,
+        "name": "failure_detail",
+        "type": "TEXT",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 14,
+        "name": "failure_consumed_attempt",
+        "type": "INTEGER",
+        "notnull": 1,
+        "dflt_value": "0",
+        "pk": 0
+      },
+      {
+        "cid": 15,
+        "name": "log",
+        "type": "TEXT",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 16,
+        "name": "created_at",
+        "type": "INTEGER",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 17,
+        "name": "finished_at",
+        "type": "INTEGER",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 18,
+        "name": "provider",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": "'fixture'",
+        "pk": 0
+      },
+      {
+        "cid": 19,
+        "name": "protocol_version",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": "'1'",
+        "pk": 0
+      },
+      {
+        "cid": 20,
+        "name": "prepared_artifact_id",
+        "type": "TEXT",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 21,
+        "name": "environment_digest",
+        "type": "TEXT",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 22,
+        "name": "dataset_version",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": "'practice-v1'",
+        "pk": 0
+      },
+      {
+        "cid": 23,
+        "name": "scorer_version",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": "'1'",
+        "pk": 0
+      },
+      {
+        "cid": 24,
+        "name": "runtime_version",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": "'python-3.11'",
+        "pk": 0
+      },
+      {
+        "cid": 25,
+        "name": "dispatch_attempts",
+        "type": "INTEGER",
+        "notnull": 1,
+        "dflt_value": "0",
+        "pk": 0
+      },
+      {
+        "cid": 26,
+        "name": "last_event_sequence",
+        "type": "INTEGER",
+        "notnull": 1,
+        "dflt_value": "-1",
+        "pk": 0
+      },
+      {
+        "cid": 27,
+        "name": "surface_id",
+        "type": "TEXT",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 28,
+        "name": "repository_id",
+        "type": "INTEGER",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 29,
+        "name": "diagnostics_json",
+        "type": "TEXT",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 30,
+        "name": "sweep_json",
+        "type": "TEXT",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 31,
+        "name": "wiring_json",
+        "type": "TEXT",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 32,
+        "name": "refusal_json",
+        "type": "TEXT",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 33,
+        "name": "refunded_at",
+        "type": "INTEGER",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 34,
+        "name": "weights_supplied_json",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": "'[]'",
+        "pk": 0
+      },
+      {
+        "cid": 35,
+        "name": "repository_full_name",
+        "type": "TEXT",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 0
+      }
+    ],
+    "local_run_sessions": [
+      {
+        "cid": 0,
+        "name": "id",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 1
+      },
+      {
+        "cid": 1,
+        "name": "team_id",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 2,
+        "name": "user_id",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 3,
+        "name": "device_id",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 4,
+        "name": "benchmark_id",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 5,
+        "name": "benchmark_version",
+        "type": "INTEGER",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 6,
+        "name": "repository_id",
+        "type": "INTEGER",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 7,
+        "name": "repository_full_name",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 8,
+        "name": "sha",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 9,
+        "name": "dirty",
+        "type": "INTEGER",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 10,
+        "name": "status",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 11,
+        "name": "phase",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 12,
+        "name": "failure_detail",
+        "type": "TEXT",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 13,
+        "name": "report_id",
+        "type": "TEXT",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 14,
+        "name": "discord_channel_id",
+        "type": "TEXT",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 15,
+        "name": "discord_message_id",
+        "type": "TEXT",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 16,
+        "name": "last_event_sequence",
+        "type": "INTEGER",
+        "notnull": 1,
+        "dflt_value": "-1",
+        "pk": 0
+      },
+      {
+        "cid": 17,
+        "name": "created_at",
+        "type": "INTEGER",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 18,
+        "name": "updated_at",
+        "type": "INTEGER",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 19,
+        "name": "finished_at",
+        "type": "INTEGER",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 20,
+        "name": "branch",
+        "type": "TEXT",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 21,
+        "name": "surface_id",
+        "type": "TEXT",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 0
+      }
+    ],
+    "run_surfaces": [
+      {
+        "cid": 0,
+        "name": "id",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 1
+      },
+      {
+        "cid": 1,
+        "name": "team_id",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 2,
+        "name": "created_by_user_id",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 3,
+        "name": "benchmark_id",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 4,
+        "name": "benchmark_version",
+        "type": "INTEGER",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 5,
+        "name": "local_run_id",
+        "type": "TEXT",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 6,
+        "name": "supersedes_surface_id",
+        "type": "TEXT",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 7,
+        "name": "discord_channel_id",
+        "type": "TEXT",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 8,
+        "name": "discord_message_id",
+        "type": "TEXT",
+        "notnull": 0,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 9,
+        "name": "discord_nonce_generation",
+        "type": "INTEGER",
+        "notnull": 1,
+        "dflt_value": "0",
+        "pk": 0
+      },
+      {
+        "cid": 10,
+        "name": "created_at",
+        "type": "INTEGER",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 11,
+        "name": "updated_at",
+        "type": "INTEGER",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      }
+    ]
+  },
+  "refusals": [
+    {
+      "label": "old direct promote",
+      "path": "/api/runs/run_source_old/promote",
+      "status": 409,
+      "body": {
+        "error": {
+          "code": "source_changed",
+          "message": "This run came from a repository your team is no longer connected to. Start a fresh run on cogworks-demo/face-finder to promote it."
+        }
+      },
+      "state_unchanged": true
+    },
+    {
+      "label": "unknown direct promote",
+      "path": "/api/runs/run_source_legacy/promote",
+      "status": 409,
+      "body": {
+        "error": {
+          "code": "source_changed",
+          "message": "This run predates the repository CogPortal records, so it cannot tell whether it came from cogworks-demo/face-finder. Start a fresh run there to promote it."
+        }
+      },
+      "state_unchanged": true
+    },
+    {
+      "label": "old direct publish",
+      "path": "/api/runs/run_source_official/publish",
+      "status": 404,
+      "body": {
+        "error": {
+          "code": "not_found",
+          "message": "API route not found."
+        }
+      },
+      "state_unchanged": true
+    },
+    {
+      "label": "unknown direct publish",
+      "path": "/api/runs/run_source_unknown_official/publish",
+      "status": 404,
+      "body": {
+        "error": {
+          "code": "not_found",
+          "message": "API route not found."
+        }
+      },
+      "state_unchanged": true
+    },
+    {
+      "label": "surface_00000000000000000001 promote_official",
+      "path": "/api/run-surfaces/surface_00000000000000000001/actions/promote_official",
+      "status": 409,
+      "body": {
+        "error": {
+          "code": "source_changed",
+          "message": "This run came from a repository your team is no longer connected to. Start a fresh run on cogworks-demo/face-finder to act on it."
+        }
+      },
+      "state_unchanged": true
+    },
+    {
+      "label": "surface_00000000000000000001 rerun_hosted",
+      "path": "/api/run-surfaces/surface_00000000000000000001/actions/rerun_hosted",
+      "status": 409,
+      "body": {
+        "error": {
+          "code": "source_changed",
+          "message": "This run came from a repository your team is no longer connected to. Start a fresh run on cogworks-demo/face-finder to act on it."
+        }
+      },
+      "state_unchanged": true
+    },
+    {
+      "label": "surface_00000000000000000002 promote_official",
+      "path": "/api/run-surfaces/surface_00000000000000000002/actions/promote_official",
+      "status": 409,
+      "body": {
+        "error": {
+          "code": "source_changed",
+          "message": "This run predates the repository CogPortal records, so it cannot tell whether it came from cogworks-demo/face-finder. Start a fresh run there to act on it."
+        }
+      },
+      "state_unchanged": true
+    },
+    {
+      "label": "surface_00000000000000000002 rerun_hosted",
+      "path": "/api/run-surfaces/surface_00000000000000000002/actions/rerun_hosted",
+      "status": 409,
+      "body": {
+        "error": {
+          "code": "source_changed",
+          "message": "This run predates the repository CogPortal records, so it cannot tell whether it came from cogworks-demo/face-finder. Start a fresh run there to act on it."
+        }
+      },
+      "state_unchanged": true
+    },
+    {
+      "label": "surface_00000000000000000003 publish_result",
+      "path": "/api/run-surfaces/surface_00000000000000000003/actions/publish_result",
+      "status": 409,
+      "body": {
+        "error": {
+          "code": "source_changed",
+          "message": "This run came from a repository your team is no longer connected to. Start a fresh run on cogworks-demo/face-finder to publish a result."
+        }
+      },
+      "state_unchanged": true
+    },
+    {
+      "label": "surface_00000000000000000005 publish_result",
+      "path": "/api/run-surfaces/surface_00000000000000000005/actions/publish_result",
+      "status": 409,
+      "body": {
+        "error": {
+          "code": "source_changed",
+          "message": "This run predates the repository CogPortal records, so it cannot tell whether it came from cogworks-demo/face-finder. Start a fresh run there to publish a result."
+        }
+      },
+      "state_unchanged": true
+    },
+    {
+      "label": "surface_00000000000000000004 verify_hosted",
+      "path": "/api/run-surfaces/surface_00000000000000000004/actions/verify_hosted",
+      "status": 409,
+      "body": {
+        "error": {
+          "code": "source_changed",
+          "message": "This run came from a repository your team is no longer connected to. Start a fresh run on cogworks-demo/face-finder to verify it here."
+        }
+      },
+      "state_unchanged": true
+    },
+    {
+      "label": "unknown verify_hosted",
+      "status": 409,
+      "body": {
+        "error": {
+          "code": "source_changed",
+          "message": "This run predates the repository CogPortal records, so it cannot tell whether it came from cogworks-demo/face-finder. Start a fresh run there to verify it here."
+        }
+      },
+      "state_unchanged": true
+    },
+    {
+      "label": "run_source_official direct selection",
+      "status": 409,
+      "body": {
+        "error": {
+          "code": "source_changed",
+          "message": "This run came from a repository your team is no longer connected to. Start a fresh run on cogworks-demo/face-finder to publish a result."
+        }
+      },
+      "state_unchanged": true
+    },
+    {
+      "label": "run_source_unknown_official direct selection",
+      "status": 409,
+      "body": {
+        "error": {
+          "code": "source_changed",
+          "message": "This run predates the repository CogPortal records, so it cannot tell whether it came from cogworks-demo/face-finder. Start a fresh run there to publish a result."
+        }
+      },
+      "state_unchanged": true
+    }
+  ],
+  "after": {
+    "/api/runs/run_source_old": {
+      "status": 200,
+      "body": {
+        "id": "run_source_old",
+        "repo": {
+          "owner": "fixture-org",
+          "name": "repo-a",
+          "fullName": "fixture-org/repo-a",
+          "url": "https://github.com/fixture-org/repo-a"
+        },
+        "mode": "practice",
+        "status": "succeeded",
+        "benchmarkId": "audio-identification",
+        "benchmarkVersion": 1,
+        "branch": "main",
+        "sha": "71258046e60fecd3295c0b52236fc6e476b0e9cf",
+        "shortSha": "7125804",
+        "createdAt": 1789082252242,
+        "finishedAt": 1789082253242,
+        "attemptNumber": null,
+        "primaryMetric": {
+          "key": "identification_score",
+          "label": "Identification score",
+          "value": 0.5375,
+          "unit": null,
+          "higherIsBetter": true,
+          "primary": true,
+          "precision": 4,
+          "help": null,
+          "role": null,
+          "relatesTo": null
+        },
+        "failure": null,
+        "contractVersion": "cogworks.submissions.v2",
+        "parentRunId": null,
+        "sourceRefusal": "This run came from a repository your team is no longer connected to. Start a fresh run on cogworks-demo/face-finder to promote it.",
+        "phases": [],
+        "metrics": [
+          {
+            "key": "identification_score",
+            "label": "Identification score",
+            "value": 0.5375,
+            "unit": null,
+            "higherIsBetter": true,
+            "primary": true,
+            "precision": 4,
+            "help": null,
+            "role": null,
+            "relatesTo": null
+          }
+        ],
+        "diagnostics": [],
+        "sweep": null,
+        "wiring": [],
+        "refusal": null,
+        "weightsSupplied": [],
+        "log": null,
+        "selected": false
+      }
+    },
+    "/api/runs/run_source_legacy": {
+      "status": 200,
+      "body": {
+        "id": "run_source_legacy",
+        "repo": null,
+        "mode": "practice",
+        "status": "succeeded",
+        "benchmarkId": "audio-identification",
+        "benchmarkVersion": 1,
+        "branch": "main",
+        "sha": "71258046e60fecd3295c0b52236fc6e476b0e9cf",
+        "shortSha": "7125804",
+        "createdAt": 1789082252243,
+        "finishedAt": 1789082253243,
+        "attemptNumber": null,
+        "primaryMetric": {
+          "key": "identification_score",
+          "label": "Identification score",
+          "value": 0.5375,
+          "unit": null,
+          "higherIsBetter": true,
+          "primary": true,
+          "precision": 4,
+          "help": null,
+          "role": null,
+          "relatesTo": null
+        },
+        "failure": null,
+        "contractVersion": "cogworks.submissions.v2",
+        "parentRunId": null,
+        "sourceRefusal": "This run predates the repository CogPortal records, so it cannot tell whether it came from cogworks-demo/face-finder. Start a fresh run there to promote it.",
+        "phases": [],
+        "metrics": [
+          {
+            "key": "identification_score",
+            "label": "Identification score",
+            "value": 0.5375,
+            "unit": null,
+            "higherIsBetter": true,
+            "primary": true,
+            "precision": 4,
+            "help": null,
+            "role": null,
+            "relatesTo": null
+          }
+        ],
+        "diagnostics": [],
+        "sweep": null,
+        "wiring": [],
+        "refusal": null,
+        "weightsSupplied": [],
+        "log": null,
+        "selected": false
+      }
+    },
+    "/api/dashboard?benchmark=audio-identification": {
+      "status": 200,
+      "body": {
+        "benchmark": {
+          "id": "audio-identification",
+          "version": 1,
+          "contractVersion": "cogworks.submissions.v2",
+          "entryPointName": "audio-identification",
+          "title": "Song Identification",
+          "module": "audio",
+          "summary": "Enroll a catalog of songs, then identify short clips after noise, shortening, and pitch shift.",
+          "active": true,
+          "pluginVersion": "0.1.0",
+          "datasetVersion": "synth-v1",
+          "scorerVersion": "identification-v1",
+          "runtimeVersion": "week1-cpu-v1"
+        },
+        "team": {
+          "id": "team_source_accept",
+          "name": "Source history fixture",
+          "description": null,
+          "provenance": "live",
+          "repo": {
+            "owner": "cogworks-demo",
+            "name": "face-finder",
+            "fullName": "cogworks-demo/face-finder",
+            "url": "https://github.com/cogworks-demo/face-finder",
+            "defaultBranch": "main"
+          }
+        },
+        "quota": {
+          "practiceUsed": 2,
+          "practiceLimit": 10,
+          "officialUsed": 0,
+          "officialLimit": 3
+        },
+        "lastResolvedSha": null,
+        "activeRun": null,
+        "latestCandidate": {
+          "id": "run_source_legacy",
+          "repo": null,
+          "mode": "practice",
+          "status": "succeeded",
+          "benchmarkId": "audio-identification",
+          "benchmarkVersion": 1,
+          "branch": "main",
+          "sha": "71258046e60fecd3295c0b52236fc6e476b0e9cf",
+          "shortSha": "7125804",
+          "createdAt": 1789082252243,
+          "finishedAt": 1789082253243,
+          "attemptNumber": null,
+          "primaryMetric": {
+            "key": "identification_score",
+            "label": "Identification score",
+            "value": 0.5375,
+            "unit": null,
+            "higherIsBetter": true,
+            "primary": true,
+            "precision": 4,
+            "help": null,
+            "role": null,
+            "relatesTo": null
+          },
+          "failure": null
+        },
+        "selection": {
+          "runId": "run_source_official",
+          "selectedAt": 1789082252242,
+          "primaryMetric": {
+            "key": "identification_score",
+            "label": "Identification score",
+            "value": 0.5375,
+            "unit": null,
+            "higherIsBetter": true,
+            "primary": true,
+            "precision": 4,
+            "help": null,
+            "role": null,
+            "relatesTo": null
+          },
+          "shortSha": "7125804",
+          "attemptNumber": null
+        },
+        "runs": [
+          {
+            "id": "run_source_unknown_official",
+            "repo": null,
+            "mode": "official",
+            "status": "succeeded",
+            "benchmarkId": "audio-identification",
+            "benchmarkVersion": 1,
+            "branch": "main",
+            "sha": "71258046e60fecd3295c0b52236fc6e476b0e9cf",
+            "shortSha": "7125804",
+            "createdAt": 1789107449528,
+            "finishedAt": 1789107449528,
+            "attemptNumber": null,
+            "primaryMetric": null,
+            "failure": null
+          },
+          {
+            "id": "run_source_official",
+            "repo": {
+              "owner": "fixture-org",
+              "name": "repo-a",
+              "fullName": "fixture-org/repo-a",
+              "url": "https://github.com/fixture-org/repo-a"
+            },
+            "mode": "official",
+            "status": "succeeded",
+            "benchmarkId": "audio-identification",
+            "benchmarkVersion": 1,
+            "branch": "main",
+            "sha": "71258046e60fecd3295c0b52236fc6e476b0e9cf",
+            "shortSha": "7125804",
+            "createdAt": 1789082252244,
+            "finishedAt": 1789082253244,
+            "attemptNumber": null,
+            "primaryMetric": {
+              "key": "identification_score",
+              "label": "Identification score",
+              "value": 0.5375,
+              "unit": null,
+              "higherIsBetter": true,
+              "primary": true,
+              "precision": 4,
+              "help": null,
+              "role": null,
+              "relatesTo": null
+            },
+            "failure": null
+          },
+          {
+            "id": "run_source_legacy",
+            "repo": null,
+            "mode": "practice",
+            "status": "succeeded",
+            "benchmarkId": "audio-identification",
+            "benchmarkVersion": 1,
+            "branch": "main",
+            "sha": "71258046e60fecd3295c0b52236fc6e476b0e9cf",
+            "shortSha": "7125804",
+            "createdAt": 1789082252243,
+            "finishedAt": 1789082253243,
+            "attemptNumber": null,
+            "primaryMetric": {
+              "key": "identification_score",
+              "label": "Identification score",
+              "value": 0.5375,
+              "unit": null,
+              "higherIsBetter": true,
+              "primary": true,
+              "precision": 4,
+              "help": null,
+              "role": null,
+              "relatesTo": null
+            },
+            "failure": null
+          },
+          {
+            "id": "run_source_old",
+            "repo": {
+              "owner": "fixture-org",
+              "name": "repo-a",
+              "fullName": "fixture-org/repo-a",
+              "url": "https://github.com/fixture-org/repo-a"
+            },
+            "mode": "practice",
+            "status": "succeeded",
+            "benchmarkId": "audio-identification",
+            "benchmarkVersion": 1,
+            "branch": "main",
+            "sha": "71258046e60fecd3295c0b52236fc6e476b0e9cf",
+            "shortSha": "7125804",
+            "createdAt": 1789082252242,
+            "finishedAt": 1789082253242,
+            "attemptNumber": null,
+            "primaryMetric": {
+              "key": "identification_score",
+              "label": "Identification score",
+              "value": 0.5375,
+              "unit": null,
+              "higherIsBetter": true,
+              "primary": true,
+              "precision": 4,
+              "help": null,
+              "role": null,
+              "relatesTo": null
+            },
+            "failure": null
+          }
+        ]
+      }
+    },
+    "/api/run-surfaces/surface_00000000000000000001": {
+      "status": 200,
+      "body": {
+        "id": "surface_00000000000000000001",
+        "team": {
+          "id": "team_source_accept",
+          "name": "Source history fixture"
+        },
+        "benchmark": {
+          "id": "audio-identification",
+          "version": 1,
+          "title": "Song Identification"
+        },
+        "actor": {
+          "login": "ui-accept-e8",
+          "name": "ui-accept-e8"
+        },
+        "sha": "71258046e60fecd3295c0b52236fc6e476b0e9cf",
+        "shortSha": "7125804",
+        "branch": "main",
+        "dirty": false,
+        "stage": "hosted",
+        "status": "succeeded",
+        "phase": "succeeded",
+        "createdAt": 1789082252242,
+        "updatedAt": 1789082570979,
+        "finishedAt": 1789082253242,
+        "elapsedMs": 1000,
+        "progress": null,
+        "primaryMetric": {
+          "key": "identification_score",
+          "label": "Identification score",
+          "value": 0.5375,
+          "unit": null,
+          "higherIsBetter": true,
+          "primary": true,
+          "precision": 4,
+          "help": null,
+          "role": null,
+          "relatesTo": null
+        },
+        "metrics": [
+          {
+            "key": "identification_score",
+            "label": "Identification score",
+            "value": 0.5375,
+            "unit": null,
+            "higherIsBetter": true,
+            "primary": true,
+            "precision": 4,
+            "help": null,
+            "role": null,
+            "relatesTo": null
+          }
+        ],
+        "teamBest": {
+          "key": "identification_score",
+          "label": "Identification score",
+          "value": 0.5375,
+          "unit": null,
+          "higherIsBetter": true,
+          "primary": true,
+          "precision": 4,
+          "help": null,
+          "role": null,
+          "relatesTo": null
+        },
+        "localRunId": null,
+        "practiceRunId": "run_source_old",
+        "officialRunId": null,
+        "published": false,
+        "nextOfficialAttempt": 1,
+        "refusalHeadline": null,
+        "events": [],
+        "source": {
+          "owner": "fixture-org",
+          "name": "repo-a",
+          "fullName": "fixture-org/repo-a",
+          "url": "https://github.com/fixture-org/repo-a"
+        },
+        "sourceRefusal": "This run came from a repository your team is no longer connected to. Start a fresh run on cogworks-demo/face-finder to act on it.",
+        "actions": [
+          "open_console",
+          "open_portal"
+        ],
+        "simulated": true
+      }
+    },
+    "/api/run-surfaces/surface_00000000000000000002": {
+      "status": 200,
+      "body": {
+        "id": "surface_00000000000000000002",
+        "team": {
+          "id": "team_source_accept",
+          "name": "Source history fixture"
+        },
+        "benchmark": {
+          "id": "audio-identification",
+          "version": 1,
+          "title": "Song Identification"
+        },
+        "actor": {
+          "login": "ui-accept-e8",
+          "name": "ui-accept-e8"
+        },
+        "sha": "71258046e60fecd3295c0b52236fc6e476b0e9cf",
+        "shortSha": "7125804",
+        "branch": "main",
+        "dirty": false,
+        "stage": "hosted",
+        "status": "succeeded",
+        "phase": "succeeded",
+        "createdAt": 1789082252243,
+        "updatedAt": 1789082542329,
+        "finishedAt": 1789082253243,
+        "elapsedMs": 1000,
+        "progress": null,
+        "primaryMetric": {
+          "key": "identification_score",
+          "label": "Identification score",
+          "value": 0.5375,
+          "unit": null,
+          "higherIsBetter": true,
+          "primary": true,
+          "precision": 4,
+          "help": null,
+          "role": null,
+          "relatesTo": null
+        },
+        "metrics": [
+          {
+            "key": "identification_score",
+            "label": "Identification score",
+            "value": 0.5375,
+            "unit": null,
+            "higherIsBetter": true,
+            "primary": true,
+            "precision": 4,
+            "help": null,
+            "role": null,
+            "relatesTo": null
+          }
+        ],
+        "teamBest": {
+          "key": "identification_score",
+          "label": "Identification score",
+          "value": 0.5375,
+          "unit": null,
+          "higherIsBetter": true,
+          "primary": true,
+          "precision": 4,
+          "help": null,
+          "role": null,
+          "relatesTo": null
+        },
+        "localRunId": null,
+        "practiceRunId": "run_source_legacy",
+        "officialRunId": null,
+        "published": false,
+        "nextOfficialAttempt": 1,
+        "refusalHeadline": null,
+        "events": [],
+        "source": null,
+        "sourceRefusal": "This run predates the repository CogPortal records, so it cannot tell whether it came from cogworks-demo/face-finder. Start a fresh run there to act on it.",
+        "actions": [
+          "open_console",
+          "open_portal"
+        ],
+        "simulated": true
+      }
+    },
+    "/api/run-surfaces/surface_00000000000000000004": {
+      "status": 200,
+      "body": {
+        "id": "surface_00000000000000000004",
+        "team": {
+          "id": "team_source_accept",
+          "name": "Source history fixture"
+        },
+        "benchmark": {
+          "id": "audio-identification",
+          "version": 1,
+          "title": "Song Identification"
+        },
+        "actor": {
+          "login": "ui-accept-e8",
+          "name": "ui-accept-e8"
+        },
+        "sha": "71258046e60fecd3295c0b52236fc6e476b0e9cf",
+        "shortSha": "7125804",
+        "branch": "main",
+        "dirty": false,
+        "stage": "local",
+        "status": "succeeded",
+        "phase": "succeeded",
+        "createdAt": 1789107449528,
+        "updatedAt": 1789107449528,
+        "finishedAt": 1789107449528,
+        "elapsedMs": 0,
+        "progress": null,
+        "primaryMetric": null,
+        "metrics": [],
+        "teamBest": {
+          "key": "identification_score",
+          "label": "Identification score",
+          "value": 0.5375,
+          "unit": null,
+          "higherIsBetter": true,
+          "primary": true,
+          "precision": 4,
+          "help": null,
+          "role": null,
+          "relatesTo": null
+        },
+        "localRunId": "local_source_check",
+        "practiceRunId": null,
+        "officialRunId": null,
+        "published": false,
+        "nextOfficialAttempt": 1,
+        "refusalHeadline": null,
+        "events": [],
+        "source": null,
+        "sourceRefusal": "This run predates the repository CogPortal records, so it cannot tell whether it came from cogworks-demo/face-finder. Start a fresh run there to verify it here.",
+        "actions": [
+          "open_console",
+          "open_portal",
+          "run_again"
+        ],
+        "simulated": true
+      }
+    }
+  },
+  "final_fixture_rows": {
+    "teams": [
+      {
+        "id": "team_source_accept",
+        "cohort_id": "cohort_source_accept",
+        "name": "Source history fixture",
+        "description": null,
+        "repo_owner": "cogworks-demo",
+        "repo_name": "face-finder",
+        "repo_full_name": "cogworks-demo/face-finder",
+        "repo_url": "https://github.com/cogworks-demo/face-finder",
+        "default_branch": "main",
+        "repo_id": 1,
+        "template_source_repo_id": 1,
+        "discord_channel_id": null,
+        "provenance": "live"
+      }
+    ],
+    "runs": [
+      {
+        "id": "run_source_old",
+        "team_id": "team_source_accept",
+        "benchmark_id": "audio-identification",
+        "benchmark_version": 1,
+        "contract_version": "cogworks.submissions.v2",
+        "mode": "practice",
+        "status": "succeeded",
+        "branch": "main",
+        "sha": "71258046e60fecd3295c0b52236fc6e476b0e9cf",
+        "parent_run_id": null,
+        "attempt_number": null,
+        "failure_category": null,
+        "failure_phase": null,
+        "failure_detail": null,
+        "failure_consumed_attempt": 0,
+        "log": null,
+        "created_at": 1789082252242,
+        "finished_at": 1789082253242,
+        "provider": "fixture",
+        "protocol_version": "1",
+        "prepared_artifact_id": null,
+        "environment_digest": null,
+        "dataset_version": "practice-v1",
+        "scorer_version": "1",
+        "runtime_version": "python-3.11",
+        "dispatch_attempts": 0,
+        "last_event_sequence": -1,
+        "surface_id": "surface_00000000000000000001",
+        "repository_id": 900001,
+        "diagnostics_json": null,
+        "sweep_json": null,
+        "wiring_json": null,
+        "refusal_json": null,
+        "refunded_at": null,
+        "weights_supplied_json": "[]",
+        "repository_full_name": "fixture-org/repo-a"
+      },
+      {
+        "id": "run_source_legacy",
+        "team_id": "team_source_accept",
+        "benchmark_id": "audio-identification",
+        "benchmark_version": 1,
+        "contract_version": "cogworks.submissions.v2",
+        "mode": "practice",
+        "status": "succeeded",
+        "branch": "main",
+        "sha": "71258046e60fecd3295c0b52236fc6e476b0e9cf",
+        "parent_run_id": null,
+        "attempt_number": null,
+        "failure_category": null,
+        "failure_phase": null,
+        "failure_detail": null,
+        "failure_consumed_attempt": 0,
+        "log": null,
+        "created_at": 1789082252243,
+        "finished_at": 1789082253243,
+        "provider": "fixture",
+        "protocol_version": "1",
+        "prepared_artifact_id": null,
+        "environment_digest": null,
+        "dataset_version": "practice-v1",
+        "scorer_version": "1",
+        "runtime_version": "python-3.11",
+        "dispatch_attempts": 0,
+        "last_event_sequence": -1,
+        "surface_id": "surface_00000000000000000002",
+        "repository_id": null,
+        "diagnostics_json": null,
+        "sweep_json": null,
+        "wiring_json": null,
+        "refusal_json": null,
+        "refunded_at": null,
+        "weights_supplied_json": "[]",
+        "repository_full_name": null
+      },
+      {
+        "id": "run_source_official",
+        "team_id": "team_source_accept",
+        "benchmark_id": "audio-identification",
+        "benchmark_version": 1,
+        "contract_version": "cogworks.submissions.v2",
+        "mode": "official",
+        "status": "succeeded",
+        "branch": "main",
+        "sha": "71258046e60fecd3295c0b52236fc6e476b0e9cf",
+        "parent_run_id": null,
+        "attempt_number": null,
+        "failure_category": null,
+        "failure_phase": null,
+        "failure_detail": null,
+        "failure_consumed_attempt": 0,
+        "log": null,
+        "created_at": 1789082252244,
+        "finished_at": 1789082253244,
+        "provider": "fixture",
+        "protocol_version": "1",
+        "prepared_artifact_id": null,
+        "environment_digest": null,
+        "dataset_version": "practice-v1",
+        "scorer_version": "1",
+        "runtime_version": "python-3.11",
+        "dispatch_attempts": 0,
+        "last_event_sequence": -1,
+        "surface_id": "surface_00000000000000000003",
+        "repository_id": 900001,
+        "diagnostics_json": null,
+        "sweep_json": null,
+        "wiring_json": null,
+        "refusal_json": null,
+        "refunded_at": null,
+        "weights_supplied_json": "[]",
+        "repository_full_name": "fixture-org/repo-a"
+      },
+      {
+        "id": "run_source_unknown_official",
+        "team_id": "team_source_accept",
+        "benchmark_id": "audio-identification",
+        "benchmark_version": 1,
+        "contract_version": "cogworks.submissions.v2",
+        "mode": "official",
+        "status": "succeeded",
+        "branch": "main",
+        "sha": "71258046e60fecd3295c0b52236fc6e476b0e9cf",
+        "parent_run_id": null,
+        "attempt_number": null,
+        "failure_category": null,
+        "failure_phase": null,
+        "failure_detail": null,
+        "failure_consumed_attempt": 0,
+        "log": null,
+        "created_at": 1789107449528,
+        "finished_at": 1789107449528,
+        "provider": "fixture",
+        "protocol_version": "1",
+        "prepared_artifact_id": null,
+        "environment_digest": null,
+        "dataset_version": "practice-v1",
+        "scorer_version": "1",
+        "runtime_version": "python-3.11",
+        "dispatch_attempts": 0,
+        "last_event_sequence": -1,
+        "surface_id": "surface_00000000000000000005",
+        "repository_id": null,
+        "diagnostics_json": null,
+        "sweep_json": null,
+        "wiring_json": null,
+        "refusal_json": null,
+        "refunded_at": null,
+        "weights_supplied_json": "[]",
+        "repository_full_name": null
+      }
+    ],
+    "local_run_sessions": [
+      {
+        "id": "local_source_check",
+        "team_id": "team_source_accept",
+        "user_id": "LKF2CPVCu9OoHoUJSj0JopaeBkZSvhAS",
+        "device_id": "cli_c96f26b25eaed28b",
+        "benchmark_id": "audio-identification",
+        "benchmark_version": 1,
+        "repository_id": null,
+        "repository_full_name": "fixture-org/repo-a",
+        "sha": "71258046e60fecd3295c0b52236fc6e476b0e9cf",
+        "dirty": 0,
+        "status": "succeeded",
+        "phase": "succeeded",
+        "failure_detail": null,
+        "report_id": null,
+        "discord_channel_id": null,
+        "discord_message_id": null,
+        "last_event_sequence": -1,
+        "created_at": 1789107449528,
+        "updated_at": 1789107449528,
+        "finished_at": 1789107449528,
+        "branch": "main",
+        "surface_id": "surface_00000000000000000004"
+      }
+    ],
+    "run_surfaces": [
+      {
+        "id": "surface_00000000000000000002",
+        "team_id": "team_source_accept",
+        "created_by_user_id": "LKF2CPVCu9OoHoUJSj0JopaeBkZSvhAS",
+        "benchmark_id": "audio-identification",
+        "benchmark_version": 1,
+        "local_run_id": null,
+        "supersedes_surface_id": null,
+        "discord_channel_id": null,
+        "discord_message_id": null,
+        "discord_nonce_generation": 0,
+        "created_at": 1789082252243,
+        "updated_at": 1789107449859
+      },
+      {
+        "id": "surface_00000000000000000001",
+        "team_id": "team_source_accept",
+        "created_by_user_id": "LKF2CPVCu9OoHoUJSj0JopaeBkZSvhAS",
+        "benchmark_id": "audio-identification",
+        "benchmark_version": 1,
+        "local_run_id": null,
+        "supersedes_surface_id": null,
+        "discord_channel_id": null,
+        "discord_message_id": null,
+        "discord_nonce_generation": 0,
+        "created_at": 1789082252242,
+        "updated_at": 1789107449847
+      },
+      {
+        "id": "surface_00000000000000000005",
+        "team_id": "team_source_accept",
+        "created_by_user_id": "LKF2CPVCu9OoHoUJSj0JopaeBkZSvhAS",
+        "benchmark_id": "audio-identification",
+        "benchmark_version": 1,
+        "local_run_id": null,
+        "supersedes_surface_id": null,
+        "discord_channel_id": null,
+        "discord_message_id": null,
+        "discord_nonce_generation": 0,
+        "created_at": 1789107449529,
+        "updated_at": 1789107449529
+      },
+      {
+        "id": "surface_00000000000000000004",
+        "team_id": "team_source_accept",
+        "created_by_user_id": "LKF2CPVCu9OoHoUJSj0JopaeBkZSvhAS",
+        "benchmark_id": "audio-identification",
+        "benchmark_version": 1,
+        "local_run_id": "local_source_check",
+        "supersedes_surface_id": null,
+        "discord_channel_id": null,
+        "discord_message_id": null,
+        "discord_nonce_generation": 0,
+        "created_at": 1789107449528,
+        "updated_at": 1789107449528
+      },
+      {
+        "id": "surface_00000000000000000003",
+        "team_id": "team_source_accept",
+        "created_by_user_id": "LKF2CPVCu9OoHoUJSj0JopaeBkZSvhAS",
+        "benchmark_id": "audio-identification",
+        "benchmark_version": 1,
+        "local_run_id": null,
+        "supersedes_surface_id": null,
+        "discord_channel_id": null,
+        "discord_message_id": null,
+        "discord_nonce_generation": 0,
+        "created_at": 1789082252244,
+        "updated_at": 1789082542329
+      }
+    ],
+    "official_attempts": [],
+    "leaderboard_selections": [
+      {
+        "team_id": "team_source_accept",
+        "benchmark_id": "audio-identification",
+        "benchmark_version": 1,
+        "run_id": "run_source_official",
+        "selected_at": 1789082252242
+      }
+    ]
+  }
+}

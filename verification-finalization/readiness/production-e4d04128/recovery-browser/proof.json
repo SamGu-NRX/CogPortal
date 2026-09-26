@@ -1,0 +1,38 @@
+{
+  "releaseReported": "e4d04128-5794-4f4b-819e-4fdd930ed55e; not redeployed or independently re-queried in this browser phase",
+  "actualPageIdentity": {
+    "chart": "search_mrr against how far the query is from the caption, from 0.27 at verbatim to 0.22 at typo",
+    "scripts": [
+      "https://cogportal.sillion.app/assets/index-C0FRSlVs.js"
+    ],
+    "scrollWidth": 1491,
+    "url": "https://cogportal.sillion.app/runs/run_6deb074208",
+    "viewport": {
+      "height": 834,
+      "width": 1506
+    }
+  },
+  "mobile": {
+    "chart": [
+      {
+        "label": "search_mrr against how far the query is from the caption, from 0.27 at verbatim to 0.22 at typo",
+        "right": 338,
+        "x": 37
+      }
+    ],
+    "darkReaderStyles": 13,
+    "scroll": 375,
+    "width": 390
+  },
+  "surfacePassed": true,
+  "dashboardPassed": true,
+  "resultPassed": true,
+  "reloadPassed": true,
+  "backNavigationPassed": true,
+  "limits": [
+    "Single bounded navigation session; does not establish sustained service capacity.",
+    "Mobile chart axis captions tightly spaced.",
+    "Dark Reader present; browser preferences preserved.",
+    "Surface DOM exposed hidden history controls; first locator attempt failed and native AX exposed visible Open CogPortal, which navigated normally."
+  ]
+}

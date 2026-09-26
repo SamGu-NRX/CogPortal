@@ -1,0 +1,24 @@
+{
+  "devices": [
+    {
+      "id": "cli_c4737333a4a70042",
+      "name": "PR18 empty-config retry",
+      "revoked_at": 1789146767670
+    },
+    {
+      "id": "cli_3819b89e764b2b56",
+      "name": "PR18 other-local-config retry",
+      "revoked_at": 1789146778128
+    }
+  ],
+  "devicesRevoked": true,
+  "sameRows": {
+    "users": true,
+    "team_members": true,
+    "sessions": true,
+    "accounts": true,
+    "cli_devices": true,
+    "device_authorizations": true,
+    "setup_verifications": true
+  }
+}

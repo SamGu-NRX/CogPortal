@@ -1,0 +1,26 @@
+Collecting cogworks-benchmark@ git+https://github.com/SamGu-NRX/CogPortal.git@d9405278aac8268cd340e589f36dbad766d1e2a0#subdirectory=python/cogbench
+  Using cached cogworks_benchmark-0.2.0-py3-none-any.whl
+Collecting cogworks-week3-language-benchmark@ git+https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git@fff786537567939936bf65042c09cdea27c90798
+  Cloning https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git (to revision fff786537567939936bf65042c09cdea27c90798) to /private/var/folders/rq/cbyhqh497_b9xwgmxw3qlq680000gn/T/pip-install-qsflrt4q/cogworks-week3-language-benchmark_8cef1b0bfd64428493b96011c6800ba3
+  Running command git clone --filter=blob:none --quiet https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git /private/var/folders/rq/cbyhqh497_b9xwgmxw3qlq680000gn/T/pip-install-qsflrt4q/cogworks-week3-language-benchmark_8cef1b0bfd64428493b96011c6800ba3
+  Running command git rev-parse -q --verify 'sha^fff786537567939936bf65042c09cdea27c90798'
+  Running command git fetch -q https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git fff786537567939936bf65042c09cdea27c90798
+  Running command git checkout -q fff786537567939936bf65042c09cdea27c90798
+  Resolved https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git to commit fff786537567939936bf65042c09cdea27c90798
+  Installing build dependencies: started
+  Installing build dependencies: finished with status 'done'
+  Getting requirements to build wheel: started
+  Getting requirements to build wheel: finished with status 'done'
+  Preparing metadata (pyproject.toml): started
+  Preparing metadata (pyproject.toml): finished with status 'done'
+Building wheels for collected packages: cogworks-week3-language-benchmark
+  Building wheel for cogworks-week3-language-benchmark (pyproject.toml): started
+  Building wheel for cogworks-week3-language-benchmark (pyproject.toml): finished with status 'done'
+  Created wheel for cogworks-week3-language-benchmark: filename=cogworks_week3_language_benchmark-0.1.0-py3-none-any.whl size=75934 sha256=490b5533922252f71b37b90c5b7ff45bd952e4858c3bd1153d11f2b8a9bce983
+  Stored in directory: /Users/samgu/Library/Caches/pip/wheels/50/5d/98/30d97a0d6595c503f6bf13997cf17fb9ca29a4bb39ef3fc834
+Successfully built cogworks-week3-language-benchmark
+Installing collected packages: cogworks-week3-language-benchmark, cogworks-benchmark
+Successfully installed cogworks-benchmark-0.2.0 cogworks-week3-language-benchmark-0.1.0
+
+[notice] A new release of pip is available: 24.0 -> 26.2.1
+[notice] To update, run: /tmp/cogportal-language-weight-venv/bin/python -m pip install --upgrade pip

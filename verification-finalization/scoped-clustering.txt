@@ -1,0 +1,94 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Dashboard":
+      - /url: /dashboard
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "verify-creator Account menu for verify-creator":
+    - generic: v
+    - generic: verify-creator
+    - generic: Account menu for verify-creator
+- main:
+  - paragraph: Setup · 4 of 5 verified
+  - heading "Verification Creator Team" [level=1]
+  - button "Clustering · v2 Change benchmark track. Currently Clustering." [active]:
+    - text: Clustering · v2
+    - generic: Change benchmark track. Currently Clustering.
+  - link "cogworks-demo/face-finder":
+    - /url: https://github.com/cogworks-demo/face-finder
+  - generic: v
+  - generic: v
+  - generic: v
+  - generic: "@verify-creator, @verify-member, @verify-device-new"
+  - generic: 3 members
+  - link "Add":
+    - /url: /team
+  - paragraph: 5 commands, in this order. Nothing ticks as you type; boxes fill when a command reports back, and most of them fill on the last one, so empty boxes above it are normal until then.
+  - paragraph:
+    - text: Activate your course environment before the installs below, so the tool lands beside the packages your own code already uses. CogWeb calls Clustering's
+    - code: week2
+    - text: ", and"
+    - link "its prerequisites ↗":
+      - /url: https://rsokl.github.io/CogWeb/Video/prereqs.html
+    - text: list what belongs in it. If you set yours up under another name, or without conda, activate that one instead.
+  - heading "In your terminal, top to bottom" [level=2]
+  - button "copy all Copy every command":
+    - text: copy all
+    - generic: Copy every command
+  - list "Setup commands, in run order":
+    - heading "Clone your team's repository" [level=3]
+    - paragraph: Every hosted attempt runs from this repository rather than from somebody's laptop, so a score is always about this copy. Work inside it from here on.
+    - code:
+      - generic: Verified.
+      - text: git clone https://github.com/cogworks-demo/face-finder.git && cd face-finder
+    - paragraph: A folder with a similar name is not enough. The commands below compare this clone's GitHub remote with your team's repository.
+    - heading "Install the CogWorks tool" [level=3]
+    - paragraph:
+      - code: cogworks
+      - text: is what reads your repository and works out which of your own functions the benchmark should call. It is pinned to one commit, so everyone reading this page installs the same tool.
+    - code:
+      - generic: Verified.
+      - text: python -m pip install --upgrade --force-reinstall "cogworks-benchmark @ git+https://github.com/SamGu-NRX/CogPortal.git@99281c5260e61e1f599a299983071a5f15fe5f1e#subdirectory=python/cogbench"
+    - paragraph:
+      - text: If your terminal answers
+      - code: "cogworks: command not found"
+      - text: ", the install landed somewhere this shell isn't looking. An inactive course environment is the usual reason, so check that first and run the line again."
+    - heading "Install the Clustering benchmark" [level=3]
+    - paragraph: The scorer for Clustering, its data and its checks live in their own package. Changing the track at the top of this page changes this line.
+    - code:
+      - generic: Verified.
+      - text: python -m pip install "cogworks-week2-vision-benchmark @ git+https://github.com/iReynaldo/ComputerVisionBenchmark.git@c177cf23cdd4f8dbe55401a2eb4bada4c64d37c2"
+    - paragraph: It brings the few packages the scorer itself needs. The rest of the course stack, the one your own code imports, comes from your week's environment.
+    - heading "Link this machine to CogPortal" [level=3]
+    - paragraph:
+      - text: This opens CogPortal to approve the connection and then hands your terminal back. It is what lets a command report to your team, and you can revoke it from
+      - link "Connections":
+        - /url: /connections
+      - text: . Nothing reports unless you ask it to; a local score stays on your machine until you send it.
+    - code:
+      - generic: Not verified yet.
+      - text: cogworks link --portal http://127.0.0.1:5187
+    - paragraph:
+      - text: It prints the address and the code before it opens anything, so if no browser appears you can go there yourself, or add
+      - code: "--no-browser"
+      - text: "to skip the attempt. If the code expires before you approve it, run the same line again for a fresh one. When it returns, the clone box above should tick: linking reports the repository you are standing in."
+    - heading "Check it, and tell this page" [level=3]
+    - paragraph:
+      - code: check
+      - text: "reads your repository and reports what it found: which of your functions it wired up, and which packages this machine is missing."
+      - code: "--update-setup"
+      - text: is the part that sends the result here.
+    - code:
+      - generic: Verified.
+      - text: cogworks check --benchmark vision-clustering --update-setup
+    - paragraph: "It reports only when it passes. If boxes stay empty, the answer is in your terminal: fix what it names there and run the same line again."
+  - paragraph: No rush. This page keeps your place.
+  - link "Open dashboard":
+    - /url: /dashboard
+    - text: Open dashboard
+- document

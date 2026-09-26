@@ -1,0 +1,112 @@
+[
+  {
+    "at": 1789079581065,
+    "method": "GET",
+    "path": "/"
+  },
+  {
+    "at": 1789079581198,
+    "method": "GET",
+    "path": "/assets/run-surface-stream-C3FCCHRi.css"
+  },
+  {
+    "at": 1789079581203,
+    "method": "GET",
+    "path": "/fixture.js"
+  },
+  {
+    "at": 1789079581382,
+    "method": "GET",
+    "path": "/assets/ibm-plex-mono-latin-500-normal-DSY6xOcd.woff2"
+  },
+  {
+    "at": 1789079581383,
+    "method": "GET",
+    "path": "/.proxy/api/activity/oauth/state"
+  },
+  {
+    "at": 1789079581429,
+    "method": "POST",
+    "path": "/.proxy/api/activity/oauth/token"
+  },
+  {
+    "at": 1789079581435,
+    "method": "GET",
+    "path": "/.proxy/api/activity/session"
+  },
+  {
+    "at": 1789079581449,
+    "method": "GET",
+    "path": "/assets/ibm-plex-sans-latin-500-normal-6ng42L7E.woff2"
+  },
+  {
+    "at": 1789079581452,
+    "method": "GET",
+    "path": "/assets/source-serif-4-latin-wght-normal-D9elroTD.woff2"
+  },
+  {
+    "at": 1789079581657,
+    "method": "GET",
+    "path": "/assets/ibm-plex-sans-latin-400-normal-CDDApCn2.woff2"
+  },
+  {
+    "at": 1789079588368,
+    "method": "GET",
+    "path": "/control/open"
+  },
+  {
+    "at": 1789079592464,
+    "method": "GET",
+    "path": "/.proxy/api/activity/session"
+  },
+  {
+    "at": 1789079603031,
+    "method": "GET",
+    "path": "/"
+  },
+  {
+    "at": 1789079603081,
+    "method": "GET",
+    "path": "/assets/run-surface-stream-C3FCCHRi.css"
+  },
+  {
+    "at": 1789079603083,
+    "method": "GET",
+    "path": "/fixture.js"
+  },
+  {
+    "at": 1789079603252,
+    "method": "GET",
+    "path": "/assets/ibm-plex-mono-latin-500-normal-DSY6xOcd.woff2"
+  },
+  {
+    "at": 1789079603256,
+    "method": "GET",
+    "path": "/.proxy/api/activity/oauth/state"
+  },
+  {
+    "at": 1789079603295,
+    "method": "POST",
+    "path": "/.proxy/api/activity/oauth/token"
+  },
+  {
+    "at": 1789079603378,
+    "method": "GET",
+    "path": "/.proxy/api/activity/session"
+  },
+  {
+    "at": 1789079603392,
+    "method": "GET",
+    "path": "/assets/source-serif-4-latin-wght-normal-D9elroTD.woff2"
+  },
+  {
+    "at": 1789079603395,
+    "method": "GET",
+    "path": "/assets/ibm-plex-sans-latin-400-normal-CDDApCn2.woff2"
+  },
+  {
+    "at": 1789079603396,
+    "method": "GET",
+    "path": "/assets/ibm-plex-sans-latin-500-normal-6ng42L7E.woff2"
+  }
+]

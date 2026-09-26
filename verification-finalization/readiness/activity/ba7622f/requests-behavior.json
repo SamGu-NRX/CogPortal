@@ -1,0 +1,409 @@
+[
+  {
+    "at": 1789079451121,
+    "method": "GET",
+    "path": "/"
+  },
+  {
+    "at": 1789079451181,
+    "method": "GET",
+    "path": "/assets/run-surface-stream-C3FCCHRi.css"
+  },
+  {
+    "at": 1789079451184,
+    "method": "GET",
+    "path": "/fixture.js"
+  },
+  {
+    "at": 1789079451583,
+    "method": "GET",
+    "path": "/assets/ibm-plex-mono-latin-500-normal-DSY6xOcd.woff2"
+  },
+  {
+    "at": 1789079451684,
+    "method": "GET",
+    "path": "/.proxy/api/activity/oauth/state"
+  },
+  {
+    "at": 1789079451740,
+    "method": "POST",
+    "path": "/.proxy/api/activity/oauth/token"
+  },
+  {
+    "at": 1789079451769,
+    "method": "GET",
+    "path": "/.proxy/api/activity/session"
+  },
+  {
+    "at": 1789079451875,
+    "method": "GET",
+    "path": "/assets/source-serif-4-latin-wght-normal-D9elroTD.woff2"
+  },
+  {
+    "at": 1789079451876,
+    "method": "GET",
+    "path": "/assets/ibm-plex-sans-latin-400-normal-CDDApCn2.woff2"
+  },
+  {
+    "at": 1789079451878,
+    "method": "GET",
+    "path": "/assets/ibm-plex-sans-latin-500-normal-6ng42L7E.woff2"
+  },
+  {
+    "at": 1789079465314,
+    "method": "POST",
+    "path": "/control/cancel"
+  },
+  {
+    "at": 1789079465396,
+    "method": "GET",
+    "path": "/control/open"
+  },
+  {
+    "at": 1789079465985,
+    "method": "POST",
+    "path": "/control/cancel"
+  },
+  {
+    "at": 1789079466044,
+    "method": "GET",
+    "path": "/control/open"
+  },
+  {
+    "at": 1789079472218,
+    "method": "GET",
+    "path": "/.proxy/api/activity/session"
+  },
+  {
+    "at": 1789079472654,
+    "method": "POST",
+    "path": "/control/link"
+  },
+  {
+    "at": 1789079472938,
+    "method": "GET",
+    "path": "/.proxy/api/activity/session"
+  },
+  {
+    "at": 1789079472942,
+    "method": "GET",
+    "path": "/.proxy/api/activity/run-surfaces"
+  },
+  {
+    "at": 1789079473130,
+    "method": "GET",
+    "path": "/assets/ibm-plex-mono-latin-400-normal-DMJ8VG8y.woff2"
+  },
+  {
+    "at": 1789079473137,
+    "event": "upgrade",
+    "offline": false
+  },
+  {
+    "at": 1789079473138,
+    "event": "socket-open"
+  },
+  {
+    "at": 1789079482841,
+    "method": "GET",
+    "path": "/"
+  },
+  {
+    "at": 1789079482871,
+    "method": "GET",
+    "path": "/assets/run-surface-stream-C3FCCHRi.css"
+  },
+  {
+    "at": 1789079482873,
+    "method": "GET",
+    "path": "/fixture.js"
+  },
+  {
+    "at": 1789079482970,
+    "method": "GET",
+    "path": "/assets/ibm-plex-mono-latin-500-normal-DSY6xOcd.woff2"
+  },
+  {
+    "at": 1789079482971,
+    "method": "GET",
+    "path": "/.proxy/api/activity/oauth/state"
+  },
+  {
+    "at": 1789079483022,
+    "method": "POST",
+    "path": "/.proxy/api/activity/oauth/token"
+  },
+  {
+    "at": 1789079483039,
+    "method": "GET",
+    "path": "/.proxy/api/activity/session"
+  },
+  {
+    "at": 1789079483075,
+    "method": "GET",
+    "path": "/assets/source-serif-4-latin-wght-normal-D9elroTD.woff2"
+  },
+  {
+    "at": 1789079483077,
+    "method": "GET",
+    "path": "/assets/ibm-plex-sans-latin-400-normal-CDDApCn2.woff2"
+  },
+  {
+    "at": 1789079483078,
+    "method": "GET",
+    "path": "/assets/ibm-plex-sans-latin-500-normal-6ng42L7E.woff2"
+  },
+  {
+    "at": 1789079489655,
+    "method": "GET",
+    "path": "/control/open"
+  },
+  {
+    "at": 1789079489922,
+    "method": "GET",
+    "path": "/.proxy/api/activity/session"
+  },
+  {
+    "at": 1789079490237,
+    "method": "POST",
+    "path": "/control/link"
+  },
+  {
+    "at": 1789079490576,
+    "method": "GET",
+    "path": "/.proxy/api/activity/session"
+  },
+  {
+    "at": 1789079490617,
+    "method": "GET",
+    "path": "/.proxy/api/activity/run-surfaces"
+  },
+  {
+    "at": 1789079490724,
+    "method": "GET",
+    "path": "/assets/ibm-plex-mono-latin-400-normal-DMJ8VG8y.woff2"
+  },
+  {
+    "at": 1789079490733,
+    "event": "upgrade",
+    "offline": false
+  },
+  {
+    "at": 1789079490733,
+    "event": "socket-open"
+  },
+  {
+    "at": 1789079496163,
+    "method": "GET",
+    "path": "/"
+  },
+  {
+    "at": 1789079496223,
+    "method": "GET",
+    "path": "/assets/run-surface-stream-C3FCCHRi.css"
+  },
+  {
+    "at": 1789079496225,
+    "method": "GET",
+    "path": "/fixture.js"
+  },
+  {
+    "at": 1789079496298,
+    "method": "GET",
+    "path": "/assets/ibm-plex-mono-latin-500-normal-DSY6xOcd.woff2"
+  },
+  {
+    "at": 1789079496299,
+    "method": "GET",
+    "path": "/.proxy/api/activity/oauth/state"
+  },
+  {
+    "at": 1789079496458,
+    "method": "POST",
+    "path": "/.proxy/api/activity/oauth/token"
+  },
+  {
+    "at": 1789079496527,
+    "method": "GET",
+    "path": "/.proxy/api/activity/session"
+  },
+  {
+    "at": 1789079496598,
+    "method": "GET",
+    "path": "/.proxy/api/activity/run-surfaces"
+  },
+  {
+    "at": 1789079496727,
+    "method": "GET",
+    "path": "/assets/source-serif-4-latin-wght-normal-D9elroTD.woff2"
+  },
+  {
+    "at": 1789079496728,
+    "method": "GET",
+    "path": "/assets/ibm-plex-sans-latin-400-normal-CDDApCn2.woff2"
+  },
+  {
+    "at": 1789079503433,
+    "method": "GET",
+    "path": "/"
+  },
+  {
+    "at": 1789079503498,
+    "method": "GET",
+    "path": "/assets/run-surface-stream-C3FCCHRi.css"
+  },
+  {
+    "at": 1789079503504,
+    "method": "GET",
+    "path": "/fixture.js"
+  },
+  {
+    "at": 1789079503592,
+    "method": "GET",
+    "path": "/assets/ibm-plex-mono-latin-500-normal-DSY6xOcd.woff2"
+  },
+  {
+    "at": 1789079503597,
+    "method": "GET",
+    "path": "/.proxy/api/activity/oauth/state"
+  },
+  {
+    "at": 1789079503618,
+    "method": "POST",
+    "path": "/.proxy/api/activity/oauth/token"
+  },
+  {
+    "at": 1789079503635,
+    "method": "GET",
+    "path": "/.proxy/api/activity/session"
+  },
+  {
+    "at": 1789079503690,
+    "method": "GET",
+    "path": "/assets/source-serif-4-latin-wght-normal-D9elroTD.woff2"
+  },
+  {
+    "at": 1789079503725,
+    "method": "GET",
+    "path": "/assets/ibm-plex-sans-latin-400-normal-CDDApCn2.woff2"
+  },
+  {
+    "at": 1789079503728,
+    "method": "GET",
+    "path": "/assets/ibm-plex-sans-latin-500-normal-6ng42L7E.woff2"
+  },
+  {
+    "at": 1789079515251,
+    "method": "GET",
+    "path": "/control/open"
+  },
+  {
+    "at": 1789079515556,
+    "method": "POST",
+    "path": "/control/hold"
+  },
+  {
+    "at": 1789079515851,
+    "method": "GET",
+    "path": "/.proxy/api/activity/session"
+  },
+  {
+    "at": 1789079516123,
+    "method": "GET",
+    "path": "/control/open"
+  },
+  {
+    "at": 1789079516439,
+    "method": "POST",
+    "path": "/control/link"
+  },
+  {
+    "at": 1789079516752,
+    "method": "POST",
+    "path": "/control/release"
+  },
+  {
+    "at": 1789079516765,
+    "method": "GET",
+    "path": "/.proxy/api/activity/run-surfaces"
+  },
+  {
+    "at": 1789079516798,
+    "method": "GET",
+    "path": "/assets/ibm-plex-mono-latin-400-normal-DMJ8VG8y.woff2"
+  },
+  {
+    "at": 1789079516799,
+    "event": "upgrade",
+    "offline": false
+  },
+  {
+    "at": 1789079516800,
+    "event": "socket-open"
+  },
+  {
+    "at": 1789079523576,
+    "method": "GET",
+    "path": "/"
+  },
+  {
+    "at": 1789079523652,
+    "method": "GET",
+    "path": "/assets/run-surface-stream-C3FCCHRi.css"
+  },
+  {
+    "at": 1789079523654,
+    "method": "GET",
+    "path": "/fixture.js"
+  },
+  {
+    "at": 1789079523755,
+    "method": "GET",
+    "path": "/assets/ibm-plex-mono-latin-500-normal-DSY6xOcd.woff2"
+  },
+  {
+    "at": 1789079523759,
+    "method": "GET",
+    "path": "/.proxy/api/activity/oauth/state"
+  },
+  {
+    "at": 1789079523863,
+    "method": "POST",
+    "path": "/.proxy/api/activity/oauth/token"
+  },
+  {
+    "at": 1789079523879,
+    "method": "GET",
+    "path": "/.proxy/api/activity/session"
+  },
+  {
+    "at": 1789079524024,
+    "method": "GET",
+    "path": "/assets/source-serif-4-latin-wght-normal-D9elroTD.woff2"
+  },
+  {
+    "at": 1789079524025,
+    "method": "GET",
+    "path": "/assets/ibm-plex-sans-latin-500-normal-6ng42L7E.woff2"
+  },
+  {
+    "at": 1789079524204,
+    "method": "GET",
+    "path": "/assets/ibm-plex-sans-latin-400-normal-CDDApCn2.woff2"
+  },
+  {
+    "at": 1789079538816,
+    "method": "GET",
+    "path": "/control/open"
+  },
+  {
+    "at": 1789079539216,
+    "method": "POST",
+    "path": "/control/expire"
+  },
+  {
+    "at": 1789079539502,
+    "method": "GET",
+    "path": "/.proxy/api/activity/session"
+  }
+]

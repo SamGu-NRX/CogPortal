@@ -1,0 +1,15 @@
+{
+  "tabId": "1693192768",
+  "selectedBranch": "codex/demo-rehearsal-d9405278",
+  "url": "https://cogportal.sillion.app/dashboard",
+  "account": "SamGu-NRX",
+  "repo": "SamGu-NRX/cogportal-demo-week1",
+  "track": "Song Identification",
+  "branchHeadVerifiedViaGitHub": "e515ff619e02c16be903985d8536bc5ee6d7a2e9",
+  "runEnabled": true,
+  "hostedRunsLeft": 7,
+  "officialAttemptsUsed": 0,
+  "officialAttemptsLimit": 3,
+  "supersedesReadyStateForTab": "1693192750",
+  "newRunSubmitted": false
+}

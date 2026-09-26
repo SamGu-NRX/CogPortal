@@ -1,0 +1,236 @@
+{
+  "benchmarkInstalled": true,
+  "benchmarkLoadable": true,
+  "canonicalHostedPython": "3.8.20",
+  "contractVersion": "cogworks.submissions.v2",
+  "dataEvaluationCache": {
+    "message": "30 songs, 252 queries, generated locally (no download)",
+    "path": ".",
+    "ready": true
+  },
+  "dataTestCache": {
+    "message": "8 songs, 68 queries, generated locally (no download)",
+    "path": ".",
+    "ready": true
+  },
+  "discovery": {
+    "arrangement": 2,
+    "attemptsTried": 203,
+    "chain": [
+      "spectrogram.make_spectrogram",
+      "fingerprint.find_peaks",
+      "fingerprint.make_fgp"
+    ],
+    "discovery": {
+      "considered": [
+        "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g5-audio",
+        "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g5-audio/tests_manual"
+      ],
+      "modules": [
+        {
+          "name": "database",
+          "origin": "file",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g5-audio/database.py"
+        },
+        {
+          "name": "database_creation",
+          "origin": "file",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g5-audio/database_creation.py"
+        },
+        {
+          "name": "fingerprint",
+          "origin": "file",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g5-audio/fingerprint.py"
+        },
+        {
+          "name": "match",
+          "origin": "file",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g5-audio/match.py"
+        },
+        {
+          "name": "slicing",
+          "origin": "file",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g5-audio/slicing.py"
+        },
+        {
+          "name": "song_input",
+          "origin": "file",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g5-audio/song_input.py"
+        },
+        {
+          "name": "spectrogram",
+          "origin": "file",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g5-audio/spectrogram.py"
+        }
+      ],
+      "root": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g5-audio",
+      "rootReason": "code sits at the repository root",
+      "skipped": [
+        {
+          "detail": "FileNotFoundError: No mp3 files found under data/raw/*/*.mp3",
+          "missing": null,
+          "name": "build_database_all_songs",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g5-audio/tests_manual/build_database_all_songs.py",
+          "reason": "raised"
+        },
+        {
+          "detail": "EOFError: EOF when reading a line",
+          "missing": null,
+          "name": "identify_mic",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g5-audio/tests_manual/identify_mic.py",
+          "reason": "raised"
+        },
+        {
+          "detail": "FileNotFoundError: [Errno 2] No such file or directory: 'data/raw/test_song.mp3'",
+          "missing": null,
+          "name": "test_fingerprint",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g5-audio/tests_manual/test_fingerprint.py",
+          "reason": "raised"
+        },
+        {
+          "detail": "FileNotFoundError: [Errno 2] No such file or directory: 'data/raw/test_song.mp3'",
+          "missing": null,
+          "name": "test_fingerprint_clip",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g5-audio/tests_manual/test_fingerprint_clip.py",
+          "reason": "raised"
+        },
+        {
+          "detail": "FileNotFoundError: [Errno 2] No such file or directory: 'data/raw/test_song.mp3'",
+          "missing": null,
+          "name": "test_five_songs",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g5-audio/tests_manual/test_five_songs.py",
+          "reason": "raised"
+        },
+        {
+          "detail": "FileNotFoundError: No mp3 files found under data/raw/*/*.mp3",
+          "missing": null,
+          "name": "test_gaussian_all_songs",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g5-audio/tests_manual/test_gaussian_all_songs.py",
+          "reason": "raised"
+        },
+        {
+          "detail": "FileNotFoundError: [Errno 2] No such file or directory: 'data/raw/test_song.mp3'",
+          "missing": null,
+          "name": "test_gaussian_five_songs",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g5-audio/tests_manual/test_gaussian_five_songs.py",
+          "reason": "raised"
+        },
+        {
+          "detail": "FileNotFoundError: [Errno 2] No such file or directory: 'data/raw/test_song.mp3'",
+          "missing": null,
+          "name": "test_match_one_song",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g5-audio/tests_manual/test_match_one_song.py",
+          "reason": "raised"
+        },
+        {
+          "detail": "FileNotFoundError: [Errno 2] No such file or directory: 'data/raw/test_song.mp3'",
+          "missing": null,
+          "name": "test_match_two_songs",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g5-audio/tests_manual/test_match_two_songs.py",
+          "reason": "raised"
+        },
+        {
+          "detail": "FileNotFoundError: [Errno 2] No such file or directory: 'data/raw/test_song.mp3'",
+          "missing": null,
+          "name": "test_noisy_queries",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g5-audio/tests_manual/test_noisy_queries.py",
+          "reason": "raised"
+        },
+        {
+          "detail": "FileNotFoundError: [Errno 2] No such file or directory: 'data/raw/test_song.mp3'",
+          "missing": null,
+          "name": "test_noisy_two_songs",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g5-audio/tests_manual/test_noisy_two_songs.py",
+          "reason": "raised"
+        },
+        {
+          "detail": "FileNotFoundError: [Errno 2] No such file or directory: 'data/raw/test_song.mp3'",
+          "missing": null,
+          "name": "test_peak_params",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g5-audio/tests_manual/test_peak_params.py",
+          "reason": "raised"
+        },
+        {
+          "detail": "FileNotFoundError: No mp3 files found under data/raw/*/*.mp3",
+          "missing": null,
+          "name": "test_real_noise_all_songs",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g5-audio/tests_manual/test_real_noise_all_songs.py",
+          "reason": "raised"
+        },
+        {
+          "detail": "FileNotFoundError: [Errno 2] No such file or directory: 'data/raw/test_song.mp3'",
+          "missing": null,
+          "name": "test_song_input",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g5-audio/tests_manual/test_song_input.py",
+          "reason": "raised"
+        },
+        {
+          "detail": "FileNotFoundError: [Errno 2] No such file or directory: 'data/raw/test_song.mp3'",
+          "missing": null,
+          "name": "test_spectrogram",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g5-audio/tests_manual/test_spectrogram.py",
+          "reason": "raised"
+        }
+      ],
+      "stubCalls": [],
+      "stubbed": [
+        "streamlit",
+        "microphone",
+        "pyaudio",
+        "camera"
+      ]
+    },
+    "enroll": "database.add",
+    "hashRandomization": false,
+    "hashSeed": "0",
+    "query": "match.query_details",
+    "recalled": false,
+    "verdict": {
+      "coverage": {
+        "read": [],
+        "readEnoughToJudge": true,
+        "skipped": []
+      },
+      "errors": [],
+      "headline": "Your code is wired up and ready to score.",
+      "nextStep": "",
+      "notes": [],
+      "status": "scored",
+      "trace": [
+        {
+          "function": "spectrogram.make_spectrogram",
+          "received": "an array of shape (176400,), 44100",
+          "returned": "a tuple of 3, starting with an array of shape (2049, 85)",
+          "stage": "spectrogram"
+        },
+        {
+          "function": "fingerprint.find_peaks",
+          "received": "an array of shape (2049, 85)",
+          "returned": "an array of shape (445, 2)",
+          "stage": "peaks"
+        },
+        {
+          "function": "fingerprint.make_fgp",
+          "received": "an array of shape (445, 2)",
+          "returned": "a list of 6464, starting ((1, 431, 4), 0)",
+          "stage": "fingerprints"
+        }
+      ]
+    },
+    "weightsUsed": []
+  },
+  "gitRepository": true,
+  "localGap": [],
+  "modelCache": {
+    "message": "corpus is generated locally",
+    "path": "",
+    "ready": true
+  },
+  "python": "3.11.15",
+  "repositoryFullName": "carti4ce/week1_capstone",
+  "submissionDetail": null,
+  "submissionError": "We look for your adapter at the repository root, and /Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g5-audio has neither submission.py nor benchmark_adapter.py. Create submission.py there, define create_submission, and return your adapter from it. Nothing is registered as \"audio-identification\" in \"cogworks.submissions.v2\" either (installed: none), so if you meant to install your project as a package, reinstall it.",
+  "submissionInstalled": false,
+  "submissionLoadable": true,
+  "submissionSource": "discovery"
+}

@@ -1,0 +1,172 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Dashboard":
+      - /url: /dashboard
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "Sam CogPortal owner Account menu for SamGu-NRX":
+    - generic: Sam
+    - img "CogPortal owner":
+    - generic: Account menu for SamGu-NRX
+- main:
+  - link "← Dashboard":
+    - /url: /dashboard
+  - heading "RUN 5E29" [level=1]
+  - generic: Practice
+  - generic: Succeeded
+  - generic: "Run status: Succeeded"
+  - paragraph:
+    - generic: audio-identification / v1
+    - generic: "|"
+    - generic: main
+    - button "7125804 Copy full commit SHA 71258046e60fecd3295c0b52236fc6e476b0e9cf":
+      - generic: "7125804"
+      - generic: Copy full commit SHA 71258046e60fecd3295c0b52236fc6e476b0e9cf
+    - generic: "|"
+    - generic: Sep 9, 08:51 PM
+    - generic: "|"
+    - generic: 3m 06s
+  - heading "PIPELINE" [level=2]
+  - list "Run pipeline":
+    - text: Queued
+    - generic: ", complete"
+    - text: Prepare
+    - generic: ", complete"
+    - generic: 2.6 s
+    - text: Install
+    - generic: ", complete"
+    - generic: 36.7 s
+    - text: Contract check
+    - generic: ", complete"
+    - generic: 39.4 s
+    - text: Evaluate
+    - generic: ", complete"
+    - generic: 83.3 s
+    - text: Score
+    - generic: ", complete"
+    - generic: 13.1 s
+    - generic: Complete
+  - figure:
+    - generic: What this run shows
+    - paragraph: Identification falls gradually from 68% at 5 songs to 54% at 30, without a single point where it breaks.
+    - list:
+      - generic: "21% of queries had the right song somewhere in the list but not near the top. Retrieval found something, so this is the tally losing, not the fingerprints: check that you count matches per time offset rather than summing every hash hit, and that the same code path resamples both what you enroll and what you query."
+      - generic: Clean clips identify at 100% but pitch-shifted clips at 8%. A shifted clip moves every peak to a different frequency bin, so the stored keys stop matching; this is the expected behavior of the capstone design and is worth reporting, not hiding.
+      - generic: Every clip from a song that was never enrolled still came back with a candidate. Nothing in the assignment required an abstain path, so this does not affect the score, but a minimum tally or a first-to-second ratio is what would give you one.
+      - generic: "Weakest cell: pitch_+1 at 0% top-1."
+      - generic: "Outcome split over 240 scored queries: 129 top_1, 28 top_k, 51 ranking_failure, 32 retrieval_failure."
+  - figure "songs in the library identification score":
+    - img "identification_score against songs in the library, from 0.68 at 5 to 0.54 at 30":
+      - generic: "0.0"
+      - generic: "0.5"
+      - generic: "1.0"
+      - generic: "0.68"
+      - generic: "0.59"
+      - generic: "0.54"
+      - generic: "0.54"
+      - generic: "5"
+      - generic: "30"
+    - generic: songs in the library
+    - generic: identification score
+  - generic: Your code, as it was run
+  - list:
+    - generic: spectrogram
+    - generic: create_spectogram.create_spectrogram
+    - generic: took an array of shape (176400,), 44100
+    - text: ·
+    - generic: returned a tuple of 3, starting with an array of shape (2049, 85)
+    - generic: peaks
+    - generic: find_peaks.find_peaks
+    - generic: took an array of shape (2049, 85)
+    - text: ·
+    - generic: returned a list of 159, starting (1, 0)
+    - generic: fingerprints
+    - generic: create_fingerprints.peaks_to_fingerprints
+    - generic: took a list of 159, starting (1, 0)
+    - text: ·
+    - generic: returned a list of 2265, starting ((0, 25, 0), 0)
+    - generic: store
+    - generic: database.AudioDatabase().store_fingerprints
+    - generic: query
+    - generic: database.AudioDatabase().query
+  - heading "RESULTS" [level=2]
+  - figure "▲ higher is better":
+    - generic: Identification score
+    - generic: "0.5375"
+    - generic: ▲ higher is better
+    - term: Chance
+    - definition: "0.0333"
+    - term: Trivial baseline
+    - definition: "0.2417"
+    - term: Chance
+    - definition: "1/N for a catalog of N songs: what naming a song at random scores. The floor every other number on this page should be read against."
+    - term: Trivial baseline
+    - definition: Whole-clip mean log spectrum, nearest neighbour. No peaks, no fingerprints, no offsets -- none of the capstone. Beating chance is not evidence of a working pipeline; beating this is the first sign that the fingerprinting is doing something.
+    - paragraph: "How often the right song came back first, averaged over eight equally weighted conditions: clean, short, two noise levels, and four pitch shifts. Half of those are pitch, which the course never asks for, because it is the only condition measured to separate teams: an audited student sweep held 0.97 through the worst noise and collapsed to 10-25% at one or two semitones. Clips of songs that were never enrolled are not counted here; they are reported beside it as confident false matches. This is the leaderboard number."
+  - button "Clean top-1 1.000 higher is better":
+    - term: Clean top-1
+    - definition:
+      - generic: "1.000"
+      - generic: ▲
+      - generic: higher is better
+  - paragraph: "Studio-quality clips, no perturbation. The capstone's own baseline case: if this is not near 1.0, the pipeline is broken rather than merely untuned."
+  - button "Margin separation (AUC) 0.774 not scored":
+    - term: Margin separation (AUC)
+    - definition:
+      - generic: "0.774"
+      - generic: not scored
+  - paragraph: "The capstone's \"how much larger is the leading tally than the next-largest\" question, as an AUC: how well the top-1-versus-top-2 gap separates correct answers from wrong ones. A high value means that ratio is a usable confidence signal."
+  - button "Median identify time 0.057 not scored":
+    - term: Median identify time
+    - definition:
+      - generic: "0.057"
+      - generic: not scored
+  - paragraph: Median wall-clock time for one identify call, after warm-up. Reported, never scored.
+  - button "Noisy top-1 1.000 higher is better":
+    - term: Noisy top-1
+    - definition:
+      - generic: "1.000"
+      - generic: ▲
+      - generic: higher is better
+  - paragraph: Clips with white noise added at a target signal-to-noise ratio -- the capstone's "how well does a studio-quality clip, low-noise clip, ..., or very noisy clip match" question. Noise is added with signal_power / 10**(snr_db/10), the same formula the course uses.
+  - button "Pitch-shifted top-1 0.075 higher is better":
+    - term: Pitch-shifted top-1
+    - definition:
+      - generic: "0.075"
+      - generic: ▲
+      - generic: higher is better
+  - paragraph: Clips shifted in pitch. NOT part of the assignment -- reported because a shift moves every peak to a different frequency bin, so the (f1, f2, dt) keys stop matching. Expected behavior of the design the course teaches, shown rather than hidden.
+  - button "Wrong song ranked first 0.212 lower is better":
+    - term: Wrong song ranked first
+    - definition:
+      - generic: "0.212"
+      - generic: ▼
+      - generic: lower is better
+  - paragraph: Share of clips where the right song was found but something else won the tally. This is a voting problem, not a fingerprinting one -- the capstone's tally step, where votes must be counted per time offset rather than summed over every hash hit.
+  - button "No candidate found 0.133 lower is better":
+    - term: No candidate found
+    - definition:
+      - generic: "0.133"
+      - generic: ▼
+      - generic: lower is better
+  - paragraph: "Share of clips where the right song shared no fingerprint at all with the query. This is a fingerprinting problem: peak-picking, fanout, or a sample-rate mismatch between enroll and query."
+  - button "Short clip top-1 1.000 higher is better":
+    - term: Short clip top-1
+    - definition:
+      - generic: "1.000"
+      - generic: ▲
+      - generic: higher is better
+  - paragraph: The capstone's "how short of a clip can be matched" question. Fewer peaks means fewer fanout pairs, so the offset histogram has less to vote with.
+  - paragraph: Public practice split.
+  - heading "PROMOTE" [level=2]
+  - paragraph: Re-runs 7125804 against the hidden official inputs. Logs are suppressed.
+  - button "Promote to official"
+  - generic: 3 official attempts remaining
+  - heading "LOG · CAPPED" [level=2]
+  - generic: student python 3.8.20
+- document

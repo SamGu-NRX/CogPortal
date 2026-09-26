@@ -1,0 +1,107 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Dashboard":
+      - /url: /dashboard
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "ui-accept-e8 CogPortal owner Account menu for ui-accept-e8":
+    - generic: u
+    - generic: ui-accept-e8
+    - img "CogPortal owner":
+    - generic: Account menu for ui-accept-e8
+- main:
+  - generic: Dev rehearsal
+  - button "Live state"
+  - button "creator"
+  - button "member"
+  - button "Reset guide"
+  - paragraph: Setup · 0 of 5 done
+  - heading "Source history fixture" [level=1]
+  - button "Song Identification · v1 Change benchmark track. Currently Song Identification.":
+    - text: Song Identification · v1
+    - generic: Change benchmark track. Currently Song Identification.
+  - link "cogworks-demo/face-finder":
+    - /url: https://github.com/cogworks-demo/face-finder
+  - generic: u
+  - generic: "@ui-accept-e8"
+  - generic: 1 member
+  - link "Add":
+    - /url: /team
+  - list:
+    - generic: "01"
+    - generic: Not verified yet.
+    - heading "Get the code" [level=2]
+    - paragraph: Clone the team's repository. You all work in the same one, and every hosted attempt runs from it rather than from somebody's laptop.
+    - code: git clone https://github.com/cogworks-demo/face-finder.git && cd face-finder
+    - button "copy Copy command":
+      - text: copy
+      - generic: Copy command
+    - paragraph: Done here? Run this in the same terminal and the box ticks itself.
+    - code: python -c "import http.client as h; c = h.HTTPConnection('localhost:5196'); c.request('POST', '/api/v1/setup/check-off?t=REDACTED'); print(c.getresponse().read().decode())"
+    - button "copy Copy command":
+      - text: copy
+      - generic: Copy command
+    - generic: "02"
+    - generic: Not verified yet.
+    - heading "Set up your environment" [level=2]
+    - paragraph:
+      - text: From your repository's root, with
+      - code: conda activate week1
+      - text: done, the environment you built for the
+      - link "Song Identification prerequisites ↗":
+        - /url: https://rsokl.github.io/CogWeb/Audio/prereqs.html
+      - text: ":"
+    - code: python -m pip install --upgrade --force-reinstall "cogworks-benchmark @ git+https://github.com/SamGu-NRX/CogPortal.git@094a6f1ac109716014492a57a81157e71b70f7ab#subdirectory=python/cogbench"
+    - button "copy Copy command":
+      - text: copy
+      - generic: Copy command
+    - paragraph: Done here? Run this in the same terminal and the box ticks itself.
+    - code: python -c "import http.client as h; c = h.HTTPConnection('localhost:5196'); c.request('POST', '/api/v1/setup/check-off?t=REDACTED'); print(c.getresponse().read().decode())"
+    - button "copy Copy command":
+      - text: copy
+      - generic: Copy command
+    - generic: "03"
+    - generic: Not verified yet.
+    - heading "Install the Song Identification benchmark" [level=2]
+    - paragraph: The scorer for Song Identification, its data and its checks live in their own package. Changing the track above changes this line.
+    - code: python -m pip install "cogworks-week1-audio-benchmark @ git+https://github.com/SamGu-NRX/cogworks-week1-audio-benchmark.git@b156644aecc810e0b93535e320098f96c39ae04e"
+    - button "copy Copy command":
+      - text: copy
+      - generic: Copy command
+    - paragraph: Done here? Run this in the same terminal and the box ticks itself.
+    - code: python -c "import http.client as h; c = h.HTTPConnection('localhost:5196'); c.request('POST', '/api/v1/setup/check-off?t=REDACTED'); print(c.getresponse().read().decode())"
+    - button "copy Copy command":
+      - text: copy
+      - generic: Copy command
+    - generic: "04"
+    - generic: Not verified yet.
+    - heading "Link this device" [level=2]
+    - paragraph:
+      - text: Lets a command report back to your team. What reaches CogPortal is check names, package versions and your repository, and you can revoke this device from
+      - link "Connections":
+        - /url: /connections
+      - text: .
+    - code: cogworks link --portal http://localhost:5196
+    - button "copy Copy command":
+      - text: copy
+      - generic: Copy command
+    - generic: "05"
+    - generic: Not verified yet.
+    - heading "Prove the wiring" [level=2]
+    - paragraph:
+      - code: check
+      - text: reads your repository and says which of your own functions it wired up, and reports what it found. If it doesn't tick, the reason is in your terminal.
+    - code: cogworks check --benchmark audio-identification --update-setup
+    - button "copy Copy command":
+      - text: copy
+      - generic: Copy command
+  - paragraph: No rush. This page keeps your place.
+  - link "Open dashboard":
+    - /url: /dashboard
+    - text: Open dashboard
+- document

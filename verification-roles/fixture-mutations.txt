@@ -1,0 +1,4 @@
+Local DB only. Assigned verify-ta to team_2a7fce668333a7ed; created empty cohort cohort_verify_empty / EMPTY26. Accounts created via browser.
+Set creator team repository to disposable cogworks-demo/verification-old, repo_id 99001, so built-in face-finder is an eligible UI switch target. Existing scripted run retained.
+Second UI-started scripted run held queued by advancing created_at 180s; restore original timestamp after refusal. Team again seeded to verification-old for switch target.
+Restored second run original created_at.

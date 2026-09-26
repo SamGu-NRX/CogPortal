@@ -1,0 +1,24 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "verify-empty Account menu for verify-empty":
+    - generic: v
+    - generic: verify-empty
+    - generic: Account menu for verify-empty
+- main:
+  - heading "Start a team" [level=1]
+  - paragraph: Connect a repository you can push to. It has to be public, because the benchmark reads it from GitHub.
+  - group "Repositories":
+    - generic: Repositories
+    - radio "cogworks-demo/face-finder Deterministic demo repository; each branch scripts a different run outcome. main"
+    - generic: cogworks-demo/face-finder
+    - generic "Deterministic demo repository; each branch scripts a different run outcome."
+    - generic: main
+  - button "Select a repository" [disabled]
+- document

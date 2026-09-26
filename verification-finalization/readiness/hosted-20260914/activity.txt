@@ -1,0 +1,9 @@
+{
+  "identity": {
+    "scripts": [
+      "https://cogactivity-dev.sillion.app/assets/index-CWTD-8NB.js"
+    ],
+    "url": "https://cogactivity-dev.sillion.app/"
+  },
+  "dom": "- document\n- main:\n  - generic: Discord Activity\n  - heading \"Open the live bench from Discord.\" [level=1]\n  - paragraph:\n    - text: Use\n    - code: /cog\n    - text: in your team channel, then choose\n    - strong: Open live console\n    - text: . Your linked Discord identity decides which team surfaces you can see.\n  - link \"Open Cog*Portal\":\n    - /url: https://cogportal-dev.sillion.app\n- document"
+}

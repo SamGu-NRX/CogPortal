@@ -1,0 +1,5 @@
+[
+  "python -c \"import http.client as h; c = h.HTTPConnection('localhost:5196'); c.request('POST', '/api/v1/setup/check-off?t=eyJ1IjoiTEtGMkNQVkN1OU9vSG9VSlNqMEpvcGFlQmtaU3ZoQVMiLCJ0IjoidGVhbV9zb3VyY2VfYWNjZXB0IiwicyI6ImNsb25lIiwiYiI6IiIsImV4cCI6MTc4OTc3NjAwMH0.bN8EmBMm8hasiKC2ToLz1FzsgFCJr2w24W4IjsbmV6k'); print(c.getresponse().read().decode())\"",
+  "python -c \"import http.client as h; c = h.HTTPConnection('localhost:5196'); c.request('POST', '/api/v1/setup/check-off?t=eyJ1IjoiTEtGMkNQVkN1OU9vSG9VSlNqMEpvcGFlQmtaU3ZoQVMiLCJ0IjoidGVhbV9zb3VyY2VfYWNjZXB0IiwicyI6ImVudmlyb25tZW50IiwiYiI6ImF1ZGlvLWlkZW50aWZpY2F0aW9uIiwiZXhwIjoxNzg5Nzc2MDAwfQ.mGcr5l37cnwwgZIfdv3mHc-HH7k8qlQjbuWB_mdGC3o'); print(c.getresponse().read().decode())\"",
+  "python -c \"import http.client as h; c = h.HTTPConnection('localhost:5196'); c.request('POST', '/api/v1/setup/check-off?t=eyJ1IjoiTEtGMkNQVkN1OU9vSG9VSlNqMEpvcGFlQmtaU3ZoQVMiLCJ0IjoidGVhbV9zb3VyY2VfYWNjZXB0IiwicyI6InByb2plY3QiLCJiIjoiYXVkaW8taWRlbnRpZmljYXRpb24iLCJleHAiOjE3ODk3NzYwMDB9.LePmKA22zfPbRwBnWrPzV-PK0h6EwUV6iWCtPhNsTzM'); print(c.getresponse().read().decode())\""
+]

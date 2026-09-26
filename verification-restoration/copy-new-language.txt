@@ -1,0 +1,5 @@
+git clone https://github.com/cogworks-demo/face-finder-day-one.git && cd face-finder-day-one
+python -m pip install --upgrade --force-reinstall "cogworks-benchmark @ git+https://github.com/SamGu-NRX/CogPortal.git@8e09a07c6e0cce75c70845d4566fd756f390c83b#subdirectory=python/cogbench"
+python -m pip install "cogworks-week3-language-benchmark @ git+https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git@b166f5c15e950baccc3785839cdcc660ffe01bb4"
+cogworks link --portal http://localhost:5173
+cogworks check --benchmark language-search --update-setup

@@ -1,0 +1,14 @@
+{
+  "id": "w3-g2-language",
+  "projectId": "w3-g2",
+  "week": 3,
+  "group": 2,
+  "repository": "CogWorks-2026-Team-Asterisk/Week3-Capstone",
+  "path": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/CogWorks-2026-Team-Asterisk__Week3-Capstone",
+  "sha": "4ec78cf430ce21fe477cfa3f853cea5d53f02c8b",
+  "subdirectory": ".",
+  "benchmark": "language-search",
+  "version": 1,
+  "environment": "local311",
+  "status": "not-run"
+}

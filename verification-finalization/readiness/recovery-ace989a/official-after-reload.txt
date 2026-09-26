@@ -1,0 +1,88 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Dashboard":
+      - /url: /dashboard
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "Account menu for recovery-local-owner":
+    - generic: r
+    - generic: Account menu for recovery-local-owner
+- main:
+  - region "Live run for Semantic Image Search":
+    - generic: On the bench · evaluating
+    - generic: SIMULATED
+    - generic: Live
+    - heading "Semantic Image Search" [level=1]
+    - paragraph:
+      - generic: Demo Team
+      - generic: ·
+      - generic: "@recovery-local-owner"
+      - generic: ·
+      - code: cbd8e59
+      - generic: ·
+      - generic: 17s
+    - status:
+      - generic: Evaluation started
+      - progressbar "Evaluation started progress"
+    - list "Run lifecycle":
+      - generic: ✓
+      - generic: complete
+      - generic: ✓
+      - generic: complete
+      - generic: ●
+      - generic: active
+      - generic: ○
+      - generic: pending
+    - generic: Safe event stream
+    - list "Live run events":
+      - time: 0s
+      - generic: Fetching repository
+      - time: 4s
+      - generic: Installing dependencies
+      - time: 9s
+      - generic: Checking benchmark contract
+      - time: 11s
+      - generic: Contract passed
+      - time: 11s
+      - generic: Evaluation started
+    - complementary:
+      - generic: Run reference
+      - term: Repository
+      - definition: cogworks-demo/face-finder
+      - term: Commit
+      - definition: cbd8e59d3a0eeb280a188b3d749bf6c24235cf83
+      - term: Branch
+      - definition: main
+      - term: Workspace
+      - definition: Clean
+      - button "Open Cog*Portal":
+        - text: Open Cog*Portal
+    - list:
+      - paragraph: practice · succeeded
+      - time: 9/11/2026, 4:38:05 PM
+      - button:
+        - text: View details
+        - generic: for practice run from 9/11/2026, 4:38:05 PM
+      - paragraph: official · failed
+      - time: 9/11/2026, 4:38:26 PM
+      - button:
+        - text: View details
+        - generic: for official run from 9/11/2026, 4:38:26 PM
+      - paragraph: official · failed
+      - time: 9/11/2026, 4:38:26 PM
+      - button:
+        - text: View details
+        - generic: for official run from 9/11/2026, 4:38:26 PM
+      - paragraph: official · evaluating · Current
+      - time: 9/11/2026, 5:03:35 PM
+      - button:
+        - text: View details
+        - generic: for official run from 9/11/2026, 5:03:35 PM
+    - button "Show run history":
+      - generic: Show run history
+- document

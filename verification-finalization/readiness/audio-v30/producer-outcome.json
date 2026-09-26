@@ -1,0 +1,203 @@
+[
+  {
+    "key": "job_b8269421147921ed:outcome",
+    "outcome": {
+      "status": "completed",
+      "event": {
+        "protocolVersion": "1",
+        "eventId": "event_run_f685315495_32_1789076497556",
+        "runId": "run_f685315495",
+        "sequence": 32,
+        "occurredAt": 1789076497556,
+        "type": "completed",
+        "result": {
+          "protocolVersion": "1",
+          "benchmarkId": "audio-identification",
+          "benchmarkVersion": 1,
+          "metrics": [
+            {
+              "key": "identification_score",
+              "label": "Identification score",
+              "value": 0.5375,
+              "unit": null,
+              "higherIsBetter": true,
+              "primary": true,
+              "precision": 4,
+              "help": "How often the right song came back first, averaged over eight equally weighted conditions: clean, short, two noise levels, and four pitch shifts. Half of those are pitch, which the course never asks for, because it is the only condition measured to separate teams: an audited student sweep held 0.97 through the worst noise and collapsed to 10-25% at one or two semitones. Clips of songs that were never enrolled are not counted here; they are reported beside it as confident false matches. This is the leaderboard number."
+            },
+            {
+              "key": "clean_top1",
+              "label": "Clean top-1",
+              "value": 1.0,
+              "unit": null,
+              "higherIsBetter": true,
+              "primary": false,
+              "precision": 3,
+              "help": "Studio-quality clips, no perturbation. The capstone's own baseline case: if this is not near 1.0, the pipeline is broken rather than merely untuned."
+            },
+            {
+              "key": "noisy_top1",
+              "label": "Noisy top-1",
+              "value": 1.0,
+              "unit": null,
+              "higherIsBetter": true,
+              "primary": false,
+              "precision": 3,
+              "help": "Clips with white noise added at a target signal-to-noise ratio -- the capstone's \"how well does a studio-quality clip, low-noise clip, ..., or very noisy clip match\" question. Noise is added with signal_power / 10**(snr_db/10), the same formula the course uses."
+            },
+            {
+              "key": "short_clip_top1",
+              "label": "Short clip top-1",
+              "value": 1.0,
+              "unit": null,
+              "higherIsBetter": true,
+              "primary": false,
+              "precision": 3,
+              "help": "The capstone's \"how short of a clip can be matched\" question. Fewer peaks means fewer fanout pairs, so the offset histogram has less to vote with."
+            },
+            {
+              "key": "pitch_top1",
+              "label": "Pitch-shifted top-1",
+              "value": 0.075,
+              "unit": null,
+              "higherIsBetter": true,
+              "primary": false,
+              "precision": 3,
+              "help": "Clips shifted in pitch. NOT part of the assignment -- reported because a shift moves every peak to a different frequency bin, so the (f1, f2, dt) keys stop matching. Expected behavior of the design the course teaches, shown rather than hidden."
+            },
+            {
+              "key": "retrieval_failure_rate",
+              "label": "No candidate found",
+              "value": 0.13333333333333333,
+              "unit": null,
+              "higherIsBetter": false,
+              "primary": false,
+              "precision": 3,
+              "help": "Share of clips where the right song shared no fingerprint at all with the query. This is a fingerprinting problem: peak-picking, fanout, or a sample-rate mismatch between enroll and query."
+            },
+            {
+              "key": "ranking_failure_rate",
+              "label": "Wrong song ranked first",
+              "value": 0.2125,
+              "unit": null,
+              "higherIsBetter": false,
+              "primary": false,
+              "precision": 3,
+              "help": "Share of clips where the right song was found but something else won the tally. This is a voting problem, not a fingerprinting one -- the capstone's tally step, where votes must be counted per time offset rather than summed over every hash hit."
+            },
+            {
+              "key": "chance_top1",
+              "label": "Chance",
+              "value": 0.03333333333333333,
+              "unit": null,
+              "higherIsBetter": true,
+              "primary": false,
+              "precision": 3,
+              "help": "1/N for a catalog of N songs: what naming a song at random scores. The floor every other number on this page should be read against.",
+              "role": "floor",
+              "relatesTo": "identification_score"
+            },
+            {
+              "key": "trivial_baseline_top1",
+              "label": "Trivial baseline",
+              "value": 0.24166666666666667,
+              "unit": null,
+              "higherIsBetter": true,
+              "primary": false,
+              "precision": 3,
+              "help": "Whole-clip mean log spectrum, nearest neighbour. No peaks, no fingerprints, no offsets -- none of the capstone. Beating chance is not evidence of a working pipeline; beating this is the first sign that the fingerprinting is doing something.",
+              "role": "floor",
+              "relatesTo": "identification_score"
+            },
+            {
+              "key": "median_identify_seconds",
+              "label": "Median identify time",
+              "value": 0.0428,
+              "unit": null,
+              "higherIsBetter": false,
+              "primary": false,
+              "precision": 3,
+              "help": "Median wall-clock time for one identify call, after warm-up. Reported, never scored.",
+              "role": "reported"
+            },
+            {
+              "key": "margin_separation",
+              "label": "Margin separation (AUC)",
+              "value": 0.7737847222222223,
+              "unit": null,
+              "higherIsBetter": true,
+              "primary": false,
+              "precision": 3,
+              "help": "The capstone's \"how much larger is the leading tally than the next-largest\" question, as an AUC: how well the top-1-versus-top-2 gap separates correct answers from wrong ones. A high value means that ratio is a usable confidence signal.",
+              "role": "reported"
+            }
+          ],
+          "diagnostics": [
+            "Identification falls gradually from 68% at 5 songs to 54% at 30, without a single point where it breaks.",
+            "21% of queries had the right song somewhere in the list but not near the top. Retrieval found something, so this is the tally losing, not the fingerprints: check that you count matches per time offset rather than summing every hash hit, and that the same code path resamples both what you enroll and what you query.",
+            "Clean clips identify at 100% but pitch-shifted clips at 8%. A shifted clip moves every peak to a different frequency bin, so the stored keys stop matching; this is the expected behavior of the capstone design and is worth reporting, not hiding.",
+            "Every clip from a song that was never enrolled still came back with a candidate. Nothing in the assignment required an abstain path, so this does not affect the score, but a minimum tally or a first-to-second ratio is what would give you one.",
+            "Weakest cell: pitch_+1 at 0% top-1.",
+            "Outcome split over 240 scored queries: 129 top_1, 28 top_k, 51 ranking_failure, 32 retrieval_failure."
+          ],
+          "outputDigest": "11015d813b5435a8793fed5d7623d5493c19485e5894824dabb4d677069220b1",
+          "weightsSupplied": [],
+          "sweep": {
+            "axis": "songs in the library",
+            "metric": "identification_score",
+            "points": [
+              {
+                "x": 5.0,
+                "y": 0.675
+              },
+              {
+                "x": 10.0,
+                "y": 0.5875
+              },
+              {
+                "x": 20.0,
+                "y": 0.5375
+              },
+              {
+                "x": 30.0,
+                "y": 0.5375
+              }
+            ]
+          },
+          "wiring": [
+            {
+              "stage": "spectrogram",
+              "function": "create_spectogram.create_spectrogram",
+              "received": "an array of shape (176400,), 44100",
+              "returned": "a tuple of 3, starting with an array of shape (2049, 85)"
+            },
+            {
+              "stage": "peaks",
+              "function": "find_peaks.find_peaks",
+              "received": "an array of shape (2049, 85)",
+              "returned": "a list of 159, starting (1, 0)"
+            },
+            {
+              "stage": "fingerprints",
+              "function": "create_fingerprints.peaks_to_fingerprints",
+              "received": "a list of 159, starting (1, 0)",
+              "returned": "a list of 2265, starting ((0, 25, 0), 0)"
+            },
+            {
+              "stage": "store",
+              "function": "database.AudioDatabase().store_fingerprints"
+            },
+            {
+              "stage": "query",
+              "function": "database.AudioDatabase().query"
+            }
+          ]
+        },
+        "preparedArtifactId": "im-01M26M6J4FJ3NKDE1DXGWRWBA7",
+        "environmentDigest": "a4eec442116466263b628d12d9a963da303c96896e814e32b355086d5fe1b8fd",
+        "sanitizedLog": "student python 3.8.20\n"
+      },
+      "delivered": true
+    }
+  }
+]

@@ -1,0 +1,186 @@
+{
+    "benchmarkInstalled": true,
+    "benchmarkLoadable": true,
+    "canonicalHostedPython": "3.11",
+    "contractVersion": "cogworks.submissions.v2",
+    "dataEvaluationCache": {
+        "message": "ready",
+        "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1",
+        "ready": true
+    },
+    "dataTestCache": {
+        "message": "ready",
+        "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-test-v1",
+        "ready": true
+    },
+    "discovery": {
+        "attemptsTried": 0,
+        "chain": [],
+        "discovery": {
+            "considered": [
+                "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g1-cluster/Week2"
+            ],
+            "modules": [
+                {
+                    "name": "facerecognizer",
+                    "origin": "file",
+                    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g1-cluster/Week2/facerecognizer.py"
+                },
+                {
+                    "name": "whispers",
+                    "origin": "file",
+                    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g1-cluster/Week2/whispers.py"
+                },
+                {
+                    "name": "testing",
+                    "origin": "notebook",
+                    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g1-cluster/Week2/testing.ipynb"
+                }
+            ],
+            "root": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g1-cluster/Week2",
+            "rootReason": "code sits at the repository root",
+            "skipped": [
+                {
+                    "detail": "imports webcolors, which is not installed here",
+                    "missing": "webcolors",
+                    "name": "app",
+                    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g1-cluster/Week2/app.py",
+                    "reason": "missing_dependency"
+                },
+                {
+                    "detail": "FileNotFoundError: [Errno 2] No such file or directory: 'face_database.pkl'",
+                    "missing": null,
+                    "name": "testing_py",
+                    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g1-cluster/Week2/testing_py.py",
+                    "reason": "raised"
+                }
+            ],
+            "stubCalls": [],
+            "stubbed": [
+                "streamlit",
+                "microphone",
+                "pyaudio",
+                "camera"
+            ]
+        },
+        "hashRandomization": false,
+        "hashSeed": "0",
+        "recalled": false,
+        "verdict": {
+            "coverage": {
+                "read": [
+                    "facerecognizer",
+                    "whispers",
+                    "testing"
+                ],
+                "readEnoughToJudge": true,
+                "skipped": [
+                    {
+                        "module": "app",
+                        "owner": "environment",
+                        "reason": "imports webcolors, which is not installed here"
+                    },
+                    {
+                        "module": "testing_py",
+                        "owner": "theirs",
+                        "reason": "FileNotFoundError: [Errno 2] No such file or directory: 'face_database.pkl'"
+                    }
+                ]
+            },
+            "errors": [
+                {
+                    "file": "facerecognizer.py",
+                    "function": "facerecognizer.add_profile",
+                    "line": 44,
+                    "message": "ValueError: The truth value of an array with more than one element is ambiguous. Use a.any() or a.all()"
+                },
+                {
+                    "file": "facerecognizer.py",
+                    "function": "facerecognizer.compute_cos_dist",
+                    "line": 95,
+                    "message": "AxisError: axis 1 is out of bounds for array of dimension 0"
+                },
+                {
+                    "file": "facerecognizer.py",
+                    "function": "facerecognizer.delete_profile",
+                    "line": 53,
+                    "message": "ValueError: The truth value of an array with more than one element is ambiguous. Use a.any() or a.all()"
+                },
+                {
+                    "file": "facerecognizer.py",
+                    "function": "facerecognizer.jpg_to_rgb",
+                    "line": 113,
+                    "message": "FileNotFoundError: No such file: 'a temporary path 37, 20],"
+                },
+                {
+                    "file": "facerecognizer.py",
+                    "function": "facerecognizer.load",
+                    "line": 40,
+                    "message": "TypeError: expected str, bytes or os.PathLike object, not list"
+                },
+                {
+                    "file": "facerecognizer.py",
+                    "function": "facerecognizer.save",
+                    "line": 36,
+                    "message": "TypeError: expected str, bytes or os.PathLike object, not float"
+                },
+                {
+                    "file": "testing.ipynb",
+                    "function": "testing.take_picture_cv2",
+                    "line": 0,
+                    "message": "error: OpenCV(4.10.0) :-1: error: (-5:Bad argument) in function 'VideoCapture'"
+                },
+                {
+                    "file": "whispers.py",
+                    "function": "whispers.connected_components",
+                    "line": 167,
+                    "message": "AttributeError: 'numpy.ndarray' object has no attribute 'label'"
+                },
+                {
+                    "file": "whispers.py",
+                    "function": "whispers.create_graph",
+                    "line": 66,
+                    "message": "AttributeError: module 'pyexpat.model' has no attribute 'detect'"
+                },
+                {
+                    "file": "whispers.py",
+                    "function": "whispers.whispers",
+                    "line": 191,
+                    "message": "AttributeError: 'numpy.ndarray' object has no attribute 'label'"
+                },
+                {
+                    "file": "facerecognizer.py",
+                    "function": "facerecognizer.add_images",
+                    "line": 60,
+                    "message": "AttributeError: 'float' object has no attribute 'detect'"
+                },
+                {
+                    "file": "facerecognizer.py",
+                    "function": "facerecognizer.find_top_4_sim_faces",
+                    "line": 241,
+                    "message": "TypeError: 'float' object is not iterable"
+                }
+            ],
+            "headline": "Nothing in your repository accepted the input the descriptors step passes.",
+            "nextStep": "app did not import, because webcolors is not installed here. If the function the benchmark is looking for lives in one of them, add webcolors to a requirements.txt at the root of your repository.",
+            "notes": [],
+            "status": "not_wired",
+            "trace": []
+        },
+        "weightsUsed": []
+    },
+    "gitRepository": true,
+    "localGap": [],
+    "modelCache": {
+        "message": "ready",
+        "path": "/Users/samgu/.cache/torch/checkpoints/20180402-114759-vggface2.pt",
+        "ready": true
+    },
+    "python": "3.11.15",
+    "repositoryFullName": "rutvim2009/BWSI_CogWorks_Team_1",
+    "submissionDetail": null,
+    "submissionError": "We look for your adapter at the repository root, and /Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g1-cluster/Week2 has neither submission.py nor benchmark_adapter.py. Create submission.py there, define create_submission, and return your adapter from it. Nothing is registered as \"vision-clustering\" in \"cogworks.submissions.v2\" either (installed: none), so if you meant to install your project as a package, reinstall it.",
+    "submissionInstalled": false,
+    "submissionLoadable": false,
+    "submissionSource": null
+}

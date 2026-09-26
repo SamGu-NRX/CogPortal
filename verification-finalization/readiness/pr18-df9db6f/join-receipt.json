@@ -1,0 +1,21 @@
+{
+  "exact": true,
+  "metrics": {
+    "bounds": {
+      "bottom": 440.2421875,
+      "height": 36,
+      "left": 117.3125,
+      "right": 266.3125,
+      "top": 404.2421875,
+      "width": 149,
+      "x": 117.3125,
+      "y": 404.2421875
+    },
+    "fields": 0,
+    "focusedIsCopy": true,
+    "outline": "solid",
+    "overflow": 0,
+    "selectable": "text",
+    "width": 390
+  }
+}

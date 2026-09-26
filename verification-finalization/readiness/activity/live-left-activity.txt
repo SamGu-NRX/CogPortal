@@ -1,0 +1,1008 @@
+- region "Channel header":
+  - generic: Text Channel
+  - 'heading "Cog*Works 2026: nb-development" [level=1]':
+    - generic: "Cog*Works 2026:"
+    - text: nb-development
+  - button "Threads":
+  - button "Notification Settings":
+  - button "Pinned Messages":
+  - button "Show Member List":
+  - combobox "Search Cog*Works 2026":
+    - generic: Search Cog*Works 2026
+  - button:
+- main "nb-development (channel)":
+  - heading "nb-development chat" [level=2]
+  - list "Messages in nb-development":
+    - heading [level=3]: "Welcome to #nb-development!"
+    - text: "This is the start of the #nb-development"
+    - strong: private
+    - text: channel.
+    - button "Add members or roles":
+      - generic: Add members or roles
+    - button "Edit Channel":
+      - generic: Edit Channel
+    - list:
+      - img "Reynaldo Morillo":
+    - button "Instructor":
+      - generic: Instructor
+    - button "BWSI Staff":
+      - generic: BWSI Staff
+    - button "TA":
+      - generic: TA
+    - button "Cog*Bot":
+      - generic: Cog*Bot
+    - separator "July 15, 2026":
+      - generic: July 15, 2026
+    - 'article "Cog*Bot App , Visual gate , , 1 glyphs: :cog_spin: :cog_done: :cog_fail: :cog_pend: :cog_active: :cog_star: :cog_slot_used: :cog_slot_used: :cog_slot_free: , 2 bar: :cog_bar_l_1: :cog_bar_m_1: :cog_bar_m_1: :cog_bar_m_0: :cog_bar_m_0: :cog_bar_r_0: 18/40 , , 3a emoji in subtext: :cog_done: Repository ready 00:02 , 3b font glyph in subtext: ○ Scoring , , 4a regular spaces: Face Recognition 89353d0 Sam 0:49 simulated , 4b en-spaces: Face Recognition 89353d0 Sam 0:49 simulated , , 5 jumbo test (emoji-only line): , :cog_spin: :cog_done: :cog_active: , , 6a rail, subtext + font glyphs: ✓ local ● hosted ○ official ○ published , 6b rail, full-size + emoji: :cog_done: local :cog_active: hosted :cog_pend: official :cog_pend: published , , 7 loader composition: :cog_done: Repository ready 00:02 :cog_done: Contract passed 00:06 :cog_spin: Evaluating 18/40 ○ Scoring , , , 7/15/26, 6:57 PM"':
+      - heading "Cog*Bot App 7/15/26, 6:57 PM" [level=3]:
+        - button "Cog*Bot"
+        - img "App":
+          - generic: APP
+        - time:
+          - generic: —
+          - text: 7/15/26, 6:57 PM
+        - generic: Wednesday, July 15, 2026 at 6:57 PM
+      - heading "Visual gate ," [level=3]:
+        - generic: Visual gate
+        - generic: ","
+      - generic: ","
+      - text: "1 glyphs:"
+      - button ":cog_spin:":
+        - img ":cog_spin:"
+      - button ":cog_done:":
+        - img ":cog_done:"
+      - button ":cog_fail:":
+        - img ":cog_fail:"
+      - button ":cog_pend:":
+        - img ":cog_pend:"
+      - button ":cog_active:":
+        - img ":cog_active:"
+      - button ":cog_star:":
+        - img ":cog_star:"
+      - button ":cog_slot_used:":
+        - img ":cog_slot_used:"
+      - button ":cog_slot_used:":
+        - img ":cog_slot_used:"
+      - button ":cog_slot_free:":
+        - img ":cog_slot_free:"
+      - generic: ","
+      - text: "2 bar:"
+      - button ":cog_bar_l_1:":
+        - img ":cog_bar_l_1:"
+      - button ":cog_bar_m_1:":
+        - img ":cog_bar_m_1:"
+      - button ":cog_bar_m_1:":
+        - img ":cog_bar_m_1:"
+      - button ":cog_bar_m_0:":
+        - img ":cog_bar_m_0:"
+      - button ":cog_bar_m_0:":
+        - img ":cog_bar_m_0:"
+      - button ":cog_bar_r_0:":
+        - img ":cog_bar_r_0:"
+      - code: 18/40
+      - generic: ","
+      - generic: ","
+      - text: "3a emoji in subtext:"
+      - button ":cog_done:":
+        - img ":cog_done:"
+      - text: Repository ready
+      - code: 00:02
+      - generic: ","
+      - text: "3b font glyph in subtext:"
+      - generic: ○ Scoring
+      - generic: ","
+      - generic: ","
+      - text: "4a regular spaces: Face Recognition"
+      - code: 89353d0
+      - text: Sam
+      - code: 0:49
+      - text: simulated
+      - generic: ","
+      - text: "4b en-spaces: Face Recognition"
+      - code: 89353d0
+      - text: Sam
+      - code: 0:49
+      - text: simulated
+      - generic: ","
+      - generic: ","
+      - generic: "5 jumbo test (emoji-only line):"
+      - generic: ","
+      - button ":cog_spin:":
+        - img ":cog_spin:"
+      - button ":cog_done:":
+        - img ":cog_done:"
+      - button ":cog_active:":
+        - img ":cog_active:"
+      - generic: ","
+      - generic: ","
+      - text: "6a rail, subtext + font glyphs:"
+      - generic: ✓ local ● hosted ○ official ○ published
+      - generic: ","
+      - text: "6b rail, full-size + emoji:"
+      - button ":cog_done:":
+        - img ":cog_done:"
+      - text: local
+      - button ":cog_active:":
+        - img ":cog_active:"
+      - text: hosted
+      - button ":cog_pend:":
+        - img ":cog_pend:"
+      - text: official
+      - button ":cog_pend:":
+        - img ":cog_pend:"
+      - text: published
+      - generic: ","
+      - generic: ","
+      - text: "7 loader composition:"
+      - button ":cog_done:":
+        - img ":cog_done:"
+      - text: Repository ready
+      - code: 00:02
+      - button ":cog_done:":
+        - img ":cog_done:"
+      - text: Contract passed
+      - code: 00:06
+      - button ":cog_spin:":
+        - img ":cog_spin:"
+      - strong: Evaluating
+      - code: 18/40
+      - generic: ○ Scoring
+      - generic: ","
+      - generic: ","
+    - 'article "Cog*Bot App , :cog_done: Bench clear 0.822 , Recognition cbd8e59 by samgu-e2e 0:21 simulated , , ✓ local ✓ hosted ○ official ○ published , , Promote to official , Rerun hosted , Cog*Portal ↗ , , , (edited) Wednesday, July 15, 2026 at 10:33 PM , 7/15/26, 10:33 PM"':
+      - heading "Cog*Bot App 7/15/26, 10:33 PM" [level=3]:
+        - button "Cog*Bot"
+        - img "App":
+          - generic: APP
+        - time:
+          - generic: —
+          - text: 7/15/26, 10:33 PM
+        - generic: Wednesday, July 15, 2026 at 10:33 PM
+      - 'heading ":cog_done: Bench clear 0.822 ," [level=3]':
+        - button ":cog_done:":
+          - img ":cog_done:"
+        - text: Bench clear
+        - strong: "0.822"
+        - generic: ","
+      - text: Recognition
+      - code: cbd8e59
+      - text: by samgu-e2e
+      - code: 0:21
+      - text: simulated
+      - generic: ","
+      - generic: ","
+      - generic: ✓ local ✓ hosted ○ official ○ published
+      - generic: ","
+      - generic: ","
+      - button "Promote to official":
+        - generic: Promote to official
+      - generic: ","
+      - button "Rerun hosted":
+        - generic: Rerun hosted
+      - generic: ","
+      - link "Cog*Portal ↗":
+        - generic: Cog*Portal ↗
+      - generic: ","
+      - generic: ","
+      - generic: ","
+      - time:
+        - generic: (edited)
+      - generic: Wednesday, July 15, 2026 at 10:33 PM
+    - separator "July 17, 2026":
+      - generic: July 17, 2026
+    - 'article "Cog*Bot App , :cog_board: Recognition leaderboard , The board is wide open. Your team could set the first mark. , , Share in channel , , , cog_board Leaderboard , , Cog*Portal , , , (edited) Friday, July 24, 2026 at 8:29 PM , 7/17/26, 3:02 PM"':
+      - heading "Cog*Bot App 7/17/26, 3:02 PM" [level=3]:
+        - button "Cog*Bot"
+        - img "App":
+          - generic: APP
+        - time:
+          - generic: —
+          - text: 7/17/26, 3:02 PM
+        - generic: Friday, July 17, 2026 at 3:02 PM
+      - 'heading ":cog_board: Recognition leaderboard ," [level=3]':
+        - button ":cog_board:":
+          - img ":cog_board:"
+        - text: Recognition leaderboard
+        - generic: ","
+      - text: The board is wide open. Your team could set the first mark.
+      - generic: ","
+      - generic: ","
+      - button "Share in channel":
+        - generic: Share in channel
+      - generic: ","
+      - generic: ","
+      - generic: ","
+      - button "cog_board Leaderboard":
+        - img "cog_board"
+        - generic: Leaderboard
+      - generic: ","
+      - generic: ","
+      - link "Cog*Portal":
+        - generic: Cog*Portal
+      - generic: ","
+      - generic: ","
+      - generic: ","
+      - time:
+        - generic: (edited)
+      - generic: Friday, July 24, 2026 at 8:29 PM
+    - separator "July 24, 2026":
+      - generic: July 24, 2026
+    - 'article "Cog*Bot App , :cog_done: Bench clear 0.433 , Semantic Image Search d00c41a by w3tester 0:02 simulated , , 0.783 :cog_bar_l_1: :cog_bar_m_1: :cog_bar_m_1: :cog_bar_m_0: :cog_bar_r_0: text mrr 0.259 :cog_bar_l_1: :cog_bar_m_0: :cog_bar_m_0: :cog_bar_m_0: :cog_bar_r_0: retrieval mrr 0.257 :cog_bar_l_1: :cog_bar_m_0: :cog_bar_m_0: :cog_bar_m_0: :cog_bar_r_0: search mrr 0.133 :cog_bar_l_0: :cog_bar_m_0: :cog_bar_m_0: :cog_bar_m_0: :cog_bar_r_0: recall@1 , , :cog_done: local :cog_pend: hosted :cog_pend: official :cog_pend: published , , Verify hosted , Run again , Cog*Portal , , , (edited) Friday, July 24, 2026 at 2:08 PM , 7/24/26, 2:08 PM"':
+      - heading "Cog*Bot App 7/24/26, 2:08 PM" [level=3]:
+        - button "Cog*Bot"
+        - img "App":
+          - generic: APP
+        - time:
+          - generic: —
+          - text: 7/24/26, 2:08 PM
+        - generic: Friday, July 24, 2026 at 2:08 PM
+      - 'heading ":cog_done: Bench clear 0.433 ," [level=3]':
+        - button ":cog_done:":
+          - img ":cog_done:"
+        - text: Bench clear
+        - strong: "0.433"
+        - generic: ","
+      - text: Semantic Image Search
+      - code: d00c41a
+      - text: by w3tester
+      - code: 0:02
+      - text: simulated
+      - generic: ","
+      - generic: ","
+      - code: "0.783"
+      - button ":cog_bar_l_1:":
+        - img ":cog_bar_l_1:"
+      - button ":cog_bar_m_1:":
+        - img ":cog_bar_m_1:"
+      - button ":cog_bar_m_1:":
+        - img ":cog_bar_m_1:"
+      - button ":cog_bar_m_0:":
+        - img ":cog_bar_m_0:"
+      - button ":cog_bar_r_0:":
+        - img ":cog_bar_r_0:"
+      - text: text mrr
+      - code: "0.259"
+      - button ":cog_bar_l_1:":
+        - img ":cog_bar_l_1:"
+      - button ":cog_bar_m_0:":
+        - img ":cog_bar_m_0:"
+      - button ":cog_bar_m_0:":
+        - img ":cog_bar_m_0:"
+      - button ":cog_bar_m_0:":
+        - img ":cog_bar_m_0:"
+      - button ":cog_bar_r_0:":
+        - img ":cog_bar_r_0:"
+      - text: retrieval mrr
+      - code: "0.257"
+      - button ":cog_bar_l_1:":
+        - img ":cog_bar_l_1:"
+      - button ":cog_bar_m_0:":
+        - img ":cog_bar_m_0:"
+      - button ":cog_bar_m_0:":
+        - img ":cog_bar_m_0:"
+      - button ":cog_bar_m_0:":
+        - img ":cog_bar_m_0:"
+      - button ":cog_bar_r_0:":
+        - img ":cog_bar_r_0:"
+      - text: search mrr
+      - code: "0.133"
+      - button ":cog_bar_l_0:":
+        - img ":cog_bar_l_0:"
+      - button ":cog_bar_m_0:":
+        - img ":cog_bar_m_0:"
+      - button ":cog_bar_m_0:":
+        - img ":cog_bar_m_0:"
+      - button ":cog_bar_m_0:":
+        - img ":cog_bar_m_0:"
+      - button ":cog_bar_r_0:":
+        - img ":cog_bar_r_0:"
+      - text: recall@1
+      - generic: ","
+      - generic: ","
+      - button ":cog_done:":
+        - img ":cog_done:"
+      - text: local
+      - button ":cog_pend:":
+        - img ":cog_pend:"
+      - text: hosted
+      - button ":cog_pend:":
+        - img ":cog_pend:"
+      - text: official
+      - button ":cog_pend:":
+        - img ":cog_pend:"
+      - text: published
+      - generic: ","
+      - generic: ","
+      - button "Verify hosted":
+        - generic: Verify hosted
+      - generic: ","
+      - button "Run again":
+        - generic: Run again
+      - generic: ","
+      - link "Cog*Portal":
+        - generic: Cog*Portal
+      - generic: ","
+      - generic: ","
+      - generic: ","
+      - time:
+        - generic: (edited)
+      - generic: Friday, July 24, 2026 at 2:08 PM
+    - 'article "Cog*Bot App , :cog_star: Published 0.439 , Semantic Image Search cbd8e59 by w3tester 0:21 simulated , , 0.010 :cog_bar_l_0: :cog_bar_m_0: :cog_bar_m_0: :cog_bar_m_0: :cog_bar_r_0: chance mrr 8.700 median rank 0.263 :cog_bar_l_1: :cog_bar_m_0: :cog_bar_m_0: :cog_bar_m_0: :cog_bar_r_0: retrieval mrr 0.137 :cog_bar_l_0: :cog_bar_m_0: :cog_bar_m_0: :cog_bar_m_0: :cog_bar_r_0: recall@1 , , :cog_done: local :cog_done: hosted :cog_done: official :cog_done: published , , Cog*Portal , , , (edited) Friday, July 24, 2026 at 2:10 PM , 2:08 PM"':
+      - time:
+        - generic: "["
+        - text: 2:08 PM
+        - generic: "]"
+      - generic: Friday, July 24, 2026 at 2:08 PM
+      - 'heading ":cog_star: Published 0.439 ," [level=3]':
+        - button ":cog_star:":
+          - img ":cog_star:"
+        - text: Published
+        - strong: "0.439"
+        - generic: ","
+      - text: Semantic Image Search
+      - code: cbd8e59
+      - text: by w3tester
+      - code: 0:21
+      - text: simulated
+      - generic: ","
+      - generic: ","
+      - code: "0.010"
+      - button ":cog_bar_l_0:":
+        - img ":cog_bar_l_0:"
+      - button ":cog_bar_m_0:":
+        - img ":cog_bar_m_0:"
+      - button ":cog_bar_m_0:":
+        - img ":cog_bar_m_0:"
+      - button ":cog_bar_m_0:":
+        - img ":cog_bar_m_0:"
+      - button ":cog_bar_r_0:":
+        - img ":cog_bar_r_0:"
+      - text: chance mrr
+      - code: "8.700"
+      - text: median rank
+      - code: "0.263"
+      - button ":cog_bar_l_1:":
+        - img ":cog_bar_l_1:"
+      - button ":cog_bar_m_0:":
+        - img ":cog_bar_m_0:"
+      - button ":cog_bar_m_0:":
+        - img ":cog_bar_m_0:"
+      - button ":cog_bar_m_0:":
+        - img ":cog_bar_m_0:"
+      - button ":cog_bar_r_0:":
+        - img ":cog_bar_r_0:"
+      - text: retrieval mrr
+      - code: "0.137"
+      - button ":cog_bar_l_0:":
+        - img ":cog_bar_l_0:"
+      - button ":cog_bar_m_0:":
+        - img ":cog_bar_m_0:"
+      - button ":cog_bar_m_0:":
+        - img ":cog_bar_m_0:"
+      - button ":cog_bar_m_0:":
+        - img ":cog_bar_m_0:"
+      - button ":cog_bar_r_0:":
+        - img ":cog_bar_r_0:"
+      - text: recall@1
+      - generic: ","
+      - generic: ","
+      - button ":cog_done:":
+        - img ":cog_done:"
+      - text: local
+      - button ":cog_done:":
+        - img ":cog_done:"
+      - text: hosted
+      - button ":cog_done:":
+        - img ":cog_done:"
+      - text: official
+      - button ":cog_done:":
+        - img ":cog_done:"
+      - text: published
+      - generic: ","
+      - generic: ","
+      - link "Cog*Portal":
+        - generic: Cog*Portal
+      - generic: ","
+      - generic: ","
+      - generic: ","
+      - time:
+        - generic: (edited)
+      - generic: Friday, July 24, 2026 at 2:10 PM
+    - 'article "Jump To Reply Original message was deleted , :cog_board: Recognition leaderboard , The board is wide open. Your team could set the first mark. , official published results, shared from CogWorks , , , 7/24/26, 8:29 PM"':
+      - button "Jump To Reply"
+      - generic: Original message was deleted
+      - heading "Cog*Bot App 7/24/26, 8:29 PM" [level=3]:
+        - button "Cog*Bot"
+        - img "App":
+          - generic: APP
+        - time:
+          - generic: —
+          - text: 7/24/26, 8:29 PM
+        - generic: Friday, July 24, 2026 at 8:29 PM
+      - 'heading ":cog_board: Recognition leaderboard ," [level=3]':
+        - button ":cog_board:":
+          - img ":cog_board:"
+        - text: Recognition leaderboard
+        - generic: ","
+      - text: The board is wide open. Your team could set the first mark.
+      - generic: ","
+      - generic: official published results, shared from CogWorks
+      - generic: ","
+      - generic: ","
+    - 'article "Cog*Bot App , :cog_done: Bench clear 0.864 , Recognition cbd8e59 by Sam Gu 0:21 simulated a new team best, past 0.822 , , 0.905 :cog_bar_l_1: :cog_bar_m_1: :cog_bar_m_1: :cog_bar_m_1: :cog_bar_r_0: known identification 0.824 :cog_bar_l_1: :cog_bar_m_1: :cog_bar_m_1: :cog_bar_m_1: :cog_bar_r_0: unknown lifecycle , , :cog_done: local :cog_done: hosted :cog_done: official :cog_pend: published , , Publish result , Cog*Portal , , , (edited) Friday, July 24, 2026 at 9:07 PM , 7/24/26, 9:06 PM"':
+      - heading "Cog*Bot App 7/24/26, 9:06 PM" [level=3]:
+        - button "Cog*Bot"
+        - img "App":
+          - generic: APP
+        - time:
+          - generic: —
+          - text: 7/24/26, 9:06 PM
+        - generic: Friday, July 24, 2026 at 9:06 PM
+      - 'heading ":cog_done: Bench clear 0.864 ," [level=3]':
+        - button ":cog_done:":
+          - img ":cog_done:"
+        - text: Bench clear
+        - strong: "0.864"
+        - generic: ","
+      - text: Recognition
+      - code: cbd8e59
+      - text: by Sam Gu
+      - code: 0:21
+      - text: simulated
+      - generic: a new team best, past 0.822
+      - generic: ","
+      - generic: ","
+      - code: "0.905"
+      - button ":cog_bar_l_1:":
+        - img ":cog_bar_l_1:"
+      - button ":cog_bar_m_1:":
+        - img ":cog_bar_m_1:"
+      - button ":cog_bar_m_1:":
+        - img ":cog_bar_m_1:"
+      - button ":cog_bar_m_1:":
+        - img ":cog_bar_m_1:"
+      - button ":cog_bar_r_0:":
+        - img ":cog_bar_r_0:"
+      - text: known identification
+      - code: "0.824"
+      - button ":cog_bar_l_1:":
+        - img ":cog_bar_l_1:"
+      - button ":cog_bar_m_1:":
+        - img ":cog_bar_m_1:"
+      - button ":cog_bar_m_1:":
+        - img ":cog_bar_m_1:"
+      - button ":cog_bar_m_1:":
+        - img ":cog_bar_m_1:"
+      - button ":cog_bar_r_0:":
+        - img ":cog_bar_r_0:"
+      - text: unknown lifecycle
+      - generic: ","
+      - generic: ","
+      - button ":cog_done:":
+        - img ":cog_done:"
+      - text: local
+      - button ":cog_done:":
+        - img ":cog_done:"
+      - text: hosted
+      - button ":cog_done:":
+        - img ":cog_done:"
+      - text: official
+      - button ":cog_pend:":
+        - img ":cog_pend:"
+      - text: published
+      - generic: ","
+      - generic: ","
+      - button "Publish result":
+        - generic: Publish result
+      - generic: ","
+      - link "Cog*Portal":
+        - generic: Cog*Portal
+      - generic: ","
+      - generic: ","
+      - generic: ","
+      - time:
+        - generic: (edited)
+      - generic: Friday, July 24, 2026 at 9:07 PM
+    - separator "August 26, 2026":
+      - generic: August 26, 2026
+    - 'article "Cog*Bot App , :cog_done: Bench clear 0.870 , Recognition cbd8e59 by w3tester 0:21 simulated a new team best, past 0.864 , , 0.867 :cog_bar_l_1: :cog_bar_m_1: :cog_bar_m_1: :cog_bar_m_1: :cog_bar_r_0: known identification 0.874 :cog_bar_l_1: :cog_bar_m_1: :cog_bar_m_1: :cog_bar_m_1: :cog_bar_r_0: unknown lifecycle , , :cog_done: local :cog_done: hosted :cog_done: official :cog_pend: published , , Publish result , Cog*Portal , , , (edited) Wednesday, August 26, 2026 at 8:26 PM , 8/26/26, 8:25 PM"':
+      - heading "Cog*Bot App 8/26/26, 8:25 PM" [level=3]:
+        - button "Cog*Bot"
+        - img "App":
+          - generic: APP
+        - time:
+          - generic: —
+          - text: 8/26/26, 8:25 PM
+        - generic: Wednesday, August 26, 2026 at 8:25 PM
+      - 'heading ":cog_done: Bench clear 0.870 ," [level=3]':
+        - button ":cog_done:":
+          - img ":cog_done:"
+        - text: Bench clear
+        - strong: "0.870"
+        - generic: ","
+      - text: Recognition
+      - code: cbd8e59
+      - text: by w3tester
+      - code: 0:21
+      - text: simulated
+      - generic: a new team best, past 0.864
+      - generic: ","
+      - generic: ","
+      - code: "0.867"
+      - button ":cog_bar_l_1:":
+        - img ":cog_bar_l_1:"
+      - button ":cog_bar_m_1:":
+        - img ":cog_bar_m_1:"
+      - button ":cog_bar_m_1:":
+        - img ":cog_bar_m_1:"
+      - button ":cog_bar_m_1:":
+        - img ":cog_bar_m_1:"
+      - button ":cog_bar_r_0:":
+        - img ":cog_bar_r_0:"
+      - text: known identification
+      - code: "0.874"
+      - button ":cog_bar_l_1:":
+        - img ":cog_bar_l_1:"
+      - button ":cog_bar_m_1:":
+        - img ":cog_bar_m_1:"
+      - button ":cog_bar_m_1:":
+        - img ":cog_bar_m_1:"
+      - button ":cog_bar_m_1:":
+        - img ":cog_bar_m_1:"
+      - button ":cog_bar_r_0:":
+        - img ":cog_bar_r_0:"
+      - text: unknown lifecycle
+      - generic: ","
+      - generic: ","
+      - button ":cog_done:":
+        - img ":cog_done:"
+      - text: local
+      - button ":cog_done:":
+        - img ":cog_done:"
+      - text: hosted
+      - button ":cog_done:":
+        - img ":cog_done:"
+      - text: official
+      - button ":cog_pend:":
+        - img ":cog_pend:"
+      - text: published
+      - generic: ","
+      - generic: ","
+      - button "Publish result":
+        - generic: Publish result
+      - generic: ","
+      - link "Cog*Portal":
+        - generic: Cog*Portal
+      - generic: ","
+      - generic: ","
+      - generic: ","
+      - time:
+        - generic: (edited)
+      - generic: Wednesday, August 26, 2026 at 8:26 PM
+    - separator "September 4, 2026":
+      - generic: September 4, 2026
+    - 'article "Cog*Bot App , The last run that scored for this team was 51 days ago. Running after each change is how you find out which change did it. It is free and offline: cogworks run --benchmark <id>. , , , 9/4/26, 12:25 PM"':
+      - heading "Cog*Bot App 9/4/26, 12:25 PM" [level=3]:
+        - button "Cog*Bot"
+        - img "App":
+          - generic: APP
+        - time:
+          - generic: —
+          - text: 9/4/26, 12:25 PM
+        - generic: Friday, September 4, 2026 at 12:25 PM
+      - text: "The last run that scored for this team was 51 days ago. Running after each change is how you find out which change did it. It is free and offline:"
+      - code: cogworks run --benchmark <id>
+      - text: .
+      - generic: ","
+      - generic: ","
+    - 'article "Cog*Bot App , :cog_done: Bench clear 0.537 , Song Identification 7125804 by Sam Gu 2:23 , , 0.033 :cog_bar_l_0: :cog_bar_m_0: :cog_bar_m_0: :cog_bar_m_0: :cog_bar_r_0: chance 1.000 :cog_bar_l_1: :cog_bar_m_1: :cog_bar_m_1: :cog_bar_m_1: :cog_bar_r_1: clean top-1 0.774 :cog_bar_l_1: :cog_bar_m_1: :cog_bar_m_1: :cog_bar_m_0: :cog_bar_r_0: margin separation (auc) 0.039 :cog_bar_l_0: :cog_bar_m_0: :cog_bar_m_0: :cog_bar_m_0: :cog_bar_r_0: median identify time , , :cog_done: local :cog_done: hosted :cog_pend: official :cog_pend: published , , Promote to official , Rerun hosted , Cog*Portal , , , (edited) Friday, September 4, 2026 at 8:55 PM , 9/4/26, 1:17 PM"':
+      - heading "Cog*Bot App 9/4/26, 1:17 PM" [level=3]:
+        - button "Cog*Bot"
+        - img "App":
+          - generic: APP
+        - time:
+          - generic: —
+          - text: 9/4/26, 1:17 PM
+        - generic: Friday, September 4, 2026 at 1:17 PM
+      - 'heading ":cog_done: Bench clear 0.537 ," [level=3]':
+        - button ":cog_done:":
+          - img ":cog_done:"
+        - text: Bench clear
+        - strong: "0.537"
+        - generic: ","
+      - text: Song Identification
+      - code: "7125804"
+      - text: by Sam Gu
+      - code: 2:23
+      - generic: ","
+      - generic: ","
+      - code: "0.033"
+      - button ":cog_bar_l_0:":
+        - img ":cog_bar_l_0:"
+      - button ":cog_bar_m_0:":
+        - img ":cog_bar_m_0:"
+      - button ":cog_bar_m_0:":
+        - img ":cog_bar_m_0:"
+      - button ":cog_bar_m_0:":
+        - img ":cog_bar_m_0:"
+      - button ":cog_bar_r_0:":
+        - img ":cog_bar_r_0:"
+      - text: chance
+      - code: "1.000"
+      - button ":cog_bar_l_1:":
+        - img ":cog_bar_l_1:"
+      - button ":cog_bar_m_1:":
+        - img ":cog_bar_m_1:"
+      - button ":cog_bar_m_1:":
+        - img ":cog_bar_m_1:"
+      - button ":cog_bar_m_1:":
+        - img ":cog_bar_m_1:"
+      - button ":cog_bar_r_1:":
+        - img ":cog_bar_r_1:"
+      - text: clean top-1
+      - code: "0.774"
+      - button ":cog_bar_l_1:":
+        - img ":cog_bar_l_1:"
+      - button ":cog_bar_m_1:":
+        - img ":cog_bar_m_1:"
+      - button ":cog_bar_m_1:":
+        - img ":cog_bar_m_1:"
+      - button ":cog_bar_m_0:":
+        - img ":cog_bar_m_0:"
+      - button ":cog_bar_r_0:":
+        - img ":cog_bar_r_0:"
+      - text: margin separation (auc)
+      - code: "0.039"
+      - button ":cog_bar_l_0:":
+        - img ":cog_bar_l_0:"
+      - button ":cog_bar_m_0:":
+        - img ":cog_bar_m_0:"
+      - button ":cog_bar_m_0:":
+        - img ":cog_bar_m_0:"
+      - button ":cog_bar_m_0:":
+        - img ":cog_bar_m_0:"
+      - button ":cog_bar_r_0:":
+        - img ":cog_bar_r_0:"
+      - text: median identify time
+      - generic: ","
+      - generic: ","
+      - button ":cog_done:":
+        - img ":cog_done:"
+      - text: local
+      - button ":cog_done:":
+        - img ":cog_done:"
+      - text: hosted
+      - button ":cog_pend:":
+        - img ":cog_pend:"
+      - text: official
+      - button ":cog_pend:":
+        - img ":cog_pend:"
+      - text: published
+      - generic: ","
+      - generic: ","
+      - button "Promote to official":
+        - generic: Promote to official
+      - generic: ","
+      - button "Rerun hosted":
+        - generic: Rerun hosted
+      - generic: ","
+      - link "Cog*Portal":
+        - generic: Cog*Portal
+      - generic: ","
+      - generic: ","
+      - generic: ","
+      - time:
+        - generic: (edited)
+      - generic: Friday, September 4, 2026 at 8:55 PM
+    - separator "September 9, 2026":
+      - generic: September 9, 2026
+    - 'article "Cog*Bot App , :cog_done: Bench clear 0.5375 , Song Identification 7125804 by Sam Gu 2:10 team best stays 0.5375 , , 0.033 :cog_bar_l_0: :cog_bar_m_0: :cog_bar_m_0: :cog_bar_m_0: :cog_bar_r_0: chance 1.000 :cog_bar_l_1: :cog_bar_m_1: :cog_bar_m_1: :cog_bar_m_1: :cog_bar_r_1: clean top-1 0.774 :cog_bar_l_1: :cog_bar_m_1: :cog_bar_m_1: :cog_bar_m_0: :cog_bar_r_0: margin separation (auc) 0.031 :cog_bar_l_0: :cog_bar_m_0: :cog_bar_m_0: :cog_bar_m_0: :cog_bar_r_0: median identify time , , :cog_done: local :cog_done: hosted :cog_pend: official :cog_pend: published , , Promote to official , Rerun hosted , Cog*Portal , , , (edited) Wednesday, September 9, 2026 at 6:53 PM , Yesterday at 6:50 PM"':
+      - heading "Cog*Bot App Yesterday at 6:50 PM" [level=3]:
+        - button "Cog*Bot"
+        - img "App":
+          - generic: APP
+        - time:
+          - generic: —
+          - text: Yesterday at 6:50 PM
+        - generic: Wednesday, September 9, 2026 at 6:50 PM
+      - 'heading ":cog_done: Bench clear 0.5375 ," [level=3]':
+        - button ":cog_done:":
+          - img ":cog_done:"
+        - text: Bench clear
+        - strong: "0.5375"
+        - generic: ","
+      - text: Song Identification
+      - code: "7125804"
+      - text: by Sam Gu
+      - code: 2:10
+      - generic: team best stays 0.5375
+      - generic: ","
+      - generic: ","
+      - code: "0.033"
+      - button ":cog_bar_l_0:":
+        - img ":cog_bar_l_0:"
+      - button ":cog_bar_m_0:":
+        - img ":cog_bar_m_0:"
+      - button ":cog_bar_m_0:":
+        - img ":cog_bar_m_0:"
+      - button ":cog_bar_m_0:":
+        - img ":cog_bar_m_0:"
+      - button ":cog_bar_r_0:":
+        - img ":cog_bar_r_0:"
+      - text: chance
+      - code: "1.000"
+      - button ":cog_bar_l_1:":
+        - img ":cog_bar_l_1:"
+      - button ":cog_bar_m_1:":
+        - img ":cog_bar_m_1:"
+      - button ":cog_bar_m_1:":
+        - img ":cog_bar_m_1:"
+      - button ":cog_bar_m_1:":
+        - img ":cog_bar_m_1:"
+      - button ":cog_bar_r_1:":
+        - img ":cog_bar_r_1:"
+      - text: clean top-1
+      - code: "0.774"
+      - button ":cog_bar_l_1:":
+        - img ":cog_bar_l_1:"
+      - button ":cog_bar_m_1:":
+        - img ":cog_bar_m_1:"
+      - button ":cog_bar_m_1:":
+        - img ":cog_bar_m_1:"
+      - button ":cog_bar_m_0:":
+        - img ":cog_bar_m_0:"
+      - button ":cog_bar_r_0:":
+        - img ":cog_bar_r_0:"
+      - text: margin separation (auc)
+      - code: "0.031"
+      - button ":cog_bar_l_0:":
+        - img ":cog_bar_l_0:"
+      - button ":cog_bar_m_0:":
+        - img ":cog_bar_m_0:"
+      - button ":cog_bar_m_0:":
+        - img ":cog_bar_m_0:"
+      - button ":cog_bar_m_0:":
+        - img ":cog_bar_m_0:"
+      - button ":cog_bar_r_0:":
+        - img ":cog_bar_r_0:"
+      - text: median identify time
+      - generic: ","
+      - generic: ","
+      - button ":cog_done:":
+        - img ":cog_done:"
+      - text: local
+      - button ":cog_done:":
+        - img ":cog_done:"
+      - text: hosted
+      - button ":cog_pend:":
+        - img ":cog_pend:"
+      - text: official
+      - button ":cog_pend:":
+        - img ":cog_pend:"
+      - text: published
+      - generic: ","
+      - generic: ","
+      - button "Promote to official":
+        - generic: Promote to official
+      - generic: ","
+      - button "Rerun hosted":
+        - generic: Rerun hosted
+      - generic: ","
+      - link "Cog*Portal":
+        - generic: Cog*Portal
+      - generic: ","
+      - generic: ","
+      - generic: ","
+      - time:
+        - generic: (edited)
+      - generic: Wednesday, September 9, 2026 at 6:53 PM
+    - 'article "Cog*Bot App , :cog_done: Bench clear 0.5375 , Song Identification 7125804 by Sam Gu 2:19 team best stays 0.5375 , , 0.033 :cog_bar_l_0: :cog_bar_m_0: :cog_bar_m_0: :cog_bar_m_0: :cog_bar_r_0: chance 1.000 :cog_bar_l_1: :cog_bar_m_1: :cog_bar_m_1: :cog_bar_m_1: :cog_bar_r_1: clean top-1 0.774 :cog_bar_l_1: :cog_bar_m_1: :cog_bar_m_1: :cog_bar_m_0: :cog_bar_r_0: margin separation (auc) 0.043 :cog_bar_l_0: :cog_bar_m_0: :cog_bar_m_0: :cog_bar_m_0: :cog_bar_r_0: median identify time , , :cog_done: local :cog_done: hosted :cog_pend: official :cog_pend: published , , Promote to official , Rerun hosted , Cog*Portal , , , (edited) Wednesday, September 9, 2026 at 7:50 PM , Yesterday at 7:48 PM"':
+      - heading "Cog*Bot App Yesterday at 7:48 PM" [level=3]:
+        - button "Cog*Bot"
+        - img "App":
+          - generic: APP
+        - time:
+          - generic: —
+          - text: Yesterday at 7:48 PM
+        - generic: Wednesday, September 9, 2026 at 7:48 PM
+      - 'heading ":cog_done: Bench clear 0.5375 ," [level=3]':
+        - button ":cog_done:":
+          - img ":cog_done:"
+        - text: Bench clear
+        - strong: "0.5375"
+        - generic: ","
+      - text: Song Identification
+      - code: "7125804"
+      - text: by Sam Gu
+      - code: 2:19
+      - generic: team best stays 0.5375
+      - generic: ","
+      - generic: ","
+      - code: "0.033"
+      - button ":cog_bar_l_0:":
+        - img ":cog_bar_l_0:"
+      - button ":cog_bar_m_0:":
+        - img ":cog_bar_m_0:"
+      - button ":cog_bar_m_0:":
+        - img ":cog_bar_m_0:"
+      - button ":cog_bar_m_0:":
+        - img ":cog_bar_m_0:"
+      - button ":cog_bar_r_0:":
+        - img ":cog_bar_r_0:"
+      - text: chance
+      - code: "1.000"
+      - button ":cog_bar_l_1:":
+        - img ":cog_bar_l_1:"
+      - button ":cog_bar_m_1:":
+        - img ":cog_bar_m_1:"
+      - button ":cog_bar_m_1:":
+        - img ":cog_bar_m_1:"
+      - button ":cog_bar_m_1:":
+        - img ":cog_bar_m_1:"
+      - button ":cog_bar_r_1:":
+        - img ":cog_bar_r_1:"
+      - text: clean top-1
+      - code: "0.774"
+      - button ":cog_bar_l_1:":
+        - img ":cog_bar_l_1:"
+      - button ":cog_bar_m_1:":
+        - img ":cog_bar_m_1:"
+      - button ":cog_bar_m_1:":
+        - img ":cog_bar_m_1:"
+      - button ":cog_bar_m_0:":
+        - img ":cog_bar_m_0:"
+      - button ":cog_bar_r_0:":
+        - img ":cog_bar_r_0:"
+      - text: margin separation (auc)
+      - code: "0.043"
+      - button ":cog_bar_l_0:":
+        - img ":cog_bar_l_0:"
+      - button ":cog_bar_m_0:":
+        - img ":cog_bar_m_0:"
+      - button ":cog_bar_m_0:":
+        - img ":cog_bar_m_0:"
+      - button ":cog_bar_m_0:":
+        - img ":cog_bar_m_0:"
+      - button ":cog_bar_r_0:":
+        - img ":cog_bar_r_0:"
+      - text: median identify time
+      - generic: ","
+      - generic: ","
+      - button ":cog_done:":
+        - img ":cog_done:"
+      - text: local
+      - button ":cog_done:":
+        - img ":cog_done:"
+      - text: hosted
+      - button ":cog_pend:":
+        - img ":cog_pend:"
+      - text: official
+      - button ":cog_pend:":
+        - img ":cog_pend:"
+      - text: published
+      - generic: ","
+      - generic: ","
+      - button "Promote to official":
+        - generic: Promote to official
+      - generic: ","
+      - button "Rerun hosted":
+        - generic: Rerun hosted
+      - generic: ","
+      - link "Cog*Portal":
+        - generic: Cog*Portal
+      - generic: ","
+      - generic: ","
+      - generic: ","
+      - time:
+        - generic: (edited)
+      - generic: Wednesday, September 9, 2026 at 7:50 PM
+    - 'article "Cog*Bot App , :cog_done: Bench clear 0.5375 , Song Identification 7125804 by Sam Gu 3:05 team best stays 0.5375 , , 0.033 :cog_bar_l_0: :cog_bar_m_0: :cog_bar_m_0: :cog_bar_m_0: :cog_bar_r_0: chance 1.000 :cog_bar_l_1: :cog_bar_m_1: :cog_bar_m_1: :cog_bar_m_1: :cog_bar_r_1: clean top-1 0.774 :cog_bar_l_1: :cog_bar_m_1: :cog_bar_m_1: :cog_bar_m_0: :cog_bar_r_0: margin separation (auc) 0.057 :cog_bar_l_0: :cog_bar_m_0: :cog_bar_m_0: :cog_bar_m_0: :cog_bar_r_0: median identify time , , :cog_done: local :cog_done: hosted :cog_pend: official :cog_pend: published , , Promote to official , Rerun hosted , Cog*Portal , , , (edited) Wednesday, September 9, 2026 at 8:54 PM , Yesterday at 8:51 PM"':
+      - heading "Cog*Bot App Yesterday at 8:51 PM" [level=3]:
+        - button "Cog*Bot"
+        - img "App":
+          - generic: APP
+        - time:
+          - generic: —
+          - text: Yesterday at 8:51 PM
+        - generic: Wednesday, September 9, 2026 at 8:51 PM
+      - 'heading ":cog_done: Bench clear 0.5375 ," [level=3]':
+        - button ":cog_done:":
+          - img ":cog_done:"
+        - text: Bench clear
+        - strong: "0.5375"
+        - generic: ","
+      - text: Song Identification
+      - code: "7125804"
+      - text: by Sam Gu
+      - code: 3:05
+      - generic: team best stays 0.5375
+      - generic: ","
+      - generic: ","
+      - code: "0.033"
+      - button ":cog_bar_l_0:":
+        - img ":cog_bar_l_0:"
+      - button ":cog_bar_m_0:":
+        - img ":cog_bar_m_0:"
+      - button ":cog_bar_m_0:":
+        - img ":cog_bar_m_0:"
+      - button ":cog_bar_m_0:":
+        - img ":cog_bar_m_0:"
+      - button ":cog_bar_r_0:":
+        - img ":cog_bar_r_0:"
+      - text: chance
+      - code: "1.000"
+      - button ":cog_bar_l_1:":
+        - img ":cog_bar_l_1:"
+      - button ":cog_bar_m_1:":
+        - img ":cog_bar_m_1:"
+      - button ":cog_bar_m_1:":
+        - img ":cog_bar_m_1:"
+      - button ":cog_bar_m_1:":
+        - img ":cog_bar_m_1:"
+      - button ":cog_bar_r_1:":
+        - img ":cog_bar_r_1:"
+      - text: clean top-1
+      - code: "0.774"
+      - button ":cog_bar_l_1:":
+        - img ":cog_bar_l_1:"
+      - button ":cog_bar_m_1:":
+        - img ":cog_bar_m_1:"
+      - button ":cog_bar_m_1:":
+        - img ":cog_bar_m_1:"
+      - button ":cog_bar_m_0:":
+        - img ":cog_bar_m_0:"
+      - button ":cog_bar_r_0:":
+        - img ":cog_bar_r_0:"
+      - text: margin separation (auc)
+      - code: "0.057"
+      - button ":cog_bar_l_0:":
+        - img ":cog_bar_l_0:"
+      - button ":cog_bar_m_0:":
+        - img ":cog_bar_m_0:"
+      - button ":cog_bar_m_0:":
+        - img ":cog_bar_m_0:"
+      - button ":cog_bar_m_0:":
+        - img ":cog_bar_m_0:"
+      - button ":cog_bar_r_0:":
+        - img ":cog_bar_r_0:"
+      - text: median identify time
+      - generic: ","
+      - generic: ","
+      - button ":cog_done:":
+        - img ":cog_done:"
+      - text: local
+      - button ":cog_done:":
+        - img ":cog_done:"
+      - text: hosted
+      - button ":cog_pend:":
+        - img ":cog_pend:"
+      - text: official
+      - button ":cog_pend:":
+        - img ":cog_pend:"
+      - text: published
+      - generic: ","
+      - generic: ","
+      - button "Promote to official":
+        - generic: Promote to official
+      - generic: ","
+      - button "Rerun hosted":
+        - generic: Rerun hosted
+      - generic: ","
+      - link "Cog*Portal":
+        - generic: Cog*Portal
+      - generic: ","
+      - generic: ","
+      - generic: ","
+      - time:
+        - generic: (edited)
+      - generic: Wednesday, September 9, 2026 at 8:54 PM
+  - button "More message options":
+  - generic: "Message #nb-development"
+  - 'textbox "Message #nb-development"'
+  - button "Send a gift":
+  - button "Open GIF picker":
+  - generic: Send GIF
+  - button "Open sticker picker":
+  - button "Add Emoji"
+  - button "Apps":
+- document

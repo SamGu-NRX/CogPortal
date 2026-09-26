@@ -1,0 +1,11 @@
+{
+  "scope": "Synthetic historical-null control copied from new result; no existing historical record altered",
+  "sessionId": "localrun_82bdb98096334a888e2d114303935922",
+  "surfaceId": "surface_4a888e2d114303935922",
+  "replay": {
+    "sessionId": "localrun_82bdb98096334a888e2d114303935922",
+    "surfaceId": "surface_4a888e2d114303935922",
+    "discord": "channel_unbound"
+  },
+  "repositoryIdAfterReplay": null
+}

@@ -1,0 +1,80 @@
+HTML content Cog*Portal — CogWorks Benchmark, URL: cogportal.sillion.app/dashboard
+					30 container
+						31 link Description: Skip to content, Value: cogportal.sillion.app/runs/run_b647f110de#main
+						32 link Description: Cog*Portal, Value: cogportal.sillion.app/
+						33 container Primary
+							34 link Description: DASHBOARD, Value: cogportal.sillion.app/dashboard
+							35 link Description: LEADERBOARD, Value: cogportal.sillion.app/leaderboard
+						36 pop up button Sam CogPortal owner Account menu for SamGu-NRX
+							37 text Sam
+							38 image CogPortal owner
+							39 text Account menu for 
+							40 text SamGu-NRX
+						41 container
+							42 text GOOD MORNING, SAM
+							43 heading CogPortal, Value: 1
+								44 link Description: CogPortal, Value: cogportal.sillion.app/team
+							45 pop up button Song Identification · v1 Change benchmark track. Currently Song Identification.
+								46 text Song Identification · v1
+								47 text Change benchmark track. Currently 
+								48 text Song Identification
+								49 text .
+						50 container
+							51 heading START A RUN, Value: 2
+								52 text START A RUN
+							53 text BRANCH
+							54 pop up button BRANCH, Value: main
+								55 (selected) main
+							56 button Run practice benchmark
+							57 text 8  of  10  hosted runs left CANDIDATE READY
+							58 link Description: RUN 10DE, Value: cogportal.sillion.app/runs/run_b647f110de
+							59 text scored 0.5375 on  codex/demo-rehearsal-d9405278  ·  e515ff6 SamGu-NRX/cogportal-demo-week1
+							60 button Promote to official
+							61 text Runs the same commit against hidden inputs. Logs are suppressed.
+						62 container
+							63 heading RUN LOG, Value: 2
+								64 text RUN LOG
+							65 text 2  recorded
+							66 content list
+								67 link Description: RUN 10DE PRACTICE SUCCEEDED codex/demo-rehearsal-d9405278 · e515ff6 0.5375 18 min ago, Value: cogportal.sillion.app/runs/run_b647f110de
+								68 link Description: RUN 16D2 PRACTICE SUCCEEDED codex/demo-rehearsal-d9405278 · e515ff6 0.5375 44 min ago, Value: cogportal.sillion.app/runs/run_6c658516d2
+						69 container
+							70 heading CONNECTED SOURCE, Value: 2
+								71 text CONNECTED SOURCE
+							72 link Description: SamGu-NRX/cogportal-demo-week1, Value: github.com/SamGu-NRX/cogportal-demo-week1
+							73 text LAST TESTED
+							74 button Description: Copy full commit SHA e515ff619e02c16be903985d8536bc5ee6d7a2e9, Help: e515ff619e02c16be903985d8536bc5ee6d7a2e9
+							75 text week1-cpu-v1  · CPU · network blocked during evaluation
+						76 container
+							77 heading ATTEMPT BUDGET, Value: 2
+								78 text ATTEMPT BUDGET
+							79 text HOSTED PRACTICE 2 / 10  used
+							80 image Hosted practice: 2 of 10 used
+							81 text OFFICIAL ATTEMPTS 0 / 3  used
+							82 image Official attempts: 0 of 3 used
+							83 text Local runs are unlimited and are not counted here. An official cell fills the moment you start that attempt, and it comes back if the run fails for a reason on our side.
+						84 container
+							85 heading LOCAL REPORTS, Value: 2
+								86 text LOCAL REPORTS
+							87 text SELF-REPORTED · NOT PROMOTABLE
+							88 table Self-reported local CogBench results
+								89 text Self-reported local CogBench results
+								90 row
+									91 column header
+										92 text Student
+									93 column header
+										94 text Commit
+									95 column header
+										96 text Result
+									97 column header
+										98 text Synced
+								99 row
+									100 cell
+										101 text SamGu-NRX
+									102 cell
+										103 text e515ff6
+									104 cell
+										105 text 0.5375
+									106 cell
+										107 text 44 min ago
+					108 

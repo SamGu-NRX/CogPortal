@@ -1,0 +1,30 @@
+{
+  "benchmarkInstalled": true,
+  "benchmarkLoadable": true,
+  "canonicalHostedPython": "3.11",
+  "contractVersion": "cogworks.submissions.v2",
+  "dataEvaluationCache": {
+    "message": "ready",
+    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1",
+    "ready": true
+  },
+  "dataTestCache": {
+    "message": "ready",
+    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-test-v1",
+    "ready": true
+  },
+  "gitRepository": true,
+  "localGap": [],
+  "modelCache": {
+    "message": "ready",
+    "path": "/Users/samgu/.cache/torch/checkpoints/20180402-114759-vggface2.pt",
+    "ready": true
+  },
+  "python": "3.11.15",
+  "repositoryFullName": "Cog-gurts/CoggurtFilter",
+  "submissionDetail": null,
+  "submissionError": "We look for your adapter at the repository root, and /Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g3-recognize has neither submission.py nor benchmark_adapter.py. Create submission.py there, define create_submission, and return your adapter from it. Nothing is registered as \"vision-recognition\" in \"cogworks.submissions.v2\" either (installed: none), so if you meant to install your project as a package, reinstall it.",
+  "submissionInstalled": false,
+  "submissionLoadable": false,
+  "submissionSource": null
+}

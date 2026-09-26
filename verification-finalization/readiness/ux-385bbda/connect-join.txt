@@ -1,0 +1,24 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "ux-audit-385 Account menu for ux-audit-385":
+    - generic: u
+    - generic: ux-audit-385
+    - generic: Account menu for ux-audit-385
+- main:
+  - button "Both options":
+    - text: Both options
+  - heading "Join your team" [level=1]
+  - heading "Source history fixture" [level=3]
+  - generic: 1 member
+  - paragraph: cogworks-demo/face-finder
+  - generic: u
+  - generic: "Members: @ui-accept-e8"
+  - button "Join"
+- document

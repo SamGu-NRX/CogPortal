@@ -1,0 +1,174 @@
+{
+  "benchmarkInstalled": true,
+  "benchmarkLoadable": true,
+  "canonicalHostedPython": "3.8.20",
+  "contractVersion": "cogworks.submissions.v2",
+  "dataEvaluationCache": {
+    "message": "30 songs, 252 queries, generated locally (no download)",
+    "path": ".",
+    "ready": true
+  },
+  "dataTestCache": {
+    "message": "8 songs, 68 queries, generated locally (no download)",
+    "path": ".",
+    "ready": true
+  },
+  "discovery": {
+    "attemptsTried": 48,
+    "chain": [
+      "newton's_code.identifying_peaks",
+      "newton's_code.create_fingerprints"
+    ],
+    "discovery": {
+      "considered": [
+        "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g2-audio",
+        "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g2-audio/individual_stuff"
+      ],
+      "modules": [
+        {
+          "name": "identifying_similarities",
+          "origin": "file",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g2-audio/individual_stuff/identifying_similarities.py"
+        },
+        {
+          "name": "newton's_code",
+          "origin": "file",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g2-audio/individual_stuff/newton's_code.py"
+        },
+        {
+          "name": "who_doesn't_love_trying_to_create_fingerprints_for_audio_files_at_1_am",
+          "origin": "file",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g2-audio/individual_stuff/who_doesn't_love_trying_to_create_fingerprints_for_audio_files_at_1_am.py"
+        },
+        {
+          "name": "devesh_test's_test",
+          "origin": "notebook",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g2-audio/individual_stuff/devesh_test's_test.ipynb"
+        }
+      ],
+      "root": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g2-audio",
+      "rootReason": "code sits at the repository root",
+      "skipped": [
+        {
+          "detail": "RuntimeError: microphone.record_audio is not available here, and this used what it returned",
+          "missing": null,
+          "name": "Code",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g2-audio/Code.py",
+          "reason": "raised"
+        },
+        {
+          "detail": "is empty",
+          "missing": null,
+          "name": "master",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g2-audio/master.ipynb",
+          "reason": "syntax"
+        },
+        {
+          "detail": "RuntimeError: microphone.record_audio is not available here, and this used what it returned",
+          "missing": null,
+          "name": "devesh's_playground",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g2-audio/individual_stuff/devesh's_playground.py",
+          "reason": "raised"
+        },
+        {
+          "detail": "FileNotFoundError: [Errno 2] No such file or directory: 'song_list'",
+          "missing": null,
+          "name": "will_is_not_locked_bro",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g2-audio/individual_stuff/will_is_not_locked_bro.py",
+          "reason": "raised"
+        },
+        {
+          "detail": "FileNotFoundError: [Errno 2] No such file or directory: 'song_list'",
+          "missing": null,
+          "name": "will_is_not_locked_bro_backup_in_case_libraries_dont_work_because_of_some_stupid_conda_bugs",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g2-audio/individual_stuff/will_is_not_locked_bro_backup_in_case_libraries_dont_work_because_of_some_stupid_conda_bugs.py",
+          "reason": "raised"
+        }
+      ],
+      "stubCalls": [
+        "microphone.record_audio"
+      ],
+      "stubbed": [
+        "streamlit",
+        "microphone",
+        "pyaudio",
+        "camera"
+      ]
+    },
+    "hashRandomization": false,
+    "hashSeed": "0",
+    "recalled": false,
+    "verdict": {
+      "coverage": {
+        "read": [
+          "identifying_similarities",
+          "newton's_code",
+          "who_doesn't_love_trying_to_create_fingerprints_for_audio_files_at_1_am",
+          "devesh_test's_test"
+        ],
+        "readEnoughToJudge": true,
+        "skipped": [
+          {
+            "module": "Code",
+            "owner": "theirs",
+            "reason": "RuntimeError: microphone.record_audio is not available here, and this used what it returned"
+          },
+          {
+            "module": "master",
+            "owner": "theirs",
+            "reason": "is empty"
+          },
+          {
+            "module": "devesh's_playground",
+            "owner": "theirs",
+            "reason": "RuntimeError: microphone.record_audio is not available here, and this used what it returned"
+          },
+          {
+            "module": "will_is_not_locked_bro",
+            "owner": "theirs",
+            "reason": "FileNotFoundError: [Errno 2] No such file or directory: 'song_list'"
+          },
+          {
+            "module": "will_is_not_locked_bro_backup_in_case_libraries_dont_work_because_of_some_stupid_conda_bugs",
+            "owner": "theirs",
+            "reason": "FileNotFoundError: [Errno 2] No such file or directory: 'song_list'"
+          }
+        ]
+      },
+      "errors": [],
+      "headline": "Nothing in your repository took that for the database step, which is what newton's_code.create_fingerprints returned.",
+      "nextStep": "The benchmark found your fingerprinting but no pair of functions that stores a song and then names it back.",
+      "notes": [],
+      "status": "not_wired",
+      "trace": [
+        {
+          "function": "newton's_code.identifying_peaks",
+          "received": "",
+          "returned": "",
+          "stage": "spectrogram"
+        },
+        {
+          "function": "newton's_code.create_fingerprints",
+          "received": "",
+          "returned": "",
+          "stage": "peaks"
+        }
+      ]
+    },
+    "weightsUsed": []
+  },
+  "gitRepository": true,
+  "localGap": [],
+  "modelCache": {
+    "message": "corpus is generated locally",
+    "path": "",
+    "ready": true
+  },
+  "python": "3.11.15",
+  "repositoryFullName": "CogWorks-2026-Team-Asterisk/Week1-Capstone-Shazam",
+  "submissionDetail": null,
+  "submissionError": "We look for your adapter at the repository root, and /Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g2-audio has neither submission.py nor benchmark_adapter.py. Create submission.py there, define create_submission, and return your adapter from it. Nothing is registered as \"audio-identification\" in \"cogworks.submissions.v2\" either (installed: none), so if you meant to install your project as a package, reinstall it.",
+  "submissionInstalled": false,
+  "submissionLoadable": false,
+  "submissionSource": null
+}

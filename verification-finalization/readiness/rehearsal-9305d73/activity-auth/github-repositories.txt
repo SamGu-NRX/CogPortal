@@ -1,0 +1,28 @@
+Recovered excerpts from the existing cua_repl tool responses in this task's history.
+This is a transcript recovery, not a new browser capture. Indentation omitted.
+
+Source: "Inspect the connected demo repository settings", tab 1693192499, URL https://cogportal-dev.sillion.app/team
+36 heading CogPortal, Value: 1
+55 link Description: SamGu-NRX/cogportal-demo-week1, Value: github.com/SamGu-NRX/cogportal-demo-week1
+56 text default  main
+57 button CHANGE REPOSITORY
+
+Source: "Read repository choices without changing the connection", same tab and URL
+68 content list
+69 text Your pipeline first scored end to end on 2026-09-05, and 6 runs have scored in total.
+85 container
+86 text Read  just now , from your most recent 40 commits .
+
+Source: "Verify the server-returned repository list", same tab and URL
+87 container Repositories
+88 text Repositories
+89 container
+90 radio button (disabled, settable, integer) Description: SamGu-NRX/cogportal-demo-week1 FORK CURRENT main · updated 41 min ago, Value: 0
+91 text SamGu-NRX/cogportal-demo-week1 FORK CURRENT main  · updated  41 min ago
+92 container
+93 radio button (settable, integer) Description: SamGu-NRX/CogPortal main · updated 5 h ago, Value: 0
+94 text SamGu-NRX/CogPortal main  · updated  5 h ago
+110 link Description: MISSING A REPOSITORY? EDIT ACCESS ON GITHUB, Value: github.com/apps/cog-portal-beta/installations/new
+111 text App installed for:  iReynaldo, SamGu-NRX
+
+Correction: the initial file contained only a later no-change AX response. These substantive excerpts are recovered from the preceding actual tool responses. They establish the displayed repository list and commit-read status, not hosted execution.

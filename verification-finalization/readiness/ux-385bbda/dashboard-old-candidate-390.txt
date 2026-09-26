@@ -1,0 +1,121 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Dashboard":
+      - /url: /dashboard
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "Account menu for ui-accept-e8":
+    - generic: u
+    - generic: Account menu for ui-accept-e8
+- main:
+  - paragraph: Good morning, ui-accept-e8
+  - heading "Source history fixture" [level=1]:
+    - link "Source history fixture":
+      - /url: /team
+  - button "Song Identification · v1 Change benchmark track. Currently Song Identification.":
+    - text: Song Identification · v1
+    - generic: Change benchmark track. Currently Song Identification.
+  - generic "Execution provider is in fixture mode. Results are scripted, not real evaluation.": simulated
+  - generic: Getting set up
+  - generic: 1 of 5 done
+  - link "Continue":
+    - /url: /setup
+    - text: Continue
+  - button "Dismiss the setup reminder":
+  - heading "START A RUN" [level=2]
+  - generic: Branch
+  - combobox "Branch":
+    - option "main" [selected]
+    - option "improved-thresholds"
+    - option "missing-adapter"
+    - option "loose-pins"
+    - option "heavy-model"
+    - option "raw-tuples"
+    - option "null-descriptor"
+  - button "Run practice benchmark"
+  - paragraph: 7 of 10 hosted runs left
+  - generic: Candidate ready
+  - paragraph:
+    - link "RUN _OLD":
+      - /url: /runs/run_source_old
+    - text: scored 0.5375 on main · 7125804
+  - button "Promote to official"
+  - paragraph: Runs the same commit against hidden inputs. Logs are suppressed.
+  - heading "RUN LOG" [level=2]
+  - generic: 6 recorded
+  - list:
+    - link "RUN _OLD practice Succeeded main · 7125804 · fixture-org/repo-a 0.5375":
+      - /url: /runs/run_source_old
+      - generic: RUN _OLD
+      - generic: practice
+      - generic: Succeeded
+      - text: main · 7125804
+      - generic: · fixture-org/repo-a
+      - generic: "0.5375"
+    - 'link "RUN C2CB official #1 Succeeded main · 7125804 · cogworks-demo/previous-name 0.881"':
+      - /url: /runs/run_6fc368c2cb
+      - generic: RUN C2CB
+      - generic: "official #1"
+      - generic: Succeeded
+      - text: main · 7125804
+      - generic: · cogworks-demo/previous-name
+      - generic: "0.881"
+    - link "RUN AMED practice Succeeded main · 7125804 · cogworks-demo/previous-name":
+      - /url: /runs/run_source_renamed
+      - generic: RUN AMED
+      - generic: practice
+      - generic: Succeeded
+      - text: main · 7125804
+      - generic: · cogworks-demo/previous-name
+    - link "RUN CIAL official Succeeded main · 7125804 · source not recorded":
+      - /url: /runs/run_source_unknown_official
+      - generic: RUN CIAL
+      - generic: official
+      - generic: Succeeded
+      - text: main · 7125804
+      - generic: · source not recorded
+    - link "RUN CIAL official Succeeded main · 7125804 · fixture-org/repo-a 0.5375":
+      - /url: /runs/run_source_official
+      - generic: RUN CIAL
+      - generic: official
+      - generic: Succeeded
+      - text: main · 7125804
+      - generic: · fixture-org/repo-a
+      - generic: "0.5375"
+    - link "RUN GACY practice Succeeded main · 7125804 · source not recorded 0.5375":
+      - /url: /runs/run_source_legacy
+      - generic: RUN GACY
+      - generic: practice
+      - generic: Succeeded
+      - text: main · 7125804
+      - generic: · source not recorded
+      - generic: "0.5375"
+  - heading "CONNECTED SOURCE" [level=2]
+  - link "cogworks-demo/face-finder":
+    - /url: https://github.com/cogworks-demo/face-finder
+  - generic: last tested
+  - button "7125804 Copy full commit SHA 71258046e60fecd3295c0b52236fc6e476b0e9cf":
+    - generic: "7125804"
+    - generic: Copy full commit SHA 71258046e60fecd3295c0b52236fc6e476b0e9cf
+  - paragraph: week1-cpu-v1 · CPU · network blocked during evaluation
+  - heading "ATTEMPT BUDGET" [level=2]
+  - generic: Hosted practice
+  - generic: 3/10 used
+  - 'img "Hosted practice: 3 of 10 used"'
+  - generic: Official attempts
+  - generic: 1/3 used
+  - 'img "Official attempts: 1 of 3 used"'
+  - paragraph: Local runs are unlimited and are not counted here. An official cell fills the moment you start that attempt, and it comes back if the run fails for a reason on our side.
+  - heading "PUBLISHED RESULT" [level=2]
+  - paragraph: "7125804"
+  - paragraph: Identification score 0.5375
+  - link "View run":
+    - /url: /runs/run_source_official
+  - link "Leaderboard":
+    - /url: /leaderboard
+- document

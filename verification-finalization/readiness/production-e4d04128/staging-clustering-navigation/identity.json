@@ -1,0 +1,24 @@
+{
+  "route": "Codex native CUA REPL -> supported browser extension Playwright API -> existing Helium profile",
+  "browserId": "2",
+  "tabId": "1693192736",
+  "firstNavigation": {
+    "scripts": [
+      "https://cogportal-dev.sillion.app/assets/index-B3PLyWwu.js"
+    ],
+    "styles": [
+      "https://cogportal-dev.sillion.app/assets/run-surface-stream-BdiUnIrt.css"
+    ],
+    "url": "https://cogportal-dev.sillion.app/runs/run_a345d093d2",
+    "viewport": {
+      "height": 834,
+      "width": 1506
+    }
+  },
+  "firstNavigationPassed": true,
+  "reloads": 0,
+  "dashboardNavigationPassed": true,
+  "dashboardRunLink": "https://cogportal-dev.sillion.app/runs/run_ff26a6ceec",
+  "dashboardRunNavigationPassed": true,
+  "limits": "One new tab, one direct Clustering navigation and one dashboard-to-Recognition link navigation. Does not rule out intermittent error5 under Opus driver or other tabs. No memory-pressure cause inferred."
+}

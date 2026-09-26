@@ -1,0 +1,83 @@
+HTML content Cog*Portal — CogWorks Benchmark, URL: cogportal.sillion.app/setup
+					30 container
+						31 link Description: Skip to content, Value: cogportal.sillion.app/runs/run_b647f110de#main
+						32 link Description: Cog*Portal, Value: cogportal.sillion.app/
+						33 container Primary
+							34 link Description: DASHBOARD, Value: cogportal.sillion.app/dashboard
+							35 link Description: LEADERBOARD, Value: cogportal.sillion.app/leaderboard
+						36 pop up button Sam CogPortal owner Account menu for SamGu-NRX
+							37 text Sam
+							38 image CogPortal owner
+							39 text Account menu for 
+							40 text SamGu-NRX
+						41 container
+							42 text SETUP · 5 OF 5 DONE
+						43 heading CogPortal, Value: 1
+							44 text CogPortal
+						45 pop up button Song Identification · v1 Change benchmark track. Currently Song Identification.
+							46 text Song Identification · v1
+							47 text Change benchmark track. Currently 
+							48 text Song Identification
+							49 text .
+						50 link Description: SamGu-NRX/cogportal-demo-week1, Value: github.com/SamGu-NRX/cogportal-demo-week1
+						51 text @SamGu-NRX 1 member
+						52 link Description: ADD, Value: cogportal.sillion.app/team
+						53 content list
+							54 container
+								55 text Verified.
+								56 heading Get the code, Value: 2
+									57 text Get the code
+								58 text VERIFIED Clone the team's repository. You all work in the same one, and every hosted attempt runs from it rather than from somebody's laptop.
+								59 container
+									60 text git  clone  https://github.com/SamGu-NRX/cogportal-demo-week1.git  &&  cd  cogportal-demo-week1
+								61 button Copy command
+							62 container
+								63 text Verified.
+								64 heading Set up your environment, Value: 2
+									65 text Set up your environment
+								66 text VERIFIED From your repository's root, with
+								67 container
+									68 text conda activate  week1
+								69 text done, the environment you built for the
+								70 link Description: Song Identification prerequisites, Value: rsokl.github.io/CogWeb/Audio/prereqs.html
+								71 text :
+								72 container
+									73 text python  -m  pip  install  --upgrade  --force-reinstall  "cogworks-benchmark @ git+https://github.com/SamGu-NRX/CogPortal.git@d9405278aac8268cd340e589f36dbad766d1e2a0#subdirectory=python/cogbench"
+								74 button Copy command
+							75 container
+								76 text Verified.
+								77 heading Install the Song Identification benchmark, Value: 2
+									78 text Install the Song Identification benchmark
+								79 text VERIFIED The scorer for  Song Identification , its data and its checks live in their own package. Changing the track above changes this line.
+								80 container
+									81 text python  -m  pip  install  "cogworks-week1-audio-benchmark @ git+https://github.com/SamGu-NRX/cogworks-week1-audio-benchmark.git@b156644aecc810e0b93535e320098f96c39ae04e"  &&  python  -m  pip  install  --force-reinstall  --no-deps  "cogworks-week1-audio-benchmark @ git+https://github.com/SamGu-NRX/cogworks-week1-audio-benchmark.git@b156644aecc810e0b93535e320098f96c39ae04e"
+								82 button Copy command
+							83 container
+								84 text Verified.
+								85 heading Link this device, Value: 2
+									86 text Link this device
+								87 text VERIFIED Lets a command report back to your team. What reaches CogPortal is check names, package versions and your repository, and you can revoke this device from
+								88 link Description: Connections, Value: cogportal.sillion.app/connections
+								89 text .
+								90 container
+									91 text cogworks  link  --portal  https://cogportal.sillion.app
+								92 button Copy command
+							93 container
+								94 text Verified.
+								95 heading Prove the wiring, Value: 2
+									96 text Prove the wiring
+								97 text VERIFIED
+								98 text check
+								99 text  reads your repository and says which of your own functions it wired up, and reports what it found. If it doesn't tick, the reason is in your terminal.
+								100 container
+									101 text cogworks  check  --benchmark  audio-identification  --update-setup
+								102 button Copy command
+						103 container
+							104 heading SETUP COMPLETE, Value: 2
+								105 text SETUP COMPLETE
+							106 text Everything the portal can verify checks out. Whether the code is any good is what runs are for, and there's no limit on local ones.
+							107 container
+								108 text cogworks  run  --benchmark  audio-identification
+							109 button Copy command
+							110 link Description: Open dashboard, Value: cogportal.sillion.app/dashboard
+					111 

@@ -1,0 +1,8 @@
+{
+  "commands": [
+    "cogworks check --benchmark vision-recognition\ncogworks run --benchmark vision-recognition\ncogworks sync"
+  ],
+  "statuses": [
+    ""
+  ]
+}

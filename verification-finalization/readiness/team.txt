@@ -1,0 +1,94 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Dashboard":
+      - /url: /dashboard
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "Sam CogPortal owner Account menu for SamGu-NRX":
+    - generic: Sam
+    - img "CogPortal owner":
+    - generic: Account menu for SamGu-NRX
+- main:
+  - paragraph: Team settings
+  - heading "CogPortal" [level=1]
+  - button "Rename"
+  - paragraph: No description yet.
+  - button "Add description"
+  - heading "ASSIGNED TAS" [level=2]
+  - paragraph: No TA has been assigned yet.
+  - heading "MEMBERS" [level=2]
+  - button "Add member"
+  - list:
+    - generic: SamGu-NRXSam Gu
+    - generic: admin
+  - heading "REPOSITORY" [level=2]
+  - link "SamGu-NRX/cogportal-demo-week1":
+    - /url: https://github.com/SamGu-NRX/cogportal-demo-week1
+  - generic: default main
+  - button "Change repository"
+  - button "Where the work went" [expanded]:
+    - heading "Where the work went" [level=2]
+  - paragraph: We read your recent commits and your runs, so you can see which parts of the pipeline your team has been working in and when your pipeline first scored end to end.
+  - list:
+    - generic: Your pipeline first scored end to end on 2026-09-05, and 4 runs have scored in total.
+  - heading "Stages of the pipeline" [level=3]
+  - list:
+    - text: spectrogram
+    - generic: ", worked Jul 10 to Jul 27"
+    - generic: E
+    - generic: Eyurke
+    - generic: L
+    - generic: LashikaKapoor28
+    - generic: S
+    - generic: SP02028
+    - text: peaks
+    - generic: ", worked Jul 10 to Jul 27"
+    - generic: E
+    - generic: Eyurke
+    - generic: L
+    - generic: LashikaKapoor28
+    - generic: S
+    - generic: SP02028
+    - text: fanout
+    - generic: ", worked Jul 10 to Jul 27"
+    - generic: E
+    - generic: Eyurke
+    - generic: K
+    - generic: KrazeeCoder
+    - generic: L
+    - generic: LashikaKapoor28
+    - generic: S
+    - generic: SP02028
+    - text: database
+    - generic: ", worked Jul 10 to Jul 27"
+    - generic: E
+    - generic: Eyurke
+    - generic: K
+    - generic: KrazeeCoder
+    - generic: L
+    - generic: LashikaKapoor28
+    - generic: S
+    - generic: SP02028
+    - generic: a
+    - generic: apple2723
+    - generic: s
+    - generic: sgutlap
+    - text: query
+    - generic: ", worked Jul 10 to Jul 27"
+    - generic: E
+    - generic: Eyurke
+    - generic: S
+    - generic: SP02028
+  - generic: Jul 10
+  - generic: each bar spans the commits we read for that stage
+  - generic: Jul 27
+  - paragraph: Read just now, from your most recent 40 commits.
+  - link "Open dashboard":
+    - /url: /dashboard
+    - text: Open dashboard
+- document

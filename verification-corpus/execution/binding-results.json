@@ -1,0 +1,1568 @@
+{
+  "baseline": "37b1972bbe17027256e1f5d9cf150e74193083e3",
+  "environment": "macOS local311, Python3.11.15",
+  "counts": {
+    "all20": {
+      "full-binding": 6,
+      "supported-refusal": 7,
+      "execution-fault": 6,
+      "partial-binding": 1
+    },
+    "primary15": {
+      "full-binding": 6,
+      "supported-refusal": 2,
+      "execution-fault": 6,
+      "partial-binding": 1
+    },
+    "recognition5": {
+      "supported-refusal": 5
+    }
+  },
+  "results": [
+    {
+      "id": "w1-g1-audio",
+      "projectId": "w1-g1",
+      "week": 1,
+      "group": 1,
+      "repository": "rutvim2009/BWSI_CogWorks_Team_1",
+      "path": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/rutvim2009__BWSI_CogWorks_Team_1",
+      "sha": "4329ed4deab53a39fc4ac876912863e04edc0403",
+      "subdirectory": "Week1",
+      "benchmark": "audio-identification",
+      "version": 1,
+      "environment": "local311",
+      "status": "not-run",
+      "category": "full-binding",
+      "cause": "Complete binding accepted by the discovery fixture",
+      "exitCode": 0,
+      "elapsedSeconds": 2,
+      "primaryWeekProject": true,
+      "source": "discovery",
+      "python": "3.11.15",
+      "rawVerdictStatus": "scored",
+      "recalled": false,
+      "hashSeed": "0",
+      "root": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g1-audio/Week1",
+      "importedModules": [
+        "AudioSplicer",
+        "audio_parser",
+        "database_design",
+        "fingerprint_database",
+        "fingerprint_maker",
+        "interfaceInspect",
+        "metadata",
+        "songrecognizer"
+      ],
+      "skippedModules": [],
+      "chain": [
+        "audio_parser.spectrogram_conversion",
+        "fingerprint_maker.generate_fingerprints"
+      ],
+      "branches": {},
+      "missing": {},
+      "weightsUsed": [],
+      "notes": [],
+      "candidateErrors": [],
+      "dataTest": {
+        "message": "8 songs, 68 queries, generated locally (no download)",
+        "path": ".",
+        "ready": true
+      },
+      "dataEvaluation": {
+        "message": "30 songs, 252 queries, generated locally (no download)",
+        "path": ".",
+        "ready": true
+      },
+      "modelCache": {
+        "message": "corpus is generated locally",
+        "path": "",
+        "ready": true
+      },
+      "localGap": [],
+      "evidence": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/results/w1-g1-audio/check",
+      "scoring": "not-measured"
+    },
+    {
+      "id": "w1-g2-audio",
+      "projectId": "w1-g2",
+      "week": 1,
+      "group": 2,
+      "repository": "CogWorks-2026-Team-Asterisk/Week1-Capstone-Shazam",
+      "path": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/CogWorks-2026-Team-Asterisk__Week1-Capstone-Shazam",
+      "sha": "18e072c539f945c38c757c1646a8839a504e5e83",
+      "subdirectory": ".",
+      "benchmark": "audio-identification",
+      "version": 1,
+      "environment": "local311",
+      "status": "not-run",
+      "category": "supported-refusal",
+      "cause": "Nothing in your repository took that for the database step, which is what newton's_code.create_fingerprints returned.",
+      "exitCode": 2,
+      "elapsedSeconds": 2,
+      "primaryWeekProject": true,
+      "source": null,
+      "python": "3.11.15",
+      "rawVerdictStatus": "not_wired",
+      "recalled": false,
+      "hashSeed": "0",
+      "root": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g2-audio",
+      "importedModules": [
+        "identifying_similarities",
+        "newton's_code",
+        "who_doesn't_love_trying_to_create_fingerprints_for_audio_files_at_1_am",
+        "devesh_test's_test"
+      ],
+      "skippedModules": [
+        {
+          "detail": "RuntimeError: microphone.record_audio is not available here, and this used what it returned",
+          "missing": null,
+          "name": "Code",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g2-audio/Code.py",
+          "reason": "raised"
+        },
+        {
+          "detail": "is empty",
+          "missing": null,
+          "name": "master",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g2-audio/master.ipynb",
+          "reason": "syntax"
+        },
+        {
+          "detail": "RuntimeError: microphone.record_audio is not available here, and this used what it returned",
+          "missing": null,
+          "name": "devesh's_playground",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g2-audio/individual_stuff/devesh's_playground.py",
+          "reason": "raised"
+        },
+        {
+          "detail": "FileNotFoundError: [Errno 2] No such file or directory: 'song_list'",
+          "missing": null,
+          "name": "will_is_not_locked_bro",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g2-audio/individual_stuff/will_is_not_locked_bro.py",
+          "reason": "raised"
+        },
+        {
+          "detail": "FileNotFoundError: [Errno 2] No such file or directory: 'song_list'",
+          "missing": null,
+          "name": "will_is_not_locked_bro_backup_in_case_libraries_dont_work_because_of_some_stupid_conda_bugs",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g2-audio/individual_stuff/will_is_not_locked_bro_backup_in_case_libraries_dont_work_because_of_some_stupid_conda_bugs.py",
+          "reason": "raised"
+        }
+      ],
+      "chain": [
+        "newton's_code.identifying_peaks",
+        "newton's_code.create_fingerprints"
+      ],
+      "branches": {},
+      "missing": {},
+      "weightsUsed": [],
+      "notes": [],
+      "candidateErrors": [],
+      "dataTest": {
+        "message": "8 songs, 68 queries, generated locally (no download)",
+        "path": ".",
+        "ready": true
+      },
+      "dataEvaluation": {
+        "message": "30 songs, 252 queries, generated locally (no download)",
+        "path": ".",
+        "ready": true
+      },
+      "modelCache": {
+        "message": "corpus is generated locally",
+        "path": "",
+        "ready": true
+      },
+      "localGap": [],
+      "evidence": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/results/w1-g2-audio/check",
+      "scoring": "not-measured"
+    },
+    {
+      "id": "w1-g3-audio",
+      "projectId": "w1-g3",
+      "week": 1,
+      "group": 3,
+      "repository": "Cog-gurts/Shazam-Project",
+      "path": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/Cog-gurts__Shazam-Project",
+      "sha": "1cc7570e159058cf770087003d854f8e6caf021b",
+      "subdirectory": ".",
+      "benchmark": "audio-identification",
+      "version": 1,
+      "environment": "local311",
+      "status": "not-run",
+      "category": "full-binding",
+      "cause": "Complete binding accepted by the discovery fixture",
+      "exitCode": 0,
+      "elapsedSeconds": 60,
+      "primaryWeekProject": true,
+      "source": "discovery",
+      "python": "3.11.15",
+      "rawVerdictStatus": "scored",
+      "recalled": false,
+      "hashSeed": "0",
+      "root": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g3-audio",
+      "importedModules": [
+        "Spectogram",
+        "Tester",
+        "databaseManager",
+        "PeakFinding_STUDENT",
+        "AnalogToDigital",
+        "AudioSignalBasics",
+        "WorkingWithMic",
+        "BasicsOfDFT",
+        "DFTOfVariousSignals",
+        "pipeline"
+      ],
+      "skippedModules": [
+        {
+          "detail": "NameError: name 'new_ck' is not defined",
+          "missing": null,
+          "name": "ApplicationsOfDFTs",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g3-audio/Day 3/ApplicationsOfDFTs.ipynb",
+          "reason": "raised"
+        },
+        {
+          "detail": "NameError: name 'DatabaseKey' is not defined",
+          "missing": null,
+          "name": "buildSongDatabase",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g3-audio/Day 4/buildSongDatabase.py",
+          "reason": "raised"
+        },
+        {
+          "detail": "NameError: name 'DatabaseKey' is not defined",
+          "missing": null,
+          "name": "frontEnd",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g3-audio/Day 4/frontEnd.py",
+          "reason": "raised"
+        },
+        {
+          "detail": "NameError: name 'T' is not defined",
+          "missing": null,
+          "name": "spectrogram_STUDENT",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g3-audio/Day 4/spectrogram_STUDENT.ipynb",
+          "reason": "raised"
+        }
+      ],
+      "chain": [
+        "PeakFinding_STUDENT.get_spectrogram",
+        "PeakFinding_STUDENT.fingerprint_recording"
+      ],
+      "branches": {},
+      "missing": {},
+      "weightsUsed": [],
+      "notes": [],
+      "candidateErrors": [],
+      "dataTest": {
+        "message": "8 songs, 68 queries, generated locally (no download)",
+        "path": ".",
+        "ready": true
+      },
+      "dataEvaluation": {
+        "message": "30 songs, 252 queries, generated locally (no download)",
+        "path": ".",
+        "ready": true
+      },
+      "modelCache": {
+        "message": "corpus is generated locally",
+        "path": "",
+        "ready": true
+      },
+      "localGap": [],
+      "evidence": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/results/w1-g3-audio/check",
+      "scoring": "not-measured"
+    },
+    {
+      "id": "w1-g4-audio",
+      "projectId": "w1-g4",
+      "week": 1,
+      "group": 4,
+      "repository": "KrazeeCoder/week1-capstone-team4",
+      "path": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/KrazeeCoder__week1-capstone-team4",
+      "sha": "71258046e60fecd3295c0b52236fc6e476b0e9cf",
+      "subdirectory": ".",
+      "benchmark": "audio-identification",
+      "version": 1,
+      "environment": "local311",
+      "status": "not-run",
+      "category": "full-binding",
+      "cause": "Complete binding accepted by the discovery fixture",
+      "exitCode": 0,
+      "elapsedSeconds": 13,
+      "primaryWeekProject": true,
+      "source": "discovery",
+      "python": "3.11.15",
+      "rawVerdictStatus": "scored",
+      "recalled": false,
+      "hashSeed": "0",
+      "root": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g4-audio",
+      "importedModules": [
+        "build_eval_database",
+        "create_fingerprints",
+        "create_spectogram",
+        "database",
+        "eval_utils",
+        "evaluate_rerank",
+        "evaluate_retrieval",
+        "evaluate_robustness",
+        "final_checker",
+        "find_matches",
+        "find_peaks",
+        "load_audio",
+        "main",
+        "random_clips",
+        "run_demo",
+        "song_metadata",
+        "topological_rerank"
+      ],
+      "skippedModules": [
+        {
+          "detail": "RuntimeError: streamlit.tabs is not available here, and this used what it returned",
+          "missing": null,
+          "name": "streamlit_demo",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g4-audio/streamlit_demo.py",
+          "reason": "raised"
+        },
+        {
+          "detail": "imports flask, which is not installed here",
+          "missing": "flask",
+          "name": "app",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g4-audio/frontend/app.py",
+          "reason": "missing_dependency"
+        }
+      ],
+      "chain": [
+        "create_spectogram.create_spectrogram",
+        "find_peaks.find_peaks",
+        "create_fingerprints.peaks_to_fingerprints"
+      ],
+      "branches": {},
+      "missing": {},
+      "weightsUsed": [],
+      "notes": [],
+      "candidateErrors": [],
+      "dataTest": {
+        "message": "8 songs, 68 queries, generated locally (no download)",
+        "path": ".",
+        "ready": true
+      },
+      "dataEvaluation": {
+        "message": "30 songs, 252 queries, generated locally (no download)",
+        "path": ".",
+        "ready": true
+      },
+      "modelCache": {
+        "message": "corpus is generated locally",
+        "path": "",
+        "ready": true
+      },
+      "localGap": [],
+      "evidence": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/results/w1-g4-audio/check",
+      "scoring": "not-measured"
+    },
+    {
+      "id": "w1-g5-audio",
+      "projectId": "w1-g5",
+      "week": 1,
+      "group": 5,
+      "repository": "carti4ce/week1_capstone",
+      "path": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/carti4ce__week1_capstone",
+      "sha": "3f131ee526b8e079a24c83b5491ec6d21219fbda",
+      "subdirectory": ".",
+      "benchmark": "audio-identification",
+      "version": 1,
+      "environment": "local311",
+      "status": "not-run",
+      "category": "full-binding",
+      "cause": "Complete binding accepted by the discovery fixture",
+      "exitCode": 0,
+      "elapsedSeconds": 1,
+      "primaryWeekProject": true,
+      "source": "discovery",
+      "python": "3.11.15",
+      "rawVerdictStatus": "scored",
+      "recalled": false,
+      "hashSeed": "0",
+      "root": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g5-audio",
+      "importedModules": [
+        "database",
+        "database_creation",
+        "fingerprint",
+        "match",
+        "slicing",
+        "song_input",
+        "spectrogram"
+      ],
+      "skippedModules": [
+        {
+          "detail": "FileNotFoundError: No mp3 files found under data/raw/*/*.mp3",
+          "missing": null,
+          "name": "build_database_all_songs",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g5-audio/tests_manual/build_database_all_songs.py",
+          "reason": "raised"
+        },
+        {
+          "detail": "EOFError: EOF when reading a line",
+          "missing": null,
+          "name": "identify_mic",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g5-audio/tests_manual/identify_mic.py",
+          "reason": "raised"
+        },
+        {
+          "detail": "FileNotFoundError: [Errno 2] No such file or directory: 'data/raw/test_song.mp3'",
+          "missing": null,
+          "name": "test_fingerprint",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g5-audio/tests_manual/test_fingerprint.py",
+          "reason": "raised"
+        },
+        {
+          "detail": "FileNotFoundError: [Errno 2] No such file or directory: 'data/raw/test_song.mp3'",
+          "missing": null,
+          "name": "test_fingerprint_clip",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g5-audio/tests_manual/test_fingerprint_clip.py",
+          "reason": "raised"
+        },
+        {
+          "detail": "FileNotFoundError: [Errno 2] No such file or directory: 'data/raw/test_song.mp3'",
+          "missing": null,
+          "name": "test_five_songs",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g5-audio/tests_manual/test_five_songs.py",
+          "reason": "raised"
+        },
+        {
+          "detail": "FileNotFoundError: No mp3 files found under data/raw/*/*.mp3",
+          "missing": null,
+          "name": "test_gaussian_all_songs",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g5-audio/tests_manual/test_gaussian_all_songs.py",
+          "reason": "raised"
+        },
+        {
+          "detail": "FileNotFoundError: [Errno 2] No such file or directory: 'data/raw/test_song.mp3'",
+          "missing": null,
+          "name": "test_gaussian_five_songs",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g5-audio/tests_manual/test_gaussian_five_songs.py",
+          "reason": "raised"
+        },
+        {
+          "detail": "FileNotFoundError: [Errno 2] No such file or directory: 'data/raw/test_song.mp3'",
+          "missing": null,
+          "name": "test_match_one_song",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g5-audio/tests_manual/test_match_one_song.py",
+          "reason": "raised"
+        },
+        {
+          "detail": "FileNotFoundError: [Errno 2] No such file or directory: 'data/raw/test_song.mp3'",
+          "missing": null,
+          "name": "test_match_two_songs",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g5-audio/tests_manual/test_match_two_songs.py",
+          "reason": "raised"
+        },
+        {
+          "detail": "FileNotFoundError: [Errno 2] No such file or directory: 'data/raw/test_song.mp3'",
+          "missing": null,
+          "name": "test_noisy_queries",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g5-audio/tests_manual/test_noisy_queries.py",
+          "reason": "raised"
+        },
+        {
+          "detail": "FileNotFoundError: [Errno 2] No such file or directory: 'data/raw/test_song.mp3'",
+          "missing": null,
+          "name": "test_noisy_two_songs",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g5-audio/tests_manual/test_noisy_two_songs.py",
+          "reason": "raised"
+        },
+        {
+          "detail": "FileNotFoundError: [Errno 2] No such file or directory: 'data/raw/test_song.mp3'",
+          "missing": null,
+          "name": "test_peak_params",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g5-audio/tests_manual/test_peak_params.py",
+          "reason": "raised"
+        },
+        {
+          "detail": "FileNotFoundError: No mp3 files found under data/raw/*/*.mp3",
+          "missing": null,
+          "name": "test_real_noise_all_songs",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g5-audio/tests_manual/test_real_noise_all_songs.py",
+          "reason": "raised"
+        },
+        {
+          "detail": "FileNotFoundError: [Errno 2] No such file or directory: 'data/raw/test_song.mp3'",
+          "missing": null,
+          "name": "test_song_input",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g5-audio/tests_manual/test_song_input.py",
+          "reason": "raised"
+        },
+        {
+          "detail": "FileNotFoundError: [Errno 2] No such file or directory: 'data/raw/test_song.mp3'",
+          "missing": null,
+          "name": "test_spectrogram",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g5-audio/tests_manual/test_spectrogram.py",
+          "reason": "raised"
+        }
+      ],
+      "chain": [
+        "spectrogram.make_spectrogram",
+        "fingerprint.find_peaks",
+        "fingerprint.make_fgp"
+      ],
+      "branches": {},
+      "missing": {},
+      "weightsUsed": [],
+      "notes": [],
+      "candidateErrors": [],
+      "dataTest": {
+        "message": "8 songs, 68 queries, generated locally (no download)",
+        "path": ".",
+        "ready": true
+      },
+      "dataEvaluation": {
+        "message": "30 songs, 252 queries, generated locally (no download)",
+        "path": ".",
+        "ready": true
+      },
+      "modelCache": {
+        "message": "corpus is generated locally",
+        "path": "",
+        "ready": true
+      },
+      "localGap": [],
+      "evidence": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/results/w1-g5-audio/check",
+      "scoring": "not-measured"
+    },
+    {
+      "id": "w2-g1-cluster",
+      "projectId": "w2-g1",
+      "week": 2,
+      "group": 1,
+      "repository": "rutvim2009/BWSI_CogWorks_Team_1",
+      "path": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/rutvim2009__BWSI_CogWorks_Team_1",
+      "sha": "4329ed4deab53a39fc4ac876912863e04edc0403",
+      "subdirectory": "Week2",
+      "benchmark": "vision-clustering",
+      "version": 2,
+      "environment": "local311",
+      "status": "not-run",
+      "category": "supported-refusal",
+      "cause": "Nothing in your repository accepted the input the descriptors step passes.",
+      "exitCode": 2,
+      "elapsedSeconds": 3,
+      "primaryWeekProject": true,
+      "source": null,
+      "python": "3.11.15",
+      "rawVerdictStatus": "not_wired",
+      "recalled": false,
+      "hashSeed": "0",
+      "root": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g1-cluster/Week2",
+      "importedModules": [
+        "facerecognizer",
+        "whispers",
+        "testing"
+      ],
+      "skippedModules": [
+        {
+          "detail": "imports webcolors, which is not installed here",
+          "missing": "webcolors",
+          "name": "app",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g1-cluster/Week2/app.py",
+          "reason": "missing_dependency"
+        },
+        {
+          "detail": "FileNotFoundError: [Errno 2] No such file or directory: 'face_database.pkl'",
+          "missing": null,
+          "name": "testing_py",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g1-cluster/Week2/testing_py.py",
+          "reason": "raised"
+        }
+      ],
+      "chain": [],
+      "branches": {},
+      "missing": {},
+      "weightsUsed": [],
+      "notes": [],
+      "candidateErrors": [
+        {
+          "file": "facerecognizer.py",
+          "function": "facerecognizer.add_profile",
+          "line": 44,
+          "message": "ValueError: The truth value of an array with more than one element is ambiguous. Use a.any() or a.all()"
+        },
+        {
+          "file": "facerecognizer.py",
+          "function": "facerecognizer.compute_cos_dist",
+          "line": 95,
+          "message": "AxisError: axis 1 is out of bounds for array of dimension 0"
+        },
+        {
+          "file": "facerecognizer.py",
+          "function": "facerecognizer.delete_profile",
+          "line": 53,
+          "message": "ValueError: The truth value of an array with more than one element is ambiguous. Use a.any() or a.all()"
+        },
+        {
+          "file": "facerecognizer.py",
+          "function": "facerecognizer.jpg_to_rgb",
+          "line": 113,
+          "message": "FileNotFoundError: No such file: 'a temporary path 37, 20],"
+        },
+        {
+          "file": "facerecognizer.py",
+          "function": "facerecognizer.load",
+          "line": 40,
+          "message": "TypeError: expected str, bytes or os.PathLike object, not list"
+        },
+        {
+          "file": "facerecognizer.py",
+          "function": "facerecognizer.save",
+          "line": 36,
+          "message": "TypeError: expected str, bytes or os.PathLike object, not float"
+        },
+        {
+          "file": "testing.ipynb",
+          "function": "testing.take_picture_cv2",
+          "line": 0,
+          "message": "error: OpenCV(4.10.0) :-1: error: (-5:Bad argument) in function 'VideoCapture'"
+        },
+        {
+          "file": "whispers.py",
+          "function": "whispers.connected_components",
+          "line": 167,
+          "message": "AttributeError: 'numpy.ndarray' object has no attribute 'label'"
+        },
+        {
+          "file": "whispers.py",
+          "function": "whispers.create_graph",
+          "line": 66,
+          "message": "AttributeError: module 'pyexpat.model' has no attribute 'detect'"
+        },
+        {
+          "file": "whispers.py",
+          "function": "whispers.whispers",
+          "line": 191,
+          "message": "AttributeError: 'numpy.ndarray' object has no attribute 'label'"
+        },
+        {
+          "file": "facerecognizer.py",
+          "function": "facerecognizer.add_images",
+          "line": 60,
+          "message": "AttributeError: 'float' object has no attribute 'detect'"
+        },
+        {
+          "file": "facerecognizer.py",
+          "function": "facerecognizer.find_top_4_sim_faces",
+          "line": 241,
+          "message": "TypeError: 'float' object is not iterable"
+        }
+      ],
+      "dataTest": {
+        "message": "ready",
+        "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-test-v1",
+        "ready": true
+      },
+      "dataEvaluation": {
+        "message": "ready",
+        "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1",
+        "ready": true
+      },
+      "modelCache": {
+        "message": "ready",
+        "path": "/Users/samgu/.cache/torch/checkpoints/20180402-114759-vggface2.pt",
+        "ready": true
+      },
+      "localGap": [],
+      "evidence": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/results/w2-g1-cluster/check",
+      "scoring": "not-measured"
+    },
+    {
+      "id": "w2-g1-recognize",
+      "projectId": "w2-g1",
+      "week": 2,
+      "group": 1,
+      "repository": "rutvim2009/BWSI_CogWorks_Team_1",
+      "path": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/rutvim2009__BWSI_CogWorks_Team_1",
+      "sha": "4329ed4deab53a39fc4ac876912863e04edc0403",
+      "subdirectory": "Week2",
+      "benchmark": "vision-recognition",
+      "version": 2,
+      "environment": "local311",
+      "status": "not-run",
+      "category": "supported-refusal",
+      "cause": "Platform lacks Recognition discovery; no declared repository adapter",
+      "exitCode": 2,
+      "elapsedSeconds": 1,
+      "primaryWeekProject": false,
+      "source": null,
+      "python": "3.11.15",
+      "rawVerdictStatus": null,
+      "recalled": null,
+      "hashSeed": null,
+      "root": null,
+      "importedModules": [],
+      "skippedModules": [],
+      "chain": [],
+      "branches": {},
+      "missing": {},
+      "weightsUsed": [],
+      "notes": [],
+      "candidateErrors": [],
+      "dataTest": {
+        "message": "ready",
+        "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-test-v1",
+        "ready": true
+      },
+      "dataEvaluation": {
+        "message": "ready",
+        "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1",
+        "ready": true
+      },
+      "modelCache": {
+        "message": "ready",
+        "path": "/Users/samgu/.cache/torch/checkpoints/20180402-114759-vggface2.pt",
+        "ready": true
+      },
+      "localGap": [],
+      "evidence": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/results/w2-g1-recognize/check",
+      "scoring": "not-measured"
+    },
+    {
+      "id": "w2-g2-cluster",
+      "projectId": "w2-g2",
+      "week": 2,
+      "group": 2,
+      "repository": "CogWorks-2026-Team-Asterisk/Week2-Capstone",
+      "path": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/CogWorks-2026-Team-Asterisk__Week2-Capstone",
+      "sha": "25b789c3aa59b89d7697ca405224554cea3fe9a3",
+      "subdirectory": ".",
+      "benchmark": "vision-clustering",
+      "version": 2,
+      "environment": "local311",
+      "status": "not-run",
+      "category": "execution-fault",
+      "cause": "CLI reported timed_out after 61 seconds; actual process-death cause unverified; configured discovery limit is 300 seconds",
+      "exitCode": 2,
+      "elapsedSeconds": 61,
+      "primaryWeekProject": true,
+      "source": null,
+      "python": "3.11.15",
+      "rawVerdictStatus": null,
+      "recalled": null,
+      "hashSeed": null,
+      "root": null,
+      "importedModules": [],
+      "skippedModules": [],
+      "chain": [],
+      "branches": {},
+      "missing": {},
+      "weightsUsed": [],
+      "notes": [],
+      "candidateErrors": [],
+      "dataTest": {
+        "message": "ready",
+        "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-test-v1",
+        "ready": true
+      },
+      "dataEvaluation": {
+        "message": "ready",
+        "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1",
+        "ready": true
+      },
+      "modelCache": {
+        "message": "ready",
+        "path": "/Users/samgu/.cache/torch/checkpoints/20180402-114759-vggface2.pt",
+        "ready": true
+      },
+      "localGap": [],
+      "evidence": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/results/w2-g2-cluster/check",
+      "scoring": "not-measured"
+    },
+    {
+      "id": "w2-g2-recognize",
+      "projectId": "w2-g2",
+      "week": 2,
+      "group": 2,
+      "repository": "CogWorks-2026-Team-Asterisk/Week2-Capstone",
+      "path": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/CogWorks-2026-Team-Asterisk__Week2-Capstone",
+      "sha": "25b789c3aa59b89d7697ca405224554cea3fe9a3",
+      "subdirectory": ".",
+      "benchmark": "vision-recognition",
+      "version": 2,
+      "environment": "local311",
+      "status": "not-run",
+      "category": "supported-refusal",
+      "cause": "Platform lacks Recognition discovery; no declared repository adapter",
+      "exitCode": 2,
+      "elapsedSeconds": 1,
+      "primaryWeekProject": false,
+      "source": null,
+      "python": "3.11.15",
+      "rawVerdictStatus": null,
+      "recalled": null,
+      "hashSeed": null,
+      "root": null,
+      "importedModules": [],
+      "skippedModules": [],
+      "chain": [],
+      "branches": {},
+      "missing": {},
+      "weightsUsed": [],
+      "notes": [],
+      "candidateErrors": [],
+      "dataTest": {
+        "message": "ready",
+        "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-test-v1",
+        "ready": true
+      },
+      "dataEvaluation": {
+        "message": "ready",
+        "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1",
+        "ready": true
+      },
+      "modelCache": {
+        "message": "ready",
+        "path": "/Users/samgu/.cache/torch/checkpoints/20180402-114759-vggface2.pt",
+        "ready": true
+      },
+      "localGap": [],
+      "evidence": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/results/w2-g2-recognize/check",
+      "scoring": "not-measured"
+    },
+    {
+      "id": "w2-g3-cluster",
+      "projectId": "w2-g3",
+      "week": 2,
+      "group": 3,
+      "repository": "Cog-gurts/CoggurtFilter",
+      "path": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/Cog-gurts__CoggurtFilter",
+      "sha": "8b392da6224eaf5b875f1488c526e1868e9f27e0",
+      "subdirectory": ".",
+      "benchmark": "vision-clustering",
+      "version": 2,
+      "environment": "local311",
+      "status": "not-run",
+      "category": "execution-fault",
+      "cause": "macOS Objective-C initialization abort after fork",
+      "exitCode": 2,
+      "elapsedSeconds": 34,
+      "primaryWeekProject": true,
+      "source": null,
+      "python": "3.11.15",
+      "rawVerdictStatus": null,
+      "recalled": null,
+      "hashSeed": null,
+      "root": null,
+      "importedModules": [],
+      "skippedModules": [],
+      "chain": [],
+      "branches": {},
+      "missing": {},
+      "weightsUsed": [],
+      "notes": [],
+      "candidateErrors": [],
+      "dataTest": {
+        "message": "ready",
+        "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-test-v1",
+        "ready": true
+      },
+      "dataEvaluation": {
+        "message": "ready",
+        "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1",
+        "ready": true
+      },
+      "modelCache": {
+        "message": "ready",
+        "path": "/Users/samgu/.cache/torch/checkpoints/20180402-114759-vggface2.pt",
+        "ready": true
+      },
+      "localGap": [],
+      "evidence": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/results/w2-g3-cluster/check",
+      "scoring": "not-measured"
+    },
+    {
+      "id": "w2-g3-recognize",
+      "projectId": "w2-g3",
+      "week": 2,
+      "group": 3,
+      "repository": "Cog-gurts/CoggurtFilter",
+      "path": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/Cog-gurts__CoggurtFilter",
+      "sha": "8b392da6224eaf5b875f1488c526e1868e9f27e0",
+      "subdirectory": ".",
+      "benchmark": "vision-recognition",
+      "version": 2,
+      "environment": "local311",
+      "status": "not-run",
+      "category": "supported-refusal",
+      "cause": "Platform lacks Recognition discovery; no declared repository adapter",
+      "exitCode": 2,
+      "elapsedSeconds": 0,
+      "primaryWeekProject": false,
+      "source": null,
+      "python": "3.11.15",
+      "rawVerdictStatus": null,
+      "recalled": null,
+      "hashSeed": null,
+      "root": null,
+      "importedModules": [],
+      "skippedModules": [],
+      "chain": [],
+      "branches": {},
+      "missing": {},
+      "weightsUsed": [],
+      "notes": [],
+      "candidateErrors": [],
+      "dataTest": {
+        "message": "ready",
+        "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-test-v1",
+        "ready": true
+      },
+      "dataEvaluation": {
+        "message": "ready",
+        "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1",
+        "ready": true
+      },
+      "modelCache": {
+        "message": "ready",
+        "path": "/Users/samgu/.cache/torch/checkpoints/20180402-114759-vggface2.pt",
+        "ready": true
+      },
+      "localGap": [],
+      "evidence": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/results/w2-g3-recognize/check",
+      "scoring": "not-measured"
+    },
+    {
+      "id": "w2-g4-cluster",
+      "projectId": "w2-g4",
+      "week": 2,
+      "group": 4,
+      "repository": "LashikaKapoor28/Vision_Module_Capstone",
+      "path": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/LashikaKapoor28__Vision_Module_Capstone",
+      "sha": "479ad2c49a03a92e69d26415aa6d16a495f00d89",
+      "subdirectory": ".",
+      "benchmark": "vision-clustering",
+      "version": 2,
+      "environment": "local311",
+      "status": "not-run",
+      "category": "full-binding",
+      "cause": "Complete binding accepted by the discovery fixture",
+      "exitCode": 0,
+      "elapsedSeconds": 4,
+      "primaryWeekProject": true,
+      "source": "discovery",
+      "python": "3.11.15",
+      "rawVerdictStatus": "scored",
+      "recalled": false,
+      "hashSeed": "0",
+      "root": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g4-cluster",
+      "importedModules": [
+        "main",
+        "recognizer",
+        "visualize",
+        "database",
+        "normalize",
+        "profile",
+        "similarity",
+        "whispers",
+        "recognition_threshold"
+      ],
+      "skippedModules": [
+        {
+          "detail": "AttributeError: module 'profile' has no attribute 'run'",
+          "missing": null,
+          "name": "frontend",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g4-cluster/frontend.py",
+          "reason": "raised"
+        },
+        {
+          "detail": "imports distances, which is not installed here",
+          "missing": "distances",
+          "name": "test_distances",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g4-cluster/tests/test_distances.py",
+          "reason": "missing_dependency"
+        },
+        {
+          "detail": "NameError: name 'root' is not defined",
+          "missing": null,
+          "name": "detection_threshold",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g4-cluster/tuning/detection_threshold.ipynb",
+          "reason": "raised"
+        }
+      ],
+      "chain": [
+        "whispers.adj_list",
+        "whispers.whispers",
+        "whispers.connected_comps"
+      ],
+      "branches": {},
+      "missing": {},
+      "weightsUsed": [],
+      "notes": [],
+      "candidateErrors": [],
+      "dataTest": {
+        "message": "ready",
+        "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-test-v1",
+        "ready": true
+      },
+      "dataEvaluation": {
+        "message": "ready",
+        "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1",
+        "ready": true
+      },
+      "modelCache": {
+        "message": "ready",
+        "path": "/Users/samgu/.cache/torch/checkpoints/20180402-114759-vggface2.pt",
+        "ready": true
+      },
+      "localGap": [],
+      "evidence": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/results/w2-g4-cluster/check",
+      "scoring": "not-measured"
+    },
+    {
+      "id": "w2-g4-recognize",
+      "projectId": "w2-g4",
+      "week": 2,
+      "group": 4,
+      "repository": "LashikaKapoor28/Vision_Module_Capstone",
+      "path": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/LashikaKapoor28__Vision_Module_Capstone",
+      "sha": "479ad2c49a03a92e69d26415aa6d16a495f00d89",
+      "subdirectory": ".",
+      "benchmark": "vision-recognition",
+      "version": 2,
+      "environment": "local311",
+      "status": "not-run",
+      "category": "supported-refusal",
+      "cause": "Platform lacks Recognition discovery; no declared repository adapter",
+      "exitCode": 2,
+      "elapsedSeconds": 0,
+      "primaryWeekProject": false,
+      "source": null,
+      "python": "3.11.15",
+      "rawVerdictStatus": null,
+      "recalled": null,
+      "hashSeed": null,
+      "root": null,
+      "importedModules": [],
+      "skippedModules": [],
+      "chain": [],
+      "branches": {},
+      "missing": {},
+      "weightsUsed": [],
+      "notes": [],
+      "candidateErrors": [],
+      "dataTest": {
+        "message": "ready",
+        "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-test-v1",
+        "ready": true
+      },
+      "dataEvaluation": {
+        "message": "ready",
+        "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1",
+        "ready": true
+      },
+      "modelCache": {
+        "message": "ready",
+        "path": "/Users/samgu/.cache/torch/checkpoints/20180402-114759-vggface2.pt",
+        "ready": true
+      },
+      "localGap": [],
+      "evidence": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/results/w2-g4-recognize/check",
+      "scoring": "not-measured"
+    },
+    {
+      "id": "w2-g5-cluster",
+      "projectId": "w2-g5",
+      "week": 2,
+      "group": 5,
+      "repository": "BagelBreaker/week2_capstone",
+      "path": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/BagelBreaker__week2_capstone",
+      "sha": "29f9cf94751d6267e00be3ae4816be98a027662e",
+      "subdirectory": ".",
+      "benchmark": "vision-clustering",
+      "version": 2,
+      "environment": "local311",
+      "status": "not-run",
+      "category": "full-binding",
+      "cause": "Complete binding accepted by the discovery fixture",
+      "exitCode": 0,
+      "elapsedSeconds": 8,
+      "primaryWeekProject": true,
+      "source": "discovery",
+      "python": "3.11.15",
+      "rawVerdictStatus": "scored",
+      "recalled": false,
+      "hashSeed": "0",
+      "root": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g5-cluster",
+      "importedModules": [
+        "builddb",
+        "feedback",
+        "get_descriptor",
+        "vector_db",
+        "whispers",
+        "test_descriptor"
+      ],
+      "skippedModules": [
+        {
+          "detail": "AttributeError: 'function' object has no attribute 'slider'",
+          "missing": null,
+          "name": "app",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g5-cluster/app.py",
+          "reason": "raised"
+        },
+        {
+          "detail": "FileNotFoundError: [Errno 2] No such file or directory: 'tests_manual/db.pkl'",
+          "missing": null,
+          "name": "cluster",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g5-cluster/cluster.py",
+          "reason": "raised"
+        },
+        {
+          "detail": "FileNotFoundError: [Errno 2] No such file or directory: '/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g5-cluster/images'",
+          "missing": null,
+          "name": "conversionvec",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g5-cluster/conversionvec.py",
+          "reason": "raised"
+        },
+        {
+          "detail": "FileNotFoundError: [Errno 2] No such file or directory: 'annotations/group_truth.csv'",
+          "missing": null,
+          "name": "eval_group",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g5-cluster/eval_group.py",
+          "reason": "raised"
+        },
+        {
+          "detail": "FileNotFoundError: [Errno 2] No such file or directory: 'face_db.pkl'",
+          "missing": null,
+          "name": "eval_individ",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g5-cluster/eval_individ.py",
+          "reason": "raised"
+        },
+        {
+          "detail": "FileNotFoundError: [Errno 2] No such file or directory: 'face_vectors.pkl'",
+          "missing": null,
+          "name": "test_imgs",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g5-cluster/test_imgs.py",
+          "reason": "raised"
+        },
+        {
+          "detail": "FileNotFoundError: [Errno 2] No such file or directory: 'tests_manual/db.pkl'",
+          "missing": null,
+          "name": "test_whispers",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g5-cluster/test_whispers.py",
+          "reason": "raised"
+        },
+        {
+          "detail": "FileNotFoundError: [Errno 2] No such file or directory: '../data/test'",
+          "missing": null,
+          "name": "build_vector_database_train",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g5-cluster/tests_manual/build_vector_database_train.py",
+          "reason": "raised"
+        },
+        {
+          "detail": "FileNotFoundError: No images found under data/train/*/",
+          "missing": null,
+          "name": "test_descriptor_train",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g5-cluster/tests_manual/test_descriptor_train.py",
+          "reason": "raised"
+        },
+        {
+          "detail": "FileNotFoundError: [Errno 2] No such file or directory: 'face_vectors.pkl'",
+          "missing": null,
+          "name": "test_group_photos",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g5-cluster/tests_manual/test_group_photos.py",
+          "reason": "raised"
+        },
+        {
+          "detail": "FileNotFoundError: [Errno 2] No such file or directory: 'data/train'",
+          "missing": null,
+          "name": "test_training_leave_one_out",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g5-cluster/tests_manual/test_training_leave_one_out.py",
+          "reason": "raised"
+        },
+        {
+          "detail": "FileNotFoundError: [Errno 2] No such file or directory: 'data/train'",
+          "missing": null,
+          "name": "test_vector_db_integration",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g5-cluster/tests_manual/test_vector_db_integration.py",
+          "reason": "raised"
+        }
+      ],
+      "chain": [
+        "get_descriptor.file_descriptors",
+        "whispers.Whispers",
+        "whispers.Whispers.create_matrix",
+        "whispers.Whispers.create_nodes",
+        "whispers.Whispers.train_sweeps",
+        "whispers.Whispers.sorted_images"
+      ],
+      "branches": {},
+      "missing": {},
+      "weightsUsed": [],
+      "notes": [],
+      "candidateErrors": [],
+      "dataTest": {
+        "message": "ready",
+        "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-test-v1",
+        "ready": true
+      },
+      "dataEvaluation": {
+        "message": "ready",
+        "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1",
+        "ready": true
+      },
+      "modelCache": {
+        "message": "ready",
+        "path": "/Users/samgu/.cache/torch/checkpoints/20180402-114759-vggface2.pt",
+        "ready": true
+      },
+      "localGap": [],
+      "evidence": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/results/w2-g5-cluster/check",
+      "scoring": "not-measured"
+    },
+    {
+      "id": "w2-g5-recognize",
+      "projectId": "w2-g5",
+      "week": 2,
+      "group": 5,
+      "repository": "BagelBreaker/week2_capstone",
+      "path": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/BagelBreaker__week2_capstone",
+      "sha": "29f9cf94751d6267e00be3ae4816be98a027662e",
+      "subdirectory": ".",
+      "benchmark": "vision-recognition",
+      "version": 2,
+      "environment": "local311",
+      "status": "not-run",
+      "category": "supported-refusal",
+      "cause": "Platform lacks Recognition discovery; no declared repository adapter",
+      "exitCode": 2,
+      "elapsedSeconds": 0,
+      "primaryWeekProject": false,
+      "source": null,
+      "python": "3.11.15",
+      "rawVerdictStatus": null,
+      "recalled": null,
+      "hashSeed": null,
+      "root": null,
+      "importedModules": [],
+      "skippedModules": [],
+      "chain": [],
+      "branches": {},
+      "missing": {},
+      "weightsUsed": [],
+      "notes": [],
+      "candidateErrors": [],
+      "dataTest": {
+        "message": "ready",
+        "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-test-v1",
+        "ready": true
+      },
+      "dataEvaluation": {
+        "message": "ready",
+        "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1",
+        "ready": true
+      },
+      "modelCache": {
+        "message": "ready",
+        "path": "/Users/samgu/.cache/torch/checkpoints/20180402-114759-vggface2.pt",
+        "ready": true
+      },
+      "localGap": [],
+      "evidence": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/results/w2-g5-recognize/check",
+      "scoring": "not-measured"
+    },
+    {
+      "id": "w3-g1-language",
+      "projectId": "w3-g1",
+      "week": 3,
+      "group": 1,
+      "repository": "rutvim2009/BWSI_CogWorks_Team_1",
+      "path": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/rutvim2009__BWSI_CogWorks_Team_1",
+      "sha": "4329ed4deab53a39fc4ac876912863e04edc0403",
+      "subdirectory": "Week3",
+      "benchmark": "language-search",
+      "version": 1,
+      "environment": "local311",
+      "status": "not-run",
+      "category": "execution-fault",
+      "cause": "macOS Objective-C initialization abort after fork",
+      "exitCode": 2,
+      "elapsedSeconds": 3,
+      "primaryWeekProject": true,
+      "source": null,
+      "python": "3.11.15",
+      "rawVerdictStatus": null,
+      "recalled": null,
+      "hashSeed": null,
+      "root": null,
+      "importedModules": [],
+      "skippedModules": [],
+      "chain": [],
+      "branches": {},
+      "missing": {},
+      "weightsUsed": [],
+      "notes": [],
+      "candidateErrors": [],
+      "dataTest": {
+        "message": "ready",
+        "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/language",
+        "ready": true
+      },
+      "dataEvaluation": {
+        "message": "ready",
+        "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/language",
+        "ready": true
+      },
+      "modelCache": {
+        "message": "ready",
+        "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/language",
+        "ready": true
+      },
+      "localGap": [],
+      "evidence": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/results/w3-g1-language/check",
+      "scoring": "not-measured"
+    },
+    {
+      "id": "w3-g2-language",
+      "projectId": "w3-g2",
+      "week": 3,
+      "group": 2,
+      "repository": "CogWorks-2026-Team-Asterisk/Week3-Capstone",
+      "path": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/CogWorks-2026-Team-Asterisk__Week3-Capstone",
+      "sha": "4ec78cf430ce21fe477cfa3f853cea5d53f02c8b",
+      "subdirectory": ".",
+      "benchmark": "language-search",
+      "version": 1,
+      "environment": "local311",
+      "status": "not-run",
+      "category": "partial-binding",
+      "cause": "Missing image, search",
+      "exitCode": 0,
+      "elapsedSeconds": 39,
+      "primaryWeekProject": true,
+      "source": "discovery",
+      "python": "3.11.15",
+      "rawVerdictStatus": "scored",
+      "recalled": false,
+      "hashSeed": "0",
+      "root": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w3-g2-language/Individual Stuff",
+      "importedModules": [
+        "captions_to_vec",
+        "coco_data",
+        "database",
+        "image_to_caption_model",
+        "training"
+      ],
+      "skippedModules": [
+        {
+          "detail": "AttributeError: 'str' object has no attribute 'image_id_to_caption_ids'",
+          "missing": null,
+          "name": "Yum_captions",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w3-g2-language/Individual Stuff/Yum_captions.py",
+          "reason": "raised"
+        },
+        {
+          "detail": "imports gradio, which is not installed here",
+          "missing": "gradio",
+          "name": "frontend",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w3-g2-language/Individual Stuff/frontend.py",
+          "reason": "missing_dependency"
+        },
+        {
+          "detail": "imports gradio, which is not installed here",
+          "missing": "gradio",
+          "name": "main",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w3-g2-language/Individual Stuff/main.py",
+          "reason": "missing_dependency"
+        }
+      ],
+      "chain": [],
+      "branches": {
+        "prepare": [
+          "database.ImageDatabase"
+        ],
+        "text": [
+          "text_embedder (CaptionVectorizer)"
+        ]
+      },
+      "missing": {
+        "image": {
+          "detail": "nothing accepted the input the benchmark passes",
+          "stage": "image"
+        },
+        "search": {
+          "detail": "nothing accepted the input the benchmark passes",
+          "stage": "search"
+        }
+      },
+      "weightsUsed": [],
+      "notes": [],
+      "candidateErrors": [],
+      "dataTest": {
+        "message": "ready",
+        "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/language",
+        "ready": true
+      },
+      "dataEvaluation": {
+        "message": "ready",
+        "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/language",
+        "ready": true
+      },
+      "modelCache": {
+        "message": "ready",
+        "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/language",
+        "ready": true
+      },
+      "localGap": [],
+      "evidence": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/results/w3-g2-language/check",
+      "scoring": "not-measured"
+    },
+    {
+      "id": "w3-g3-language",
+      "projectId": "w3-g3",
+      "week": 3,
+      "group": 3,
+      "repository": "Cog-gurts/CogFinder",
+      "path": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/Cog-gurts__CogFinder",
+      "sha": "c10da68ccbf74110991e35de29ab6630a992421e",
+      "subdirectory": ".",
+      "benchmark": "language-search",
+      "version": 1,
+      "environment": "local311",
+      "status": "not-run",
+      "category": "execution-fault",
+      "cause": "macOS Objective-C initialization abort after fork",
+      "exitCode": 2,
+      "elapsedSeconds": 2,
+      "primaryWeekProject": true,
+      "source": null,
+      "python": "3.11.15",
+      "rawVerdictStatus": null,
+      "recalled": null,
+      "hashSeed": null,
+      "root": null,
+      "importedModules": [],
+      "skippedModules": [],
+      "chain": [],
+      "branches": {},
+      "missing": {},
+      "weightsUsed": [],
+      "notes": [],
+      "candidateErrors": [],
+      "dataTest": {
+        "message": "ready",
+        "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/language",
+        "ready": true
+      },
+      "dataEvaluation": {
+        "message": "ready",
+        "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/language",
+        "ready": true
+      },
+      "modelCache": {
+        "message": "ready",
+        "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/language",
+        "ready": true
+      },
+      "localGap": [],
+      "evidence": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/results/w3-g3-language/check",
+      "scoring": "not-measured"
+    },
+    {
+      "id": "w3-g4-language",
+      "projectId": "w3-g4",
+      "week": 3,
+      "group": 4,
+      "repository": "LashikaKapoor28/Language_Module_Capstone",
+      "path": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/LashikaKapoor28__Language_Module_Capstone",
+      "sha": "8789361ad7dec86fa724431873f674e03b449951",
+      "subdirectory": ".",
+      "benchmark": "language-search",
+      "version": 1,
+      "environment": "local311",
+      "status": "not-run",
+      "category": "execution-fault",
+      "cause": "macOS Objective-C initialization abort after fork",
+      "exitCode": 2,
+      "elapsedSeconds": 2,
+      "primaryWeekProject": true,
+      "source": null,
+      "python": "3.11.15",
+      "rawVerdictStatus": null,
+      "recalled": null,
+      "hashSeed": null,
+      "root": null,
+      "importedModules": [],
+      "skippedModules": [],
+      "chain": [],
+      "branches": {},
+      "missing": {},
+      "weightsUsed": [],
+      "notes": [],
+      "candidateErrors": [],
+      "dataTest": {
+        "message": "ready",
+        "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/language",
+        "ready": true
+      },
+      "dataEvaluation": {
+        "message": "ready",
+        "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/language",
+        "ready": true
+      },
+      "modelCache": {
+        "message": "ready",
+        "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/language",
+        "ready": true
+      },
+      "localGap": [],
+      "evidence": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/results/w3-g4-language/check",
+      "scoring": "not-measured"
+    },
+    {
+      "id": "w3-g5-language",
+      "projectId": "w3-g5",
+      "week": 3,
+      "group": 5,
+      "repository": "BagelBreaker/week3_capstone",
+      "path": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/BagelBreaker__week3_capstone",
+      "sha": "485d4f1f8e47311920980b06db97424ac97276f6",
+      "subdirectory": ".",
+      "benchmark": "language-search",
+      "version": 1,
+      "environment": "local311",
+      "status": "not-run",
+      "category": "execution-fault",
+      "cause": "macOS Objective-C initialization abort after fork",
+      "exitCode": 2,
+      "elapsedSeconds": 2,
+      "primaryWeekProject": true,
+      "source": null,
+      "python": "3.11.15",
+      "rawVerdictStatus": null,
+      "recalled": null,
+      "hashSeed": null,
+      "root": null,
+      "importedModules": [],
+      "skippedModules": [],
+      "chain": [],
+      "branches": {},
+      "missing": {},
+      "weightsUsed": [],
+      "notes": [],
+      "candidateErrors": [],
+      "dataTest": {
+        "message": "ready",
+        "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/language",
+        "ready": true
+      },
+      "dataEvaluation": {
+        "message": "ready",
+        "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/language",
+        "ready": true
+      },
+      "modelCache": {
+        "message": "ready",
+        "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/language",
+        "ready": true
+      },
+      "localGap": [],
+      "evidence": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/results/w3-g5-language/check",
+      "scoring": "not-measured"
+    }
+  ]
+}

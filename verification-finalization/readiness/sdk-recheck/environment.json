@@ -1,0 +1,15 @@
+{
+  "HOME": "/Users/samgu",
+  "PATH": "/Users/samgu/BWSI/2026/CogPortal/.venv-test/bin:/usr/bin:/bin:/opt/homebrew/bin",
+  "PYTHONPATH": "/Users/samgu/Programming Projects/CogPortal-verifier-8459519/python/cogbench/src:/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/source/week2:/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/source/week3",
+  "PYTHONHASHSEED": "0",
+  "PYTHONDONTWRITEBYTECODE": "1",
+  "MPLBACKEND": "Agg",
+  "MPLCONFIGDIR": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-finalization/readiness/sdk-recheck/matplotlib",
+  "NUMBA_CACHE_DIR": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-finalization/readiness/sdk-recheck/numba",
+  "COGWORKS_SHOWCASE": "0",
+  "COGWORKS_LANGUAGE_DATA": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/language",
+  "COGBENCH_CONFIG": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-finalization/readiness/sdk-recheck/unlinked.json",
+  "HF_HUB_OFFLINE": "1",
+  "HF_DATASETS_OFFLINE": "1"
+}

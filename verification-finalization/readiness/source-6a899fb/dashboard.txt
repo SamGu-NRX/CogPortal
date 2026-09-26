@@ -1,0 +1,99 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Dashboard":
+      - /url: /dashboard
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "ui-accept-e8 CogPortal owner Account menu for ui-accept-e8":
+    - generic: u
+    - generic: ui-accept-e8
+    - img "CogPortal owner":
+    - generic: Account menu for ui-accept-e8
+- main:
+  - paragraph: Good evening, ui-accept-e8
+  - heading "Source history fixture" [level=1]:
+    - link "Source history fixture":
+      - /url: /team
+  - button "Song Identification · v1 Change benchmark track. Currently Song Identification.":
+    - text: Song Identification · v1
+    - generic: Change benchmark track. Currently Song Identification.
+  - generic "Execution provider is in fixture mode. Results are scripted, not real evaluation.": simulated
+  - generic: Getting set up
+  - generic: 0 of 5 done
+  - link "Continue":
+    - /url: /setup
+    - text: Continue
+  - button "Dismiss the setup reminder":
+  - heading "START A RUN" [level=2]
+  - generic: Branch
+  - combobox "Branch":
+    - option "main" [selected]
+    - option "improved-thresholds"
+    - option "missing-adapter"
+    - option "loose-pins"
+    - option "heavy-model"
+    - option "raw-tuples"
+    - option "null-descriptor"
+  - button "Run practice benchmark"
+  - paragraph: 8 of 10 hosted runs left
+  - generic: Candidate ready
+  - paragraph:
+    - link "RUN GACY":
+      - /url: /runs/run_source_legacy
+    - text: scored 0.5375 on main · 7125804
+  - button "Promote to official"
+  - paragraph: Runs the same commit against hidden inputs. Logs are suppressed.
+  - heading "RUN LOG" [level=2]
+  - generic: 3 recorded
+  - list:
+    - link "RUN CIAL official Succeeded main · 7125804 0.5375 5 min ago":
+      - /url: /runs/run_source_official
+      - generic: RUN CIAL
+      - generic: official
+      - generic: Succeeded
+      - generic: main · 7125804
+      - generic: "0.5375"
+      - generic: 5 min ago
+    - link "RUN GACY practice Succeeded main · 7125804 0.5375 5 min ago":
+      - /url: /runs/run_source_legacy
+      - generic: RUN GACY
+      - generic: practice
+      - generic: Succeeded
+      - generic: main · 7125804
+      - generic: "0.5375"
+      - generic: 5 min ago
+    - link "RUN _OLD practice Succeeded main · 7125804 0.5375 5 min ago":
+      - /url: /runs/run_source_old
+      - generic: RUN _OLD
+      - generic: practice
+      - generic: Succeeded
+      - generic: main · 7125804
+      - generic: "0.5375"
+      - generic: 5 min ago
+  - heading "CONNECTED SOURCE" [level=2]
+  - link "cogworks-demo/face-finder":
+    - /url: https://github.com/cogworks-demo/face-finder
+  - generic: last tested
+  - generic: none recorded for this repository
+  - paragraph: week1-cpu-v1 · CPU · network blocked during evaluation
+  - heading "ATTEMPT BUDGET" [level=2]
+  - generic: Hosted practice
+  - generic: 2/10 used
+  - 'img "Hosted practice: 2 of 10 used"'
+  - generic: Official attempts
+  - generic: 0/3 used
+  - 'img "Official attempts: 0 of 3 used"'
+  - paragraph: Local runs are unlimited and are not counted here. An official cell fills the moment you start that attempt, and it comes back if the run fails for a reason on our side.
+  - heading "PUBLISHED RESULT" [level=2]
+  - paragraph: "7125804"
+  - paragraph: Identification score 0.5375
+  - link "View run":
+    - /url: /runs/run_source_official
+  - link "Leaderboard":
+    - /url: /leaderboard
+- document

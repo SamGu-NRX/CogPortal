@@ -1,0 +1,37 @@
+n: More message options, Secondary Actions: Expand
+								1084 text entry area (settable) Description: Message #nb-development, Value: ﻿
+
+									1085 container
+										1086 text ﻿
+								1087 container
+									1088 pop up button Send a gift
+										1089 image
+									1090 text Upgrade your friends! Gift them awesome chat perks with Nitro.
+								1091 pop up button (collapsed) Description: Open GIF picker, Secondary Actions: Expand
+									1092 image
+								1093 text Send GIF
+								1094 pop up button (collapsed) Description: Open sticker picker, Secondary Actions: Expand
+									1095 image
+								1096 button (collapsed) Description: Add Emoji, Secondary Actions: Expand
+								1097 pop up button (collapsed) Description: Apps, Secondary Actions: Expand
+									1098 image
+		1102 container Leaving Discord
+			1103 container
+				1104 heading Leaving Discord, Value: 1, ID: heading-_r_fb_
+					1105 text Leaving Discord
+				1106 button Close
+				1107 text This link is taking you to the following website
+				1108 container
+					1109 text https: // cogportal.sillion.app /run-surfaces/surface_b219ca3a12dbfca948c4
+					1110 checkbox (settable, integer) Description: Trust cogportal.sillion.app links from now on, Value: 0
+					1111 container
+						1112 text Trust  cogportal.sillion.app  links from now on
+				1113 button Go Back
+					1114 text Go Back
+				1115 button Visit Site
+					1116 text Visit Site
+		1099 image
+	1100 container grammarly-integration
+		1101 text {"mode":"limited","isActive":false,"isUserDisabled":false}
+
+The focused UI element is 1115 button Visit Site

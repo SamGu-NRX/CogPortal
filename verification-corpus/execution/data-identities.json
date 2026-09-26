@@ -1,0 +1,499 @@
+{
+  "checkedAt": "2026-09-10T09:48:35.649286+00:00",
+  "frozenSourceHashesMatch": true,
+  "dataPreparationExit": 0,
+  "files": {
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/language/cache-state.json": {
+      "bytes": 588,
+      "sha256": "44c29d8482e5d1f485987c1ad9456ddf1e308967e0d9d2c34bd3a7c2c1b37f85"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/language/captions_train2014.json": {
+      "bytes": 66782097,
+      "sha256": "dd8c9636dc11740f956e36728866ea0c4ebe4988dcbdc5e712b7c2267f152d12"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/language/glove.6B.200d.kv": {
+      "bytes": 11228170,
+      "sha256": "a1c851fe6aede244a60893ebd758e332d1b90e3db6f77d1346bb3da61093254e"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/language/glove.6B.200d.kv.vectors.npy": {
+      "bytes": 320000128,
+      "sha256": "44daaa2cb198765606124acdaab1abab2703b80a8e3a7743e7902973d0948a41"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/language/glove.6B.200d.txt.w2v": {
+      "bytes": 693432839,
+      "sha256": "dcee6ecdefebb5a884b23f2353561cc5f0527e59592525c0e3f4a31d81d91272"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/language/resnet18_features.pkl": {
+      "bytes": 174540061,
+      "sha256": "d56e267dacd39608b4aae581595f8fa8ec55457ab59b713df1eafa93e1023450"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/cache.json": {
+      "bytes": 1957,
+      "sha256": "900ddd8a35c028e56e99da0b7e81b990916145ee6f7631dfcbb1990810bb8c37"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_000.npy": {
+      "bytes": 116540,
+      "sha256": "acca5a0fdba8502ffdf69b1a51521943aa2ac3cc64968dfb72c12bc24a41bade"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_001.npy": {
+      "bytes": 116540,
+      "sha256": "2f04415fb956f09acfcd5c92cedbe9bc9e54c8151dfae442b3f4f351ce0eb961"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_002.npy": {
+      "bytes": 116540,
+      "sha256": "600621566ef11017a9b7f0c1d7cd2ea583dfeab47912d5bc49ab4552a6686230"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_003.npy": {
+      "bytes": 116540,
+      "sha256": "6d9d03d3efb8f6a78d077f97603e91cd71fef866363ba5201334b6e2304e02e3"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_004.npy": {
+      "bytes": 116540,
+      "sha256": "ac01398a98a0fcf931f19c5a77e82750af76f3fcd5030b8a78da2d9e32a777d2"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_005.npy": {
+      "bytes": 116540,
+      "sha256": "82ad5092b07cd0714c41dbc23b548ad1aebe1677aa63064e34b3622122bc36d4"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_006.npy": {
+      "bytes": 116540,
+      "sha256": "e109e0bd41cb8eabbf8cc3b5b47f739fe5d0cde4c69d9ac6473a5635a08c2be6"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_007.npy": {
+      "bytes": 116540,
+      "sha256": "af310a19312fe274a76db530ccbfe8772302d5f2afa669eeed5b78d2434ec138"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_008.npy": {
+      "bytes": 116540,
+      "sha256": "6dffae2353bb4b610c2e7d38465fffb595b138bf6693c6972d52959bca3c5571"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_009.npy": {
+      "bytes": 116540,
+      "sha256": "deae0e12ba925d516b0d7456df544a7bbd9b546ee5b313bdbc345ba5c54e4efb"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_010.npy": {
+      "bytes": 116540,
+      "sha256": "760cf0a925a6fac9ae4688028e824ba04ea797c4fc75bb709e5134eb6e373a9f"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_011.npy": {
+      "bytes": 116540,
+      "sha256": "e226b374e57a3e5427e5e93430c0f37ff0c732f39ff0ac68ffd3c244a8e59fc1"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_012.npy": {
+      "bytes": 116540,
+      "sha256": "224b1d591451918c0cb2d15abce741c5e7404e3b9cb08feac6d00038173c020d"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_013.npy": {
+      "bytes": 116540,
+      "sha256": "18371193f1ec9c52a7054b592b671fa7db38eaf1a1f8f1ff03a9c9c9cd648fa4"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_014.npy": {
+      "bytes": 116540,
+      "sha256": "fa52a5865ccd0b7bcb154785ff73eda01006e7730535d6088a40bf86d2597e5a"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_015.npy": {
+      "bytes": 116540,
+      "sha256": "ccd587a3a9021f01142603ead1a2fe25065aaeffbe604431746220b84bc67bee"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_016.npy": {
+      "bytes": 116540,
+      "sha256": "b4e7632046379cadd1567eebdcce84774465fed9efc46bf09770729c10c8a759"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_017.npy": {
+      "bytes": 116540,
+      "sha256": "e9e381f602167a04e3719ea5bf0890a4658e89d5d9f5ea731495d932e2ccd2ed"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_018.npy": {
+      "bytes": 116540,
+      "sha256": "5b8e9cade66e09317ab0f640f0861805bd19aeff9c9056dd41bd1230d738fcb2"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_019.npy": {
+      "bytes": 116540,
+      "sha256": "9bdf2ab8d45ef5537176e6727e8c048b41635e4575e4f3c4da7768cc6c5cd665"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_020.npy": {
+      "bytes": 116540,
+      "sha256": "b880d196ad3a472f8f6f6b030095dbc76261298e15875408b97d0b3407766f87"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_021.npy": {
+      "bytes": 116540,
+      "sha256": "d01b6a17067199511c924cb43c44a633c2f3074843b16b2c8a431074b32a3ddf"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_022.npy": {
+      "bytes": 116540,
+      "sha256": "89ee6f2af9f105471203e7cd20ad4e50e9df473cf0a05d86a66f4854642e4037"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_023.npy": {
+      "bytes": 116540,
+      "sha256": "2b9d0088b94111b64c9112b8f113bf82d2564bb7aefed64e9e0da25b038a3a1f"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_024.npy": {
+      "bytes": 116540,
+      "sha256": "3ce9ff0d190d610fd005204fca9b1af9c6c5b22619b24b9d1260b63292b62bcc"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_025.npy": {
+      "bytes": 116540,
+      "sha256": "6dcfa506cb4c86d5747e3fccd4bba7f241340fe568cd49b89c73543722a66078"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_026.npy": {
+      "bytes": 116540,
+      "sha256": "c689bf995aca1e107ec6e103ffd76be26975b03934fc03da39be0330e83ad370"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_027.npy": {
+      "bytes": 116540,
+      "sha256": "d1858231d48517e11d5bff56d6e2988e42c5e55d24d2e7ccd096a4939a79ce62"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_028.npy": {
+      "bytes": 116540,
+      "sha256": "0c25cb28889fba5660326bc8348177bcc975227758bd99f1b495e689ac88dc7d"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_029.npy": {
+      "bytes": 116540,
+      "sha256": "6ada37ea60a2b253458570e935917cc22c1a9d5a8b462deaa234eb56d20c59ea"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_030.npy": {
+      "bytes": 116540,
+      "sha256": "b64b437ae9a06d152df3a051440d79be6d4d81e5f28afa1a52e1aa7a2781838a"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_031.npy": {
+      "bytes": 116540,
+      "sha256": "3f3d71b5baeccb8c5ad93484c1a70193d501d6fbb26a5a02281462b7d19eceaf"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_032.npy": {
+      "bytes": 116540,
+      "sha256": "c17b1851407dc8c1588bc24818cfb5cab729b27a909762f7a2dcc9f832ddb1c6"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_033.npy": {
+      "bytes": 116540,
+      "sha256": "0cbdf27d44eac57441c5e48a9d79a73b33c0d0fa0f9d66073aa69ccd1b7262b1"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_034.npy": {
+      "bytes": 116540,
+      "sha256": "b2ef7c4e0c249991ac65889e3af291821552849a47ae6b8054f9653257c51a97"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_035.npy": {
+      "bytes": 116540,
+      "sha256": "26f53ec82532d6fc3ec73f835015c46315b8c1068fef60679944457a963fb5d8"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_036.npy": {
+      "bytes": 116540,
+      "sha256": "8b545e5fe2e3cc2acc2e5df21e63675fe857c43db7fd8519f49451d8516fd0e0"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_037.npy": {
+      "bytes": 116540,
+      "sha256": "b69ca7a65b88c37461d791a3bcdc207fad0a40b4c020fea5c09b53ea9fe55e3e"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_038.npy": {
+      "bytes": 116540,
+      "sha256": "38d2128f14fd9ecc7fdfdd8d481e224835c4ad8e96ce67bba7655e8b3b294de3"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_039.npy": {
+      "bytes": 116540,
+      "sha256": "05b41e4a86c458f71e9a189f9d9d07d2149d76913a8afa2d6ef113aa6672379f"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_040.npy": {
+      "bytes": 116540,
+      "sha256": "823aff5ea9fb4bba9232b1d4c2e1334756d93c79accf653cc34fa70228bb7ee4"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_041.npy": {
+      "bytes": 116540,
+      "sha256": "3aa55eabeae6f80ef415398a4f5de55aea8ebc4c569aa24350bcd002e696e8b7"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_042.npy": {
+      "bytes": 116540,
+      "sha256": "528387821d695a4263c9b35297c8588718395464f0dd34b17ee681331b397c83"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_043.npy": {
+      "bytes": 116540,
+      "sha256": "94135db2642906e961a624f0ca1878a10747d577ebab300c2218f06649166672"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_044.npy": {
+      "bytes": 116540,
+      "sha256": "72205a06d7fa94c59ac9f2ff17803545c5c1bd04536dba35dd7ed9baa3a91885"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_045.npy": {
+      "bytes": 116540,
+      "sha256": "c66e02e17fd7af18b11a82c6d9729bb4c8f51f2272417c6abefde8d2db45196e"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_046.npy": {
+      "bytes": 116540,
+      "sha256": "7d723b2f92a8dc78ae7b8303587157ac7356a4a89f954d746716afc6801949d8"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_047.npy": {
+      "bytes": 116540,
+      "sha256": "aa02da4f333516bd63ed92966c02f26af78f10796101b59726fa381c40773a78"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_048.npy": {
+      "bytes": 116540,
+      "sha256": "f12f55c4ae5eb682bc338fd62162cd2dffb0442a6b43627c5230a38659652f83"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_049.npy": {
+      "bytes": 116540,
+      "sha256": "4018e1644eebd90fa1672f7391a876b52d5f2fdbfdfac2b8303c716abdaf0455"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_050.npy": {
+      "bytes": 116540,
+      "sha256": "678d04d2b6bf52aabb3ed6a30692778248e0a554db43dab57288e249edf62133"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_051.npy": {
+      "bytes": 116540,
+      "sha256": "51e1d11cf9b79581f0b36e046c6e5255b6601b1e2f66099effa9cf639c4837f3"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_052.npy": {
+      "bytes": 116540,
+      "sha256": "d95570f45ab7e042b7ce74ef0d42f8c4c9913c5075f66d50be6a7a62868a4d20"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_053.npy": {
+      "bytes": 116540,
+      "sha256": "f12fbccce51f1f2b812b9b3ee21e870145cecc8d805d8e5dba354ab81cab65b8"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_054.npy": {
+      "bytes": 116540,
+      "sha256": "1c1f7757fe56750f0caf30d090a6049edc453ceed9e2c07f3cc612fd6f6b851e"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_055.npy": {
+      "bytes": 116540,
+      "sha256": "a267f0e17a42e3b4deb65ba3cc122d3095919118daa7f8721bb13fd47bd6edd7"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_056.npy": {
+      "bytes": 116540,
+      "sha256": "6be46469c8b0c79bfb03693dc46757c60b501cbaa7c721e611a8ddf638ca3bdd"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_057.npy": {
+      "bytes": 116540,
+      "sha256": "b96b2bed9303a5ef91e02763fda3b93da276f9179875093c25dbedb7c1bd7d9a"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_058.npy": {
+      "bytes": 116540,
+      "sha256": "a6e9aae25eb2784a831c24086475826ab1ea7d1080945aa93761581b28f3a5aa"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_059.npy": {
+      "bytes": 116540,
+      "sha256": "8af8a043c7269f9f34fd76b80e2f18be75d126b58d9446dd278232e17598b354"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_060.npy": {
+      "bytes": 116540,
+      "sha256": "1518578623e6444a5c8c2102a2a704d1d0306ce62072c5064b915b19a2b91ce9"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_061.npy": {
+      "bytes": 116540,
+      "sha256": "293110364e2aa2ad8a6a58b1a80fd65fd58087b41fb00db215e1c385d31257f5"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_062.npy": {
+      "bytes": 116540,
+      "sha256": "08d02f14734e32ea6508d29f2b210e82cb0b3c140f8ac87bbfa5965578d3633e"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_063.npy": {
+      "bytes": 116540,
+      "sha256": "c81aca29b1bec6e6885f07aa5d2a108a225d0138d742db2acd319c4b7536b5a6"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_064.npy": {
+      "bytes": 116540,
+      "sha256": "2c90f1f3a8d804492631269da90ef435db45a121c9c7908a571c6803f43ec0c8"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_065.npy": {
+      "bytes": 116540,
+      "sha256": "d98d8e9b77c813e587a04d4870b2234a4898f3394e880b4158ccb3ea40cd9033"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_066.npy": {
+      "bytes": 116540,
+      "sha256": "5556bcf0fe83d86acdb0458de90e6a01a0cb0b5805d5a97c05a4c4920f458056"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_067.npy": {
+      "bytes": 116540,
+      "sha256": "317b30275177d0a3d223285554404e64b68796384d5c91fca8af133056469838"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_068.npy": {
+      "bytes": 116540,
+      "sha256": "4019b991b6b19f52b35af4c7fc8050753e383f21abe018dfe4c71c501634b376"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_069.npy": {
+      "bytes": 116540,
+      "sha256": "c978f308b0dd7c5e52e5bf63b66cb3cdec273f3aba64fb9a35841ece2d814eb1"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_070.npy": {
+      "bytes": 116540,
+      "sha256": "dfe984b533d47255760e48c48feb362ebed9e2ac27e9b47a96e3750466fea168"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_071.npy": {
+      "bytes": 116540,
+      "sha256": "45f7651ae310276d7a7aa1790b8b801ce8d2287152c6e39bbf1dc40b832e7e7a"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_072.npy": {
+      "bytes": 116540,
+      "sha256": "89e535cb7cb694846ee212c7ccc0bdd4192fd4edb89437dbd126e9a4788067f4"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_073.npy": {
+      "bytes": 116540,
+      "sha256": "db7785badfac8dc7e567aa17fcc0f84035fcdb4a17a8d49b143bf692dcbd524c"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_074.npy": {
+      "bytes": 116540,
+      "sha256": "5bda2724f3e036880d08b786dd4aeaac1cf5871022bd8f18e1c31ed2ba67e4d4"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_075.npy": {
+      "bytes": 116540,
+      "sha256": "058cdefdffc9dfea4125be6939c079e3699636eb82e094beb3bc028cc0a617d2"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_076.npy": {
+      "bytes": 116540,
+      "sha256": "ee5d8793b27817084c88a3cfa7a217da9a55f366ad739517c74b822d8c0666fe"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_077.npy": {
+      "bytes": 116540,
+      "sha256": "4c8d87c996d8e826ab49847ffc7beac6f2184d73946d1c9ab81305af1a88cf31"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_078.npy": {
+      "bytes": 116540,
+      "sha256": "6ce130f900c9274aab08654835932b5cb883e7f576fa5320baa750483be904ae"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_079.npy": {
+      "bytes": 116540,
+      "sha256": "e786be5cddb2720a28dc9bc2b788ebd4824211aeadb06f3675658f553fd96153"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_080.npy": {
+      "bytes": 116540,
+      "sha256": "7578e7929a25248d80be8eecd022610c6564f787f49a48db6459b56c9c942a18"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_081.npy": {
+      "bytes": 116540,
+      "sha256": "d03229f6a154d49563976060e4e6797afcba41cd32fd9a17a78a7fbe126dd261"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1/evaluation_082.npy": {
+      "bytes": 116540,
+      "sha256": "003165e81ed8bcf7d51966265288e41288ad6af4210ff9d02bc52c687c1227d8"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-test-v1/cache.json": {
+      "bytes": 637,
+      "sha256": "6cd6ae09ffad13afa8a66824ae1e0e2e0bdf49d52f499e9f1a68525bf3bd1056"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-test-v1/test_000.npy": {
+      "bytes": 116540,
+      "sha256": "937dceebf3fd78e2fcac75b93e6295d847d69573f4fd035c7dcfc7d960bc5273"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-test-v1/test_001.npy": {
+      "bytes": 116540,
+      "sha256": "5cb6f2340ebf7f4812f0f40e65b779d91615c71982cca542667667c5952457d7"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-test-v1/test_002.npy": {
+      "bytes": 116540,
+      "sha256": "cc57036e74a289911d3c135bb932ce23ee584af1c0759b3d68cccc357780f2be"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-test-v1/test_003.npy": {
+      "bytes": 116540,
+      "sha256": "ee6cef78e5300aeda591bd7ec4121c699813eb77472e378509e60ef58b73a0aa"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-test-v1/test_004.npy": {
+      "bytes": 116540,
+      "sha256": "46e7c0f30a067714b7895d436a70e38782c1589d02dd88ea706918a5dc305d64"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-test-v1/test_005.npy": {
+      "bytes": 116540,
+      "sha256": "5dc8c175d27de2e0e130e753b5d7b486138055a6dfb48840e35ebe78d4969372"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-test-v1/test_006.npy": {
+      "bytes": 116540,
+      "sha256": "9d34b29d054634f023640e638f3b42a0ce89907d15fa999bd1cb1b5a26639e5d"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-test-v1/test_007.npy": {
+      "bytes": 116540,
+      "sha256": "c6ac5572c71c82b8300298aa6ab7f6602197e55455a2c407212e87234cc5e0bc"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-test-v1/test_008.npy": {
+      "bytes": 116540,
+      "sha256": "f9563e4cadef92be9224d6d0dd9a9b67e178cc1cac5e09852e4118c08d443506"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-test-v1/test_009.npy": {
+      "bytes": 116540,
+      "sha256": "c3140a94eedaf6519d04d58ae8a2de5fa83d45ede5c182473bf611c6d7f82c59"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-test-v1/test_010.npy": {
+      "bytes": 116540,
+      "sha256": "34de021d7a842128768095fdae2b0681f0feab4fd2fb20c8a1a104f3defeb097"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-test-v1/test_011.npy": {
+      "bytes": 116540,
+      "sha256": "1aa1d3ebe203055201e6aaaf76b4593c37f3d8457919f855a965aeed592ecddf"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-test-v1/test_012.npy": {
+      "bytes": 116540,
+      "sha256": "e43eef3a5be2ecd3f671867deb2ff1c1ef83f26b52c96b7f62c5456cc78cff11"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-test-v1/test_013.npy": {
+      "bytes": 116540,
+      "sha256": "9d7cb42c06936a2684664c206493d3665400687ce44c02af6cee21ca12a4c930"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-test-v1/test_014.npy": {
+      "bytes": 116540,
+      "sha256": "511d5aa97ce9d5e1380ea9b260828837e91959428ee425f344c70393d3618a10"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-test-v1/test_015.npy": {
+      "bytes": 116540,
+      "sha256": "38433a2d411d662d42b9ee9ba8786c56c8a39ccc7efc109ad53b61a0af9a25af"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-test-v1/test_016.npy": {
+      "bytes": 116540,
+      "sha256": "2e668d85954a492d7f963b63bb2adc8f396cf7bc8a1b98cabb24c17c83d1d406"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-test-v1/test_017.npy": {
+      "bytes": 116540,
+      "sha256": "e8b31a0d28bd332654744ffe921d823846fbabd71382f15cc6da22d491db5307"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-test-v1/test_018.npy": {
+      "bytes": 116540,
+      "sha256": "71c7165430fa5326ce3bbc9376b07a8253419bf52c9a77ec745fca939465089f"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-test-v1/test_019.npy": {
+      "bytes": 116540,
+      "sha256": "b8c025f29d62772fac2f9442e190b5048f93c1c98672dbd7e640b3c541f46c98"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-test-v1/test_020.npy": {
+      "bytes": 116540,
+      "sha256": "41be63f8594d5adf74e8a396c5b42e025fc9aa06794c15830e055683bb5a745f"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-test-v1/test_021.npy": {
+      "bytes": 116540,
+      "sha256": "f368013bc5e45e74e46c85c2852f6b9dfa4d9797eae2dbe3fff68fabfcb609bc"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-test-v1/test_022.npy": {
+      "bytes": 116540,
+      "sha256": "b31922a16c785f5eca8a873c99036e8a6d5439d2bd86a5be46f67de1c3ba0c49"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-test-v1/test_023.npy": {
+      "bytes": 116540,
+      "sha256": "dfa00a2bf04ebbe0b509e02532df6768294654c03952a6a1333522da778c08ff"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-test-v1/test_024.npy": {
+      "bytes": 116540,
+      "sha256": "7bc29d93239cc3e1d32b22da4323eb970cfde843debddcfcd3419444f90e78c5"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-test-v1/test_025.npy": {
+      "bytes": 116540,
+      "sha256": "787031157f5c95dcbfde047240ce7a00d14d4db5ad324767d1517981c7b4a87e"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-test-v1/test_026.npy": {
+      "bytes": 116540,
+      "sha256": "e76545400bbc9428e3b17443739e3bf0438f35c55ce758f35527930a168aff91"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-test-v1/test_027.npy": {
+      "bytes": 116540,
+      "sha256": "ae5aaa668138062edba62e754d6042d34aab1086125777a06540fed58d5244fe"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-test-v1/test_028.npy": {
+      "bytes": 116540,
+      "sha256": "33473465fae4344260f13ee7250a87d766a52cdbbd5f1104024e6236196eaf8d"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-test-v1/test_029.npy": {
+      "bytes": 116540,
+      "sha256": "6cec4f0decf6225f7a6f1b8df04a076e300ad9504f2438da605dac61b0119b2e"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-test-v1/test_030.npy": {
+      "bytes": 116540,
+      "sha256": "a78c34cb9f04065bb430a719c5973ea90caa0a80bf903cf03fe161869c437c41"
+    },
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-test-v1/test_031.npy": {
+      "bytes": 116540,
+      "sha256": "42f3bcd47a2bfa9c96a619f653349f0419f2b2457e75b6654faec6a67bd293d3"
+    }
+  }
+}

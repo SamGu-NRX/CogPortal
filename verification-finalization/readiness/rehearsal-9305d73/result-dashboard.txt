@@ -1,0 +1,3 @@
+Browser tab: 1693192474, Title: "Cog*Portal — CogWorks Benchmark", URL: "http://localhost:5218/dashboard".
+There has been no change in the accessibility tree.
+The focused UI element is 0 AXWebArea Cog*Portal — CogWorks Benchmark, URL: localhost:5218/dashboard

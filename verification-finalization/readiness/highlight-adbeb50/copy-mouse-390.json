@@ -1,0 +1,79 @@
+{
+  "exact": false,
+  "characters": 189,
+  "status": "",
+  "geometry": {
+    "button": {
+      "bottom": 562.5078125,
+      "height": 225.125,
+      "left": 294,
+      "right": 338,
+      "top": 337.3828125,
+      "width": 44,
+      "x": 294,
+      "y": 337.3828125
+    },
+    "codeBox": {
+      "bottom": 562.5078125,
+      "height": 225.125,
+      "left": 81,
+      "right": 294,
+      "top": 337.3828125,
+      "width": 213,
+      "x": 81,
+      "y": 337.3828125
+    },
+    "frame": {
+      "bottom": 562.5078125,
+      "height": 225.125,
+      "left": 81,
+      "right": 338,
+      "top": 337.3828125,
+      "width": 257,
+      "x": 81,
+      "y": 337.3828125
+    },
+    "preTabIndex": null,
+    "svg": {
+      "bottom": 456.4453125,
+      "height": 13,
+      "left": 309,
+      "right": 322,
+      "top": 443.4453125,
+      "width": 13,
+      "x": 309,
+      "y": 443.4453125
+    },
+    "text": "python -m pip install --upgrade --force-reinstall \"cogworks-benchmark @ git+https://github.com/SamGu-NRX/CogPortal.git@094a6f1ac109716014492a57a81157e71b70f7ab#subdirectory=python/cogbench\"",
+    "tokenColors": [
+      {
+        "color": "rgb(104, 140, 179)",
+        "text": "python"
+      },
+      {
+        "color": "rgb(142, 181, 158)",
+        "text": " -m"
+      },
+      {
+        "color": "rgb(142, 181, 158)",
+        "text": " pip"
+      },
+      {
+        "color": "rgb(142, 181, 158)",
+        "text": " install"
+      },
+      {
+        "color": "rgb(142, 181, 158)",
+        "text": " --upgrade"
+      },
+      {
+        "color": "rgb(142, 181, 158)",
+        "text": " --force-reinstall"
+      },
+      {
+        "color": "rgb(142, 181, 158)",
+        "text": " \"cogworks-benchmark @ git+https://github.com/SamGu-NRX/CogPortal.git@094a6f1ac109716014492a57a81157e71b70f7ab#subdirectory=python/cogbench\""
+      }
+    ]
+  }
+}

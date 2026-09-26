@@ -1,0 +1,20 @@
+
+  - log
+  - log
+  - banner:
+    - heading "Leaving Discord" [level=1]
+    - button "Close":
+    - generic: This link is taking you to the following website
+  - main:
+    - generic: https://
+    - text: cogportal-dev.sillion.app/run-surfaces/surface_c165ec09b98ba3050e82
+    - checkbox "Trust cogportal-dev.sillion.app links from now on"
+    - text: Trust
+    - strong: cogportal-dev.sillion.app
+    - text: links from now on
+  - contentinfo:
+    - button "Go Back":
+      - generic: Go Back
+    - button "Visit Site" [active]:
+      - generic: Visit Site
+- document

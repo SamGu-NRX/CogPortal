@@ -1,0 +1,115 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Dashboard":
+      - /url: /dashboard
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "Sam CogPortal owner Account menu for SamGu-NRX":
+    - generic: Sam
+    - img "CogPortal owner":
+    - generic: Account menu for SamGu-NRX
+- main:
+  - link "Dashboard":
+    - /url: /dashboard
+    - text: Dashboard
+  - link "Open current run":
+    - /url: /run-surfaces/surface_c165ec09b98ba3050e82
+  - heading "RUN 93D2" [level=1]
+  - generic: Practice
+  - generic: Succeeded
+  - generic: "Run status: Succeeded"
+  - paragraph:
+    - generic: vision-clustering / v2
+    - generic: "|"
+    - link "SamGu-NRX/week2_capstone":
+      - /url: https://github.com/SamGu-NRX/week2_capstone
+    - generic: "|"
+    - generic: main
+    - button "Copy full commit SHA 29f9cf94751d6267e00be3ae4816be98a027662e":
+      - generic: 29f9cf9
+    - status
+    - generic: "|"
+    - generic: Sep 15, 11:31 AM
+    - generic: "|"
+    - generic: 2m 20s
+  - heading "PIPELINE" [level=2]
+  - list "Run pipeline":
+    - text: Queued
+    - generic: ", complete"
+    - text: Prepare
+    - generic: ", complete"
+    - generic: 6.4 s
+    - text: Install
+    - generic: ", complete"
+    - generic: 38.7 s
+    - text: Contract check
+    - generic: ", complete"
+    - generic: 9.5 s
+    - text: Evaluate
+    - generic: ", complete"
+    - generic: 67.6 s
+    - text: Score
+    - generic: ", complete"
+    - generic: 3.4 s
+    - generic: Complete
+  - figure:
+    - generic: What this run shows
+    - paragraph: The clustering held to within 0.000 F1 across 4 seeds, so the answer is about the faces rather than the visit order.
+  - generic: Your code, as it was run
+  - list:
+    - generic: descriptors
+    - generic: get_descriptor.file_descriptors
+    - generic: took a list of 12, starting with an array of shape (218, 178, 3)
+    - text: ·
+    - generic: returned a list of 12, starting with an array of shape (1, 512)
+    - generic: graph
+    - generic: whispers.Whispers
+    - generic: took a list of 12, starting with an array of shape (1, 512)
+    - text: ·
+    - generic: returned <whispers.Whispers object>
+    - generic: edges
+    - generic: whispers.Whispers.create_matrix
+    - generic: took <whispers.Whispers object>
+    - text: ·
+    - generic: returned <whispers.Whispers object>
+    - generic: nodes
+    - generic: whispers.Whispers.create_nodes
+    - generic: took <whispers.Whispers object>
+    - text: ·
+    - generic: returned <whispers.Whispers object>
+    - generic: settle
+    - generic: whispers.Whispers.train_sweeps
+    - generic: took <whispers.Whispers object>
+    - text: ·
+    - generic: returned <whispers.Whispers object>
+    - generic: labels
+    - generic: whispers.Whispers.sorted_images
+    - generic: took <whispers.Whispers object>
+    - text: ·
+    - generic: returned a dict of 12 entries
+  - heading "RESULTS" [level=2]
+  - figure:
+    - generic: Pairwise F1
+    - generic: "0.7556"
+    - paragraph: Over every pair of photos, how often two photos of the same person end up in the same group and two photos of different people end up apart. Cluster numbers themselves do not matter -- calling a group 3 instead of 1 changes nothing -- which is why the score is built from pairs. This is the leaderboard number.
+  - button "Adjusted Rand index 0.705":
+    - term: Adjusted Rand index
+    - definition:
+      - generic: "0.705"
+  - paragraph: The same agreement, corrected for how much a random grouping would score by luck. Reported next to pairwise F1 because a run that puts every photo in one giant cluster can look respectable on F1 and lands near zero here.
+  - button "Spread across seeds 0.000":
+    - term: Spread across seeds
+    - definition:
+      - generic: "0.000"
+  - paragraph: How much the pairwise F1 moved when the same photos were clustered again under different random seeds. Whispers picks a random visit order, so this says whether your answer is about the faces or about that order. A wide spread usually means some random choice is not using the seed you were given. This is reported and never scored.
+  - paragraph: Public practice split.
+  - heading "PROMOTE" [level=2]
+  - paragraph: Re-runs 29f9cf9 against the hidden official inputs. Logs are suppressed.
+  - button "Promote to official"
+  - generic: 3 official attempts remaining
+- document

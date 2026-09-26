@@ -1,0 +1,9 @@
+# Native account-menu acceptance
+
+Accepted immutable PR22 `f2c720889778f385f1eadfeb3f520a75f21a94ac` for the demonstrated phone-menu defect. No new findings in this affected check. This is local fixture evidence, not deployment acceptance.
+
+- At360×900, the same wrapped trigger remains x20–74, while the208px menu now opens at x20–228. All five labels/actions fit, unchanged from the earlier474 build. Before it opened at x−134–74. [Before screenshot](../binding-4742241/responsive/account-menu-360.png), [after screenshot](after-menu-360.png), [after geometry](after-menu-360.json), [text comparison](menu-text-comparison.json). Both captures use the same local account, team, viewport and preserved browser styling.
+- Resizing the open menu from360 to768 preserves focus on Team settings. The ordinary right-edge anchor remains x733; the menu occupies x525–733, matching the earlier tablet placement. [Before tablet](../binding-4742241/responsive/account-menu-768.png), [after tablet](after-menu-768.png), [resize/focus geometry](resize-open-768.json).
+- Down moves Dashboard→Setup guide→Team settings; Up returns to Setup guide. Escape closes the menu and focuses its trigger with a2px outline. Clicking the noninteractive Start a run heading dismisses the menu without navigation. Reopening and choosing Connections reaches `/connections` and closes the menu. [Escape](escape-focus.json), [outside dismissal](outside-dismissal.json), [navigation](safe-navigation.json). No sign-out or provider action was performed.
+
+Reused prior highlighting and page-layout acceptance. No scoring or new runs. The exact application database was restored with full SQL-dump equality, removing the temporary local account, membership and session. Server stopped; temporary configuration, backup and optimizer cache removed; viewport reset and verifier tab closed. No tracked product changes. Original separate Helium tab/window and preferences preserved. [Cleanup](cleanup.json).

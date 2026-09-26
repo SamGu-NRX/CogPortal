@@ -1,0 +1,102 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Dashboard":
+      - /url: /dashboard
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "ui-accept-e8 CogPortal owner Account menu for ui-accept-e8":
+    - generic: u
+    - generic: ui-accept-e8
+    - img "CogPortal owner":
+    - generic: Account menu for ui-accept-e8
+- main:
+  - generic: Dev rehearsal
+  - button "Live state"
+  - button "creator"
+  - button "member"
+  - button "Reset guide"
+  - paragraph: Setup · 2 of 5 done
+  - heading "UI acceptance demo" [level=1]
+  - button "Semantic Image Search · v1 Change benchmark track. Currently Semantic Image Search." [active]:
+    - text: Semantic Image Search · v1
+    - generic: Change benchmark track. Currently Semantic Image Search.
+  - link "SamGu-NRX/cogportal-demo-week1":
+    - /url: https://github.com/SamGu-NRX/cogportal-demo-week1
+  - generic: u
+  - generic: "@ui-accept-e8"
+  - generic: 1 member
+  - link "Add":
+    - /url: /team
+  - list:
+    - generic: Verified.
+    - heading "Get the code" [level=2]
+    - generic: verified
+    - paragraph: Clone the team's repository. You all work in the same one, and every hosted attempt runs from it rather than from somebody's laptop.
+    - code: git clone https://github.com/SamGu-NRX/cogportal-demo-week1.git && cd cogportal-demo-week1
+    - button "copy Copy command":
+      - text: copy
+      - generic: Copy command
+    - generic: "02"
+    - generic: Not verified yet.
+    - heading "Set up your environment" [level=2]
+    - paragraph:
+      - text: From your repository's root, with
+      - code: conda activate week3
+      - text: done, the environment you built for the
+      - link "Semantic Image Search prerequisites ↗":
+        - /url: https://rsokl.github.io/CogWeb/Language/prereqs.html
+      - text: ":"
+    - code: python -m pip install --upgrade --force-reinstall "cogworks-benchmark @ git+https://github.com/SamGu-NRX/CogPortal.git@094a6f1ac109716014492a57a81157e71b70f7ab#subdirectory=python/cogbench"
+    - button "copy Copy command":
+      - text: copy
+      - generic: Copy command
+    - paragraph: Done here? Run this in the same terminal and the box ticks itself.
+    - code: python -c "import http.client as h; c = h.HTTPConnection('localhost:5192'); c.request('POST', '/api/v1/setup/check-off?t=eyJ1IjoiTEtGMkNQVkN1OU9vSG9VSlNqMEpvcGFlQmtaU3ZoQVMiLCJ0IjoidGVhbV91aV9hY2NlcHRfZTgiLCJzIjoiZW52aXJvbm1lbnQiLCJiIjoibGFuZ3VhZ2Utc2VhcmNoIiwiZXhwIjoxNzg5Njg5NjAwfQ.aF5sk3ZEaym7YiZy91qbsAdXllx4xbRN7MvzdtEv5mE'); print(c.getresponse().read().decode())"
+    - button "copy Copy command":
+      - text: copy
+      - generic: Copy command
+    - generic: "03"
+    - generic: Not verified yet.
+    - heading "Install the Semantic Image Search benchmark" [level=2]
+    - paragraph: The scorer for Semantic Image Search, its data and its checks live in their own package. Changing the track above changes this line.
+    - code: python -m pip install "cogworks-week3-language-benchmark @ git+https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git@b166f5c15e950baccc3785839cdcc660ffe01bb4"
+    - button "copy Copy command":
+      - text: copy
+      - generic: Copy command
+    - paragraph: Done here? Run this in the same terminal and the box ticks itself.
+    - code: python -c "import http.client as h; c = h.HTTPConnection('localhost:5192'); c.request('POST', '/api/v1/setup/check-off?t=eyJ1IjoiTEtGMkNQVkN1OU9vSG9VSlNqMEpvcGFlQmtaU3ZoQVMiLCJ0IjoidGVhbV91aV9hY2NlcHRfZTgiLCJzIjoicHJvamVjdCIsImIiOiJsYW5ndWFnZS1zZWFyY2giLCJleHAiOjE3ODk2ODk2MDB9.9dcAFKUKe24EK--3XOUELMfGiG1Q_VMK_L9m5vb95r4'); print(c.getresponse().read().decode())"
+    - button "copy Copy command":
+      - text: copy
+      - generic: Copy command
+    - generic: Verified.
+    - heading "Link this device" [level=2]
+    - generic: verified
+    - paragraph:
+      - text: Lets a command report back to your team. What reaches CogPortal is check names, package versions and your repository, and you can revoke this device from
+      - link "Connections":
+        - /url: /connections
+      - text: .
+    - code: cogworks link --portal http://localhost:5192
+    - button "copy Copy command":
+      - text: copy
+      - generic: Copy command
+    - generic: "05"
+    - generic: Not verified yet.
+    - heading "Prove the wiring" [level=2]
+    - paragraph:
+      - code: check
+      - text: reads your repository and says which of your own functions it wired up, and reports what it found. If it doesn't tick, the reason is in your terminal.
+    - code: cogworks check --benchmark language-search --update-setup
+    - button "copy Copy command":
+      - text: copy
+      - generic: Copy command
+  - paragraph: No rush. This page keeps your place.
+  - link "Open dashboard":
+    - /url: /dashboard
+    - text: Open dashboard
+- document

@@ -1,0 +1,93 @@
+{
+  "metrics": [
+    {
+      "label": "Identification score",
+      "local": 0.5375,
+      "hostedDisplayed": "0.5375",
+      "valuePresentInCapture": true,
+      "matches": true
+    },
+    {
+      "label": "Clean top-1",
+      "local": 1.0,
+      "hostedDisplayed": "1.000",
+      "valuePresentInCapture": true,
+      "matches": true
+    },
+    {
+      "label": "Noisy top-1",
+      "local": 1.0,
+      "hostedDisplayed": "1.000",
+      "valuePresentInCapture": true,
+      "matches": true
+    },
+    {
+      "label": "Short clip top-1",
+      "local": 1.0,
+      "hostedDisplayed": "1.000",
+      "valuePresentInCapture": true,
+      "matches": true
+    },
+    {
+      "label": "Pitch-shifted top-1",
+      "local": 0.075,
+      "hostedDisplayed": "0.075",
+      "valuePresentInCapture": true,
+      "matches": true
+    },
+    {
+      "label": "No candidate found",
+      "local": 0.13333333333333333,
+      "hostedDisplayed": "0.133",
+      "valuePresentInCapture": true,
+      "matches": true
+    },
+    {
+      "label": "Wrong song ranked first",
+      "local": 0.2125,
+      "hostedDisplayed": "0.212",
+      "valuePresentInCapture": true,
+      "matches": true
+    },
+    {
+      "label": "Chance",
+      "local": 0.03333333333333333,
+      "hostedDisplayed": "0.0333",
+      "valuePresentInCapture": true,
+      "matches": true
+    },
+    {
+      "label": "Trivial baseline",
+      "local": 0.24166666666666667,
+      "hostedDisplayed": "0.2417",
+      "valuePresentInCapture": true,
+      "matches": true
+    },
+    {
+      "label": "Median identify time",
+      "local": 0.0248,
+      "hostedDisplayed": "0.043",
+      "valuePresentInCapture": true,
+      "matches": false
+    },
+    {
+      "label": "Margin separation (AUC)",
+      "local": 0.7737847222222223,
+      "hostedDisplayed": "0.774",
+      "valuePresentInCapture": true,
+      "matches": true
+    }
+  ],
+  "diagnosticsPresent": [
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true
+  ],
+  "boundary": "Comparison with displayed values, not raw hosted JSON equality."
+}

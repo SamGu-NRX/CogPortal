@@ -1,0 +1,22 @@
+{
+  "language": {
+    "url": "https://cogportal.sillion.app/runs/run_6deb074208",
+    "passed": true,
+    "source": "8789361ad7dec86fa724431873f674e03b449951",
+    "overall": 0.4126,
+    "model": "data/W_embed.npy"
+  },
+  "audio": {
+    "url": "https://cogportal.sillion.app/runs/run_4e15c756d0",
+    "passed": true,
+    "source": "e515ff619e02c16be903985d8536bc5ee6d7a2e9",
+    "score": 0.5375
+  },
+  "account": "SamGu-NRX, existing Audio connection unchanged",
+  "identity": {
+    "scripts": [
+      "https://cogportal.sillion.app/assets/index-C0FRSlVs.js"
+    ]
+  },
+  "redirectOrFallbackNeeded": false
+}

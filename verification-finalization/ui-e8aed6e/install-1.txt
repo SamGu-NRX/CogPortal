@@ -1,0 +1,29 @@
+Collecting cogworks-week1-audio-benchmark@ git+https://github.com/SamGu-NRX/cogworks-week1-audio-benchmark.git@b156644aecc810e0b93535e320098f96c39ae04e
+  Cloning https://github.com/SamGu-NRX/cogworks-week1-audio-benchmark.git (to revision b156644aecc810e0b93535e320098f96c39ae04e) to /private/var/folders/rq/cbyhqh497_b9xwgmxw3qlq680000gn/T/pip-install-4cdc6ugy/cogworks-week1-audio-benchmark_738e4ed828444a07afb05b8a4a8a19e2
+  Running command git clone --filter=blob:none --quiet https://github.com/SamGu-NRX/cogworks-week1-audio-benchmark.git /private/var/folders/rq/cbyhqh497_b9xwgmxw3qlq680000gn/T/pip-install-4cdc6ugy/cogworks-week1-audio-benchmark_738e4ed828444a07afb05b8a4a8a19e2
+  Running command git rev-parse -q --verify 'sha^b156644aecc810e0b93535e320098f96c39ae04e'
+  Running command git fetch -q https://github.com/SamGu-NRX/cogworks-week1-audio-benchmark.git b156644aecc810e0b93535e320098f96c39ae04e
+  Resolved https://github.com/SamGu-NRX/cogworks-week1-audio-benchmark.git to commit b156644aecc810e0b93535e320098f96c39ae04e
+  Installing build dependencies: started
+  Installing build dependencies: finished with status 'done'
+  Getting requirements to build wheel: started
+  Getting requirements to build wheel: finished with status 'done'
+  Preparing metadata (pyproject.toml): started
+  Preparing metadata (pyproject.toml): finished with status 'done'
+Requirement already satisfied: numpy<2,>=1.24 in /Users/samgu/BWSI/2026/CogPortal/.venv-test/lib/python3.11/site-packages (from cogworks-week1-audio-benchmark@ git+https://github.com/SamGu-NRX/cogworks-week1-audio-benchmark.git@b156644aecc810e0b93535e320098f96c39ae04e) (1.24.4)
+Requirement already satisfied: platformdirs<5,>=4 in /Users/samgu/BWSI/2026/CogPortal/.venv-test/lib/python3.11/site-packages (from cogworks-week1-audio-benchmark@ git+https://github.com/SamGu-NRX/cogworks-week1-audio-benchmark.git@b156644aecc810e0b93535e320098f96c39ae04e) (4.11.3)
+Building wheels for collected packages: cogworks-week1-audio-benchmark
+  Building wheel for cogworks-week1-audio-benchmark (pyproject.toml): started
+  Building wheel for cogworks-week1-audio-benchmark (pyproject.toml): finished with status 'done'
+  Created wheel for cogworks-week1-audio-benchmark: filename=cogworks_week1_audio_benchmark-0.1.0-py3-none-any.whl size=78184 sha256=9a8d08147250be2520fc4ef5e1e46d1de46402a76802f2fc5ed271b64e4727d9
+  Stored in directory: /Users/samgu/Library/Caches/pip/wheels/a5/4b/7e/669ad223630d0a1aa6b9eb2c03e96b3b6528377f1e9a734202
+Successfully built cogworks-week1-audio-benchmark
+Installing collected packages: cogworks-week1-audio-benchmark
+  Attempting uninstall: cogworks-week1-audio-benchmark
+    Found existing installation: cogworks-week1-audio-benchmark 0.1.0
+    Not uninstalling cogworks-week1-audio-benchmark at /Users/samgu/BWSI/2026/CogPortal/.venv-test/lib/python3.11/site-packages, outside environment /Users/samgu/Programming Projects/CogPortal-verifier-ui-e8aed6e/.venv-ui-accept
+    Can't uninstall 'cogworks-week1-audio-benchmark'. No files were found to uninstall.
+Successfully installed cogworks-week1-audio-benchmark-0.1.0
+
+[notice] A new release of pip is available: 24.0 -> 26.2.1
+[notice] To update, run: pip install --upgrade pip

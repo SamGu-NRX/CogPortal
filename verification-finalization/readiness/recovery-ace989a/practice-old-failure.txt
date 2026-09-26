@@ -1,0 +1,73 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Dashboard":
+      - /url: /dashboard
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "Account menu for recovery-local-owner":
+    - generic: r
+    - generic: Account menu for recovery-local-owner
+- main:
+  - link "← Dashboard":
+    - /url: /dashboard
+  - link "Open current run":
+    - /url: /run-surfaces/surface_d9bd36bc85e99b30a890
+  - heading "Semantic Image Search" [level=1]
+  - generic: Practice
+  - generic: Failed
+  - generic "Execution provider is in fixture mode. Results are scripted, not real evaluation.": simulated
+  - generic: "Run status: Failed"
+  - paragraph:
+    - generic: language-search / v1
+    - generic: "|"
+    - link "cogworks-demo/face-finder":
+      - /url: https://github.com/cogworks-demo/face-finder
+    - generic: "|"
+    - generic: missing-adapter
+    - button "Copy full commit SHA 0c25771cfa12699f531b93ef0daa08dcda847e04":
+      - generic: 0c25771
+    - status
+    - generic: "|"
+    - generic: Sep 11, 03:32 PM
+    - generic: "|"
+    - generic: 11.7 s
+  - heading "PIPELINE" [level=2]
+  - list "Run pipeline":
+    - text: Queued
+    - generic: ", complete"
+    - generic: 1.2 s
+    - text: Prepare
+    - generic: ", complete"
+    - generic: 3.5 s
+    - text: Install
+    - generic: ", complete"
+    - generic: 5.2 s
+    - text: Contract check
+    - generic: ", failed"
+    - generic: 1.8 s
+    - text: Evaluate
+    - generic: ", not started"
+    - text: Score
+    - generic: ", not started"
+    - generic: Complete
+  - heading "Run failed" [level=3]
+  - paragraph: Nothing here could be scored
+  - paragraph: E-ADAPTER · Contract check
+  - paragraph: We look for the functions this week asks for by running the code in your repository. Nothing here did the job end to end, and the reason is below.
+  - generic: Entry-point group "cogworks.submissions.v2" has no registration for this benchmark.
+  - paragraph: Run the check below. It says how far your code was followed and what the next step was given, in your own function names.
+  - generic: Reproduce locally
+  - code: cogworks check --benchmark language-search
+  - button:
+    - generic: Copy command
+  - status
+  - button: show all 21 lines
+  - generic: "… Requirement already satisfied: platformdirs==4.3.6 Requirement already satisfied: mygrad==2.2.0 Built wheel for face-finder: face_finder-0.1.0-py3-none-any.whl entry-point discovery: cogworks.submissions.v2[\"language-search\"] contract check: adapter factory loaded workspace backup complete; restoring into network-disabled evaluation VM loading GloVe KeyedVectors (glove.6B.200d.kv, memory-mapped) eval component text complete eval component retrieval complete eval component search complete showcase 01/10 \"two dogs running on a sandy beach\" -> http://images.cocodataset.org/train2014/COCO_train2014_000000084887.jpg Traceback (most recent call last): EntryPointNotFound: required adapter is missing Entry-point group \"cogworks.submissions.v2\" has no registration for this benchmark."
+  - button "Show details":
+    - generic: Show details
+- document

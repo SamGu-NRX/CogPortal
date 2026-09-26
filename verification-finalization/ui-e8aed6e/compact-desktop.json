@@ -1,0 +1,40 @@
+{
+  "copyMatches": false,
+  "desktop": {
+    "active": "CODE",
+    "codes": [
+      {
+        "height": 103.25,
+        "length": 189,
+        "outline": "none",
+        "scrollLeft": 0,
+        "scrollWidth": 411,
+        "tab": -1,
+        "whiteSpace": "pre-wrap",
+        "width": 411
+      },
+      {
+        "height": 123.5625,
+        "length": 171,
+        "outline": "none",
+        "scrollLeft": 0,
+        "scrollWidth": 411,
+        "tab": -1,
+        "whiteSpace": "pre-wrap",
+        "width": 411
+      },
+      {
+        "height": 57.3125,
+        "length": 364,
+        "outline": "solid",
+        "scrollLeft": 3,
+        "scrollWidth": 2754,
+        "tab": 0,
+        "whiteSpace": "pre",
+        "width": 422
+      }
+    ],
+    "page": 1259,
+    "width": 1274
+  }
+}

@@ -1,0 +1,24 @@
+live: synced to CogPortal; a team maintainer can choose the Discord channel with /cog
+audio-identification v1 · LOCAL · SELF-REPORTED
+Identification score: 0.5375
+Clean top-1: 1.000
+Noisy top-1: 1.000
+Short clip top-1: 1.000
+Pitch-shifted top-1: 0.075
+No candidate found: 0.133
+Wrong song ranked first: 0.212
+Chance: 0.033
+Trivial baseline: 0.242
+Median identify time: 0.025 s
+Margin separation (AUC): 0.774
+commit: e515ff6
+note: Identification falls gradually from 68% at 5 songs to 54% at 30, without a single point where it breaks.
+note: 21% of queries had the right song somewhere in the list but not near the top.
+note: Retrieval found something, so this is the tally losing, not the fingerprints: check that you count matches per time offset rather than summing every hash hit, and that the same code path resamples both what you enroll and what you query.
+note: Clean clips identify at 100% but pitch-shifted clips at 8%.
+note: A shifted clip moves every peak to a different frequency bin, so the stored keys stop matching; this is the expected behavior of the capstone design and is worth reporting, not hiding.
+note: Every clip from a song that was never enrolled still came back with a candidate.
+note: Nothing in the assignment required an abstain path, so this does not affect the score, but a minimum tally or a first-to-second ratio is what would give you one.
+note: Weakest cell: pitch_+1 at 0% top-1.
+note: Outcome split over 240 scored queries: 129 top_1, 28 top_k, 51 ranking_failure, 32 retrieval_failure.
+saved: /Users/samgu/Programming Projects/CogPortal-rehearsal-student/.cogbench/reports/local_80a1857827e344e79c344d00f8575bcb.json

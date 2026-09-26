@@ -1,0 +1,5 @@
+Connecting to http://localhost:5192
+CogPortal receives setup check names, package versions, and your GitHub repository; never source, paths, logs, predictions, scores, or environment variables.
+Open http://localhost:5192/connections?user_code=EAA1-2F45-2917&return_to=setup and confirm code EAA1-2F45-2917.
+Linked wireless-10-148-51-178.public.utexas.edu. Local commands still work offline.
+setup: updated clone

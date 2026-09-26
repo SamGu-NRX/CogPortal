@@ -1,0 +1,6 @@
+- iframe [active]:
+  - main:
+    - generic: Could not open
+    - heading "The bench is still here." [level=1]
+    - paragraph: Discord turned down this Activity's sign-in, and reopening won't change that. Tell an instructor; the fix is on our side.
+- document

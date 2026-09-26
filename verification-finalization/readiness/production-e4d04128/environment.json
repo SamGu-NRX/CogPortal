@@ -1,0 +1,10 @@
+{
+  "venv": "/tmp/cogportal-lang-verify",
+  "sitePackages": "self-contained; no foreign paths",
+  "sdk": "d9405278 source except plugins.py updates only Week3 install pin",
+  "week3": "6dc63fe8f6af2b3554a21f7707debb138f31ae4e; all installed Python files match source",
+  "productionConfig": "/tmp/cogportal-language-production-state/config.json",
+  "sourceHead": "8789361ad7dec86fa724431873f674e03b449951",
+  "sourceStatus": "",
+  "localReport": "local_b2bb62d4d5dc42d294c7d787610e70e5"
+}

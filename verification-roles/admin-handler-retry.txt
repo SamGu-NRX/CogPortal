@@ -1,0 +1,15 @@
+✔ admin removal of a team's creator is refused, not performed (141.010458ms)
+✔ admin removal of an ordinary member still works (114.570917ms)
+✔ re-adding a team's creator refuses and does not demote them (110.771792ms)
+✔ adding a user outside the team's cohort is refused (110.320292ms)
+✔ adding a user already on another team refuses with a sentence, not a 500 (110.785833ms)
+✔ adding a new member from the cohort still works (111.549167ms)
+✔ admin totals span benchmarks and versions without per-version quota denominators (70.76525ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 7
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3188.839125

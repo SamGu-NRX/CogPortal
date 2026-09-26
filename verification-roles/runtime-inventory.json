@@ -1,0 +1,175 @@
+{
+  "recordedUtc": "2026-09-10T10:40:52.119638+00:00",
+  "database": "/Users/samgu/.codex/worktrees/dd61/CogPortal/apps/portal/.wrangler/state/v3/d1/miniflare-D1DatabaseObject/8e74cf6628f4d0013a5f1b69b205a4334d7f4ddd23213fede7a88471b665139a.sqlite",
+  "accounts": [
+    [
+      "ckNsUWlkzvhs0XOdz6HUT0bNPvHGudSA",
+      "verify-creator",
+      "cohort_bwsi26"
+    ],
+    [
+      "41gfTOkdzyDTJXqesglDPVrwrzvKhmmM",
+      "verify-member",
+      "cohort_bwsi26"
+    ],
+    [
+      "1cmRFxWnahE11Up943UujACkYN75BTlI",
+      "verify-ta",
+      null
+    ],
+    [
+      "DlwKN9xBVjULJebpHCx32CMr4pahqIMa",
+      "verify-owner",
+      null
+    ],
+    [
+      "b9ei411Q0AJF4cJ0FbcXv25ssmICtvo1",
+      "verify-staff",
+      null
+    ],
+    [
+      "9DE8qUekzHbBvrulva4sSTB5x2NbLNvp",
+      "verify-empty",
+      "cohort_verify_empty"
+    ]
+  ],
+  "team": [
+    [
+      "team_2a7fce668333a7ed",
+      "Verification Creator Team",
+      1,
+      "cogworks-demo/face-finder"
+    ]
+  ],
+  "runs": [
+    [
+      "run_54e374441d",
+      "fixture",
+      "succeeded",
+      1789036557880
+    ],
+    [
+      "run_bc8a18caf3",
+      "fixture",
+      "succeeded",
+      1789036634037
+    ]
+  ],
+  "captures": [
+    {
+      "file": "ta-team-expanded.jpg",
+      "bytes": 50843,
+      "magic": "ffd8ffe000104a46"
+    },
+    {
+      "file": "join-invalid.jpg",
+      "bytes": 41577,
+      "magic": "ffd8ffe000104a46"
+    },
+    {
+      "file": "staff-admin.jpg",
+      "bytes": 36536,
+      "magic": "ffd8ffe000104a46"
+    },
+    {
+      "file": "other-team-run-denied.jpg",
+      "bytes": 33801,
+      "magic": "ffd8ffe000104a46"
+    },
+    {
+      "file": "switch-active-refused.jpg",
+      "bytes": 114160,
+      "magic": "ffd8ffe000104a46"
+    },
+    {
+      "file": "owner-staff-unregistered.jpg",
+      "bytes": 104973,
+      "magic": "ffd8ffe000104a46"
+    },
+    {
+      "file": "history-after-switch.jpg",
+      "bytes": 76469,
+      "magic": "ffd8ffe000104a46"
+    },
+    {
+      "file": "ta-admin.jpg",
+      "bytes": 41272,
+      "magic": "ffd8ffe000104a46"
+    },
+    {
+      "file": "owner-remove-creator-no-op.jpg",
+      "bytes": 129722,
+      "magic": "ffd8ffe000104a46"
+    },
+    {
+      "file": "connect-choice-populated.jpg",
+      "bytes": 42939,
+      "magic": "ffd8ffe000104a46"
+    },
+    {
+      "file": "owner-admin.jpg",
+      "bytes": 105167,
+      "magic": "ffd8ffe000104a46"
+    },
+    {
+      "file": "empty-cohort-start-direct.jpg",
+      "bytes": 44316,
+      "magic": "ffd8ffe000104a46"
+    },
+    {
+      "file": "switch-cancel-keeps-repo.jpg",
+      "bytes": 94634,
+      "magic": "ffd8ffe000104a46"
+    },
+    {
+      "file": "back-stale-identity.jpg",
+      "bytes": 38388,
+      "magic": "ffd8ffe000104a46"
+    },
+    {
+      "file": "created-setup.jpg",
+      "bytes": 234059,
+      "magic": "ffd8ffe000104a46"
+    },
+    {
+      "file": "creator-team.jpg",
+      "bytes": 98663,
+      "magic": "ffd8ffe000104a46"
+    },
+    {
+      "file": "member-team.jpg",
+      "bytes": 95985,
+      "magic": "ffd8ffe000104a46"
+    },
+    {
+      "file": "switch-success.jpg",
+      "bytes": 94304,
+      "magic": "ffd8ffe000104a46"
+    },
+    {
+      "file": "back-refreshed-identity.jpg",
+      "bytes": 44316,
+      "magic": "ffd8ffe000104a46"
+    },
+    {
+      "file": "switch-confirmation.jpg",
+      "bytes": 111438,
+      "magic": "ffd8ffe000104a46"
+    },
+    {
+      "file": "student-admin-redirect.jpg",
+      "bytes": 108563,
+      "magic": "ffd8ffe000104a46"
+    },
+    {
+      "file": "final-history.jpg",
+      "bytes": 79879,
+      "magic": "ffd8ffe000104a46"
+    },
+    {
+      "file": "signin.jpg",
+      "bytes": 43956,
+      "magic": "ffd8ffe000104a46"
+    }
+  ]
+}

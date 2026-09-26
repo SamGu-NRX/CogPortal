@@ -1,0 +1,64 @@
+- document
+- status
+- banner:
+  - link "Return to discord.dev":
+    - /url: /developers/home
+  - button "Create menu":
+    - generic: Create
+  - button "Docs":
+    - generic: Docs
+  - button "Teams":
+    - generic: Teams
+  - button "User Menu"
+- navigation:
+  - link "Applications":
+    - /url: /developers/applications
+    - generic: Applications
+  - log
+  - generic: Cog*Bot
+  - combobox
+  - button "Overview":
+    - generic: Overview
+  - button "Games New":
+    - text: Games
+    - generic: New
+  - button "Activities":
+    - generic: Activities
+  - list:
+    - link "Settings":
+      - /url: /developers/applications/1526706029356646460/embedded/settings
+      - generic: Settings
+    - link "URL Mappings" [active]:
+      - /url: /developers/applications/1526706029356646460/embedded/url-mappings
+      - generic: URL Mappings
+    - link "Custom Links":
+      - /url: /developers/applications/1526706029356646460/embedded/custom-links
+      - generic: Custom Links
+    - link "Art Assets":
+      - /url: /developers/applications/1526706029356646460/embedded/assets
+      - generic: Art Assets
+  - button "Premium Apps":
+    - generic: Premium Apps
+- main:
+  - heading "Activity URL Mappings" [level=1]:
+    - generic: Activity URL Mappings
+  - paragraph: A place for you to configure your activity URL mappings
+  - heading "Root Mapping" [level=2]
+  - generic: This points to the main entry point of your iframe application. This is where your application starts when loaded.
+  - generic: Prefix
+  - textbox "Prefix" [disabled]:
+    - /placeholder: /your-path-here
+    - text: /
+  - generic: Target
+  - textbox "Target":
+    - /placeholder: your-app-website.com
+    - text: cogactivity-dev.sillion.app
+  - heading "Proxy Path Mappings" [level=2]
+  - paragraph: Requests are relative to your root domain by default. You can create custom proxy path mappings to override this behavior.
+  - paragraph:
+    - text: For more information, check out the
+    - button "URL Mappings documentation"
+    - text: .
+  - button "Add Another URL Mapping":
+    - generic: Add Another URL Mapping
+- document

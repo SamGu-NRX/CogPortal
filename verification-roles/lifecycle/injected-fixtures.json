@@ -1,0 +1,16 @@
+{
+  "withheldRun": "run_verify_withheld",
+  "baseRun": "run_54e374441d",
+  "metrics": [
+    "text_mrr",
+    "text_chance",
+    "chance_mrr"
+  ],
+  "diagnostics": [
+    "Overall withheld: the image pipeline could not be measured. This is an injected display fixture."
+  ],
+  "syntheticGithubLogin": {
+    "account": "verify-creator",
+    "login": "verify-creator"
+  }
+}

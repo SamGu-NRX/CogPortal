@@ -1,0 +1,8 @@
+{
+  "id": "local_source_check",
+  "repository_id": 900001,
+  "repository_full_name": "fixture-org/repo-a",
+  "status": "succeeded",
+  "phase": "succeeded",
+  "surface_id": "surface_00000000000000000004"
+}

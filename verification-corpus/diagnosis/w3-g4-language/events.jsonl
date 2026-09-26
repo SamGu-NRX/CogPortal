@@ -1,0 +1,17 @@
+{"event": "cli_start", "pid": 63974, "ppid": 63964, "seconds": 0.079598, "benchmark": "language-search"}
+{"event": "waitpid", "pid": 63974, "ppid": 63964, "seconds": 0.122822, "target": 63975, "raw_status": 0, "signal": null, "exit_code": 0}
+{"event": "waitpid", "pid": 63974, "ppid": 63964, "seconds": 0.139237, "target": 63976, "raw_status": 0, "signal": null, "exit_code": 0}
+{"event": "waitpid", "pid": 63974, "ppid": 63964, "seconds": 0.150791, "target": 63977, "raw_status": 0, "signal": null, "exit_code": 0}
+{"event": "waitpid", "pid": 63974, "ppid": 63964, "seconds": 0.161998, "target": 63978, "raw_status": 256, "signal": null, "exit_code": 1}
+{"event": "before_fork", "pid": 63974, "ppid": 63964, "seconds": 0.311409, "python_threads": ["MainThread"], "stack": ["  File \"/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/diagnosis/trace-boundary.py\", line 109, in <module>\n    code = main([\"check\", \"--benchmark\", mode, \"--json\"])\n", "  File \"/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/source/portal/python/cogbench/src/cogbench/cli.py\", line 833, in main\n    result = _check(args.benchmark, args.json, project_root)\n", "  File \"/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/source/portal/python/cogbench/src/cogbench/cli.py\", line 514, in _check\n    view, status, detail = _read_repository(benchmark, project_root, as_json)\n", "  File \"/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/source/portal/python/cogbench/src/cogbench/cli.py\", line 451, in _read_repository\n    outcome = run_isolated(\n", "  File \"/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/source/portal/python/cogbench/src/cogbench/isolate.py\", line 421, in run_isolated\n    pid = os.fork()\n", "  File \"/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/diagnosis/trace-boundary.py\", line 38, in traced_fork\n    emit(\"before_fork\", python_threads=[t.name for t in threading.enumerate()], stack=traceback.format_stack(limit=12))\n"]}
+{"event": "after_fork", "pid": 63974, "ppid": 63964, "seconds": 0.312584, "fork_return": 63979}
+{"event": "read_payload_start", "pid": 63974, "ppid": 63964, "seconds": 0.312839}
+{"event": "after_fork", "pid": 63979, "ppid": 63974, "seconds": 0.313083, "fork_return": 0}
+{"event": "waitpid", "pid": 63979, "ppid": 63974, "seconds": 1.718483, "target": 64084, "raw_status": 0, "signal": null, "exit_code": 0}
+{"event": "waitpid", "pid": 63979, "ppid": 63974, "seconds": 1.732242, "target": 64085, "raw_status": 0, "signal": null, "exit_code": 0}
+{"event": "waitpid", "pid": 63979, "ppid": 63974, "seconds": 2.696584, "target": 64086, "raw_status": 0, "signal": null, "exit_code": 0}
+{"event": "read_payload_return", "pid": 63974, "ppid": 63964, "seconds": 2.786929, "outcome": null}
+{"event": "kill_requested", "pid": 63974, "ppid": 63964, "seconds": 2.787122, "target": -63979, "signal": 9}
+{"event": "kill_requested", "pid": 63974, "ppid": 63964, "seconds": 2.787188, "target": 63979, "signal": 9}
+{"event": "waitpid", "pid": 63974, "ppid": 63964, "seconds": 2.787231, "target": 63979, "raw_status": 6, "signal": 6, "exit_code": null}
+{"event": "cli_return", "pid": 63974, "ppid": 63964, "seconds": 2.789027, "exit_code": 2}

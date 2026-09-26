@@ -1,0 +1,21 @@
+import React from "react";
+import {createRoot} from "react-dom/client";
+import {QueryClient,QueryClientProvider} from "@tanstack/react-query";
+import {BrowserRouter,Routes,Route,Link} from "react-router";
+import {RunSurfaceSnapshotSchema} from "@cogworks/contracts/schema";
+import {RunConsole} from "./src/components/RunConsole";
+import {RunDetailPage} from "./src/routes/RunDetailPage";
+import {Landing} from "./src/routes/Landing";
+import "@fontsource-variable/source-serif-4/index.css";
+import "@fontsource/ibm-plex-sans/400.css";
+import "@fontsource/ibm-plex-mono/400.css";
+import "./src/styles/app.css";
+const client=new QueryClient({defaultOptions:{queries:{staleTime:Infinity,gcTime:Infinity,retry:false,refetchOnWindowFocus:false,refetchOnMount:false}}});
+const snapshot=RunSurfaceSnapshotSchema.parse({id:"surface_aaaaaaaaaaaaaaaaaaaa",team:{id:"team_fixture",name:"Local verification fixture"},benchmark:{id:"language-search",version:1,title:"Semantic Image Search"},actor:{login:"fixture",name:null},sha:"b".repeat(40),shortSha:"bbbbbbb",branch:"fixture",dirty:false,source:null,sourceRefusal:null,stage:"local",status:"failed",phase:"failed",createdAt:1000,updatedAt:9000,finishedAt:8000,elapsedMs:7000,progress:null,primaryMetric:null,localRunId:"localrun_fixture",practiceRunId:null,officialRunId:null,executionGeneration:1,snapshotRevision:1,executionHistory:[],published:false,nextOfficialAttempt:1,actions:["open_console","open_portal","run_again"],simulated:true,events:[]});
+const run={id:"run_fixture123",mode:"practice",status:"succeeded",benchmarkId:"language-search",benchmarkVersion:1,contractVersion:"1",parentRunId:null,surfaceId:snapshot.id,repo:{owner:"fixture",name:"source",fullName:"fixture/source",url:"https://github.com/fixture/source"},sourceRefusal:null,branch:"fixture",sha:"b".repeat(40),shortSha:"bbbbbbb",createdAt:1750000000000,finishedAt:1750000008000,attemptNumber:null,primaryMetric:null,failure:null,phases:[],metrics:[],diagnostics:["Local fixture only. No scoring or server action occurred."],sweep:null,wiring:[],refusal:null,weightsSupplied:[],log:null,selected:false,publishable:false};
+client.setQueryData(["session"],{user:null,team:null,auth:{executionProvider:"fixture",templateRepo:null}});
+client.setQueryData(["benchmarks"],[]);
+client.setQueryData(["run",run.id],run);
+client.setQueryData(["dashboard",run.benchmarkId],{quota:{officialUsed:0,officialLimit:3,practiceUsed:2,practiceLimit:10}});
+function Fixture(){return <QueryClientProvider client={client}><BrowserRouter><header className="border-b border-rule p-4 text-sm">LOCAL UI FIXTURE · source 25758f9 · no backend execution<nav className="flex flex-wrap gap-4 mt-2"><Link to="/fixture.html">Dialog fixture</Link><Link to="/landing">Landing fixture</Link><Link to="/runs/run_fixture123">Result fixture</Link></nav></header><main className="mx-auto max-w-5xl px-4"><Routes><Route path="/fixture.html" element={<RunConsole snapshot={snapshot} streamState="closed"/>}/><Route path="/landing" element={<Landing/>}/><Route path="/runs/:runId" element={<RunDetailPage/>}/><Route path="/dashboard" element={<h1>Dashboard destination reached · local fixture</h1>}/><Route path="/signin" element={<h1>Sign-in destination reached · local fixture</h1>}/><Route path="/run-surfaces/:surfaceId" element={<RunConsole snapshot={snapshot} streamState="closed"/>}/></Routes></main></BrowserRouter></QueryClientProvider>}
+createRoot(document.getElementById("root")!).render(<Fixture/>);

@@ -1,0 +1,20 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Dashboard":
+      - /url: /dashboard
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "Account menu for ui-accept-e8":
+    - generic: u
+    - generic: Account menu for ui-accept-e8
+- main:
+  - status:
+    - paragraph: The portal has no record at this address. Trying again will return the same answer.
+    - link "Back to dashboard":
+      - /url: /dashboard
+- document

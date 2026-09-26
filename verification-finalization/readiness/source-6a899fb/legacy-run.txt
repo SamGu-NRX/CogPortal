@@ -1,0 +1,63 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Dashboard":
+      - /url: /dashboard
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "ui-accept-e8 CogPortal owner Account menu for ui-accept-e8":
+    - generic: u
+    - generic: ui-accept-e8
+    - img "CogPortal owner":
+    - generic: Account menu for ui-accept-e8
+- main:
+  - link "← Dashboard":
+    - /url: /dashboard
+  - heading "RUN GACY" [level=1]
+  - generic: Practice
+  - generic: Succeeded
+  - generic "Execution provider is in fixture mode. Results are scripted, not real evaluation.": simulated
+  - generic: "Run status: Succeeded"
+  - paragraph:
+    - generic: audio-identification / v1
+    - generic: "|"
+    - generic "This run predates the recorded repository name.": repository not recorded
+    - generic: "|"
+    - generic: main
+    - button "7125804 Copy full commit SHA 71258046e60fecd3295c0b52236fc6e476b0e9cf":
+      - generic: "7125804"
+      - generic: Copy full commit SHA 71258046e60fecd3295c0b52236fc6e476b0e9cf
+    - generic: "|"
+    - generic: Sep 10, 06:17 PM
+    - generic: "|"
+    - generic: 1.0 s
+  - heading "PIPELINE" [level=2]
+  - list "Run pipeline":
+    - text: Queued
+    - generic: ", complete"
+    - text: Prepare
+    - generic: ", complete"
+    - text: Install
+    - generic: ", complete"
+    - text: Contract check
+    - generic: ", complete"
+    - text: Evaluate
+    - generic: ", complete"
+    - text: Score
+    - generic: ", complete"
+    - generic: Complete
+  - heading "RESULTS" [level=2]
+  - figure:
+    - generic: Identification score
+    - generic: "0.5375"
+  - paragraph: The scorer had no notes on this run.
+  - paragraph: Public practice split.
+  - heading "PROMOTE" [level=2]
+  - paragraph: Re-runs 7125804 against the hidden official inputs. Logs are suppressed.
+  - button "Promote to official"
+  - generic: 3 official attempts remaining
+- document

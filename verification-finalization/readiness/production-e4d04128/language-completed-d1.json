@@ -1,0 +1,189 @@
+[
+  {
+    "results": [
+      {
+        "id": "run_6deb074208",
+        "team_id": "team_87c7f4a030a52d1e",
+        "status": "succeeded",
+        "repository_full_name": "SamGu-NRX/Language_Module_Capstone",
+        "sha": "8789361ad7dec86fa724431873f674e03b449951",
+        "branch": "main",
+        "benchmark_id": "language-search",
+        "benchmark_version": 1,
+        "contract_version": "cogworks.submissions.v2",
+        "mode": "practice",
+        "weights_supplied_json": "[\"data/W_embed.npy\"]",
+        "diagnostics_json": "[]",
+        "sweep_json": "{\"axis\":\"how far the query is from the caption\",\"metric\":\"search_mrr\",\"points\":[{\"x\":0,\"y\":0.273637282456221,\"label\":\"verbatim\"},{\"x\":1,\"y\":0.28411226044051074,\"label\":\"keywords\"},{\"x\":2,\"y\":0.1723760548091365,\"label\":\"truncated\"},{\"x\":3,\"y\":0.22354662093850342,\"label\":\"typo\"}]}",
+        "dispatch_attempts": 1,
+        "refunded_at": null,
+        "failure_category": null,
+        "failure_detail": null,
+        "created_at": 1789487162177,
+        "finished_at": 1789488093567
+      }
+    ],
+    "success": true,
+    "meta": {
+      "served_by": "v3-prod",
+      "served_by_region": "WNAM",
+      "served_by_colo": "DFW",
+      "served_by_primary": true,
+      "timings": {
+        "sql_duration_ms": 0.5078
+      },
+      "duration": 0.5078,
+      "changes": 0,
+      "last_row_id": 290,
+      "changed_db": false,
+      "size_after": 643072,
+      "rows_read": 1,
+      "rows_written": 0,
+      "total_attempts": 1
+    }
+  },
+  {
+    "results": [
+      {
+        "key": "chance_mrr",
+        "value": 0.01018430016513033,
+        "help": "What ranking the images at random scores. This is the floor for retrieval MRR. Text MRR and search MRR each have their own floor, listed separately, because they are not asking the same question."
+      },
+      {
+        "key": "overall",
+        "value": 0.41257518789178643,
+        "help": "The mean of the three component scores below, which are weighted equally on purpose: the capstone is three pieces that must agree on one embedding space, and a submission strong at two of them has not built the thing. This is the leaderboard number."
+      },
+      {
+        "key": "retrieval_median_rank",
+        "value": 8,
+        "help": "The middle rank of the correct image across all queries. Reported because a mean is dominated by a handful of catastrophic misses, while the median says what a typical query does."
+      },
+      {
+        "key": "retrieval_mrr",
+        "value": 0.22810871171646382,
+        "help": "Given a caption embedding, how highly does its own image rank among all images by cosine similarity? This is what W_embed was trained for: the margin ranking loss pushes a true image's embedding toward its caption's and a confusor's away. Weak here with strong text MRR means the two embeddings are not living in the same space."
+      },
+      {
+        "key": "retrieval_mrr_keywords",
+        "value": 0.28484976589101546,
+        "help": "The same rewrite as the search rung above, ranked here from your embeddings rather than through your own search path. Reading the two together separates the embedding from the code around it, with one caveat: retrieval ranks the whole pool, while search returns 50 results and anything past the last one counts as a miss. So a retrieval number above its search twin means either that your search dropped images your embedding ranked just outside the cut, or that the ranking is losing what the embedding found, and these two numbers alone do not say which."
+      },
+      {
+        "key": "retrieval_mrr_truncated",
+        "value": 0.1746000571266954,
+        "help": "First three content words, ranked from your embeddings. Expected to be the weakest rewrite, because a three-word query carries less information; some of that gap is the task."
+      },
+      {
+        "key": "retrieval_mrr_typo",
+        "value": 0.22487631213168063,
+        "help": "One mistyped character, ranked from your embeddings. The scored retrieval number is the mean of these three rewrites, so this is one of the three it is made of, not an extra reading."
+      },
+      {
+        "key": "retrieval_mrr_verbatim",
+        "value": 0.27467464748222276,
+        "help": "The same reading for retrieval: the captions unchanged, reported and not scored, for the same reason. This is the one that mattered most. A submission with no embedding at all scored a perfect 1.0000 here while scoring at the floor on every rewritten query, because it was reading the answer out of the captions file rather than working it out."
+      },
+      {
+        "key": "retrieval_recall_at_1",
+        "value": 0.16,
+        "help": "How often the caption's own image is the single top match. The strictest reading of the retrieval task."
+      },
+      {
+        "key": "retrieval_recall_at_10",
+        "value": 0.6133333333333333,
+        "help": "How often the caption's own image is in the top ten. Read alongside recall@1: a large gap means the right image is being found but not ranked first, which is a margin problem rather than an embedding one."
+      },
+      {
+        "key": "retrieval_recall_at_5",
+        "value": 0.34,
+        "help": "How often the caption's own image is in the top five. A search interface shows several results, so this is closer to what a user of the finished application experiences."
+      },
+      {
+        "key": "search_chance",
+        "value": 0.006427436197613463,
+        "help": "The floor for search MRR. It sits below the retrieval floor because search returns a fixed number of results and an image past the end of that list scores nothing, while retrieval ranks the whole pool. On the hidden set the search floor is about 0.0064 against the retrieval floor's 0.0102."
+      },
+      {
+        "key": "search_mrr",
+        "value": 0.2266783120627169,
+        "help": "The application end to end: a query string in, ranked image ids out, through whatever database the submission built. This is the average over three rewrites of every query -- its keywords only, its first three words, and one with a typo -- so it asks whether search holds up on what a person would actually type. The caption unchanged is run and reported beside them, not scored. All four are listed separately further down, so a low score here can be traced to the rewrite that caused it. Weak here while the two above are strong points at the plumbing, meaning the database, the id mapping, or the query path, rather than at the embeddings."
+      },
+      {
+        "key": "search_mrr_keywords",
+        "value": 0.28411226044051074,
+        "help": "The same queries with the stopwords removed, which is closer to what someone types into a search box. IDF weighting is what should make those words nearly free, so this number sitting well below the unchanged captions points at the weighting rather than at the embedding. Which way it moves is not fixed: on the reference it came out 6 percent above the unchanged captions on the hidden set and 7 percent below on the practice set, so treat a move of that size as normal and a large drop as a finding."
+      },
+      {
+        "key": "search_mrr_truncated",
+        "value": 0.1723760548091365,
+        "help": "Only the first three content words of each query. This says whether the score falls off gradually as signal is removed or drops off a cliff. Expected to be the weakest of the four, and it is on the reference; a three-word query genuinely carries less information, so some of this gap is the task and not the submission."
+      },
+      {
+        "key": "search_mrr_typo",
+        "value": 0.22354662093850342,
+        "help": "One mistyped character per query, on the longest content word. The word becomes one your vocabulary has never seen, which the course says should contribute a zero vector rather than raising. A large drop here means an unseen word is dominating the sum; an error rather than a low score means it raised."
+      },
+      {
+        "key": "search_mrr_verbatim",
+        "value": 0.273637282456221,
+        "help": "The queries exactly as the captions were written. Reported and not scored, because those captions are in the file your code is handed: a submission that looked the query up in that file instead of embedding it would answer every one of them. Read it next to the scored search number: the distance between them is how far your results move when the wording changes. A large one, with this rung high, is where to start looking."
+      },
+      {
+        "key": "text_chance",
+        "value": 0.03997975884400964,
+        "help": "The floor for text MRR specifically, which is a different number from the image floor above: this one ranks captions among captions. The two differ by roughly four times on the hidden set, so reading text MRR against the image floor flatters it."
+      },
+      {
+        "key": "text_mrr",
+        "value": 0.7829385398961786,
+        "help": "Given one caption, how highly does another caption of the same image rank against captions of other images? This tests the IDF-weighted GloVe sum on its own, before any image is involved. Weak here means the caption embedding is the problem -- check that IDF is computed across every caption in the dataset and that an unseen word gets IDF 0."
+      }
+    ],
+    "success": true,
+    "meta": {
+      "served_by": "v3-prod",
+      "served_by_region": "WNAM",
+      "served_by_colo": "DFW",
+      "served_by_primary": true,
+      "timings": {
+        "sql_duration_ms": 0.3659
+      },
+      "duration": 0.3659,
+      "changes": 0,
+      "last_row_id": 290,
+      "changed_db": false,
+      "size_after": 643072,
+      "rows_read": 20,
+      "rows_written": 0,
+      "total_attempts": 1
+    }
+  },
+  {
+    "results": [
+      {
+        "mode": "practice",
+        "status": "succeeded",
+        "count": 1
+      }
+    ],
+    "success": true,
+    "meta": {
+      "served_by": "v3-prod",
+      "served_by_region": "WNAM",
+      "served_by_colo": "DFW",
+      "served_by_primary": true,
+      "timings": {
+        "sql_duration_ms": 0.1918
+      },
+      "duration": 0.1918,
+      "changes": 0,
+      "last_row_id": 290,
+      "changed_db": false,
+      "size_after": 643072,
+      "rows_read": 14,
+      "rows_written": 0,
+      "total_attempts": 1
+    }
+  }
+]

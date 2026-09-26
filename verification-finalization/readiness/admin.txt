@@ -1,0 +1,60 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Dashboard":
+      - /url: /dashboard
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "Sam CogPortal owner Account menu for SamGu-NRX":
+    - generic: Sam
+    - img "CogPortal owner":
+    - generic: Account menu for SamGu-NRX
+- main:
+  - paragraph: Admin
+  - heading "BWSI CogWorks 2026" [level=1]
+  - heading "TEAMS" [level=2]
+  - generic: "2"
+  - list:
+    - button "CogPortal SamGu-NRX/cogportal-demo-week1 6 runs 5 practice runs · 1 official attempts":
+      - generic "CogPortal"
+      - generic: SamGu-NRX/cogportal-demo-week1
+      - generic: 6 runs
+      - generic: 5 practice runs · 1 official attempts
+    - button "Team TA iReynaldo/ComputerVisionBenchmark 1 run 1 practice runs · 0 official attempts":
+      - generic "Team TA"
+      - generic: iReynaldo/ComputerVisionBenchmark
+      - generic: 1 run
+      - generic: 1 practice runs · 0 official attempts
+  - heading "UNASSIGNED STUDENTS" [level=2]
+  - generic: "0"
+  - paragraph: Everyone in the cohort has a team.
+  - heading "COHORT" [level=2]
+  - generic: enrollment open
+  - generic: Join code
+  - button "VISION26 Copy join code":
+    - text: VISION26
+    - generic: Copy join code
+  - button "Rotate join code"
+  - button "Close enrollment"
+  - heading "PLATFORM STAFF" [level=2]
+  - generic: "3"
+  - list:
+    - generic: SamGu-NRX
+    - generic "Set in the deployment's configuration, so this panel cannot remove it.": owner
+    - generic: iReynaldo
+    - generic "Set in the deployment's configuration, so this panel cannot remove it.": owner
+  - list:
+    - generic: iReynaldo Reynaldo Morillo
+    - generic: added by samgu-nrx 6 d ago
+    - button "Remove iReynaldo from platform staff":
+      - generic: Remove iReynaldo from platform staff
+  - generic: Add platform staff by GitHub login
+  - textbox "Add platform staff by GitHub login":
+    - /placeholder: github login
+  - button "Add staff" [disabled]:
+    - text: Add staff
+- document

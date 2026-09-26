@@ -1,0 +1,45 @@
+{
+  "copy": [
+    {
+      "bottom": 604.2578125,
+      "height": 28,
+      "left": 303,
+      "right": 331,
+      "top": 576.2578125,
+      "width": 28,
+      "x": 303,
+      "y": 576.2578125
+    }
+  ],
+  "overflow": 0,
+  "pre": [
+    {
+      "bounds": {
+        "bottom": 659.1328125,
+        "height": 76.875,
+        "left": 52,
+        "right": 323,
+        "top": 582.2578125,
+        "width": 271,
+        "x": 52,
+        "y": 582.2578125
+      },
+      "scroll": 343,
+      "text": "cogworks check --benchmark language-search\ncogworks run --benchmark language-search\ncogworks sync",
+      "width": 271
+    }
+  ],
+  "selector": [
+    {
+      "bottom": 857.9375,
+      "height": 44,
+      "left": 37,
+      "right": 338,
+      "top": 813.9375,
+      "width": 301,
+      "x": 37,
+      "y": 813.9375
+    }
+  ],
+  "width": 390
+}

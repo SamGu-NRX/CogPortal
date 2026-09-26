@@ -1,0 +1,185 @@
+{
+    "benchmarkInstalled": true,
+    "benchmarkLoadable": true,
+    "canonicalHostedPython": "3.8.20",
+    "contractVersion": "cogworks.submissions.v2",
+    "dataEvaluationCache": {
+        "message": "30 songs, 252 queries, generated locally (no download)",
+        "path": ".",
+        "ready": true
+    },
+    "dataTestCache": {
+        "message": "8 songs, 68 queries, generated locally (no download)",
+        "path": ".",
+        "ready": true
+    },
+    "discovery": {
+        "arrangement": 4,
+        "attemptsTried": 1700,
+        "chain": [
+            "PeakFinding_STUDENT.get_spectrogram",
+            "PeakFinding_STUDENT.fingerprint_recording"
+        ],
+        "discovery": {
+            "considered": [
+                "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g3-audio",
+                "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g3-audio/Day 2",
+                "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g3-audio/Day 3",
+                "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g3-audio/Day 4"
+            ],
+            "modules": [
+                {
+                    "futureAnnotations": true,
+                    "name": "Spectogram",
+                    "origin": "file",
+                    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g3-audio/Spectogram.py"
+                },
+                {
+                    "name": "Tester",
+                    "origin": "file",
+                    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g3-audio/Tester.py"
+                },
+                {
+                    "name": "databaseManager",
+                    "origin": "file",
+                    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g3-audio/databaseManager.py"
+                },
+                {
+                    "name": "PeakFinding_STUDENT",
+                    "origin": "notebook",
+                    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g3-audio/PeakFinding_STUDENT.ipynb"
+                },
+                {
+                    "name": "AnalogToDigital",
+                    "origin": "notebook",
+                    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g3-audio/Day 2/AnalogToDigital.ipynb"
+                },
+                {
+                    "name": "AudioSignalBasics",
+                    "origin": "notebook",
+                    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g3-audio/Day 2/AudioSignalBasics.ipynb"
+                },
+                {
+                    "name": "WorkingWithMic",
+                    "origin": "notebook",
+                    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g3-audio/Day 2/WorkingWithMic.ipynb"
+                },
+                {
+                    "name": "BasicsOfDFT",
+                    "origin": "notebook",
+                    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g3-audio/Day 3/BasicsOfDFT.ipynb"
+                },
+                {
+                    "name": "DFTOfVariousSignals",
+                    "origin": "notebook",
+                    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g3-audio/Day 3/DFTOfVariousSignals.ipynb"
+                },
+                {
+                    "futureAnnotations": true,
+                    "importedFrom": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g3-audio/Day 4",
+                    "name": "pipeline",
+                    "note": "imported from its own folder",
+                    "origin": "file",
+                    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g3-audio/Day 4/pipeline.py"
+                }
+            ],
+            "root": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g3-audio",
+            "rootReason": "code sits at the repository root",
+            "skipped": [
+                {
+                    "detail": "NameError: name 'new_ck' is not defined",
+                    "missing": null,
+                    "name": "ApplicationsOfDFTs",
+                    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g3-audio/Day 3/ApplicationsOfDFTs.ipynb",
+                    "reason": "raised"
+                },
+                {
+                    "detail": "NameError: name 'DatabaseKey' is not defined",
+                    "missing": null,
+                    "name": "buildSongDatabase",
+                    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g3-audio/Day 4/buildSongDatabase.py",
+                    "reason": "raised"
+                },
+                {
+                    "detail": "NameError: name 'DatabaseKey' is not defined",
+                    "missing": null,
+                    "name": "frontEnd",
+                    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g3-audio/Day 4/frontEnd.py",
+                    "reason": "raised"
+                },
+                {
+                    "detail": "NameError: name 'T' is not defined",
+                    "missing": null,
+                    "name": "spectrogram_STUDENT",
+                    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g3-audio/Day 4/spectrogram_STUDENT.ipynb",
+                    "reason": "raised"
+                }
+            ],
+            "stubCalls": [
+                "pyaudio.PyAudio"
+            ],
+            "stubbed": [
+                "streamlit",
+                "microphone",
+                "pyaudio",
+                "camera"
+            ]
+        },
+        "enroll": "databaseManager.AudioDatabase().add_hash",
+        "hashRandomization": false,
+        "hashSeed": "0",
+        "query": "Spectogram.Spectogram.match_fingerprint",
+        "recalled": false,
+        "supplied": [
+            {
+                "step": "Spectogram.Spectogram.match_fingerprint",
+                "supplied": "hash_map"
+            },
+            {
+                "step": "Spectogram.Spectogram.match_fingerprint",
+                "supplied": "an id-to-name table over the enrolled songs"
+            }
+        ],
+        "verdict": {
+            "coverage": {
+                "read": [],
+                "readEnoughToJudge": true,
+                "skipped": []
+            },
+            "errors": [],
+            "headline": "Your code is wired up and ready to score.",
+            "nextStep": "",
+            "notes": [],
+            "status": "scored",
+            "trace": [
+                {
+                    "function": "PeakFinding_STUDENT.get_spectrogram",
+                    "received": "an array of shape (176400,), 44100",
+                    "returned": "an array of shape (2049, 85)",
+                    "stage": "spectrogram"
+                },
+                {
+                    "function": "PeakFinding_STUDENT.fingerprint_recording",
+                    "received": "an array of shape (2049, 85)",
+                    "returned": "a dict of 37686 entries",
+                    "stage": "peaks + fingerprints"
+                }
+            ]
+        },
+        "weightsUsed": []
+    },
+    "gitRepository": true,
+    "localGap": [],
+    "modelCache": {
+        "message": "corpus is generated locally",
+        "path": "",
+        "ready": true
+    },
+    "python": "3.11.15",
+    "repositoryFullName": "Cog-gurts/Shazam-Project",
+    "submissionDetail": null,
+    "submissionError": "We look for your adapter at the repository root, and /Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g3-audio has neither submission.py nor benchmark_adapter.py. Create submission.py there, define create_submission, and return your adapter from it. Nothing is registered as \"audio-identification\" in \"cogworks.submissions.v2\" either (installed: none), so if you meant to install your project as a package, reinstall it.",
+    "submissionInstalled": false,
+    "submissionLoadable": true,
+    "submissionSource": "discovery"
+}

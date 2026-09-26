@@ -1,0 +1,1 @@
+/Users/samgu/BWSI/2026/CogPortal/.venv-test/bin/python -B /Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/cli-with-cache.py /Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision check --benchmark vision-clustering --json

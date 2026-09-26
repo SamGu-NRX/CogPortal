@@ -1,0 +1,24 @@
+HTML content Cog*Portal — CogWorks Benchmark, URL: cogportal.sillion.app/leaderboard
+					30 container
+						31 link Description: Skip to content, Value: cogportal.sillion.app/runs/run_b647f110de#main
+						32 link Description: Cog*Portal, Value: cogportal.sillion.app/
+						33 container Primary
+							34 link Description: DASHBOARD, Value: cogportal.sillion.app/dashboard
+							35 link Description: LEADERBOARD, Value: cogportal.sillion.app/leaderboard
+						36 pop up button Sam CogPortal owner Account menu for SamGu-NRX
+							37 text Sam
+							38 image CogPortal owner
+							39 text Account menu for 
+							40 text SamGu-NRX
+						41 heading Vision, Value: 1
+							42 text Vision
+						43 tab group Benchmark track
+							44 tab (settable, integer) AUDIO, Value: 0
+							45 tab (selected) VISION, Value: 1
+							46 tab (settable, integer) LANGUAGE, Value: 0
+						47 tab group Vision leaderboard
+							48 tab (settable, integer) OVERALL, Value: 0
+							49 tab (settable, integer) RECOGNITION, Value: 0
+							50 tab (selected) CLUSTERING, Value: 1
+						51 text No official results are published yet. Check again after teams publish their results.
+					52 

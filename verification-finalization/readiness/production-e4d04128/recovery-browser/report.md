@@ -1,0 +1,7 @@
+Bounded production recovery browser check: PASS for completed Language surface, dashboard, saved result, one reload and back navigation. No503 or renderer error occurred during these navigations.
+
+- Surface showed Bench clear0.4126, local/hosted complete, faithful Language repo, full8789361 commit and clean workspace. Open CogPortal navigated to the normal Language dashboard, which showed9/10 hosted runs left.
+- Dashboard RUN4208 opened the saved result. It showed data/W_embed.npy from the local run at8789361, completed pipeline, the four-point search_mrr chart, overall0.4126, component scores and their help. The sparse diagnostic state said the scorer had no notes. These persisted after one ordinary reload.
+- Desktop and390px mobile screenshots were visually inspected. The chart is within the mobile viewport, x37 to338; page scroll width375 is within viewport390. The axis captions are tightly spaced at390px. Thirteen Dark Reader styles were present; no preference was changed.
+
+Actual script URL and dimensions are recorded in proof.json. Release e4d04128 is the supplied deployment identity, not a new independent provider query. This one successful session does not establish capacity under load or negate the prior503 incident. The accepted19-value storage comparison was not repeated. No repo/track changes, submissions, uploads, deployments or billing actions occurred. The temporary viewport was reset and only the owned tab closed. Audio restoration/recheck remains pending separate authorization to resume mutations.

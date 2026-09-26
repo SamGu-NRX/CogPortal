@@ -1,0 +1,56 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Dashboard":
+      - /url: /dashboard
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "Sam CogPortal owner Account menu for SamGu-NRX":
+    - generic: Sam
+    - img "CogPortal owner":
+    - generic: Account menu for SamGu-NRX
+- main:
+  - link "Dashboard":
+    - /url: /dashboard
+    - text: Dashboard
+  - link "Open current run":
+    - /url: /run-surfaces/surface_b219ca3a12dbfca948c4
+  - heading "RUN 56D0" [level=1]
+  - generic: Practice
+  - generic: Contract check
+  - generic: "Run status: Contract check"
+  - paragraph:
+    - generic: audio-identification / v1
+    - generic: "|"
+    - link "SamGu-NRX/cogportal-demo-week1":
+      - /url: https://github.com/SamGu-NRX/cogportal-demo-week1
+    - generic: "|"
+    - generic: codex/demo-rehearsal-d9405278
+    - button "Copy full commit SHA e515ff619e02c16be903985d8536bc5ee6d7a2e9":
+      - generic: e515ff6
+    - status
+    - generic: "|"
+    - generic: Sep 15, 01:01 PM
+  - heading "PIPELINE" [level=2]
+  - list "Run pipeline":
+    - text: Queued
+    - generic: ", complete"
+    - text: Prepare
+    - generic: ", complete"
+    - generic: 6.8 s
+    - text: Install
+    - generic: ", complete"
+    - generic: 42.5 s
+    - text: Contract check
+    - generic: ", in progress"
+    - text: Evaluate
+    - generic: ", not started"
+    - text: Score
+    - generic: ", not started"
+    - generic: Complete
+  - paragraph: Updates every 2 s.
+- document

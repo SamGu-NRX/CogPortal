@@ -1,0 +1,47 @@
+{
+  "run": {
+    "id": "run_4e15c756d0",
+    "status": "succeeded",
+    "repository_full_name": "SamGu-NRX/cogportal-demo-week1",
+    "sha": "e515ff619e02c16be903985d8536bc5ee6d7a2e9",
+    "branch": "codex/demo-rehearsal-d9405278",
+    "dispatch_attempts": 1,
+    "refunded_at": null,
+    "diagnostics_json": "[\"Identification falls gradually from 68% at 5 songs to 54% at 30, without a single point where it breaks.\",\"21% of queries had the right song somewhere in the list but not near the top. Retrieval found something, so this is the tally losing, not the fingerprints: check that you count matches per time offset rather than summing every hash hit, and that the same code path resamples both what you enroll and what you query.\",\"Clean clips identify at 100% but pitch-shifted clips at 8%. A shifted clip moves every peak to a different frequency bin, so the stored keys stop matching; this is the expected behavior of the capstone design and is worth reporting, not hiding.\",\"Every clip from a song that was never enrolled still came back with a candidate. Nothing in the assignment required an abstain path, so this does not affect the score, but a minimum tally or a first-to-second ratio is what would give you one.\",\"Weakest cell: pitch_+1 at 0% top-1.\",\"Outcome split over 240 scored queries: 129 top_1, 28 top_k, 51 ranking_failure, 32 retrieval_failure.\"]",
+    "surface_id": "surface_b219ca3a12dbfca948c4",
+    "created_at": 1789495266385,
+    "finished_at": 1789495441951
+  },
+  "metrics": {
+    "chance_top1": 0.03333333333333333,
+    "clean_top1": 1,
+    "identification_score": 0.5375,
+    "margin_separation": 0.7737847222222223,
+    "median_identify_seconds": 0.0447,
+    "noisy_top1": 1,
+    "pitch_top1": 0.075,
+    "ranking_failure_rate": 0.2125,
+    "retrieval_failure_rate": 0.13333333333333333,
+    "short_clip_top1": 1,
+    "trivial_baseline_top1": 0.24166666666666667
+  },
+  "quotaGroups": [
+    {
+      "mode": "practice",
+      "status": "succeeded",
+      "count": 3
+    }
+  ],
+  "discord": {
+    "discord_channel_id": "1515858059405295762",
+    "discord_message_id": "1549480228399612035"
+  },
+  "configUnchanged": true,
+  "checkoutClean": true,
+  "browserAsset": "index-C0FRSlVs.js",
+  "reportedWorker": "e4d04128-5794-4f4b-819e-4fdd930ed55e",
+  "reportedModal": "cogworks-runner-production v2 / af9796a",
+  "reloadPassed": true,
+  "selectedBranchOnExit": "codex/demo-rehearsal-d9405278",
+  "no503Observed": true
+}

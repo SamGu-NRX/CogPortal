@@ -1,0 +1,82 @@
+HTML content Cog*Portal — CogWorks Benchmark, URL: cogportal.sillion.app/setup
+					30 container
+						31 link Description: Skip to content, Value: cogportal.sillion.app/runs/run_b647f110de#main
+						32 link Description: Cog*Portal, Value: cogportal.sillion.app/
+						33 container Primary
+							34 link Description: DASHBOARD, Value: cogportal.sillion.app/dashboard
+							35 link Description: LEADERBOARD, Value: cogportal.sillion.app/leaderboard
+						36 pop up button Sam CogPortal owner Account menu for SamGu-NRX
+							37 text Sam
+							38 image CogPortal owner
+							39 text Account menu for 
+							40 text SamGu-NRX
+						41 container
+							42 text SETUP · 2 OF 5 DONE
+						43 heading CogPortal, Value: 1
+							44 text CogPortal
+						45 pop up button Semantic Image Search · v1 Change benchmark track. Currently Semantic Image Search.
+							46 text Semantic Image Search · v1
+							47 text Change benchmark track. Currently 
+							48 text Semantic Image Search
+							49 text .
+						50 link Description: SamGu-NRX/cogportal-demo-week1, Value: github.com/SamGu-NRX/cogportal-demo-week1
+						51 text @SamGu-NRX 1 member
+						52 link Description: ADD, Value: cogportal.sillion.app/team
+						53 content list
+							54 container
+								55 text Verified.
+								56 heading Get the code, Value: 2
+									57 text Get the code
+								58 text VERIFIED Clone the team's repository. You all work in the same one, and every hosted attempt runs from it rather than from somebody's laptop.
+								59 container
+									60 text git  clone  https://github.com/SamGu-NRX/cogportal-demo-week1.git  &&  cd  cogportal-demo-week1
+								61 button Copy command
+							62 container
+								63 text Not verified yet.
+								64 heading Set up your environment, Value: 2
+									65 text Set up your environment
+								66 text From your repository's root, with
+								67 container
+									68 text conda activate  week3
+								69 text done, the environment you built for the
+								70 link Description: Semantic Image Search prerequisites, Value: rsokl.github.io/CogWeb/Language/prereqs.html
+								71 text :
+								72 container
+									73 text python  -m  pip  install  --upgrade  --force-reinstall  "cogworks-benchmark @ git+https://github.com/SamGu-NRX/CogPortal.git@d9405278aac8268cd340e589f36dbad766d1e2a0#subdirectory=python/cogbench"
+								74 button Copy command
+								75 text Done here? Run this in the same terminal and the box ticks itself.
+[signed setup command redacted]
+								77 button Copy command
+							78 container
+								79 text Not verified yet.
+								80 heading Install the Semantic Image Search benchmark, Value: 2
+									81 text Install the Semantic Image Search benchmark
+								82 text The scorer for  Semantic Image Search , its data and its checks live in their own package. Changing the track above changes this line.
+								83 container
+									84 text python  -m  pip  install  "cogworks-week3-language-benchmark @ git+https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git@fff786537567939936bf65042c09cdea27c90798"  &&  python  -m  pip  install  --force-reinstall  --no-deps  "cogworks-week3-language-benchmark @ git+https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git@fff786537567939936bf65042c09cdea27c90798"
+								85 button Copy command
+								86 text Done here? Run this in the same terminal and the box ticks itself.
+[signed setup command redacted]
+								88 button Copy command
+							89 container
+								90 text Verified.
+								91 heading Link this device, Value: 2
+									92 text Link this device
+								93 text VERIFIED Lets a command report back to your team. What reaches CogPortal is check names, package versions and your repository, and you can revoke this device from
+								94 link Description: Connections, Value: cogportal.sillion.app/connections
+								95 text .
+								96 container
+									97 text cogworks  link  --portal  https://cogportal.sillion.app
+								98 button Copy command
+							99 container
+								100 text Not verified yet.
+								101 heading Prove the wiring, Value: 2
+									102 text Prove the wiring
+								103 text check
+								104 text  reads your repository and says which of your own functions it wired up, and reports what it found. If it doesn't tick, the reason is in your terminal.
+								105 container
+									106 text cogworks  check  --benchmark  language-search  --update-setup
+								107 button Copy command
+						108 text No rush. This page keeps your place.
+						109 link Description: OPEN DASHBOARD, Value: cogportal.sillion.app/dashboard
+					110 

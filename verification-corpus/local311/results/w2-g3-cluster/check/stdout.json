@@ -1,0 +1,30 @@
+{
+  "benchmarkInstalled": true,
+  "benchmarkLoadable": true,
+  "canonicalHostedPython": "3.11",
+  "contractVersion": "cogworks.submissions.v2",
+  "dataEvaluationCache": {
+    "message": "ready",
+    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1",
+    "ready": true
+  },
+  "dataTestCache": {
+    "message": "ready",
+    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-test-v1",
+    "ready": true
+  },
+  "gitRepository": true,
+  "localGap": [],
+  "modelCache": {
+    "message": "ready",
+    "path": "/Users/samgu/.cache/torch/checkpoints/20180402-114759-vggface2.pt",
+    "ready": true
+  },
+  "python": "3.11.15",
+  "repositoryFullName": "Cog-gurts/CoggurtFilter",
+  "submissionDetail": null,
+  "submissionError": "Reading this repository ended the process (crashed).",
+  "submissionInstalled": false,
+  "submissionLoadable": false,
+  "submissionSource": null
+}

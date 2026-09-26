@@ -1,0 +1,51 @@
+{
+  "blocks": [
+    {
+      "class": "shiki cogportal-paper",
+      "colors": [
+        "rgb(104, 140, 179)",
+        "rgb(142, 181, 158)"
+      ],
+      "tokens": 4
+    },
+    {
+      "class": "shiki cogportal-paper",
+      "colors": [
+        "rgb(159, 152, 141)",
+        "rgb(104, 140, 179)",
+        "rgb(185, 180, 171)",
+        "rgb(142, 181, 158)"
+      ],
+      "tokens": 17
+    },
+    {
+      "class": "shiki cogportal-paper",
+      "colors": [
+        "rgb(104, 140, 179)",
+        "rgb(142, 181, 158)"
+      ],
+      "tokens": 8
+    }
+  ],
+  "buttons": [
+    {
+      "svg": 0,
+      "text": "copyCopy code"
+    },
+    {
+      "svg": 0,
+      "text": "copyCopy code"
+    },
+    {
+      "svg": 0,
+      "text": "copyCopy code"
+    }
+  ],
+  "css": [
+    "https://cogportal.sillion.app/assets/run-surface-stream-BatUijJ4.css"
+  ],
+  "scripts": [
+    "https://cogportal.sillion.app/assets/index-DGXQnku3.js"
+  ],
+  "url": "https://cogportal.sillion.app/"
+}

@@ -1,0 +1,2 @@
+weights: data/W_embed.npy (409728 bytes) uploaded to weight-objects/SamGu-NRX/Language_Module_Capstone/8789361ad7dec86fa724431873f674e03b449951/dc30a867393863098f9a19ef2c53d0c82b6dbd492b8710a331ad4f0ddda3ea6f/data/W_embed.npy
+Synced local_b2bb62d4d5dc42d294c7d787610e70e5 as LOCAL · SELF-REPORTED.

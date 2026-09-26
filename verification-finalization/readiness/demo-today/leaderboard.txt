@@ -1,0 +1,48 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Dashboard":
+      - /url: /dashboard
+    - link "Leaderboard" [active]:
+      - /url: /leaderboard
+  - button "Sam CogPortal owner Account menu for SamGu-NRX":
+    - generic: Sam
+    - img "CogPortal owner":
+    - generic: Account menu for SamGu-NRX
+- main:
+  - heading "Song Identification" [level=1]
+  - tablist "Benchmark track":
+    - tab "Audio" [selected]: Audio
+    - tab "Vision"
+    - tab "Language"
+  - generic: Rank
+  - generic: Team
+  - generic: Identification score
+  - list "Standings":
+    - button "01 Week 1 team C 2026 cohort, anonymized 0.5470":
+      - generic: "01"
+      - generic "Week 1 team C"
+      - generic: 2026 cohort, anonymized
+      - generic: "0.5470"
+    - button "02 Week 1 team A 2026 cohort, anonymized 0.5375":
+      - generic: "02"
+      - generic "Week 1 team A"
+      - generic: 2026 cohort, anonymized
+      - generic: "0.5375"
+    - button "03 Week 1 team B 2026 cohort, anonymized 0.5292":
+      - generic: "03"
+      - generic "Week 1 team B"
+      - generic: 2026 cohort, anonymized
+      - generic: "0.5292"
+    - button "04 Week 1 team D 2026 cohort, anonymized 0.5156":
+      - generic: "04"
+      - generic "Week 1 team D"
+      - generic: 2026 cohort, anonymized
+      - generic: "0.5156"
+  - paragraph: Archive rows are 2026 teams scored after the course from their repositories as they left them, with names replaced.
+  - paragraph: audio-identification / v1. One selected official result per team.
+- document

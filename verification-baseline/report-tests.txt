@@ -1,0 +1,30 @@
+test_a_benchmark_that_cannot_be_searched_does_not_claim_a_package_was_used (__main__.CheckTests.test_a_benchmark_that_cannot_be_searched_does_not_claim_a_package_was_used)
+Before this existed, a Week 3 repository with no package and no ... ok
+test_a_benchmark_that_could_not_describe_its_task_says_why (__main__.CheckTests.test_a_benchmark_that_could_not_describe_its_task_says_why)
+Measured on a machine that had not fetched the week 3 data: the ... ok
+test_a_missing_benchmark_says_so_rather_than_reporting_nothing (__main__.CheckTests.test_a_missing_benchmark_says_so_rather_than_reporting_nothing) ... ok
+test_a_ready_repository_ends_with_the_command_to_run (__main__.CheckTests.test_a_ready_repository_ends_with_the_command_to_run) ... ok
+test_a_refusal_ends_with_the_next_step_and_no_run_command (__main__.CheckTests.test_a_refusal_ends_with_the_next_step_and_no_run_command) ... ok
+test_a_repository_that_ended_the_process_gets_a_report_not_silence (__main__.CheckTests.test_a_repository_that_ended_the_process_gets_a_report_not_silence)
+The command whose job is to explain a repository printed nothing at ... ok
+test_an_installed_entry_point_is_named_but_not_claimed_as_theirs (__main__.CheckTests.test_an_installed_entry_point_is_named_but_not_claimed_as_theirs)
+This report used to say an installed package "was used as is". ... ok
+test_an_unknown_missing_benchmark_keeps_the_current_next_step (__main__.CheckTests.test_an_unknown_missing_benchmark_keeps_the_current_next_step) ... ok
+test_chain_labels_are_plain_strings_and_render_without_a_trace (__main__.CheckTests.test_chain_labels_are_plain_strings_and_render_without_a_trace) ... ok
+test_the_hosted_interpreter_is_named_when_it_differs (__main__.CheckTests.test_the_hosted_interpreter_is_named_when_it_differs)
+A team on 3.11 whose hidden run is 3.8 needs to know before the ... ok
+test_the_same_interpreter_is_not_mentioned_twice (__main__.CheckTests.test_the_same_interpreter_is_not_mentioned_twice) ... ok
+test_a_four_hundred_character_two_sentence_note_is_not_cut_mid_word (__main__.LocalReportDiagnosticTests.test_a_four_hundred_character_two_sentence_note_is_not_cut_mid_word) ... ok
+test_a_missing_package_is_named_and_a_broken_script_is_counted (__main__.SurveyTests.test_a_missing_package_is_named_and_a_broken_script_is_counted)
+One repository skips fifteen of its own scripts for want of audio ... ok
+test_a_notebook_says_its_cells_were_not_run (__main__.SurveyTests.test_a_notebook_says_its_cells_were_not_run)
+A function lifted from a notebook can fail on a global its cells ... ok
+test_an_empty_repository_says_it_read_nothing (__main__.SurveyTests.test_an_empty_repository_says_it_read_nothing) ... ok
+test_it_says_where_it_looked_and_why (__main__.SurveyTests.test_it_says_where_it_looked_and_why) ... ok
+
+----------------------------------------------------------------------
+Ran 16 tests in 0.001s
+
+OK
+
+exit=0

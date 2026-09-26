@@ -1,0 +1,15 @@
+{
+  "runs": {
+    "rows": 16,
+    "preservedExceptRoleMetadata": true
+  },
+  "run_metrics": {
+    "rows": 115,
+    "preservedExceptRoleMetadata": true
+  },
+  "setup_verifications": {
+    "rows": 1,
+    "preservedExceptRoleMetadata": true
+  },
+  "localNonterminal": []
+}

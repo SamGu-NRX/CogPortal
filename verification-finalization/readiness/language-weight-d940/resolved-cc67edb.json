@@ -1,0 +1,36 @@
+{
+  "binding": {
+    "arrangement": -1,
+    "branches": {
+      "image": [
+        "database.ImageDatabase.descriptor_to_embedding"
+      ],
+      "prepare": [
+        "database.ImageDatabase"
+      ],
+      "search": [
+        "database.ImageDatabase.query"
+      ],
+      "text": [
+        "embedder.embed_captions_batch"
+      ]
+    },
+    "chain": [],
+    "elements": [],
+    "fits": [
+      [
+        "idfs",
+        "embedder.compute_idfs"
+      ]
+    ],
+    "form": null,
+    "handoffs": [],
+    "inPlace": [],
+    "keywords": [],
+    "perItem": [],
+    "plans": [],
+    "selfOnly": [],
+    "tunings": []
+  },
+  "key": "41fe9665ce2ef457842e24bdbf655f35a449a7bf6547756ce3ed77394eba19e8"
+}

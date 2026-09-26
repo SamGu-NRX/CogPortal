@@ -1,0 +1,30 @@
+{
+  "syncedReport": [
+    {
+      "report_id": "local_test",
+      "benchmark_id": "audio-identification",
+      "repository_id": 1,
+      "repository_full_name": "cogworks-demo/face-finder",
+      "metrics_json": "[{\"key\":\"identification_score\",\"label\":\"Identification score\",\"value\":0.5375,\"unit\":null,\"higherIsBetter\":true,\"primary\":true,\"precision\":3},{\"key\":\"median_identify_seconds\",\"label\":\"Median identify time\",\"value\":0.025,\"unit\":null,\"higherIsBetter\":false,\"primary\":false,\"precision\":3},{\"key\":\"latency\",\"label\":\"Latency\",\"value\":12.3,\"unit\":\"ms\",\"higherIsBetter\":false,\"primary\":false,\"precision\":1}]",
+      "diagnostics_json": "[\"Existing SDK report fixture used only for local authenticated transport, not actual scoring.\"]",
+      "weights_used_json": "[]"
+    }
+  ],
+  "retainedSelection": [
+    {
+      "run_id": "run_1d4ff86210",
+      "selected_at": 1789379458208
+    }
+  ],
+  "retry": [
+    {
+      "id": "run_75ebdffc65",
+      "status": "failed",
+      "provider": "fixture",
+      "surface_id": "surface_d9bd36bc85e99b30a890",
+      "retry_of_run_id": "run_f16abe5a33",
+      "dispatch_job_json": null,
+      "prepared_environment_json": null
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "active": "Recognitionv2",
+  "clientWidth": 375,
+  "documentWidth": 375,
+  "focusBackground": "rgb(48, 43, 30)",
+  "menu": {
+    "bottom": 499.0859375,
+    "height": 262.21875,
+    "left": 20,
+    "right": 308,
+    "top": 236.8671875,
+    "width": 288,
+    "x": 20,
+    "y": 236.8671875
+  },
+  "viewport": 390
+}

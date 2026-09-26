@@ -1,0 +1,30 @@
+Cog*Bot
+APP
+ — 
+1:01 PM
+Tuesday, September 15, 2026 at 1:01 PM
+ Bench clear  0.5375
+,
+Song Identification  e515ff6  by Sam Gu  2:55
+team best stays 0.5375
+,
+,
+0.033    chance
+1.000    clean top-1
+0.774    margin separation (auc)
+0.045    median identify time
+,
+,
+ local   hosted   official   published
+,
+,
+Promote to official
+,
+Rerun hosted
+,
+Cog*Portal
+,
+,
+,
+(edited)
+Tuesday, September 15, 2026 at 1:04 PM

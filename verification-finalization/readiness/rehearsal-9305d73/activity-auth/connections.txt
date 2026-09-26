@@ -1,0 +1,17 @@
+Recovered excerpt from the existing cua_repl tool response "Read Connections authentication state" in this task's history.
+This is a transcript recovery, not a new browser capture. Indentation omitted.
+Browser tab: 1693192499, Title: "Cog*Portal — CogWorks Benchmark", URL: "https://cogportal-dev.sillion.app/connections".
+
+8 pop up button (collapsed) Sam CogPortal owner Account menu for SamGu-NRX, Secondary Actions: Expand
+14 heading Connections, Value: 1
+16 text GitHub is your account identity. Discord and the CogWorks CLI connect to it without receiving your GitHub token or permission to submit official results.
+18 heading GITHUB, Value: 2
+20 text SamGu-NRX Primary identity and sign-in VERIFIED
+22 heading DISCORD, Value: 2
+24 text SamG (@s.gu_) Linked  Jul 14, 07:07 PM
+25 button Unlink
+27 heading COGWORKS CLI DEVICES, Value: 2
+31 text Codex Joel rehearsal Last used Sep 9, 08:52 PM
+32 button Revoke
+
+Correction: the initial file contained only a later no-change AX response. This substantive excerpt is recovered from the preceding actual tool response. No Unlink or Revoke action was taken.

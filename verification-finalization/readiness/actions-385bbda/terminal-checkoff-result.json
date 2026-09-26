@@ -1,0 +1,6 @@
+{
+  "tested_step": "environment",
+  "exit_code": 0,
+  "stdout": "CogPortal: 'environment' is checked off. Back to the browser with you.\n",
+  "stderr": ""
+}

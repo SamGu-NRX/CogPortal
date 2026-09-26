@@ -1,0 +1,7 @@
+Captured from exec session 60933. Initial output and final completion were returned separately by the tool. Exit 0.
+
+Connecting to http://127.0.0.1:5187
+CogPortal receives setup check names, package versions, and your GitHub repository; never source, paths, logs, predictions, scores, or environment variables.
+Open http://127.0.0.1:5187/connections?user_code=15BF-687F-6525&return_to=setup and confirm code 15BF-687F-6525.
+Linked wireless-10-148-51-178.public.utexas.edu. Local commands still work offline.
+setup: updated clone

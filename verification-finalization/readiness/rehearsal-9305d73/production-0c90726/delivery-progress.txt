@@ -1,0 +1,96 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Dashboard":
+      - /url: /dashboard
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "Sam CogPortal owner Account menu for SamGu-NRX":
+    - generic: Sam
+    - img "CogPortal owner":
+    - generic: Account menu for SamGu-NRX
+- main:
+  - paragraph: Good morning, Sam
+  - heading "CogPortal" [level=1]:
+    - link "CogPortal":
+      - /url: /team
+  - button "Song Identification · v1 Change benchmark track. Currently Song Identification.":
+    - text: Song Identification · v1
+    - generic: Change benchmark track. Currently Song Identification.
+  - heading "CURRENT RUN" [level=2]
+  - generic: Queued
+  - generic: RUN 10DE is queued
+  - link "RUN 10DE":
+    - /url: /runs/run_b647f110de
+  - generic: practice · codex/demo-rehearsal-d9405278 · e515ff6
+  - list "Run pipeline":
+    - text: Queued
+    - generic: ", in progress"
+    - text: Prepare
+    - generic: ", not started"
+    - text: Install
+    - generic: ", not started"
+    - text: Contract check
+    - generic: ", not started"
+    - text: Evaluate
+    - generic: ", not started"
+    - text: Score
+    - generic: ", not started"
+    - generic: Complete
+  - paragraph: Nothing has reported back yet, which is usually a short wait for a free machine. If nothing arrives within ten to fifteen minutes we stop waiting and mark this run failed, so it won't sit here all afternoon.
+  - paragraph: Updates every 2 s · started just now
+  - heading "RUN LOG" [level=2]
+  - generic: 2 recorded
+  - list:
+    - link "RUN 10DE practice Queued codex/demo-rehearsal-d9405278 · e515ff6 just now":
+      - /url: /runs/run_b647f110de
+      - generic: RUN 10DE
+      - generic: practice
+      - generic: Queued
+      - generic: codex/demo-rehearsal-d9405278 · e515ff6
+      - generic: just now
+    - link "RUN 16D2 practice Succeeded codex/demo-rehearsal-d9405278 · e515ff6 0.5375 26 min ago":
+      - /url: /runs/run_6c658516d2
+      - generic: RUN 16D2
+      - generic: practice
+      - generic: Succeeded
+      - generic: codex/demo-rehearsal-d9405278 · e515ff6
+      - generic: "0.5375"
+      - generic: 26 min ago
+  - heading "CONNECTED SOURCE" [level=2]
+  - link "SamGu-NRX/cogportal-demo-week1":
+    - /url: https://github.com/SamGu-NRX/cogportal-demo-week1
+  - generic: last tested
+  - button "Copy full commit SHA e515ff619e02c16be903985d8536bc5ee6d7a2e9":
+    - generic: e515ff6
+  - status
+  - paragraph: week1-cpu-v1 · CPU · network blocked during evaluation
+  - heading "ATTEMPT BUDGET" [level=2]
+  - generic: Hosted practice
+  - generic: 1/10 used
+  - 'img "Hosted practice: 1 of 10 used"'
+  - generic: Official attempts
+  - generic: 0/3 used
+  - 'img "Official attempts: 0 of 3 used"'
+  - paragraph: Local runs are unlimited and are not counted here. An official cell fills the moment you start that attempt, and it comes back if the run fails for a reason on our side.
+  - heading "LOCAL REPORTS" [level=2]
+  - generic: SELF-REPORTED · NOT PROMOTABLE
+  - table "Self-reported local CogBench results":
+    - caption: Self-reported local CogBench results
+    - rowgroup:
+      - row "Student Commit Result Synced":
+        - columnheader "Student"
+        - columnheader "Commit"
+        - columnheader "Result"
+        - columnheader "Synced"
+    - rowgroup:
+      - row "SamGu-NRX e515ff6 0.5375 27 min ago":
+        - cell "SamGu-NRX"
+        - cell "e515ff6"
+        - cell "0.5375"
+        - cell "27 min ago"
+- document

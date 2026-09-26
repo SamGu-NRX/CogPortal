@@ -1,0 +1,12 @@
+[
+  "git clone https://github.com/SamGu-NRX/cogportal-demo-week1.git && cd cogportal-demo-week1",
+  "python -c \"import http.client as h; c = h.HTTPConnection('localhost:5192'); c.request('POST', '/api/v1/setup/check-off?t=eyJ1IjoiTEtGMkNQVkN1OU9vSG9VSlNqMEpvcGFlQmtaU3ZoQVMiLCJ0IjoidGVhbV91aV9hY2NlcHRfZTgiLCJzIjoiY2xvbmUiLCJiIjoiIiwiZXhwIjoxNzg5Njg5NjAwfQ.sWkbKpsFud7Zl0uE76-o1uEw-jvdEfGNwARTeGev3Eg'); print(c.getresponse().read().decode())\"",
+  "conda activate week1",
+  "python -m pip install --upgrade --force-reinstall \"cogworks-benchmark @ git+https://github.com/SamGu-NRX/CogPortal.git@094a6f1ac109716014492a57a81157e71b70f7ab#subdirectory=python/cogbench\"",
+  "python -c \"import http.client as h; c = h.HTTPConnection('localhost:5192'); c.request('POST', '/api/v1/setup/check-off?t=eyJ1IjoiTEtGMkNQVkN1OU9vSG9VSlNqMEpvcGFlQmtaU3ZoQVMiLCJ0IjoidGVhbV91aV9hY2NlcHRfZTgiLCJzIjoiZW52aXJvbm1lbnQiLCJiIjoiYXVkaW8taWRlbnRpZmljYXRpb24iLCJleHAiOjE3ODk2ODk2MDB9.gsOYGQk5EwKJiFzW-D9SooAX_u_ThkY7F12vjaU3Qdw'); print(c.getresponse().read().decode())\"",
+  "python -m pip install \"cogworks-week1-audio-benchmark @ git+https://github.com/SamGu-NRX/cogworks-week1-audio-benchmark.git@b156644aecc810e0b93535e320098f96c39ae04e\"",
+  "python -c \"import http.client as h; c = h.HTTPConnection('localhost:5192'); c.request('POST', '/api/v1/setup/check-off?t=eyJ1IjoiTEtGMkNQVkN1OU9vSG9VSlNqMEpvcGFlQmtaU3ZoQVMiLCJ0IjoidGVhbV91aV9hY2NlcHRfZTgiLCJzIjoicHJvamVjdCIsImIiOiJhdWRpby1pZGVudGlmaWNhdGlvbiIsImV4cCI6MTc4OTY4OTYwMH0.NA-xD0sOzEx5or-fLhbjrrxWpQEPCWJJKH06k0LWD3s'); print(c.getresponse().read().decode())\"",
+  "cogworks link --portal http://localhost:5192",
+  "check",
+  "cogworks check --benchmark audio-identification --update-setup"
+]

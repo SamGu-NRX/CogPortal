@@ -1,0 +1,92 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Dashboard":
+      - /url: /dashboard
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "Sam CogPortal owner Account menu for SamGu-NRX":
+    - generic: Sam
+    - img "CogPortal owner":
+    - generic: Account menu for SamGu-NRX
+- main:
+  - paragraph: Setup · 2 of 5 verified
+  - heading "CogPortal" [level=1]
+  - button "Song Identification · v1 Change benchmark track. Currently Song Identification.":
+    - text: Song Identification · v1
+    - generic: Change benchmark track. Currently Song Identification.
+  - link "SamGu-NRX/cogportal-demo-week1":
+    - /url: https://github.com/SamGu-NRX/cogportal-demo-week1
+  - img "@SamGu-NRX"
+  - generic: "@SamGu-NRX"
+  - generic: 1 member
+  - link "Add":
+    - /url: /team
+  - paragraph: 5 commands, in this order. The ticked ones are about this machine and carry over between tracks. The empty ones are about Song Identification and haven't reported for it yet.
+  - paragraph:
+    - text: Activate your course environment before the installs below, so the tool lands beside the packages your own code already uses. CogWeb calls Song Identification's
+    - code: week1
+    - text: ", and"
+    - link "its prerequisites ↗":
+      - /url: https://rsokl.github.io/CogWeb/Audio/prereqs.html
+    - text: list what belongs in it. If you set yours up under another name, or without conda, activate that one instead.
+  - heading "In your terminal, top to bottom" [level=2]
+  - button "copy all Copy every command":
+    - text: copy all
+    - generic: Copy every command
+  - list "Setup commands, in run order":
+    - heading "Clone your team's repository" [level=3]
+    - paragraph: Every hosted attempt runs from this repository rather than from somebody's laptop, so a score is always about this copy. Work inside it from here on.
+    - code:
+      - generic: Verified.
+      - text: git clone https://github.com/SamGu-NRX/cogportal-demo-week1.git && cd cogportal-demo-week1
+    - paragraph: A folder with a similar name is not enough. The commands below compare this clone's GitHub remote with your team's repository.
+    - heading "Install the CogWorks tool" [level=3]
+    - paragraph:
+      - code: cogworks
+      - text: is what reads your repository and works out which of your own functions the benchmark should call. It is pinned to one commit, so everyone reading this page installs the same tool.
+    - code:
+      - generic: Not verified yet.
+      - text: python -m pip install --upgrade --force-reinstall "cogworks-benchmark @ git+https://github.com/SamGu-NRX/CogPortal.git@094a6f1ac109716014492a57a81157e71b70f7ab#subdirectory=python/cogbench"
+    - paragraph:
+      - text: If your terminal answers
+      - code: "cogworks: command not found"
+      - text: ", the install landed somewhere this shell isn't looking. An inactive course environment is the usual reason, so check that first and run the line again."
+    - heading "Install the Song Identification benchmark" [level=3]
+    - paragraph: The scorer for Song Identification, its data and its checks live in their own package. Changing the track at the top of this page changes this line.
+    - code:
+      - generic: Not verified yet.
+      - text: python -m pip install "cogworks-week1-audio-benchmark @ git+https://github.com/SamGu-NRX/cogworks-week1-audio-benchmark.git@b156644aecc810e0b93535e320098f96c39ae04e"
+    - paragraph: It brings the few packages the scorer itself needs. The rest of the course stack, the one your own code imports, comes from your week's environment.
+    - heading "Link this machine to CogPortal" [level=3]
+    - paragraph:
+      - text: This opens CogPortal to approve the connection and then hands your terminal back. It is what lets a command report to your team, and you can revoke it from
+      - link "Connections":
+        - /url: /connections
+      - text: . Nothing reports unless you ask it to; a local score stays on your machine until you send it.
+    - code:
+      - generic: Verified.
+      - text: cogworks link --portal https://cogportal-dev.sillion.app
+    - paragraph:
+      - text: It prints the address and the code before it opens anything, so if no browser appears you can go there yourself, or add
+      - code: "--no-browser"
+      - text: "to skip the attempt. If the code expires before you approve it, run the same line again for a fresh one. When it returns, the clone box above should tick: linking reports the repository you are standing in."
+    - heading "Check it, and tell this page" [level=3]
+    - paragraph:
+      - code: check
+      - text: "reads your repository and reports what it found: which of your functions it wired up, and which packages this machine is missing."
+      - code: "--update-setup"
+      - text: is the part that sends the result here.
+    - code:
+      - generic: Not verified yet.
+      - text: cogworks check --benchmark audio-identification --update-setup
+    - paragraph: "It reports only when it passes. If boxes stay empty, the answer is in your terminal: fix what it names there and run the same line again."
+  - paragraph: No rush. This page keeps your place.
+  - link "Open dashboard":
+    - /url: /dashboard
+    - text: Open dashboard
+- document

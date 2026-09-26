@@ -1,0 +1,242 @@
+{
+    "benchmarkInstalled": true,
+    "benchmarkLoadable": true,
+    "canonicalHostedPython": "3.11",
+    "contractVersion": "cogworks.submissions.v2",
+    "dataEvaluationCache": {
+        "message": "ready",
+        "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1",
+        "ready": true
+    },
+    "dataTestCache": {
+        "message": "ready",
+        "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-test-v1",
+        "ready": true
+    },
+    "discovery": {
+        "attemptsTried": 0,
+        "chain": [
+            "get_descriptor.file_descriptors",
+            "whispers.Whispers",
+            "whispers.Whispers.create_matrix",
+            "whispers.Whispers.create_nodes",
+            "whispers.Whispers.train_sweeps",
+            "whispers.Whispers.sorted_images"
+        ],
+        "discovery": {
+            "considered": [
+                "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g5-cluster",
+                "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g5-cluster/tests_manual"
+            ],
+            "modules": [
+                {
+                    "name": "builddb",
+                    "origin": "file",
+                    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g5-cluster/builddb.py"
+                },
+                {
+                    "name": "feedback",
+                    "origin": "file",
+                    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g5-cluster/feedback.py"
+                },
+                {
+                    "name": "get_descriptor",
+                    "origin": "file",
+                    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g5-cluster/get_descriptor.py"
+                },
+                {
+                    "name": "vector_db",
+                    "origin": "file",
+                    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g5-cluster/vector_db.py"
+                },
+                {
+                    "name": "whispers",
+                    "origin": "file",
+                    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g5-cluster/whispers.py"
+                },
+                {
+                    "name": "test_descriptor",
+                    "origin": "file",
+                    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g5-cluster/tests_manual/test_descriptor.py"
+                }
+            ],
+            "root": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g5-cluster",
+            "rootReason": "code sits at the repository root",
+            "skipped": [
+                {
+                    "detail": "AttributeError: 'function' object has no attribute 'slider'",
+                    "missing": null,
+                    "name": "app",
+                    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g5-cluster/app.py",
+                    "reason": "raised"
+                },
+                {
+                    "detail": "FileNotFoundError: [Errno 2] No such file or directory: 'tests_manual/db.pkl'",
+                    "missing": null,
+                    "name": "cluster",
+                    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g5-cluster/cluster.py",
+                    "reason": "raised"
+                },
+                {
+                    "detail": "FileNotFoundError: [Errno 2] No such file or directory: '/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g5-cluster/images'",
+                    "missing": null,
+                    "name": "conversionvec",
+                    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g5-cluster/conversionvec.py",
+                    "reason": "raised"
+                },
+                {
+                    "detail": "FileNotFoundError: [Errno 2] No such file or directory: 'annotations/group_truth.csv'",
+                    "missing": null,
+                    "name": "eval_group",
+                    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g5-cluster/eval_group.py",
+                    "reason": "raised"
+                },
+                {
+                    "detail": "FileNotFoundError: [Errno 2] No such file or directory: 'face_db.pkl'",
+                    "missing": null,
+                    "name": "eval_individ",
+                    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g5-cluster/eval_individ.py",
+                    "reason": "raised"
+                },
+                {
+                    "detail": "FileNotFoundError: [Errno 2] No such file or directory: 'face_vectors.pkl'",
+                    "missing": null,
+                    "name": "test_imgs",
+                    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g5-cluster/test_imgs.py",
+                    "reason": "raised"
+                },
+                {
+                    "detail": "FileNotFoundError: [Errno 2] No such file or directory: 'tests_manual/db.pkl'",
+                    "missing": null,
+                    "name": "test_whispers",
+                    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g5-cluster/test_whispers.py",
+                    "reason": "raised"
+                },
+                {
+                    "detail": "FileNotFoundError: [Errno 2] No such file or directory: '../data/test'",
+                    "missing": null,
+                    "name": "build_vector_database_train",
+                    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g5-cluster/tests_manual/build_vector_database_train.py",
+                    "reason": "raised"
+                },
+                {
+                    "detail": "FileNotFoundError: No images found under data/train/*/",
+                    "missing": null,
+                    "name": "test_descriptor_train",
+                    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g5-cluster/tests_manual/test_descriptor_train.py",
+                    "reason": "raised"
+                },
+                {
+                    "detail": "FileNotFoundError: [Errno 2] No such file or directory: 'face_vectors.pkl'",
+                    "missing": null,
+                    "name": "test_group_photos",
+                    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g5-cluster/tests_manual/test_group_photos.py",
+                    "reason": "raised"
+                },
+                {
+                    "detail": "FileNotFoundError: [Errno 2] No such file or directory: 'data/train'",
+                    "missing": null,
+                    "name": "test_training_leave_one_out",
+                    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g5-cluster/tests_manual/test_training_leave_one_out.py",
+                    "reason": "raised"
+                },
+                {
+                    "detail": "FileNotFoundError: [Errno 2] No such file or directory: 'data/train'",
+                    "missing": null,
+                    "name": "test_vector_db_integration",
+                    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g5-cluster/tests_manual/test_vector_db_integration.py",
+                    "reason": "raised"
+                }
+            ],
+            "stubCalls": [
+                "camera.take_picture",
+                "streamlit.set_page_config",
+                "streamlit.title"
+            ],
+            "stubbed": [
+                "streamlit",
+                "microphone",
+                "pyaudio",
+                "camera"
+            ]
+        },
+        "hashRandomization": false,
+        "hashSeed": "0",
+        "recalled": false,
+        "supplied": [
+            {
+                "step": "whispers.Whispers",
+                "supplied": "the name of each item"
+            },
+            {
+                "step": "whispers.Whispers",
+                "supplied": "0.3"
+            }
+        ],
+        "verdict": {
+            "coverage": {
+                "read": [],
+                "readEnoughToJudge": true,
+                "skipped": []
+            },
+            "errors": [],
+            "headline": "Your code is wired up and ready to score.",
+            "nextStep": "",
+            "notes": [],
+            "status": "scored",
+            "trace": [
+                {
+                    "function": "get_descriptor.file_descriptors",
+                    "received": "a list of 12, starting with an array of shape (218, 178, 3)",
+                    "returned": "a list of 12, starting with an array of shape (1, 512)",
+                    "stage": "descriptors"
+                },
+                {
+                    "function": "whispers.Whispers",
+                    "received": "a list of 12, starting with an array of shape (1, 512)",
+                    "returned": "<whispers.Whispers object>",
+                    "stage": "graph"
+                },
+                {
+                    "function": "whispers.Whispers.create_matrix",
+                    "received": "<whispers.Whispers object>",
+                    "returned": "<whispers.Whispers object>",
+                    "stage": "edges"
+                },
+                {
+                    "function": "whispers.Whispers.create_nodes",
+                    "received": "<whispers.Whispers object>",
+                    "returned": "<whispers.Whispers object>",
+                    "stage": "nodes"
+                },
+                {
+                    "function": "whispers.Whispers.train_sweeps",
+                    "received": "<whispers.Whispers object>",
+                    "returned": "<whispers.Whispers object>",
+                    "stage": "settle"
+                },
+                {
+                    "function": "whispers.Whispers.sorted_images",
+                    "received": "<whispers.Whispers object>",
+                    "returned": "a dict of 12 entries",
+                    "stage": "labels"
+                }
+            ]
+        },
+        "weightsUsed": []
+    },
+    "gitRepository": true,
+    "localGap": [],
+    "modelCache": {
+        "message": "ready",
+        "path": "/Users/samgu/.cache/torch/checkpoints/20180402-114759-vggface2.pt",
+        "ready": true
+    },
+    "python": "3.11.15",
+    "repositoryFullName": "BagelBreaker/week2_capstone",
+    "submissionDetail": null,
+    "submissionError": "We look for your adapter at the repository root, and /Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g5-cluster has neither submission.py nor benchmark_adapter.py. Create submission.py there, define create_submission, and return your adapter from it. Nothing is registered as \"vision-clustering\" in \"cogworks.submissions.v2\" either (installed: none), so if you meant to install your project as a package, reinstall it.",
+    "submissionInstalled": false,
+    "submissionLoadable": true,
+    "submissionSource": "discovery"
+}

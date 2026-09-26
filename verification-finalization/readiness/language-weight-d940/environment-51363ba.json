@@ -1,0 +1,31 @@
+{
+  "cogworks-benchmark": {
+    "version": "0.2.0",
+    "metadataPath": "/tmp/cogportal-language-weight-venv/lib/python3.11/site-packages/cogworks_benchmark-0.2.0.dist-info",
+    "direct_url": {
+      "subdirectory": "python/cogbench",
+      "url": "https://github.com/SamGu-NRX/CogPortal.git",
+      "vcs_info": {
+        "commit_id": "d9405278aac8268cd340e589f36dbad766d1e2a0",
+        "requested_revision": "d9405278aac8268cd340e589f36dbad766d1e2a0",
+        "vcs": "git"
+      }
+    }
+  },
+  "cogworks-week3-language-benchmark": {
+    "version": "0.1.0",
+    "metadataPath": "/tmp/cogportal-language-weight-venv/lib/python3.11/site-packages/cogworks_week3_language_benchmark-0.1.0.dist-info",
+    "direct_url": {
+      "url": "https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git",
+      "vcs_info": {
+        "commit_id": "51363ba42b17ef493357c5da266611ac45b5456c",
+        "requested_revision": "51363ba42b17ef493357c5da266611ac45b5456c",
+        "vcs": "git"
+      }
+    }
+  },
+  "imports": {
+    "sdk": "/tmp/cogportal-language-weight-venv/lib/python3.11/site-packages/cogbench/__init__.py",
+    "week3": "/tmp/cogportal-language-weight-venv/lib/python3.11/site-packages/language_search_benchmark/__init__.py"
+  }
+}

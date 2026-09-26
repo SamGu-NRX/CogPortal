@@ -1,0 +1,143 @@
+{
+  "benchmarkInstalled": true,
+  "benchmarkLoadable": true,
+  "canonicalHostedPython": "3.8.20",
+  "contractVersion": "cogworks.submissions.v2",
+  "dataEvaluationCache": {
+    "message": "ready",
+    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/language",
+    "ready": true
+  },
+  "dataTestCache": {
+    "message": "ready",
+    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/language",
+    "ready": true
+  },
+  "discovery": {
+    "attemptsTried": 0,
+    "branches": {
+      "image": [
+        "database.ImageDatabase.descriptor_to_embedding"
+      ],
+      "prepare": [
+        "database.ImageDatabase"
+      ],
+      "search": [
+        "database.ImageDatabase.query"
+      ],
+      "text": [
+        "embedder.embed_captions_batch"
+      ]
+    },
+    "chain": [],
+    "discovery": {
+      "considered": [
+        "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-finalization/readiness/sdk-recheck/w3-g4-language/repo"
+      ],
+      "modules": [
+        {
+          "name": "coco",
+          "origin": "file",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-finalization/readiness/sdk-recheck/w3-g4-language/repo/coco.py"
+        },
+        {
+          "name": "database",
+          "origin": "file",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-finalization/readiness/sdk-recheck/w3-g4-language/repo/database.py"
+        },
+        {
+          "name": "embedder",
+          "origin": "file",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-finalization/readiness/sdk-recheck/w3-g4-language/repo/embedder.py"
+        },
+        {
+          "name": "main",
+          "origin": "file",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-finalization/readiness/sdk-recheck/w3-g4-language/repo/main.py"
+        },
+        {
+          "name": "model",
+          "origin": "file",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-finalization/readiness/sdk-recheck/w3-g4-language/repo/model.py"
+        },
+        {
+          "name": "train",
+          "origin": "file",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-finalization/readiness/sdk-recheck/w3-g4-language/repo/train.py"
+        },
+        {
+          "name": "triplet_utils",
+          "origin": "file",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-finalization/readiness/sdk-recheck/w3-g4-language/repo/triplet_utils.py"
+        }
+      ],
+      "root": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-finalization/readiness/sdk-recheck/w3-g4-language/repo",
+      "rootReason": "code sits at the repository root",
+      "skipped": [],
+      "stubCalls": [],
+      "stubbed": [
+        "streamlit",
+        "microphone",
+        "pyaudio",
+        "camera"
+      ]
+    },
+    "fits": [
+      [
+        "idfs",
+        "embedder.compute_idfs"
+      ]
+    ],
+    "hashRandomization": false,
+    "hashSeed": "0",
+    "recalled": false,
+    "supplied": [
+      {
+        "step": "embedder.embed_captions_batch",
+        "supplied": "glove"
+      },
+      {
+        "step": "embedder.embed_captions_batch",
+        "supplied": "idfs"
+      },
+      {
+        "step": "database.ImageDatabase",
+        "supplied": "W"
+      },
+      {
+        "step": "embedder.compute_idfs",
+        "supplied": "computed once as idfs"
+      }
+    ],
+    "verdict": {
+      "coverage": {
+        "read": [],
+        "readEnoughToJudge": true,
+        "skipped": []
+      },
+      "errors": [],
+      "headline": "Your code is wired up and ready to score.",
+      "nextStep": "",
+      "notes": [],
+      "status": "scored",
+      "trace": []
+    },
+    "weightsUsed": [
+      "data/W_embed.npy"
+    ]
+  },
+  "gitRepository": true,
+  "localGap": [],
+  "modelCache": {
+    "message": "ready",
+    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/language",
+    "ready": true
+  },
+  "python": "3.11.15",
+  "repositoryFullName": "LashikaKapoor28/Language_Module_Capstone",
+  "submissionDetail": null,
+  "submissionError": "We look for your adapter at the repository root, and /Users/samgu/.codex/worktrees/dd61/CogPortal/verification-finalization/readiness/sdk-recheck/w3-g4-language/repo has neither submission.py nor benchmark_adapter.py. Create submission.py there, define create_submission, and return your adapter from it. Nothing is registered as \"language-search\" in \"cogworks.submissions.v2\" either (installed: none), so if you meant to install your project as a package, reinstall it.",
+  "submissionInstalled": false,
+  "submissionLoadable": true,
+  "submissionSource": "discovery"
+}

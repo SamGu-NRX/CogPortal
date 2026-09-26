@@ -1,0 +1,162 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Dashboard":
+      - /url: /dashboard
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "Account menu for SamGu-NRX":
+    - generic: Account menu for SamGu-NRX
+- main:
+  - link "Dashboard":
+    - /url: /dashboard
+    - text: Dashboard
+  - link "Open current run":
+    - /url: /run-surfaces/surface_fe70e26659a47d5411b3
+  - heading "RUN 4208" [level=1]
+  - generic: Practice
+  - generic: Succeeded
+  - generic: "Run status: Succeeded"
+  - paragraph:
+    - generic: language-search / v1
+    - generic: "|"
+    - link "SamGu-NRX/Language_Module_Capstone":
+      - /url: https://github.com/SamGu-NRX/Language_Module_Capstone
+    - generic: "|"
+    - generic: main
+    - button "Copy full commit SHA 8789361ad7dec86fa724431873f674e03b449951":
+      - generic: "8789361"
+    - status
+    - generic: "|"
+    - generic: Sep 15, 10:46 AM
+    - generic: "|"
+    - generic: 15m 31s
+  - paragraph: data/W_embed.npy from your local run at 8789361
+  - heading "PIPELINE" [level=2]
+  - list "Run pipeline":
+    - text: Queued
+    - generic: ", complete"
+    - text: Prepare
+    - generic: ", complete"
+    - generic: 4.3 s
+    - text: Install
+    - generic: ", complete"
+    - generic: 7m 06s
+    - text: Contract check
+    - generic: ", complete"
+    - generic: 48.7 s
+    - text: Evaluate
+    - generic: ", complete"
+    - generic: 7m 11s
+    - text: Score
+    - generic: ", complete"
+    - generic: 2.4 s
+    - generic: Complete
+  - generic: What this run shows
+  - figure "how far the query is from the caption search mrr":
+    - img "search_mrr against how far the query is from the caption, from 0.27 at verbatim to 0.22 at typo":
+      - generic: "0.0"
+      - generic: "0.5"
+      - generic: "1.0"
+      - generic: "0.27"
+      - generic: "0.28"
+      - generic: "0.17"
+      - generic: "0.22"
+      - generic: verbatim
+      - generic: typo
+    - generic: how far the query is from the caption
+    - generic: search mrr
+  - heading "RESULTS" [level=2]
+  - figure "higher is better":
+    - generic: Overall
+    - generic: "0.4126"
+    - text: higher is better
+    - paragraph: "The mean of the three component scores below, which are weighted equally on purpose: the capstone is three pieces that must agree on one embedding space, and a submission strong at two of them has not built the thing. This is the leaderboard number."
+  - button "Retrieval MRR 0.228 floor 0.010 higher is better":
+    - term: Retrieval MRR
+    - definition:
+      - generic: "0.228"
+      - generic: floor 0.010
+      - generic: higher is better
+  - paragraph: "Given a caption embedding, how highly does its own image rank among all images by cosine similarity? This is what W_embed was trained for: the margin ranking loss pushes a true image's embedding toward its caption's and a confusor's away. Weak here with strong text MRR means the two embeddings are not living in the same space."
+  - button "Retrieval MRR, caption unchanged (not scored) 0.275 not scored":
+    - term: Retrieval MRR, caption unchanged (not scored)
+    - definition:
+      - generic: "0.275"
+      - generic: not scored
+  - paragraph: "The same reading for retrieval: the captions unchanged, reported and not scored, for the same reason. This is the one that mattered most. A submission with no embedding at all scored a perfect 1.0000 here while scoring at the floor on every rewritten query, because it was reading the answer out of the captions file rather than working it out."
+  - button "Search MRR 0.227 floor 0.006 higher is better":
+    - term: Search MRR
+    - definition:
+      - generic: "0.227"
+      - generic: floor 0.006
+      - generic: higher is better
+  - paragraph: "The application end to end: a query string in, ranked image ids out, through whatever database the submission built. This is the average over three rewrites of every query -- its keywords only, its first three words, and one with a typo -- so it asks whether search holds up on what a person would actually type. The caption unchanged is run and reported beside them, not scored. All four are listed separately further down, so a low score here can be traced to the rewrite that caused it. Weak here while the two above are strong points at the plumbing, meaning the database, the id mapping, or the query path, rather than at the embeddings."
+  - button "Search MRR, caption unchanged (not scored) 0.274 not scored":
+    - term: Search MRR, caption unchanged (not scored)
+    - definition:
+      - generic: "0.274"
+      - generic: not scored
+  - paragraph: "The queries exactly as the captions were written. Reported and not scored, because those captions are in the file your code is handed: a submission that looked the query up in that file instead of embedding it would answer every one of them. Read it next to the scored search number: the distance between them is how far your results move when the wording changes. A large one, with this rung high, is where to start looking."
+  - button "Text MRR 0.783 floor 0.040 higher is better":
+    - term: Text MRR
+    - definition:
+      - generic: "0.783"
+      - generic: floor 0.040
+      - generic: higher is better
+  - paragraph: Given one caption, how highly does another caption of the same image rank against captions of other images? This tests the IDF-weighted GloVe sum on its own, before any image is involved. Weak here means the caption embedding is the problem -- check that IDF is computed across every caption in the dataset and that an unseen word gets IDF 0.
+  - button "Median rank 8.000 lower is better":
+    - term: Median rank
+    - definition:
+      - generic: "8.000"
+      - generic: lower is better
+  - paragraph: The middle rank of the correct image across all queries. Reported because a mean is dominated by a handful of catastrophic misses, while the median says what a typical query does.
+  - button "Retrieval MRR, keywords only 0.285 higher is better":
+    - term: Retrieval MRR, keywords only
+    - definition:
+      - generic: "0.285"
+      - generic: higher is better
+  - paragraph: "The same rewrite as the search rung above, ranked here from your embeddings rather than through your own search path. Reading the two together separates the embedding from the code around it, with one caveat: retrieval ranks the whole pool, while search returns 50 results and anything past the last one counts as a miss. So a retrieval number above its search twin means either that your search dropped images your embedding ranked just outside the cut, or that the ranking is losing what the embedding found, and these two numbers alone do not say which."
+  - button "Retrieval MRR, first three words 0.175 higher is better":
+    - term: Retrieval MRR, first three words
+    - definition:
+      - generic: "0.175"
+      - generic: higher is better
+  - paragraph: First three content words, ranked from your embeddings. Expected to be the weakest rewrite, because a three-word query carries less information; some of that gap is the task.
+  - button "Retrieval MRR, one typo 0.225 higher is better":
+    - term: Retrieval MRR, one typo
+    - definition:
+      - generic: "0.225"
+      - generic: higher is better
+  - paragraph: One mistyped character, ranked from your embeddings. The scored retrieval number is the mean of these three rewrites, so this is one of the three it is made of, not an extra reading.
+  - button "Recall@1 0.160 higher is better":
+    - term: Recall@1
+    - definition:
+      - generic: "0.160"
+      - generic: higher is better
+  - paragraph: How often the caption's own image is the single top match. The strictest reading of the retrieval task.
+  - button "Recall@10 0.613 higher is better":
+    - term: Recall@10
+    - definition:
+      - generic: "0.613"
+      - generic: higher is better
+  - paragraph: "How often the caption's own image is in the top ten. Read alongside recall@1: a large gap means the right image is being found but not ranked first, which is a margin problem rather than an embedding one."
+  - button "Recall@5 0.340 higher is better":
+    - term: Recall@5
+    - definition:
+      - generic: "0.340"
+      - generic: higher is better
+  - paragraph: How often the caption's own image is in the top five. A search interface shows several results, so this is closer to what a user of the finished application experiences.
+  - paragraph: The scorer had no notes on this run.
+  - paragraph: Public practice split.
+  - heading "PROMOTE" [level=2]
+  - paragraph: Re-runs 8789361 against the hidden official inputs. Logs are suppressed.
+  - button "Promote to official"
+  - generic: 3 official attempts remaining
+  - heading "LOG · CAPPED" [level=2]
+  - generic: student python 3.8.20 showcase 01/10 "two dogs running on a sandy beach" -> http://images.cocodataset.org/train2014/COCO_train2014_000000104493.jpg http://images.cocodataset.org/train2014/COCO_train2014_000000119139.jpg http://images.cocodataset.org/train2014/COCO_train2014_000000381186.jpg showcase 02/10 "a red double decker bus on a city street" -> http://images.cocodataset.org/train2014/COCO_train2014_000000090751.jpg http://images.cocodataset.org/train2014/COCO_train2014_000000022274.jpg http://images.cocodataset.org/train2014/COCO_train2014_000000183554.jpg showcase 03/10 "a bowl of soup on a wooden table" -> http://images.cocodataset.org/train2014/COCO_train2014_000000058979.jpg http://images.cocodataset.org/train2014/COCO_train2014_000000399208.jpg http://images.cocodataset.org/train2014/COCO_train2014_000000337147.jpg showcase 04/10 "a person riding a skateboard down a ramp" -> http://images.cocodataset.org/train2014/COCO_train2014_000000391259.jpg http://images.cocodataset.org/train2014/COCO_train2014_000000336563.jpg http://images.cocodataset.org/train2014/COCO_train2014_000000207584.jpg showcase 05/10 "a group of people playing frisbee in a park" -> http://images.cocodataset.org/train2014/COCO_train2014_000000105200.jpg http://images.cocodataset.org/train2014/COCO_train2014_000000496646.jpg http://images.cocodataset.org/train2014/COCO_train2014_000000212887.jpg showcase 06/10 "a cat sleeping on a laptop keyboard" -> http://images.cocodataset.org/train2014/COCO_train2014_000000347665.jpg http://images.cocodataset.org/train2014/COCO_train2014_000000159356.jpg http://images.cocodataset.org/train2014/COCO_train2014_000000558317.jpg showcase 07/10 "a plate of pizza next to a glass of soda" -> http://images.cocodataset.org/train2014/COCO_train2014_000000135041.jpg http://images.cocodataset.org/train2014/COCO_train2014_000000553487.jpg http://images.cocodataset.org/train2014/COCO_train2014_000000264581.jpg showcase 08/10 "an airplane taking off over the ocean" -> http://images.cocodataset.org/train2014/COCO_train2014_000000418379.jpg http://images.cocodataset.org/train2014/COCO_train2014_000000560083.jpg http://images.cocodataset.org/train2014/COCO_train2014_000000550104.jpg showcase 09/10 "a child flying a kite on a windy day" -> http://images.cocodataset.org/train2014/COCO_train2014_000000260973.jpg http://images.cocodataset.org/train2014/COCO_train2014_000000042849.jpg http://images.cocodataset.org/train2014/COCO_train2014_000000430817.jpg showcase 10/10 "a kitchen counter cluttered with dishes" -> http://images.cocodataset.org/train2014/COCO_train2014_000000271930.jpg http://images.cocodataset.org/train2014/COCO_train2014_000000547752.jpg http://images.cocodataset.org/train2014/COCO_train2014_000000051791.jpg
+- document

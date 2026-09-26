@@ -1,0 +1,244 @@
+{
+  "benchmarkId": "language-search",
+  "benchmarkVersion": 1,
+  "contractVersion": "cogworks.submissions.v2",
+  "diagnostics": [
+    "chance baselines: text_mrr 0.0400, retrieval_mrr 0.0102, search_mrr 0.0064."
+  ],
+  "dirty": false,
+  "finishedAt": 1789470130295,
+  "metrics": [
+    {
+      "help": "The mean of the three component scores below, which are weighted equally on purpose: the capstone is three pieces that must agree on one embedding space, and a submission strong at two of them has not built the thing. This is the leaderboard number.",
+      "higherIsBetter": true,
+      "key": "overall",
+      "label": "Overall",
+      "precision": 4,
+      "primary": true,
+      "role": "scored",
+      "unit": null,
+      "value": 0.41257518789178643
+    },
+    {
+      "help": "Given one caption, how highly does another caption of the same image rank against captions of other images? This tests the IDF-weighted GloVe sum on its own, before any image is involved. Weak here means the caption embedding is the problem -- check that IDF is computed across every caption in the dataset and that an unseen word gets IDF 0.",
+      "higherIsBetter": true,
+      "key": "text_mrr",
+      "label": "Text MRR",
+      "precision": 3,
+      "primary": false,
+      "role": "scored",
+      "unit": null,
+      "value": 0.7829385398961786
+    },
+    {
+      "help": "Given a caption embedding, how highly does its own image rank among all images by cosine similarity? This is what W_embed was trained for: the margin ranking loss pushes a true image's embedding toward its caption's and a confusor's away. Weak here with strong text MRR means the two embeddings are not living in the same space.",
+      "higherIsBetter": true,
+      "key": "retrieval_mrr",
+      "label": "Retrieval MRR",
+      "precision": 3,
+      "primary": false,
+      "role": "scored",
+      "unit": null,
+      "value": 0.22810871171646382
+    },
+    {
+      "help": "The application end to end: a query string in, ranked image ids out, through whatever database the submission built. This is the average over four versions of every query (the caption unchanged, its keywords only, its first three words, and one with a typo), so it asks whether search holds up on what a person would actually type rather than only on a caption handed back verbatim. The four are listed separately further down, so a low score here can be traced to the rewrite that caused it. Weak here while the two above are strong points at the plumbing, meaning the database, the id mapping, or the query path, rather than at the embeddings.",
+      "higherIsBetter": true,
+      "key": "search_mrr",
+      "label": "Search MRR",
+      "precision": 3,
+      "primary": false,
+      "role": "scored",
+      "unit": null,
+      "value": 0.2266783120627169
+    },
+    {
+      "help": "How often the caption's own image is the single top match. The strictest reading of the retrieval task.",
+      "higherIsBetter": true,
+      "key": "retrieval_recall_at_1",
+      "label": "Recall@1",
+      "precision": 3,
+      "primary": false,
+      "role": "diagnostic",
+      "unit": null,
+      "value": 0.16
+    },
+    {
+      "help": "How often the caption's own image is in the top five. A search interface shows several results, so this is closer to what a user of the finished application experiences.",
+      "higherIsBetter": true,
+      "key": "retrieval_recall_at_5",
+      "label": "Recall@5",
+      "precision": 3,
+      "primary": false,
+      "role": "diagnostic",
+      "unit": null,
+      "value": 0.34
+    },
+    {
+      "help": "How often the caption's own image is in the top ten. Read alongside recall@1: a large gap means the right image is being found but not ranked first, which is a margin problem rather than an embedding one.",
+      "higherIsBetter": true,
+      "key": "retrieval_recall_at_10",
+      "label": "Recall@10",
+      "precision": 3,
+      "primary": false,
+      "role": "diagnostic",
+      "unit": null,
+      "value": 0.6133333333333333
+    },
+    {
+      "help": "The middle rank of the correct image across all queries. Reported because a mean is dominated by a handful of catastrophic misses, while the median says what a typical query does.",
+      "higherIsBetter": false,
+      "key": "retrieval_median_rank",
+      "label": "Median rank",
+      "precision": 3,
+      "primary": false,
+      "role": "diagnostic",
+      "unit": null,
+      "value": 8.0
+    },
+    {
+      "help": "What ranking the images at random scores. This is the floor for retrieval MRR. Text MRR and search MRR each have their own floor, listed separately, because they are not asking the same question.",
+      "higherIsBetter": true,
+      "key": "chance_mrr",
+      "label": "Chance MRR",
+      "precision": 3,
+      "primary": false,
+      "relatesTo": "retrieval_mrr",
+      "role": "floor",
+      "unit": null,
+      "value": 0.01018430016513033
+    },
+    {
+      "help": "The floor for text MRR specifically, which is a different number from the image floor above: this one ranks captions among captions. The two differ by roughly four times on the hidden set, so reading text MRR against the image floor flatters it.",
+      "higherIsBetter": true,
+      "key": "text_chance",
+      "label": "Text chance MRR",
+      "precision": 3,
+      "primary": false,
+      "relatesTo": "text_mrr",
+      "role": "floor",
+      "unit": null,
+      "value": 0.03997975884400964
+    },
+    {
+      "help": "The floor for search MRR. It sits below the retrieval floor because search returns a fixed number of results and an image past the end of that list scores nothing, while retrieval ranks the whole pool. On the hidden set the search floor is about 0.0064 against the retrieval floor's 0.0102.",
+      "higherIsBetter": true,
+      "key": "search_chance",
+      "label": "Search chance MRR",
+      "precision": 3,
+      "primary": false,
+      "relatesTo": "search_mrr",
+      "role": "floor",
+      "unit": null,
+      "value": 0.006427436197613463
+    },
+    {
+      "help": "The same queries with the stopwords removed, which is closer to what someone types into a search box. IDF weighting is what should make those words nearly free, so this number sitting well below the unchanged captions points at the weighting rather than at the embedding. Which way it moves is not fixed: on the reference it came out 6 percent above the unchanged captions on the hidden set and 7 percent below on the practice set, so treat a move of that size as normal and a large drop as a finding.",
+      "higherIsBetter": true,
+      "key": "search_mrr_keywords",
+      "label": "Search MRR, keywords only",
+      "precision": 3,
+      "primary": false,
+      "role": "plotted",
+      "unit": null,
+      "value": 0.28411226044051074
+    },
+    {
+      "help": "Only the first three content words of each query. This says whether the score falls off gradually as signal is removed or drops off a cliff. Expected to be the weakest of the four, and it is on the reference; a three-word query genuinely carries less information, so some of this gap is the task and not the submission.",
+      "higherIsBetter": true,
+      "key": "search_mrr_truncated",
+      "label": "Search MRR, first three words",
+      "precision": 3,
+      "primary": false,
+      "role": "plotted",
+      "unit": null,
+      "value": 0.1723760548091365
+    },
+    {
+      "help": "One mistyped character per query, on the longest content word. The word becomes one your vocabulary has never seen, which the course says should contribute a zero vector rather than raising. A large drop here means an unseen word is dominating the sum; an error rather than a low score means it raised.",
+      "higherIsBetter": true,
+      "key": "search_mrr_typo",
+      "label": "Search MRR, one typo",
+      "precision": 3,
+      "primary": false,
+      "role": "plotted",
+      "unit": null,
+      "value": 0.22354662093850342
+    },
+    {
+      "help": "The queries exactly as the captions were written. Reported and not scored, because those captions are in the file your code is handed: a submission that looked the query up in that file instead of embedding it would answer every one of them. Read it next to the scored search number. Close together means your embedding is doing the work. Far apart, with this one high, means the query text is being matched rather than its meaning.",
+      "higherIsBetter": true,
+      "key": "search_mrr_verbatim",
+      "label": "Search MRR, caption unchanged (not scored)",
+      "precision": 3,
+      "primary": false,
+      "relatesTo": "search_mrr",
+      "role": "reported",
+      "unit": null,
+      "value": 0.273637282456221
+    },
+    {
+      "help": "The same rewrite as the search rung above, ranked here from your embeddings rather than through your own search path. Reading the two together separates the embedding from the code around it, with one caveat: retrieval ranks the whole pool, while search returns 50 results and anything past the last one counts as a miss. So a retrieval number above its search twin means either that your search dropped images your embedding ranked just outside the cut, or that the ranking is losing what the embedding found, and these two numbers alone do not say which.",
+      "higherIsBetter": true,
+      "key": "retrieval_mrr_keywords",
+      "label": "Retrieval MRR, keywords only",
+      "precision": 3,
+      "primary": false,
+      "role": "diagnostic",
+      "unit": null,
+      "value": 0.28484976589101546
+    },
+    {
+      "help": "First three content words, ranked from your embeddings. Expected to be the weakest rewrite, because a three-word query carries less information; some of that gap is the task.",
+      "higherIsBetter": true,
+      "key": "retrieval_mrr_truncated",
+      "label": "Retrieval MRR, first three words",
+      "precision": 3,
+      "primary": false,
+      "role": "diagnostic",
+      "unit": null,
+      "value": 0.1746000571266954
+    },
+    {
+      "help": "One mistyped character, ranked from your embeddings. The scored retrieval number is the mean of these three rewrites, so this is one of the three it is made of, not an extra reading.",
+      "higherIsBetter": true,
+      "key": "retrieval_mrr_typo",
+      "label": "Retrieval MRR, one typo",
+      "precision": 3,
+      "primary": false,
+      "role": "diagnostic",
+      "unit": null,
+      "value": 0.22487631213168063
+    },
+    {
+      "help": "The same reading for retrieval: the captions unchanged, reported and not scored, for the same reason. This is the one that mattered most. A submission with no embedding at all scored a perfect 1.0000 here while scoring at the floor on every rewritten query, because it was reading the answer out of the captions file rather than working it out.",
+      "higherIsBetter": true,
+      "key": "retrieval_mrr_verbatim",
+      "label": "Retrieval MRR, caption unchanged (not scored)",
+      "precision": 3,
+      "primary": false,
+      "relatesTo": "retrieval_mrr",
+      "role": "reported",
+      "unit": null,
+      "value": 0.27467464748222276
+    }
+  ],
+  "outputDigest": "557c7796a77ab9e59d816ec143fa2318bc1b0fbafcad79628737781d5dc3c913",
+  "pluginVersion": "0.1.0",
+  "reportId": "local_96d1fe338c8347428792ce982f0c4ce4",
+  "repositoryFullName": "LashikaKapoor28/Language_Module_Capstone",
+  "repositoryId": null,
+  "sdkVersion": "0.2.0",
+  "sha": "8789361ad7dec86fa724431873f674e03b449951",
+  "startedAt": 1789470127571,
+  "weightsUploaded": [
+    {
+      "path": "data/W_embed.npy",
+      "sha256": "dc30a867393863098f9a19ef2c53d0c82b6dbd492b8710a331ad4f0ddda3ea6f",
+      "size": 409728
+    }
+  ],
+  "weightsUsed": [
+    "data/W_embed.npy"
+  ]
+}

@@ -1,0 +1,126 @@
+[
+  {
+    "svgs": 0,
+    "text": "Identification score0.5312"
+  },
+  {
+    "svgs": 0,
+    "text": "Repositorycogworks-demo/face-finderCommitaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaBranchmainWorkspaceClean"
+  },
+  {
+    "svgs": 0,
+    "text": "Repositorycogworks-demo/face-finderCommitaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaBranchmainWorkspaceClean"
+  },
+  {
+    "svgs": 0,
+    "text": "Repositorycogworks-demo/face-finderCommitaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaBranchmainWorkspaceClean"
+  },
+  {
+    "svgs": 0,
+    "text": "Repositorycogworks-demo/face-finderCommitaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaBranchmainWorkspaceClean"
+  },
+  {
+    "svgs": 0,
+    "text": "Repositorycogworks-demo/face-finderCommitaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaBranchmainWorkspaceClean"
+  },
+  {
+    "svgs": 0,
+    "text": "Repositorycogworks-demo/face-finderCommitaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaBranchmainWorkspaceClean"
+  },
+  {
+    "svgs": 0,
+    "text": "Repositorycogworks-demo/face-finderCommitaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaBranchmainWorkspaceClean"
+  },
+  {
+    "svgs": 0,
+    "text": "Repositorycogworks-demo/face-finderCommitaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaBranchmainWorkspaceClean"
+  },
+  {
+    "svgs": 0,
+    "text": "Repositorycogworks-demo/face-finderCommitaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaBranchmainWorkspaceClean"
+  },
+  {
+    "svgs": 0,
+    "text": "Repositorycogworks-demo/face-finderCommitaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaBranchmainWorkspaceClean"
+  },
+  {
+    "svgs": 0,
+    "text": "Repositorycogworks-demo/face-finderCommitaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaBranchmainWorkspaceClean"
+  },
+  {
+    "svgs": 0,
+    "text": "Repositorycogworks-demo/face-finderCommitaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaBranchmainWorkspaceClean"
+  },
+  {
+    "svgs": 0,
+    "text": "Repositorycogworks-demo/face-finderCommitaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaBranchmainWorkspaceClean"
+  },
+  {
+    "svgs": 0,
+    "text": "Repositorycogworks-demo/face-finderCommitaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaBranchmainWorkspaceClean"
+  },
+  {
+    "svgs": 0,
+    "text": "Repositorycogworks-demo/face-finderCommitaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaBranchmainWorkspaceClean"
+  },
+  {
+    "svgs": 0,
+    "text": "Repositorycogworks-demo/face-finderCommitaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaBranchmainWorkspaceClean"
+  },
+  {
+    "svgs": 1,
+    "text": "Retrieval MRR0.259floor 0.010higher is better"
+  },
+  {
+    "svgs": 0,
+    "text": "Chance MRR0.010"
+  },
+  {
+    "svgs": 1,
+    "text": "Text MRR0.789floor 0.040higher is better"
+  },
+  {
+    "svgs": 0,
+    "text": "Chance MRR0.010"
+  },
+  {
+    "svgs": 1,
+    "text": "Text MRR0.789floor 0.040higher is better"
+  },
+  {
+    "svgs": 0,
+    "text": "Chance MRR0.010"
+  },
+  {
+    "svgs": 0,
+    "text": "Chance0.0333"
+  },
+  {
+    "svgs": 0,
+    "text": "Trivial baseline0.0812"
+  },
+  {
+    "svgs": 0,
+    "text": "Chance1/N for a catalog of N songs: what naming a song at random scores. The floor every other number on this page should be read against."
+  },
+  {
+    "svgs": 0,
+    "text": "Trivial baselineWhole-clip mean log spectrum, nearest neighbour. No peaks, no fingerprints, none of the capstone."
+  },
+  {
+    "svgs": 1,
+    "text": "Clean top-11.0000higher is better"
+  },
+  {
+    "svgs": 1,
+    "text": "Noisy top-11.0000higher is better"
+  },
+  {
+    "svgs": 1,
+    "text": "Pitch-shifted top-10.0625higher is better"
+  },
+  {
+    "svgs": 1,
+    "text": "Library size at the knee20higher is better"
+  }
+]

@@ -1,0 +1,29 @@
+Collecting cogworks-benchmark@ git+https://github.com/SamGu-NRX/CogPortal.git@094a6f1ac109716014492a57a81157e71b70f7ab#subdirectory=python/cogbench
+  Cloning https://github.com/SamGu-NRX/CogPortal.git (to revision 094a6f1ac109716014492a57a81157e71b70f7ab) to /private/var/folders/rq/cbyhqh497_b9xwgmxw3qlq680000gn/T/pip-install-1i_8izuo/cogworks-benchmark_203d843d4a064cecaf817a48bc30a4a4
+  Running command git clone --filter=blob:none --quiet https://github.com/SamGu-NRX/CogPortal.git /private/var/folders/rq/cbyhqh497_b9xwgmxw3qlq680000gn/T/pip-install-1i_8izuo/cogworks-benchmark_203d843d4a064cecaf817a48bc30a4a4
+  Running command git rev-parse -q --verify 'sha^094a6f1ac109716014492a57a81157e71b70f7ab'
+  Running command git fetch -q https://github.com/SamGu-NRX/CogPortal.git 094a6f1ac109716014492a57a81157e71b70f7ab
+  Running command git checkout -q 094a6f1ac109716014492a57a81157e71b70f7ab
+  Resolved https://github.com/SamGu-NRX/CogPortal.git to commit 094a6f1ac109716014492a57a81157e71b70f7ab
+  Running command git submodule update --init --recursive -q
+  Installing build dependencies: started
+  Installing build dependencies: finished with status 'done'
+  Getting requirements to build wheel: started
+  Getting requirements to build wheel: finished with status 'done'
+  Preparing metadata (pyproject.toml): started
+  Preparing metadata (pyproject.toml): finished with status 'done'
+Building wheels for collected packages: cogworks-benchmark
+  Building wheel for cogworks-benchmark (pyproject.toml): started
+  Building wheel for cogworks-benchmark (pyproject.toml): finished with status 'done'
+  Created wheel for cogworks-benchmark: filename=cogworks_benchmark-0.2.0-py3-none-any.whl size=187152 sha256=f3cf187f1fcd000ca0d9a98ed80750b485dbe34bcf527e09c958d99315465d16
+  Stored in directory: /Users/samgu/Library/Caches/pip/wheels/36/22/e7/d4a80238fda2ce374ce12f71f49c887899ac228278b9302a9d
+Successfully built cogworks-benchmark
+Installing collected packages: cogworks-benchmark
+  Attempting uninstall: cogworks-benchmark
+    Found existing installation: cogworks-benchmark 0.2.0
+    Not uninstalling cogworks-benchmark at /Users/samgu/BWSI/2026/CogPortal/.venv-test/lib/python3.11/site-packages, outside environment /Users/samgu/Programming Projects/CogPortal-verifier-ui-e8aed6e/.venv-ui-accept
+    Can't uninstall 'cogworks-benchmark'. No files were found to uninstall.
+Successfully installed cogworks-benchmark-0.2.0
+
+[notice] A new release of pip is available: 24.0 -> 26.2.1
+[notice] To update, run: pip install --upgrade pip

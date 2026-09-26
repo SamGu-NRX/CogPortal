@@ -1,0 +1,14 @@
+{
+  "args": [
+    "/Users/samgu/BWSI/2026/CogPortal/.venv-test/bin/python",
+    "-B",
+    "-m",
+    "cogbench",
+    "check",
+    "--benchmark",
+    "vision-clustering",
+    "--json"
+  ],
+  "exitCode": 2,
+  "elapsedSeconds": 96.26260805130005
+}

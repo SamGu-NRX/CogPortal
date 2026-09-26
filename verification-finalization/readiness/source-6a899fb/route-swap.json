@@ -1,0 +1,746 @@
+{
+  "login": {
+    "user": {
+      "login": "ui-accept-e8",
+      "name": "ui-accept-e8",
+      "avatarUrl": null,
+      "platformRole": "staff",
+      "isOwner": true,
+      "isTa": false
+    },
+    "cohort": {
+      "slug": "source-accept",
+      "name": "Disposable source acceptance"
+    },
+    "team": {
+      "id": "team_source_accept",
+      "name": "Source history fixture",
+      "description": null,
+      "provenance": "live",
+      "repo": {
+        "owner": "fixture-org",
+        "name": "repo-a",
+        "fullName": "fixture-org/repo-a",
+        "url": "https://github.com/fixture-org/repo-a",
+        "defaultBranch": "main"
+      }
+    },
+    "auth": {
+      "githubConfigured": false,
+      "devAuthEnabled": true,
+      "onboardingDevToolsEnabled": true,
+      "appSlug": null,
+      "templateRepo": null,
+      "executionProvider": "fixture"
+    }
+  },
+  "before": {
+    "id": "run_source_old",
+    "mode": "practice",
+    "status": "succeeded",
+    "benchmarkId": "audio-identification",
+    "benchmarkVersion": 1,
+    "branch": "main",
+    "sha": "71258046e60fecd3295c0b52236fc6e476b0e9cf",
+    "shortSha": "7125804",
+    "createdAt": 1789082252242,
+    "finishedAt": 1789082253242,
+    "attemptNumber": null,
+    "primaryMetric": {
+      "key": "identification_score",
+      "label": "Identification score",
+      "value": 0.5375,
+      "unit": null,
+      "higherIsBetter": true,
+      "primary": true,
+      "precision": 4,
+      "help": null,
+      "role": null,
+      "relatesTo": null
+    },
+    "failure": null,
+    "contractVersion": "cogworks.submissions.v2",
+    "parentRunId": null,
+    "repo": {
+      "owner": "fixture-org",
+      "name": "repo-a",
+      "fullName": "fixture-org/repo-a",
+      "url": "https://github.com/fixture-org/repo-a"
+    },
+    "phases": [],
+    "metrics": [
+      {
+        "key": "identification_score",
+        "label": "Identification score",
+        "value": 0.5375,
+        "unit": null,
+        "higherIsBetter": true,
+        "primary": true,
+        "precision": 4,
+        "help": null,
+        "role": null,
+        "relatesTo": null
+      }
+    ],
+    "diagnostics": [],
+    "sweep": null,
+    "wiring": [],
+    "refusal": null,
+    "weightsSupplied": [],
+    "log": null,
+    "selected": false
+  },
+  "swap": {
+    "id": "team_source_accept",
+    "name": "Source history fixture",
+    "description": null,
+    "provenance": "live",
+    "repo": {
+      "owner": "cogworks-demo",
+      "name": "face-finder",
+      "fullName": "cogworks-demo/face-finder",
+      "url": "https://github.com/cogworks-demo/face-finder",
+      "defaultBranch": "main"
+    },
+    "members": [
+      {
+        "login": "ui-accept-e8",
+        "name": "ui-accept-e8",
+        "avatarUrl": null,
+        "role": "admin"
+      }
+    ],
+    "tas": [],
+    "isAdmin": true
+  },
+  "after": {
+    "id": "run_source_old",
+    "mode": "practice",
+    "status": "succeeded",
+    "benchmarkId": "audio-identification",
+    "benchmarkVersion": 1,
+    "branch": "main",
+    "sha": "71258046e60fecd3295c0b52236fc6e476b0e9cf",
+    "shortSha": "7125804",
+    "createdAt": 1789082252242,
+    "finishedAt": 1789082253242,
+    "attemptNumber": null,
+    "primaryMetric": {
+      "key": "identification_score",
+      "label": "Identification score",
+      "value": 0.5375,
+      "unit": null,
+      "higherIsBetter": true,
+      "primary": true,
+      "precision": 4,
+      "help": null,
+      "role": null,
+      "relatesTo": null
+    },
+    "failure": null,
+    "contractVersion": "cogworks.submissions.v2",
+    "parentRunId": null,
+    "repo": {
+      "owner": "fixture-org",
+      "name": "repo-a",
+      "fullName": "fixture-org/repo-a",
+      "url": "https://github.com/fixture-org/repo-a"
+    },
+    "phases": [],
+    "metrics": [
+      {
+        "key": "identification_score",
+        "label": "Identification score",
+        "value": 0.5375,
+        "unit": null,
+        "higherIsBetter": true,
+        "primary": true,
+        "precision": 4,
+        "help": null,
+        "role": null,
+        "relatesTo": null
+      }
+    ],
+    "diagnostics": [],
+    "sweep": null,
+    "wiring": [],
+    "refusal": null,
+    "weightsSupplied": [],
+    "log": null,
+    "selected": false
+  },
+  "legacy": {
+    "id": "run_source_legacy",
+    "mode": "practice",
+    "status": "succeeded",
+    "benchmarkId": "audio-identification",
+    "benchmarkVersion": 1,
+    "branch": "main",
+    "sha": "71258046e60fecd3295c0b52236fc6e476b0e9cf",
+    "shortSha": "7125804",
+    "createdAt": 1789082252243,
+    "finishedAt": 1789082253243,
+    "attemptNumber": null,
+    "primaryMetric": {
+      "key": "identification_score",
+      "label": "Identification score",
+      "value": 0.5375,
+      "unit": null,
+      "higherIsBetter": true,
+      "primary": true,
+      "precision": 4,
+      "help": null,
+      "role": null,
+      "relatesTo": null
+    },
+    "failure": null,
+    "contractVersion": "cogworks.submissions.v2",
+    "parentRunId": null,
+    "repo": null,
+    "phases": [],
+    "metrics": [
+      {
+        "key": "identification_score",
+        "label": "Identification score",
+        "value": 0.5375,
+        "unit": null,
+        "higherIsBetter": true,
+        "primary": true,
+        "precision": 4,
+        "help": null,
+        "role": null,
+        "relatesTo": null
+      }
+    ],
+    "diagnostics": [],
+    "sweep": null,
+    "wiring": [],
+    "refusal": null,
+    "weightsSupplied": [],
+    "log": null,
+    "selected": false
+  },
+  "dashboard": {
+    "benchmark": {
+      "id": "audio-identification",
+      "version": 1,
+      "contractVersion": "cogworks.submissions.v2",
+      "entryPointName": "audio-identification",
+      "title": "Song Identification",
+      "module": "audio",
+      "summary": "Enroll a catalog of songs, then identify short clips after noise, shortening, and pitch shift.",
+      "active": true,
+      "pluginVersion": "0.1.0",
+      "datasetVersion": "synth-v1",
+      "scorerVersion": "identification-v1",
+      "runtimeVersion": "week1-cpu-v1"
+    },
+    "team": {
+      "id": "team_source_accept",
+      "name": "Source history fixture",
+      "description": null,
+      "provenance": "live",
+      "repo": {
+        "owner": "cogworks-demo",
+        "name": "face-finder",
+        "fullName": "cogworks-demo/face-finder",
+        "url": "https://github.com/cogworks-demo/face-finder",
+        "defaultBranch": "main"
+      }
+    },
+    "quota": {
+      "practiceUsed": 2,
+      "practiceLimit": 10,
+      "officialUsed": 0,
+      "officialLimit": 3
+    },
+    "lastResolvedSha": null,
+    "activeRun": null,
+    "latestCandidate": {
+      "id": "run_source_legacy",
+      "mode": "practice",
+      "status": "succeeded",
+      "benchmarkId": "audio-identification",
+      "benchmarkVersion": 1,
+      "branch": "main",
+      "sha": "71258046e60fecd3295c0b52236fc6e476b0e9cf",
+      "shortSha": "7125804",
+      "createdAt": 1789082252243,
+      "finishedAt": 1789082253243,
+      "attemptNumber": null,
+      "primaryMetric": {
+        "key": "identification_score",
+        "label": "Identification score",
+        "value": 0.5375,
+        "unit": null,
+        "higherIsBetter": true,
+        "primary": true,
+        "precision": 4,
+        "help": null,
+        "role": null,
+        "relatesTo": null
+      },
+      "failure": null
+    },
+    "selection": {
+      "runId": "run_source_official",
+      "selectedAt": 1789082252242,
+      "primaryMetric": {
+        "key": "identification_score",
+        "label": "Identification score",
+        "value": 0.5375,
+        "unit": null,
+        "higherIsBetter": true,
+        "primary": true,
+        "precision": 4,
+        "help": null,
+        "role": null,
+        "relatesTo": null
+      },
+      "shortSha": "7125804",
+      "attemptNumber": null
+    },
+    "runs": [
+      {
+        "id": "run_source_official",
+        "mode": "official",
+        "status": "succeeded",
+        "benchmarkId": "audio-identification",
+        "benchmarkVersion": 1,
+        "branch": "main",
+        "sha": "71258046e60fecd3295c0b52236fc6e476b0e9cf",
+        "shortSha": "7125804",
+        "createdAt": 1789082252244,
+        "finishedAt": 1789082253244,
+        "attemptNumber": null,
+        "primaryMetric": {
+          "key": "identification_score",
+          "label": "Identification score",
+          "value": 0.5375,
+          "unit": null,
+          "higherIsBetter": true,
+          "primary": true,
+          "precision": 4,
+          "help": null,
+          "role": null,
+          "relatesTo": null
+        },
+        "failure": null
+      },
+      {
+        "id": "run_source_legacy",
+        "mode": "practice",
+        "status": "succeeded",
+        "benchmarkId": "audio-identification",
+        "benchmarkVersion": 1,
+        "branch": "main",
+        "sha": "71258046e60fecd3295c0b52236fc6e476b0e9cf",
+        "shortSha": "7125804",
+        "createdAt": 1789082252243,
+        "finishedAt": 1789082253243,
+        "attemptNumber": null,
+        "primaryMetric": {
+          "key": "identification_score",
+          "label": "Identification score",
+          "value": 0.5375,
+          "unit": null,
+          "higherIsBetter": true,
+          "primary": true,
+          "precision": 4,
+          "help": null,
+          "role": null,
+          "relatesTo": null
+        },
+        "failure": null
+      },
+      {
+        "id": "run_source_old",
+        "mode": "practice",
+        "status": "succeeded",
+        "benchmarkId": "audio-identification",
+        "benchmarkVersion": 1,
+        "branch": "main",
+        "sha": "71258046e60fecd3295c0b52236fc6e476b0e9cf",
+        "shortSha": "7125804",
+        "createdAt": 1789082252242,
+        "finishedAt": 1789082253242,
+        "attemptNumber": null,
+        "primaryMetric": {
+          "key": "identification_score",
+          "label": "Identification score",
+          "value": 0.5375,
+          "unit": null,
+          "higherIsBetter": true,
+          "primary": true,
+          "precision": 4,
+          "help": null,
+          "role": null,
+          "relatesTo": null
+        },
+        "failure": null
+      }
+    ]
+  },
+  "leaderboard": {
+    "benchmark": {
+      "id": "audio-identification",
+      "version": 1,
+      "contractVersion": "cogworks.submissions.v2",
+      "entryPointName": "audio-identification",
+      "title": "Song Identification",
+      "module": "audio",
+      "summary": "Enroll a catalog of songs, then identify short clips after noise, shortening, and pitch shift.",
+      "active": true,
+      "pluginVersion": "0.1.0",
+      "datasetVersion": "synth-v1",
+      "scorerVersion": "identification-v1",
+      "runtimeVersion": "week1-cpu-v1"
+    },
+    "entries": [
+      {
+        "rank": 1,
+        "teamName": "Source history fixture",
+        "teamDescription": null,
+        "provenance": "live",
+        "repoUrl": "https://github.com/fixture-org/repo-a",
+        "sha": "71258046e60fecd3295c0b52236fc6e476b0e9cf",
+        "shortSha": "7125804",
+        "primaryMetric": {
+          "key": "identification_score",
+          "label": "Identification score",
+          "value": 0.5375,
+          "unit": null,
+          "higherIsBetter": true,
+          "primary": true,
+          "precision": 4,
+          "help": null,
+          "role": null,
+          "relatesTo": null
+        },
+        "supportingMetrics": [],
+        "completedAt": 1789082253244,
+        "isYou": true
+      }
+    ]
+  },
+  "runs": [
+    {
+      "id": "run_source_official",
+      "mode": "official",
+      "status": "succeeded",
+      "benchmarkId": "audio-identification",
+      "benchmarkVersion": 1,
+      "branch": "main",
+      "sha": "71258046e60fecd3295c0b52236fc6e476b0e9cf",
+      "shortSha": "7125804",
+      "createdAt": 1789082252244,
+      "finishedAt": 1789082253244,
+      "attemptNumber": null,
+      "primaryMetric": {
+        "key": "identification_score",
+        "label": "Identification score",
+        "value": 0.5375,
+        "unit": null,
+        "higherIsBetter": true,
+        "primary": true,
+        "precision": 4,
+        "help": null,
+        "role": null,
+        "relatesTo": null
+      },
+      "failure": null
+    },
+    {
+      "id": "run_source_legacy",
+      "mode": "practice",
+      "status": "succeeded",
+      "benchmarkId": "audio-identification",
+      "benchmarkVersion": 1,
+      "branch": "main",
+      "sha": "71258046e60fecd3295c0b52236fc6e476b0e9cf",
+      "shortSha": "7125804",
+      "createdAt": 1789082252243,
+      "finishedAt": 1789082253243,
+      "attemptNumber": null,
+      "primaryMetric": {
+        "key": "identification_score",
+        "label": "Identification score",
+        "value": 0.5375,
+        "unit": null,
+        "higherIsBetter": true,
+        "primary": true,
+        "precision": 4,
+        "help": null,
+        "role": null,
+        "relatesTo": null
+      },
+      "failure": null
+    },
+    {
+      "id": "run_source_old",
+      "mode": "practice",
+      "status": "succeeded",
+      "benchmarkId": "audio-identification",
+      "benchmarkVersion": 1,
+      "branch": "main",
+      "sha": "71258046e60fecd3295c0b52236fc6e476b0e9cf",
+      "shortSha": "7125804",
+      "createdAt": 1789082252242,
+      "finishedAt": 1789082253242,
+      "attemptNumber": null,
+      "primaryMetric": {
+        "key": "identification_score",
+        "label": "Identification score",
+        "value": 0.5375,
+        "unit": null,
+        "higherIsBetter": true,
+        "primary": true,
+        "precision": 4,
+        "help": null,
+        "role": null,
+        "relatesTo": null
+      },
+      "failure": null
+    }
+  ],
+  "surfaces": [
+    {
+      "id": "surface_00000000000000000001",
+      "team": {
+        "id": "team_source_accept",
+        "name": "Source history fixture"
+      },
+      "benchmark": {
+        "id": "audio-identification",
+        "version": 1,
+        "title": "Song Identification"
+      },
+      "actor": {
+        "login": "ui-accept-e8",
+        "name": "ui-accept-e8"
+      },
+      "sha": "71258046e60fecd3295c0b52236fc6e476b0e9cf",
+      "shortSha": "7125804",
+      "branch": "main",
+      "dirty": false,
+      "stage": "hosted",
+      "status": "succeeded",
+      "phase": "succeeded",
+      "createdAt": 1789082252242,
+      "updatedAt": 1789082461388,
+      "finishedAt": 1789082253242,
+      "elapsedMs": 1000,
+      "progress": null,
+      "primaryMetric": {
+        "key": "identification_score",
+        "label": "Identification score",
+        "value": 0.5375,
+        "unit": null,
+        "higherIsBetter": true,
+        "primary": true,
+        "precision": 4,
+        "help": null,
+        "role": null,
+        "relatesTo": null
+      },
+      "metrics": [
+        {
+          "key": "identification_score",
+          "label": "Identification score",
+          "value": 0.5375,
+          "unit": null,
+          "higherIsBetter": true,
+          "primary": true,
+          "precision": 4,
+          "help": null,
+          "role": null,
+          "relatesTo": null
+        }
+      ],
+      "teamBest": {
+        "key": "identification_score",
+        "label": "Identification score",
+        "value": 0.5375,
+        "unit": null,
+        "higherIsBetter": true,
+        "primary": true,
+        "precision": 4,
+        "help": null,
+        "role": null,
+        "relatesTo": null
+      },
+      "localRunId": null,
+      "practiceRunId": "run_source_old",
+      "officialRunId": null,
+      "published": false,
+      "nextOfficialAttempt": 1,
+      "refusalHeadline": null,
+      "events": [],
+      "actions": [
+        "open_console",
+        "open_portal",
+        "promote_official",
+        "rerun_hosted"
+      ],
+      "simulated": true
+    },
+    {
+      "id": "surface_00000000000000000002",
+      "team": {
+        "id": "team_source_accept",
+        "name": "Source history fixture"
+      },
+      "benchmark": {
+        "id": "audio-identification",
+        "version": 1,
+        "title": "Song Identification"
+      },
+      "actor": {
+        "login": "ui-accept-e8",
+        "name": "ui-accept-e8"
+      },
+      "sha": "71258046e60fecd3295c0b52236fc6e476b0e9cf",
+      "shortSha": "7125804",
+      "branch": "main",
+      "dirty": false,
+      "stage": "hosted",
+      "status": "succeeded",
+      "phase": "succeeded",
+      "createdAt": 1789082252243,
+      "updatedAt": 1789082461388,
+      "finishedAt": 1789082253243,
+      "elapsedMs": 1000,
+      "progress": null,
+      "primaryMetric": {
+        "key": "identification_score",
+        "label": "Identification score",
+        "value": 0.5375,
+        "unit": null,
+        "higherIsBetter": true,
+        "primary": true,
+        "precision": 4,
+        "help": null,
+        "role": null,
+        "relatesTo": null
+      },
+      "metrics": [
+        {
+          "key": "identification_score",
+          "label": "Identification score",
+          "value": 0.5375,
+          "unit": null,
+          "higherIsBetter": true,
+          "primary": true,
+          "precision": 4,
+          "help": null,
+          "role": null,
+          "relatesTo": null
+        }
+      ],
+      "teamBest": {
+        "key": "identification_score",
+        "label": "Identification score",
+        "value": 0.5375,
+        "unit": null,
+        "higherIsBetter": true,
+        "primary": true,
+        "precision": 4,
+        "help": null,
+        "role": null,
+        "relatesTo": null
+      },
+      "localRunId": null,
+      "practiceRunId": "run_source_legacy",
+      "officialRunId": null,
+      "published": false,
+      "nextOfficialAttempt": 1,
+      "refusalHeadline": null,
+      "events": [],
+      "actions": [
+        "open_console",
+        "open_portal",
+        "promote_official",
+        "rerun_hosted"
+      ],
+      "simulated": true
+    },
+    {
+      "id": "surface_00000000000000000003",
+      "team": {
+        "id": "team_source_accept",
+        "name": "Source history fixture"
+      },
+      "benchmark": {
+        "id": "audio-identification",
+        "version": 1,
+        "title": "Song Identification"
+      },
+      "actor": {
+        "login": "ui-accept-e8",
+        "name": "ui-accept-e8"
+      },
+      "sha": "71258046e60fecd3295c0b52236fc6e476b0e9cf",
+      "shortSha": "7125804",
+      "branch": "main",
+      "dirty": false,
+      "stage": "published",
+      "status": "succeeded",
+      "phase": "succeeded",
+      "createdAt": 1789082252244,
+      "updatedAt": 1789082461388,
+      "finishedAt": 1789082253244,
+      "elapsedMs": 1000,
+      "progress": null,
+      "primaryMetric": {
+        "key": "identification_score",
+        "label": "Identification score",
+        "value": 0.5375,
+        "unit": null,
+        "higherIsBetter": true,
+        "primary": true,
+        "precision": 4,
+        "help": null,
+        "role": null,
+        "relatesTo": null
+      },
+      "metrics": [
+        {
+          "key": "identification_score",
+          "label": "Identification score",
+          "value": 0.5375,
+          "unit": null,
+          "higherIsBetter": true,
+          "primary": true,
+          "precision": 4,
+          "help": null,
+          "role": null,
+          "relatesTo": null
+        }
+      ],
+      "teamBest": {
+        "key": "identification_score",
+        "label": "Identification score",
+        "value": 0.5375,
+        "unit": null,
+        "higherIsBetter": true,
+        "primary": true,
+        "precision": 4,
+        "help": null,
+        "role": null,
+        "relatesTo": null
+      },
+      "localRunId": null,
+      "practiceRunId": null,
+      "officialRunId": "run_source_official",
+      "published": true,
+      "nextOfficialAttempt": 1,
+      "refusalHeadline": null,
+      "events": [],
+      "actions": [
+        "open_console",
+        "open_portal"
+      ],
+      "simulated": true
+    }
+  ]
+}

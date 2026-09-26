@@ -1,0 +1,10 @@
+{
+  "baselineRestoredExactSqlDump": true,
+  "localSessionsAfterRestore": 0,
+  "audioActiveAfterRestore": 0,
+  "retainedStudentHead": "71258046e60fecd3295c0b52236fc6e476b0e9cf",
+  "retainedStudentStatus": "",
+  "candidateTrackedDiff": "",
+  "candidateStatus": "?? apps/portal/node_modules\n?? node_modules\n?? packages/contracts/node_modules",
+  "ownTemporaryResourcesRemoved": true
+}

@@ -1,0 +1,176 @@
+{
+  "benchmarkInstalled": true,
+  "benchmarkLoadable": true,
+  "canonicalHostedPython": "3.8.20",
+  "contractVersion": "cogworks.submissions.v2",
+  "dataEvaluationCache": {
+    "message": "ready",
+    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/language",
+    "ready": true
+  },
+  "dataTestCache": {
+    "message": "ready",
+    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/language",
+    "ready": true
+  },
+  "discovery": {
+    "attemptsTried": 0,
+    "branches": {
+      "prepare": [
+        "database.ImageDatabase"
+      ],
+      "text": [
+        "text_embedder (CaptionVectorizer)"
+      ]
+    },
+    "chain": [],
+    "discovery": {
+      "considered": [
+        "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w3-g2-language",
+        "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w3-g2-language/Individual Stuff"
+      ],
+      "modules": [
+        {
+          "name": "captions_to_vec",
+          "origin": "file",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w3-g2-language/Individual Stuff/captions_to_vec.py",
+          "redirectNote": [
+            "their path to glove.6B.200d.txt.w2v was redirected to the benchmark's copy"
+          ],
+          "redirected": [
+            "glove.6B.200d.txt.w2v"
+          ]
+        },
+        {
+          "name": "coco_data",
+          "origin": "file",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w3-g2-language/Individual Stuff/coco_data.py"
+        },
+        {
+          "name": "database",
+          "origin": "file",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w3-g2-language/Individual Stuff/database.py"
+        },
+        {
+          "name": "image_to_caption_model",
+          "origin": "file",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w3-g2-language/Individual Stuff/image_to_caption_model.py"
+        },
+        {
+          "name": "training",
+          "origin": "file",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w3-g2-language/Individual Stuff/training.py"
+        }
+      ],
+      "root": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w3-g2-language/Individual Stuff",
+      "rootReason": "the rest of the code imports from here",
+      "skipped": [
+        {
+          "detail": "AttributeError: 'str' object has no attribute 'image_id_to_caption_ids'",
+          "missing": null,
+          "name": "Yum_captions",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w3-g2-language/Individual Stuff/Yum_captions.py",
+          "reason": "raised"
+        },
+        {
+          "detail": "imports gradio, which is not installed here",
+          "missing": "gradio",
+          "name": "frontend",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w3-g2-language/Individual Stuff/frontend.py",
+          "reason": "missing_dependency"
+        },
+        {
+          "detail": "imports gradio, which is not installed here",
+          "missing": "gradio",
+          "name": "main",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w3-g2-language/Individual Stuff/main.py",
+          "reason": "missing_dependency"
+        }
+      ],
+      "stubCalls": [],
+      "stubbed": [
+        "streamlit",
+        "microphone",
+        "pyaudio",
+        "camera"
+      ]
+    },
+    "fits": [
+      [
+        "course_data",
+        "coco_data.COCOData"
+      ],
+      [
+        "text_embedder",
+        "captions_to_vec.CaptionVectorizer"
+      ]
+    ],
+    "hashRandomization": false,
+    "hashSeed": "0",
+    "missing": {
+      "image": {
+        "detail": "nothing accepted the input the benchmark passes",
+        "stage": "image"
+      },
+      "search": {
+        "detail": "nothing accepted the input the benchmark passes",
+        "stage": "search"
+      }
+    },
+    "recalled": false,
+    "supplied": [
+      {
+        "step": "text_embedder (CaptionVectorizer)",
+        "supplied": "text_embedder (CaptionVectorizer) handed to the chain as this step"
+      },
+      {
+        "step": "coco_data.COCOData",
+        "supplied": "coco_json_path"
+      },
+      {
+        "step": "coco_data.COCOData",
+        "supplied": "resnet_features_path"
+      },
+      {
+        "step": "coco_data.COCOData",
+        "supplied": "computed once as course_data"
+      },
+      {
+        "step": "captions_to_vec.CaptionVectorizer",
+        "supplied": "course_data"
+      },
+      {
+        "step": "captions_to_vec.CaptionVectorizer",
+        "supplied": "computed once as text_embedder"
+      }
+    ],
+    "verdict": {
+      "coverage": {
+        "read": [],
+        "readEnoughToJudge": true,
+        "skipped": []
+      },
+      "errors": [],
+      "headline": "Your code is wired up and ready to score.",
+      "nextStep": "",
+      "notes": [],
+      "status": "scored",
+      "trace": []
+    },
+    "weightsUsed": []
+  },
+  "gitRepository": true,
+  "localGap": [],
+  "modelCache": {
+    "message": "ready",
+    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/language",
+    "ready": true
+  },
+  "python": "3.11.15",
+  "repositoryFullName": "CogWorks-2026-Team-Asterisk/Week3-Capstone",
+  "submissionDetail": null,
+  "submissionError": "We look for your adapter at the repository root, and /Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w3-g2-language has neither submission.py nor benchmark_adapter.py. Create submission.py there, define create_submission, and return your adapter from it. Nothing is registered as \"language-search\" in \"cogworks.submissions.v2\" either (installed: none), so if you meant to install your project as a package, reinstall it.",
+  "submissionInstalled": false,
+  "submissionLoadable": true,
+  "submissionSource": "discovery"
+}

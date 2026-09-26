@@ -1,0 +1,32 @@
+{
+  "cogworks-benchmark": {
+    "version": "0.2.0",
+    "path": "/tmp/cogportal-language-weight-venv/lib/python3.11/site-packages",
+    "direct": {
+      "subdirectory": "python/cogbench",
+      "url": "https://github.com/SamGu-NRX/CogPortal.git",
+      "vcs_info": {
+        "commit_id": "d9405278aac8268cd340e589f36dbad766d1e2a0",
+        "requested_revision": "d9405278aac8268cd340e589f36dbad766d1e2a0",
+        "vcs": "git"
+      }
+    }
+  },
+  "cogworks-week3-language-benchmark": {
+    "version": "0.1.0",
+    "path": "/tmp/cogportal-language-weight-venv/lib/python3.11/site-packages",
+    "direct": {
+      "url": "https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git",
+      "vcs_info": {
+        "commit_id": "fff786537567939936bf65042c09cdea27c90798",
+        "requested_revision": "fff786537567939936bf65042c09cdea27c90798",
+        "vcs": "git"
+      }
+    }
+  },
+  "numpy": "/Users/samgu/BWSI/2026/CogPortal/.venv-test/lib/python3.11/site-packages/numpy/__init__.py",
+  "gensim": "/Users/samgu/BWSI/2026/CogPortal/.venv-test/lib/python3.11/site-packages/gensim/__init__.py",
+  "mygrad": "/Users/samgu/BWSI/2026/CogPortal/.venv-test/lib/python3.11/site-packages/mygrad/__init__.py",
+  "mynn": "/Users/samgu/BWSI/2026/CogPortal/.venv-test/lib/python3.11/site-packages/mynn/__init__.py",
+  "cogworks_data": "/Users/samgu/BWSI/2026/CogPortal/.venv-test/lib/python3.11/site-packages/cogworks_data/__init__.py"
+}

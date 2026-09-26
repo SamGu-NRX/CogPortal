@@ -1,0 +1,16 @@
+{
+  "setupAudio5of5": true,
+  "initialTemporaryTrack": "Recognition",
+  "temporaryTrackSelected": "Song Identification",
+  "resultSucceeded": true,
+  "score": 0.5375,
+  "source": "e515ff619e02c16be903985d8536bc5ee6d7a2e9",
+  "backDashboardPassed": true,
+  "runActionEnabled": true,
+  "originalReadyTab": {
+    "url": "https://cogportal-dev.sillion.app/runs/run_cebcd88c82"
+  },
+  "no503OrAuthErrorObserved": true,
+  "presenterInstruction": "For a fresh or revisited Dashboard, select Song Identification if needed, then select codex/demo-rehearsal-d9405278 before Run practice benchmark. Navigation defaults the branch to main.",
+  "limitation": "Bounded navigation passed; previous load-related503 capacity risk remains unresolved, so this does not guarantee uninterrupted service."
+}

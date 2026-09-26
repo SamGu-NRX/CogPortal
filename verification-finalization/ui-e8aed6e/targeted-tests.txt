@@ -1,0 +1,32 @@
+✔ a copied command records the step it was signed for (58.948625ms)
+✔ a check-off ticks its own track and no other (18.548833ms)
+✔ the clone check-off stays unscoped, because a repository is one repository (19.87625ms)
+✔ a forged or expired token records nothing (16.497625ms)
+✔ following the address does not tick the box (12.852542ms)
+✔ a check-off never overwrites what the CLI observed (15.2755ms)
+✔ a token is byte-identical while the page is polling (0.904708ms)
+✔ every step the page offers a command for can actually be checked off (16.059666ms)
+✔ wiring cannot be checked off by hand (13.484875ms)
+✔ the tool is installed from a commit, like every other package here (1.55ms)
+✔ only the tool is force-reinstalled, never a benchmark (0.548334ms)
+✔ the check that claims to update this page carries the flag that does it (0.237125ms)
+✔ every benchmark package is pinned to a commit rather than a branch (0.230083ms)
+✔ the two vision tracks install one distribution (0.095167ms)
+✔ a track with no published package shows no install line rather than a guess (0.156458ms)
+✔ the sheet never asks for an editable install (0.230083ms)
+✔ the clone command names the team's own repository (0.088917ms)
+✔ a gutter cell fills only for a step the portal has observed (0.208792ms)
+✔ the rail ticks only the steps it has verified (8.594917ms)
+✔ every step renders its own heading, its own mark and its own command (2.149709ms)
+✔ the rail's own text uses no em dash (2.284833ms)
+✔ an unreadable evidence request is not rendered as work nobody did (2.17525ms)
+✔ a read that succeeded still ticks (2.615375ms)
+✔ one failed read does not blank the steps the other read answered (2.872959ms)
+ℹ tests 24
+ℹ suites 0
+ℹ pass 24
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 7067.042667

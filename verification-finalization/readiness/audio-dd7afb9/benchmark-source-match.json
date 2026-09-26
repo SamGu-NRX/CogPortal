@@ -1,0 +1,70 @@
+[
+  {
+    "file": "audio_identification_benchmark/__init__.py",
+    "matches": true
+  },
+  {
+    "file": "audio_identification_benchmark/adapters.py",
+    "matches": true
+  },
+  {
+    "file": "audio_identification_benchmark/checks.py",
+    "matches": true
+  },
+  {
+    "file": "audio_identification_benchmark/contracts.py",
+    "matches": true
+  },
+  {
+    "file": "audio_identification_benchmark/datasets.py",
+    "matches": true
+  },
+  {
+    "file": "audio_identification_benchmark/discovered.py",
+    "matches": true
+  },
+  {
+    "file": "audio_identification_benchmark/drivers.py",
+    "matches": true
+  },
+  {
+    "file": "audio_identification_benchmark/exactmath.py",
+    "matches": true
+  },
+  {
+    "file": "audio_identification_benchmark/manifests/__init__.py",
+    "matches": true
+  },
+  {
+    "file": "audio_identification_benchmark/manifests/public-evaluation.json",
+    "matches": true
+  },
+  {
+    "file": "audio_identification_benchmark/manifests/public-test.json",
+    "matches": true
+  },
+  {
+    "file": "audio_identification_benchmark/metrics.py",
+    "matches": true
+  },
+  {
+    "file": "audio_identification_benchmark/plugins.py",
+    "matches": true
+  },
+  {
+    "file": "audio_identification_benchmark/py.typed",
+    "matches": true
+  },
+  {
+    "file": "audio_identification_benchmark/roles.py",
+    "matches": true
+  },
+  {
+    "file": "audio_identification_benchmark/sweep.py",
+    "matches": true
+  },
+  {
+    "file": "audio_identification_benchmark/synth.py",
+    "matches": true
+  }
+]

@@ -1,0 +1,55 @@
+{
+  "buildMeta": [],
+  "buttons": [],
+  "code": [
+    {
+      "classes": "font-mono text-[12.5px]",
+      "parent": "P",
+      "text": "cogworks run"
+    }
+  ],
+  "links": [
+    {
+      "href": "#main",
+      "svg": 0,
+      "text": "Skip to content"
+    },
+    {
+      "href": "/",
+      "svg": 0,
+      "text": "Cog*Portal"
+    },
+    {
+      "href": "/leaderboard",
+      "svg": 0,
+      "text": "Leaderboard"
+    },
+    {
+      "href": "/signin",
+      "svg": 0,
+      "text": "Sign in"
+    },
+    {
+      "href": "/signin",
+      "svg": 1,
+      "text": "Sign in with GitHub"
+    },
+    {
+      "href": "/leaderboard",
+      "svg": 0,
+      "text": "Results"
+    },
+    {
+      "href": "/signin",
+      "svg": 0,
+      "text": "Sign in →"
+    }
+  ],
+  "scripts": [
+    "https://cogportal-dev.sillion.app/assets/index-CWTD-8NB.js"
+  ],
+  "styles": [
+    "https://cogportal-dev.sillion.app/assets/run-surface-stream-DUPVSzdi.css"
+  ],
+  "url": "https://cogportal-dev.sillion.app/"
+}

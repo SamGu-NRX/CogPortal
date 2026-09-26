@@ -1,0 +1,24 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Dashboard":
+      - /url: /dashboard
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "ui-accept-e8 CogPortal owner Account menu for ui-accept-e8":
+    - generic: u
+    - generic: ui-accept-e8
+    - img "CogPortal owner":
+    - generic: Account menu for ui-accept-e8
+- main:
+  - heading "Semantic Image Search" [level=1]
+  - tablist "Benchmark track":
+    - tab "Audio"
+    - tab "Vision"
+    - tab "Language" [active] [selected]: Language
+  - paragraph: No official results are published yet. Check again after teams publish their results.
+- document

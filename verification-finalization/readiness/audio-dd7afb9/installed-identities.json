@@ -1,0 +1,24 @@
+{
+  "python": "3.11.15 (main, May 10 2026, 19:23:07) [Clang 22.1.3 ]",
+  "sdk": "/tmp/cogportal-audio-dd7-venv/lib/python3.11/site-packages/cogbench/__init__.py",
+  "sdkVersion": "0.2.0",
+  "sdkMatchesPinnedPythonModules": true,
+  "moduleCount": 22,
+  "benchmark": "/Users/samgu/Programming Projects/CogPortal-verifier-ui-e8aed6e/.venv-ui-accept/lib/python3.11/site-packages/audio_identification_benchmark/__init__.py",
+  "benchmarkDirectUrl": {
+    "url": "https://github.com/SamGu-NRX/cogworks-week1-audio-benchmark.git",
+    "vcs_info": {
+      "commit_id": "b156644aecc810e0b93535e320098f96c39ae04e",
+      "requested_revision": "b156644aecc810e0b93535e320098f96c39ae04e",
+      "vcs": "git"
+    }
+  },
+  "dependencies": {
+    "numpy": "1.24.4",
+    "scipy": "1.10.1",
+    "matplotlib": "3.7.5",
+    "numba": "0.58.1",
+    "librosa": "0.11.0",
+    "soundfile": "0.12.1"
+  }
+}

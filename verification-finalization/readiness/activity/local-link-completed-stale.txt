@@ -1,0 +1,13 @@
+- document
+- complementary:
+  - text: LOCAL FIXTURE. Discord identity and API are simulated.
+  - button "Simulate completed browser link" [active]
+  - button "Drop fixture stream for ten seconds"
+  - status: http://127.0.0.1:5191/link-fixture
+- main:
+  - generic: One connection
+  - heading "Link Cog*Portal to see your team's bench." [level=1]
+  - paragraph: Discord is attached to your existing GitHub-first portal account. No repository access or Discord login is stored on your laptop.
+  - button "Link Cog*Portal ↗"
+  - paragraph: After linking, close this Activity and open it again.
+- document

@@ -1,0 +1,15 @@
+{
+  "active": "Close",
+  "code": "cogworks run --benchmark language-search --live",
+  "dialog": {
+    "bottom": 545.1656494140625,
+    "height": 246.23434448242188,
+    "left": 16,
+    "right": 374,
+    "top": 298.9313049316406,
+    "width": 358,
+    "x": 16,
+    "y": 298.9313049316406
+  },
+  "overflow": 0
+}

@@ -1,0 +1,23 @@
+{
+  "textsUnchanged": true,
+  "before": {
+    "bottom": 282.96875,
+    "height": 186.96875,
+    "left": -134,
+    "right": 74,
+    "top": 96,
+    "width": 208,
+    "x": -134,
+    "y": 96
+  },
+  "after": {
+    "bottom": 282.96875,
+    "height": 186.96875,
+    "left": 20,
+    "right": 228,
+    "top": 96,
+    "width": 208,
+    "x": 20,
+    "y": 96
+  }
+}

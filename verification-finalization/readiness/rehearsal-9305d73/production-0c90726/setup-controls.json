@@ -1,0 +1,41 @@
+{
+  "controls": [
+    {
+      "height": 28,
+      "svg": true,
+      "width": 28
+    },
+    {
+      "height": 28,
+      "svg": true,
+      "width": 28
+    },
+    {
+      "height": 28,
+      "svg": true,
+      "width": 28
+    },
+    {
+      "height": 28,
+      "svg": true,
+      "width": 28
+    },
+    {
+      "height": 28,
+      "svg": true,
+      "width": 28
+    },
+    {
+      "height": 28,
+      "svg": true,
+      "width": 28
+    }
+  ],
+  "highlighting": {
+    "highlightedBlocks": 6,
+    "scrollWidth": 1506,
+    "width": 1506
+  },
+  "nativeCloneCopyExact": true,
+  "playwrightClipboardReadEmpty": true
+}

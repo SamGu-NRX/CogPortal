@@ -1,0 +1,14 @@
+{
+  "id": "w3-g4-language",
+  "projectId": "w3-g4",
+  "week": 3,
+  "group": 4,
+  "repository": "LashikaKapoor28/Language_Module_Capstone",
+  "path": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/LashikaKapoor28__Language_Module_Capstone",
+  "sha": "8789361ad7dec86fa724431873f674e03b449951",
+  "subdirectory": ".",
+  "benchmark": "language-search",
+  "version": 1,
+  "environment": "local311",
+  "status": "not-run"
+}

@@ -1,0 +1,90 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Dashboard":
+      - /url: /dashboard
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "Sam CogPortal owner Account menu for SamGu-NRX":
+    - generic: Sam
+    - img "CogPortal owner":
+    - generic: Account menu for SamGu-NRX
+- main:
+  - paragraph: Good afternoon, Sam
+  - heading "CogPortal" [level=1]:
+    - link "CogPortal":
+      - /url: /team
+  - button "Song Identification · v1 Change benchmark track. Currently Song Identification.":
+    - text: Song Identification · v1
+    - generic: Change benchmark track. Currently Song Identification.
+  - heading "START A RUN" [level=2]
+  - generic: Branch
+  - combobox "Branch" [active]:
+    - option "main"
+    - option "codex/demo-rehearsal-d9405278" [selected]
+  - button "Run practice benchmark"
+  - paragraph: 8 of 10 hosted runs left
+  - generic: Candidate ready
+  - paragraph:
+    - link "RUN 10DE":
+      - /url: /runs/run_b647f110de
+    - text: scored 0.5375 on codex/demo-rehearsal-d9405278 · e515ff6
+  - paragraph: SamGu-NRX/cogportal-demo-week1
+  - button "Promote to official"
+  - paragraph: Runs the same commit against hidden inputs. Logs are suppressed.
+  - heading "RUN LOG" [level=2]
+  - generic: 2 recorded
+  - list:
+    - link "RUN 10DE practice Succeeded codex/demo-rehearsal-d9405278 · e515ff6 0.5375 10 h ago":
+      - /url: /runs/run_b647f110de
+      - generic: RUN 10DE
+      - generic: practice
+      - generic: Succeeded
+      - generic: codex/demo-rehearsal-d9405278 · e515ff6
+      - generic: "0.5375"
+      - generic: 10 h ago
+    - link "RUN 16D2 practice Succeeded codex/demo-rehearsal-d9405278 · e515ff6 0.5375 10 h ago":
+      - /url: /runs/run_6c658516d2
+      - generic: RUN 16D2
+      - generic: practice
+      - generic: Succeeded
+      - generic: codex/demo-rehearsal-d9405278 · e515ff6
+      - generic: "0.5375"
+      - generic: 10 h ago
+  - heading "CONNECTED SOURCE" [level=2]
+  - link "SamGu-NRX/cogportal-demo-week1":
+    - /url: https://github.com/SamGu-NRX/cogportal-demo-week1
+  - generic: last tested
+  - button "Copy full commit SHA e515ff619e02c16be903985d8536bc5ee6d7a2e9":
+    - generic: e515ff6
+  - status
+  - paragraph: week1-cpu-v1 · CPU · network blocked during evaluation
+  - heading "ATTEMPT BUDGET" [level=2]
+  - generic: Hosted practice
+  - generic: 2/10 used
+  - 'img "Hosted practice: 2 of 10 used"'
+  - generic: Official attempts
+  - generic: 0/3 used
+  - 'img "Official attempts: 0 of 3 used"'
+  - paragraph: Completed hosted evaluations count here. Failed runs don't use quota. Local runs are unlimited.
+  - heading "LOCAL REPORTS" [level=2]
+  - generic: SELF-REPORTED · NOT PROMOTABLE
+  - table "Self-reported local CogBench results":
+    - caption: Self-reported local CogBench results
+    - rowgroup:
+      - row "Student Commit Result Synced":
+        - columnheader "Student"
+        - columnheader "Commit"
+        - columnheader "Result"
+        - columnheader "Synced"
+    - rowgroup:
+      - row "SamGu-NRX e515ff6 0.5375 10 h ago":
+        - cell "SamGu-NRX"
+        - cell "e515ff6"
+        - cell "0.5375"
+        - cell "10 h ago"
+- document

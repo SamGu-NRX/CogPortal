@@ -1,0 +1,34 @@
+[
+  {
+    "user_id": "LKF2CPVCu9OoHoUJSj0JopaeBkZSvhAS",
+    "team_id": "team_ui_accept_e8",
+    "step": "clone",
+    "benchmark_id": "",
+    "verified_at": 1789075453061,
+    "source": "cli"
+  },
+  {
+    "user_id": "LKF2CPVCu9OoHoUJSj0JopaeBkZSvhAS",
+    "team_id": "team_ui_accept_e8",
+    "step": "environment",
+    "benchmark_id": "audio-identification",
+    "verified_at": 1789075453061,
+    "source": "cli"
+  },
+  {
+    "user_id": "LKF2CPVCu9OoHoUJSj0JopaeBkZSvhAS",
+    "team_id": "team_ui_accept_e8",
+    "step": "project",
+    "benchmark_id": "audio-identification",
+    "verified_at": 1789075453061,
+    "source": "cli"
+  },
+  {
+    "user_id": "LKF2CPVCu9OoHoUJSj0JopaeBkZSvhAS",
+    "team_id": "team_ui_accept_e8",
+    "step": "wiring",
+    "benchmark_id": "audio-identification",
+    "verified_at": 1789075453061,
+    "source": "cli"
+  }
+]

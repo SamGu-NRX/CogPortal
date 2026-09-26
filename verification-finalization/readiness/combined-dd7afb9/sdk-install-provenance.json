@@ -1,0 +1,104 @@
+{
+  "python": "3.11.15 (main, May 10 2026, 19:23:07) [Clang 22.1.3 ]",
+  "imported": "/tmp/cogportal-dd7-cli-venv/lib/python3.11/site-packages/cogbench/__init__.py",
+  "version": "0.2.0",
+  "direct_url": {
+    "subdirectory": "python/cogbench",
+    "url": "https://github.com/SamGu-NRX/CogPortal.git",
+    "vcs_info": {
+      "commit_id": "1b7fc261abfe0ff006a4a678d936e75002e5bb39",
+      "requested_revision": "1b7fc261abfe0ff006a4a678d936e75002e5bb39",
+      "vcs": "git"
+    }
+  },
+  "modules": [
+    {
+      "module": "cogbench/__init__.py",
+      "sourceMatches": true
+    },
+    {
+      "module": "cogbench/__main__.py",
+      "sourceMatches": true
+    },
+    {
+      "module": "cogbench/apploader.py",
+      "sourceMatches": true
+    },
+    {
+      "module": "cogbench/cli.py",
+      "sourceMatches": true
+    },
+    {
+      "module": "cogbench/client.py",
+      "sourceMatches": true
+    },
+    {
+      "module": "cogbench/discover.py",
+      "sourceMatches": true
+    },
+    {
+      "module": "cogbench/discovery_spec.py",
+      "sourceMatches": true
+    },
+    {
+      "module": "cogbench/environment.py",
+      "sourceMatches": true
+    },
+    {
+      "module": "cogbench/isolate.py",
+      "sourceMatches": true
+    },
+    {
+      "module": "cogbench/memo.py",
+      "sourceMatches": true
+    },
+    {
+      "module": "cogbench/models.py",
+      "sourceMatches": true
+    },
+    {
+      "module": "cogbench/pipeline.py",
+      "sourceMatches": true
+    },
+    {
+      "module": "cogbench/plugins.py",
+      "sourceMatches": true
+    },
+    {
+      "module": "cogbench/process.py",
+      "sourceMatches": true
+    },
+    {
+      "module": "cogbench/progress.py",
+      "sourceMatches": true
+    },
+    {
+      "module": "cogbench/project.py",
+      "sourceMatches": true
+    },
+    {
+      "module": "cogbench/raised.py",
+      "sourceMatches": true
+    },
+    {
+      "module": "cogbench/report.py",
+      "sourceMatches": true
+    },
+    {
+      "module": "cogbench/resolve.py",
+      "sourceMatches": true
+    },
+    {
+      "module": "cogbench/runner.py",
+      "sourceMatches": true
+    },
+    {
+      "module": "cogbench/storage.py",
+      "sourceMatches": true
+    },
+    {
+      "module": "cogbench/verdict.py",
+      "sourceMatches": true
+    }
+  ]
+}

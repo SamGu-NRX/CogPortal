@@ -1,0 +1,98 @@
+{
+  "bodyComputed": {
+    "background": "rgb(43, 38, 26)",
+    "color": "rgb(185, 180, 171)"
+  },
+  "darkMedia": true,
+  "darkreaderStyleCount": 13,
+  "dotComputed": {
+    "background": "rgb(33, 38, 46)",
+    "inkVariable": "#1c2637"
+  },
+  "rules": [
+    {
+      "css": "--darkreader-neutral-background: var(--darkreader-background-ffffff, #222222); --darkreader-neutral-text: var(--darkreader-text-000000, #cfcbc4); --darkreader-selection-background: var(--darkreader-background-0060d4, #154c8e); --darkreader-selection-text: var(--darkreader-text-ffffff, #d0cbc4); --darkreader-background-ffffff: #222222; --darkreader-text-ffffff: #d0cbc4; --darkreader-border-404040: #70685d; --darkreader-text-000000: #cfcbc4; --darkreader-border-4c4c4c: #6c665a; --darkreader-text-0040ff: #4783c8; --darkreader-border-808080: #555858; --darkreader-text-a9a9a9: #a19a90; --darkreader-background-faffbd: #424416; --darkreader-background-0060d4: #154c8e; --darkreader-background-ffd76e: #5f4b18; --darkreader-background-c59d00: #8b741f; --darkreader-text-302505: #c1bcb4; --darkreader-background-add8e6: #2a4850; --darkreader-background-cfecf5: #203b42; --darkreader-background-f5f5f5: #272727; --darkreader-background-faedda: #423219; --darkreader-background-85c3d8: #345862; --darkreader-background-e6e6e6: #2e2f2f; --darkreader-background-f9f9f9: #242625; --darkreader-background-f7f3ea: #2b261a; --darkreader-text-f7f3ea: #d0c7b3; --darkreader-border-f7f3ea: #4e432b; --darkreader-background-fdfbf5: #2a2515; --darkreader-text-fdfbf5: #d9cfb6; --darkreader-border-fdfbf5: #544723; --darkreader-background-efe9db: #302b1e; --darkreader-background-1c2637: #21262e; --darkreader-text-1c2637: #b9b4ab; --darkreader-border-1c2637: #756e62; --darkreader-text-4b566b: #9f988d; --darkreader-border-4b566b: #686157; --darkreader-background-7d8697: #5a5e5d; --darkreader-text-7d8697: #90897d; --darkreader-text-1c263729: rgba(185, 180, 171, 0.16); --darkreader-border-1c263729: rgba(117, 110, 98, 0.16); --darkreader-background-1c263714: rgba(33, 38, 46, 0.08); --darkreader-border-1c263714:",
+      "injected": true,
+      "selector": ":root",
+      "source": "inline"
+    },
+    {
+      "css": "",
+      "injected": true,
+      "selector": ":root",
+      "source": "inline"
+    },
+    {
+      "css": "--activity-safe-top: var(--discord-safe-area-inset-top,env(safe-area-inset-top,0px)); --activity-safe-right: var(--discord-safe-area-inset-right,env(safe-area-inset-right,0px)); --activity-safe-bottom: var(--discord-safe-area-inset-bottom,env(safe-area-inset-bottom,0px)); --activity-safe-left: var(--discord-safe-area-inset-left,env(safe-area-inset-left,0px));",
+      "injected": false,
+      "selector": ":root",
+      "source": "https://cogportal.sillion.app/assets/run-surface-stream-Cmr1sG_w.css"
+    },
+    {
+      "css": "background-color: var(--color-paper); color: var(--color-ink); font-family: var(--font-sans); -webkit-font-smoothing: antialiased; text-rendering: optimizelegibility; background-image: linear-gradient(90deg, rgba(28, 38, 55, 0.024) 1px, rgba(0, 0, 0, 0) 1px), linear-gradient(rgba(28, 38, 55, 0.024) 1px, rgba(0, 0, 0, 0) 1px); background-size: 48px 48px; font-size: 15px; line-height: 1.55;",
+      "injected": false,
+      "selector": "body",
+      "source": "https://cogportal.sillion.app/assets/run-surface-stream-Cmr1sG_w.css"
+    },
+    {
+      "css": "background-color: var(--color-ink);",
+      "injected": false,
+      "selector": ".bg-ink",
+      "source": "https://cogportal.sillion.app/assets/run-surface-stream-Cmr1sG_w.css"
+    },
+    {
+      "css": "background-color: var(--color-ink-faint);",
+      "injected": false,
+      "selector": ".bg-ink-faint",
+      "source": "https://cogportal.sillion.app/assets/run-surface-stream-Cmr1sG_w.css"
+    },
+    {
+      "css": "background-color: rgba(28, 38, 55, 0.35);",
+      "injected": false,
+      "selector": ".bg-ink\\/35",
+      "source": "https://cogportal.sillion.app/assets/run-surface-stream-Cmr1sG_w.css"
+    },
+    {
+      "css": "background-color: color-mix(in oklab, var(--color-ink) 35%, transparent);",
+      "injected": false,
+      "selector": ".bg-ink\\/35",
+      "source": "https://cogportal.sillion.app/assets/run-surface-stream-Cmr1sG_w.css"
+    },
+    {
+      "css": "--activity-safe-top: var(--discord-safe-area-inset-top,env(safe-area-inset-top,0px)); --activity-safe-right: var(--discord-safe-area-inset-right,env(safe-area-inset-right,0px)); --activity-safe-bottom: var(--discord-safe-area-inset-bottom,env(safe-area-inset-bottom,0px)); --activity-safe-left: var(--discord-safe-area-inset-left,env(safe-area-inset-left,0px));",
+      "injected": true,
+      "selector": ":root",
+      "source": "inline"
+    },
+    {
+      "css": "background-color: var(--darkreader-bg--color-paper, var(--darkreader-background-ffffff, #222222)); color: var(--darkreader-text--color-ink, var(--darkreader-text-000000, #cfcbc4)); background-image: linear-gradient(90deg, var(--darkreader-background-1c263706, rgba(33, 38, 46, 0.02)) 1px, var(--darkreader-background-00000000, rgba(13, 13, 13, 0)) 1px),  linear-gradient(var(--darkreader-background-1c263706, rgba(33, 38, 46, 0.02)) 1px, var(--darkreader-background-00000000, rgba(13, 13, 13, 0)) 1px); background-size: 48px 48px;",
+      "injected": true,
+      "selector": "body",
+      "source": "inline"
+    },
+    {
+      "css": "background-color: var(--darkreader-bg--color-ink, var(--darkreader-background-ffffff, #222222));",
+      "injected": true,
+      "selector": ".bg-ink",
+      "source": "inline"
+    },
+    {
+      "css": "background-color: var(--darkreader-bg--color-ink-faint, var(--darkreader-background-ffffff, #222222));",
+      "injected": true,
+      "selector": ".bg-ink-faint",
+      "source": "inline"
+    },
+    {
+      "css": "background-color: var(--darkreader-background-1c263759, rgba(33, 38, 46, 0.35));",
+      "injected": true,
+      "selector": ".bg-ink\\/35",
+      "source": "inline"
+    },
+    {
+      "css": "background-color: color-mix(in oklab, var(--darkreader-bg--color-ink, var(--darkreader-background-ffffff, #222222)) 35%, transparent);",
+      "injected": true,
+      "selector": ".bg-ink\\/35",
+      "source": "inline"
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "databaseRestoredExactSqlDump": true,
+  "newRuns": 0,
+  "serverStopped": true,
+  "viewportReset": true,
+  "verifierTabClosed": true,
+  "temporaryAccountMembershipSessionRemoved": true,
+  "head": "f2c720889778f385f1eadfeb3f520a75f21a94ac",
+  "trackedDiff": "",
+  "status": "?? apps/portal/node_modules\n?? node_modules\n?? packages/contracts/node_modules"
+}

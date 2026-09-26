@@ -1,0 +1,8 @@
+Production Audio rehearsal passed on the one newly submitted practice run `run_4e15c756d0`, surface `surface_b219ca3a12dbfca948c4`. The supported browser selectOption selected codex/demo-rehearsal-d9405278, independently resolved on GitHub to e515ff619e02c16be903985d8536bc5ee6d7a2e9 before submission. Saved D1 source agrees.
+
+- Run succeeded with identification_score0.5375. Browser showed completed pipeline, useful diagnostic findings and the same saved result/source after one ordinary reload. No503 occurred.
+- Fresh Discord message1549480228399612035 showed progress, then Bench clear0.5375/sourcee515ff6. Native AX activation exposed the exact production surface link. Browser duration2m56s and Discord2:55 differ in their displayed rounding; recorded timestamps are in audio-acceptance.json.
+- Dashboard now shows3/10 practice used,7left, and0/3 official. It is left on Song Identification, SamGu-NRX/cogportal-demo-week1 and selected codex/demo-rehearsal-d9405278. The existing user tab remains open. The owned Discord tab was closed.
+- Original Audio checkout remains clean; its preserved config hash is unchanged and its environment was not modified. No extra run, official promotion, deployment, billing or staging changes occurred.
+
+Browser asset index-C0FRSlVs.js was observed; Worker e4d04128 and Modalproductionv2/af9796a are the supplied release identities. The successful bounded rehearsal does not negate the earlier load-related503 incident or establish sustained capacity. Prior Language acceptance remains preserved. See audio-acceptance.json and audio-{before,result,after-reload,discord-progress,discord-final,discord-link,demo-ready} evidence alongside this report.

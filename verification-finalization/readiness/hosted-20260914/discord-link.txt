@@ -1,0 +1,35 @@
+ "Reply":
+        - generic: Reply
+        - button "Forward":
+        - generic: Forward
+        - button "More":
+        - generic: More
+  - button "More message options":
+  - generic: "Message #nb-development"
+  - 'textbox "Message #nb-development"'
+  - button "Send a gift":
+  - button "Open GIF picker":
+  - generic: Send GIF
+  - button "Open sticker picker":
+  - button "Add Emoji"
+  - button "Apps":
+- dialog "Leaving Discord":
+  - log
+  - log
+  - banner:
+    - heading "Leaving Discord" [level=1]
+    - button "Close":
+    - generic: This link is taking you to the following website
+  - main:
+    - generic: https://
+    - text: cogportal-dev.sillion.app/run-surfaces/surface_01a4954dd1f69660dc21
+    - checkbox "Trust cogportal-dev.sillion.app links from now on"
+    - text: Trust
+    - strong: cogportal-dev.sillion.app
+    - text: links from now on
+  - contentinfo:
+    - button "Go Back":
+      - generic: Go Back
+    - button "Visit Site" [active]:
+      - generic: Visit Site
+- document

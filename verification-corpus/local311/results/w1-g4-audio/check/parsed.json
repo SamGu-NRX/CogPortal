@@ -1,0 +1,200 @@
+{
+    "benchmarkInstalled": true,
+    "benchmarkLoadable": true,
+    "canonicalHostedPython": "3.8.20",
+    "contractVersion": "cogworks.submissions.v2",
+    "dataEvaluationCache": {
+        "message": "30 songs, 252 queries, generated locally (no download)",
+        "path": ".",
+        "ready": true
+    },
+    "dataTestCache": {
+        "message": "8 songs, 68 queries, generated locally (no download)",
+        "path": ".",
+        "ready": true
+    },
+    "discovery": {
+        "arrangement": 1,
+        "attemptsTried": 275,
+        "chain": [
+            "create_spectogram.create_spectrogram",
+            "find_peaks.find_peaks",
+            "create_fingerprints.peaks_to_fingerprints"
+        ],
+        "discovery": {
+            "considered": [
+                "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g4-audio",
+                "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g4-audio/frontend"
+            ],
+            "modules": [
+                {
+                    "name": "build_eval_database",
+                    "origin": "file",
+                    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g4-audio/build_eval_database.py"
+                },
+                {
+                    "name": "create_fingerprints",
+                    "origin": "file",
+                    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g4-audio/create_fingerprints.py"
+                },
+                {
+                    "name": "create_spectogram",
+                    "origin": "file",
+                    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g4-audio/create_spectogram.py"
+                },
+                {
+                    "name": "database",
+                    "origin": "file",
+                    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g4-audio/database.py"
+                },
+                {
+                    "name": "eval_utils",
+                    "origin": "file",
+                    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g4-audio/eval_utils.py"
+                },
+                {
+                    "name": "evaluate_rerank",
+                    "origin": "file",
+                    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g4-audio/evaluate_rerank.py"
+                },
+                {
+                    "name": "evaluate_retrieval",
+                    "origin": "file",
+                    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g4-audio/evaluate_retrieval.py"
+                },
+                {
+                    "name": "evaluate_robustness",
+                    "origin": "file",
+                    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g4-audio/evaluate_robustness.py"
+                },
+                {
+                    "name": "final_checker",
+                    "origin": "file",
+                    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g4-audio/final_checker.py"
+                },
+                {
+                    "name": "find_matches",
+                    "origin": "file",
+                    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g4-audio/find_matches.py"
+                },
+                {
+                    "name": "find_peaks",
+                    "origin": "file",
+                    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g4-audio/find_peaks.py"
+                },
+                {
+                    "name": "load_audio",
+                    "origin": "file",
+                    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g4-audio/load_audio.py"
+                },
+                {
+                    "name": "main",
+                    "origin": "file",
+                    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g4-audio/main.py"
+                },
+                {
+                    "name": "random_clips",
+                    "origin": "file",
+                    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g4-audio/random_clips.py"
+                },
+                {
+                    "name": "run_demo",
+                    "origin": "file",
+                    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g4-audio/run_demo.py"
+                },
+                {
+                    "name": "song_metadata",
+                    "origin": "file",
+                    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g4-audio/song_metadata.py"
+                },
+                {
+                    "name": "topological_rerank",
+                    "origin": "file",
+                    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g4-audio/topological_rerank.py"
+                }
+            ],
+            "root": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g4-audio",
+            "rootReason": "code sits at the repository root",
+            "skipped": [
+                {
+                    "detail": "RuntimeError: streamlit.tabs is not available here, and this used what it returned",
+                    "missing": null,
+                    "name": "streamlit_demo",
+                    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g4-audio/streamlit_demo.py",
+                    "reason": "raised"
+                },
+                {
+                    "detail": "imports flask, which is not installed here",
+                    "missing": "flask",
+                    "name": "app",
+                    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g4-audio/frontend/app.py",
+                    "reason": "missing_dependency"
+                }
+            ],
+            "stubCalls": [
+                "streamlit.caption",
+                "streamlit.set_page_config",
+                "streamlit.tabs",
+                "streamlit.title"
+            ],
+            "stubbed": [
+                "streamlit",
+                "microphone",
+                "pyaudio",
+                "camera"
+            ]
+        },
+        "enroll": "database.AudioDatabase().store_fingerprints",
+        "hashRandomization": false,
+        "hashSeed": "0",
+        "query": "database.AudioDatabase().query",
+        "recalled": false,
+        "verdict": {
+            "coverage": {
+                "read": [],
+                "readEnoughToJudge": true,
+                "skipped": []
+            },
+            "errors": [],
+            "headline": "Your code is wired up and ready to score.",
+            "nextStep": "",
+            "notes": [],
+            "status": "scored",
+            "trace": [
+                {
+                    "function": "create_spectogram.create_spectrogram",
+                    "received": "an array of shape (176400,), 44100",
+                    "returned": "a tuple of 3, starting with an array of shape (2049, 85)",
+                    "stage": "spectrogram"
+                },
+                {
+                    "function": "find_peaks.find_peaks",
+                    "received": "an array of shape (2049, 85)",
+                    "returned": "a list of 159, starting (1, 0)",
+                    "stage": "peaks"
+                },
+                {
+                    "function": "create_fingerprints.peaks_to_fingerprints",
+                    "received": "a list of 159, starting (1, 0)",
+                    "returned": "a list of 2265, starting ((0, 25, 0), 0)",
+                    "stage": "fingerprints"
+                }
+            ]
+        },
+        "weightsUsed": []
+    },
+    "gitRepository": true,
+    "localGap": [],
+    "modelCache": {
+        "message": "corpus is generated locally",
+        "path": "",
+        "ready": true
+    },
+    "python": "3.11.15",
+    "repositoryFullName": "KrazeeCoder/week1-capstone-team4",
+    "submissionDetail": null,
+    "submissionError": "We look for your adapter at the repository root, and /Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w1-g4-audio has neither submission.py nor benchmark_adapter.py. Create submission.py there, define create_submission, and return your adapter from it. Nothing is registered as \"audio-identification\" in \"cogworks.submissions.v2\" either (installed: none), so if you meant to install your project as a package, reinstall it.",
+    "submissionInstalled": false,
+    "submissionLoadable": true,
+    "submissionSource": "discovery"
+}

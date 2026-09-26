@@ -1,0 +1,88 @@
+{
+  "source": "25758f90c0d50a9f5d90cb0a64e3e0aede81092c",
+  "tree": "442b3a85b3fff73f345393e616cfc5253042fc34",
+  "fixture": true,
+  "initialMouseOpen": {
+    "dialog": {
+      "right": 374,
+      "width": 358,
+      "x": 16
+    },
+    "documentWidth": 390,
+    "focus": "Copy command",
+    "focusVisible": false,
+    "outline": "rgb(185, 180, 171) none 3px",
+    "pre": {
+      "client": 286,
+      "scroll": 286
+    },
+    "viewport": 390
+  },
+  "keyboardFocus": {
+    "focus": "Copy command",
+    "focusVisible": true,
+    "outline": "rgb(122, 54, 46) solid 2px"
+  },
+  "exactNativeCopy": true,
+  "tabFocus": "Close",
+  "escapeFocus": "Run again",
+  "closeButtonFocus": "Run again",
+  "phone360": {
+    "doc": 360,
+    "focus": "Copy command",
+    "preScroll": 256,
+    "preWidth": 256,
+    "right": 344,
+    "width": 360,
+    "x": 16
+  },
+  "desktopDialog": {
+    "dialogWidth": 448,
+    "doc": 1280,
+    "preScroll": 376,
+    "preWidth": 376,
+    "right": 864,
+    "width": 1280,
+    "x": 416
+  },
+  "resultLinks": [
+    {
+      "bottom": 176.9453125,
+      "href": "/dashboard",
+      "right": 100.515625,
+      "svg": true,
+      "svgWidth": 12,
+      "text": "Dashboard",
+      "top": 159.8984375,
+      "x": 16
+    },
+    {
+      "bottom": 192,
+      "href": "/run-surfaces/surface_aaaaaaaaaaaaaaaaaaaa",
+      "right": 215.265625,
+      "svg": false,
+      "text": "Open current run",
+      "top": 148,
+      "x": 116.515625
+    }
+  ],
+  "signInLink": {
+    "documentWidth": 390,
+    "href": "/signin",
+    "right": 147.7109375,
+    "svg": true,
+    "svgWidth": 12,
+    "x": 76
+  },
+  "dashboardDestinationPassed": true,
+  "signInDestinationPassed": true,
+  "currentRunDestinationPassed": true,
+  "firstProgrammaticKeyClipboardNotAccepted": true,
+  "fitFontBoundary": "Resolved. Canonical fixture root and symlinked font directory allowed by local Vite config. font-correct-fit.json records39registeredfaces, loaded status and threefamilyreadinesschecks. Final screenshots replaced.",
+  "cleanup": {
+    "fixtureArchiveRemoved": true,
+    "fixtureTabsClosed": true,
+    "viewportReset": true,
+    "serverStopped": true
+  }
+}

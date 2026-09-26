@@ -1,0 +1,4 @@
+Connecting to http://127.0.0.1:5187
+CogPortal receives setup check names, package versions, and your GitHub repository; never source, paths, logs, predictions, scores, or environment variables.
+Open http://127.0.0.1:5187/connections?user_code=D5F4-C8CB-AB7C&return_to=setup and confirm code D5F4-C8CB-AB7C.
+cogworks: The device authorization expired. Start again.

@@ -1,0 +1,30 @@
+{
+    "benchmarkInstalled": true,
+    "benchmarkLoadable": true,
+    "canonicalHostedPython": "3.8.20",
+    "contractVersion": "cogworks.submissions.v2",
+    "dataEvaluationCache": {
+        "message": "ready",
+        "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/language",
+        "ready": true
+    },
+    "dataTestCache": {
+        "message": "ready",
+        "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/language",
+        "ready": true
+    },
+    "gitRepository": true,
+    "localGap": [],
+    "modelCache": {
+        "message": "ready",
+        "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/language",
+        "ready": true
+    },
+    "python": "3.11.15",
+    "repositoryFullName": "LashikaKapoor28/Language_Module_Capstone",
+    "submissionDetail": null,
+    "submissionError": "Reading this repository ended the process (crashed).",
+    "submissionInstalled": false,
+    "submissionLoadable": false,
+    "submissionSource": null
+}

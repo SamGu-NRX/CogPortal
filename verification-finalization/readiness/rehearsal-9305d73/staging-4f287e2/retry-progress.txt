@@ -1,0 +1,74 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Dashboard":
+      - /url: /dashboard
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "Sam CogPortal owner Account menu for SamGu-NRX":
+    - generic: Sam
+    - img "CogPortal owner":
+    - generic: Account menu for SamGu-NRX
+- main:
+  - region "Live run for Song Identification":
+    - generic: On the bench · preparing
+    - generic: Live
+    - heading "Song Identification" [active] [level=1]
+    - paragraph:
+      - generic: CogPortal
+      - generic: ·
+      - generic: "@SamGu-NRX"
+      - generic: ·
+      - code: e515ff6
+      - generic: ·
+      - generic: 9s
+    - status:
+      - generic: Fetching repository
+      - progressbar "Fetching repository progress"
+    - list "Run lifecycle":
+      - generic: ✓
+      - generic: Local
+      - generic: complete
+      - generic: ●
+      - generic: Hosted
+      - generic: active
+      - generic: ○
+      - generic: Official
+      - generic: pending
+      - generic: ○
+      - generic: Published
+      - generic: pending
+    - generic: Safe event stream
+    - list "Live run events":
+      - time: 0s
+      - generic: Fetching repository
+    - complementary:
+      - generic: Run reference
+      - term: Repository
+      - definition: SamGu-NRX/cogportal-demo-week1
+      - term: Commit
+      - definition: e515ff619e02c16be903985d8536bc5ee6d7a2e9
+      - term: Branch
+      - definition: codex/demo-rehearsal-d9405278
+      - term: Workspace
+      - definition: Clean
+      - button "Open Cog*Portal":
+        - text: Open Cog*Portal
+    - list:
+      - paragraph: practice · failed
+      - time: 9/14/2026, 9:22:04 PM
+      - button:
+        - text: View details
+        - generic: for practice run from 9/14/2026, 9:22:04 PM
+      - paragraph: practice · preparing · Current
+      - time: 9/14/2026, 10:18:55 PM
+      - button:
+        - text: View details
+        - generic: for practice run from 9/14/2026, 10:18:55 PM
+    - button "Show run history":
+      - generic: Show run history
+- document

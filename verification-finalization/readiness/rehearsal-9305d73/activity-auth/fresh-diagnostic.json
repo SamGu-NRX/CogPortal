@@ -1,0 +1,8 @@
+{
+  "timestamp": 1789433409019,
+  "worker": "cogportal",
+  "version": "22378204-3824-4119-8e85-cc431e31b9ef",
+  "event": "activity_token_exchange_rejected",
+  "status": 401,
+  "error": "invalid_client"
+}

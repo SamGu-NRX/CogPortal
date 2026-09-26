@@ -1,0 +1,134 @@
+[
+  {
+    "at": 1789074511885,
+    "method": "GET",
+    "path": "/"
+  },
+  {
+    "at": 1789074511921,
+    "method": "GET",
+    "path": "/fixture.js"
+  },
+  {
+    "at": 1789074512370,
+    "method": "GET",
+    "path": "/.proxy/api/activity/oauth/state"
+  },
+  {
+    "at": 1789074512420,
+    "method": "POST",
+    "path": "/.proxy/api/activity/oauth/token"
+  },
+  {
+    "at": 1789074512422,
+    "method": "GET",
+    "path": "/favicon.ico"
+  },
+  {
+    "at": 1789074512456,
+    "method": "GET",
+    "path": "/.proxy/api/activity/session"
+  },
+  {
+    "at": 1789074526870,
+    "method": "GET",
+    "path": "/"
+  },
+  {
+    "at": 1789074526888,
+    "method": "GET",
+    "path": "/fixture.js"
+  },
+  {
+    "at": 1789074527287,
+    "method": "GET",
+    "path": "/.proxy/api/activity/oauth/state"
+  },
+  {
+    "at": 1789074527331,
+    "method": "POST",
+    "path": "/.proxy/api/activity/oauth/token"
+  },
+  {
+    "at": 1789074527345,
+    "method": "GET",
+    "path": "/.proxy/api/activity/session"
+  },
+  {
+    "at": 1789074532497,
+    "method": "POST",
+    "path": "/control/link"
+  },
+  {
+    "at": 1789074537791,
+    "method": "GET",
+    "path": "/"
+  },
+  {
+    "at": 1789074537809,
+    "method": "GET",
+    "path": "/fixture.js"
+  },
+  {
+    "at": 1789074538202,
+    "method": "GET",
+    "path": "/.proxy/api/activity/oauth/state"
+  },
+  {
+    "at": 1789074538244,
+    "method": "POST",
+    "path": "/.proxy/api/activity/oauth/token"
+  },
+  {
+    "at": 1789074538255,
+    "method": "GET",
+    "path": "/.proxy/api/activity/session"
+  },
+  {
+    "at": 1789074538291,
+    "method": "GET",
+    "path": "/.proxy/api/activity/run-surfaces"
+  },
+  {
+    "at": 1789074538333,
+    "event": "upgrade",
+    "offline": false
+  },
+  {
+    "at": 1789074538337,
+    "event": "socket-open"
+  },
+  {
+    "at": 1789074545353,
+    "method": "POST",
+    "path": "/control/drop"
+  },
+  {
+    "at": 1789074546360,
+    "event": "upgrade",
+    "offline": true
+  },
+  {
+    "at": 1789074548368,
+    "event": "upgrade",
+    "offline": true
+  },
+  {
+    "at": 1789074552375,
+    "event": "upgrade",
+    "offline": true
+  },
+  {
+    "at": 1789074555355,
+    "event": "network-restored"
+  },
+  {
+    "at": 1789074560382,
+    "event": "upgrade",
+    "offline": false
+  },
+  {
+    "at": 1789074560383,
+    "event": "socket-open"
+  }
+]

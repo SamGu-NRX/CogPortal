@@ -1,0 +1,38 @@
+{
+  "candidate": "e8aed6e316a71efe22ed85bbc98abc5cd7d26b21",
+  "serverStopped": true,
+  "deviceStates": [
+    {
+      "name": "UI acceptance e8 isolated",
+      "revoked_at": 1789075616977
+    }
+  ],
+  "runCount": 0,
+  "setupRows": [
+    {
+      "step": "clone",
+      "benchmark_id": "",
+      "source": "cli"
+    },
+    {
+      "step": "environment",
+      "benchmark_id": "audio-identification",
+      "source": "cli"
+    },
+    {
+      "step": "environment",
+      "benchmark_id": "language-search",
+      "source": "self"
+    },
+    {
+      "step": "project",
+      "benchmark_id": "audio-identification",
+      "source": "cli"
+    },
+    {
+      "step": "wiring",
+      "benchmark_id": "audio-identification",
+      "source": "cli"
+    }
+  ]
+}

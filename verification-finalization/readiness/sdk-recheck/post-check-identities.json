@@ -1,0 +1,14 @@
+{
+  "w2-g3-cluster": {
+    "head": "8b392da6224eaf5b875f1488c526e1868e9f27e0",
+    "statusAfter": " M db.json\n"
+  },
+  "w3-g4-language": {
+    "head": "8789361ad7dec86fa724431873f674e03b449951",
+    "statusAfter": "",
+    "weights": {
+      "verification-finalization/readiness/sdk-recheck/w3-g4-language/repo/data/W_embed.npy": "dc30a867393863098f9a19ef2c53d0c82b6dbd492b8710a331ad4f0ddda3ea6f",
+      "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/LashikaKapoor28__Language_Module_Capstone/data/W_embed.npy": "dc30a867393863098f9a19ef2c53d0c82b6dbd492b8710a331ad4f0ddda3ea6f"
+    }
+  }
+}

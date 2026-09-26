@@ -1,0 +1,14 @@
+{
+  "id": "w2-g3-cluster",
+  "projectId": "w2-g3",
+  "week": 2,
+  "group": 3,
+  "repository": "Cog-gurts/CoggurtFilter",
+  "path": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/Cog-gurts__CoggurtFilter",
+  "sha": "8b392da6224eaf5b875f1488c526e1868e9f27e0",
+  "subdirectory": ".",
+  "benchmark": "vision-clustering",
+  "version": 2,
+  "environment": "local311",
+  "status": "not-run"
+}

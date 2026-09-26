@@ -1,0 +1,5 @@
+{
+  "embeddedElements": [],
+  "escapedAmpersands": true,
+  "literalText": "git clone https://github.com/cogworks-demo/face-finder.git && cd face-finder"
+}

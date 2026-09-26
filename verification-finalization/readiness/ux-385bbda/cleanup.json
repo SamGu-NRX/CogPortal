@@ -1,0 +1,12 @@
+{
+  "restored_fields": {
+    "run_source_old_created_at": 1789082252242,
+    "local_source_repository_id": null
+  },
+  "added_local_presentation_rows": [
+    "run_ux_fail",
+    "run_ux_success"
+  ],
+  "added_local_identity": "ux-audit-385",
+  "remote_mutations": 0
+}

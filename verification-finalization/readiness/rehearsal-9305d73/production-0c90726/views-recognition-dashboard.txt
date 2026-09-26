@@ -1,0 +1,44 @@
+HTML content Cog*Portal — CogWorks Benchmark, URL: cogportal.sillion.app/dashboard
+					30 container
+						31 link Description: Skip to content, Value: cogportal.sillion.app/runs/run_b647f110de#main
+						32 link Description: Cog*Portal, Value: cogportal.sillion.app/
+						33 container Primary
+							34 link Description: DASHBOARD, Value: cogportal.sillion.app/dashboard
+							35 link Description: LEADERBOARD, Value: cogportal.sillion.app/leaderboard
+						36 pop up button Sam CogPortal owner Account menu for SamGu-NRX
+							37 text Sam
+							38 image CogPortal owner
+							39 text Account menu for 
+							40 text SamGu-NRX
+						41 container
+							42 text GOOD MORNING, SAM
+							43 heading CogPortal, Value: 1
+								44 link Description: CogPortal, Value: cogportal.sillion.app/team
+							45 pop up button Recognition · v2 Change benchmark track. Currently Recognition.
+								46 text Recognition · v2
+								47 text Change benchmark track. Currently 
+								48 text Recognition
+								49 text .
+						50 text GETTING SET UP 2  of  5  done
+						51 link Description: CONTINUE, Value: cogportal.sillion.app/setup
+						52 button Dismiss the setup reminder
+						53 container
+							54 heading FIRST RUN, Value: 2
+								55 text FIRST RUN
+							56 text Two ways to run  Recognition , scored the same way. Local runs are unlimited, so that's usually where the work happens.
+							57 heading ON YOUR MACHINE, Value: 3
+								58 text ON YOUR MACHINE
+							59 text These need the tool from
+							60 link Description: Setup, Value: cogportal.sillion.app/setup
+							61 text first.
+							62 container
+								63 text cogworks  check  --benchmark  vision-recognition cogworks  run  --benchmark  vision-recognition cogworks  sync
+							64 button Copy command
+							65 heading HERE, FROM YOUR PUSHED COMMIT, Value: 3
+								66 text HERE, FROM YOUR PUSHED COMMIT
+							67 text 10  of  10  hosted practice runs left, and  3  of  3  official attempts. An official attempt is the one that uses the hidden set. BRANCH
+							68 pop up button BRANCH, Value: main
+								69 (selected) main
+							70 button Run practice benchmark
+						71 text SamGu-NRX/cogportal-demo-week1 · week2-cpu-v1 · CPU · network blocked during evaluation
+					72 

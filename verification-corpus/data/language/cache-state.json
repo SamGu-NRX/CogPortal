@@ -1,0 +1,25 @@
+{
+  "verified": {
+    "captions": {
+      "sha256": "dd8c9636dc11740f956e36728866ea0c4ebe4988dcbdc5e712b7c2267f152d12",
+      "stamp": {
+        "mtime": 1789033588,
+        "size": 66782097
+      }
+    },
+    "descriptors": {
+      "sha256": "d56e267dacd39608b4aae581595f8fa8ec55457ab59b713df1eafa93e1023450",
+      "stamp": {
+        "mtime": 1789033592,
+        "size": 174540061
+      }
+    },
+    "glove": {
+      "sha256": "dcee6ecdefebb5a884b23f2353561cc5f0527e59592525c0e3f4a31d81d91272",
+      "stamp": {
+        "mtime": 1789033603,
+        "size": 693432839
+      }
+    }
+  }
+}

@@ -1,0 +1,1 @@
+json-parsed; classification requires the measurement contract

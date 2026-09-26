@@ -1,0 +1,48 @@
+{
+  "fontEvidence": {
+    "monoReady": true,
+    "registeredFaceCount": 39,
+    "sansReady": true,
+    "serifReady": true,
+    "status": "loaded"
+  },
+  "corrected390": {
+    "doc": 390,
+    "focus": "Copy command",
+    "outline": "rgb(122, 54, 46) solid 2px",
+    "preScroll": 286,
+    "preWidth": 286,
+    "right": 374,
+    "width": 390,
+    "x": 16
+  },
+  "corrected360": {
+    "doc": 360,
+    "preScroll": 256,
+    "preWidth": 256,
+    "right": 344,
+    "width": 360,
+    "x": 16
+  },
+  "corrected1280": {
+    "doc": 1280,
+    "preScroll": 376,
+    "preWidth": 376,
+    "right": 864,
+    "width": 1280,
+    "x": 416
+  },
+  "correctedLinks": [
+    {
+      "right": 100.3125,
+      "svgWidth": 12,
+      "text": "Dashboard",
+      "x": 16
+    },
+    {
+      "right": 215.7421875,
+      "text": "Open current run",
+      "x": 116.3125
+    }
+  ]
+}

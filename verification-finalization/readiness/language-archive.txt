@@ -1,0 +1,79 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Dashboard":
+      - /url: /dashboard
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "Sam CogPortal owner Account menu for SamGu-NRX":
+    - generic: Sam
+    - img "CogPortal owner":
+    - generic: Account menu for SamGu-NRX
+- main:
+  - heading "Semantic Image Search" [level=1]
+  - tablist "Benchmark track":
+    - tab "Audio"
+    - tab "Vision"
+    - tab "Language" [selected]: Language
+  - generic: Rank
+  - generic: Team
+  - generic: Overall
+  - list "Standings":
+    - button "01 Week 3 team A 2026 cohort, anonymized 0.6792" [expanded] [active]:
+      - generic: "01"
+      - generic "Week 3 team A"
+      - generic: 2026 cohort, anonymized
+      - generic: "0.6792"
+    - paragraph: A 2026 CogWorks team, scored after the course from the repository as they left it. Name replaced.
+    - term: Chance MRR
+    - definition: "0.052"
+    - term: Median rank
+    - definition: "1.000"
+    - term: Retrieval MRR
+    - definition: "0.584"
+    - term: Recall@1
+    - definition: "0.600"
+    - term: Recall@10
+    - definition: "0.900"
+    - term: Recall@5
+    - definition: "0.800"
+    - term: Search chance MRR
+    - definition: "0.045"
+    - term: Search MRR
+    - definition: "0.584"
+    - term: Search MRR, keywords only
+    - definition: "0.616"
+    - term: Search MRR, first three words
+    - definition: "0.532"
+    - term: Search MRR, one typo
+    - definition: "0.604"
+    - term: Search MRR, caption unchanged (not scored)
+    - definition: "0.677"
+    - term: Text chance MRR
+    - definition: "0.172"
+    - term: Text MRR
+    - definition: "0.870"
+    - term: Completed
+    - definition: Sep 2, 06:06 PM
+    - button "02 Week 3 team B 2026 cohort, anonymized 0.3512":
+      - generic: "02"
+      - generic "Week 3 team B"
+      - generic: 2026 cohort, anonymized
+      - generic: "0.3512"
+    - button "03 Week 1 team C 2026 cohort, anonymized 0.3437":
+      - generic: "03"
+      - generic "Week 1 team C"
+      - generic: 2026 cohort, anonymized
+      - generic: "0.3437"
+    - button "04 Week 3 team C 2026 cohort, anonymized 0.3228":
+      - generic: "04"
+      - generic "Week 3 team C"
+      - generic: 2026 cohort, anonymized
+      - generic: "0.3228"
+  - paragraph: Archive rows are 2026 teams scored after the course from their repositories as they left them, with names replaced.
+  - paragraph: language-search / v1. One selected official result per team.
+- document

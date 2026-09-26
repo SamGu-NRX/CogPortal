@@ -1,0 +1,68 @@
+{
+  "self-kill": {
+    "forkCalls": 1,
+    "pythonThreadsAtFork": [
+      [
+        "MainThread"
+      ]
+    ],
+    "alarmEvents": [],
+    "deaths": [
+      {
+        "event": "waitpid",
+        "pid": 58044,
+        "ppid": 58000,
+        "seconds": 0.061134,
+        "target": 58160,
+        "raw_status": 9,
+        "signal": 9,
+        "exit_code": null
+      }
+    ],
+    "pickleErrors": []
+  },
+  "w3-g4-language": {
+    "forkCalls": 1,
+    "pythonThreadsAtFork": [
+      [
+        "MainThread"
+      ]
+    ],
+    "alarmEvents": [],
+    "deaths": [
+      {
+        "event": "waitpid",
+        "pid": 63974,
+        "ppid": 63964,
+        "seconds": 2.787231,
+        "target": 63979,
+        "raw_status": 6,
+        "signal": 6,
+        "exit_code": null
+      }
+    ],
+    "pickleErrors": []
+  },
+  "w2-g2-cluster": {
+    "forkCalls": 1,
+    "pythonThreadsAtFork": [
+      [
+        "MainThread"
+      ]
+    ],
+    "alarmEvents": [],
+    "deaths": [
+      {
+        "event": "waitpid",
+        "pid": 64190,
+        "ppid": 63964,
+        "seconds": 38.224324,
+        "target": 64195,
+        "raw_status": 24,
+        "signal": 24,
+        "exit_code": null
+      }
+    ],
+    "pickleErrors": []
+  }
+}

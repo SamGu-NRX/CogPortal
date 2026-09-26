@@ -1,0 +1,44 @@
+- document
+- complementary:
+  - text: LOCAL FIXTURE. Discord identity and API are simulated.
+  - button "Simulate completed browser link"
+  - button "Drop fixture stream for ten seconds" [active]
+  - status
+- banner:
+  - generic: Cog*Works
+  - generic: Disposable Activity team · live bench
+  - text: Choose a recent run
+  - combobox "Choose a recent run":
+    - option "Fixture Audio · 1111111" [selected]
+- main:
+  - region "Live run for Fixture Audio":
+    - generic: On the bench · evaluatingSIMULATED
+    - text: Reconnecting…
+    - heading "Fixture Audio" [level=1]
+    - paragraph:
+      - text: Disposable Activity team·
+      - generic: "@fixture"
+      - text: ·
+      - code: "1111111"
+      - text: ·48s
+    - status:
+      - generic: evaluating
+      - progressbar "evaluating progress"
+    - list "Run lifecycle":
+      - listitem: ✓Localcomplete
+      - listitem: ●Hostedactive
+      - listitem: ○Officialpending
+      - listitem: ○Publishedpending
+    - generic: Safe event stream
+    - list "Live run events":
+      - listitem: Waiting for the first structured event.
+    - complementary:
+      - generic: Run reference
+      - term: Commit
+      - definition: "1111111111111111111111111111111111111111"
+      - term: Branch
+      - definition: fixture
+      - term: Workspace
+      - definition: Clean
+      - button "Open Cog*Portal ↗"
+- document

@@ -1,0 +1,395 @@
+- document
+- link "Skip to content":
+  - /url: "#start-of-content"
+- banner "Global navigation menu":
+  - button "Open menu":
+  - link "Homepage (g then d)":
+    - /url: /
+  - navigation "Breadcrumbs":
+    - list:
+      - link "SamGu-NRX":
+        - /url: /SamGu-NRX
+        - generic: SamGu-NRX
+      - link "CogPortal":
+        - /url: /SamGu-NRX/CogPortal
+      - button "Switch repository (option shift r)":
+  - button "Open quick search dialog, type / to search":
+    - text: Type
+    - generic: /
+    - text: to search
+  - link "Chat with Copilot":
+    - /url: /copilot
+  - button "Open Copilot…":
+  - button "Open agents panel":
+  - button "Create new...":
+  - link "All issues":
+    - /url: /issues
+  - link "All pull requests":
+    - /url: /pulls
+  - link "All repositories":
+    - /url: /repos
+  - link "You have unread notifications (g then n)":
+    - /url: /notifications
+  - button "Open user navigation menu":
+    - img "Sam Gu"
+  - heading "Repository navigation" [level=2]
+  - navigation "Repository":
+    - list:
+      - link "Code":
+        - /url: /SamGu-NRX/CogPortal
+        - generic: Code
+      - link "Issues":
+        - /url: /SamGu-NRX/CogPortal/issues
+        - generic: Issues
+      - link "Pull requests (22)":
+        - /url: /SamGu-NRX/CogPortal/pulls
+        - generic: Pull requests
+        - generic: "22"
+        - generic: (22)
+      - link "Agents":
+        - /url: /SamGu-NRX/CogPortal/agents?author=SamGu-NRX
+        - generic: Agents
+      - link "Actions":
+        - /url: /SamGu-NRX/CogPortal/actions
+        - generic: Actions
+      - link "Projects":
+        - /url: /SamGu-NRX/CogPortal/projects
+        - generic: Projects
+      - link "Wiki":
+        - /url: /SamGu-NRX/CogPortal/wiki
+        - generic: Wiki
+      - link "Security and quality":
+        - /url: /SamGu-NRX/CogPortal/security
+        - generic: Security and quality
+      - link "Insights":
+        - /url: /SamGu-NRX/CogPortal/pulse
+        - generic: Insights
+      - link "Settings":
+        - /url: /SamGu-NRX/CogPortal/settings
+        - generic: Settings
+- main:
+  - region "Can Stack Banner":
+    - heading "Can Stack Banner" [level=2]
+    - text: This pull request can be stacked with other pull requests.
+    - link "Learn more about stacks":
+      - /url: https://gh.io/stacks-overview
+    - button "Preview stack":
+      - generic: Preview stack
+    - button "Dismiss banner":
+  - 'heading "fix(ui): keep run stages and team identity readable on phones - #21" [level=1]':
+    - text: "fix(ui): keep run stages and team identity readable on phones"
+    - generic: "- #21"
+  - generic: "#21"
+  - button "Edit title":
+  - button "Not ready":
+    - generic: Not ready
+  - button "Code":
+    - generic: Code
+  - img "Pull request"
+  - text: Draft
+  - link "SamGu-NRX":
+    - /url: /SamGu-NRX
+  - text: wants to merge 1 commit into
+  - link "feat/same-console-recovery-20260911":
+    - /url: /SamGu-NRX/CogPortal/tree/feat/same-console-recovery-20260911
+  - generic: from
+  - link "polish/readable-run-and-admin-ui-20260914":
+    - /url: /SamGu-NRX/CogPortal/tree/polish/readable-run-and-admin-ui-20260914
+  - button "Copy head branch name to clipboard":
+  - generic: "+219"
+  - generic: "-32"
+  - generic: "Lines changed: 219 additions & 32 deletions"
+  - navigation "Pull request navigation":
+    - link "Conversation (1)":
+      - /url: /SamGu-NRX/CogPortal/pull/21
+      - text: Conversation
+      - generic: "1"
+      - generic: (1)
+    - link "Commits (1)":
+      - /url: /SamGu-NRX/CogPortal/pull/21/commits
+      - text: Commits
+      - generic: "1"
+      - generic: (1)
+    - link "Checks (17)":
+      - /url: /SamGu-NRX/CogPortal/pull/21/checks
+      - text: Checks
+      - generic: "17"
+      - generic: (17)
+    - link "Files changed (8)":
+      - /url: /SamGu-NRX/CogPortal/pull/21/changes
+      - text: Files changed
+      - generic: "8"
+      - generic: (8)
+  - heading "Conversation" [level=2]
+  - link "@SamGu-NRX":
+    - /url: /SamGu-NRX
+    - img "@SamGu-NRX"
+  - heading "SamGu-NRX commented Sep 14, 202616 minutes ago" [level=3]:
+    - strong:
+      - link "SamGu-NRX":
+        - /url: /SamGu-NRX
+    - text: commented
+    - link "Sep 14, 202616 minutes ago":
+      - /url: "#issue-5447235965"
+  - button "Show options":
+    - img "Show options"
+  - generic "You are the owner of the CogPortal repository.":
+    - generic: Owner
+  - paragraph: Phone layouts now keep run stages and team identities visible. Failure reproduction commands use the portal's existing syntax highlighting, metric direction marks use Hugeicons, and an empty TA workspace says that no teams are assigned to the staff member.
+  - paragraph:
+    - text: Stacked on
+    - link "#20":
+      - /url: https://github.com/SamGu-NRX/CogPortal/pull/20
+    - text: ","
+    - code: feat/same-console-recovery-20260911
+    - text: at
+    - code: dac24767b3b167dc25474be99f2a4f6af0f0260d
+    - text: . This PR contains only the UI corrections and their tests. It does not include Connections or hosted-stack ancestry, change server eligibility, or replace
+    - link "#20":
+      - /url: https://github.com/SamGu-NRX/CogPortal/pull/20
+    - text: "'s recovery implementation and revision-labeled captures."
+  - heading "Readable phone layouts" [level=2]
+  - paragraph: The run lifecycle keeps Local, Hosted, Official and Published visible beneath their status marks in narrow and compact consoles. Full consoles use the horizontal row at desktop widths. Compact layout does not depend on the surrounding browser's width.
+  - paragraph: Admin team rows put the name and repository before status and run counts on phones. The previous four-column grid could allocate zero width to the identity column. Desktop layout, expansion controls and staff permissions remain unchanged. Staff with no assigned teams now sees "No teams assigned to you yet." The owner view retains "No teams yet."
+  - heading "Shared command and icon treatment" [level=2]
+  - paragraph:
+    - text: FailureCard uses the existing Bash
+    - code: Code
+    - text: component for its reproduction command, with wrapping and exact copying. Tracebacks remain plain text and signed Setup tokens retain their deliberately single-line CopyBlock treatment. Metric arrows use Hugeicons while keeping the existing direction-eligibility rules and accessible text.
+  - heading "Verification and remaining evidence" [level=2]
+  - paragraph:
+    - text: At
+    - code: a668cf6aef816700da224d14ef52b548ef2118a8
+    - text: ","
+    - code: pnpm --filter @cogworks/portal check
+    - text: passed. The focused
+    - code: admin-members
+    - text: ","
+    - code: run-console
+    - text: ","
+    - code: supporting-metrics-orphan
+    - text: and
+    - code: failure-presentation
+    - text: suites passed all 47 tests with exit code 0 on this public base. Source review found no supported defects in the Admin repairs. Static rendering tests do not establish actual phone geometry.
+  - paragraph:
+    - text: Earlier local gallery checks at
+    - code: 255d2f4
+    - text: measured visible lifecycle names without overflow at 360, 390, 420, 639, 640 and 768px, and checked exact reproduction-command copy by mouse and Enter. Those checks used the combined local candidate, not this public branch or embedded Discord.
+  - paragraph: This PR is draft while focused native acceptance is pending. Root owns the retained Helium verifier. Matched before/after captures for lifecycle labels, reproduction commands, metric icons and Admin team controls will be added after that check; existing PR20 captures do not establish these changes.
+  - paragraph: No deployment, production mutation or live hosted run is part of this PR. Local fixtures do not establish real GitHub onboarding or embedded Discord Activity acceptance.
+  - paragraph:
+    - text: 🤖 Generated with
+    - link "Claude Code":
+      - /url: https://claude.com/claude-code
+  - generic "Add or remove reactions":
+  - generic: Mention @copilot in a comment to make changes to this pull request.
+  - link "@SamGu-NRX":
+    - /url: /SamGu-NRX
+    - img "@SamGu-NRX"
+  - link "@claude":
+    - /url: /claude
+    - img "@claude"
+  - code:
+    - 'link "fix(ui): keep run stages and team identity readable on phones"':
+      - /url: /SamGu-NRX/CogPortal/pull/21/commits/a668cf6aef816700da224d14ef52b548ef2118a8
+  - button "Commit message body": …
+  - generic "17 / 18 checks OK":
+    - img "17 / 18 checks OK"
+  - code:
+    - link "a668cf6":
+      - /url: /SamGu-NRX/CogPortal/pull/21/commits/a668cf6aef816700da224d14ef52b548ef2118a8
+  - link "@coderabbitai":
+    - /url: /apps/coderabbitai
+    - img "@coderabbitai"
+  - heading "coderabbitai Bot commented Sep 14, 202616 minutes ago" [level=3]:
+    - strong:
+      - link "coderabbitai":
+        - /url: /apps/coderabbitai
+      - generic: Bot
+    - text: commented
+    - link "Sep 14, 202616 minutes ago":
+      - /url: "#issuecomment-5661412040"
+  - button "Show options":
+    - img "Show options"
+  - table:
+    - rowgroup:
+      - 'row "Important Draft PR not reviewed Draft PRs are not automatically reviewed by default. Incomplete task Trigger a manual review To automatically review draft PRs, update your CodeRabbit configuration: reviews: auto_review: drafts: true Copy code to clipboard Thanks for using CodeRabbit! It''s free for OSS, and your support helps us grow. If you like it, consider giving us a shout-out. Comment @coderabbitai help to get the list of available commands."':
+        - 'cell "Important Draft PR not reviewed Draft PRs are not automatically reviewed by default. Incomplete task Trigger a manual review To automatically review draft PRs, update your CodeRabbit configuration: reviews: auto_review: drafts: true Copy code to clipboard Thanks for using CodeRabbit! It''s free for OSS, and your support helps us grow. If you like it, consider giving us a shout-out. Comment @coderabbitai help to get the list of available commands."':
+          - paragraph:
+            - text: Important
+          - heading "Draft PR not reviewed" [level=2]
+          - paragraph: Draft PRs are not automatically reviewed by default.
+          - list:
+            - checkbox "Incomplete task"
+            - text: Trigger a manual review
+          - paragraph: "To automatically review draft PRs, update your CodeRabbit configuration:"
+          - generic: "reviews: auto_review: drafts: true"
+          - button "Copy code to clipboard":
+          - separator
+          - paragraph:
+            - text: Thanks for using
+            - link "CodeRabbit":
+              - /url: https://coderabbit.ai?utm_source=oss&utm_medium=github&utm_campaign=SamGu-NRX/CogPortal&utm_content=21
+            - text: "! It's free for OSS, and your support helps us grow. If you like it, consider giving us a shout-out."
+          - generic "❤️ Share"
+          - paragraph:
+            - subscript:
+              - text: Comment
+              - code: "@coderabbitai help"
+              - text: to get the list of available commands.
+  - generic "Add or remove reactions":
+  - link "@SamGu-NRX":
+    - /url: /SamGu-NRX
+    - img "@SamGu-NRX"
+  - link "SamGu-NRX":
+    - /url: /SamGu-NRX
+  - text: mentioned this pull request
+  - link "Sep 14, 20261 minute ago":
+    - /url: "#ref-pullrequest-5447382107"
+  - 'link "fix(runs): preserve recorded source through hosted recovery #22"':
+    - /url: /SamGu-NRX/CogPortal/pull/22
+  - 'generic "Status: Open"':
+    - text: Open
+  - heading "This branch has not been deployed" [level=3]
+  - text: No deployments
+  - heading "Merge info" [level=2]
+  - img "Not ready"
+  - region "Checks":
+    - heading "All checks have passed" [level=3]
+    - paragraph: 1 skipped, 17 successful checks
+    - button "Expand checks"
+  - region "Conflicts":
+    - heading "No conflicts with base branch" [level=3]
+    - paragraph: Merging can be performed automatically.
+  - region "Draft state":
+    - heading "This pull request is still a work in progress" [level=3]
+    - paragraph: Draft pull requests cannot be merged.
+    - button "Ready for review":
+      - generic: Ready for review
+  - button "Merge pull request" [disabled]:
+    - generic: Merge pull request
+  - button "Select merge method":
+  - text: You can also merge this with the command line.
+  - button "View command line instructions."
+  - link "@SamGu-NRX":
+    - /url: /SamGu-NRX
+    - img "@SamGu-NRX"
+  - form "Add a comment":
+    - heading "Add a comment" [level=4]
+    - generic: Comment
+    - tablist "Add a comment":
+      - tab "Write" [selected]
+      - tab "Preview"
+    - toolbar:
+      - button "Mention Copilot":
+      - separator
+      - button "Heading":
+      - button "Bold":
+      - button "Italic":
+      - button "Quote":
+      - button "Code":
+      - button "Link":
+      - separator
+      - button "Numbered list":
+      - button "Unordered list":
+      - button "Task list":
+      - separator
+      - button "Attach files":
+      - button "Mention":
+      - button "Reference":
+      - button "Saved replies":
+      - button "Slash commands":
+    - tabpanel "Write":
+      - textbox "Comment":
+        - /placeholder: " "
+      - paragraph: Add your comment here...
+      - link "Markdown is supported":
+        - /url: https://docs.github.com/github/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax
+        - generic: Markdown is supported
+      - button "Paste, drop, or click to add files":
+        - generic: Paste, drop, or click to add files
+    - button "Close pull request":
+      - text: Close pull request
+    - button "Comment" [disabled]
+  - text: Remember, contributions to this repository should follow our
+  - link "GitHub Community Guidelines":
+    - /url: https://docs.github.com/articles/github-community-guidelines
+  - text: .
+  - strong: ProTip!
+  - text: Add comments to specific lines under
+  - link "Files changed":
+    - /url: /SamGu-NRX/CogPortal/pull/21/files
+  - text: .
+  - form "Select reviewers":
+    - button "Reviewers":
+      - text: Reviewers
+    - link "Copilot code review":
+      - /url: /apps/copilot-pull-request-reviewer
+      - generic: Copilot code review
+    - link "Copilot":
+      - /url: /apps/copilot-pull-request-reviewer
+    - generic: Copilot review effort, defaults to Lite
+    - button "Lite":
+      - generic: Lite
+    - button "Request":
+      - generic: Request
+  - form "Select assignees":
+    - button "Assignees":
+      - text: Assignees
+    - text: No one—
+    - button "assign yourself"
+  - button "Labels":
+    - text: Labels
+  - generic: None yet
+  - form "Select projects":
+    - button "Projects":
+      - text: Projects
+    - text: None yet
+  - form "Select milestones":
+    - button "Milestone":
+      - text: Milestone
+    - text: No milestone
+  - form "Link issues":
+    - button "Development":
+      - text: Development
+    - paragraph: Successfully merging this pull request may close these issues.
+    - paragraph: None yet
+  - button "Notifications Customize":
+    - generic: Notifications
+    - generic: Customize
+  - button "Unsubscribe":
+    - generic: Unsubscribe
+  - paragraph: You’re receiving notifications because you authored the thread.
+  - heading "1 participant" [level=3]
+  - link "@SamGu-NRX":
+    - /url: /SamGu-NRX
+    - img "@SamGu-NRX"
+  - button "Lock conversation":
+    - strong: Lock conversation
+  - button "Archive pull request":
+    - strong: Archive pull request
+- contentinfo:
+  - heading "Footer" [level=2]
+  - link "GitHub Homepage":
+    - /url: https://github.com
+  - generic: © 2026 GitHub, Inc.
+  - navigation "Footer":
+    - heading "Footer navigation" [level=3]
+    - list "Footer navigation":
+      - link "Terms":
+        - /url: https://docs.github.com/site-policy/github-terms/github-terms-of-service
+      - link "Privacy":
+        - /url: https://docs.github.com/site-policy/privacy-policies/github-privacy-statement
+      - link "Security":
+        - /url: https://github.com/security
+      - link "Status":
+        - /url: https://www.githubstatus.com/
+      - link "Community":
+        - /url: https://github.community/
+      - link "Docs":
+        - /url: https://docs.github.com/
+      - link "Contact":
+        - /url: https://support.github.com?tags=dotcom-footer
+      - button "Manage cookies"
+      - button "Do not share my personal information"
+- document

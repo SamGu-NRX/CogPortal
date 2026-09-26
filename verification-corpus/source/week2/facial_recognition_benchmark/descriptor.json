@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "distribution": "cogworks-week2-vision-benchmark",
+  "version": "0.1.0",
+  "contract_group": "cogworks.submissions.v2",
+  "dataset_version": "celeba-manifests-v1",
+  "model_lock": "model-lock.json",
+  "tracks": {
+    "vision-recognition": {
+      "benchmark_version": 2,
+      "scorer_version": "recognition-v1",
+      "primary_metric": "recognition_score"
+    },
+    "vision-clustering": {
+      "benchmark_version": 2,
+      "scorer_version": "clustering-v2",
+      "primary_metric": "clustering_pairwise_f1"
+    }
+  }
+}

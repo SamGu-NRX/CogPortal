@@ -1,0 +1,73 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Dashboard":
+      - /url: /dashboard
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "ui-accept-e8 CogPortal owner Account menu for ui-accept-e8":
+    - generic: u
+    - generic: ui-accept-e8
+    - img "CogPortal owner":
+    - generic: Account menu for ui-accept-e8
+- main:
+  - link "← Dashboard":
+    - /url: /dashboard
+  - heading "RUN FAIL" [level=1]
+  - generic: Practice
+  - generic: Failed
+  - generic "Execution provider is in fixture mode. Results are scripted, not real evaluation.": simulated
+  - generic: "Run status: Failed"
+  - paragraph:
+    - generic: vision-recognition / v1
+    - generic: "|"
+    - link "cogworks-demo/face-finder":
+      - /url: https://github.com/cogworks-demo/face-finder
+    - generic: "|"
+    - generic: heavy-model
+    - button "2222222 Copy full commit SHA 2222222222222222222222222222222222222222":
+      - generic: "2222222"
+      - generic: Copy full commit SHA 2222222222222222222222222222222222222222
+    - generic: "|"
+    - generic: Jul 12, 07:46 PM
+    - generic: "|"
+    - generic: 19.3 s
+  - heading "PIPELINE" [level=2]
+  - list "Run pipeline":
+    - text: Queued
+    - generic: ", complete"
+    - generic: 1.2 s
+    - text: Prepare
+    - generic: ", complete"
+    - generic: 3.5 s
+    - text: Install
+    - generic: ", complete"
+    - generic: 5.2 s
+    - text: Contract check
+    - generic: ", complete"
+    - generic: 1.8 s
+    - text: Evaluate
+    - generic: ", failed"
+    - generic: 7.6 s
+    - text: Score
+    - generic: ", not started"
+    - generic: Complete
+  - heading "FAILED DURING EVALUATE" [level=2]
+  - generic: E-TIMEOUT
+  - heading "Evaluation exceeded the time limit" [level=3]
+  - paragraph: Your submission ran past the 15-minute wall-time ceiling and was stopped.
+  - generic: Process exceeded 900 s wall time and was terminated (SIGKILL after grace).
+  - generic: What to do
+  - paragraph: Profile recognize() on a single image locally. Batch descriptor computation and avoid re-loading model weights per image.
+  - generic: Reproduce locally
+  - code: cogworks run --benchmark vision-recognition
+  - button "copy Copy command":
+    - text: copy
+    - generic: Copy command
+  - heading "LOG · CAPPED" [level=2]
+  - generic: "Resolved ref refs/heads/heavy-model -> 2222222222222222222222222222222222222222\\ncontract check: 6/6 methods OK\\nrunner: process killed (SIGKILL)\\nProcess exceeded 900 s wall time and was terminated (SIGKILL after grace)."
+- document

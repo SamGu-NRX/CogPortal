@@ -1,0 +1,27 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "ux-audit-385 Account menu for ux-audit-385":
+    - generic: u
+    - generic: ux-audit-385
+    - generic: Account menu for ux-audit-385
+- main:
+  - button "Both options":
+    - text: Both options
+  - heading "Start a team" [level=1]
+  - paragraph: Connect a repository you can push to. It has to be public, because the benchmark reads it from GitHub.
+  - group "Repositories":
+    - generic: Repositories
+    - radio "cogworks-demo/face-finder team · Source history fixture Deterministic demo repository; each branch scripts a different run outcome. main"
+    - generic: cogworks-demo/face-finder
+    - generic: team · Source history fixture
+    - generic "Deterministic demo repository; each branch scripts a different run outcome."
+    - generic: main
+  - button "Select a repository" [disabled]
+- document

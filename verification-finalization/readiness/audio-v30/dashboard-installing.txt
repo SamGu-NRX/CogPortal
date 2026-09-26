@@ -1,0 +1,140 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Dashboard":
+      - /url: /dashboard
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "Sam CogPortal owner Account menu for SamGu-NRX":
+    - generic: Sam
+    - img "CogPortal owner":
+    - generic: Account menu for SamGu-NRX
+- main:
+  - paragraph: Good afternoon, Sam
+  - heading "CogPortal" [level=1]:
+    - link "CogPortal":
+      - /url: /team
+  - button "Song Identification · v1 Change benchmark track. Currently Song Identification.":
+    - text: Song Identification · v1
+    - generic: Change benchmark track. Currently Song Identification.
+  - generic: Getting set up
+  - generic: 2 of 5 verified
+  - link "Continue":
+    - /url: /setup
+    - text: Continue
+  - button "Dismiss the setup reminder":
+  - heading "CURRENT RUN" [level=2]
+  - generic: Installing
+  - generic: RUN 5495 is installing
+  - link "RUN 5495":
+    - /url: /runs/run_f685315495
+  - generic: practice · main · 7125804
+  - list "Run pipeline":
+    - text: Queued
+    - generic: ", complete"
+    - text: Prepare
+    - generic: ", complete"
+    - text: Install
+    - generic: ", in progress"
+    - text: Contract check
+    - generic: ", not started"
+    - text: Evaluate
+    - generic: ", not started"
+    - text: Score
+    - generic: ", not started"
+    - generic: Complete
+  - paragraph: Updates every 2 s · started just now
+  - heading "RUN LOG" [level=2]
+  - generic: 5 recorded
+  - list:
+    - link "RUN 5495 practice Installing main · 7125804 just now":
+      - /url: /runs/run_f685315495
+      - generic: RUN 5495
+      - generic: practice
+      - generic: Installing
+      - generic: main · 7125804
+      - generic: just now
+    - link "RUN 5E29 practice Succeeded main · 7125804 0.5375 20 h ago":
+      - /url: /runs/run_bb29405e29
+      - generic: RUN 5E29
+      - generic: practice
+      - generic: Succeeded
+      - generic: main · 7125804
+      - generic: "0.5375"
+      - generic: 20 h ago
+    - link "RUN C93D practice Succeeded main · 7125804 0.5375 21 h ago":
+      - /url: /runs/run_bd3d41c93d
+      - generic: RUN C93D
+      - generic: practice
+      - generic: Succeeded
+      - generic: main · 7125804
+      - generic: "0.5375"
+      - generic: 21 h ago
+    - link "RUN 5436 practice Succeeded main · 7125804 0.5375 22 h ago":
+      - /url: /runs/run_4cabd25436
+      - generic: RUN 5436
+      - generic: practice
+      - generic: Succeeded
+      - generic: main · 7125804
+      - generic: "0.5375"
+      - generic: 22 h ago
+    - link "RUN E3B6 practice Succeeded main · 7125804 0.5375 6 d ago":
+      - /url: /runs/run_4131cde3b6
+      - generic: RUN E3B6
+      - generic: practice
+      - generic: Succeeded
+      - generic: main · 7125804
+      - generic: "0.5375"
+      - generic: 6 d ago
+  - heading "CONNECTED SOURCE" [level=2]
+  - link "SamGu-NRX/cogportal-demo-week1":
+    - /url: https://github.com/SamGu-NRX/cogportal-demo-week1
+  - generic: last tested
+  - button "7125804 Copy full commit SHA 71258046e60fecd3295c0b52236fc6e476b0e9cf":
+    - generic: "7125804"
+    - generic: Copy full commit SHA 71258046e60fecd3295c0b52236fc6e476b0e9cf
+  - paragraph: week1-cpu-v1 · CPU · network blocked during evaluation
+  - heading "ATTEMPT BUDGET" [level=2]
+  - generic: Hosted practice
+  - generic: 5/10 used
+  - 'img "Hosted practice: 5 of 10 used"'
+  - generic: Official attempts
+  - generic: 0/3 used
+  - 'img "Official attempts: 0 of 3 used"'
+  - paragraph: Local runs are unlimited and are not counted here. An official cell fills the moment you start that attempt, and it comes back if the run fails for a reason on our side.
+  - heading "LOCAL REPORTS" [level=2]
+  - generic: SELF-REPORTED · NOT PROMOTABLE
+  - table "Self-reported local CogBench results":
+    - caption: Self-reported local CogBench results
+    - rowgroup:
+      - row "Student Commit Result Synced":
+        - columnheader "Student"
+        - columnheader "Commit"
+        - columnheader "Result"
+        - columnheader "Synced"
+    - rowgroup:
+      - row "SamGu-NRX 7125804 0.5375 20 h ago":
+        - cell "SamGu-NRX"
+        - cell "7125804"
+        - cell "0.5375"
+        - cell "20 h ago"
+      - row "SamGu-NRX 7125804 0.5375 20 h ago":
+        - cell "SamGu-NRX"
+        - cell "7125804"
+        - cell "0.5375"
+        - cell "20 h ago"
+      - row "SamGu-NRX 7125804 0.5375 21 h ago":
+        - cell "SamGu-NRX"
+        - cell "7125804"
+        - cell "0.5375"
+        - cell "21 h ago"
+      - row "SamGu-NRX 7125804 0.5375 22 h ago":
+        - cell "SamGu-NRX"
+        - cell "7125804"
+        - cell "0.5375"
+        - cell "22 h ago"
+- document

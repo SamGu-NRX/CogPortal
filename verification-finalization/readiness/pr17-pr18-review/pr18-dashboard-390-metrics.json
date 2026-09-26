@@ -1,0 +1,29 @@
+{
+  "copy": [
+    {
+      "button": {
+        "bottom": 604.2578125,
+        "height": 28,
+        "left": 375,
+        "right": 403,
+        "top": 576.2578125,
+        "width": 28,
+        "x": 375,
+        "y": 576.2578125
+      },
+      "outline": "none",
+      "pseudo": "42px"
+    }
+  ],
+  "overflow": 35,
+  "pre": [
+    {
+      "padding": "28px",
+      "scroll": 343,
+      "tabIndex": 0,
+      "text": "cogworks check --benchmark language-search\ncogworks run --benchmark language-search\ncogworks sync",
+      "width": 343
+    }
+  ],
+  "width": 390
+}

@@ -1,0 +1,238 @@
+{
+  "blocks": [
+    {
+      "class": "shiki cogportal-paper",
+      "color": "rgb(185, 180, 171)",
+      "rect": {
+        "bottom": 590.34375,
+        "height": 82.5,
+        "left": 79,
+        "right": 310,
+        "top": 507.84375,
+        "width": 231,
+        "x": 79,
+        "y": 507.84375
+      },
+      "scroll": 231,
+      "text": "git clone https://github.com/cogworks-demo/face-finder.git && cd face-finder",
+      "tokens": [
+        {
+          "color": "rgb(104, 140, 179)",
+          "style": "color: rgb(43, 84, 192); --darkreader-inline-color: var(--darkreader-text-2b54c0, #688cb3);",
+          "text": "git"
+        },
+        {
+          "color": "rgb(142, 181, 158)",
+          "style": "color: rgb(46, 107, 79); --darkreader-inline-color: var(--darkreader-text-2e6b4f, #8eb59e);",
+          "text": " clone"
+        },
+        {
+          "color": "rgb(142, 181, 158)",
+          "style": "color: rgb(46, 107, 79); --darkreader-inline-color: var(--darkreader-text-2e6b4f, #8eb59e);",
+          "text": " https://github.com/cogworks-demo/face-finder.git"
+        },
+        {
+          "color": "rgb(159, 152, 141)",
+          "style": "color: rgb(75, 86, 107); --darkreader-inline-color: var(--darkreader-text-4b566b, #9f988d);",
+          "text": " &&"
+        },
+        {
+          "color": "rgb(104, 140, 179)",
+          "style": "color: rgb(43, 84, 192); --darkreader-inline-color: var(--darkreader-text-2b54c0, #688cb3);",
+          "text": " cd"
+        },
+        {
+          "color": "rgb(142, 181, 158)",
+          "style": "color: rgb(46, 107, 79); --darkreader-inline-color: var(--darkreader-text-2e6b4f, #8eb59e);",
+          "text": " face-finder"
+        }
+      ],
+      "whiteSpace": "pre-wrap"
+    },
+    {
+      "class": "shiki cogportal-paper",
+      "color": "rgb(185, 180, 171)",
+      "rect": {
+        "bottom": 1070.5078125,
+        "height": 185.625,
+        "left": 79,
+        "right": 310,
+        "top": 884.8828125,
+        "width": 231,
+        "x": 79,
+        "y": 884.8828125
+      },
+      "scroll": 231,
+      "text": "python -m pip install --upgrade --force-reinstall \"cogworks-benchmark @ git+https://g",
+      "tokens": [
+        {
+          "color": "rgb(104, 140, 179)",
+          "style": "color: rgb(43, 84, 192); --darkreader-inline-color: var(--darkreader-text-2b54c0, #688cb3);",
+          "text": "python"
+        },
+        {
+          "color": "rgb(142, 181, 158)",
+          "style": "color: rgb(46, 107, 79); --darkreader-inline-color: var(--darkreader-text-2e6b4f, #8eb59e);",
+          "text": " -m"
+        },
+        {
+          "color": "rgb(142, 181, 158)",
+          "style": "color: rgb(46, 107, 79); --darkreader-inline-color: var(--darkreader-text-2e6b4f, #8eb59e);",
+          "text": " pip"
+        },
+        {
+          "color": "rgb(142, 181, 158)",
+          "style": "color: rgb(46, 107, 79); --darkreader-inline-color: var(--darkreader-text-2e6b4f, #8eb59e);",
+          "text": " install"
+        },
+        {
+          "color": "rgb(142, 181, 158)",
+          "style": "color: rgb(46, 107, 79); --darkreader-inline-color: var(--darkreader-text-2e6b4f, #8eb59e);",
+          "text": " --upgrade"
+        },
+        {
+          "color": "rgb(142, 181, 158)",
+          "style": "color: rgb(46, 107, 79); --darkreader-inline-color: var(--darkreader-text-2e6b4f, #8eb59e);",
+          "text": " --force-reinstall"
+        },
+        {
+          "color": "rgb(142, 181, 158)",
+          "style": "color: rgb(46, 107, 79); --darkreader-inline-color: var(--darkreader-text-2e6b4f, #8eb59e);",
+          "text": " \"cogworks-benchmark @ git+https://github.com/SamGu-NRX/CogPortal.git@094a6f1ac109716014492a57a81157e71b70f7ab#subdirectory=python/cogbench\""
+        }
+      ],
+      "whiteSpace": "pre-wrap"
+    },
+    {
+      "class": "shiki cogportal-paper",
+      "color": "rgb(185, 180, 171)",
+      "rect": {
+        "bottom": 1569.1484375,
+        "height": 185.625,
+        "left": 79,
+        "right": 310,
+        "top": 1383.5234375,
+        "width": 231,
+        "x": 79,
+        "y": 1383.5234375
+      },
+      "scroll": 231,
+      "text": "python -m pip install \"cogworks-week3-language-benchmark @ git+https://github.com/Sam",
+      "tokens": [
+        {
+          "color": "rgb(104, 140, 179)",
+          "style": "color: rgb(43, 84, 192); --darkreader-inline-color: var(--darkreader-text-2b54c0, #688cb3);",
+          "text": "python"
+        },
+        {
+          "color": "rgb(142, 181, 158)",
+          "style": "color: rgb(46, 107, 79); --darkreader-inline-color: var(--darkreader-text-2e6b4f, #8eb59e);",
+          "text": " -m"
+        },
+        {
+          "color": "rgb(142, 181, 158)",
+          "style": "color: rgb(46, 107, 79); --darkreader-inline-color: var(--darkreader-text-2e6b4f, #8eb59e);",
+          "text": " pip"
+        },
+        {
+          "color": "rgb(142, 181, 158)",
+          "style": "color: rgb(46, 107, 79); --darkreader-inline-color: var(--darkreader-text-2e6b4f, #8eb59e);",
+          "text": " install"
+        },
+        {
+          "color": "rgb(142, 181, 158)",
+          "style": "color: rgb(46, 107, 79); --darkreader-inline-color: var(--darkreader-text-2e6b4f, #8eb59e);",
+          "text": " \"cogworks-week3-language-benchmark @ git+https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git@b166f5c15e950baccc3785839cdcc660ffe01bb4\""
+        }
+      ],
+      "whiteSpace": "pre-wrap"
+    },
+    {
+      "class": "shiki cogportal-paper",
+      "color": "rgb(185, 180, 171)",
+      "rect": {
+        "bottom": 1926.875,
+        "height": 41.25,
+        "left": 79,
+        "right": 310,
+        "top": 1885.625,
+        "width": 231,
+        "x": 79,
+        "y": 1885.625
+      },
+      "scroll": 231,
+      "text": "cogworks link --portal http://localhost:5214",
+      "tokens": [
+        {
+          "color": "rgb(104, 140, 179)",
+          "style": "color: rgb(43, 84, 192); --darkreader-inline-color: var(--darkreader-text-2b54c0, #688cb3);",
+          "text": "cogworks"
+        },
+        {
+          "color": "rgb(142, 181, 158)",
+          "style": "color: rgb(46, 107, 79); --darkreader-inline-color: var(--darkreader-text-2e6b4f, #8eb59e);",
+          "text": " link"
+        },
+        {
+          "color": "rgb(142, 181, 158)",
+          "style": "color: rgb(46, 107, 79); --darkreader-inline-color: var(--darkreader-text-2e6b4f, #8eb59e);",
+          "text": " --portal"
+        },
+        {
+          "color": "rgb(142, 181, 158)",
+          "style": "color: rgb(46, 107, 79); --darkreader-inline-color: var(--darkreader-text-2e6b4f, #8eb59e);",
+          "text": " http://localhost:5214"
+        }
+      ],
+      "whiteSpace": "pre-wrap"
+    },
+    {
+      "class": "shiki cogportal-paper",
+      "color": "rgb(185, 180, 171)",
+      "rect": {
+        "bottom": 2170.9765625,
+        "height": 61.875,
+        "left": 79,
+        "right": 310,
+        "top": 2109.1015625,
+        "width": 231,
+        "x": 79,
+        "y": 2109.1015625
+      },
+      "scroll": 231,
+      "text": "cogworks check --benchmark language-search --update-setup",
+      "tokens": [
+        {
+          "color": "rgb(104, 140, 179)",
+          "style": "color: rgb(43, 84, 192); --darkreader-inline-color: var(--darkreader-text-2b54c0, #688cb3);",
+          "text": "cogworks"
+        },
+        {
+          "color": "rgb(142, 181, 158)",
+          "style": "color: rgb(46, 107, 79); --darkreader-inline-color: var(--darkreader-text-2e6b4f, #8eb59e);",
+          "text": " check"
+        },
+        {
+          "color": "rgb(142, 181, 158)",
+          "style": "color: rgb(46, 107, 79); --darkreader-inline-color: var(--darkreader-text-2e6b4f, #8eb59e);",
+          "text": " --benchmark"
+        },
+        {
+          "color": "rgb(142, 181, 158)",
+          "style": "color: rgb(46, 107, 79); --darkreader-inline-color: var(--darkreader-text-2e6b4f, #8eb59e);",
+          "text": " language-search"
+        },
+        {
+          "color": "rgb(142, 181, 158)",
+          "style": "color: rgb(46, 107, 79); --darkreader-inline-color: var(--darkreader-text-2e6b4f, #8eb59e);",
+          "text": " --update-setup"
+        }
+      ],
+      "whiteSpace": "pre-wrap"
+    }
+  ],
+  "buttons": [],
+  "overflow": -15,
+  "url": "http://localhost:5214/setup",
+  "width": 360
+}

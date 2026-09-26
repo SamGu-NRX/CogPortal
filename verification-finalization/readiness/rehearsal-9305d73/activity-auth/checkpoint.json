@@ -1,0 +1,11 @@
+{
+  "at": "2026-09-15T00:35:19.922Z",
+  "appId": "1526706029356646460",
+  "iframeOrigin": "https://1526706029356646460.discordsays.com",
+  "launches": 1,
+  "articleTextUnchanged": true,
+  "freshServerTrace": false,
+  "priorServerError": "401 invalid_client",
+  "currentUI": "portal-side OAuth rejection",
+  "hostedRunStarted": false
+}

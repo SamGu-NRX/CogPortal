@@ -1,0 +1,243 @@
+{
+  "fontStatus": "loaded",
+  "rows": [
+    {
+      "labels": [
+        {
+          "direction": "row",
+          "spans": [
+            {
+              "display": "block",
+              "font": "\"IBM Plex Mono\", \"SF Mono\", Menlo, monospace",
+              "height": 23.25,
+              "text": "✓",
+              "width": 9.03125
+            },
+            {
+              "display": "block",
+              "font": "\"IBM Plex Sans\", \"Helvetica Neue\", Arial, sans-serif",
+              "height": 1,
+              "text": "Local",
+              "width": 1
+            },
+            {
+              "display": "block",
+              "font": "\"IBM Plex Sans\", \"Helvetica Neue\", Arial, sans-serif",
+              "height": 1,
+              "text": "complete",
+              "width": 1
+            }
+          ],
+          "text": "✓Localcomplete"
+        },
+        {
+          "direction": "row",
+          "spans": [
+            {
+              "display": "block",
+              "font": "\"IBM Plex Mono\", \"SF Mono\", Menlo, monospace",
+              "height": 23.25,
+              "text": "×",
+              "width": 9
+            },
+            {
+              "display": "block",
+              "font": "\"IBM Plex Sans\", \"Helvetica Neue\", Arial, sans-serif",
+              "height": 1,
+              "text": "Hosted",
+              "width": 1
+            },
+            {
+              "display": "block",
+              "font": "\"IBM Plex Sans\", \"Helvetica Neue\", Arial, sans-serif",
+              "height": 1,
+              "text": "failed",
+              "width": 1
+            }
+          ],
+          "text": "×Hostedfailed"
+        },
+        {
+          "direction": "row",
+          "spans": [
+            {
+              "display": "block",
+              "font": "\"IBM Plex Mono\", \"SF Mono\", Menlo, monospace",
+              "height": 23.25,
+              "text": "○",
+              "width": 9.03125
+            },
+            {
+              "display": "block",
+              "font": "\"IBM Plex Sans\", \"Helvetica Neue\", Arial, sans-serif",
+              "height": 1,
+              "text": "Official",
+              "width": 1
+            },
+            {
+              "display": "block",
+              "font": "\"IBM Plex Sans\", \"Helvetica Neue\", Arial, sans-serif",
+              "height": 1,
+              "text": "pending",
+              "width": 1
+            }
+          ],
+          "text": "○Officialpending"
+        },
+        {
+          "direction": "row",
+          "spans": [
+            {
+              "display": "block",
+              "font": "\"IBM Plex Mono\", \"SF Mono\", Menlo, monospace",
+              "height": 23.25,
+              "text": "○",
+              "width": 9.03125
+            },
+            {
+              "display": "block",
+              "font": "\"IBM Plex Sans\", \"Helvetica Neue\", Arial, sans-serif",
+              "height": 1,
+              "text": "Published",
+              "width": 1
+            },
+            {
+              "display": "block",
+              "font": "\"IBM Plex Sans\", \"Helvetica Neue\", Arial, sans-serif",
+              "height": 1,
+              "text": "pending",
+              "width": 1
+            }
+          ],
+          "text": "○Publishedpending"
+        }
+      ],
+      "rect": {
+        "height": 56,
+        "width": 303,
+        "x": 21,
+        "y": 1021.875
+      },
+      "text": "✓\nLOCAL\ncomplete\n×\nHOSTED\nfailed\n○\nOFFICIAL\npending\n○\nPUBLISHED\npending"
+    },
+    {
+      "labels": [
+        {
+          "direction": "row",
+          "spans": [
+            {
+              "display": "block",
+              "font": "\"IBM Plex Mono\", \"SF Mono\", Menlo, monospace",
+              "height": 23.25,
+              "text": "✓",
+              "width": 9.03125
+            },
+            {
+              "display": "block",
+              "font": "\"IBM Plex Sans\", \"Helvetica Neue\", Arial, sans-serif",
+              "height": 1,
+              "text": "Local",
+              "width": 1
+            },
+            {
+              "display": "block",
+              "font": "\"IBM Plex Sans\", \"Helvetica Neue\", Arial, sans-serif",
+              "height": 1,
+              "text": "complete",
+              "width": 1
+            }
+          ],
+          "text": "✓Localcomplete"
+        },
+        {
+          "direction": "row",
+          "spans": [
+            {
+              "display": "block",
+              "font": "\"IBM Plex Mono\", \"SF Mono\", Menlo, monospace",
+              "height": 23.25,
+              "text": "×",
+              "width": 9
+            },
+            {
+              "display": "block",
+              "font": "\"IBM Plex Sans\", \"Helvetica Neue\", Arial, sans-serif",
+              "height": 1,
+              "text": "Hosted",
+              "width": 1
+            },
+            {
+              "display": "block",
+              "font": "\"IBM Plex Sans\", \"Helvetica Neue\", Arial, sans-serif",
+              "height": 1,
+              "text": "failed",
+              "width": 1
+            }
+          ],
+          "text": "×Hostedfailed"
+        },
+        {
+          "direction": "row",
+          "spans": [
+            {
+              "display": "block",
+              "font": "\"IBM Plex Mono\", \"SF Mono\", Menlo, monospace",
+              "height": 23.25,
+              "text": "○",
+              "width": 9.03125
+            },
+            {
+              "display": "block",
+              "font": "\"IBM Plex Sans\", \"Helvetica Neue\", Arial, sans-serif",
+              "height": 1,
+              "text": "Official",
+              "width": 1
+            },
+            {
+              "display": "block",
+              "font": "\"IBM Plex Sans\", \"Helvetica Neue\", Arial, sans-serif",
+              "height": 1,
+              "text": "pending",
+              "width": 1
+            }
+          ],
+          "text": "○Officialpending"
+        },
+        {
+          "direction": "row",
+          "spans": [
+            {
+              "display": "block",
+              "font": "\"IBM Plex Mono\", \"SF Mono\", Menlo, monospace",
+              "height": 23.25,
+              "text": "○",
+              "width": 9.03125
+            },
+            {
+              "display": "block",
+              "font": "\"IBM Plex Sans\", \"Helvetica Neue\", Arial, sans-serif",
+              "height": 1,
+              "text": "Published",
+              "width": 1
+            },
+            {
+              "display": "block",
+              "font": "\"IBM Plex Sans\", \"Helvetica Neue\", Arial, sans-serif",
+              "height": 1,
+              "text": "pending",
+              "width": 1
+            }
+          ],
+          "text": "○Publishedpending"
+        }
+      ],
+      "rect": {
+        "height": 44,
+        "width": 277,
+        "x": 34,
+        "y": 1658.9453125
+      },
+      "text": "✓\nLOCAL\ncomplete\n×\nHOSTED\nfailed\n○\nOFFICIAL\npending\n○\nPUBLISHED\npending"
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "active": "Team settings",
+  "clientWidth": 753,
+  "menu": {
+    "bottom": 244.96875,
+    "height": 186.96875,
+    "left": 525,
+    "right": 733,
+    "top": 58,
+    "width": 208,
+    "x": 525,
+    "y": 58
+  },
+  "trigger": {
+    "bottom": 50,
+    "height": 44,
+    "left": 498.1953125,
+    "right": 733,
+    "top": 6,
+    "width": 234.8046875,
+    "x": 498.1953125,
+    "y": 6
+  },
+  "viewport": 768
+}

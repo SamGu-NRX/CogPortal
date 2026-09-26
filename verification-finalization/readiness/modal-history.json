@@ -1,0 +1,191 @@
+[
+  {
+    "version": "v27",
+    "time_deployed": "2026-09-10 06:35:57-05:00",
+    "client": "1.5.5",
+    "deployed_by": "samgu-nrx",
+    "commit": "0d53687"
+  },
+  {
+    "version": "v26",
+    "time_deployed": "2026-09-09 20:45:44-05:00",
+    "client": "1.5.5",
+    "deployed_by": "samgu-nrx",
+    "commit": "c2af396"
+  },
+  {
+    "version": "v25",
+    "time_deployed": "2026-09-09 20:36:56-05:00",
+    "client": "1.5.5",
+    "deployed_by": "samgu-nrx",
+    "commit": "e667d8d"
+  },
+  {
+    "version": "v24",
+    "time_deployed": "2026-09-09 19:37:24-05:00",
+    "client": "1.5.5",
+    "deployed_by": "samgu-nrx",
+    "commit": "bd030f4"
+  },
+  {
+    "version": "v23",
+    "time_deployed": "2026-09-09 18:43:53-05:00",
+    "client": "1.5.5",
+    "deployed_by": "samgu-nrx",
+    "commit": "d87bdd5"
+  },
+  {
+    "version": "v22",
+    "time_deployed": "2026-09-04 21:27:04-05:00",
+    "client": "1.5.5",
+    "deployed_by": "samgu-nrx",
+    "commit": "5059e1f*"
+  },
+  {
+    "version": "v21",
+    "time_deployed": "2026-09-04 20:52:53-05:00",
+    "client": "1.5.5",
+    "deployed_by": "samgu-nrx",
+    "commit": "9e40830*"
+  },
+  {
+    "version": "v20",
+    "time_deployed": "2026-09-04 20:36:18-05:00",
+    "client": "1.5.5",
+    "deployed_by": "samgu-nrx",
+    "commit": "130a45a*"
+  },
+  {
+    "version": "v19",
+    "time_deployed": "2026-09-04 18:48:40-05:00",
+    "client": "1.5.5",
+    "deployed_by": "samgu-nrx",
+    "commit": "e2e316f*"
+  },
+  {
+    "version": "v18",
+    "time_deployed": "2026-09-04 12:40:06-05:00",
+    "client": "1.5.5",
+    "deployed_by": "samgu-nrx",
+    "commit": "499f265*"
+  },
+  {
+    "version": "v17",
+    "time_deployed": "2026-09-04 12:34:49-05:00",
+    "client": "1.5.5",
+    "deployed_by": "samgu-nrx",
+    "commit": "499f265*"
+  },
+  {
+    "version": "v16",
+    "time_deployed": "2026-08-19 11:02:55-05:00",
+    "client": "1.5.4",
+    "deployed_by": "samgu-nrx",
+    "commit": "a464c1a*"
+  },
+  {
+    "version": "v15",
+    "time_deployed": "2026-08-19 11:01:51-05:00",
+    "client": "1.5.4",
+    "deployed_by": "samgu-nrx",
+    "commit": "a464c1a"
+  },
+  {
+    "version": "v14",
+    "time_deployed": "2026-08-19 10:58:11-05:00",
+    "client": "1.5.4",
+    "deployed_by": "samgu-nrx",
+    "commit": "a464c1a"
+  },
+  {
+    "version": "v13",
+    "time_deployed": "2026-08-19 10:51:36-05:00",
+    "client": "1.5.4",
+    "deployed_by": "samgu-nrx",
+    "commit": "75e1934"
+  },
+  {
+    "version": "v12",
+    "time_deployed": "2026-08-19 09:16:11-05:00",
+    "client": "1.5.4",
+    "deployed_by": "samgu-nrx",
+    "commit": "65815be*"
+  },
+  {
+    "version": "v11",
+    "time_deployed": "2026-08-17 23:27:50-05:00",
+    "client": "1.5.4",
+    "deployed_by": "samgu-nrx",
+    "commit": "ce63667*"
+  },
+  {
+    "version": "v10",
+    "time_deployed": "2026-08-17 18:42:58-05:00",
+    "client": "1.5.4",
+    "deployed_by": "samgu-nrx",
+    "commit": "ce63667*"
+  },
+  {
+    "version": "v9",
+    "time_deployed": "2026-08-17 17:51:30-05:00",
+    "client": "1.5.4",
+    "deployed_by": "samgu-nrx",
+    "commit": "ce63667*"
+  },
+  {
+    "version": "v8",
+    "time_deployed": "2026-08-17 16:54:03-05:00",
+    "client": "1.5.4",
+    "deployed_by": "samgu-nrx",
+    "commit": "ce63667*"
+  },
+  {
+    "version": "v7",
+    "time_deployed": "2026-08-17 16:49:05-05:00",
+    "client": "1.5.4",
+    "deployed_by": "samgu-nrx",
+    "commit": "ce63667*"
+  },
+  {
+    "version": "v6",
+    "time_deployed": "2026-08-17 13:30:38-05:00",
+    "client": "1.5.4",
+    "deployed_by": "samgu-nrx",
+    "commit": "ce63667*"
+  },
+  {
+    "version": "v5",
+    "time_deployed": "2026-08-17 13:13:24-05:00",
+    "client": "1.5.4",
+    "deployed_by": "samgu-nrx",
+    "commit": "ce63667*"
+  },
+  {
+    "version": "v4",
+    "time_deployed": "2026-08-17 13:03:19-05:00",
+    "client": "1.5.4",
+    "deployed_by": "samgu-nrx",
+    "commit": "ce63667*"
+  },
+  {
+    "version": "v3",
+    "time_deployed": "2026-07-25 00:57:46-05:00",
+    "client": "1.5.3",
+    "deployed_by": "samgu-nrx",
+    "commit": "28319e2*"
+  },
+  {
+    "version": "v2",
+    "time_deployed": "2026-07-25 00:52:43-05:00",
+    "client": "1.5.3",
+    "deployed_by": "samgu-nrx",
+    "commit": "28319e2*"
+  },
+  {
+    "version": "v1",
+    "time_deployed": "2026-07-24 19:55:22-05:00",
+    "client": "1.5.3",
+    "deployed_by": "samgu-nrx",
+    "commit": "28319e2*"
+  }
+]

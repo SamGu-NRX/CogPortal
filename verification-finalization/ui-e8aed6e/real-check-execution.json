@@ -1,0 +1,11 @@
+{
+  "args": [
+    "/Users/samgu/Programming Projects/CogPortal-verifier-ui-e8aed6e/.venv-ui-accept/bin/cogworks",
+    "check",
+    "--benchmark",
+    "audio-identification",
+    "--update-setup"
+  ],
+  "exitCode": 0,
+  "wallSeconds": 16.949829816818237
+}

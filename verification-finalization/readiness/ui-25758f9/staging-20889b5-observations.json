@@ -1,0 +1,116 @@
+{
+  "version": "6ae76fd5-006a-4d4c-a89b-205ea2d4585b",
+  "source": "20889b519e991e39c4cd922d6d9f54a0e2e1ea3a",
+  "observations": [
+    {
+      "fontFamilies": [
+        {
+          "font": "\"IBM Plex Mono\", \"SF Mono\", Menlo, monospace",
+          "tag": "P"
+        },
+        {
+          "font": "\"Source Serif 4 Variable\", \"Source Serif 4\", Georgia, serif",
+          "tag": "H1"
+        },
+        {
+          "font": "\"IBM Plex Sans\", \"Helvetica Neue\", Arial, sans-serif",
+          "tag": "P"
+        },
+        {
+          "font": "\"IBM Plex Sans\", \"Helvetica Neue\", Arial, sans-serif",
+          "tag": "P"
+        },
+        {
+          "font": "\"IBM Plex Mono\", \"SF Mono\", Menlo, monospace",
+          "tag": "CODE"
+        },
+        {
+          "font": "\"IBM Plex Mono\", \"SF Mono\", Menlo, monospace",
+          "tag": "P"
+        },
+        {
+          "font": "\"IBM Plex Sans\", \"Helvetica Neue\", Arial, sans-serif",
+          "tag": "P"
+        },
+        {
+          "font": "\"IBM Plex Mono\", \"SF Mono\", Menlo, monospace",
+          "tag": "P"
+        }
+      ],
+      "fonts": {
+        "mono": true,
+        "sans": true,
+        "serif": true,
+        "size": 56,
+        "status": "loaded"
+      },
+      "page": "/dashboard",
+      "pre": [
+        {
+          "scroll": 343,
+          "width": 286
+        }
+      ],
+      "quota": [
+        "10 of 10 hosted practice runs left, and 3 of 3 official attempts. An official attempt is the one that uses the hidden set."
+      ],
+      "scroll": 390,
+      "width": 390
+    },
+    {
+      "page": "/dashboard",
+      "scroll": 1280,
+      "width": 1280
+    },
+    {
+      "page": "audio-dashboard",
+      "quota": [
+        "3 of 10 hosted runs left",
+        "Completed hosted evaluations count here. Failed runs don't use quota. Local runs are unlimited."
+      ],
+      "scroll": 1280,
+      "width": 1280
+    },
+    {
+      "back": [
+        {
+          "href": "/dashboard",
+          "svg": [
+            {
+              "height": 12,
+              "html": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"12\" height=\"12\" viewBox=\"0 0 24 24\" fill=\"none\" color=\"currentColor\" class=\"\" stroke-width=\"1.8\" stroke=\"currentColor\" aria-hidden=\"true\"><path d=\"M15 6C15 6 9.00001 10.4189 9 12C8.99999 13.5812 15 18 15 18\" stroke=\"currentColor\" stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"1.8\"></path></svg>",
+              "width": 12
+            }
+          ],
+          "text": "Dashboard"
+        }
+      ],
+      "page": "/runs/run_8b184352ca",
+      "scroll": 1280,
+      "width": 1280
+    },
+    {
+      "links": [
+        {
+          "right": 104.3125,
+          "text": "Dashboard",
+          "x": 20
+        },
+        {
+          "right": 219.7421875,
+          "text": "Open current run",
+          "x": 120.3125
+        }
+      ],
+      "page": "/runs/run_8b184352ca",
+      "scroll": 390,
+      "width": 390
+    }
+  ],
+  "limits": [
+    "Landing sign-in arrow disappears once the existing session resolves; no logout performed.",
+    "Failed-local Run again dialog uses prior actual-component acceptance; no failed record fabricated."
+  ],
+  "backNavigationPassed": true,
+  "selectedTrackRestored": "language-search"
+}

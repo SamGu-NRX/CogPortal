@@ -1,0 +1,149 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Dashboard":
+      - /url: /dashboard
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "Sam CogPortal owner Account menu for SamGu-NRX":
+    - generic: Sam
+    - img "CogPortal owner":
+    - generic: Account menu for SamGu-NRX
+- main:
+  - paragraph: Good evening, Sam
+  - heading "CogPortal" [level=1]:
+    - link "CogPortal":
+      - /url: /team
+  - button "Song Identification · v1 Change benchmark track. Currently Song Identification.":
+    - text: Song Identification · v1
+    - generic: Change benchmark track. Currently Song Identification.
+  - heading "START A RUN" [level=2]
+  - generic: Branch
+  - combobox "Branch":
+    - option "main"
+    - option "codex/demo-rehearsal-d9405278" [selected]
+  - button "Run practice benchmark"
+  - paragraph: 4 of 10 hosted runs left
+  - generic: Previous result
+  - paragraph:
+    - link "RUN 9342":
+      - /url: /runs/run_29bfe79342
+    - text: scored 0.5375 on main · 7125804
+  - paragraph: SamGu-NRX/cogportal-demo-week1
+  - paragraph: The saved environment's compatibility is unknown.
+  - heading "RUN LOG" [level=2]
+  - generic: 7 recorded
+  - list:
+    - link "RUN 1E43 practice Failed codex/demo-rehearsal-d9405278 · e515ff6 E-PROVIDER just now":
+      - /url: /runs/run_4d45791e43
+      - generic: RUN 1E43
+      - generic: practice
+      - generic: Failed
+      - generic: codex/demo-rehearsal-d9405278 · e515ff6
+      - generic: E-PROVIDER
+      - generic: just now
+    - link "RUN 9342 practice Succeeded main · 7125804 0.5375 3 d ago":
+      - /url: /runs/run_29bfe79342
+      - generic: RUN 9342
+      - generic: practice
+      - generic: Succeeded
+      - generic: main · 7125804
+      - generic: "0.5375"
+      - generic: 3 d ago
+    - link "RUN 5495 practice Succeeded main · 7125804 0.5375 4 d ago":
+      - /url: /runs/run_f685315495
+      - generic: RUN 5495
+      - generic: practice
+      - generic: Succeeded
+      - generic: main · 7125804
+      - generic: "0.5375"
+      - generic: 4 d ago
+    - link "RUN 5E29 practice Succeeded main · 7125804 0.5375 5 d ago":
+      - /url: /runs/run_bb29405e29
+      - generic: RUN 5E29
+      - generic: practice
+      - generic: Succeeded
+      - generic: main · 7125804
+      - generic: "0.5375"
+      - generic: 5 d ago
+    - link "RUN C93D practice Succeeded main · 7125804 0.5375 5 d ago":
+      - /url: /runs/run_bd3d41c93d
+      - generic: RUN C93D
+      - generic: practice
+      - generic: Succeeded
+      - generic: main · 7125804
+      - generic: "0.5375"
+      - generic: 5 d ago
+    - link "RUN 5436 practice Succeeded main · 7125804 0.5375 5 d ago":
+      - /url: /runs/run_4cabd25436
+      - generic: RUN 5436
+      - generic: practice
+      - generic: Succeeded
+      - generic: main · 7125804
+      - generic: "0.5375"
+      - generic: 5 d ago
+    - link "RUN E3B6 practice Succeeded main · 7125804 0.5375 10 d ago":
+      - /url: /runs/run_4131cde3b6
+      - generic: RUN E3B6
+      - generic: practice
+      - generic: Succeeded
+      - generic: main · 7125804
+      - generic: "0.5375"
+      - generic: 10 d ago
+  - heading "CONNECTED SOURCE" [level=2]
+  - link "SamGu-NRX/cogportal-demo-week1":
+    - /url: https://github.com/SamGu-NRX/cogportal-demo-week1
+  - generic: last tested
+  - button "Copy full commit SHA e515ff619e02c16be903985d8536bc5ee6d7a2e9":
+    - generic: e515ff6
+  - status
+  - paragraph: week1-cpu-v1 · CPU · network blocked during evaluation
+  - heading "ATTEMPT BUDGET" [level=2]
+  - generic: Hosted practice
+  - generic: 6/10 used
+  - 'img "Hosted practice: 6 of 10 used"'
+  - generic: Official attempts
+  - generic: 0/3 used
+  - 'img "Official attempts: 0 of 3 used"'
+  - paragraph: Local runs are unlimited and are not counted here. An official cell fills the moment you start that attempt, and it comes back if the run fails for a reason on our side.
+  - heading "LOCAL REPORTS" [level=2]
+  - generic: SELF-REPORTED · NOT PROMOTABLE
+  - table "Self-reported local CogBench results":
+    - caption: Self-reported local CogBench results
+    - rowgroup:
+      - row "Student Commit Result Synced":
+        - columnheader "Student"
+        - columnheader "Commit"
+        - columnheader "Result"
+        - columnheader "Synced"
+    - rowgroup:
+      - row "SamGu-NRX e515ff6 0.5375 1 min ago":
+        - cell "SamGu-NRX"
+        - cell "e515ff6"
+        - cell "0.5375"
+        - cell "1 min ago"
+      - row "SamGu-NRX 7125804 0.5375 5 d ago":
+        - cell "SamGu-NRX"
+        - cell "7125804"
+        - cell "0.5375"
+        - cell "5 d ago"
+      - row "SamGu-NRX 7125804 0.5375 5 d ago":
+        - cell "SamGu-NRX"
+        - cell "7125804"
+        - cell "0.5375"
+        - cell "5 d ago"
+      - row "SamGu-NRX 7125804 0.5375 5 d ago":
+        - cell "SamGu-NRX"
+        - cell "7125804"
+        - cell "0.5375"
+        - cell "5 d ago"
+      - row "SamGu-NRX 7125804 0.5375 5 d ago":
+        - cell "SamGu-NRX"
+        - cell "7125804"
+        - cell "0.5375"
+        - cell "5 d ago"
+- document

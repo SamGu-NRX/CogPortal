@@ -1,0 +1,20 @@
+{
+  "exact": true,
+  "layout": {
+    "chip": {
+      "bottom": 298.5625,
+      "height": 28,
+      "left": 221.609375,
+      "right": 309.015625,
+      "top": 270.5625,
+      "width": 87.40625,
+      "x": 221.609375,
+      "y": 270.5625
+    },
+    "focus": "Copy full commit SHA 71258046e60fecd3295c0b52236fc6e476b0e9cf",
+    "outline": "solid",
+    "overflow": 0,
+    "recoveryFields": 0,
+    "width": 390
+  }
+}

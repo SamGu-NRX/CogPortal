@@ -1,0 +1,43 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Dashboard":
+      - /url: /dashboard
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "Sam CogPortal owner Account menu for SamGu-NRX":
+    - generic: Sam
+    - img "CogPortal owner":
+    - generic: Account menu for SamGu-NRX
+- main:
+  - heading "Connections" [level=1]
+  - paragraph: GitHub is your account identity. Discord and the CogWorks CLI connect to it without receiving your GitHub token or permission to submit official results.
+  - heading "CONNECTION COMPLETE" [level=2]
+  - generic: LINKED
+  - heading "You’re connected." [level=2]
+  - paragraph:
+    - text: Cog is now connected to
+    - strong: SamG (@s.gu_)
+    - text: . Discord is still showing what it knew before you linked, so choose
+    - strong: Check the link
+    - text: in the Activity, or run
+    - strong: /cog
+    - text: again.
+  - heading "GITHUB" [level=2]
+  - paragraph: SamGu-NRX
+  - paragraph: Primary identity and sign-in
+  - generic: VERIFIED
+  - heading "DISCORD" [level=2]
+  - paragraph: SamG (@s.gu_)
+  - paragraph: Linked Sep 15, 03:15 AM
+  - button "Unlink"
+  - heading "COGWORKS CLI DEVICES" [level=2]
+  - list:
+    - paragraph: d940 production rehearsal
+    - paragraph: Last used Sep 15, 02:49 AM
+    - button "Revoke"
+- document

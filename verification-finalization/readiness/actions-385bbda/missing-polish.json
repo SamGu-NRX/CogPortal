@@ -1,0 +1,85 @@
+{
+  "arrows": [
+    {
+      "svgCount": 0,
+      "text": "Song Identification prerequisites ↗"
+    }
+  ],
+  "commands": [
+    {
+      "childElements": 0,
+      "inlineColors": 0,
+      "start": "git clone https://github.com/cogworks-demo/fa"
+    },
+    {
+      "childElements": 0,
+      "inlineColors": 0,
+      "start": "python -c \"import http.client as h; c = h.HTT"
+    },
+    {
+      "childElements": 0,
+      "inlineColors": 0,
+      "start": "conda activate week1"
+    },
+    {
+      "childElements": 0,
+      "inlineColors": 0,
+      "start": "python -m pip install --upgrade --force-reins"
+    },
+    {
+      "childElements": 0,
+      "inlineColors": 0,
+      "start": "python -m pip install \"cogworks-week1-audio-b"
+    },
+    {
+      "childElements": 0,
+      "inlineColors": 0,
+      "start": "python -c \"import http.client as h; c = h.HTT"
+    },
+    {
+      "childElements": 0,
+      "inlineColors": 0,
+      "start": "cogworks link --portal http://localhost:5196"
+    },
+    {
+      "childElements": 0,
+      "inlineColors": 0,
+      "start": "check"
+    },
+    {
+      "childElements": 0,
+      "inlineColors": 0,
+      "start": "cogworks check --benchmark audio-identificati"
+    }
+  ],
+  "copyButtons": [
+    {
+      "svgCount": 0,
+      "text": "copyCopy command"
+    },
+    {
+      "svgCount": 0,
+      "text": "copyCopy command"
+    },
+    {
+      "svgCount": 0,
+      "text": "copyCopy command"
+    },
+    {
+      "svgCount": 0,
+      "text": "copyCopy command"
+    },
+    {
+      "svgCount": 0,
+      "text": "copyCopy command"
+    },
+    {
+      "svgCount": 0,
+      "text": "copyCopy command"
+    },
+    {
+      "svgCount": 0,
+      "text": "copyCopy command"
+    }
+  ]
+}

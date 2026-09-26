@@ -1,0 +1,109 @@
+{
+  "source": "49f6a98f75eee39fcf38c800d879ca1382558e04",
+  "url": "http://127.0.0.1:5187",
+  "utc": "2026-09-10T10:54:26.738711+00:00",
+  "runs": [
+    [
+      "run_54e374441d",
+      "fixture",
+      "practice",
+      "succeeded",
+      null
+    ],
+    [
+      "run_bc8a18caf3",
+      "fixture",
+      "practice",
+      "succeeded",
+      null
+    ],
+    [
+      "run_95474b0865",
+      "fixture",
+      "official",
+      "succeeded",
+      1
+    ],
+    [
+      "run_d224094ae5",
+      "fixture",
+      "practice",
+      "failed",
+      null
+    ],
+    [
+      "run_verify_withheld",
+      "fixture",
+      "practice",
+      "succeeded",
+      null
+    ],
+    [
+      "run_verify_quota2",
+      "fixture",
+      "official",
+      "succeeded",
+      2
+    ],
+    [
+      "run_verify_quota3",
+      "fixture",
+      "official",
+      "succeeded",
+      3
+    ]
+  ],
+  "published": [
+    [
+      "run_95474b0865"
+    ]
+  ],
+  "creator": [
+    [
+      "verify-creator",
+      null,
+      "admin"
+    ]
+  ],
+  "withheldMetrics": [
+    [
+      "chance_mrr",
+      0.0102,
+      0,
+      "floor",
+      "retrieval_mrr"
+    ],
+    [
+      "text_chance",
+      0.04,
+      0,
+      "floor",
+      "text_mrr"
+    ],
+    [
+      "text_mrr",
+      0.7888,
+      0,
+      null,
+      null
+    ]
+  ],
+  "captures": [
+    "withheld-missing-evidence.jpg",
+    "history-repeat.jpg",
+    "publish-confirm.jpg",
+    "official-confirm.jpg",
+    "history-repeat-refreshed.jpg",
+    "official-settled.jpg",
+    "official-active.jpg",
+    "practice-floors.jpg",
+    "quota-exhausted-published.jpg",
+    "published.jpg",
+    "history-before-back.jpg",
+    "signedout-published-board.jpg",
+    "admin-creator-refused.jpg",
+    "quota-promotion-disabled.jpg",
+    "practice-failure.jpg",
+    "failure-detail.jpg"
+  ]
+}

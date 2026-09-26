@@ -1,0 +1,15 @@
+{
+  "python": "3.11.15 (main, May 10 2026, 19:23:07) [Clang 22.1.3 ]",
+  "origins": {
+    "cogbench": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/source/portal/python/cogbench/src/cogbench/__init__.py",
+    "audio_identification_benchmark": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/source/week1/audio_identification_benchmark/__init__.py",
+    "facial_recognition_benchmark": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/source/week2/facial_recognition_benchmark/__init__.py",
+    "language_search_benchmark": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/source/week3/language_search_benchmark/__init__.py"
+  },
+  "benchmarks": [
+    "audio-identification",
+    "language-search",
+    "vision-clustering",
+    "vision-recognition"
+  ]
+}

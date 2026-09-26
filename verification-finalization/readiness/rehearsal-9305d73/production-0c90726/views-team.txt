@@ -1,0 +1,61 @@
+HTML content Cog*Portal — CogWorks Benchmark, URL: cogportal.sillion.app/team
+					30 container
+						31 link Description: Skip to content, Value: cogportal.sillion.app/runs/run_b647f110de#main
+						32 link Description: Cog*Portal, Value: cogportal.sillion.app/
+						33 container Primary
+							34 link Description: DASHBOARD, Value: cogportal.sillion.app/dashboard
+							35 link Description: LEADERBOARD, Value: cogportal.sillion.app/leaderboard
+						36 pop up button Sam CogPortal owner Account menu for SamGu-NRX
+							37 text Sam
+							38 image CogPortal owner
+							39 text Account menu for 
+							40 text SamGu-NRX
+						41 text TEAM SETTINGS
+						42 heading CogPortal, Value: 1
+							43 text CogPortal
+						44 button RENAME
+						45 text No description yet.
+						46 button ADD DESCRIPTION
+						47 container
+							48 heading ASSIGNED TAS, Value: 2
+								49 text ASSIGNED TAS
+							50 text No TA has been assigned yet.
+						51 container
+							52 heading MEMBERS, Value: 2
+								53 text MEMBERS
+							54 pop up button ADD MEMBER
+							55 content list
+								56 container
+									57 text SamGu-NRX Sam Gu ADMIN
+						58 container
+							59 heading REPOSITORY, Value: 2
+								60 text REPOSITORY
+							61 link Description: SamGu-NRX/cogportal-demo-week1, Value: github.com/SamGu-NRX/cogportal-demo-week1
+							62 text default  main
+							63 button CHANGE REPOSITORY
+						64 container
+							65 button WHERE THE WORK WENT
+								66 heading WHERE THE WORK WENT, Value: 2
+									67 text WHERE THE WORK WENT
+							68 text We read your recent commits and your runs, so you can see which parts of the pipeline your team has been working in and when your pipeline first scored end to end.
+							69 content list
+								70 text Your pipeline first scored end to end on 2026-09-15, and that is still the only run that has scored.
+							71 container
+								72 heading STAGES OF THE PIPELINE, Value: 3
+									73 text STAGES OF THE PIPELINE
+								74 content list
+									75 container
+										76 text SPECTROGRAM , WORKED  JUL 10  TO  JUL 27 Eyurke LashikaKapoor28 SP02028
+									77 container
+										78 text PEAKS , WORKED  JUL 10  TO  JUL 27 Eyurke LashikaKapoor28 SP02028
+									79 container
+										80 text FANOUT , WORKED  JUL 10  TO  JUL 27 Eyurke KrazeeCoder LashikaKapoor28 SP02028
+									81 container
+										82 text DATABASE , WORKED  JUL 10  TO  JUL 27 Eyurke KrazeeCoder LashikaKapoor28 SP02028 apple2723 sgutlap
+									83 container
+										84 text QUERY , WORKED  JUL 10  TO  JUL 27 Eyurke SP02028
+								85 text Jul 10 each bar spans the commits we read for that stage Jul 27
+							86 container
+								87 text Read  28 min ago , from your most recent 40 commits .
+						88 link Description: Open dashboard, Value: cogportal.sillion.app/dashboard
+					89 

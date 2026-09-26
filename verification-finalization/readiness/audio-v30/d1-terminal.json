@@ -1,0 +1,1104 @@
+[
+  {
+    "results": [
+      {
+        "id": "run_f685315495",
+        "team_id": "team_368410ea89c62b51",
+        "benchmark_id": "audio-identification",
+        "benchmark_version": 1,
+        "contract_version": "cogworks.submissions.v2",
+        "mode": "practice",
+        "status": "succeeded",
+        "branch": "main",
+        "sha": "71258046e60fecd3295c0b52236fc6e476b0e9cf",
+        "parent_run_id": null,
+        "attempt_number": null,
+        "failure_category": null,
+        "failure_phase": null,
+        "failure_detail": null,
+        "failure_consumed_attempt": 0,
+        "log": "student python 3.8.20\n",
+        "created_at": 1789076342176,
+        "finished_at": 1789076497556,
+        "provider": "modal",
+        "protocol_version": "1",
+        "prepared_artifact_id": "im-01M26M6J4FJ3NKDE1DXGWRWBA7",
+        "environment_digest": "a4eec442116466263b628d12d9a963da303c96896e814e32b355086d5fe1b8fd",
+        "dataset_version": "practice-v1",
+        "scorer_version": "identification-v1",
+        "runtime_version": "week1-cpu-v1",
+        "dispatch_attempts": 1,
+        "last_event_sequence": 32,
+        "surface_id": "surface_d70718fbaa8774612402",
+        "repository_id": 1356655835,
+        "diagnostics_json": "[\"Identification falls gradually from 68% at 5 songs to 54% at 30, without a single point where it breaks.\",\"21% of queries had the right song somewhere in the list but not near the top. Retrieval found something, so this is the tally losing, not the fingerprints: check that you count matches per time offset rather than summing every hash hit, and that the same code path resamples both what you enroll and what you query.\",\"Clean clips identify at 100% but pitch-shifted clips at 8%. A shifted clip moves every peak to a different frequency bin, so the stored keys stop matching; this is the expected behavior of the capstone design and is worth reporting, not hiding.\",\"Every clip from a song that was never enrolled still came back with a candidate. Nothing in the assignment required an abstain path, so this does not affect the score, but a minimum tally or a first-to-second ratio is what would give you one.\",\"Weakest cell: pitch_+1 at 0% top-1.\",\"Outcome split over 240 scored queries: 129 top_1, 28 top_k, 51 ranking_failure, 32 retrieval_failure.\"]",
+        "sweep_json": "{\"axis\":\"songs in the library\",\"metric\":\"identification_score\",\"points\":[{\"x\":5,\"y\":0.675},{\"x\":10,\"y\":0.5875},{\"x\":20,\"y\":0.5375},{\"x\":30,\"y\":0.5375}]}",
+        "wiring_json": "[{\"stage\":\"spectrogram\",\"function\":\"create_spectogram.create_spectrogram\",\"received\":\"an array of shape (176400,), 44100\",\"returned\":\"a tuple of 3, starting with an array of shape (2049, 85)\"},{\"stage\":\"peaks\",\"function\":\"find_peaks.find_peaks\",\"received\":\"an array of shape (2049, 85)\",\"returned\":\"a list of 159, starting (1, 0)\"},{\"stage\":\"fingerprints\",\"function\":\"create_fingerprints.peaks_to_fingerprints\",\"received\":\"a list of 159, starting (1, 0)\",\"returned\":\"a list of 2265, starting ((0, 25, 0), 0)\"},{\"stage\":\"store\",\"function\":\"database.AudioDatabase().store_fingerprints\"},{\"stage\":\"query\",\"function\":\"database.AudioDatabase().query\"}]",
+        "refusal_json": null,
+        "refunded_at": null,
+        "weights_supplied_json": "[]"
+      }
+    ],
+    "success": true,
+    "meta": {
+      "served_by": "v3-prod",
+      "served_by_region": "WNAM",
+      "served_by_colo": "DFW",
+      "served_by_primary": true,
+      "timings": {
+        "sql_duration_ms": 0.2507
+      },
+      "duration": 0.2507,
+      "changes": 0,
+      "last_row_id": 0,
+      "changed_db": false,
+      "size_after": 614400,
+      "rows_read": 1,
+      "rows_written": 0,
+      "total_attempts": 1
+    }
+  },
+  {
+    "results": [
+      {
+        "run_id": "run_f685315495",
+        "key": "chance_top1",
+        "label": "Chance",
+        "value": 0.03333333333333333,
+        "unit": null,
+        "higher_is_better": 1,
+        "is_primary": 0,
+        "precision": 3,
+        "help": "1/N for a catalog of N songs: what naming a song at random scores. The floor every other number on this page should be read against.",
+        "role": "floor",
+        "relates_to": "identification_score"
+      },
+      {
+        "run_id": "run_f685315495",
+        "key": "clean_top1",
+        "label": "Clean top-1",
+        "value": 1,
+        "unit": null,
+        "higher_is_better": 1,
+        "is_primary": 0,
+        "precision": 3,
+        "help": "Studio-quality clips, no perturbation. The capstone's own baseline case: if this is not near 1.0, the pipeline is broken rather than merely untuned.",
+        "role": null,
+        "relates_to": null
+      },
+      {
+        "run_id": "run_f685315495",
+        "key": "identification_score",
+        "label": "Identification score",
+        "value": 0.5375,
+        "unit": null,
+        "higher_is_better": 1,
+        "is_primary": 1,
+        "precision": 4,
+        "help": "How often the right song came back first, averaged over eight equally weighted conditions: clean, short, two noise levels, and four pitch shifts. Half of those are pitch, which the course never asks for, because it is the only condition measured to separate teams: an audited student sweep held 0.97 through the worst noise and collapsed to 10-25% at one or two semitones. Clips of songs that were never enrolled are not counted here; they are reported beside it as confident false matches. This is the leaderboard number.",
+        "role": null,
+        "relates_to": null
+      },
+      {
+        "run_id": "run_f685315495",
+        "key": "margin_separation",
+        "label": "Margin separation (AUC)",
+        "value": 0.7737847222222223,
+        "unit": null,
+        "higher_is_better": 1,
+        "is_primary": 0,
+        "precision": 3,
+        "help": "The capstone's \"how much larger is the leading tally than the next-largest\" question, as an AUC: how well the top-1-versus-top-2 gap separates correct answers from wrong ones. A high value means that ratio is a usable confidence signal.",
+        "role": "reported",
+        "relates_to": null
+      },
+      {
+        "run_id": "run_f685315495",
+        "key": "median_identify_seconds",
+        "label": "Median identify time",
+        "value": 0.0428,
+        "unit": null,
+        "higher_is_better": 0,
+        "is_primary": 0,
+        "precision": 3,
+        "help": "Median wall-clock time for one identify call, after warm-up. Reported, never scored.",
+        "role": "reported",
+        "relates_to": null
+      },
+      {
+        "run_id": "run_f685315495",
+        "key": "noisy_top1",
+        "label": "Noisy top-1",
+        "value": 1,
+        "unit": null,
+        "higher_is_better": 1,
+        "is_primary": 0,
+        "precision": 3,
+        "help": "Clips with white noise added at a target signal-to-noise ratio -- the capstone's \"how well does a studio-quality clip, low-noise clip, ..., or very noisy clip match\" question. Noise is added with signal_power / 10**(snr_db/10), the same formula the course uses.",
+        "role": null,
+        "relates_to": null
+      },
+      {
+        "run_id": "run_f685315495",
+        "key": "pitch_top1",
+        "label": "Pitch-shifted top-1",
+        "value": 0.075,
+        "unit": null,
+        "higher_is_better": 1,
+        "is_primary": 0,
+        "precision": 3,
+        "help": "Clips shifted in pitch. NOT part of the assignment -- reported because a shift moves every peak to a different frequency bin, so the (f1, f2, dt) keys stop matching. Expected behavior of the design the course teaches, shown rather than hidden.",
+        "role": null,
+        "relates_to": null
+      },
+      {
+        "run_id": "run_f685315495",
+        "key": "ranking_failure_rate",
+        "label": "Wrong song ranked first",
+        "value": 0.2125,
+        "unit": null,
+        "higher_is_better": 0,
+        "is_primary": 0,
+        "precision": 3,
+        "help": "Share of clips where the right song was found but something else won the tally. This is a voting problem, not a fingerprinting one -- the capstone's tally step, where votes must be counted per time offset rather than summed over every hash hit.",
+        "role": null,
+        "relates_to": null
+      },
+      {
+        "run_id": "run_f685315495",
+        "key": "retrieval_failure_rate",
+        "label": "No candidate found",
+        "value": 0.13333333333333333,
+        "unit": null,
+        "higher_is_better": 0,
+        "is_primary": 0,
+        "precision": 3,
+        "help": "Share of clips where the right song shared no fingerprint at all with the query. This is a fingerprinting problem: peak-picking, fanout, or a sample-rate mismatch between enroll and query.",
+        "role": null,
+        "relates_to": null
+      },
+      {
+        "run_id": "run_f685315495",
+        "key": "short_clip_top1",
+        "label": "Short clip top-1",
+        "value": 1,
+        "unit": null,
+        "higher_is_better": 1,
+        "is_primary": 0,
+        "precision": 3,
+        "help": "The capstone's \"how short of a clip can be matched\" question. Fewer peaks means fewer fanout pairs, so the offset histogram has less to vote with.",
+        "role": null,
+        "relates_to": null
+      },
+      {
+        "run_id": "run_f685315495",
+        "key": "trivial_baseline_top1",
+        "label": "Trivial baseline",
+        "value": 0.24166666666666667,
+        "unit": null,
+        "higher_is_better": 1,
+        "is_primary": 0,
+        "precision": 3,
+        "help": "Whole-clip mean log spectrum, nearest neighbour. No peaks, no fingerprints, no offsets -- none of the capstone. Beating chance is not evidence of a working pipeline; beating this is the first sign that the fingerprinting is doing something.",
+        "role": "floor",
+        "relates_to": "identification_score"
+      }
+    ],
+    "success": true,
+    "meta": {
+      "served_by": "v3-prod",
+      "served_by_region": "WNAM",
+      "served_by_colo": "DFW",
+      "served_by_primary": true,
+      "timings": {
+        "sql_duration_ms": 0.3081
+      },
+      "duration": 0.3081,
+      "changes": 0,
+      "last_row_id": 0,
+      "changed_db": false,
+      "size_after": 614400,
+      "rows_read": 11,
+      "rows_written": 0,
+      "total_attempts": 1
+    }
+  },
+  {
+    "results": [
+      {
+        "run_id": "run_f685315495",
+        "phase": "contract_check",
+        "started_at": 1789076389051,
+        "ended_at": 1789076423889
+      },
+      {
+        "run_id": "run_f685315495",
+        "phase": "evaluating",
+        "started_at": 1789076423889,
+        "ended_at": 1789076488160
+      },
+      {
+        "run_id": "run_f685315495",
+        "phase": "installing",
+        "started_at": 1789076362687,
+        "ended_at": 1789076389051
+      },
+      {
+        "run_id": "run_f685315495",
+        "phase": "preparing",
+        "started_at": 1789076353479,
+        "ended_at": 1789076362687
+      },
+      {
+        "run_id": "run_f685315495",
+        "phase": "queued",
+        "started_at": null,
+        "ended_at": 1789076353479
+      },
+      {
+        "run_id": "run_f685315495",
+        "phase": "scoring",
+        "started_at": 1789076488160,
+        "ended_at": 1789076497556
+      }
+    ],
+    "success": true,
+    "meta": {
+      "served_by": "v3-prod",
+      "served_by_region": "WNAM",
+      "served_by_colo": "DFW",
+      "served_by_primary": true,
+      "timings": {
+        "sql_duration_ms": 0.1274
+      },
+      "duration": 0.1274,
+      "changes": 0,
+      "last_row_id": 0,
+      "changed_db": false,
+      "size_after": 614400,
+      "rows_read": 6,
+      "rows_written": 0,
+      "total_attempts": 1
+    }
+  },
+  {
+    "results": [
+      {
+        "event_id": "event_run_f685315495_0_1789076353479",
+        "run_id": "run_f685315495",
+        "sequence": 0,
+        "type": "status",
+        "received_at": 1789076354265
+      },
+      {
+        "event_id": "event_run_f685315495_1_1789076362687",
+        "run_id": "run_f685315495",
+        "sequence": 1,
+        "type": "status",
+        "received_at": 1789076363446
+      },
+      {
+        "event_id": "event_run_f685315495_2_1789076366577",
+        "run_id": "run_f685315495",
+        "sequence": 2,
+        "type": "status",
+        "received_at": 1789076367091
+      },
+      {
+        "event_id": "event_run_f685315495_3_1789076369915",
+        "run_id": "run_f685315495",
+        "sequence": 3,
+        "type": "status",
+        "received_at": 1789076370664
+      },
+      {
+        "event_id": "event_run_f685315495_4_1789076373743",
+        "run_id": "run_f685315495",
+        "sequence": 4,
+        "type": "status",
+        "received_at": 1789076374464
+      },
+      {
+        "event_id": "event_run_f685315495_5_1789076377458",
+        "run_id": "run_f685315495",
+        "sequence": 5,
+        "type": "status",
+        "received_at": 1789076377745
+      },
+      {
+        "event_id": "event_run_f685315495_6_1789076380682",
+        "run_id": "run_f685315495",
+        "sequence": 6,
+        "type": "status",
+        "received_at": 1789076381212
+      },
+      {
+        "event_id": "event_run_f685315495_7_1789076384258",
+        "run_id": "run_f685315495",
+        "sequence": 7,
+        "type": "status",
+        "received_at": 1789076384919
+      },
+      {
+        "event_id": "event_run_f685315495_8_1789076387993",
+        "run_id": "run_f685315495",
+        "sequence": 8,
+        "type": "status",
+        "received_at": 1789076388246
+      },
+      {
+        "event_id": "event_run_f685315495_9_1789076389051",
+        "run_id": "run_f685315495",
+        "sequence": 9,
+        "type": "status",
+        "received_at": 1789076389678
+      },
+      {
+        "event_id": "event_run_f685315495_10_1789076423889",
+        "run_id": "run_f685315495",
+        "sequence": 10,
+        "type": "status",
+        "received_at": 1789076424668
+      },
+      {
+        "event_id": "event_run_f685315495_11_1789076427557",
+        "run_id": "run_f685315495",
+        "sequence": 11,
+        "type": "status",
+        "received_at": 1789076427869
+      },
+      {
+        "event_id": "event_run_f685315495_12_1789076430820",
+        "run_id": "run_f685315495",
+        "sequence": 12,
+        "type": "status",
+        "received_at": 1789076431084
+      },
+      {
+        "event_id": "event_run_f685315495_13_1789076433910",
+        "run_id": "run_f685315495",
+        "sequence": 13,
+        "type": "status",
+        "received_at": 1789076434189
+      },
+      {
+        "event_id": "event_run_f685315495_14_1789076437001",
+        "run_id": "run_f685315495",
+        "sequence": 14,
+        "type": "status",
+        "received_at": 1789076437568
+      },
+      {
+        "event_id": "event_run_f685315495_15_1789076440533",
+        "run_id": "run_f685315495",
+        "sequence": 15,
+        "type": "status",
+        "received_at": 1789076440803
+      },
+      {
+        "event_id": "event_run_f685315495_16_1789076443693",
+        "run_id": "run_f685315495",
+        "sequence": 16,
+        "type": "status",
+        "received_at": 1789076443995
+      },
+      {
+        "event_id": "event_run_f685315495_17_1789076446958",
+        "run_id": "run_f685315495",
+        "sequence": 17,
+        "type": "status",
+        "received_at": 1789076447240
+      },
+      {
+        "event_id": "event_run_f685315495_18_1789076450065",
+        "run_id": "run_f685315495",
+        "sequence": 18,
+        "type": "status",
+        "received_at": 1789076450362
+      },
+      {
+        "event_id": "event_run_f685315495_19_1789076453186",
+        "run_id": "run_f685315495",
+        "sequence": 19,
+        "type": "status",
+        "received_at": 1789076453702
+      },
+      {
+        "event_id": "event_run_f685315495_20_1789076456641",
+        "run_id": "run_f685315495",
+        "sequence": 20,
+        "type": "status",
+        "received_at": 1789076456903
+      },
+      {
+        "event_id": "event_run_f685315495_21_1789076459691",
+        "run_id": "run_f685315495",
+        "sequence": 21,
+        "type": "status",
+        "received_at": 1789076459961
+      },
+      {
+        "event_id": "event_run_f685315495_22_1789076462730",
+        "run_id": "run_f685315495",
+        "sequence": 22,
+        "type": "status",
+        "received_at": 1789076462986
+      },
+      {
+        "event_id": "event_run_f685315495_23_1789076465799",
+        "run_id": "run_f685315495",
+        "sequence": 23,
+        "type": "status",
+        "received_at": 1789076466051
+      },
+      {
+        "event_id": "event_run_f685315495_24_1789076468871",
+        "run_id": "run_f685315495",
+        "sequence": 24,
+        "type": "status",
+        "received_at": 1789076469148
+      },
+      {
+        "event_id": "event_run_f685315495_25_1789076472026",
+        "run_id": "run_f685315495",
+        "sequence": 25,
+        "type": "status",
+        "received_at": 1789076472276
+      },
+      {
+        "event_id": "event_run_f685315495_26_1789076475045",
+        "run_id": "run_f685315495",
+        "sequence": 26,
+        "type": "status",
+        "received_at": 1789076475292
+      },
+      {
+        "event_id": "event_run_f685315495_27_1789076478116",
+        "run_id": "run_f685315495",
+        "sequence": 27,
+        "type": "status",
+        "received_at": 1789076478419
+      },
+      {
+        "event_id": "event_run_f685315495_28_1789076481345",
+        "run_id": "run_f685315495",
+        "sequence": 28,
+        "type": "status",
+        "received_at": 1789076481616
+      },
+      {
+        "event_id": "event_run_f685315495_29_1789076484514",
+        "run_id": "run_f685315495",
+        "sequence": 29,
+        "type": "status",
+        "received_at": 1789076484865
+      },
+      {
+        "event_id": "event_run_f685315495_30_1789076486869",
+        "run_id": "run_f685315495",
+        "sequence": 30,
+        "type": "status",
+        "received_at": 1789076487195
+      },
+      {
+        "event_id": "event_run_f685315495_31_1789076488160",
+        "run_id": "run_f685315495",
+        "sequence": 31,
+        "type": "status",
+        "received_at": 1789076488678
+      },
+      {
+        "event_id": "event_run_f685315495_32_1789076497556",
+        "run_id": "run_f685315495",
+        "sequence": 32,
+        "type": "completed",
+        "received_at": 1789076499531
+      }
+    ],
+    "success": true,
+    "meta": {
+      "served_by": "v3-prod",
+      "served_by_region": "WNAM",
+      "served_by_colo": "DFW",
+      "served_by_primary": true,
+      "timings": {
+        "sql_duration_ms": 0.1887
+      },
+      "duration": 0.1887,
+      "changes": 0,
+      "last_row_id": 0,
+      "changed_db": false,
+      "size_after": 614400,
+      "rows_read": 33,
+      "rows_written": 0,
+      "total_attempts": 1
+    }
+  },
+  {
+    "results": [
+      {
+        "event_id": "stream_event_run_f685315495_0_1789076353479",
+        "surface_id": "surface_d70718fbaa8774612402",
+        "source": "practice",
+        "source_run_id": "run_f685315495",
+        "source_sequence": 0,
+        "phase": "preparing",
+        "code": "repository.fetching",
+        "elapsed_ms": 319,
+        "progress_current": null,
+        "progress_total": null,
+        "progress_unit": null,
+        "occurred_at": 1789076353479
+      },
+      {
+        "event_id": "stream_event_run_f685315495_1_1789076362687",
+        "surface_id": "surface_d70718fbaa8774612402",
+        "source": "practice",
+        "source_run_id": "run_f685315495",
+        "source_sequence": 1,
+        "phase": "installing",
+        "code": "dependencies.installing",
+        "elapsed_ms": 9527,
+        "progress_current": null,
+        "progress_total": null,
+        "progress_unit": null,
+        "occurred_at": 1789076362687
+      },
+      {
+        "event_id": "stream_event_run_f685315495_2_1789076366577",
+        "surface_id": "surface_d70718fbaa8774612402",
+        "source": "practice",
+        "source_run_id": "run_f685315495",
+        "source_sequence": 2,
+        "phase": "installing",
+        "code": "dependencies.installing",
+        "elapsed_ms": 13417,
+        "progress_current": null,
+        "progress_total": null,
+        "progress_unit": null,
+        "occurred_at": 1789076366577
+      },
+      {
+        "event_id": "stream_event_run_f685315495_3_1789076369915",
+        "surface_id": "surface_d70718fbaa8774612402",
+        "source": "practice",
+        "source_run_id": "run_f685315495",
+        "source_sequence": 3,
+        "phase": "installing",
+        "code": "dependencies.installing",
+        "elapsed_ms": 16755,
+        "progress_current": null,
+        "progress_total": null,
+        "progress_unit": null,
+        "occurred_at": 1789076369915
+      },
+      {
+        "event_id": "stream_event_run_f685315495_4_1789076373743",
+        "surface_id": "surface_d70718fbaa8774612402",
+        "source": "practice",
+        "source_run_id": "run_f685315495",
+        "source_sequence": 4,
+        "phase": "installing",
+        "code": "dependencies.installing",
+        "elapsed_ms": 20582,
+        "progress_current": null,
+        "progress_total": null,
+        "progress_unit": null,
+        "occurred_at": 1789076373743
+      },
+      {
+        "event_id": "stream_event_run_f685315495_5_1789076377458",
+        "surface_id": "surface_d70718fbaa8774612402",
+        "source": "practice",
+        "source_run_id": "run_f685315495",
+        "source_sequence": 5,
+        "phase": "installing",
+        "code": "dependencies.installing",
+        "elapsed_ms": 24298,
+        "progress_current": null,
+        "progress_total": null,
+        "progress_unit": null,
+        "occurred_at": 1789076377458
+      },
+      {
+        "event_id": "stream_event_run_f685315495_6_1789076380682",
+        "surface_id": "surface_d70718fbaa8774612402",
+        "source": "practice",
+        "source_run_id": "run_f685315495",
+        "source_sequence": 6,
+        "phase": "installing",
+        "code": "dependencies.installing",
+        "elapsed_ms": 27522,
+        "progress_current": null,
+        "progress_total": null,
+        "progress_unit": null,
+        "occurred_at": 1789076380682
+      },
+      {
+        "event_id": "stream_event_run_f685315495_7_1789076384258",
+        "surface_id": "surface_d70718fbaa8774612402",
+        "source": "practice",
+        "source_run_id": "run_f685315495",
+        "source_sequence": 7,
+        "phase": "installing",
+        "code": "dependencies.installing",
+        "elapsed_ms": 31098,
+        "progress_current": null,
+        "progress_total": null,
+        "progress_unit": null,
+        "occurred_at": 1789076384258
+      },
+      {
+        "event_id": "stream_event_run_f685315495_8_1789076387993",
+        "surface_id": "surface_d70718fbaa8774612402",
+        "source": "practice",
+        "source_run_id": "run_f685315495",
+        "source_sequence": 8,
+        "phase": "installing",
+        "code": "dependencies.installing",
+        "elapsed_ms": 34833,
+        "progress_current": null,
+        "progress_total": null,
+        "progress_unit": null,
+        "occurred_at": 1789076387993
+      },
+      {
+        "event_id": "stream_event_run_f685315495_9_1789076389051",
+        "surface_id": "surface_d70718fbaa8774612402",
+        "source": "practice",
+        "source_run_id": "run_f685315495",
+        "source_sequence": 9,
+        "phase": "contract_check",
+        "code": "contract.checking",
+        "elapsed_ms": 35891,
+        "progress_current": null,
+        "progress_total": null,
+        "progress_unit": null,
+        "occurred_at": 1789076389051
+      },
+      {
+        "event_id": "stream_event_run_f685315495_10_1789076423889",
+        "surface_id": "surface_d70718fbaa8774612402",
+        "source": "practice",
+        "source_run_id": "run_f685315495",
+        "source_sequence": 10,
+        "phase": "evaluating",
+        "code": "evaluation.started",
+        "elapsed_ms": 70729,
+        "progress_current": 0,
+        "progress_total": 282,
+        "progress_unit": "cases",
+        "occurred_at": 1789076423889
+      },
+      {
+        "event_id": "stream_event_run_f685315495_11_1789076427557",
+        "surface_id": "surface_d70718fbaa8774612402",
+        "source": "practice",
+        "source_run_id": "run_f685315495",
+        "source_sequence": 11,
+        "phase": "evaluating",
+        "code": "evaluation.started",
+        "elapsed_ms": 74397,
+        "progress_current": 0,
+        "progress_total": 282,
+        "progress_unit": "cases",
+        "occurred_at": 1789076427557
+      },
+      {
+        "event_id": "stream_event_run_f685315495_12_1789076430820",
+        "surface_id": "surface_d70718fbaa8774612402",
+        "source": "practice",
+        "source_run_id": "run_f685315495",
+        "source_sequence": 12,
+        "phase": "evaluating",
+        "code": "evaluation.started",
+        "elapsed_ms": 77660,
+        "progress_current": 0,
+        "progress_total": 282,
+        "progress_unit": "cases",
+        "occurred_at": 1789076430820
+      },
+      {
+        "event_id": "stream_event_run_f685315495_13_1789076433910",
+        "surface_id": "surface_d70718fbaa8774612402",
+        "source": "practice",
+        "source_run_id": "run_f685315495",
+        "source_sequence": 13,
+        "phase": "evaluating",
+        "code": "evaluation.started",
+        "elapsed_ms": 80750,
+        "progress_current": 0,
+        "progress_total": 282,
+        "progress_unit": "cases",
+        "occurred_at": 1789076433910
+      },
+      {
+        "event_id": "stream_event_run_f685315495_14_1789076437001",
+        "surface_id": "surface_d70718fbaa8774612402",
+        "source": "practice",
+        "source_run_id": "run_f685315495",
+        "source_sequence": 14,
+        "phase": "evaluating",
+        "code": "evaluation.started",
+        "elapsed_ms": 83841,
+        "progress_current": 0,
+        "progress_total": 282,
+        "progress_unit": "cases",
+        "occurred_at": 1789076437001
+      },
+      {
+        "event_id": "stream_event_run_f685315495_15_1789076440533",
+        "surface_id": "surface_d70718fbaa8774612402",
+        "source": "practice",
+        "source_run_id": "run_f685315495",
+        "source_sequence": 15,
+        "phase": "evaluating",
+        "code": "evaluation.started",
+        "elapsed_ms": 87373,
+        "progress_current": 0,
+        "progress_total": 282,
+        "progress_unit": "cases",
+        "occurred_at": 1789076440533
+      },
+      {
+        "event_id": "stream_event_run_f685315495_16_1789076443693",
+        "surface_id": "surface_d70718fbaa8774612402",
+        "source": "practice",
+        "source_run_id": "run_f685315495",
+        "source_sequence": 16,
+        "phase": "evaluating",
+        "code": "evaluation.started",
+        "elapsed_ms": 90533,
+        "progress_current": 0,
+        "progress_total": 282,
+        "progress_unit": "cases",
+        "occurred_at": 1789076443693
+      },
+      {
+        "event_id": "stream_event_run_f685315495_17_1789076446958",
+        "surface_id": "surface_d70718fbaa8774612402",
+        "source": "practice",
+        "source_run_id": "run_f685315495",
+        "source_sequence": 17,
+        "phase": "evaluating",
+        "code": "evaluation.started",
+        "elapsed_ms": 93798,
+        "progress_current": 0,
+        "progress_total": 282,
+        "progress_unit": "cases",
+        "occurred_at": 1789076446958
+      },
+      {
+        "event_id": "stream_event_run_f685315495_18_1789076450065",
+        "surface_id": "surface_d70718fbaa8774612402",
+        "source": "practice",
+        "source_run_id": "run_f685315495",
+        "source_sequence": 18,
+        "phase": "evaluating",
+        "code": "evaluation.started",
+        "elapsed_ms": 96905,
+        "progress_current": 0,
+        "progress_total": 282,
+        "progress_unit": "cases",
+        "occurred_at": 1789076450065
+      },
+      {
+        "event_id": "stream_event_run_f685315495_19_1789076453186",
+        "surface_id": "surface_d70718fbaa8774612402",
+        "source": "practice",
+        "source_run_id": "run_f685315495",
+        "source_sequence": 19,
+        "phase": "evaluating",
+        "code": "evaluation.started",
+        "elapsed_ms": 100026,
+        "progress_current": 0,
+        "progress_total": 282,
+        "progress_unit": "cases",
+        "occurred_at": 1789076453186
+      },
+      {
+        "event_id": "stream_event_run_f685315495_20_1789076456641",
+        "surface_id": "surface_d70718fbaa8774612402",
+        "source": "practice",
+        "source_run_id": "run_f685315495",
+        "source_sequence": 20,
+        "phase": "evaluating",
+        "code": "evaluation.started",
+        "elapsed_ms": 103481,
+        "progress_current": 0,
+        "progress_total": 282,
+        "progress_unit": "cases",
+        "occurred_at": 1789076456641
+      },
+      {
+        "event_id": "stream_event_run_f685315495_21_1789076459691",
+        "surface_id": "surface_d70718fbaa8774612402",
+        "source": "practice",
+        "source_run_id": "run_f685315495",
+        "source_sequence": 21,
+        "phase": "evaluating",
+        "code": "evaluation.started",
+        "elapsed_ms": 106531,
+        "progress_current": 0,
+        "progress_total": 282,
+        "progress_unit": "cases",
+        "occurred_at": 1789076459691
+      },
+      {
+        "event_id": "stream_event_run_f685315495_22_1789076462730",
+        "surface_id": "surface_d70718fbaa8774612402",
+        "source": "practice",
+        "source_run_id": "run_f685315495",
+        "source_sequence": 22,
+        "phase": "evaluating",
+        "code": "evaluation.started",
+        "elapsed_ms": 109570,
+        "progress_current": 0,
+        "progress_total": 282,
+        "progress_unit": "cases",
+        "occurred_at": 1789076462730
+      },
+      {
+        "event_id": "stream_event_run_f685315495_23_1789076465799",
+        "surface_id": "surface_d70718fbaa8774612402",
+        "source": "practice",
+        "source_run_id": "run_f685315495",
+        "source_sequence": 23,
+        "phase": "evaluating",
+        "code": "evaluation.started",
+        "elapsed_ms": 112639,
+        "progress_current": 0,
+        "progress_total": 282,
+        "progress_unit": "cases",
+        "occurred_at": 1789076465799
+      },
+      {
+        "event_id": "stream_event_run_f685315495_24_1789076468871",
+        "surface_id": "surface_d70718fbaa8774612402",
+        "source": "practice",
+        "source_run_id": "run_f685315495",
+        "source_sequence": 24,
+        "phase": "evaluating",
+        "code": "evaluation.started",
+        "elapsed_ms": 115711,
+        "progress_current": 0,
+        "progress_total": 282,
+        "progress_unit": "cases",
+        "occurred_at": 1789076468871
+      },
+      {
+        "event_id": "stream_event_run_f685315495_25_1789076472026",
+        "surface_id": "surface_d70718fbaa8774612402",
+        "source": "practice",
+        "source_run_id": "run_f685315495",
+        "source_sequence": 25,
+        "phase": "evaluating",
+        "code": "evaluation.started",
+        "elapsed_ms": 118866,
+        "progress_current": 0,
+        "progress_total": 282,
+        "progress_unit": "cases",
+        "occurred_at": 1789076472026
+      },
+      {
+        "event_id": "stream_event_run_f685315495_26_1789076475045",
+        "surface_id": "surface_d70718fbaa8774612402",
+        "source": "practice",
+        "source_run_id": "run_f685315495",
+        "source_sequence": 26,
+        "phase": "evaluating",
+        "code": "evaluation.started",
+        "elapsed_ms": 121885,
+        "progress_current": 0,
+        "progress_total": 282,
+        "progress_unit": "cases",
+        "occurred_at": 1789076475045
+      },
+      {
+        "event_id": "stream_event_run_f685315495_27_1789076478116",
+        "surface_id": "surface_d70718fbaa8774612402",
+        "source": "practice",
+        "source_run_id": "run_f685315495",
+        "source_sequence": 27,
+        "phase": "evaluating",
+        "code": "evaluation.started",
+        "elapsed_ms": 124956,
+        "progress_current": 0,
+        "progress_total": 282,
+        "progress_unit": "cases",
+        "occurred_at": 1789076478116
+      },
+      {
+        "event_id": "stream_event_run_f685315495_28_1789076481345",
+        "surface_id": "surface_d70718fbaa8774612402",
+        "source": "practice",
+        "source_run_id": "run_f685315495",
+        "source_sequence": 28,
+        "phase": "evaluating",
+        "code": "evaluation.started",
+        "elapsed_ms": 128185,
+        "progress_current": 0,
+        "progress_total": 282,
+        "progress_unit": "cases",
+        "occurred_at": 1789076481345
+      },
+      {
+        "event_id": "stream_event_run_f685315495_29_1789076484514",
+        "surface_id": "surface_d70718fbaa8774612402",
+        "source": "practice",
+        "source_run_id": "run_f685315495",
+        "source_sequence": 29,
+        "phase": "evaluating",
+        "code": "evaluation.started",
+        "elapsed_ms": 131354,
+        "progress_current": 0,
+        "progress_total": 282,
+        "progress_unit": "cases",
+        "occurred_at": 1789076484514
+      },
+      {
+        "event_id": "stream_event_run_f685315495_30_1789076486869",
+        "surface_id": "surface_d70718fbaa8774612402",
+        "source": "practice",
+        "source_run_id": "run_f685315495",
+        "source_sequence": 30,
+        "phase": "evaluating",
+        "code": "evaluation.progress",
+        "elapsed_ms": 133709,
+        "progress_current": 282,
+        "progress_total": 282,
+        "progress_unit": "cases",
+        "occurred_at": 1789076486869
+      },
+      {
+        "event_id": "stream_event_run_f685315495_31_1789076488160",
+        "surface_id": "surface_d70718fbaa8774612402",
+        "source": "practice",
+        "source_run_id": "run_f685315495",
+        "source_sequence": 31,
+        "phase": "scoring",
+        "code": "scoring.started",
+        "elapsed_ms": 135000,
+        "progress_current": null,
+        "progress_total": null,
+        "progress_unit": null,
+        "occurred_at": 1789076488160
+      },
+      {
+        "event_id": "stream_event_run_f685315495_32_1789076497556",
+        "surface_id": "surface_d70718fbaa8774612402",
+        "source": "practice",
+        "source_run_id": "run_f685315495",
+        "source_sequence": 32,
+        "phase": "scoring",
+        "code": "run.completed",
+        "elapsed_ms": 155380,
+        "progress_current": null,
+        "progress_total": null,
+        "progress_unit": null,
+        "occurred_at": 1789076497556
+      }
+    ],
+    "success": true,
+    "meta": {
+      "served_by": "v3-prod",
+      "served_by_region": "WNAM",
+      "served_by_colo": "DFW",
+      "served_by_primary": true,
+      "timings": {
+        "sql_duration_ms": 0.3447
+      },
+      "duration": 0.3447,
+      "changes": 0,
+      "last_row_id": 0,
+      "changed_db": false,
+      "size_after": 614400,
+      "rows_read": 199,
+      "rows_written": 0,
+      "total_attempts": 1
+    }
+  },
+  {
+    "results": [
+      {
+        "id": "surface_d70718fbaa8774612402",
+        "team_id": "team_368410ea89c62b51",
+        "created_by_user_id": "user_fa3187e348bd8ffa",
+        "benchmark_id": "audio-identification",
+        "benchmark_version": 1,
+        "local_run_id": null,
+        "supersedes_surface_id": null,
+        "discord_channel_id": "1515858059405295762",
+        "discord_message_id": "1547723183979757692",
+        "discord_nonce_generation": 0,
+        "created_at": 1789076342176,
+        "updated_at": 1789076499827
+      }
+    ],
+    "success": true,
+    "meta": {
+      "served_by": "v3-prod",
+      "served_by_region": "WNAM",
+      "served_by_colo": "DFW",
+      "served_by_primary": true,
+      "timings": {
+        "sql_duration_ms": 0.1289
+      },
+      "duration": 0.1289,
+      "changes": 0,
+      "last_row_id": 0,
+      "changed_db": false,
+      "size_after": 614400,
+      "rows_read": 1,
+      "rows_written": 0,
+      "total_attempts": 1
+    }
+  },
+  {
+    "results": [],
+    "success": true,
+    "meta": {
+      "served_by": "v3-prod",
+      "served_by_region": "WNAM",
+      "served_by_colo": "DFW",
+      "served_by_primary": true,
+      "timings": {
+        "sql_duration_ms": 0.1333
+      },
+      "duration": 0.1333,
+      "changes": 0,
+      "last_row_id": 0,
+      "changed_db": false,
+      "size_after": 614400,
+      "rows_read": 34,
+      "rows_written": 0,
+      "total_attempts": 1
+    }
+  },
+  {
+    "results": [
+      {
+        "mode": "practice",
+        "used": 5
+      }
+    ],
+    "success": true,
+    "meta": {
+      "served_by": "v3-prod",
+      "served_by_region": "WNAM",
+      "served_by_colo": "DFW",
+      "served_by_primary": true,
+      "timings": {
+        "sql_duration_ms": 0.1143
+      },
+      "duration": 0.1143,
+      "changes": 0,
+      "last_row_id": 0,
+      "changed_db": false,
+      "size_after": 614400,
+      "rows_read": 22,
+      "rows_written": 0,
+      "total_attempts": 1
+    }
+  }
+]

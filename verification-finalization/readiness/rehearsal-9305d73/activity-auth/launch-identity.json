@@ -1,0 +1,10 @@
+{
+  "launchedAt": "2026-09-15T00:50:05.402Z",
+  "frames": [
+    {
+      "clientId": null,
+      "origin": "https://1526706029356646460.discordsays.com"
+    }
+  ],
+  "servedSdkClientId": "not observable in normal page DOM"
+}

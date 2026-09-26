@@ -1,0 +1,48 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Dashboard":
+      - /url: /dashboard
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "ui-accept-e8 CogPortal owner Account menu for ui-accept-e8":
+    - generic: u
+    - generic: ui-accept-e8
+    - img "CogPortal owner":
+    - generic: Account menu for ui-accept-e8
+- main:
+  - paragraph: Team settings
+  - heading "Source history fixture" [level=1]
+  - button "Rename"
+  - paragraph: No description yet.
+  - button "Add description"
+  - heading "ASSIGNED TAS" [level=2]
+  - paragraph: No TA has been assigned yet.
+  - heading "MEMBERS" [level=2]
+  - button "Add member"
+  - list:
+    - generic: u
+    - generic: ui-accept-e8ui-accept-e8
+    - generic: admin
+  - heading "REPOSITORY" [level=2]
+  - link "cogworks-demo/face-finder":
+    - /url: https://github.com/cogworks-demo/face-finder
+  - generic: default main
+  - button "Change repository"
+  - button "Where the work went" [expanded]:
+    - heading "Where the work went" [level=2]
+  - paragraph: We read your recent commits and your runs, so you can see which parts of the pipeline your team has been working in and when your pipeline first scored end to end.
+  - list:
+    - generic: There is no commit history yet, so there is nothing to read about which parts of the pipeline have been worked on.
+    - generic: Your pipeline first scored end to end on 2026-09-11, and 2 runs have scored in total.
+  - heading "Stages of the pipeline" [level=3]
+  - paragraph: Stages aren't shown here because this repository has no recorded commits.
+  - paragraph: Read just now, from your 0 commits.
+  - link "Open dashboard":
+    - /url: /dashboard
+    - text: Open dashboard
+- document

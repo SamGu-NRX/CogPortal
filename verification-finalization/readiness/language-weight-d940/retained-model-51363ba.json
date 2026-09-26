@@ -1,0 +1,24 @@
+{
+  "checkExitCode": 0,
+  "runExitCode": 0,
+  "reportId": "local_72a4cafa009141cbb1c8ca14fc677168",
+  "savedReportMatchesStdout": true,
+  "weightsUsed": [
+    "data/W_embed.npy"
+  ],
+  "weightsUploaded": null,
+  "files": [
+    {
+      "path": "/Users/samgu/Programming Projects/CogPortal-language-weight-rehearsal/data/W_embed.npy",
+      "size": 409728,
+      "sha256": "dc30a867393863098f9a19ef2c53d0c82b6dbd492b8710a331ad4f0ddda3ea6f"
+    },
+    {
+      "path": "/Users/samgu/Programming Projects/CogPortal-language-weight-rehearsal/.cogbench/weights/dc30a867393863098f9a19ef2c53d0c82b6dbd492b8710a331ad4f0ddda3ea6f/data/W_embed.npy",
+      "size": 409728,
+      "sha256": "dc30a867393863098f9a19ef2c53d0c82b6dbd492b8710a331ad4f0ddda3ea6f"
+    }
+  ],
+  "gitHead": "8789361ad7dec86fa724431873f674e03b449951",
+  "gitStatus": ""
+}

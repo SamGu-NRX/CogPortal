@@ -1,0 +1,94 @@
+HTML content Cog*Portal — CogWorks Benchmark, URL: cogportal.sillion.app/admin
+					30 container
+						31 link Description: Skip to content, Value: cogportal.sillion.app/runs/run_b647f110de#main
+						32 link Description: Cog*Portal, Value: cogportal.sillion.app/
+						33 container Primary
+							34 link Description: DASHBOARD, Value: cogportal.sillion.app/dashboard
+							35 link Description: LEADERBOARD, Value: cogportal.sillion.app/leaderboard
+						36 pop up button Sam CogPortal owner Account menu for SamGu-NRX
+							37 text Sam
+							38 image CogPortal owner
+							39 text Account menu for 
+							40 text SamGu-NRX
+						41 text ADMIN
+						42 heading BWSI CogWorks 2026, Value: 1
+							43 text BWSI CogWorks 2026
+						44 container
+							45 heading TEAMS, Value: 2
+								46 text TEAMS
+							47 text 7
+							48 content list
+								49 button CogPortal SamGu-NRX/cogportal-demo-week1 2 runs 2 practice runs · 0 official attempts
+									50 text CogPortal
+									51 text SamGu-NRX/cogportal-demo-week1
+									52 text 2 runs
+									53 text 2
+									54 text  practice runs · 
+									55 text 0
+									56 text  official attempts
+								57 button Cosine Similarity Club cogworks-demo/cosine-similarity-club 1 run 0 practice runs · 1 official attempts
+									58 text Cosine Similarity Club
+									59 text cogworks-demo/cosine-similarity-club
+									60 text 1 run
+									61 text 0
+									62 text  practice runs · 
+									63 text 1
+									64 text  official attempts
+								65 button Eigenfaces United cogworks-demo/eigenfaces-united 1 run 0 practice runs · 1 official attempts
+									66 text Eigenfaces United
+									67 text cogworks-demo/eigenfaces-united
+									68 text 1 run
+									69 text 0
+									70 text  practice runs · 
+									71 text 1
+									72 text  official attempts
+								73 button Gradient Descenders cogworks-demo/gradient-descenders 1 run 0 practice runs · 1 official attempts
+									74 text Gradient Descenders
+									75 text cogworks-demo/gradient-descenders
+									76 text 1 run
+									77 text 0
+									78 text  practice runs · 
+									79 text 1
+									80 text  official attempts
+								81 button Latent Space Cadets cogworks-demo/latent-space-cadets 1 run 0 practice runs · 1 official attempts
+									82 text Latent Space Cadets
+									83 text cogworks-demo/latent-space-cadets
+									84 text 1 run
+									85 text 0
+									86 text  practice runs · 
+									87 text 1
+									88 text  official attempts
+								89 button Manifold Destiny cogworks-demo/manifold-destiny 1 run 0 practice runs · 1 official attempts
+									90 text Manifold Destiny
+									91 text cogworks-demo/manifold-destiny
+									92 text 1 run
+									93 text 0
+									94 text  practice runs · 
+									95 text 1
+									96 text  official attempts
+								97 container
+									98 button Vector Voyagers cogworks-demo/vector-voyagers 3 runs 2 practice runs · 1 official attempts
+										99 text Vector Voyagers
+										100 text cogworks-demo/vector-voyagers
+										101 text 3 runs
+										102 text 2
+										103 text  practice runs · 
+										104 text 1
+										105 text  official attempts
+									106 text ASSIGNED TEACHING STAFF
+									107 text No TA assigned.
+									108 container
+										109 text Assign TA by GitHub login
+										110 text field (settable) Assign TA by GitHub login, Placeholder: TA github login
+										111 button (disabled) ASSIGN TA
+									112 container
+										113 text Add member by GitHub login
+										114 text field (settable) Add member by GitHub login, Placeholder: github login
+										115 button (disabled) ADD
+									116 text Latest published score 0.889 · Face Recognition v1
+						117 container
+							118 heading UNASSIGNED STUDENTS, Value: 2
+								119 text UNASSIGNED STUDENTS
+							120 text 0
+							121 text Everyone in the cohort has a team.
+						122 container

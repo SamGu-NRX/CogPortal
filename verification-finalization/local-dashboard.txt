@@ -1,0 +1,131 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Dashboard":
+      - /url: /dashboard
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "verify-creator Account menu for verify-creator":
+    - generic: v
+    - generic: verify-creator
+    - generic: Account menu for verify-creator
+- main:
+  - paragraph: Good morning, verify-creator
+  - heading "Verification Creator Team" [level=1]:
+    - link "Verification Creator Team":
+      - /url: /team
+  - button "Semantic Image Search · v1 Change benchmark track. Currently Semantic Image Search.":
+    - text: Semantic Image Search · v1
+    - generic: Change benchmark track. Currently Semantic Image Search.
+  - generic "Execution provider is in fixture mode. Results are scripted, not real evaluation.": simulated
+  - generic: Getting set up
+  - generic: 0 of 5 verified
+  - link "Continue":
+    - /url: /setup
+    - text: Continue
+  - button "Dismiss the setup reminder":
+  - heading "START A RUN" [level=2]
+  - generic: Branch
+  - combobox "Branch":
+    - option "main" [selected]
+    - option "improved-thresholds"
+    - option "missing-adapter"
+    - option "loose-pins"
+    - option "heavy-model"
+    - option "raw-tuples"
+    - option "null-descriptor"
+  - button "Run practice benchmark"
+  - paragraph: 6 of 10 hosted runs left
+  - generic: Candidate ready
+  - paragraph:
+    - link "RUN CAF3":
+      - /url: /runs/run_bc8a18caf3
+    - text: scored 0.401 on main · cbd8e59
+  - button "Promote to official" [disabled]
+  - paragraph: All official attempts are used.
+  - heading "RUN LOG" [level=2]
+  - generic: 7 recorded
+  - list:
+    - link "RUN 4AE5 practice Failed missing-adapter · 0c25771 E-ADAPTER 57 min ago":
+      - /url: /runs/run_d224094ae5
+      - generic: RUN 4AE5
+      - generic: practice
+      - generic: Failed
+      - generic: missing-adapter · 0c25771
+      - generic: E-ADAPTER
+      - generic: 57 min ago
+    - 'link "RUN 0865 official #1 Succeeded main · cbd8e59 0.408 59 min ago"':
+      - /url: /runs/run_95474b0865
+      - generic: RUN 0865
+      - generic: "official #1"
+      - generic: Succeeded
+      - generic: main · cbd8e59
+      - generic: "0.408"
+      - generic: 59 min ago
+    - 'link "RUN OTA2 official #2 Succeeded main · cbd8e59 0.408 59 min ago"':
+      - /url: /runs/run_verify_quota2
+      - generic: RUN OTA2
+      - generic: "official #2"
+      - generic: Succeeded
+      - generic: main · cbd8e59
+      - generic: "0.408"
+      - generic: 59 min ago
+    - 'link "RUN OTA3 official #3 Succeeded main · cbd8e59 0.408 59 min ago"':
+      - /url: /runs/run_verify_quota3
+      - generic: RUN OTA3
+      - generic: "official #3"
+      - generic: Succeeded
+      - generic: main · cbd8e59
+      - generic: "0.408"
+      - generic: 59 min ago
+    - link "RUN CAF3 practice Succeeded main · cbd8e59 0.401 1 h ago":
+      - /url: /runs/run_bc8a18caf3
+      - generic: RUN CAF3
+      - generic: practice
+      - generic: Succeeded
+      - generic: main · cbd8e59
+      - generic: "0.401"
+      - generic: 1 h ago
+    - link "RUN 441D practice Succeeded main · cbd8e59 0.397 1 h ago":
+      - /url: /runs/run_54e374441d
+      - generic: RUN 441D
+      - generic: practice
+      - generic: Succeeded
+      - generic: main · cbd8e59
+      - generic: "0.397"
+      - generic: 1 h ago
+    - link "RUN HELD practice Succeeded main · cbd8e59 1 h ago":
+      - /url: /runs/run_verify_withheld
+      - generic: RUN HELD
+      - generic: practice
+      - generic: Succeeded
+      - generic: main · cbd8e59
+      - generic: 1 h ago
+  - heading "CONNECTED SOURCE" [level=2]
+  - link "cogworks-demo/face-finder":
+    - /url: https://github.com/cogworks-demo/face-finder
+  - generic: last tested
+  - button "0c25771 Copy full commit SHA 0c25771cfa12699f531b93ef0daa08dcda847e04":
+    - generic: 0c25771
+    - generic: Copy full commit SHA 0c25771cfa12699f531b93ef0daa08dcda847e04
+  - paragraph: week3-cpu-v1 · CPU · network blocked during evaluation
+  - heading "ATTEMPT BUDGET" [level=2]
+  - generic: Hosted practice
+  - generic: 4/10 used
+  - 'img "Hosted practice: 4 of 10 used"'
+  - generic: Official attempts
+  - generic: 3/3 used
+  - 'img "Official attempts: 3 of 3 used"'
+  - paragraph: Local runs are unlimited and are not counted here. An official cell fills the moment you start that attempt, and it comes back if the run fails for a reason on our side.
+  - heading "PUBLISHED RESULT" [level=2]
+  - paragraph: "attempt #1 · cbd8e59"
+  - paragraph: Overall 0.408
+  - link "View run":
+    - /url: /runs/run_95474b0865
+  - link "Leaderboard":
+    - /url: /leaderboard
+- document

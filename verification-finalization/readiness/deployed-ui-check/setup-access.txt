@@ -1,0 +1,18 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - link "Sign in":
+    - /url: /signin
+- main:
+  - heading "Sign in" [level=1]
+  - paragraph: We use your GitHub account for sign-in, so you don't need a separate registration.
+  - link "Continue with GitHub":
+    - /url: /api/github/login
+    - text: Continue with GitHub
+- document

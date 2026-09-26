@@ -1,0 +1,20 @@
+{
+  "checkedAt": "2026-09-10T20:15:22.630590+00:00",
+  "workerVersion": "f5b686b6-03b9-48bb-b5ce-635cfcfb0032",
+  "workerBindings": {
+    "DEV_AUTH": "disabled",
+    "EXECUTION_PROVIDER": "modal",
+    "RUNNER_IMAGE_DIGEST": "cogworks-python-3.11:unpublished"
+  },
+  "servedAsset": "/assets/index-VYHBA2wR.js",
+  "sourceCandidate": "8459519e65c16a4819e36e83f31940dc5d779845",
+  "verifierCheckout": "0d536870be2bdbe2ab8d6965a6a8df8896ba28d2",
+  "runCountsByProvider": {
+    "modal": 4,
+    "archive": 9,
+    "fixture": 3
+  },
+  "nonterminalRunIds": [],
+  "hiddenVolumeRootListing": [],
+  "practiceRunsStarted": 0
+}

@@ -1,0 +1,80 @@
+{
+  "benchmarkId": "language-search",
+  "benchmarkVersion": 1,
+  "contractVersion": "cogworks.submissions.v2",
+  "diagnostics": [
+    "overall withheld: several files in this repository load as a (512, D) projection and no load call in your code says which one to score: .cogbench/weights/dc30a867393863098f9a19ef2c53d0c82b6dbd492b8710a331ad4f0ddda3ea6f/data/W_embed.npy,",
+    "data/W_embed.npy.",
+    "Load one of them by name in the script you run, or remove the others, and run again.",
+    "retrieval component scored 0: [not bound] no trained image projection was found in this repository, so the image half of the embedding space was never built.",
+    "the keywords retrieval rung scored 0: [not bound] no trained image projection was found in this repository, so the image half of the embedding space was never built.",
+    "the truncated retrieval rung scored 0: [not bound] no trained image projection was found in this repository, so the image half of the embedding space was never built.",
+    "the typo retrieval rung scored 0: [not bound] no trained image projection was found in this repository, so the image half of the embedding space was never built.",
+    "the keywords query rung scored 0: [not bound] no function in this repository built a searchable database from image ids and descriptors.",
+    "the truncated query rung scored 0: [not bound] no function in this repository built a searchable database from image ids and descriptors.",
+    "the typo query rung scored 0: [not bound] no function in this repository built a searchable database from image ids and descriptors.",
+    "the verbatim query rung scored 0: [not bound] no function in this repository built a searchable database from image ids and descriptors.",
+    "chance baselines: text_mrr 0.0400, retrieval_mrr 0.0102, search_mrr 0.0064."
+  ],
+  "dirty": false,
+  "finishedAt": 1789463638766,
+  "metrics": [
+    {
+      "help": "Given one caption, how highly does another caption of the same image rank against captions of other images? This tests the IDF-weighted GloVe sum on its own, before any image is involved. Weak here means the caption embedding is the problem -- check that IDF is computed across every caption in the dataset and that an unseen word gets IDF 0.",
+      "higherIsBetter": true,
+      "key": "text_mrr",
+      "label": "Text MRR",
+      "precision": 4,
+      "primary": true,
+      "role": "scored",
+      "unit": null,
+      "value": 0.7829385398961786
+    },
+    {
+      "help": "What ranking the images at random scores. This is the floor for retrieval MRR. Text MRR and search MRR each have their own floor, listed separately, because they are not asking the same question.",
+      "higherIsBetter": true,
+      "key": "chance_mrr",
+      "label": "Chance MRR",
+      "precision": 3,
+      "primary": false,
+      "relatesTo": "retrieval_mrr",
+      "role": "floor",
+      "unit": null,
+      "value": 0.01018430016513033
+    },
+    {
+      "help": "The floor for text MRR specifically, which is a different number from the image floor above: this one ranks captions among captions. The two differ by roughly four times on the hidden set, so reading text MRR against the image floor flatters it.",
+      "higherIsBetter": true,
+      "key": "text_chance",
+      "label": "Text chance MRR",
+      "precision": 3,
+      "primary": false,
+      "relatesTo": "text_mrr",
+      "role": "floor",
+      "unit": null,
+      "value": 0.03997975884400964
+    },
+    {
+      "help": "The floor for search MRR. It sits below the retrieval floor because search returns a fixed number of results and an image past the end of that list scores nothing, while retrieval ranks the whole pool. On the hidden set the search floor is about 0.0064 against the retrieval floor's 0.0102.",
+      "higherIsBetter": true,
+      "key": "search_chance",
+      "label": "Search chance MRR",
+      "precision": 3,
+      "primary": false,
+      "relatesTo": "search_mrr",
+      "role": "floor",
+      "unit": null,
+      "value": 0.006427436197613463
+    }
+  ],
+  "outputDigest": "98e77931440a8e26558f0230e440a4cb09640f1ca2450801fda0cb6db69ad2bb",
+  "pluginVersion": "0.1.0",
+  "reportId": "local_3bac1865eacb4cbcb51df44d468d6a1b",
+  "repositoryFullName": "LashikaKapoor28/Language_Module_Capstone",
+  "repositoryId": null,
+  "sdkVersion": "0.2.0",
+  "sha": "8789361ad7dec86fa724431873f674e03b449951",
+  "startedAt": 1789463638620,
+  "weightsUploaded": [],
+  "weightsUsed": []
+}

@@ -1,0 +1,1071 @@
+[
+  {
+    "repository": "rutvim2009/BWSI_CogWorks_Team_1",
+    "path": "Week2/__pycache__/app.cpython-311.pyc",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/rutvim2009__BWSI_CogWorks_Team_1/Week2/__pycache__/app.cpython-311.pyc",
+    "tracked": false,
+    "classification": "generated-bytecode",
+    "headBytes": null,
+    "headSha256": null,
+    "workingBytes": 6736,
+    "workingSha256": "1a54f66f76c11fa602cfdc3ea8b877e7d56d77fdb9ebf41f8d0b7622bcb0bb0f"
+  },
+  {
+    "repository": "rutvim2009/BWSI_CogWorks_Team_1",
+    "path": "Week2/__pycache__/app.cpython-312.pyc",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/rutvim2009__BWSI_CogWorks_Team_1/Week2/__pycache__/app.cpython-312.pyc",
+    "tracked": false,
+    "classification": "generated-bytecode",
+    "headBytes": null,
+    "headSha256": null,
+    "workingBytes": 5895,
+    "workingSha256": "0c060e8d54a0a3623edbf4e9bbb3fc344255b65649d481b0447549ed75d7021c"
+  },
+  {
+    "repository": "rutvim2009/BWSI_CogWorks_Team_1",
+    "path": "Week2/__pycache__/facerecognizer.cpython-311.pyc",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/rutvim2009__BWSI_CogWorks_Team_1/Week2/__pycache__/facerecognizer.cpython-311.pyc",
+    "tracked": false,
+    "classification": "generated-bytecode",
+    "headBytes": null,
+    "headSha256": null,
+    "workingBytes": 10927,
+    "workingSha256": "b886ca30efba7571775453158cc9f666efaa22e7971faff1eceffd32c68c5e74"
+  },
+  {
+    "repository": "rutvim2009/BWSI_CogWorks_Team_1",
+    "path": "Week2/__pycache__/facerecognizer.cpython-312.pyc",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/rutvim2009__BWSI_CogWorks_Team_1/Week2/__pycache__/facerecognizer.cpython-312.pyc",
+    "tracked": false,
+    "classification": "generated-bytecode",
+    "headBytes": null,
+    "headSha256": null,
+    "workingBytes": 9531,
+    "workingSha256": "f40ffe36510683f4b052ba8425b17e6bf06fc768b988b7aea638d85bc7e1c86b"
+  },
+  {
+    "repository": "rutvim2009/BWSI_CogWorks_Team_1",
+    "path": "Week2/__pycache__/testing_py.cpython-311.pyc",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/rutvim2009__BWSI_CogWorks_Team_1/Week2/__pycache__/testing_py.cpython-311.pyc",
+    "tracked": false,
+    "classification": "generated-bytecode",
+    "headBytes": null,
+    "headSha256": null,
+    "workingBytes": 3479,
+    "workingSha256": "151cbda1c964a40c8e3586b69e9b52713f70a09d0e1a7632fe800bd480882301"
+  },
+  {
+    "repository": "rutvim2009/BWSI_CogWorks_Team_1",
+    "path": "Week2/__pycache__/testing_py.cpython-312.pyc",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/rutvim2009__BWSI_CogWorks_Team_1/Week2/__pycache__/testing_py.cpython-312.pyc",
+    "tracked": false,
+    "classification": "generated-bytecode",
+    "headBytes": null,
+    "headSha256": null,
+    "workingBytes": 2978,
+    "workingSha256": "39786f5d779b25c40c010c7efc2616e30d7558a826fa9948399249427fabb60a"
+  },
+  {
+    "repository": "rutvim2009/BWSI_CogWorks_Team_1",
+    "path": "Week2/__pycache__/whispers.cpython-311.pyc",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/rutvim2009__BWSI_CogWorks_Team_1/Week2/__pycache__/whispers.cpython-311.pyc",
+    "tracked": false,
+    "classification": "generated-bytecode",
+    "headBytes": null,
+    "headSha256": null,
+    "workingBytes": 11186,
+    "workingSha256": "68d5efdc3418e1c896ca6324b475073a3dd05007bde73093af414c923996c5bf"
+  },
+  {
+    "repository": "rutvim2009/BWSI_CogWorks_Team_1",
+    "path": "Week2/__pycache__/whispers.cpython-312.pyc",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/rutvim2009__BWSI_CogWorks_Team_1/Week2/__pycache__/whispers.cpython-312.pyc",
+    "tracked": false,
+    "classification": "generated-bytecode",
+    "headBytes": null,
+    "headSha256": null,
+    "workingBytes": 10090,
+    "workingSha256": "2146db540e5c1c134ece7d506974fb37fb0376f932dd3f7fb164f0d49296d874"
+  },
+  {
+    "repository": "rutvim2009/BWSI_CogWorks_Team_1",
+    "path": "Week3/__pycache__/app.cpython-311.pyc",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/rutvim2009__BWSI_CogWorks_Team_1/Week3/__pycache__/app.cpython-311.pyc",
+    "tracked": false,
+    "classification": "generated-bytecode",
+    "headBytes": null,
+    "headSha256": null,
+    "workingBytes": 773,
+    "workingSha256": "89aed42ba2acc78dda641d4151544e0e0c759b3a9bc9431f30179a0795aa629c"
+  },
+  {
+    "repository": "rutvim2009/BWSI_CogWorks_Team_1",
+    "path": "Week3/__pycache__/app.cpython-312.pyc",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/rutvim2009__BWSI_CogWorks_Team_1/Week3/__pycache__/app.cpython-312.pyc",
+    "tracked": false,
+    "classification": "generated-bytecode",
+    "headBytes": null,
+    "headSha256": null,
+    "workingBytes": 710,
+    "workingSha256": "c11e25cb145797c75486bb7294b8071029a0ba2c62c384a9e40d3a7b5d7f4cda"
+  },
+  {
+    "repository": "rutvim2009/BWSI_CogWorks_Team_1",
+    "path": "Week3/__pycache__/load_coco.cpython-311.pyc",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/rutvim2009__BWSI_CogWorks_Team_1/Week3/__pycache__/load_coco.cpython-311.pyc",
+    "tracked": false,
+    "classification": "generated-bytecode",
+    "headBytes": null,
+    "headSha256": null,
+    "workingBytes": 1265,
+    "workingSha256": "ac729808aa2cca6fbf328ffed99c7df3a293f7b493e9897e1996e20721176fb0"
+  },
+  {
+    "repository": "rutvim2009/BWSI_CogWorks_Team_1",
+    "path": "Week3/__pycache__/load_coco.cpython-312.pyc",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/rutvim2009__BWSI_CogWorks_Team_1/Week3/__pycache__/load_coco.cpython-312.pyc",
+    "tracked": false,
+    "classification": "generated-bytecode",
+    "headBytes": null,
+    "headSha256": null,
+    "workingBytes": 966,
+    "workingSha256": "b4090b115d8c655c807e6f36fc74df7051885e058626e46b369bc13137408cc9"
+  },
+  {
+    "repository": "rutvim2009/BWSI_CogWorks_Team_1",
+    "path": "Week3/__pycache__/testing.cpython-311.pyc",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/rutvim2009__BWSI_CogWorks_Team_1/Week3/__pycache__/testing.cpython-311.pyc",
+    "tracked": false,
+    "classification": "generated-bytecode",
+    "headBytes": null,
+    "headSha256": null,
+    "workingBytes": 938,
+    "workingSha256": "cf848f56a41dc2f36eee9c29979b182208e73dedd9b6024f82ca6ec085a0d64d"
+  },
+  {
+    "repository": "rutvim2009/BWSI_CogWorks_Team_1",
+    "path": "Week3/__pycache__/testing.cpython-312.pyc",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/rutvim2009__BWSI_CogWorks_Team_1/Week3/__pycache__/testing.cpython-312.pyc",
+    "tracked": false,
+    "classification": "generated-bytecode",
+    "headBytes": null,
+    "headSha256": null,
+    "workingBytes": 845,
+    "workingSha256": "aa7605e490a8eefe77bf7410a3ce27c254705389b8884f9277b6eab1853fcdca"
+  },
+  {
+    "repository": "rutvim2009/BWSI_CogWorks_Team_1",
+    "path": "Week3/__pycache__/text_to_image.cpython-311.pyc",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/rutvim2009__BWSI_CogWorks_Team_1/Week3/__pycache__/text_to_image.cpython-311.pyc",
+    "tracked": false,
+    "classification": "generated-bytecode",
+    "headBytes": null,
+    "headSha256": null,
+    "workingBytes": 18623,
+    "workingSha256": "4292895cfacf0e7ac494ba7f54226a2f9884446cae2947bdad9c5e427fe05f70"
+  },
+  {
+    "repository": "rutvim2009/BWSI_CogWorks_Team_1",
+    "path": "Week3/__pycache__/text_to_image.cpython-312.pyc",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/rutvim2009__BWSI_CogWorks_Team_1/Week3/__pycache__/text_to_image.cpython-312.pyc",
+    "tracked": false,
+    "classification": "generated-bytecode",
+    "headBytes": null,
+    "headSha256": null,
+    "workingBytes": 16061,
+    "workingSha256": "b93da2669006a33291ab4e347795a8270bb0207f5be6930b2d62d7c4cf2fb225"
+  },
+  {
+    "repository": "CogWorks-2026-Team-Asterisk/Week1-Capstone-Shazam",
+    "path": "song_samples/American Pie.npy",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/CogWorks-2026-Team-Asterisk__Week1-Capstone-Shazam/song_samples/American Pie.npy",
+    "tracked": true,
+    "classification": "generated-audio-array",
+    "headBytes": 90493060,
+    "headSha256": "e65c75775f50a740967129d015a5fb44dd024f705fdc1a1ad3b47d24b3be736a",
+    "workingBytes": 180985992,
+    "workingSha256": "b5f422954b4bfc0102725258e1e8261682368ae8fca1e977ac0809836d3468a2",
+    "headArrayHeader": {
+      "descr": "<i4",
+      "fortran_order": false,
+      "shape": [
+        22623233
+      ]
+    },
+    "workingArrayHeader": {
+      "descr": "<i8",
+      "fortran_order": false,
+      "shape": [
+        22623233
+      ]
+    },
+    "reason": "Source conversion scripts save song_samples arrays; same array shape, changed numeric dtype. Creation history is not proven."
+  },
+  {
+    "repository": "CogWorks-2026-Team-Asterisk/Week1-Capstone-Shazam",
+    "path": "song_samples/Borderline.npy",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/CogWorks-2026-Team-Asterisk__Week1-Capstone-Shazam/song_samples/Borderline.npy",
+    "tracked": true,
+    "classification": "generated-audio-array",
+    "headBytes": 41948524,
+    "headSha256": "96a7bf4fa5c8c9855f80dc600eb3c378be365d6db2c5135630ef2a4b6c9cdf4f",
+    "workingBytes": 83896920,
+    "workingSha256": "b62988222ee9a01220085916f74725b9f1d3a25124b0aa20082265c8c6ce1c66",
+    "headArrayHeader": {
+      "descr": "<i4",
+      "fortran_order": false,
+      "shape": [
+        10487099
+      ]
+    },
+    "workingArrayHeader": {
+      "descr": "<i8",
+      "fortran_order": false,
+      "shape": [
+        10487099
+      ]
+    },
+    "reason": "Source conversion scripts save song_samples arrays; same array shape, changed numeric dtype. Creation history is not proven."
+  },
+  {
+    "repository": "CogWorks-2026-Team-Asterisk/Week1-Capstone-Shazam",
+    "path": "song_samples/Brazil.npy",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/CogWorks-2026-Team-Asterisk__Week1-Capstone-Shazam/song_samples/Brazil.npy",
+    "tracked": true,
+    "classification": "generated-audio-array",
+    "headBytes": 45453448,
+    "headSha256": "af5ac7fcecdc8e6b79a3a7f76dee3567edcae4492614713e163b50e2866bacac",
+    "workingBytes": 90906768,
+    "workingSha256": "f35ebab563d81299c97b3823d30e34cd2ab74238625daaf42b1b15933d266e4a",
+    "headArrayHeader": {
+      "descr": "<i4",
+      "fortran_order": false,
+      "shape": [
+        11363330
+      ]
+    },
+    "workingArrayHeader": {
+      "descr": "<i8",
+      "fortran_order": false,
+      "shape": [
+        11363330
+      ]
+    },
+    "reason": "Source conversion scripts save song_samples arrays; same array shape, changed numeric dtype. Creation history is not proven."
+  },
+  {
+    "repository": "CogWorks-2026-Team-Asterisk/Week1-Capstone-Shazam",
+    "path": "song_samples/Claude's Plan.npy",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/CogWorks-2026-Team-Asterisk__Week1-Capstone-Shazam/song_samples/Claude's Plan.npy",
+    "tracked": true,
+    "classification": "generated-audio-array",
+    "headBytes": 34888764,
+    "headSha256": "428786b1f367bec500f053ebbbd220dd45066f0e065799b9da699a2c08b7f46f",
+    "workingBytes": 69777400,
+    "workingSha256": "d6765eb64c0806848107f76418e31da3980488d23c0987bd2e0bb025165baa0a",
+    "headArrayHeader": {
+      "descr": "<i4",
+      "fortran_order": false,
+      "shape": [
+        8722159
+      ]
+    },
+    "workingArrayHeader": {
+      "descr": "<i8",
+      "fortran_order": false,
+      "shape": [
+        8722159
+      ]
+    },
+    "reason": "Source conversion scripts save song_samples arrays; same array shape, changed numeric dtype. Creation history is not proven."
+  },
+  {
+    "repository": "CogWorks-2026-Team-Asterisk/Week1-Capstone-Shazam",
+    "path": "song_samples/Eventually.npy",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/CogWorks-2026-Team-Asterisk__Week1-Capstone-Shazam/song_samples/Eventually.npy",
+    "tracked": true,
+    "classification": "generated-audio-array",
+    "headBytes": 56400008,
+    "headSha256": "8f6f5e9ca84d2018d6e43f031ecd52cabd9e35b4035588ed6a0f950629ff6ab0",
+    "workingBytes": 112799888,
+    "workingSha256": "3ae9567562779ad7394ab4148c66c1f5bfad7facd7cdc7580c85551cdd2097f5",
+    "headArrayHeader": {
+      "descr": "<i4",
+      "fortran_order": false,
+      "shape": [
+        14099970
+      ]
+    },
+    "workingArrayHeader": {
+      "descr": "<i8",
+      "fortran_order": false,
+      "shape": [
+        14099970
+      ]
+    },
+    "reason": "Source conversion scripts save song_samples arrays; same array shape, changed numeric dtype. Creation history is not proven."
+  },
+  {
+    "repository": "CogWorks-2026-Team-Asterisk/Week1-Capstone-Shazam",
+    "path": "song_samples/Ghost Chickens in the Sky.npy",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/CogWorks-2026-Team-Asterisk__Week1-Capstone-Shazam/song_samples/Ghost Chickens in the Sky.npy",
+    "tracked": true,
+    "classification": "generated-audio-array",
+    "headBytes": 29388372,
+    "headSha256": "b708308ecf2bcddb90be4354ab46aa441d4ed2ddc272f7c6fc8aba5b6f9c0403",
+    "workingBytes": 58776616,
+    "workingSha256": "662ed3f69aa58a48625d6f3025e0a25e50bbd9ee99c08fc1f43068706769a796",
+    "headArrayHeader": {
+      "descr": "<i4",
+      "fortran_order": false,
+      "shape": [
+        7347061
+      ]
+    },
+    "workingArrayHeader": {
+      "descr": "<i8",
+      "fortran_order": false,
+      "shape": [
+        7347061
+      ]
+    },
+    "reason": "Source conversion scripts save song_samples arrays; same array shape, changed numeric dtype. Creation history is not proven."
+  },
+  {
+    "repository": "CogWorks-2026-Team-Asterisk/Week1-Capstone-Shazam",
+    "path": "song_samples/Hey There Delilah.npy",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/CogWorks-2026-Team-Asterisk__Week1-Capstone-Shazam/song_samples/Hey There Delilah.npy",
+    "tracked": true,
+    "classification": "generated-audio-array",
+    "headBytes": 41025672,
+    "headSha256": "522d62e93ec0eabc24f34f332d06bd8bf38bd87d811e2e9e1a14e2eac5085682",
+    "workingBytes": 82051216,
+    "workingSha256": "a7fb9ba41f0cb4d4142c47af1a99fc66c439b1389d45171f9461f8572dcecc7b",
+    "headArrayHeader": {
+      "descr": "<i4",
+      "fortran_order": false,
+      "shape": [
+        10256386
+      ]
+    },
+    "workingArrayHeader": {
+      "descr": "<i8",
+      "fortran_order": false,
+      "shape": [
+        10256386
+      ]
+    },
+    "reason": "Source conversion scripts save song_samples arrays; same array shape, changed numeric dtype. Creation history is not proven."
+  },
+  {
+    "repository": "CogWorks-2026-Team-Asterisk/Week1-Capstone-Shazam",
+    "path": "song_samples/Le Mus\u00e9e Imaginaire.npy",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/CogWorks-2026-Team-Asterisk__Week1-Capstone-Shazam/song_samples/Le Mus\u00e9e Imaginaire.npy",
+    "tracked": true,
+    "classification": "generated-audio-array",
+    "headBytes": 30560392,
+    "headSha256": "a0697113b714b938445900835c44c3002713bd1f8c288ea66d393f964fda0e33",
+    "workingBytes": 61120656,
+    "workingSha256": "25c88246970aa63fda2bf7217d07b9970da93438d83ce058c91bb7d688596738",
+    "headArrayHeader": {
+      "descr": "<i4",
+      "fortran_order": false,
+      "shape": [
+        7640066
+      ]
+    },
+    "workingArrayHeader": {
+      "descr": "<i8",
+      "fortran_order": false,
+      "shape": [
+        7640066
+      ]
+    },
+    "reason": "Source conversion scripts save song_samples arrays; same array shape, changed numeric dtype. Creation history is not proven."
+  },
+  {
+    "repository": "CogWorks-2026-Team-Asterisk/Week1-Capstone-Shazam",
+    "path": "song_samples/Pink + White.npy",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/CogWorks-2026-Team-Asterisk__Week1-Capstone-Shazam/song_samples/Pink + White.npy",
+    "tracked": true,
+    "classification": "generated-audio-array",
+    "headBytes": 32551812,
+    "headSha256": "1330ca1068909fbf6db9e67346183f4c5f5afc4538301168e8c9775c36fffdcb",
+    "workingBytes": 65103496,
+    "workingSha256": "57ddfc5622cdc70ebe703566988b167e5683736d604d36f0e2a9f77a1ae8bfea",
+    "headArrayHeader": {
+      "descr": "<i4",
+      "fortran_order": false,
+      "shape": [
+        8137921
+      ]
+    },
+    "workingArrayHeader": {
+      "descr": "<i8",
+      "fortran_order": false,
+      "shape": [
+        8137921
+      ]
+    },
+    "reason": "Source conversion scripts save song_samples arrays; same array shape, changed numeric dtype. Creation history is not proven."
+  },
+  {
+    "repository": "CogWorks-2026-Team-Asterisk/Week1-Capstone-Shazam",
+    "path": "song_samples/Pink Skies.npy",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/CogWorks-2026-Team-Asterisk__Week1-Capstone-Shazam/song_samples/Pink Skies.npy",
+    "tracked": true,
+    "classification": "generated-audio-array",
+    "headBytes": 34388104,
+    "headSha256": "1292b03af2c9c9976a4b465a5231da26bea4c0060c4fe7ea4dd6344ac1713cbd",
+    "workingBytes": 68776080,
+    "workingSha256": "361f3b2329e31d45a74e84362e1eb4d6dd5c9bf3f85d09bc13bc0e2dd54b26da",
+    "headArrayHeader": {
+      "descr": "<i4",
+      "fortran_order": false,
+      "shape": [
+        8596994
+      ]
+    },
+    "workingArrayHeader": {
+      "descr": "<i8",
+      "fortran_order": false,
+      "shape": [
+        8596994
+      ]
+    },
+    "reason": "Source conversion scripts save song_samples arrays; same array shape, changed numeric dtype. Creation history is not proven."
+  },
+  {
+    "repository": "CogWorks-2026-Team-Asterisk/Week1-Capstone-Shazam",
+    "path": "song_samples/Poisoning Pigeons in the Park.npy",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/CogWorks-2026-Team-Asterisk__Week1-Capstone-Shazam/song_samples/Poisoning Pigeons in the Park.npy",
+    "tracked": true,
+    "classification": "generated-audio-array",
+    "headBytes": 21803420,
+    "headSha256": "8ae5bfaa48dfc1e22e09a06b004160af47c485e56c703f90af31f2c14331583c",
+    "workingBytes": 43606712,
+    "workingSha256": "b9853d097fe57348b48ec06ddf92fd8282bccf83013ccf781855b48d7da0715a",
+    "headArrayHeader": {
+      "descr": "<i4",
+      "fortran_order": false,
+      "shape": [
+        5450823
+      ]
+    },
+    "workingArrayHeader": {
+      "descr": "<i8",
+      "fortran_order": false,
+      "shape": [
+        5450823
+      ]
+    },
+    "reason": "Source conversion scripts save song_samples arrays; same array shape, changed numeric dtype. Creation history is not proven."
+  },
+  {
+    "repository": "CogWorks-2026-Team-Asterisk/Week1-Capstone-Shazam",
+    "path": "song_samples/Prompting.npy",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/CogWorks-2026-Team-Asterisk__Week1-Capstone-Shazam/song_samples/Prompting.npy",
+    "tracked": true,
+    "classification": "generated-audio-array",
+    "headBytes": 36948128,
+    "headSha256": "fa3119238401de1cc096090a8a89e065f49475f3870b02f4d33b85f39c3e5b32",
+    "workingBytes": 73896128,
+    "workingSha256": "8dbd37073f626d3ea7ab3760cd7918b798bc164a86323a9ab9719e4dcbc60870",
+    "headArrayHeader": {
+      "descr": "<i4",
+      "fortran_order": false,
+      "shape": [
+        9237000
+      ]
+    },
+    "workingArrayHeader": {
+      "descr": "<i8",
+      "fortran_order": false,
+      "shape": [
+        9237000
+      ]
+    },
+    "reason": "Source conversion scripts save song_samples arrays; same array shape, changed numeric dtype. Creation history is not proven."
+  },
+  {
+    "repository": "CogWorks-2026-Team-Asterisk/Week1-Capstone-Shazam",
+    "path": "song_samples/Pump It.npy",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/CogWorks-2026-Team-Asterisk__Week1-Capstone-Shazam/song_samples/Pump It.npy",
+    "tracked": true,
+    "classification": "generated-audio-array",
+    "headBytes": 37525640,
+    "headSha256": "044a192fbb075399bfc88e7b20717bb333d7e339e2707dc2e8c9135b4bff0368",
+    "workingBytes": 75051152,
+    "workingSha256": "9e0f385e0ee07a7f46ec225c43e4bfb3a20590292e578e1294f9cc0c64efcbae",
+    "headArrayHeader": {
+      "descr": "<i4",
+      "fortran_order": false,
+      "shape": [
+        9381378
+      ]
+    },
+    "workingArrayHeader": {
+      "descr": "<i8",
+      "fortran_order": false,
+      "shape": [
+        9381378
+      ]
+    },
+    "reason": "Source conversion scripts save song_samples arrays; same array shape, changed numeric dtype. Creation history is not proven."
+  },
+  {
+    "repository": "CogWorks-2026-Team-Asterisk/Week1-Capstone-Shazam",
+    "path": "song_samples/Stress Relief.npy",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/CogWorks-2026-Team-Asterisk__Week1-Capstone-Shazam/song_samples/Stress Relief.npy",
+    "tracked": true,
+    "classification": "generated-audio-array",
+    "headBytes": 36292744,
+    "headSha256": "a0f50780b73d7b0d6ff8eca9fbb6bed98a0206d71e28eff0540222b7878ef451",
+    "workingBytes": 72585360,
+    "workingSha256": "4a80eee9d7aa4438c717860ff07d6ca76bb7a0fb663b36ed7199fa7f62842638",
+    "headArrayHeader": {
+      "descr": "<i4",
+      "fortran_order": false,
+      "shape": [
+        9073154
+      ]
+    },
+    "workingArrayHeader": {
+      "descr": "<i8",
+      "fortran_order": false,
+      "shape": [
+        9073154
+      ]
+    },
+    "reason": "Source conversion scripts save song_samples arrays; same array shape, changed numeric dtype. Creation history is not proven."
+  },
+  {
+    "repository": "CogWorks-2026-Team-Asterisk/Week1-Capstone-Shazam",
+    "path": "song_samples/The Duck Song.npy",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/CogWorks-2026-Team-Asterisk__Week1-Capstone-Shazam/song_samples/The Duck Song.npy",
+    "tracked": true,
+    "classification": "generated-audio-array",
+    "headBytes": 33999396,
+    "headSha256": "8da848e26525a3d6ef5a3916c6a71aefe2e9caebc680ad0ba636d1759bf77a27",
+    "workingBytes": 67998664,
+    "workingSha256": "435f76c1116205f677c432181042249e4fc4c5f1df82ced685f4dea20763bf5f",
+    "headArrayHeader": {
+      "descr": "<i4",
+      "fortran_order": false,
+      "shape": [
+        8499817
+      ]
+    },
+    "workingArrayHeader": {
+      "descr": "<i8",
+      "fortran_order": false,
+      "shape": [
+        8499817
+      ]
+    },
+    "reason": "Source conversion scripts save song_samples arrays; same array shape, changed numeric dtype. Creation history is not proven."
+  },
+  {
+    "repository": "CogWorks-2026-Team-Asterisk/Week1-Capstone-Shazam",
+    "path": "song_samples/stupid song.npy",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/CogWorks-2026-Team-Asterisk__Week1-Capstone-Shazam/song_samples/stupid song.npy",
+    "tracked": true,
+    "classification": "generated-audio-array",
+    "headBytes": 36995208,
+    "headSha256": "78e9030305c453b3e275771a33abb08ee7888dd7851287eacfe59a30bb8f2fdd",
+    "workingBytes": 73990288,
+    "workingSha256": "b4f4baa12bf02ed16df0dc9783451f4ae3eb2b9aa9613a2ea00910e59d6425f9",
+    "headArrayHeader": {
+      "descr": "<i4",
+      "fortran_order": false,
+      "shape": [
+        9248770
+      ]
+    },
+    "workingArrayHeader": {
+      "descr": "<i8",
+      "fortran_order": false,
+      "shape": [
+        9248770
+      ]
+    },
+    "reason": "Source conversion scripts save song_samples arrays; same array shape, changed numeric dtype. Creation history is not proven."
+  },
+  {
+    "repository": "CogWorks-2026-Team-Asterisk/Week1-Capstone-Shazam",
+    "path": "__pycache__/Code.cpython-311.pyc",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/CogWorks-2026-Team-Asterisk__Week1-Capstone-Shazam/__pycache__/Code.cpython-311.pyc",
+    "tracked": false,
+    "classification": "generated-bytecode",
+    "headBytes": null,
+    "headSha256": null,
+    "workingBytes": 2006,
+    "workingSha256": "08dcc5019a4307c31ec29fbc9534ef4d6a105bd86f56977a003531862900b645"
+  },
+  {
+    "repository": "CogWorks-2026-Team-Asterisk/Week1-Capstone-Shazam",
+    "path": "__pycache__/Code.cpython-312.pyc",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/CogWorks-2026-Team-Asterisk__Week1-Capstone-Shazam/__pycache__/Code.cpython-312.pyc",
+    "tracked": false,
+    "classification": "generated-bytecode",
+    "headBytes": null,
+    "headSha256": null,
+    "workingBytes": 1668,
+    "workingSha256": "5a4afb04b378c99e1511b12665c5a53b843044399c18f95a5107b9f217a95c6f"
+  },
+  {
+    "repository": "CogWorks-2026-Team-Asterisk/Week1-Capstone-Shazam",
+    "path": "individual_stuff/__pycache__/devesh's_playground.cpython-311.pyc",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/CogWorks-2026-Team-Asterisk__Week1-Capstone-Shazam/individual_stuff/__pycache__/devesh's_playground.cpython-311.pyc",
+    "tracked": false,
+    "classification": "generated-bytecode",
+    "headBytes": null,
+    "headSha256": null,
+    "workingBytes": 1911,
+    "workingSha256": "55d99666791312df896e035cf66b3dd87ca5c192c5ea8e04f7cdc2623aee7fed"
+  },
+  {
+    "repository": "CogWorks-2026-Team-Asterisk/Week1-Capstone-Shazam",
+    "path": "individual_stuff/__pycache__/devesh's_playground.cpython-312.pyc",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/CogWorks-2026-Team-Asterisk__Week1-Capstone-Shazam/individual_stuff/__pycache__/devesh's_playground.cpython-312.pyc",
+    "tracked": false,
+    "classification": "generated-bytecode",
+    "headBytes": null,
+    "headSha256": null,
+    "workingBytes": 1606,
+    "workingSha256": "0dfb75e3a336b0855d6b50b30c2be8d9ea18b0b84432ebde4e0e5ca3729c397d"
+  },
+  {
+    "repository": "CogWorks-2026-Team-Asterisk/Week1-Capstone-Shazam",
+    "path": "individual_stuff/__pycache__/identifying_similarities.cpython-311.pyc",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/CogWorks-2026-Team-Asterisk__Week1-Capstone-Shazam/individual_stuff/__pycache__/identifying_similarities.cpython-311.pyc",
+    "tracked": false,
+    "classification": "generated-bytecode",
+    "headBytes": null,
+    "headSha256": null,
+    "workingBytes": 5358,
+    "workingSha256": "662316ef5514202b6e62fc0f43aac197f3ab510d85769ab0b1234c625cf79429"
+  },
+  {
+    "repository": "CogWorks-2026-Team-Asterisk/Week1-Capstone-Shazam",
+    "path": "individual_stuff/__pycache__/identifying_similarities.cpython-312.pyc",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/CogWorks-2026-Team-Asterisk__Week1-Capstone-Shazam/individual_stuff/__pycache__/identifying_similarities.cpython-312.pyc",
+    "tracked": false,
+    "classification": "generated-bytecode",
+    "headBytes": null,
+    "headSha256": null,
+    "workingBytes": 4551,
+    "workingSha256": "a6317fc4c6bb7907da94b20387abab58fe5dd0ed1ff5e6a228309bc0b262ead3"
+  },
+  {
+    "repository": "CogWorks-2026-Team-Asterisk/Week1-Capstone-Shazam",
+    "path": "individual_stuff/__pycache__/newton's_code.cpython-311.pyc",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/CogWorks-2026-Team-Asterisk__Week1-Capstone-Shazam/individual_stuff/__pycache__/newton's_code.cpython-311.pyc",
+    "tracked": false,
+    "classification": "generated-bytecode",
+    "headBytes": null,
+    "headSha256": null,
+    "workingBytes": 5395,
+    "workingSha256": "bfb34be52829927ba7ae4b0a9967a48419e7b4dd95c5a5ee06cb4b1971a5ac53"
+  },
+  {
+    "repository": "CogWorks-2026-Team-Asterisk/Week1-Capstone-Shazam",
+    "path": "individual_stuff/__pycache__/newton's_code.cpython-312.pyc",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/CogWorks-2026-Team-Asterisk__Week1-Capstone-Shazam/individual_stuff/__pycache__/newton's_code.cpython-312.pyc",
+    "tracked": false,
+    "classification": "generated-bytecode",
+    "headBytes": null,
+    "headSha256": null,
+    "workingBytes": 4982,
+    "workingSha256": "95656d6315310abf0b99688605fc610cac7ad6880fd08949c7ebfad8d335422c"
+  },
+  {
+    "repository": "CogWorks-2026-Team-Asterisk/Week1-Capstone-Shazam",
+    "path": "individual_stuff/__pycache__/who_doesn't_love_trying_to_create_fingerprints_for_audio_files_at_1_am.cpython-311.pyc",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/CogWorks-2026-Team-Asterisk__Week1-Capstone-Shazam/individual_stuff/__pycache__/who_doesn't_love_trying_to_create_fingerprints_for_audio_files_at_1_am.cpython-311.pyc",
+    "tracked": false,
+    "classification": "generated-bytecode",
+    "headBytes": null,
+    "headSha256": null,
+    "workingBytes": 820,
+    "workingSha256": "28b5e9ee5e68bb556caceb06a8985466aa851e2fd1e533b92447c8578bd34a8a"
+  },
+  {
+    "repository": "CogWorks-2026-Team-Asterisk/Week1-Capstone-Shazam",
+    "path": "individual_stuff/__pycache__/who_doesn't_love_trying_to_create_fingerprints_for_audio_files_at_1_am.cpython-312.pyc",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/CogWorks-2026-Team-Asterisk__Week1-Capstone-Shazam/individual_stuff/__pycache__/who_doesn't_love_trying_to_create_fingerprints_for_audio_files_at_1_am.cpython-312.pyc",
+    "tracked": false,
+    "classification": "generated-bytecode",
+    "headBytes": null,
+    "headSha256": null,
+    "workingBytes": 760,
+    "workingSha256": "883e358bdd555bb41297c0e76b86dd30fbcb43a999a98c8de49f9a516d134d42"
+  },
+  {
+    "repository": "CogWorks-2026-Team-Asterisk/Week1-Capstone-Shazam",
+    "path": "individual_stuff/__pycache__/will_is_not_locked_bro.cpython-311.pyc",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/CogWorks-2026-Team-Asterisk__Week1-Capstone-Shazam/individual_stuff/__pycache__/will_is_not_locked_bro.cpython-311.pyc",
+    "tracked": false,
+    "classification": "generated-bytecode",
+    "headBytes": null,
+    "headSha256": null,
+    "workingBytes": 1577,
+    "workingSha256": "31065200f1ae9ccc357b95b651aeb3d619a51d58873ab8a4ba834661eb5b912f"
+  },
+  {
+    "repository": "CogWorks-2026-Team-Asterisk/Week1-Capstone-Shazam",
+    "path": "individual_stuff/__pycache__/will_is_not_locked_bro.cpython-312.pyc",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/CogWorks-2026-Team-Asterisk__Week1-Capstone-Shazam/individual_stuff/__pycache__/will_is_not_locked_bro.cpython-312.pyc",
+    "tracked": false,
+    "classification": "generated-bytecode",
+    "headBytes": null,
+    "headSha256": null,
+    "workingBytes": 1440,
+    "workingSha256": "3f9e927baeeb212cf521bb860e4b76ffffc7ebda78d62550809a742105e4bfcd"
+  },
+  {
+    "repository": "CogWorks-2026-Team-Asterisk/Week1-Capstone-Shazam",
+    "path": "individual_stuff/__pycache__/will_is_not_locked_bro_backup_in_case_libraries_dont_work_because_of_some_stupid_conda_bugs.cpython-311.pyc",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/CogWorks-2026-Team-Asterisk__Week1-Capstone-Shazam/individual_stuff/__pycache__/will_is_not_locked_bro_backup_in_case_libraries_dont_work_because_of_some_stupid_conda_bugs.cpython-311.pyc",
+    "tracked": false,
+    "classification": "generated-bytecode",
+    "headBytes": null,
+    "headSha256": null,
+    "workingBytes": 2323,
+    "workingSha256": "27651441613d882627d9d5c6379bca6b307057e2843c38656cf706ad488547b1"
+  },
+  {
+    "repository": "CogWorks-2026-Team-Asterisk/Week1-Capstone-Shazam",
+    "path": "individual_stuff/__pycache__/will_is_not_locked_bro_backup_in_case_libraries_dont_work_because_of_some_stupid_conda_bugs.cpython-312.pyc",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/CogWorks-2026-Team-Asterisk__Week1-Capstone-Shazam/individual_stuff/__pycache__/will_is_not_locked_bro_backup_in_case_libraries_dont_work_because_of_some_stupid_conda_bugs.cpython-312.pyc",
+    "tracked": false,
+    "classification": "generated-bytecode",
+    "headBytes": null,
+    "headSha256": null,
+    "workingBytes": 2135,
+    "workingSha256": "4256f59abd6b11d262601a67c43dd5f852b780794d5c85d3282c2798854b7a42"
+  },
+  {
+    "repository": "CogWorks-2026-Team-Asterisk/Week2-Capstone",
+    "path": "Individual stuff/face_database.pkl",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/CogWorks-2026-Team-Asterisk__Week2-Capstone/Individual stuff/face_database.pkl",
+    "tracked": true,
+    "classification": "generated-database",
+    "headBytes": 410832,
+    "headSha256": "f29b2964151444257b41f087f163d20d54258655578a528a113a953765c98873",
+    "workingBytes": 0,
+    "workingSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "reason": "Student database save/load source names this path; no authored code change accompanies it."
+  },
+  {
+    "repository": "CogWorks-2026-Team-Asterisk/Week2-Capstone",
+    "path": "Individual stuff/__pycache__/comparing_vectors.cpython-311.pyc",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/CogWorks-2026-Team-Asterisk__Week2-Capstone/Individual stuff/__pycache__/comparing_vectors.cpython-311.pyc",
+    "tracked": false,
+    "classification": "generated-bytecode",
+    "headBytes": null,
+    "headSha256": null,
+    "workingBytes": 1340,
+    "workingSha256": "e6056f3dde872418cb8ab41c5f86cbb946a99a14f7a4abaaa1e75cfd2fbd2fd4"
+  },
+  {
+    "repository": "CogWorks-2026-Team-Asterisk/Week2-Capstone",
+    "path": "Individual stuff/__pycache__/comparing_vectors.cpython-312.pyc",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/CogWorks-2026-Team-Asterisk__Week2-Capstone/Individual stuff/__pycache__/comparing_vectors.cpython-312.pyc",
+    "tracked": false,
+    "classification": "generated-bytecode",
+    "headBytes": null,
+    "headSha256": null,
+    "workingBytes": 1211,
+    "workingSha256": "5405134cccf326608d5b79c61e1a6e20a489507de46b1869369f998cf332ef80"
+  },
+  {
+    "repository": "CogWorks-2026-Team-Asterisk/Week2-Capstone",
+    "path": "Individual stuff/__pycache__/database.cpython-311.pyc",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/CogWorks-2026-Team-Asterisk__Week2-Capstone/Individual stuff/__pycache__/database.cpython-311.pyc",
+    "tracked": false,
+    "classification": "generated-bytecode",
+    "headBytes": null,
+    "headSha256": null,
+    "workingBytes": 4352,
+    "workingSha256": "1856e6fad970a6e436c8723216be2cc9fa2522dcd8bcd43760f2f0e712ad75dd"
+  },
+  {
+    "repository": "CogWorks-2026-Team-Asterisk/Week2-Capstone",
+    "path": "Individual stuff/__pycache__/database.cpython-312.pyc",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/CogWorks-2026-Team-Asterisk__Week2-Capstone/Individual stuff/__pycache__/database.cpython-312.pyc",
+    "tracked": false,
+    "classification": "generated-bytecode",
+    "headBytes": null,
+    "headSha256": null,
+    "workingBytes": 3599,
+    "workingSha256": "55e1e631bed219fd54451b51d9875e1697ec7aa7feff117b7b6fecc2bcad4e65"
+  },
+  {
+    "repository": "CogWorks-2026-Team-Asterisk/Week2-Capstone",
+    "path": "Individual stuff/__pycache__/facenet.cpython-311.pyc",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/CogWorks-2026-Team-Asterisk__Week2-Capstone/Individual stuff/__pycache__/facenet.cpython-311.pyc",
+    "tracked": false,
+    "classification": "generated-bytecode",
+    "headBytes": null,
+    "headSha256": null,
+    "workingBytes": 1635,
+    "workingSha256": "26fb78d86eaa41fed30a13509bf17fd417444999b504dac167258cc0e5695a1c"
+  },
+  {
+    "repository": "CogWorks-2026-Team-Asterisk/Week2-Capstone",
+    "path": "Individual stuff/__pycache__/facenet.cpython-312.pyc",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/CogWorks-2026-Team-Asterisk__Week2-Capstone/Individual stuff/__pycache__/facenet.cpython-312.pyc",
+    "tracked": false,
+    "classification": "generated-bytecode",
+    "headBytes": null,
+    "headSha256": null,
+    "workingBytes": 1469,
+    "workingSha256": "3d0b8b878e53095c1e585284eb9c5933631241e4e718b0505e92e40303234085"
+  },
+  {
+    "repository": "CogWorks-2026-Team-Asterisk/Week2-Capstone",
+    "path": "Individual stuff/__pycache__/image_to_rgb.cpython-311.pyc",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/CogWorks-2026-Team-Asterisk__Week2-Capstone/Individual stuff/__pycache__/image_to_rgb.cpython-311.pyc",
+    "tracked": false,
+    "classification": "generated-bytecode",
+    "headBytes": null,
+    "headSha256": null,
+    "workingBytes": 1977,
+    "workingSha256": "57a988d83fdd6750a3792583e31568b943767924e4b0d7a4c607f59f4cc63dd0"
+  },
+  {
+    "repository": "CogWorks-2026-Team-Asterisk/Week2-Capstone",
+    "path": "Individual stuff/__pycache__/image_to_rgb.cpython-312.pyc",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/CogWorks-2026-Team-Asterisk__Week2-Capstone/Individual stuff/__pycache__/image_to_rgb.cpython-312.pyc",
+    "tracked": false,
+    "classification": "generated-bytecode",
+    "headBytes": null,
+    "headSha256": null,
+    "workingBytes": 1685,
+    "workingSha256": "944c5ba30ef8dd49cf537b2491221821cc24cf750630454b55d19ef1893a9230"
+  },
+  {
+    "repository": "CogWorks-2026-Team-Asterisk/Week2-Capstone",
+    "path": "Individual stuff/__pycache__/main.cpython-311.pyc",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/CogWorks-2026-Team-Asterisk__Week2-Capstone/Individual stuff/__pycache__/main.cpython-311.pyc",
+    "tracked": false,
+    "classification": "generated-bytecode",
+    "headBytes": null,
+    "headSha256": null,
+    "workingBytes": 7385,
+    "workingSha256": "e92dc426dae52eae797df9a63c9188f3d9e606d8dd283c243cfa6cff9128ce71"
+  },
+  {
+    "repository": "CogWorks-2026-Team-Asterisk/Week2-Capstone",
+    "path": "Individual stuff/__pycache__/main.cpython-312.pyc",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/CogWorks-2026-Team-Asterisk__Week2-Capstone/Individual stuff/__pycache__/main.cpython-312.pyc",
+    "tracked": false,
+    "classification": "generated-bytecode",
+    "headBytes": null,
+    "headSha256": null,
+    "workingBytes": 6443,
+    "workingSha256": "57b9f4b3408930f6d75563bf8cae843760a66fd95972c366b9a9c1ffb1aefa78"
+  },
+  {
+    "repository": "CogWorks-2026-Team-Asterisk/Week2-Capstone",
+    "path": "Individual stuff/__pycache__/whispers.cpython-311.pyc",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/CogWorks-2026-Team-Asterisk__Week2-Capstone/Individual stuff/__pycache__/whispers.cpython-311.pyc",
+    "tracked": false,
+    "classification": "generated-bytecode",
+    "headBytes": null,
+    "headSha256": null,
+    "workingBytes": 10053,
+    "workingSha256": "5edee1a2b2cc0fbf94a31e5ce0cd96f2cc13d593af100a3ef197dcd7f304994f"
+  },
+  {
+    "repository": "CogWorks-2026-Team-Asterisk/Week2-Capstone",
+    "path": "Individual stuff/__pycache__/whispers.cpython-312.pyc",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/CogWorks-2026-Team-Asterisk__Week2-Capstone/Individual stuff/__pycache__/whispers.cpython-312.pyc",
+    "tracked": false,
+    "classification": "generated-bytecode",
+    "headBytes": null,
+    "headSha256": null,
+    "workingBytes": 8834,
+    "workingSha256": "e99abe87c46c717b6abb7b6acf478f4aa5a03eb79b18b1ee3d71648af0b77641"
+  },
+  {
+    "repository": "CogWorks-2026-Team-Asterisk/Week3-Capstone",
+    "path": "Individual Stuff/__pycache__/Yum_captions.cpython-311.pyc",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/CogWorks-2026-Team-Asterisk__Week3-Capstone/Individual Stuff/__pycache__/Yum_captions.cpython-311.pyc",
+    "tracked": false,
+    "classification": "generated-bytecode",
+    "headBytes": null,
+    "headSha256": null,
+    "workingBytes": 5355,
+    "workingSha256": "03005677e36013972fddd0b3bb4d25f96b75898145aee0c10add9c2306fcf5a8"
+  },
+  {
+    "repository": "CogWorks-2026-Team-Asterisk/Week3-Capstone",
+    "path": "Individual Stuff/__pycache__/captions_to_vec.cpython-311.pyc",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/CogWorks-2026-Team-Asterisk__Week3-Capstone/Individual Stuff/__pycache__/captions_to_vec.cpython-311.pyc",
+    "tracked": false,
+    "classification": "generated-bytecode",
+    "headBytes": null,
+    "headSha256": null,
+    "workingBytes": 4331,
+    "workingSha256": "9ae3614e4753e0ea30b2c792202ea9059c1838f6c7b5f9bfd3f06316022a827f"
+  },
+  {
+    "repository": "CogWorks-2026-Team-Asterisk/Week3-Capstone",
+    "path": "Individual Stuff/__pycache__/coco_data.cpython-311.pyc",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/CogWorks-2026-Team-Asterisk__Week3-Capstone/Individual Stuff/__pycache__/coco_data.cpython-311.pyc",
+    "tracked": false,
+    "classification": "generated-bytecode",
+    "headBytes": null,
+    "headSha256": null,
+    "workingBytes": 6576,
+    "workingSha256": "d5a5a88742f0f7773bac9130d06d40a5e56f7d7f224935136a8733553552c642"
+  },
+  {
+    "repository": "CogWorks-2026-Team-Asterisk/Week3-Capstone",
+    "path": "Individual Stuff/__pycache__/database.cpython-311.pyc",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/CogWorks-2026-Team-Asterisk__Week3-Capstone/Individual Stuff/__pycache__/database.cpython-311.pyc",
+    "tracked": false,
+    "classification": "generated-bytecode",
+    "headBytes": null,
+    "headSha256": null,
+    "workingBytes": 3792,
+    "workingSha256": "19bb68acf7bcf8b644ff46ad6a945e58938ad46e2cec397c5048819505e7b41c"
+  },
+  {
+    "repository": "CogWorks-2026-Team-Asterisk/Week3-Capstone",
+    "path": "Individual Stuff/__pycache__/frontend.cpython-311.pyc",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/CogWorks-2026-Team-Asterisk__Week3-Capstone/Individual Stuff/__pycache__/frontend.cpython-311.pyc",
+    "tracked": false,
+    "classification": "generated-bytecode",
+    "headBytes": null,
+    "headSha256": null,
+    "workingBytes": 4033,
+    "workingSha256": "8c818e78f5ca3cf9a9110ea68aa9ce7f351daa0e9b65a753f17d27d19fcf4689"
+  },
+  {
+    "repository": "CogWorks-2026-Team-Asterisk/Week3-Capstone",
+    "path": "Individual Stuff/__pycache__/image_to_caption_model.cpython-311.pyc",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/CogWorks-2026-Team-Asterisk__Week3-Capstone/Individual Stuff/__pycache__/image_to_caption_model.cpython-311.pyc",
+    "tracked": false,
+    "classification": "generated-bytecode",
+    "headBytes": null,
+    "headSha256": null,
+    "workingBytes": 3856,
+    "workingSha256": "425fcc1ea96c434c9bfe860b40fa91cf9f2ccdb1fc8f957281ec3f738400cf7f"
+  },
+  {
+    "repository": "CogWorks-2026-Team-Asterisk/Week3-Capstone",
+    "path": "Individual Stuff/__pycache__/main.cpython-311.pyc",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/CogWorks-2026-Team-Asterisk__Week3-Capstone/Individual Stuff/__pycache__/main.cpython-311.pyc",
+    "tracked": false,
+    "classification": "generated-bytecode",
+    "headBytes": null,
+    "headSha256": null,
+    "workingBytes": 3538,
+    "workingSha256": "d15a5715644ae95d74daab9254aabecfadc3c1a34408ffbf3d9b87e79664404f"
+  },
+  {
+    "repository": "CogWorks-2026-Team-Asterisk/Week3-Capstone",
+    "path": "Individual Stuff/__pycache__/training.cpython-311.pyc",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/CogWorks-2026-Team-Asterisk__Week3-Capstone/Individual Stuff/__pycache__/training.cpython-311.pyc",
+    "tracked": false,
+    "classification": "generated-bytecode",
+    "headBytes": null,
+    "headSha256": null,
+    "workingBytes": 4045,
+    "workingSha256": "5b6c631c909d1a656076ff666d5f5c8cda3a007cbec126bd88041c8852884cc2"
+  },
+  {
+    "repository": "Cog-gurts/CoggurtFilter",
+    "path": "db.json",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/Cog-gurts__CoggurtFilter/db.json",
+    "tracked": true,
+    "classification": "generated-database",
+    "headBytes": 743558,
+    "headSha256": "b413d017835306b3b3c3f89e7f1278fc45c224d0ca7ec9d5c07cef1abe271a8f",
+    "workingBytes": 7253048,
+    "workingSha256": "b4e387bdd2a85d3d2e5ed9e77940659ebe3416046fed5d31e3cde5091c042364",
+    "reason": "Student database save/load source names this path; no authored code change accompanies it.",
+    "headTopLevelCount": 33,
+    "workingTopLevelCount": 67
+  },
+  {
+    "repository": "KrazeeCoder/week1-capstone-team4",
+    "path": "__pycache__/create_fingerprints.cpython-38.pyc",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/KrazeeCoder__week1-capstone-team4/__pycache__/create_fingerprints.cpython-38.pyc",
+    "tracked": true,
+    "classification": "generated-bytecode",
+    "headBytes": 679,
+    "headSha256": "09f5a4eb82f39a863baaaa8cbec0060d1368d0b21f433f36b498cf4d71e83d48",
+    "workingBytes": 762,
+    "workingSha256": "6722f273a3dd31a2bbc8ffe6a0e1a2082aed3a1572ca00f42ef48a7052c1c8cb"
+  },
+  {
+    "repository": "KrazeeCoder/week1-capstone-team4",
+    "path": "__pycache__/create_spectogram.cpython-38.pyc",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/KrazeeCoder__week1-capstone-team4/__pycache__/create_spectogram.cpython-38.pyc",
+    "tracked": true,
+    "classification": "generated-bytecode",
+    "headBytes": 612,
+    "headSha256": "9fa6971872a0936749e2dfeb7710a3b87c947c85a139917a239e583ab45e4a9f",
+    "workingBytes": 939,
+    "workingSha256": "ee437320c6ea186ad2c046dd14fb4a7f445cf179d3d4eb4b8ffcb33fef80799e"
+  },
+  {
+    "repository": "KrazeeCoder/week1-capstone-team4",
+    "path": "__pycache__/database.cpython-38.pyc",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/KrazeeCoder__week1-capstone-team4/__pycache__/database.cpython-38.pyc",
+    "tracked": true,
+    "classification": "generated-bytecode",
+    "headBytes": 4454,
+    "headSha256": "5b7849c5082c69d283278218eeb8519e2a2e2e06f68f0d0d5c565dd3d29f7aab",
+    "workingBytes": 4726,
+    "workingSha256": "ef44eb1adfa92a6a78eb5eb775ac96023fdf77361be1f35dfccbfdc0121dc2d2"
+  },
+  {
+    "repository": "KrazeeCoder/week1-capstone-team4",
+    "path": "__pycache__/final_checker.cpython-38.pyc",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/KrazeeCoder__week1-capstone-team4/__pycache__/final_checker.cpython-38.pyc",
+    "tracked": true,
+    "classification": "generated-bytecode",
+    "headBytes": 1276,
+    "headSha256": "ffb278e9f7d7349793e6c98cffdafb2437b19d442b3416396619eddf1abe06f8",
+    "workingBytes": 1302,
+    "workingSha256": "d7b3de5d18a9221ddfdfd09aaa8465989033ea8c086a648b697466ccd816174f"
+  },
+  {
+    "repository": "KrazeeCoder/week1-capstone-team4",
+    "path": "__pycache__/find_peaks.cpython-38.pyc",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/KrazeeCoder__week1-capstone-team4/__pycache__/find_peaks.cpython-38.pyc",
+    "tracked": true,
+    "classification": "generated-bytecode",
+    "headBytes": 1502,
+    "headSha256": "080f850ba7c97fab4c1f3cf3f21d97425989d28d7d97b1e79d54de19c86b882f",
+    "workingBytes": 1528,
+    "workingSha256": "c6f2083521cecb81f4f78b7e0a0006181b81d9343ce5514580dd7c18b489dc7b"
+  },
+  {
+    "repository": "KrazeeCoder/week1-capstone-team4",
+    "path": "__pycache__/load_audio.cpython-38.pyc",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/KrazeeCoder__week1-capstone-team4/__pycache__/load_audio.cpython-38.pyc",
+    "tracked": true,
+    "classification": "generated-bytecode",
+    "headBytes": 1156,
+    "headSha256": "71bb91b11348926c1312873174af544bed9750a53a46fa116932511e6e0286c5",
+    "workingBytes": 1652,
+    "workingSha256": "0e6ab374f2891e463046f1d40583d92951f2b197ed98b73602661937d516966f"
+  },
+  {
+    "repository": "KrazeeCoder/week1-capstone-team4",
+    "path": "__pycache__/song_metadata.cpython-38.pyc",
+    "absolutePath": "/Users/samgu/BWSI/2026/CogPortal/.cache/student-repos/KrazeeCoder__week1-capstone-team4/__pycache__/song_metadata.cpython-38.pyc",
+    "tracked": true,
+    "classification": "generated-bytecode",
+    "headBytes": 1195,
+    "headSha256": "3fbe7d6362a3a4d9f9145f03cf97ecab70510ad80ac5d466fe886dc988264b3b",
+    "workingBytes": 1221,
+    "workingSha256": "2af751c1a7d1353e751579f7ec8ab2815ab8effb71d0b63b1c6b619b1a86b5ee"
+  }
+]

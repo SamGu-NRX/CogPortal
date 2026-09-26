@@ -1,0 +1,17 @@
+{
+  "replay": {
+    "sessionId": "localrun_3d0a04237ef748aa9b7112c12d92b69f",
+    "surfaceId": "surface_48aa9b7112c12d92b69f",
+    "discord": "channel_unbound"
+  },
+  "wrongKnownId": {
+    "rejected": true,
+    "error": "This device reports a different repository than your team's connection to SamGu-NRX/cogportal-demo-week1."
+  },
+  "wrongConnection": {
+    "rejected": true,
+    "error": "This device is running cogworks-demo/face-finder, but your team is connected to SamGu-NRX/cogportal-demo-week1."
+  },
+  "sameSessionCount": 1,
+  "sourceUnchanged": true
+}

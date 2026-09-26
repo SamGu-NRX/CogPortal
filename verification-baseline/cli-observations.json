@@ -1,0 +1,69 @@
+{
+  "revision": "c2af39660ef2ecde9ace1fd50d9e8c5efa36ab45",
+  "results": [
+    {
+      "id": "STATUS-02",
+      "command": [
+        "python3",
+        "-m",
+        "cogbench",
+        "status"
+      ],
+      "exit": 2,
+      "stdout": "",
+      "stderr": "cogworks: No CogPortal is selected. Copy `cogworks link --portal ...` from the setup page.\n"
+    },
+    {
+      "id": "STATUS-03",
+      "command": [
+        "python3",
+        "-m",
+        "cogbench",
+        "status",
+        "--portal",
+        "http://example.com"
+      ],
+      "exit": 2,
+      "stdout": "",
+      "stderr": "cogworks: CogPortal must use HTTPS (HTTP is allowed only for local development).\n"
+    },
+    {
+      "id": "STATUS-04",
+      "command": [
+        "python3",
+        "-m",
+        "cogbench",
+        "status",
+        "--portal",
+        "https://user:pw@example.com/x"
+      ],
+      "exit": 2,
+      "stdout": "",
+      "stderr": "cogworks: CogPortal must use HTTPS (HTTP is allowed only for local development).\n"
+    },
+    {
+      "id": "REPORT-02",
+      "command": [
+        "python3",
+        "-m",
+        "cogbench",
+        "report"
+      ],
+      "exit": 2,
+      "stdout": "",
+      "stderr": "cogworks: No local reports found. Run `cogworks run` first.\n"
+    },
+    {
+      "id": "help",
+      "command": [
+        "python3",
+        "-m",
+        "cogbench",
+        "--help"
+      ],
+      "exit": 0,
+      "stdout": "usage: cogworks [-h] [--version] {check,test,run,report,link,sync,status} ...\n\nCheck and run CogWorks practice benchmarks locally.\n\npositional arguments:\n  {check,test,run,report,link,sync,status}\n    check               check the local project and benchmark environment\n    test                check your code against one small benchmark case\n    run                 run the public local practice benchmark\n    report              show a saved local report\n    link                link this device to CogPortal\n    sync                explicitly sync one local report\n    status              show this device's CogPortal connection\n\noptions:\n  -h, --help            show this help message and exit\n  --version             show program's version number and exit\n",
+      "stderr": ""
+    }
+  ]
+}

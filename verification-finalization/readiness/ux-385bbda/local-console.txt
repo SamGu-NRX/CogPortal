@@ -1,0 +1,60 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Dashboard":
+      - /url: /dashboard
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "ui-accept-e8 CogPortal owner Account menu for ui-accept-e8":
+    - generic: u
+    - generic: ui-accept-e8
+    - img "CogPortal owner":
+    - generic: Account menu for ui-accept-e8
+- main:
+  - region "Live run for Song Identification":
+    - generic: Bench clear
+    - generic: SIMULATED
+    - generic: Complete
+    - heading "Song Identification" [level=1]
+    - paragraph:
+      - generic: Source history fixture
+      - generic: ·
+      - generic: "@ui-accept-e8"
+      - generic: ·
+      - code: "7125804"
+      - generic: ·
+      - generic: 0s
+    - list "Run lifecycle":
+      - generic: ✓
+      - generic: Local
+      - generic: complete
+      - generic: ○
+      - generic: Hosted
+      - generic: pending
+      - generic: ○
+      - generic: Official
+      - generic: pending
+      - generic: ○
+      - generic: Published
+      - generic: pending
+    - generic: Run summary
+    - list "Run event summary":
+      - listitem: Waiting for the first structured event.
+    - complementary:
+      - generic: Run reference
+      - term: Repository
+      - definition: not recorded
+      - term: Commit
+      - definition: 71258046e60fecd3295c0b52236fc6e476b0e9cf
+      - term: Branch
+      - definition: main
+      - term: Workspace
+      - definition: Clean
+      - paragraph: This run came from a repository your team is no longer connected to. Start a fresh run on cogworks-demo/face-finder to verify it here.
+      - button "Run again"
+      - button "Open Cog*Portal ↗"
+- document

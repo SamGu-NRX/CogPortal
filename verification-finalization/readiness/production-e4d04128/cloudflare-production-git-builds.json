@@ -1,0 +1,13 @@
+{
+  "worker": "cogportal-production",
+  "accountId": "eb0505bac408b0230cff849b0c0ff6b4",
+  "productionDomain": "https://cogportal.sillion.app",
+  "settingsUrl": "https://dash.cloudflare.com/eb0505bac408b0230cff849b0c0ff6b4/workers/services/view/cogportal-production/production/settings",
+  "buildsSection": "- heading \"Builds\" [level=2]\n- generic: Git repository\n- button \"Connect\":\n  - generic: Connect\n",
+  "overviewEvidence": "Automate your CI: Connect your Git repository to enable continuous deployment.",
+  "gitRepositoryConnected": false,
+  "productionGitBranch": null,
+  "automaticWorkersBuildsConfigured": false,
+  "limit": "This verifies this worker has no Cloudflare dashboard Git build connection. It does not inventory arbitrary external API deployment pipelines.",
+  "presenterTabUntouched": "1693192768"
+}

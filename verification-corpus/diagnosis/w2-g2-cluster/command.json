@@ -1,0 +1,13 @@
+{
+  "args": [
+    "/Users/samgu/BWSI/2026/CogPortal/.venv-test/bin/python",
+    "-B",
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/diagnosis/trace-boundary.py",
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/diagnosis/w2-g2-cluster",
+    "vision-clustering",
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision"
+  ],
+  "cwd": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/diagnosis/cases/w2-g2-cluster",
+  "sourceSha": "37b1972bbe17027256e1f5d9cf150e74193083e3",
+  "studentSha": "25b789c3aa59b89d7697ca405224554cea3fe9a3"
+}

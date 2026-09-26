@@ -1,0 +1,11 @@
+{
+  "sameRowsAsCopiedBaseline": {
+    "users": true,
+    "team_members": true,
+    "accounts": true,
+    "cohorts": true,
+    "sessions": true
+  },
+  "localLoginSessionRemoved": true,
+  "localLoginUpdatedUserFieldsRestored": true
+}

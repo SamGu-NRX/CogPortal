@@ -1,0 +1,29 @@
+{
+  "revision": "ace989a411f97f9d91768974e0394b3246329ca7",
+  "practiceRunId": "run_f16abe5a33",
+  "officialRunId": "run_1d4ff86210",
+  "singleSuccessorCounts": {
+    "run_05dcdc29c3": 1,
+    "run_83799ae481": 1
+  },
+  "exactOfficialSource": true,
+  "lateFailedEvidencePreserved": true,
+  "newestSuccessUnchanged": true,
+  "callback": {
+    "ok": true,
+    "duplicate": false
+  },
+  "quotaAfterBrowserRetries": {
+    "practiceUsed": 2,
+    "practiceLimit": 10,
+    "officialUsed": 2,
+    "officialLimit": 3
+  },
+  "quotaAfterReplaysAndLateEvent": {
+    "practiceUsed": 2,
+    "practiceLimit": 10,
+    "officialUsed": 2,
+    "officialLimit": 3
+  },
+  "officialHistoryCount": 4
+}

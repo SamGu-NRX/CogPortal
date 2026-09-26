@@ -1,0 +1,243 @@
+{
+  "overflow": 0,
+  "teamRows": [
+    {
+      "box": {
+        "bottom": 308.7890625,
+        "height": 58.7421875,
+        "left": 37,
+        "right": 353,
+        "top": 250.046875,
+        "width": 316,
+        "x": 37,
+        "y": 250.046875
+      },
+      "children": [
+        {
+          "box": {
+            "bottom": 298.7890625,
+            "height": 38.7421875,
+            "left": 37,
+            "right": 37,
+            "top": 260.046875,
+            "width": 0,
+            "x": 37,
+            "y": 260.046875
+          },
+          "class": "min-w-0",
+          "display": "block",
+          "tag": "SPAN",
+          "text": "Cosine Similarity Clubcogworks-demo/cosine-similarity-club"
+        },
+        {
+          "box": {
+            "bottom": 280.59375,
+            "height": 17.046875,
+            "left": 53,
+            "right": 86,
+            "top": 263.546875,
+            "width": 33,
+            "x": 53,
+            "y": 263.546875
+          },
+          "class": "font-mono text-[11px] text-ink-faint",
+          "display": "block",
+          "tag": "SPAN",
+          "text": "1 run"
+        },
+        {
+          "box": {
+            "bottom": 297.640625,
+            "height": 34.09375,
+            "left": 102,
+            "right": 313,
+            "top": 263.546875,
+            "width": 211,
+            "x": 102,
+            "y": 263.546875
+          },
+          "class": "u-tnum font-mono text-[11px] text-ink-secondary",
+          "display": "block",
+          "tag": "SPAN",
+          "text": "0 practice runs · 1 official attempts"
+        },
+        {
+          "box": {
+            "bottom": 286.4140625,
+            "height": 14,
+            "left": 339,
+            "right": 353,
+            "top": 272.4140625,
+            "width": 14,
+            "x": 339,
+            "y": 272.4140625
+          },
+          "class": "justify-self-end self-center text-ink-faint",
+          "display": "block",
+          "tag": "SPAN",
+          "text": ""
+        }
+      ],
+      "text": "Cosine Similarity Clubcogworks-demo/cosine-similarity-club1 run0 practice runs · 1 official attempts"
+    },
+    {
+      "box": {
+        "bottom": 367.53125,
+        "height": 58.7421875,
+        "left": 37,
+        "right": 353,
+        "top": 308.7890625,
+        "width": 316,
+        "x": 37,
+        "y": 308.7890625
+      },
+      "children": [
+        {
+          "box": {
+            "bottom": 357.53125,
+            "height": 38.7421875,
+            "left": 37,
+            "right": 37,
+            "top": 318.7890625,
+            "width": 0,
+            "x": 37,
+            "y": 318.7890625
+          },
+          "class": "min-w-0",
+          "display": "block",
+          "tag": "SPAN",
+          "text": "Demo Teamcogworks-demo/face-finder"
+        },
+        {
+          "box": {
+            "bottom": 339.3359375,
+            "height": 17.046875,
+            "left": 53,
+            "right": 92.6015625,
+            "top": 322.2890625,
+            "width": 39.6015625,
+            "x": 53,
+            "y": 322.2890625
+          },
+          "class": "font-mono text-[11px] text-ink-faint",
+          "display": "block",
+          "tag": "SPAN",
+          "text": "4 runs"
+        },
+        {
+          "box": {
+            "bottom": 356.3828125,
+            "height": 34.09375,
+            "left": 108.6015625,
+            "right": 313,
+            "top": 322.2890625,
+            "width": 204.3984375,
+            "x": 108.6015625,
+            "y": 322.2890625
+          },
+          "class": "u-tnum font-mono text-[11px] text-ink-secondary",
+          "display": "block",
+          "tag": "SPAN",
+          "text": "2 practice runs · 2 official attempts"
+        },
+        {
+          "box": {
+            "bottom": 345.15625,
+            "height": 14,
+            "left": 339,
+            "right": 353,
+            "top": 331.15625,
+            "width": 14,
+            "x": 339,
+            "y": 331.15625
+          },
+          "class": "justify-self-end self-center text-ink-faint",
+          "display": "block",
+          "tag": "SPAN",
+          "text": ""
+        }
+      ],
+      "text": "Demo Teamcogworks-demo/face-finder4 runs2 practice runs · 2 official attempts"
+    },
+    {
+      "box": {
+        "bottom": 724.1875,
+        "height": 58.7421875,
+        "left": 37,
+        "right": 353,
+        "top": 665.4453125,
+        "width": 316,
+        "x": 37,
+        "y": 665.4453125
+      },
+      "children": [
+        {
+          "box": {
+            "bottom": 714.1875,
+            "height": 38.7421875,
+            "left": 37,
+            "right": 37,
+            "top": 675.4453125,
+            "width": 0,
+            "x": 37,
+            "y": 675.4453125
+          },
+          "class": "min-w-0",
+          "display": "block",
+          "tag": "SPAN",
+          "text": "Eigenfaces Unitedcogworks-demo/eigenfaces-united"
+        },
+        {
+          "box": {
+            "bottom": 695.9921875,
+            "height": 17.046875,
+            "left": 53,
+            "right": 86,
+            "top": 678.9453125,
+            "width": 33,
+            "x": 53,
+            "y": 678.9453125
+          },
+          "class": "font-mono text-[11px] text-ink-faint",
+          "display": "block",
+          "tag": "SPAN",
+          "text": "1 run"
+        },
+        {
+          "box": {
+            "bottom": 713.0390625,
+            "height": 34.09375,
+            "left": 102,
+            "right": 313,
+            "top": 678.9453125,
+            "width": 211,
+            "x": 102,
+            "y": 678.9453125
+          },
+          "class": "u-tnum font-mono text-[11px] text-ink-secondary",
+          "display": "block",
+          "tag": "SPAN",
+          "text": "0 practice runs · 1 official attempts"
+        },
+        {
+          "box": {
+            "bottom": 701.8125,
+            "height": 14,
+            "left": 339,
+            "right": 353,
+            "top": 687.8125,
+            "width": 14,
+            "x": 339,
+            "y": 687.8125
+          },
+          "class": "justify-self-end self-center text-ink-faint",
+          "display": "block",
+          "tag": "SPAN",
+          "text": ""
+        }
+      ],
+      "text": "Eigenfaces Unitedcogworks-demo/eigenfaces-united1 run0 practice runs · 1 official attempts"
+    }
+  ],
+  "width": 390
+}

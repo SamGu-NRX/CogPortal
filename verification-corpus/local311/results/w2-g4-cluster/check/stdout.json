@@ -1,0 +1,171 @@
+{
+  "benchmarkInstalled": true,
+  "benchmarkLoadable": true,
+  "canonicalHostedPython": "3.11",
+  "contractVersion": "cogworks.submissions.v2",
+  "dataEvaluationCache": {
+    "message": "ready",
+    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-evaluation-v1",
+    "ready": true
+  },
+  "dataTestCache": {
+    "message": "ready",
+    "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision/week2-vision/v1/celeba-public-test-v1",
+    "ready": true
+  },
+  "discovery": {
+    "attemptsTried": 0,
+    "chain": [
+      "whispers.adj_list",
+      "whispers.whispers",
+      "whispers.connected_comps"
+    ],
+    "discovery": {
+      "considered": [
+        "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g4-cluster",
+        "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g4-cluster/core",
+        "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g4-cluster/tests",
+        "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g4-cluster/tuning"
+      ],
+      "modules": [
+        {
+          "name": "main",
+          "origin": "file",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g4-cluster/main.py"
+        },
+        {
+          "name": "recognizer",
+          "origin": "file",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g4-cluster/recognizer.py"
+        },
+        {
+          "name": "visualize",
+          "origin": "file",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g4-cluster/visualize.py"
+        },
+        {
+          "name": "database",
+          "origin": "file",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g4-cluster/core/database.py"
+        },
+        {
+          "name": "normalize",
+          "origin": "file",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g4-cluster/core/normalize.py"
+        },
+        {
+          "name": "profile",
+          "origin": "file",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g4-cluster/core/profile.py"
+        },
+        {
+          "name": "similarity",
+          "origin": "file",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g4-cluster/core/similarity.py"
+        },
+        {
+          "name": "whispers",
+          "origin": "file",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g4-cluster/core/whispers.py"
+        },
+        {
+          "name": "recognition_threshold",
+          "origin": "notebook",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g4-cluster/tuning/recognition_threshold.ipynb"
+        }
+      ],
+      "root": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g4-cluster",
+      "rootReason": "code sits at the repository root",
+      "skipped": [
+        {
+          "detail": "AttributeError: module 'profile' has no attribute 'run'",
+          "missing": null,
+          "name": "frontend",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g4-cluster/frontend.py",
+          "reason": "raised"
+        },
+        {
+          "detail": "imports distances, which is not installed here",
+          "missing": "distances",
+          "name": "test_distances",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g4-cluster/tests/test_distances.py",
+          "reason": "missing_dependency"
+        },
+        {
+          "detail": "NameError: name 'root' is not defined",
+          "missing": null,
+          "name": "detection_threshold",
+          "path": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g4-cluster/tuning/detection_threshold.ipynb",
+          "reason": "raised"
+        }
+      ],
+      "stubCalls": [],
+      "stubbed": [
+        "streamlit",
+        "microphone",
+        "pyaudio",
+        "camera"
+      ]
+    },
+    "hashRandomization": false,
+    "hashSeed": "0",
+    "recalled": false,
+    "supplied": [
+      {
+        "step": "whispers.adj_list",
+        "supplied": "0.3"
+      },
+      {
+        "step": "whispers.whispers",
+        "supplied": "200"
+      }
+    ],
+    "verdict": {
+      "coverage": {
+        "read": [],
+        "readEnoughToJudge": true,
+        "skipped": []
+      },
+      "errors": [],
+      "headline": "Your code is wired up and ready to score.",
+      "nextStep": "",
+      "notes": [],
+      "status": "scored",
+      "trace": [
+        {
+          "function": "whispers.adj_list",
+          "received": "a list of 12, starting with an array of shape (218, 178, 3)",
+          "returned": "a tuple of 2, starting [<whispers.Node object>, <whispers.Node objec...",
+          "stage": "descriptors + graph + edges + nodes"
+        },
+        {
+          "function": "whispers.whispers",
+          "received": "a tuple of 2, starting [<whispers.Node object>, <whispers.Node objec...",
+          "returned": "the value it was given, updated in place",
+          "stage": "settle"
+        },
+        {
+          "function": "whispers.connected_comps",
+          "received": "a tuple of 2, starting [<whispers.Node object>, <whispers.Node objec...",
+          "returned": "a list of 4, starting [<whispers.Node object>, <whispers.Node objec...",
+          "stage": "labels"
+        }
+      ]
+    },
+    "weightsUsed": []
+  },
+  "gitRepository": true,
+  "localGap": [],
+  "modelCache": {
+    "message": "ready",
+    "path": "/Users/samgu/.cache/torch/checkpoints/20180402-114759-vggface2.pt",
+    "ready": true
+  },
+  "python": "3.11.15",
+  "repositoryFullName": "LashikaKapoor28/Vision_Module_Capstone",
+  "submissionDetail": null,
+  "submissionError": "We look for your adapter at the repository root, and /Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/local311/work/w2-g4-cluster has neither submission.py nor benchmark_adapter.py. Create submission.py there, define create_submission, and return your adapter from it. Nothing is registered as \"vision-clustering\" in \"cogworks.submissions.v2\" either (installed: none), so if you meant to install your project as a package, reinstall it.",
+  "submissionInstalled": false,
+  "submissionLoadable": true,
+  "submissionSource": "discovery"
+}

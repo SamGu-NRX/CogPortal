@@ -1,0 +1,42 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Dashboard":
+      - /url: /dashboard
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "ui-accept-e8 CogPortal owner Account menu for ui-accept-e8":
+    - generic: u
+    - generic: ui-accept-e8
+    - img "CogPortal owner":
+    - generic: Account menu for ui-accept-e8
+- main:
+  - heading "Song Identification" [level=1]
+  - tablist "Benchmark track":
+    - tab "Audio" [selected]: Audio
+    - tab "Vision"
+    - tab "Language"
+  - generic: Rank
+  - generic: Team
+  - generic: Identification score
+  - list "Standings":
+    - button "01 Source history fixture YOU 0.5375" [expanded] [active]:
+      - generic: "01"
+      - generic "Source history fixture"
+      - generic: YOU
+      - generic: "0.5375"
+    - term: Commit
+    - definition: "7125804"
+    - term: Completed
+    - definition: Sep 10, 06:17 PM
+    - term: Repository
+    - definition:
+      - link "fixture-org/repo-a":
+        - /url: https://github.com/fixture-org/repo-a
+        - text: fixture-org/repo-a
+  - paragraph: audio-identification / v1. One selected official result per team.
+- document

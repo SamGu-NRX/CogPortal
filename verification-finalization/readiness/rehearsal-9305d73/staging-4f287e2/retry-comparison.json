@@ -1,0 +1,123 @@
+{
+  "physicalRun": "run_8b184352ca",
+  "previousPhysicalRun": "run_4d45791e43",
+  "logicalRun": "surface_91ff0635749f94036092",
+  "sha": "e515ff619e02c16be903985d8536bc5ee6d7a2e9",
+  "metrics": [
+    {
+      "label": "Identification score",
+      "localActual": 0.5375,
+      "hostedDisplayed": "0.5375",
+      "matchesAtHostDisplayPrecision": true
+    },
+    {
+      "label": "Clean top-1",
+      "localActual": 1.0,
+      "hostedDisplayed": "1.000",
+      "matchesAtHostDisplayPrecision": true
+    },
+    {
+      "label": "Noisy top-1",
+      "localActual": 1.0,
+      "hostedDisplayed": "1.000",
+      "matchesAtHostDisplayPrecision": true
+    },
+    {
+      "label": "Short clip top-1",
+      "localActual": 1.0,
+      "hostedDisplayed": "1.000",
+      "matchesAtHostDisplayPrecision": true
+    },
+    {
+      "label": "Pitch-shifted top-1",
+      "localActual": 0.075,
+      "hostedDisplayed": "0.075",
+      "matchesAtHostDisplayPrecision": true
+    },
+    {
+      "label": "No candidate found",
+      "localActual": 0.13333333333333333,
+      "hostedDisplayed": "0.133",
+      "matchesAtHostDisplayPrecision": true
+    },
+    {
+      "label": "Wrong song ranked first",
+      "localActual": 0.2125,
+      "hostedDisplayed": "0.212",
+      "matchesAtHostDisplayPrecision": true
+    },
+    {
+      "label": "Chance",
+      "localActual": 0.03333333333333333,
+      "hostedDisplayed": "0.0333",
+      "matchesAtHostDisplayPrecision": true
+    },
+    {
+      "label": "Trivial baseline",
+      "localActual": 0.24166666666666667,
+      "hostedDisplayed": "0.2417",
+      "matchesAtHostDisplayPrecision": true
+    },
+    {
+      "label": "Median identify time",
+      "localActual": 0.0248,
+      "hostedDisplayed": "0.042",
+      "matchesAtHostDisplayPrecision": false
+    },
+    {
+      "label": "Margin separation (AUC)",
+      "localActual": 0.7737847222222223,
+      "hostedDisplayed": "0.774",
+      "matchesAtHostDisplayPrecision": true
+    }
+  ],
+  "diagnostics": [
+    {
+      "index": 0,
+      "presentInHostedFigure": true
+    },
+    {
+      "index": 1,
+      "presentInHostedFigure": true
+    },
+    {
+      "index": 2,
+      "presentInHostedFigure": true
+    },
+    {
+      "index": 3,
+      "presentInHostedFigure": true
+    },
+    {
+      "index": 4,
+      "presentInHostedFigure": true
+    },
+    {
+      "index": 5,
+      "presentInHostedFigure": true
+    },
+    {
+      "index": 6,
+      "presentInHostedFigure": true
+    },
+    {
+      "index": 7,
+      "presentInHostedFigure": true
+    },
+    {
+      "index": 8,
+      "presentInHostedFigure": true
+    }
+  ],
+  "quotaBefore": {
+    "practiceUsed": 6,
+    "practiceLeft": 4,
+    "officialUsed": 0
+  },
+  "quotaAfter": {
+    "practiceUsed": 7,
+    "practiceLeft": 3,
+    "officialUsed": 0
+  },
+  "comparisonBoundary": "Hosted displayed values compared with actual saved local report; no claim of raw hosted JSON equality."
+}

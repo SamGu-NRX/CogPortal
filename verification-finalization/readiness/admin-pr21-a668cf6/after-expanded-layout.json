@@ -1,0 +1,257 @@
+[
+  {
+    "inputs": [
+      {
+        "id": "add-ta-team_cosine",
+        "width": 147.6640625
+      },
+      {
+        "id": "add-team_cosine",
+        "width": 191.8828125
+      }
+    ],
+    "overflow": false,
+    "rows": [
+      {
+        "expanded": "true",
+        "name": "Cosine Similarity Clubcogworks-demo/cosine-similarity-club",
+        "width": 231
+      },
+      {
+        "expanded": "false",
+        "name": "Demo Teamcogworks-demo/face-finder",
+        "width": 231
+      },
+      {
+        "expanded": "false",
+        "name": "Eigenfaces Unitedcogworks-demo/eigenfaces-united",
+        "width": 231
+      },
+      {
+        "expanded": "false",
+        "name": "Gradient Descenderscogworks-demo/gradient-descenders",
+        "width": 231
+      },
+      {
+        "expanded": "false",
+        "name": "Latent Space Cadetscogworks-demo/latent-space-cadets",
+        "width": 231
+      },
+      {
+        "expanded": "false",
+        "name": "Manifold Destinycogworks-demo/manifold-destiny",
+        "width": 231
+      },
+      {
+        "expanded": "false",
+        "name": "Vector Voyagerscogworks-demo/vector-voyagers",
+        "width": 231
+      }
+    ],
+    "width": 360
+  },
+  {
+    "inputs": [
+      {
+        "id": "add-ta-team_cosine",
+        "width": 177.6640625
+      },
+      {
+        "id": "add-team_cosine",
+        "width": 221.8828125
+      }
+    ],
+    "overflow": false,
+    "rows": [
+      {
+        "expanded": "true",
+        "name": "Cosine Similarity Clubcogworks-demo/cosine-similarity-club",
+        "width": 261
+      },
+      {
+        "expanded": "false",
+        "name": "Demo Teamcogworks-demo/face-finder",
+        "width": 261
+      },
+      {
+        "expanded": "false",
+        "name": "Eigenfaces Unitedcogworks-demo/eigenfaces-united",
+        "width": 261
+      },
+      {
+        "expanded": "false",
+        "name": "Gradient Descenderscogworks-demo/gradient-descenders",
+        "width": 261
+      },
+      {
+        "expanded": "false",
+        "name": "Latent Space Cadetscogworks-demo/latent-space-cadets",
+        "width": 261
+      },
+      {
+        "expanded": "false",
+        "name": "Manifold Destinycogworks-demo/manifold-destiny",
+        "width": 261
+      },
+      {
+        "expanded": "false",
+        "name": "Vector Voyagerscogworks-demo/vector-voyagers",
+        "width": 261
+      }
+    ],
+    "width": 390
+  },
+  {
+    "inputs": [
+      {
+        "id": "add-ta-team_cosine",
+        "width": 426.6640625
+      },
+      {
+        "id": "add-team_cosine",
+        "width": 470.8828125
+      }
+    ],
+    "overflow": false,
+    "rows": [
+      {
+        "expanded": "true",
+        "name": "Cosine Similarity Clubcogworks-demo/cosine-similarity-club",
+        "width": 510
+      },
+      {
+        "expanded": "false",
+        "name": "Demo Teamcogworks-demo/face-finder",
+        "width": 510
+      },
+      {
+        "expanded": "false",
+        "name": "Eigenfaces Unitedcogworks-demo/eigenfaces-united",
+        "width": 510
+      },
+      {
+        "expanded": "false",
+        "name": "Gradient Descenderscogworks-demo/gradient-descenders",
+        "width": 510
+      },
+      {
+        "expanded": "false",
+        "name": "Latent Space Cadetscogworks-demo/latent-space-cadets",
+        "width": 510
+      },
+      {
+        "expanded": "false",
+        "name": "Manifold Destinycogworks-demo/manifold-destiny",
+        "width": 510
+      },
+      {
+        "expanded": "false",
+        "name": "Vector Voyagerscogworks-demo/vector-voyagers",
+        "width": 510
+      }
+    ],
+    "width": 639
+  },
+  {
+    "inputs": [
+      {
+        "id": "add-ta-team_cosine",
+        "width": 427.6640625
+      },
+      {
+        "id": "add-team_cosine",
+        "width": 471.8828125
+      }
+    ],
+    "overflow": false,
+    "rows": [
+      {
+        "expanded": "true",
+        "name": "Cosine Similarity Clubcogworks-demo/cosine-similarity-club",
+        "width": 201.7890625
+      },
+      {
+        "expanded": "false",
+        "name": "Demo Teamcogworks-demo/face-finder",
+        "width": 195.1875
+      },
+      {
+        "expanded": "false",
+        "name": "Eigenfaces Unitedcogworks-demo/eigenfaces-united",
+        "width": 201.7890625
+      },
+      {
+        "expanded": "false",
+        "name": "Gradient Descenderscogworks-demo/gradient-descenders",
+        "width": 201.7890625
+      },
+      {
+        "expanded": "false",
+        "name": "Latent Space Cadetscogworks-demo/latent-space-cadets",
+        "width": 201.7890625
+      },
+      {
+        "expanded": "false",
+        "name": "Manifold Destinycogworks-demo/manifold-destiny",
+        "width": 201.7890625
+      },
+      {
+        "expanded": "false",
+        "name": "Vector Voyagerscogworks-demo/vector-voyagers",
+        "width": 195.1875
+      }
+    ],
+    "width": 640
+  },
+  {
+    "inputs": [
+      {
+        "id": "add-ta-team_cosine",
+        "width": 514.6640625
+      },
+      {
+        "id": "add-team_cosine",
+        "width": 558.8828125
+      }
+    ],
+    "overflow": false,
+    "rows": [
+      {
+        "expanded": "true",
+        "name": "Cosine Similarity Clubcogworks-demo/cosine-similarity-club",
+        "width": 288.7890625
+      },
+      {
+        "expanded": "false",
+        "name": "Demo Teamcogworks-demo/face-finder",
+        "width": 282.1875
+      },
+      {
+        "expanded": "false",
+        "name": "Eigenfaces Unitedcogworks-demo/eigenfaces-united",
+        "width": 288.7890625
+      },
+      {
+        "expanded": "false",
+        "name": "Gradient Descenderscogworks-demo/gradient-descenders",
+        "width": 288.7890625
+      },
+      {
+        "expanded": "false",
+        "name": "Latent Space Cadetscogworks-demo/latent-space-cadets",
+        "width": 288.7890625
+      },
+      {
+        "expanded": "false",
+        "name": "Manifold Destinycogworks-demo/manifold-destiny",
+        "width": 288.7890625
+      },
+      {
+        "expanded": "false",
+        "name": "Vector Voyagerscogworks-demo/vector-voyagers",
+        "width": 282.1875
+      }
+    ],
+    "width": 768
+  }
+]

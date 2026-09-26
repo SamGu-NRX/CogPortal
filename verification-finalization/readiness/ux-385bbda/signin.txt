@@ -1,0 +1,24 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - link "Sign in":
+    - /url: /signin
+- main:
+  - heading "Sign in" [level=1]
+  - paragraph: We use your GitHub account for sign-in, so you don't need a separate registration.
+  - button "Continue with GitHub" [disabled]:
+    - text: Continue with GitHub
+  - paragraph: GitHub sign-in isn't configured. Ask course staff to enable it.
+  - generic: Local sign-in
+  - textbox "Local sign-in":
+    - /placeholder: github username
+  - button "Sign in" [disabled]
+  - button "Enter demo mode":
+    - text: Enter demo mode
+- document

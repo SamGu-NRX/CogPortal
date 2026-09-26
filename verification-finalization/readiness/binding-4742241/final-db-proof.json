@@ -1,0 +1,28 @@
+{
+  "newHostedRuns": [],
+  "actualLocalRun": {
+    "id": "localrun_3d0a04237ef748aa9b7112c12d92b69f",
+    "team_id": "team_89c628b62d59570d",
+    "user_id": "HqAaCzFGINLSbuFgyRsrAVmRE812IHNl",
+    "device_id": "cli_c8c6585cc7747f6f",
+    "benchmark_id": "audio-identification",
+    "benchmark_version": 1,
+    "repository_id": 1356655835,
+    "repository_full_name": "SamGu-NRX/cogportal-demo-week1",
+    "sha": "71258046e60fecd3295c0b52236fc6e476b0e9cf",
+    "dirty": 0,
+    "status": "succeeded",
+    "phase": "scoring",
+    "failure_detail": null,
+    "report_id": "local_1fbfbb5623f54203a93e289ed4d231c3",
+    "discord_channel_id": null,
+    "discord_message_id": null,
+    "last_event_sequence": 16,
+    "created_at": 1789383560598,
+    "updated_at": 1789383582386,
+    "finished_at": 1789383582386,
+    "branch": "main",
+    "surface_id": "surface_48aa9b7112c12d92b69f"
+  },
+  "historicalControlRepositoryId": null
+}

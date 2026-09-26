@@ -1,0 +1,212 @@
+
+  - navigation "breadcrumb":
+    - link "Workers & Pages":
+      - /url: /eb0505bac408b0230cff849b0c0ff6b4/workers-and-pages
+      - generic: Workers & Pages
+    - generic: cogportal-production
+  - button "Ask AI":
+    - generic: Ask AI
+  - link "Support":
+    - /url: /?to=/:account/support
+    - generic: Support
+  - button "User menu":
+- navigation:
+  - tablist:
+    - tab "Overview" [selected]
+    - tab "Metrics"
+    - tab "Deployments"
+    - tab "Bindings"
+    - tab "Observability"
+    - tab "Domains"
+    - tab "Access"
+    - tab "Settings"
+  - button:
+  - button:
+  - link "Edit code":
+    - /url: /eb0505bac408b0230cff849b0c0ff6b4/workers/services/edit/cogportal-production/production
+    - generic: Edit code
+  - link "Visit ↗":
+    - /url: https://cogportal.sillion.app
+    - generic: Visit
+    - text: ↗
+- link "cogportal.sillion.app":
+  - /url: https://cogportal.sillion.app
+- generic: by sgu07966
+- time: 4 hours ago
+- list:
+  - button "Domains 3":
+    - generic: Domains
+    - generic: "3"
+  - button "Workers 1":
+    - generic: Workers
+    - generic: "1"
+  - button "Queues 0":
+    - generic: Queues
+    - generic: "0"
+  - button "Triggers 1":
+    - generic: Triggers
+    - generic: "1"
+  - banner:
+    - paragraph: cogportal-production
+  - link "Observability Workers Logs Disabled Workers Traces Disabled":
+    - /url: /eb0505bac408b0230cff849b0c0ff6b4/workers/services/view/cogportal-production/production/settings?setupObservability=true
+    - heading "Observability" [level=3]:
+      - generic: Observability
+    - paragraph: Workers Logs
+    - generic: Disabled
+    - paragraph: Workers Traces
+    - generic: Disabled
+  - button "Bindings 4":
+    - generic: Bindings
+    - generic: "4"
+  - link "Add a binding":
+    - /url: /eb0505bac408b0230cff849b0c0ff6b4/workers/services/view/cogportal-production/production/bindings
+    - generic: Add a binding
+  - heading "R2 bucket" [level=3]
+  - list:
+    - generic: ARTIFACTS
+    - link "cogportal-artifacts-prod":
+      - /url: /eb0505bac408b0230cff849b0c0ff6b4/r2/default/buckets/cogportal-artifacts-prod
+      - paragraph: cogportal-artifacts-prod
+  - heading "Assets" [level=3]
+  - list:
+    - generic: ASSETS
+  - heading "D1 database" [level=3]
+  - list:
+    - generic: DB
+    - link "cogportal-db-prod":
+      - /url: /eb0505bac408b0230cff849b0c0ff6b4/workers/d1/databases/83ad728b-e6c5-46cf-bbec-2bdecfe9952e/metrics
+      - paragraph: cogportal-db-prod
+  - heading "Durable Object" [level=3]
+  - list:
+    - generic: RUN_SURFACES
+    - link "cogportal-production_RunSurfaceHub":
+      - /url: /eb0505bac408b0230cff849b0c0ff6b4/workers/durable-objects/view/dd23153db188448596ae40cf1e3917cf
+      - paragraph: cogportal-production_RunSurfaceHub
+- button "Expand diagram":
+- link "Metrics Last 24 hours":
+  - /url: /eb0505bac408b0230cff849b0c0ff6b4/workers/services/view/cogportal-production/production/metrics
+  - generic: Metrics
+  - generic: Last 24 hours
+- link "Invocations 5.52k ↗ 1481.1%":
+  - /url: /eb0505bac408b0230cff849b0c0ff6b4/workers/services/view/cogportal-production/production/metrics/charts/invocations
+  - generic: Invocations
+  - generic: 5.52k
+  - generic: ↗ 1481.1%
+- link "CPU Time 10 ms ↗ 97.7%":
+  - /url: /eb0505bac408b0230cff849b0c0ff6b4/workers/services/view/cogportal-production/production/metrics/charts/cpu-time
+  - generic: CPU Time
+  - generic: 10 ms
+  - generic: ↗ 97.7%
+- link "Errors 1.79k ↗ 100.0%":
+  - /url: /eb0505bac408b0230cff849b0c0ff6b4/workers/services/view/cogportal-production/production/metrics/charts/errors
+  - generic: Errors
+  - generic: 1.79k
+  - generic: ↗ 100.0%
+- link "Versions":
+  - /url: /eb0505bac408b0230cff849b0c0ff6b4/workers/services/view/cogportal-production/production/deployments
+  - generic: Versions
+- meter
+- generic: e4d04128
+- button "Copy":
+- generic: Manually deployed
+- paragraph: Wrangler
+- generic: by sgu07966
+- time: 4h ago
+- generic: 15022cc9
+- button "Copy":
+- button "promote accepted UI polish (candidate 20889b5); worker bundle and bindings unchanged from b8b11e0a":
+  - generic: promote accepted UI polish (candidate 20889b5); worker bundle and bindings unchanged from b8b11e0a
+- paragraph: Wrangler
+- generic: by sgu07966
+- time: 9h ago
+- generic: b8b11e0a
+- button "Copy":
+- 'button "reopen: accepted production artifact after migration 0018-0044 and signing secret rotation"':
+  - generic: "reopen: accepted production artifact after migration 0018-0044 and signing secret rotation"
+- paragraph: Wrangler
+- generic: by sgu07966
+- time: 12h ago
+- generic: 7f8c665d
+- button "Copy":
+- generic: Manually deployed
+- paragraph: Wrangler
+- generic: by sgu07966
+- time: 12h ago
+- generic: d4b611c3
+- button "Copy":
+- generic: temporary maintenance barrier for migration + signing secret rotation
+- paragraph: Wrangler
+- generic: by sgu07966
+- time: 13h ago
+- generic: 1c851071
+- button "Copy":
+- generic: Manually deployed
+- paragraph: Wrangler
+- generic: by sgu07966
+- time: 17h ago
+- generic: 58c36f1a
+- button "Copy":
+- generic: Manually deployed
+- paragraph: Wrangler
+- generic: by sgu07966
+- time: 17h ago
+- generic: 6d9b5212
+- button "Copy":
+- generic: Manually deployed
+- paragraph: Wrangler
+- generic: by sgu07966
+- time: 52d ago
+- generic: 584d099f
+- button "Copy":
+- generic: Manually deployed
+- paragraph: Wrangler
+- generic: by sgu07966
+- time: 55d ago
+- generic: "02784331"
+- button "Copy":
+- generic: Manually deployed
+- paragraph: Wrangler
+- generic: by sgu07966
+- time: 55d ago
+- link "Domains and routes":
+  - /url: /eb0505bac408b0230cff849b0c0ff6b4/workers/services/view/cogportal-production/production/domains
+  - generic: Domains and routes
+- list:
+  - generic: workers.dev
+  - paragraph:
+    - generic: cogportal-production.sgu07966.workers.dev
+  - generic: Custom domains
+  - paragraph:
+    - generic: cogportal.sillion.app
+    - generic: "+1"
+  - generic: Routes
+  - paragraph:
+    - generic: —
+- generic: Next steps
+- paragraph:
+  - generic: Automate your CI
+- paragraph: Connect your Git repository to enable continuous deployment.
+- paragraph:
+  - generic: Enable observability
+- paragraph: Monitor your worker's performance with logs and tracing.
+- paragraph:
+  - generic: Automate with Workflows
+- paragraph: Build reliable multi-step applications with Workflows for complex business logic.
+- contentinfo:
+  - list:
+    - link "Support":
+      - /url: https://support.cloudflare.com
+    - link "System status":
+      - /url: https://www.cloudflarestatus.com
+    - link "Careers":
+      - /url: https://www.cloudflare.com/careers/
+    - link "Terms of Use":
+      - /url: https://www.cloudflare.com/website-terms/
+    - link "Report Security Issues":
+      - /url: https://www.cloudflare.com/disclosure/
+    - link "Privacy Policy":
+      - /url: https://www.cloudflare.com/privacypolicy/
+    - generic: © 2026 Cloudflare, Inc.
+- region "Notifications"
+- document

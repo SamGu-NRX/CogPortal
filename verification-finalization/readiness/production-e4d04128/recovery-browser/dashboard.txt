@@ -1,0 +1,90 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Dashboard":
+      - /url: /dashboard
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "Sam CogPortal owner Account menu for SamGu-NRX":
+    - generic: Sam
+    - img "CogPortal owner":
+    - generic: Account menu for SamGu-NRX
+- main:
+  - paragraph: Good afternoon, Sam
+  - heading "CogPortal" [level=1]:
+    - link "CogPortal":
+      - /url: /team
+  - button "Semantic Image Search · v1 Change benchmark track. Currently Semantic Image Search.":
+    - text: Semantic Image Search · v1
+    - generic: Change benchmark track. Currently Semantic Image Search.
+  - generic: Getting set up
+  - generic: 2 of 5 done
+  - link "Continue":
+    - /url: /setup
+    - text: Continue
+  - button "Dismiss the setup reminder":
+  - heading "START A RUN" [level=2]
+  - generic: Branch
+  - combobox "Branch":
+    - option "main" [selected]
+    - option "apurva"
+    - option "lashikaa"
+    - option "sriram"
+  - button "Run practice benchmark"
+  - paragraph: 9 of 10 hosted runs left
+  - generic: Candidate ready
+  - paragraph:
+    - link "RUN 4208":
+      - /url: /runs/run_6deb074208
+    - text: scored 0.4126 on main · 8789361
+  - paragraph: SamGu-NRX/Language_Module_Capstone
+  - button "Promote to official"
+  - paragraph: Runs the same commit against hidden inputs. Logs are suppressed.
+  - heading "RUN LOG" [level=2]
+  - generic: 1 recorded
+  - list:
+    - link "RUN 4208 practice Succeeded main · 8789361 0.4126 2 h ago":
+      - /url: /runs/run_6deb074208
+      - generic: RUN 4208
+      - generic: practice
+      - generic: Succeeded
+      - generic: main · 8789361
+      - generic: "0.4126"
+      - generic: 2 h ago
+  - heading "CONNECTED SOURCE" [level=2]
+  - link "SamGu-NRX/Language_Module_Capstone":
+    - /url: https://github.com/SamGu-NRX/Language_Module_Capstone
+  - generic: last tested
+  - button "Copy full commit SHA 8789361ad7dec86fa724431873f674e03b449951":
+    - generic: "8789361"
+  - status
+  - paragraph: week3-cpu-v1 · CPU · network blocked during evaluation
+  - heading "ATTEMPT BUDGET" [level=2]
+  - generic: Hosted practice
+  - generic: 1/10 used
+  - 'img "Hosted practice: 1 of 10 used"'
+  - generic: Official attempts
+  - generic: 0/3 used
+  - 'img "Official attempts: 0 of 3 used"'
+  - paragraph: Completed hosted evaluations count here. Failed runs don't use quota. Local runs are unlimited.
+  - heading "LOCAL REPORTS" [level=2]
+  - generic: SELF-REPORTED · NOT PROMOTABLE
+  - table "Self-reported local CogBench results":
+    - caption: Self-reported local CogBench results
+    - rowgroup:
+      - row "Student Commit Result Synced":
+        - columnheader "Student"
+        - columnheader "Commit"
+        - columnheader "Result"
+        - columnheader "Synced"
+    - rowgroup:
+      - row "SamGu-NRX 8789361 0.4126 2 h ago":
+        - cell "SamGu-NRX"
+        - cell "8789361"
+        - cell "0.4126"
+        - cell "2 h ago"
+- document

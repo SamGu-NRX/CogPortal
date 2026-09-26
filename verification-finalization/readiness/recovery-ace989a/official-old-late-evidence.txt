@@ -1,0 +1,76 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Dashboard":
+      - /url: /dashboard
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "recovery-local-owner Account menu for recovery-local-owner":
+    - generic: r
+    - generic: recovery-local-owner
+    - generic: Account menu for recovery-local-owner
+- main:
+  - link "← Dashboard":
+    - /url: /dashboard
+  - link "Open current run":
+    - /url: /run-surfaces/surface_8b38841f149daf7ba62c
+  - heading "Semantic Image Search" [level=1]
+  - generic: Official · attempt 2/3
+  - generic: Failed
+  - generic "Execution provider is in fixture mode. Results are scripted, not real evaluation.": simulated
+  - generic: "Run status: Failed"
+  - paragraph:
+    - generic: language-search / v1
+    - generic: "|"
+    - link "cogworks-demo/face-finder":
+      - /url: https://github.com/cogworks-demo/face-finder
+    - generic: "|"
+    - generic: main
+    - button "Copy full commit SHA cbd8e59d3a0eeb280a188b3d749bf6c24235cf83":
+      - generic: cbd8e59
+    - status
+    - generic: "|"
+    - generic: Sep 11, 04:38 PM
+    - generic: "|"
+    - generic: 21.2 s
+  - heading "PIPELINE" [level=2]
+  - list "Run pipeline":
+    - text: Queued
+    - generic: ", complete"
+    - generic: 1.2 s
+    - text: Prepare
+    - generic: ", complete"
+    - generic: 3.5 s
+    - text: Install
+    - generic: ", complete"
+    - generic: 5.2 s
+    - text: Contract check
+    - generic: ", complete"
+    - generic: 1.8 s
+    - text: Evaluate
+    - generic: ", failed"
+    - generic: 7.6 s
+    - text: Score
+    - generic: ", not started"
+    - generic: 1.9 s
+    - generic: Complete
+  - heading "Run failed" [level=3]
+  - paragraph: Execution provider failed
+  - paragraph: E-PROVIDER · Evaluate
+  - paragraph: The isolated execution environment failed before your code ran. This is a platform problem, not a problem with your code.
+  - generic: Independent local fixture interruption.
+  - paragraph: Retry the run. If this recurs, report the run ID to course staff.
+  - paragraph: Saved results
+  - figure:
+    - generic: What this run shows
+    - paragraph: Independent saved result from previous failed run.
+  - term: Independent late metric
+  - definition:
+    - generic: "0.050"
+  - button "Show details":
+    - generic: Show details
+- document

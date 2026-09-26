@@ -1,0 +1,42 @@
+{
+  "setup": {
+    "copy": [],
+    "scrollWidth": 390,
+    "shiki": 6,
+    "width": 390
+  },
+  "dashboard": {
+    "scrollWidth": 390,
+    "width": 390
+  },
+  "run": {
+    "scrollWidth": 390,
+    "shiki": 0,
+    "width": 390
+  },
+  "admin": {
+    "scrollWidth": 390,
+    "width": 390
+  },
+  "leaderboard": {
+    "scrollWidth": 390,
+    "width": 390
+  },
+  "team": {
+    "scrollWidth": 390,
+    "width": 390
+  },
+  "copyExact": true,
+  "copyButtons": {
+    "count": 6,
+    "svg": true,
+    "width": 28,
+    "height": 28
+  },
+  "keyboardSkipLink": {
+    "focus": true,
+    "outline": "solid"
+  },
+  "adminOwner": "SamGu-NRX",
+  "adminTeams": 7
+}

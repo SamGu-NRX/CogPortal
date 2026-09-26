@@ -1,0 +1,71 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Dashboard":
+      - /url: /dashboard
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "Sam CogPortal owner Account menu for SamGu-NRX":
+    - generic: Sam
+    - img "CogPortal owner":
+    - generic: Account menu for SamGu-NRX
+- main:
+  - paragraph: Good morning, Sam
+  - heading "CogPortal" [level=1]:
+    - link "CogPortal":
+      - /url: /team
+  - button "Semantic Image Search · v1 Change benchmark track. Currently Semantic Image Search.":
+    - text: Semantic Image Search · v1
+    - generic: Change benchmark track. Currently Semantic Image Search.
+  - generic: Getting set up
+  - generic: 2 of 5 done
+  - link "Continue":
+    - /url: /setup
+    - text: Continue
+  - button "Dismiss the setup reminder":
+  - heading "FIRST RUN" [level=2]
+  - paragraph: Two ways to run Semantic Image Search, scored the same way. Local runs are unlimited, so that's usually where the work happens.
+  - heading "On your machine" [level=3]
+  - paragraph:
+    - text: These need the tool from
+    - link "Setup":
+      - /url: /setup
+    - text: first.
+  - code:
+    - generic: cogworks check --benchmark language-search
+    - generic: cogworks run --benchmark language-search
+    - generic: cogworks sync
+  - button "Copy command":
+    - generic: Copy command
+  - status
+  - heading "Here, from your pushed commit" [level=3]
+  - paragraph: 10 of 10 hosted practice runs left, and 3 of 3 official attempts. An official attempt is the one that uses the hidden set.
+  - generic: Branch
+  - combobox "Branch":
+    - option "main" [selected]
+    - option "apurva"
+    - option "lashikaa"
+    - option "sriram"
+  - button "Run practice benchmark"
+  - paragraph: SamGu-NRX/Language_Module_Capstone · week3-cpu-v1 · CPU · network blocked during evaluation
+  - heading "LOCAL REPORTS" [level=2]
+  - generic: SELF-REPORTED · NOT PROMOTABLE
+  - table "Self-reported local CogBench results":
+    - caption: Self-reported local CogBench results
+    - rowgroup:
+      - row "Student Commit Result Synced":
+        - columnheader "Student"
+        - columnheader "Commit"
+        - columnheader "Result"
+        - columnheader "Synced"
+    - rowgroup:
+      - row "SamGu-NRX 8789361 0.4126 just now":
+        - cell "SamGu-NRX"
+        - cell "8789361"
+        - cell "0.4126"
+        - cell "just now"
+- document

@@ -1,0 +1,30 @@
+{
+  "officialDesktop": {
+    "heading": "Semantic Image Search",
+    "label": {
+      "bottom": 231.296875,
+      "height": 18.59375,
+      "left": 189,
+      "right": 246.6015625,
+      "top": 212.703125,
+      "width": 57.6015625,
+      "x": 189,
+      "y": 212.703125
+    },
+    "overflow": 0
+  },
+  "officialMobile": {
+    "heading": "Semantic Image Search",
+    "label": {
+      "bottom": 315.5859375,
+      "height": 18.59375,
+      "left": 20,
+      "right": 77.6015625,
+      "top": 296.9921875,
+      "width": 57.6015625,
+      "x": 20,
+      "y": 296.9921875
+    },
+    "overflow": -15
+  }
+}

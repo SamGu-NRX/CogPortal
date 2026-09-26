@@ -1,0 +1,1 @@
+Production Watch live opened once. Visible Activity message: COULD NOT OPEN. The bench is still here. Discord turned down this Activity's sign-in, and reopening won't change that. Tell an instructor; the fix is on our side. Left Activity. No retry or credential action. This is separate from successful Discord browser login and normal bot account linking.

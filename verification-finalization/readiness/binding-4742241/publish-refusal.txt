@@ -1,0 +1,122 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Dashboard":
+      - /url: /dashboard
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "recovery-local-owner CogPortal owner Account menu for recovery-local-owner":
+    - generic: r
+    - generic: recovery-local-owner
+    - img "CogPortal owner":
+    - generic: Account menu for recovery-local-owner
+- main:
+  - link "← Dashboard":
+    - /url: /dashboard
+  - link "Open current run":
+    - /url: /run-surfaces/surface_f0830d2c7b9be9581822
+  - heading "RUN 703C" [level=1]
+  - generic: Official · attempt 1/3
+  - generic: Succeeded
+  - generic "Execution provider is in fixture mode. Results are scripted, not real evaluation.": simulated
+  - generic: "Run status: Succeeded"
+  - paragraph:
+    - generic: language-search / v1
+    - generic: "|"
+    - link "cogworks-demo/face-finder":
+      - /url: https://github.com/cogworks-demo/face-finder
+    - generic: "|"
+    - generic: main
+    - button "Copy full commit SHA cbd8e59d3a0eeb280a188b3d749bf6c24235cf83":
+      - generic: cbd8e59
+    - status
+    - generic: "|"
+    - generic: Sep 11, 03:44 PM
+    - generic: "|"
+    - generic: 21.2 s
+  - heading "PIPELINE" [level=2]
+  - list "Run pipeline":
+    - text: Queued
+    - generic: ", complete"
+    - generic: 1.2 s
+    - text: Prepare
+    - generic: ", complete"
+    - generic: 3.5 s
+    - text: Install
+    - generic: ", complete"
+    - generic: 5.2 s
+    - text: Contract check
+    - generic: ", complete"
+    - generic: 1.8 s
+    - text: Evaluate
+    - generic: ", complete"
+    - generic: 7.6 s
+    - text: Score
+    - generic: ", complete"
+    - generic: 1.9 s
+    - generic: Complete
+  - heading "RESULTS" [level=2]
+  - figure "higher is better":
+    - generic: Overall
+    - generic: "0.402"
+    - text: higher is better
+  - term: Retrieval MRR
+  - definition:
+    - generic: "0.211"
+    - generic: floor 0.010
+    - generic: higher is better
+  - term: Retrieval MRR, caption unchanged (not scored)
+  - definition:
+    - generic: "0.244"
+    - generic: not scored
+  - term: Search MRR
+  - definition:
+    - generic: "0.209"
+    - generic: floor 0.006
+    - generic: higher is better
+  - term: Search MRR, caption unchanged (not scored)
+  - definition:
+    - generic: "0.243"
+    - generic: not scored
+  - term: Search MRR, keywords only
+  - definition:
+    - generic: "0.258"
+    - generic: higher is better
+  - term: Search MRR, first three words
+  - definition:
+    - generic: "0.158"
+    - generic: higher is better
+  - term: Search MRR, one typo
+  - definition:
+    - generic: "0.213"
+    - generic: higher is better
+  - term: Text MRR
+  - definition:
+    - generic: "0.786"
+    - generic: floor 0.040
+    - generic: higher is better
+  - term: Median rank
+  - definition:
+    - generic: "10.500"
+    - generic: lower is better
+  - term: Recall@1
+  - definition:
+    - generic: "0.127"
+    - generic: higher is better
+  - term: Recall@10
+  - definition:
+    - generic: "0.537"
+    - generic: higher is better
+  - term: Recall@5
+  - definition:
+    - generic: "0.351"
+    - generic: higher is better
+  - paragraph: The scorer had no notes on this run.
+  - paragraph: Hidden official split.
+  - heading "PUBLISH" [level=2]
+  - paragraph: This run came from a repository your team is no longer connected to. Start a fresh run on SamGu-NRX/cogportal-demo-week1 to act on it.
+- document

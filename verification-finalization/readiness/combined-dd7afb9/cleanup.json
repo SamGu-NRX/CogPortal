@@ -1,0 +1,12 @@
+{
+  "revision": "dd7afb9c5589108cfb2718956ebcfe1409813125",
+  "applicationDatabase": "/Users/samgu/Programming Projects/CogPortal-verifier-combined-dd7afb9/apps/portal/.wrangler/state/v3/d1/miniflare-D1DatabaseObject/8e74cf6628f4d0013a5f1b69b205a4334d7f4ddd23213fede7a88471b665139a.sqlite",
+  "dumpEqual": true,
+  "sessions": 0,
+  "localReports": 0,
+  "auditRetry": 0,
+  "auditSelection": 0,
+  "schemaHasSandboxContract": false,
+  "sourceStatus": "?? apps/portal/node_modules\n?? node_modules\n?? packages/contracts/node_modules\n",
+  "disposableProjectAndEnvironmentRemoved": true
+}

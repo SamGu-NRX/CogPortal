@@ -1,0 +1,22 @@
+{
+  "cogworks-benchmark": {
+    "subdirectory": "python/cogbench",
+    "url": "https://github.com/SamGu-NRX/CogPortal.git",
+    "vcs_info": {
+      "commit_id": "d9405278aac8268cd340e589f36dbad766d1e2a0",
+      "requested_revision": "d9405278aac8268cd340e589f36dbad766d1e2a0",
+      "vcs": "git"
+    }
+  },
+  "cogworks-week1-audio-benchmark": {
+    "url": "https://github.com/SamGu-NRX/cogworks-week1-audio-benchmark.git",
+    "vcs_info": {
+      "commit_id": "b156644aecc810e0b93535e320098f96c39ae04e",
+      "requested_revision": "b156644aecc810e0b93535e320098f96c39ae04e",
+      "vcs": "git"
+    }
+  },
+  "sha": "e515ff619e02c16be903985d8536bc5ee6d7a2e9",
+  "status": "",
+  "branch": "codex/demo-rehearsal-d9405278"
+}

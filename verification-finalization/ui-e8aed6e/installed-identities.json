@@ -1,0 +1,24 @@
+{
+  "cogworks-benchmark": {
+    "subdirectory": "python/cogbench",
+    "url": "https://github.com/SamGu-NRX/CogPortal.git",
+    "vcs_info": {
+      "commit_id": "094a6f1ac109716014492a57a81157e71b70f7ab",
+      "requested_revision": "094a6f1ac109716014492a57a81157e71b70f7ab",
+      "vcs": "git"
+    }
+  },
+  "cogworks-week1-audio-benchmark": {
+    "url": "https://github.com/SamGu-NRX/cogworks-week1-audio-benchmark.git",
+    "vcs_info": {
+      "commit_id": "b156644aecc810e0b93535e320098f96c39ae04e",
+      "requested_revision": "b156644aecc810e0b93535e320098f96c39ae04e",
+      "vcs": "git"
+    }
+  },
+  "python": "/Users/samgu/Programming Projects/CogPortal-verifier-ui-e8aed6e/.venv-ui-accept/bin/python",
+  "sdkFile": "/Users/samgu/Programming Projects/CogPortal-verifier-ui-e8aed6e/.venv-ui-accept/lib/python3.11/site-packages/cogbench/__init__.py",
+  "benchmarkFile": "/Users/samgu/Programming Projects/CogPortal-verifier-ui-e8aed6e/.venv-ui-accept/lib/python3.11/site-packages/audio_identification_benchmark/__init__.py",
+  "studentHead": "71258046e60fecd3295c0b52236fc6e476b0e9cf",
+  "studentStatus": ""
+}

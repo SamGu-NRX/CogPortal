@@ -1,0 +1,83 @@
+- document
+- status
+- banner:
+  - link "Return to discord.dev":
+    - /url: /developers/home
+  - button "Create menu":
+    - generic: Create
+  - button "Docs":
+    - generic: Docs
+  - button "Teams":
+    - generic: Teams
+  - button "User Menu"
+- navigation:
+  - link "Applications":
+    - /url: /developers/applications
+    - generic: Applications
+  - log
+  - generic: Cog*Bot
+  - combobox
+  - button "Overview":
+    - generic: Overview
+  - list:
+    - link "General Information":
+      - /url: /developers/applications/1526706029356646460/information
+      - generic: General Information
+    - link "Installation":
+      - /url: /developers/applications/1526706029356646460/installation
+      - generic: Installation
+    - link "OAuth2":
+      - /url: /developers/applications/1526706029356646460/oauth2
+      - generic: OAuth2
+    - link "Bot":
+      - /url: /developers/applications/1526706029356646460/bot
+      - generic: Bot
+    - link "Emojis":
+      - /url: /developers/applications/1526706029356646460/emojis
+      - generic: Emojis
+    - link "Webhooks":
+      - /url: /developers/applications/1526706029356646460/webhooks
+      - generic: Webhooks
+    - link "Rich Presence":
+      - /url: /developers/applications/1526706029356646460/rich-presence
+      - text: Rich Presence
+    - link "App Testers":
+      - /url: /developers/applications/1526706029356646460/testers
+      - generic: App Testers
+    - link "App Verification":
+      - /url: /developers/applications/1526706029356646460/verification-onboarding
+      - generic: App Verification
+  - button "Games New":
+    - text: Games
+    - generic: New
+  - button "Activities":
+    - generic: Activities
+  - button "Premium Apps":
+    - generic: Premium Apps
+- main:
+  - heading "OAuth2" [level=1]:
+    - generic: OAuth2
+  - paragraph: Use Discord as an authorization system or use our API on behalf of your users. Add a redirect URI, pick your scopes, roll a D20 for good luck, and go!
+  - paragraph:
+    - button "Learn more about OAuth2"
+  - heading "Client information" [level=2]
+  - generic: Client ID
+  - textbox [disabled]: "1526706029356646460"
+  - button "Copy":
+  - generic: Client Secret
+  - textbox [disabled]: Hidden for security
+  - button "Copy" [disabled]:
+  - button "Reset Secret":
+    - generic: Reset Secret
+  - generic: Public Client
+  - generic: Public clients cannot maintain the confidentiality of their client credentials (i.e. desktop/mobile applications that do not use a server to make requests)
+  - switch
+  - heading "Redirects" [level=2]
+  - generic: You must specify at least one URI for authentication to work. If you pass a URI in an OAuth request, it must exactly match one of the URIs you enter here.
+  - textbox "Select redirect URI":
+    - /placeholder: ""
+    - text: https://127.0.0.1
+  - button "Select redirect URI":
+  - button "Add Another":
+    - generic: Add Another
+  

@@ -1,0 +1,73 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Dashboard":
+      - /url: /dashboard
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "recovery-local-owner Account menu for recovery-local-owner":
+    - generic: r
+    - generic: recovery-local-owner
+    - generic: Account menu for recovery-local-owner
+- main:
+  - region "Live run for Semantic Image Search":
+    - generic: Run failed
+    - generic: SIMULATED
+    - generic: Stopped
+    - heading "Semantic Image Search" [level=1]
+    - paragraph:
+      - generic: Demo Team
+      - generic: ·
+      - generic: "@recovery-local-owner"
+      - generic: ·
+      - code: 0c25771
+      - generic: ·
+      - generic: 11s
+    - paragraph: Benchmark contract needs attention
+    - button "Retry"
+    - paragraph: Runs the same submission again.
+    - list "Run lifecycle":
+      - generic: ✓
+      - generic: Local
+      - generic: complete
+      - generic: ×
+      - generic: Hosted
+      - generic: failed
+      - generic: ○
+      - generic: Official
+      - generic: pending
+      - generic: ○
+      - generic: Published
+      - generic: pending
+    - generic: Run history
+    - button "Show details"
+    - complementary:
+      - generic: Run reference
+      - term: Repository
+      - definition: cogworks-demo/face-finder
+      - term: Commit
+      - definition: 0c25771cfa12699f531b93ef0daa08dcda847e04
+      - term: Branch
+      - definition: missing-adapter
+      - term: Workspace
+      - definition: Clean
+      - button "Open Cog*Portal":
+        - text: Open Cog*Portal
+    - list:
+      - paragraph: practice · failed
+      - time: 9/11/2026, 3:14:41 PM
+      - button:
+        - text: View details
+        - generic: for practice run from 9/11/2026, 3:14:41 PM
+      - paragraph: practice · failed · Current
+      - time: 9/11/2026, 3:32:40 PM
+      - button:
+        - text: View details
+        - generic: for practice run from 9/11/2026, 3:32:40 PM
+    - button "Show run history":
+      - generic: Show run history
+- document

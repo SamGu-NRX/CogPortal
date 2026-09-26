@@ -1,0 +1,13 @@
+{
+  "args": [
+    "/Users/samgu/BWSI/2026/CogPortal/.venv-test/bin/python",
+    "-B",
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/diagnosis/trace-boundary.py",
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/diagnosis/w3-g4-language",
+    "language-search",
+    "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/data/vision"
+  ],
+  "cwd": "/Users/samgu/.codex/worktrees/dd61/CogPortal/verification-corpus/diagnosis/cases/w3-g4-language",
+  "sourceSha": "37b1972bbe17027256e1f5d9cf150e74193083e3",
+  "studentSha": "8789361ad7dec86fa724431873f674e03b449951"
+}

@@ -1,0 +1,9 @@
+{
+  "clientWidth": 271,
+  "focused": true,
+  "outline": "rgb(122, 54, 46) solid 2px",
+  "scrollLeft": 40,
+  "scrollWidth": 358,
+  "text": "cogworks check --benchmark vision-clustering\ncogworks run --benchmark vision-clustering\ncogworks sync",
+  "viewport": 390
+}

@@ -1,0 +1,42 @@
+HTML content Cog*Portal — CogWorks Benchmark, URL: cogportal.sillion.app/dashboard
+					30 container
+						31 link Description: Skip to content, Value: cogportal.sillion.app/runs/run_b647f110de#main
+						32 link Description: Cog*Portal, Value: cogportal.sillion.app/
+						33 container Primary
+							34 link Description: DASHBOARD, Value: cogportal.sillion.app/dashboard
+							35 link Description: LEADERBOARD, Value: cogportal.sillion.app/leaderboard
+						36 pop up button Sam CogPortal owner Account menu for SamGu-NRX
+							37 text Sam
+							38 image CogPortal owner
+							39 text Account menu for 
+							40 text SamGu-NRX
+						41 container
+							42 text GOOD MORNING, SAM
+							43 heading CogPortal, Value: 1
+								44 link Description: CogPortal, Value: cogportal.sillion.app/team
+							45 pop up button Semantic Image Search · v1 Change benchmark track. Currently Semantic Image Search.
+								46 text Semantic Image Search · v1
+								47 text Change benchmark track. Currently 
+								48 text Semantic Image Search
+								49 text .
+						50 container
+							51 heading FIRST RUN, Value: 2
+								52 text FIRST RUN
+							53 text Two ways to run  Semantic Image Search , scored the same way. Local runs are unlimited, so that's usually where the work happens.
+							54 heading ON YOUR MACHINE, Value: 3
+								55 text ON YOUR MACHINE
+							56 text These need the tool from
+							57 link Description: Setup, Value: cogportal.sillion.app/setup
+							58 text first.
+							59 text cogworks check --benchmark language-search
+cogworks run --benchmark language-search
+cogworks sync
+							60 button Copy command
+							61 heading HERE, FROM YOUR PUSHED COMMIT, Value: 3
+								62 text HERE, FROM YOUR PUSHED COMMIT
+							63 text 10  of  10  hosted practice runs left, and  3  of  3  official attempts. An official attempt is the one that uses the hidden set. BRANCH
+							64 pop up button BRANCH, Value: main
+								65 (selected) main
+							66 button Run practice benchmark
+						67 text SamGu-NRX/cogportal-demo-week1 · week3-cpu-v1 · CPU · network blocked during evaluation
+					68 

@@ -1,0 +1,24 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Dashboard":
+      - /url: /dashboard
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "Sam CogPortal owner Account menu for SamGu-NRX":
+    - generic: Sam
+    - img "CogPortal owner":
+    - generic: Account menu for SamGu-NRX
+- main:
+  - heading "FAILED ON OUR SIDE" [level=2]
+  - alert:
+    - paragraph: The portal returned an unexpected error (503).
+    - paragraph: If it happens again, tell a TA; this one is ours to fix.
+  - button "Try again"
+  - link "Back to dashboard":
+    - /url: /dashboard
+- document

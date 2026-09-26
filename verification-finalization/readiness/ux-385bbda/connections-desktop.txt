@@ -1,0 +1,32 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Dashboard":
+      - /url: /dashboard
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "ui-accept-e8 CogPortal owner Account menu for ui-accept-e8":
+    - generic: u
+    - generic: ui-accept-e8
+    - img "CogPortal owner":
+    - generic: Account menu for ui-accept-e8
+- main:
+  - heading "Connections" [level=1]
+  - paragraph: GitHub is your account identity. Discord and the CogWorks CLI connect to it without receiving your GitHub token or permission to submit official results.
+  - heading "GITHUB" [level=2]
+  - paragraph: No GitHub identity; development sign-ins don't carry one.
+  - heading "DISCORD" [level=2]
+  - paragraph:
+    - text: Not linked. In the course server, open
+    - code: /cog
+    - text: and Cog will offer a private connection link.
+  - heading "COGWORKS CLI DEVICES" [level=2]
+  - paragraph:
+    - text: No linked devices. Run
+    - code: cogworks link
+    - text: in your project when you want to sync a local report.
+- document

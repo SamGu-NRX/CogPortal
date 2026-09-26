@@ -1,0 +1,57 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "Sam CogPortal owner Account menu for SamGu-NRX":
+    - generic: Sam
+    - img "CogPortal owner":
+    - generic: Account menu for SamGu-NRX
+- main:
+  - button "Both options":
+    - text: Both options
+  - heading "Join your team" [level=1]
+  - heading "Cosine Similarity Club" [level=3]
+  - generic: 0 members
+  - paragraph: Normalized descriptors and transparent baselines.
+  - paragraph: cogworks-demo/cosine-similarity-club
+  - generic: "Members:"
+  - button "Join"
+  - heading "Eigenfaces United" [level=3]
+  - generic: 0 members
+  - paragraph: Strong embeddings with calibrated rejection.
+  - paragraph: cogworks-demo/eigenfaces-united
+  - generic: "Members:"
+  - button "Join"
+  - heading "Gradient Descenders" [level=3]
+  - generic: 0 members
+  - paragraph: Small models, careful thresholds.
+  - paragraph: cogworks-demo/gradient-descenders
+  - generic: "Members:"
+  - button "Join"
+  - heading "Latent Space Cadets" [level=3]
+  - generic: 0 members
+  - paragraph: Compact representations for reliable matching.
+  - paragraph: cogworks-demo/latent-space-cadets
+  - generic: "Members:"
+  - button "Join"
+  - heading "Manifold Destiny" [level=3]
+  - generic: 0 members
+  - paragraph: Geometry-minded face recognition.
+  - paragraph: cogworks-demo/manifold-destiny
+  - generic: "Members:"
+  - button "Join"
+  - heading [level=3]: Vector Voyagers
+  - generic: 0 members
+  - paragraph: Robust recognition under difficult lighting.
+  - paragraph: cogworks-demo/vector-voyagers
+  - generic: "Members:"
+  - button: Join
+  - button "See 1 more team Every team in BWSI CogWorks 2026":
+    - generic: See 1 more team
+    - generic: Every team in BWSI CogWorks 2026
+- document

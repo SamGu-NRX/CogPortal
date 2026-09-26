@@ -1,0 +1,85 @@
+- document
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Cog*Portal":
+    - /url: /
+  - navigation "Primary":
+    - link "Dashboard":
+      - /url: /dashboard
+    - link "Leaderboard":
+      - /url: /leaderboard
+  - button "verify-creator Account menu for verify-creator":
+    - generic: v
+    - generic: verify-creator
+    - generic: Account menu for verify-creator
+- main:
+  - paragraph: Good morning, verify-creator
+  - heading "Verification Creator Team" [level=1]:
+    - link "Verification Creator Team":
+      - /url: /team
+  - button "Semantic Image Search · v1 Change benchmark track. Currently Semantic Image Search.":
+    - text: Semantic Image Search · v1
+    - generic: Change benchmark track. Currently Semantic Image Search.
+  - generic "Execution provider is in fixture mode. Results are scripted, not real evaluation.": simulated
+  - generic: Getting set up
+  - generic: 0 of 5 verified
+  - link "Continue":
+    - /url: /setup
+    - text: Continue
+  - button "Dismiss the setup reminder":
+  - heading "START A RUN" [level=2]
+  - generic: Branch
+  - combobox "Branch":
+    - option "main" [selected]
+    - option "improved-thresholds"
+    - option "missing-adapter"
+    - option "loose-pins"
+    - option "heavy-model"
+    - option "raw-tuples"
+    - option "null-descriptor"
+  - button "Run practice benchmark"
+  - paragraph: 8 of 10 hosted runs left
+  - generic: Candidate ready
+  - paragraph:
+    - link "RUN CAF3":
+      - /url: /runs/run_bc8a18caf3
+    - text: scored 0.401 on main · cbd8e59
+  - button "Promote to official"
+  - paragraph: Runs the same commit against hidden inputs. Logs are suppressed.
+  - heading "RUN LOG" [level=2]
+  - generic: 2 recorded
+  - list:
+    - link "RUN CAF3 practice Succeeded main · cbd8e59 0.401 3 min ago":
+      - /url: /runs/run_bc8a18caf3
+      - generic: RUN CAF3
+      - generic: practice
+      - generic: Succeeded
+      - generic: main · cbd8e59
+      - generic: "0.401"
+      - generic: 3 min ago
+    - link "RUN 441D practice Succeeded main · cbd8e59 0.397 4 min ago":
+      - /url: /runs/run_54e374441d
+      - generic: RUN 441D
+      - generic: practice
+      - generic: Succeeded
+      - generic: main · cbd8e59
+      - generic: "0.397"
+      - generic: 4 min ago
+  - heading "CONNECTED SOURCE" [level=2]
+  - link "cogworks-demo/face-finder":
+    - /url: https://github.com/cogworks-demo/face-finder
+  - generic: last tested
+  - button "cbd8e59 Copy full commit SHA cbd8e59d3a0eeb280a188b3d749bf6c24235cf83":
+    - generic: cbd8e59
+    - generic: Copy full commit SHA cbd8e59d3a0eeb280a188b3d749bf6c24235cf83
+  - paragraph: week3-cpu-v1 · CPU · network blocked during evaluation
+  - heading "ATTEMPT BUDGET" [level=2]
+  - generic: Hosted practice
+  - generic: 2/10 used
+  - 'img "Hosted practice: 2 of 10 used"'
+  - generic: Official attempts
+  - generic: 0/3 used
+  - 'img "Official attempts: 0 of 3 used"'
+  - paragraph: Local runs are unlimited and are not counted here. An official cell fills the moment you start that attempt, and it comes back if the run fails for a reason on our side.
+- document
