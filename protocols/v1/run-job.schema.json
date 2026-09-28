@@ -56,6 +56,20 @@
         "url": { "type": "string", "pattern": "^https://" },
         "keyId": { "type": "string" }
       }
+    },
+    "weights": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "size", "sha256"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1, "maxLength": 500 },
+          "size": { "type": "integer", "minimum": 0, "maximum": 104857600 },
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+        }
+      }
     }
   }
 }

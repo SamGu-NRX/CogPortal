@@ -16,7 +16,15 @@ will not tolerate is a benchmark that has the attribute and leaves holes in it.
 
 from __future__ import annotations
 
+import sys
 import unittest
+from pathlib import Path
+
+# Its own path, rather than whichever sibling ran first. Without this line the
+# file passed only under full discovery, because alphabetically earlier tests
+# insert the source directory, and raised ModuleNotFoundError run alone.
+ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(ROOT / "python" / "cogbench" / "src"))
 
 
 def _installed_benchmarks():
@@ -85,6 +93,44 @@ class MetricExplainability(unittest.TestCase):
                 plugin.primary_metric,
                 help_text,
                 "{} does not explain its own primary metric".format(name),
+            )
+
+    def test_a_benchmark_declares_what_it_actually_reports(self):
+        """The hole the three tests above leave open.
+
+        They compare `metric_labels` against `metric_help`, so a metric that
+        appears in neither is invisible to all of them. `score()` is what
+        decides which numbers reach a run page, and the runner falls back to
+        `key.replace("_", " ").title()` for anything unlabeled, so a metric
+        added to the scorer and to nothing else renders as "Retrieval Mrr
+        Verbatim" with no explanation. That is precisely the black box this
+        file exists to prevent, arriving through the one door it did not
+        watch.
+
+        Found by adding `retrieval_mrr_verbatim` in scorer version
+        retrieval-v4 and noticing by hand that nothing failed.
+
+        A benchmark that cannot be scored without its real data is skipped
+        rather than failed: it declares `sample_metric_keys` if it wants to
+        be checked, and most can simply be run against their own fixtures.
+        """
+
+        for name, plugin in self.benchmarks:
+            help_text = getattr(plugin, "metric_help", None)
+            if help_text is None:
+                continue
+            keys = getattr(plugin, "sample_metric_keys", None)
+            if not keys:
+                continue
+            labels = getattr(plugin, "metric_labels", {})
+            undeclared = sorted(set(keys) - set(labels))
+            self.assertEqual(
+                undeclared,
+                [],
+                "{} reports metrics it never declares, so they reach a run "
+                "page as a machine-made title with no explanation: {}".format(
+                    name, undeclared
+                ),
             )
 
     def test_explanations_are_sentences_in_the_student_vocabulary(self):

@@ -118,13 +118,27 @@ export async function getGithubToken(
   headers?: Headers,
 ): Promise<string | null> {
   try {
-    const body = { providerId: "github", userId };
-    // Passing headers switches Better Auth from trusted server mode to session auth.
-    const result = headers
-      ? await authInstance.api.getAccessToken({ body, headers })
-      : await authInstance.api.getAccessToken({ body });
-    return result?.accessToken ?? null;
+    return await getGithubTokenOrThrow(authInstance, userId, headers);
   } catch {
     return null;
   }
+}
+
+/**
+ * The throwing variant exists for the one route where "the lookup failed" and
+ * "the user has no GitHub token" must not collapse into the same null: the
+ * repository listing renders null as "fork the template first", which is a
+ * lie during a transient auth failure.
+ */
+export async function getGithubTokenOrThrow(
+  authInstance: Auth,
+  userId: string,
+  headers?: Headers,
+): Promise<string | null> {
+  const body = { providerId: "github", userId };
+  // Passing headers switches Better Auth from trusted server mode to session auth.
+  const result = headers
+    ? await authInstance.api.getAccessToken({ body, headers })
+    : await authInstance.api.getAccessToken({ body });
+  return result?.accessToken ?? null;
 }

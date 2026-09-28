@@ -27,7 +27,7 @@ function errorMessage(error: unknown, fallback: string): string {
 export function ConnectionsPage() {
   const connections = useConnections();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [discordToken, setDiscordToken] = useState<string | null>(() => fragmentToken());
   const [linkedDiscord, setLinkedDiscord] = useState<string | null>(null);
   const [deviceName, setDeviceName] = useState("CogWorks CLI");
@@ -147,16 +147,22 @@ export function ConnectionsPage() {
             className="mt-5 max-w-sm"
             onSubmit={(event) => {
               event.preventDefault();
+              const onApproved = () => {
+                clearConnectionReturn();
+                setDeviceApproved(true);
+                // Drop the code from the URL so a reload does not re-offer
+                // the approval form for a code the server already consumed.
+                const next = new URLSearchParams(searchParams);
+                next.delete("user_code");
+                setSearchParams(next, { replace: true });
+                if (returnToSetup) {
+                  window.setTimeout(() => navigate("/setup", { replace: true }), 900);
+                }
+              };
               approveDevice.mutate(
                 { userCode, deviceName },
                 {
-                  onSuccess: () => {
-                    clearConnectionReturn();
-                    setDeviceApproved(true);
-                    if (returnToSetup) {
-                      window.setTimeout(() => navigate("/setup", { replace: true }), 900);
-                    }
-                  },
+                  onSuccess: onApproved,
                 },
               );
             }}
@@ -185,7 +191,7 @@ export function ConnectionsPage() {
 
       {deviceApproved && (
         <div role="status" className="mt-8 border-l-2 border-verify bg-verify-wash px-4 py-3 text-[14px] text-verify-deep">
-          Device approved. The terminal will finish linking
+          Device approved. You can return to the terminal
           {returnToSetup ? "; returning to Setup…" : "."}
         </div>
       )}
@@ -232,7 +238,7 @@ export function ConnectionsPage() {
           )}
         </Panel>
 
-        <Panel label="COGBENCH DEVICES">
+        <Panel label="COGWORKS CLI DEVICES">
           {connections.data.cliDevices.length === 0 ? (
             <p className="text-[13px] text-ink-secondary">
               No linked devices. Run <code>cogworks link</code> in your project when you want to sync a
