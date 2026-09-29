@@ -130,8 +130,9 @@ export function ConnectionsPage() {
           <h2 className="text-xl">You’re connected.</h2>
           <p className="mt-2 max-w-lg text-[13px] text-ink-secondary">
             Cog is now connected to <strong className="font-medium text-ink">{linkedDiscord}</strong>.
-            Return to Discord and choose <strong className="font-medium text-ink">I’ve connected</strong>. Your
-            team bench will appear in the same message.
+            Discord is still showing what it knew before you linked, so choose{" "}
+            <strong className="font-medium text-ink">Check the link</strong> in the Activity, or run{" "}
+            <strong className="font-medium text-ink">/cog</strong> again.
           </p>
         </Panel>
       )}
