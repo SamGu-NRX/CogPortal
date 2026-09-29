@@ -36,6 +36,7 @@ import sys
 import tempfile
 import textwrap
 from dataclasses import dataclass, field, replace
+from importlib.machinery import FileFinder
 from pathlib import Path
 from typing import (
     Any, Callable, Dict, FrozenSet, List, Mapping, Optional, Sequence, Tuple,
@@ -1819,11 +1820,23 @@ _LISTING_EVENTS = ("os.listdir", "os.scandir", "glob.glob", "pathlib.Path.glob")
 #: one, and the file it opens says which folder it was reading.
 _FOLDER_EVENTS = _LISTING_EVENTS + ("open",)
 
+# A cold Python 3.8 import lists package directories in this function. Those
+# scans locate code, not input photos. Keep its code identity before probing;
+# filenames and function names can also belong to a student's own code.
+_IMPORT_DIRECTORY_SCAN = getattr(getattr(FileFinder, "_fill_cache", None), "__code__", None)
+
 
 def _audit(event: str, arguments) -> None:  # pragma: no cover - process-wide hook
     if _WATCHED is None or event not in _FOLDER_EVENTS or not arguments:
         return
     try:
+        if event == "os.listdir" and _IMPORT_DIRECTORY_SCAN is not None:
+            try:
+                if sys._getframe(1).f_code is _IMPORT_DIRECTORY_SCAN:
+                    return
+            except (AttributeError, ValueError):
+                # An interpreter without this frame API keeps the evidence.
+                pass
         # The event is kept, not only the path: which of these fired is the
         # difference between a path that is a directory and one that is a file
         # inside it, and it is the only evidence of that before the folder
