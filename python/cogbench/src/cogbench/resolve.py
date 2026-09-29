@@ -958,6 +958,10 @@ def _taken_by(binding: Binding) -> FrozenSet[str]:
     that owns a carried method has to run even though nothing asks for its
     value. Without this the carried method raised, because its own branch was
     never run and its handle was never filled.
+
+    A later branch's fixture may also read an earlier branch's output out of
+    the pool. That is decided inside the week's hook, so it is not listed
+    here; `_renewed` makes such an output when the hook reads it.
     """
 
     wanted = set()
@@ -1035,8 +1039,12 @@ def _renewed(
     ids)` takes the image branch's projected matrix. So a branch whose output
     some step asks for has its renewed chain run again here, on its own
     reconstructed fixture, and the value that produces is what the later step
-    is handed. A branch nobody asks for is not run, because running it would
-    be calling their code for a value nothing reads.
+    is handed. So does a branch whose output a later branch's fixture reads
+    out of the pool: Bagel's prepare fixture offers the projected forms only
+    when the pool holds the image branch's matrix, and the prepare step's
+    recorded form index points at one of them. That output is made when the
+    fixture reads it, at most once. A branch nobody asks for is not run,
+    because running it would be calling their code for a value nothing reads.
 
     All of it in the order the binding records, which is the order the search
     bound it in, so a fit that reads an earlier fit and a branch that reads an
@@ -1093,17 +1101,45 @@ def _renewed(
 
     run_fits(here)
     branches: Dict[str, Tuple[Candidate, ...]] = {}
+    outputs: Dict[str, Any] = {}
+
+    def output_of(name: str) -> Callable[[], Any]:
+        # What this branch's fixture sees is fixed now, at its turn, as the
+        # search's pool held it when the branch bound: the role's own values,
+        # then every earlier branch in binding order, each overwriting a fit of
+        # the same name, and the chains bound before this one. Earlier outputs
+        # go through their makers even when already made, so neither the
+        # order they ran in nor an output made since changes what it sees.
+        earlier = dict(makers)
+        seen = {here: {
+            key: value for key, value in values.get(here, {}).items()
+            if key not in earlier
+        }}
+        chains = {other: steps for other, steps in branches.items() if other != name}
+
+        def make() -> Any:
+            if name not in outputs:
+                outputs[name] = _produced_by(
+                    by_name[name], branches[name], handed, seen, here, chains,
+                    earlier,
+                )
+                values.setdefault(here, {})[name] = outputs[name]
+            return outputs[name]
+
+        return make
+
     # In the order the binding records, which `_resolve_branches` fills as
-    # each branch binds, so a branch that reads an earlier branch's output
-    # finds it already made.
+    # each branch binds.
+    makers: Dict[str, Callable[[], Any]] = {}
     for name, chain in binding.branches.items():
         scope = here + (name,)
         run_fits(scope)
         branches[name] = renew(chain, scope)
-        if name in wanted and name in by_name:
-            values.setdefault(here, {})[name] = _produced_by(
-                by_name[name], branches[name], handed, values, here, branches
-            )
+        if name not in by_name:
+            continue
+        makers[name] = output_of(name)
+        if name in wanted:
+            makers[name]()
 
     # Which branch this binding's own chain belongs to, by identity: the
     # tentative branch is the one the verifier put into the trial dict.
@@ -1142,6 +1178,7 @@ def _produced_by(
     values: Dict[Tuple[str, ...], Dict[str, Any]],
     here: Tuple[str, ...],
     bound: Dict[str, Tuple[Candidate, ...]],
+    earlier: Mapping[str, Callable[[], Any]] = {},
 ) -> Any:
     """What one branch's renewed chain produces, run on this reading.
 
@@ -1163,7 +1200,7 @@ def _produced_by(
         # read any name and a resource nobody reads must not decide the run.
         # `_fixture_for` copies this rather than calling `dict()` on it, so
         # taking it never reads it.
-        pool = handed.pool(_visible(values, here))
+        pool = handed.pool(_visible(values, here), earlier)
         case = _fixture_for(branch, handed.case(), pool, dict(bound))
     except Unmapped:
         raise
