@@ -31,7 +31,7 @@ function loadHighlighter(): Promise<Highlight> {
     import("@shikijs/langs/bash"),
     import("@shikijs/langs/toml"),
     import("@shikijs/langs/python"),
-  ]).then(async ([{ createHighlighterCore }, { createJavaScriptRegexEngine }, bash, toml, python]) => {
+  ]).then(async ([{ createHighlighterCore }, { createJavaScriptRegexEngine }, bash, toml, python]): Promise<Highlight> => {
     const h = await createHighlighterCore({
       themes: [PAPER_THEME],
       langs: [bash.default, toml.default, python.default],
@@ -39,6 +39,12 @@ function loadHighlighter(): Promise<Highlight> {
     });
     return (code, lang, focusable) =>
       h.codeToHtml(code, { lang, theme: "cogportal-paper", tabindex: focusable ? "0" : false });
+  }).catch((error: unknown) => {
+    // Not cached: the next mount asks again, which recovers wherever the
+    // browser refetches a failed module (whatwg/html#10327). Browsers that
+    // keep the failure answer from their own cache without a request.
+    highlighterPromise = null;
+    throw error;
   });
   return highlighterPromise;
 }
@@ -67,9 +73,13 @@ export function CodeContent({
   useEffect(() => {
     if (lang === "text") return;
     let alive = true;
-    void loadHighlighter().then((highlight) => {
-      if (alive) setRendered({ code, lang, focusable, html: highlight(code, lang, focusable) });
-    });
+    loadHighlighter().then(
+      (highlight) => {
+        if (alive) setRendered({ code, lang, focusable, html: highlight(code, lang, focusable) });
+      },
+      // The plain text already on screen is the result: readable and copyable.
+      () => {},
+    );
     return () => {
       alive = false;
     };

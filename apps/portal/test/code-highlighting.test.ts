@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { registerHooks } from "node:module";
 import test, { type TestContext } from "node:test";
 import * as React from "react";
 import { act } from "react";
@@ -75,6 +76,39 @@ async function mount(t: TestContext, element: React.ReactNode, until?: (containe
     allowNext: () => { reject = false; },
   };
 }
+
+// A grammar chunk that fails to load, the way a network drop or a redeploy
+// fails it in the browser. Node re-resolves a failed import, as browsers do
+// once they stop keeping failed module fetches (whatwg/html#10327).
+let grammarFails = false;
+registerHooks({
+  resolve(specifier, context, next) {
+    if (grammarFails && specifier === "@shikijs/langs/python") throw new Error("chunk failed to load");
+    return next(specifier, context);
+  },
+});
+
+// These two run first and in order: the highlighter is module state, the
+// second reads what the first left behind, and every later test loads it.
+test("a failed highlighter load keeps the plain command readable and copyable", async (t) => {
+  grammarFails = true;
+  const { container, writes } = await mount(t, React.createElement(Code, { code: LONG, lang: "bash" }));
+  for (let turn = 0; turn < 20; turn += 1) {
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+  }
+  assert.equal(container.querySelector("pre")?.textContent, LONG);
+  assert.equal(isHighlighted(container), false);
+  const button = container.querySelector("button");
+  assert.ok(button);
+  await act(async () => button.click());
+  assert.deepEqual(writes, [LONG]);
+});
+
+test("a mount after a failed load loads the highlighter again", async (t) => {
+  grammarFails = false;
+  const { container } = await mount(t, React.createElement(Code, { code: LONG, lang: "bash" }), isHighlighted);
+  assert.equal(container.querySelector("pre")?.textContent, LONG);
+});
 
 test("a shell command is highlighted, and the visible text is exactly the command", async (t) => {
   const { container } = await mount(t, React.createElement(Code, { code: LONG, lang: "bash", wrap: true }), isHighlighted);
