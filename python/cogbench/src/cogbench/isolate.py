@@ -707,6 +707,11 @@ def run_operation(
 def _operation_child() -> None:
     import json
 
+    # `python -c` puts "" first on sys.path, and "" is the working directory,
+    # which `_child` makes the project copy. Project paths go on explicitly
+    # after limits and after our own imports (below); nothing finds them sooner.
+    if "" in sys.path:
+        sys.path.remove("")
     request = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
     operation = request["operation"]
     arguments = request["arguments"]
@@ -721,21 +726,25 @@ def _operation_child() -> None:
         if operation == "live_identity":
             from .cli import _live_identity
             return _live_identity(arguments["name"], project.original)
+        # Our own modules load before the project's directories go on the path,
+        # so a repository file named like a standard module (`datetime.py`)
+        # cannot answer the CLI's imports. A forked child already has them loaded.
+        if operation == "survey":
+            from .discover import _survey_work
+        else:
+            import argparse
+            from functools import partial
+            from .cli import _check_view, _run_view, _send_progress
         # Restore project-local import directories only after startup and limits.
         sys.path[:0] = [str(project.execution)] + request["project_paths"]
         if operation == "check":
-            from .cli import _check_view
             return _check_view(arguments["name"], project.execution, arguments["as_json"], project=project)
         if operation == "run":
-            import argparse
-            from functools import partial
-            from .cli import _run_view, _send_progress
             progress_fd = arguments.get("progress_fd")
             progress = partial(_send_progress, progress_fd) if progress_fd is not None else None
             return _run_view(argparse.Namespace(**arguments["args"]), project.execution,
                              project=project, progress=progress)
         if operation == "survey":
-            from .discover import _survey_work
             return _survey_work(Path(arguments["repository"]), arguments["declared_root"],
                                 arguments["hints"], Path(arguments["trail"]))
         raise ValueError("unknown isolated SDK operation: {!r}".format(operation))

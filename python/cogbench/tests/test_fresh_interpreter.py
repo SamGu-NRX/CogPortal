@@ -221,6 +221,23 @@ Path(%r).write_text(json.dumps(list(resource.getrlimit(resource.RLIMIT_CPU))))
             observed = json.loads(self.record.read_text())
             wait_gone(self, observed['descendant'])
 
+    def test_a_repository_file_named_like_a_standard_module_does_not_break_check(self):
+        """The fresh interpreter could import from the repository before it
+        imported cogbench's CLI (the `python -c` working-directory entry, then
+        the explicit prepend), so a team's `datetime.py` answered the CLI's own
+        `from datetime import datetime` and check failed before it read
+        anything. A forked child already has the CLI loaded."""
+
+        self.submission()
+        (self.repo / 'datetime.py').write_text('def stamp():\n    return "their helper"\n')
+
+        view, status, detail = cli._read_repository('boundary-fixture', self.repo, True)
+
+        self.assertEqual(status, isolate.COMPLETED, detail)
+        self.assertTrue(view['ready'])
+        observed = json.loads(self.record.read_text())
+        wait_gone(self, observed['descendant'])
+
     def test_ancestor_startup_hook_cannot_silently_disable_limits(self):
         self.submission()
         marker = self.root / 'startup-ran'
