@@ -30,15 +30,17 @@ export interface BenchmarkPackage {
  * reaches that through this page, which serves whichever pin its own deploy
  * carries, but `--portal` at an older deployment does.
  *
- * The retained-input SDK and Week3 pin move together: reports name captured
- * bytes and sync uploads those retained files, rather than rereading changed
- * project weights. The accepted local contract/storage and memo checks cover
- * supported adapters; they do not establish weighted course compatibility.
- * `d9405278` preserves that implementation and repairs its CI fixtures and
- * strict Week3 validator. Final combined live rehearsal remains separate.
+ * `4825fab` is the head of the SDK reconciliation PR (#48): retained scoring
+ * inputs together with isolated execution, the same SDK code this checkout
+ * bakes into the hosted images. It was installed from this exact URL and its
+ * files checked byte for byte against the commit. Its own "install it with"
+ * advice, shown only when a benchmark is missing, still names Vision c177cf23
+ * and Language b166f5c, because #48's base lacks the catalog and runner
+ * changes the newer revisions below need. No combined live rehearsal has run
+ * on it.
  */
 export const COGBENCH_SOURCE =
-  "git+https://github.com/SamGu-NRX/CogPortal.git@d9405278aac8268cd340e589f36dbad766d1e2a0#subdirectory=python/cogbench";
+  "git+https://github.com/SamGu-NRX/CogPortal.git@4825fabd6655973b8ccd097e047848b31cb0c1c5#subdirectory=python/cogbench";
 
 const WEEK1_AUDIO: BenchmarkPackage = {
   distribution: "cogworks-week1-audio-benchmark",
