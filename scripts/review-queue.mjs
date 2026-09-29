@@ -74,13 +74,18 @@ function api(path, extra = []) {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-function openPullRequests() {
+/** Every item from a list endpoint; `path` already carries its query string. */
+function pages(path) {
   const all = [];
   for (let page = 1; ; page += 1) {
-    const batch = api(`repos/${REPO}/pulls?state=open&per_page=100&page=${page}`);
+    const batch = api(`${path}&per_page=100&page=${page}`);
     all.push(...batch);
     if (batch.length < 100) return all;
   }
+}
+
+function openPullRequests() {
+  return pages(`repos/${REPO}/pulls?state=open`);
 }
 
 /** The combined-status endpoint returns the current status per context, so find() is the latest. */
@@ -90,16 +95,12 @@ function codeRabbitStatus(sha) {
 }
 
 /**
- * The earlier of the commit's author and committer dates. Biasing early makes existing
- * request comments more likely to count as "newer than the head", which errs toward
- * skipping rather than toward asking twice for the same head.
+ * The committer date, which a rebase, amend or cherry-pick resets. The author date
+ * survives a rebase, so a request made for the previous head would count as a request
+ * for the new one and the queue would skip that head indefinitely.
  */
 function headCommittedAt(sha) {
-  const commit = api(`repos/${REPO}/commits/${sha}`).commit;
-  const dates = [commit.author?.date, commit.committer?.date]
-    .filter(Boolean)
-    .map((date) => Date.parse(date));
-  return Math.min(...dates);
+  return Date.parse(api(`repos/${REPO}/commits/${sha}`).commit.committer.date);
 }
 
 /**
@@ -109,8 +110,7 @@ function headCommittedAt(sha) {
  */
 function reviewRequestsSinceHead(number, headAt) {
   const since = encodeURIComponent(new Date(headAt).toISOString());
-  const comments = api(`repos/${REPO}/issues/${number}/comments?per_page=100&since=${since}`);
-  return comments
+  return pages(`repos/${REPO}/issues/${number}/comments?since=${since}`)
     .filter((comment) => Date.parse(comment.created_at) > headAt)
     .filter((comment) => (comment.body || '').trim().toLowerCase().startsWith(REVIEW_COMMAND))
     .sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at));

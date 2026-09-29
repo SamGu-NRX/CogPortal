@@ -84,7 +84,8 @@ for a review when all of these hold:
   review;
 - its head commit's CodeRabbit status is not `Review completed` and is not a live
   `pending` one;
-- no `@coderabbitai review` comment exists that is newer than the head commit.
+- no `@coderabbitai review` comment exists that is newer than the head commit's
+  committer date, which a rebase resets.
 
 The last rule has one exception. A request that CodeRabbit answered with `Review
 rate limited` was refused rather than served, so it left the head unreviewed and the
