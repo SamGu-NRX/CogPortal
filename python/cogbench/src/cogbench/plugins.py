@@ -16,11 +16,18 @@ class BenchmarkInstall(NamedTuple):
     source: str
 
 
-# The URL is the one in .gitmodules and the commit is the gitlink beside it,
-# restated here because the CLI is installed as a package and cannot read the
-# parent checkout. test_plugins.py reads both back out of the repository, so a
-# submodule bump that misses this table breaks CI rather than a student's
-# install.
+# What to tell a student whose benchmark package is missing. The CLI is
+# installed as a package and cannot read the parent checkout, so the commands
+# are written out here.
+#
+# These are the distributions students install, which is not the same list as
+# `.gitmodules`: Week 2 is developed in one repository and published from
+# another, so its advice names the published fork rather than the submodule
+# URL. Treating the two as one table is what left this advice pointing at
+# commits no student could install.
+#
+# Moving a pin here is a coordinated change: the portal's own installer copy
+# and the benchmark catalog restate the same versions and are owned elsewhere.
 BENCHMARK_INSTALLS: Dict[str, BenchmarkInstall] = {
     "audio-identification": BenchmarkInstall(
         "cogworks-week1-audio-benchmark",
@@ -94,13 +101,8 @@ def load_plugin(group: str, name: str, instantiate_classes: bool = True) -> Any:
             )
         # Two readers, two sentences. A benchmark that is simply not
         # installed is the ordinary case and the student's next step is one
-        # command, so say that and nothing else. `cogworks check` has always
-        # said it plainly ("Nothing was searched for, because X is not
-        # installed here"), and `cogworks run` answered the same situation
-        # with 'Entry-point group "cogworks.benchmarks.v1" has no
-        # "audio-identification" registration (available: none)', which names
-        # a Python packaging concept and no next step. Same cause, and the
-        # worse sentence was the one a student reaches after doing more work.
+        # command, so say that and nothing else rather than naming the
+        # entry-point group.
         #
         # The group and what is installed still matter when something IS
         # installed, because then the likely fault is a name or a version

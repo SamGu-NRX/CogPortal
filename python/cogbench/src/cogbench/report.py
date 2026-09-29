@@ -1,9 +1,7 @@
 """What `cogworks check` prints.
 
-The first thing a student saw was nine lines of ``False`` and no next step.
-Every one of them was true and none of them said what to do, which is the
-worst shape a diagnostic can take: it looks like the tool is working and
-leaves the reader with nothing.
+The first version printed nine lines of ``False`` and no next step: every one
+of them true, none of them saying what to do.
 
 So this prints what was found, in the order a person asks about it. Where is
 your code. Which files did we read, and which could we not. What did we wire
@@ -17,7 +15,7 @@ function that returns the wrong thing is theirs to read.
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Sequence
 
 from .plugins import benchmark_install_command
 from .resolve import SubmissionReport
@@ -39,10 +37,9 @@ def _plural(count: int, one: str, many: Optional[str] = None) -> str:
 def _wrapped(text: str, width: int = 78) -> List[str]:
     """A paragraph broken to terminal width.
 
-    Every other line here is a label and a short value, so nothing needed
-    wrapping before. A paragraph printed as one line wraps at whatever the
-    terminal happens to be and breaks mid-package-name, which is the one part
-    of this report a student is meant to read carefully.
+    A paragraph printed as one line wraps at whatever the terminal happens to
+    be and breaks mid-package-name, which is the one part of this report a
+    student is meant to read carefully.
     """
 
     import textwrap
@@ -167,6 +164,7 @@ def render_check(
     hosted_python: Optional[str],
     benchmark_ready: bool,
     repository: Optional[str],
+    git_checkout: bool = False,
     submission: Optional[SubmissionReport] = None,
     survey: Optional[Dict[str, object]] = None,
     local_gap_note: str = "",
@@ -219,7 +217,17 @@ def render_check(
                 "{} (the hidden evaluation runs on this)".format(hosted_python),
             )
         )
-    lines.append(_line("repository", repository or "not a git repository"))
+    # `repository` is the GitHub owner/name, which a perfectly good checkout
+    # can lack. Saying "not a git repository" there sent a student to `git
+    # init` in a clean worktree with a valid commit; what they actually need
+    # is an `origin` remote on GitHub.
+    if repository:
+        described = repository
+    elif git_checkout:
+        described = "a git checkout with no GitHub `origin` remote"
+    else:
+        described = "not a git repository"
+    lines.append(_line("repository", described))
 
     if survey:
         lines.append("")

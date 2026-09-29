@@ -19,6 +19,7 @@ from cogbench.isolate import (  # noqa: E402
     CRASHED,
     RAISED,
     TIMED_OUT,
+    _describe_death,
     _original_command,
     run_isolated,
 )

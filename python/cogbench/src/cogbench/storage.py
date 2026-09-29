@@ -11,7 +11,6 @@ from typing import Any, Dict, Optional
 
 from .models import LocalReport
 
-
 def _checkout_path(root: Path, path: Path) -> Path:
     """Reject preexisting symlinks below the supplied checkout root."""
 
@@ -313,7 +312,9 @@ def _refuse_symlinks(root: Path, path: Path) -> None:
             )
 
 
-def retain_input(root: Path, source: Path) -> RetainedInput:
+def retain_input(
+    root: Path, source: Path, *, source_root: Optional[Path] = None
+) -> RetainedInput:
     """Copy one selected input before anything loads it, and measure the copy.
 
     The digest and the length come from the bytes written here, so the
@@ -338,7 +339,9 @@ def retain_input(root: Path, source: Path) -> RetainedInput:
         raise RetentionError("Weight file is a symlink: {}".format(source))
     if not source.is_file():
         raise RetentionError("Weight file does not exist: {}".format(source))
-    name = canonical_weight_path(root, source)
+    # A local run reads a private checkout that is removed after scoring.
+    # Keep its captured bytes under the original project for later sync.
+    name = canonical_weight_path(source_root if source_root is not None else root, source)
 
     # Verified before anything is created, so a planted link cannot take the
     # first write. The staging name is created by mkstemp rather than chosen,

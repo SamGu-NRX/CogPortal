@@ -10,7 +10,10 @@ sys.path.insert(0, str(ROOT / "benchmarks" / "vision-recognition" / "src"))
 
 from cogbench.models import LocalReport, Metric, RepositoryState
 from cogbench.runner import execute
-from cogworks_vision_benchmark import VisionRecognitionBenchmark
+try:
+    from cogworks_vision_benchmark import VisionRecognitionBenchmark
+except ImportError:  # only the week 2 CI job installs the legacy benchmark
+    raise unittest.SkipTest("cogworks_vision_benchmark is not installed")
 
 
 class ReferenceAdapter:

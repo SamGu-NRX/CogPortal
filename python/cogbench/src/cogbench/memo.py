@@ -1,10 +1,9 @@
 """Remembering which of a team's functions were bound, until their code changes.
 
-The search runs their code. One repository in the 2026 corpus needs 3962
-pairings, each enrolling two songs and querying a clip, and the whole thing
-takes about ninety seconds. That is a reasonable price for a graded run and a
-bad one for ``cogworks check``, which a student wants to use as a ten-second
-loop while they are fixing something.
+The search runs their code, and one repository in the 2026 corpus takes about
+ninety seconds of it. That is a reasonable price for a graded run and a bad
+one for ``cogworks check``, which a student runs in a loop while fixing
+something.
 
 So the answer is written down, under a key made from the bytes of every file
 the search read and the current inputs the caller supplies. Changing either
@@ -170,8 +169,7 @@ def read(repository: Path, key: str) -> Optional[Dict[str, Any]]:
 def write(repository: Path, key: str, binding: Dict[str, Any]) -> None:
     """Store a binding, or give up quietly.
 
-    A read-only checkout is a real case: the Modal sandbox mounts one. Failing
-    the run over a cache write would turn a speed feature into an outage.
+    A read-only checkout is a real case: the Modal sandbox mounts one.
     """
 
     # Container subclasses can run student code during JSON iteration. Use

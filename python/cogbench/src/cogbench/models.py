@@ -5,7 +5,7 @@ import json
 import re
 import textwrap
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 
@@ -61,6 +61,20 @@ class Metric:
     #: box, and a black box teaches nothing. Optional so older plugins that
     #: predate it keep working; a plugin supplies it through `metric_help`.
     help: Optional[str] = None
+    #: What kind of number this is: "scored", "floor", "reported", or
+    #: "diagnostic". Absent means scored, which is what everything was before
+    #: this existed, so a plugin that declares nothing renders as it did.
+    #:
+    #: The distinction is not cosmetic. Every metric renders with an arrow
+    #: saying which direction is better, and that is an assertion about the
+    #: submission. A floor is a property of the dataset, so "higher is
+    #: better" on it reads as advice to raise a number the student does not
+    #: control.
+    role: Optional[str] = None
+    #: The metric this one is the floor of, or is reported beside. A floor is
+    #: the scale its metric sits on; a reported metric only means anything
+    #: next to its scored counterpart.
+    relates_to: Optional[str] = None
 
     def to_wire(self) -> Dict[str, Any]:
         wire = {
@@ -77,6 +91,10 @@ class Metric:
         # is the empty string".
         if self.help:
             wire["help"] = self.help
+        if self.role:
+            wire["role"] = self.role
+        if self.relates_to:
+            wire["relatesTo"] = self.relates_to
         return wire
 
     @classmethod
@@ -91,6 +109,8 @@ class Metric:
             primary=bool(value["primary"]),
             precision=int(value["precision"]),
             help=None if help_text is None else str(help_text),
+            role=None if value.get("role") is None else str(value["role"]),
+            relates_to=None if value.get("relatesTo") is None else str(value["relatesTo"]),
         )
 
 
@@ -117,6 +137,16 @@ class LocalReport:
     metrics: List[Metric]
     diagnostics: List[str]
     output_digest: str
+    weights_used: List[str] = field(default_factory=list)
+    #: What was captured for each scored weight, measured from the bytes that
+    #: were copied before loading: ``{"path", "sha256", "size"}``. Empty when
+    #: the week declared no weights. ``None`` only for a report written before
+    #: capture existed, which sync refuses rather than guessing about.
+    #:
+    #: ``size`` is ours. The portal stores path and digest and drops the rest,
+    #: so the length has to survive here or sync would have to measure some
+    #: current file to find it, which is the reread this design removes.
+    weights_uploaded: Optional[List[Dict[str, Any]]] = None
 
     @classmethod
     def create(
@@ -132,6 +162,8 @@ class LocalReport:
         metrics: List[Metric],
         diagnostics: List[str],
         predictions: List[Any],
+        weights_used: Optional[List[str]] = None,
+        weights_uploaded: Optional[List[Dict[str, Any]]] = None,
     ) -> "LocalReport":
         encoded = json.dumps(predictions, sort_keys=True, separators=(",", ":")).encode("utf-8")
         retained = diagnostics[:32]
@@ -157,6 +189,8 @@ class LocalReport:
             metrics=metrics,
             diagnostics=notes,
             output_digest=hashlib.sha256(encoded).hexdigest(),
+            weights_used=weights_used or [],
+            weights_uploaded=weights_uploaded,
         )
 
     def to_wire(self) -> Dict[str, Any]:
@@ -175,12 +209,78 @@ class LocalReport:
             "finishedAt": self.finished_at,
             "metrics": [metric.to_wire() for metric in self.metrics],
             "diagnostics": list(self.diagnostics),
+            "weightsUsed": list(self.weights_used) if self.weights_used else [],
+            # None is "this report predates capture", which sync refuses for a
+            # weighted run. [] is "nothing to upload", which is every week but
+            # Language and is not the same statement.
+            "weightsUploaded": (
+                None if self.weights_uploaded is None
+                else [dict(entry) for entry in self.weights_uploaded]
+            ),
         }
 
     def to_json(self) -> str:
         payload = self.to_wire()
         payload["outputDigest"] = self.output_digest
         return json.dumps(payload, indent=2, sort_keys=True)
+
+    @staticmethod
+    def _weights_uploaded(value: Dict[str, Any]) -> Optional[List[Dict[str, Any]]]:
+        """Read the capture receipts back, or say which one is unusable.
+
+        Sync uploads from these, so a receipt that does not describe a file
+        this report scored has to stop the command rather than be dropped:
+        a silently missing weight is a hosted run against different bytes.
+        """
+
+        from .storage import check_weight_path
+
+        entries = value.get("weightsUploaded")
+        if entries is None:
+            return None
+        used = [str(item) for item in value.get("weightsUsed", [])]
+        if len(set(used)) != len(used):
+            # One name, two receipts to satisfy, and no way to say which
+            # bytes the second one meant.
+            raise ValueError("weightsUsed names a path more than once")
+        if not isinstance(entries, list):
+            raise ValueError("weightsUploaded must be a list or null")
+        receipts = []
+        for entry in entries:
+            if not isinstance(entry, dict):
+                raise ValueError("each weightsUploaded entry must be an object")
+            path = entry.get("path")
+            checksum = entry.get("sha256")
+            size = entry.get("size")
+            if path not in used:
+                raise ValueError(
+                    "weightsUploaded names {!r}, which this report did not score".format(path)
+                )
+            if (
+                not isinstance(checksum, str)
+                or len(checksum) != 64
+                or any(character not in "0123456789abcdef" for character in checksum)
+            ):
+                raise ValueError("weightsUploaded needs a SHA-256 digest for {!r}".format(path))
+            if type(size) is not int or size < 0:
+                raise ValueError("weightsUploaded needs a byte length for {!r}".format(path))
+            # The name is read back out of a file, so it is checked again on
+            # the way in: it becomes a path under the workspace and a key.
+            check_weight_path(str(path))
+            receipts.append({"path": str(path), "sha256": checksum, "size": size})
+        if len({entry["path"] for entry in receipts}) != len(receipts):
+            raise ValueError("weightsUploaded names a path more than once")
+        missing = [name for name in used if name not in {r["path"] for r in receipts}]
+        if missing:
+            # A scored weight with no receipt would sync as though the run had
+            # nothing to upload, and the hosted run would score the repository's
+            # own copy instead.
+            raise ValueError(
+                "weightsUploaded is missing {}, which this report scored".format(
+                    ", ".join(sorted(missing))
+                )
+            )
+        return receipts
 
     @classmethod
     def from_json(cls, raw: str) -> "LocalReport":
@@ -204,4 +304,6 @@ class LocalReport:
             metrics=[Metric.from_wire(metric) for metric in value["metrics"]],
             diagnostics=[str(item) for item in value.get("diagnostics", [])],
             output_digest=str(value["outputDigest"]),
+            weights_used=[str(item) for item in value.get("weightsUsed", [])],
+            weights_uploaded=cls._weights_uploaded(value),
         )

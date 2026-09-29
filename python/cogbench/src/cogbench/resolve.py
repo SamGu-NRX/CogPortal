@@ -136,8 +136,7 @@ class SubmissionReport:
     those can end the interpreter outright rather than raise (see
     ``tests/test_isolate.py``), so the reading happens in a child process. A
     ``Submission`` holds functions bound out of their modules and cannot leave
-    that child. This is the part that comes back: the verdict, the step names,
-    and the record. ``report.render_check`` consumes this report.
+    that child; this is the part that comes back.
     """
 
     ready: bool
@@ -198,11 +197,8 @@ class Submission:
     #: and a run page has to be able to say so.
     fits: Tuple[Tuple[str, Candidate], ...] = ()
     #: The branches the week declared optional that did not bind, by name,
-    #: with the refusal each ended on. A week 3 repository with no trained
-    #: weights is the case: its text branch binds, its image surfaces do
-    #: not, and the run reports the half it measured rather than refusing
-    #: the whole thing. What a partial set is worth is the week's to decide;
-    #: this says which surface is absent and why.
+    #: with the refusal each ended on. What a partial set is worth is the
+    #: week's to decide; this says which surface is absent and why.
     missing: Dict[str, Any] = field(default_factory=dict)
     #: What could not be released cleanly, in the order it happened. A
     #: week's model hook raising on its way out is a real fact about the run
@@ -218,7 +214,8 @@ class Submission:
     #: Recorded here rather than left in the extras pool because `cogworks
     #: sync` uploads exactly these files so the hosted run can fetch them,
     #: and the upload must name the files discovery actually used, not the
-    #: files a directory listing happens to contain.
+    #: files a directory listing happens to contain. Relative to the project
+    #: root the command was given, even when discovery searched below it.
     weights_used: Tuple[str, ...] = ()
     #: One receipt per entry in ``weights_used``, in the same order:
     #: ``{"path", "sha256", "size"}``, measured from the bytes retained
@@ -341,9 +338,7 @@ class Submission:
             return self.enroll is not None and self.query is not None
         if self.branches:
             # A role made of branches leaves `chain` empty on purpose; the
-            # branches are the binding. Before this line every week 3
-            # submission read as not ready and the CLI refused to score a
-            # repository the search had just bound.
+            # branches are the binding.
             return self.verdict.status == SCORED
         return bool(self.chain) and self.verdict.status == SCORED
 
@@ -626,10 +621,9 @@ class Submission:
             record["cleanup"] = list(self.cleanup)
         supplied = _supplied_by(self)
         if supplied:
-            # Everything the benchmark handed their code that did not come out
-            # of their code. A run page shows this under "supplied", because a
-            # score computed with a resource we provided is a different claim
-            # from one computed without it.
+            # Everything the benchmark handed their code that did not come
+            # out of their code: a score computed with a resource we provided
+            # is a different claim from one computed without it.
             record["supplied"] = supplied
         if self.branches:
             record["branches"] = {
@@ -639,9 +633,8 @@ class Submission:
         if self.fits:
             record["fits"] = [[name, step.label] for name, step in self.fits]
         if self.missing:
-            # The surface that is not there, and the furthest the search got
-            # looking for it. Sorted so two runs of the same repository write
-            # the same bytes.
+            # Sorted so two runs of the same repository write the same
+            # bytes.
             record["missing"] = {
                 name: {"stage": refusal.stage, "detail": refusal.detail}
                 for name, refusal in sorted(self.missing.items())
@@ -650,19 +643,15 @@ class Submission:
             record["factory"] = self._factory.label
         if self._readers:
             record["readers"] = [reader.label for reader in self._readers]
-        # Two runs of the same repository must agree, and a dict iteration
-        # order that moves between processes is the one input to their code
-        # nobody chose. Recorded rather than asserted: this interpreter's
-        # randomisation cannot be changed after it started, so the honest
-        # thing is to say what it was. `cogbench.isolate` pins it for the
-        # child, which is where discovery actually runs.
+        # A dict iteration order that moves between processes is an input to
+        # their code nobody chose. Recorded rather than asserted, because this
+        # interpreter's randomisation cannot be changed after it started;
+        # `cogbench.isolate` pins it for the child, where discovery runs.
         record["hashRandomization"] = bool(sys.flags.hash_randomization)
-        # And the seed itself, because "randomization was off" is not enough
-        # to reproduce a run: two pinned runs under different seeds are two
-        # different programs. Null when the interpreter chose its own, which
-        # it does not expose -- see `isolate.hash_seed_in_effect`. A reader
-        # can then tell "pinned at 0" from "we do not know", which the
-        # boolean alone could not.
+        # And the seed itself, because two pinned runs under different seeds
+        # are two different programs. Null when the interpreter chose its own,
+        # which it does not expose (see `isolate.hash_seed_in_effect`), so a
+        # reader can tell "pinned at 0" from "we do not know".
         record["hashSeed"] = _hash_seed_in_effect()
         return record
 
@@ -1315,7 +1304,7 @@ def _supplied_by(submission: "Submission") -> List[Dict[str, object]]:
 
     Read off the bindings rather than accumulated as the search runs, so it
     cannot drift from what was actually called: the plan on each step IS the
-    argument list, and this is that list in words.
+    argument list.
     """
 
     found: List[Dict[str, object]] = []
@@ -1325,12 +1314,9 @@ def _supplied_by(submission: "Submission") -> List[Dict[str, object]]:
     for step in steps:
         found.extend(_given_to(step))
     for name, step in submission.fits:
-        # A fit stage is a call like any other, and it takes side inputs like
-        # any other: `fit(corpus, glove)` is how three of the four week 3
-        # repositories compute their IDF table. Only the "computed once" line
-        # was recorded here, so the GloVe vectors the benchmark handed that
-        # call never appeared under "supplied" and the run page understated
-        # what it had given the student's code.
+        # A fit stage is a call like any other and takes side inputs like any
+        # other, so its own inputs belong here beside the "computed once"
+        # line.
         found.extend(_given_to(step))
         found.append({"step": step.label, "supplied": "computed once as {}".format(name)})
     if submission._state and submission.attempt is not None:
@@ -1363,9 +1349,7 @@ def _given_to(step: Any) -> List[Dict[str, object]]:
     if "pooled" in step.supplied:
         # This step was not one of their functions at all: it was one of the
         # benchmark's own objects, offered because the stage named it and it
-        # turned out to be callable (`pipeline._from_pool`). That is the
-        # largest thing a run can supply, so it is the one thing that must
-        # never be missing from this list.
+        # turned out to be callable (`pipeline._from_pool`).
         name = step.supplied["pooled"]
         found.append({"step": step.label, "supplied": step.supplied.get(name, name)})
     if "value" in step.supplied:
@@ -1385,11 +1369,9 @@ def _given_to(step: Any) -> List[Dict[str, object]]:
 def from_spec(repository: Path, spec: Any, **overrides: Any) -> Submission:
     """Resolve one repository against everything a week's spec declares.
 
-    A week now says more than it used to: which resources its stages take,
-    which files it owns a copy of, what an empty database of its own looks
-    like. Forwarding those one by one at every call site is how one of them
-    quietly stops being passed, so there is one place that forwards all of
-    them and every surface uses it.
+    Forwarding a week's declarations one by one at every call site is how one
+    of them quietly stops being passed, so there is one place that forwards
+    all of them and every surface uses it.
     """
 
     arguments: Dict[str, Any] = {
@@ -1491,18 +1473,15 @@ def resolve(
     not have still imports; see ``discover``.
 
     ``factories`` picks out the zero-argument functions whose return is the
-    database their store and query both take first. One 2026 team writes
-    `create_database()` and then `add_fingerprints(db, id, fps)`; without
-    this, no pairing of their functions can be tried, because the first
-    argument of both is an object nothing in the search produces. The
-    predicate is the week's, because what counts as an empty database is the
-    week's question.
+    database their store and query both take first. Without it, no pairing of
+    such a team's functions can be tried, because the first argument of both
+    is an object nothing in the search produces. The predicate is the week's,
+    because what counts as an empty database is the week's question.
 
     ``readers`` is how many of their own functions may be applied to what the
-    query returned before the answer is read. The same team's
-    `query_database` returns a vote tally, `get_sorted_matches` turns it into
-    a ranking, and `get_sorted_songs` turns that into song ids -- three of
-    their functions deep, all theirs, none of them ours to write.
+    query returned before the answer is read. One team's `query_database`
+    returns a vote tally, `get_sorted_matches` turns it into a ranking, and
+    `get_sorted_songs` turns that into song ids.
 
     ``remember`` writes the binding into the repository. A hit requires
     unchanged identified inputs and a fully answered current acceptance test.
@@ -1518,10 +1497,9 @@ def resolve(
     # of this function closes it: the returns, the refusals, and an exception.
     with _Redirects(resource_files or {}), contextlib.ExitStack() as lifetime:
         if readers > 0 and grades is None:
-            # Said here rather than discovered as an empty reader search: a week
-            # that declares readers and no way to grade one would silently bind
-            # none of them, and the repository that needed them would be refused
-            # for a reason nobody could see.
+            # Said here rather than discovered as an empty reader search, which
+            # refuses the repository that needed readers for a reason nobody
+            # could see.
             raise ValueError(
                 "this week allows {} function(s) after the query and gives no "
                 "`grades`; a reader is chosen by grading what it returned".format(readers)
@@ -1583,7 +1561,9 @@ def resolve(
 
                 resolved = Path(original).resolve()
                 if resolved not in retained:
-                    retained[resolved] = storage.retain_input(repository, original)
+                    retained[resolved] = storage.retain_input(
+                        project.original, original, source_root=repository
+                    )
                 return retained[resolved].retained
 
             offered = {"capture": capture} if _accepts_capture(prepare) else {}
@@ -2086,26 +2066,20 @@ def resolve(
         if chain is None:
             watcher.done()
             assert refusal is not None
-            # The refusal carries how far the search got. Reporting only the stage
-            # that stalled would say "the spectrogram step found nothing" for a
-            # repository whose spectrogram was found and whose peak finder was not.
+            # The refusal carries how far the search got. Reporting only the
+            # stage that stalled would say "the spectrogram step found
+            # nothing" for a repository whose spectrogram was found.
             reached = tuple(
                 _step_note(stage, label)
                 for stage, label in zip(
                     (stage.name for stage in chain_role.stages), refusal.furthest
                 )
             )
-            # Two refusals wear one sentence otherwise. "Nothing accepted what
-            # your last function returned" is a wiring problem and often ours to
-            # explain. "Your chain ran end to end and gave the wrong answer" is
-            # their algorithm, and saying the first when the second is true sends
-            # a team to look for a missing function they already wrote.
-            #
-            # Measured on one 2026 repository: its chain runs, and hand-running
-            # their own pipeline at every threshold the search tries produces 4,
-            # 5, or 6 clusters where the fixture has 3. Nothing is unwired. Their
-            # cutoff splits a person, which is a result worth having and the
-            # opposite of what the report said.
+            # Two refusals wear one sentence otherwise. "Nothing accepted
+            # what your last function returned" is a wiring problem and often
+            # ours to explain. "Your chain ran end to end and gave the wrong
+            # answer" is their algorithm, and saying the first when the second
+            # is true sends a team to look for a function they already wrote.
             if refusal.ran_to_the_end and arrangements is not None:
                 # For a week with a database, "the chain ran to the end" means
                 # every chain the frontier offered was complete and none of them
@@ -2218,9 +2192,8 @@ def resolve(
                 cleanup,
             ))
 
-        # The accepted pairing's ordinal within its own chain is not how much work
-        # this took: every chain before it was searched too. `paired["tried"]` is
-        # the whole search, and it is what the record and the memo carry.
+        # The accepted pairing's ordinal within its own chain is not how much
+        # work this took: every chain before it was searched too.
         _grade, store, ask, index, _at, shape = paired["best"]
         watcher.attempts(paired["tried"], paired["tried"])
         watcher.done()
@@ -2302,11 +2275,10 @@ def _pair(
     call that shape makes.
 
     Asking the first question inside the second is what made this quadratic in
-    the size of a repository. Measured on Cog-gurts__Shazam-Project, week 1:
-    59 candidates, the state shape answering at grade 0.5 after 9,127 trials
-    and the plain shape then running 19,152 pairings plus 125,104 reader
-    trials, 1,244 seconds against a 900-second hosted limit. Two of those 59
-    candidates take an enrolment and six can be asked, which is 12 pairings.
+    the size of a repository: on one 59-candidate corpus repository it ran
+    19,152 pairings plus 125,104 reader trials, 1,244 seconds against a
+    900-second hosted limit, where two candidates take an enrolment and six
+    can be asked, which is 12 pairings.
 
     Returns the pairing and how many attempts it took, probes included: both
     halves run the week's test on their code, and a bar that counted only one
@@ -2329,9 +2301,8 @@ def _pair(
     steps = tentative.steps
     candidates = _store_candidates(found, steps)
     arrangement_count = len(arrangements(lambda *_: None, "", None))
-    # The shapes a store and a query can have between them. The first is the
-    # one the search has always tried -- two of their functions, nothing in
-    # front and nothing after.
+    # The shapes a store and a query can have between them. The first is two
+    # of their functions, nothing in front and nothing after.
     shapes = _shapes_for(candidates, factories, readers)
     watcher.phase(
         "Trying your functions to find which pair stores a song and names it back"
@@ -2360,9 +2331,7 @@ def _pair(
     tried = 0
     # Every arrangement one store took, grouped by the (shape, store) it took
     # them in and in the order the probes tried them, so the pairings below
-    # are enumerated the way the exhaustive search enumerated them: one store,
-    # then every query, then every arrangement. Two pairings that both answer
-    # fully are then settled the same way they always were.
+    # are enumerated one store, then every query, then every arrangement.
     accepted: List[Tuple["_Shape", Candidate, List[int]]] = []
     by_store: Dict[Tuple[int, str], List[int]] = {}
     for at, shape, store, index in probes:
@@ -2401,17 +2370,16 @@ def _pair(
     ]
     total = offset + min(len(probes) + len(pairings), max_attempts)
 
-    # More than one of their functions can pass. One 2026 team wrote `query`,
-    # which returns the winning song, and `query_details`, which returns the
-    # same winner plus the full vote tally. Both name the right song, so both
-    # pass, and the benchmark asks for a ranked list -- so taking whichever
-    # was reached first cost that team every metric that reads below rank 1.
+    # More than one of their functions can pass: a `query` that returns the
+    # winning song and a `query_details` that returns the same winner plus the
+    # vote tally both name the right song, and the benchmark asks for a ranked
+    # list, so taking whichever was reached first costs every metric below
+    # rank 1.
     #
     # The week's own acceptance test says how completely a pairing answered,
     # by returning a number rather than a bare pass. The search keeps the best
-    # it has seen and stops as soon as one answers fully. Their algorithm is
-    # untouched: this decides which of their functions to ask, never what the
-    # answer should be.
+    # it has seen and stops as soon as one answers fully. This decides which
+    # of their functions to ask, never what the answer should be.
     best: Optional[Tuple[float, Candidate, Candidate, int, int, _Shape]] = None
     for shape, store, ask, index in pairings:
         if tried >= max_attempts:
@@ -2513,12 +2481,12 @@ def _paired_once(
 class _Shape:
     """One way a store and a query can be arranged around their database.
 
-    The plain shape -- no factory, no readers, no state -- is first and is
-    what every week had before this existed. The others exist because one
-    2026 team's database is a dict their own `create_database()` returns and
-    their answer is three of their own functions deep, and another's matcher
-    is a pure function that has to be handed the table their store filled.
-    None of those is expressible as a pair of callables.
+    The plain shape -- no factory, no readers, no state -- is first. The
+    others exist because one team's database is a dict their own
+    `create_database()` returns and their answer is three of their own
+    functions deep, and another's matcher is a pure function that has to be
+    handed the table their store filled. Neither is expressible as a pair of
+    callables.
     """
 
     factory: Optional[Candidate] = None
@@ -2540,8 +2508,7 @@ class _Shape:
         asks with the item alone, a factory shape puts their own database in
         front of it, and the state shape adds the table their store filled and
         an id-to-name table beside it. A candidate whose signature cannot take
-        that many is not a query of this shape, and offering it one was a call
-        that could only raise.
+        that many is not a query of this shape.
         """
 
         if self.state:
@@ -2799,13 +2766,12 @@ class AmbiguousStore(Exception):
 class _FromTheirStore:
     """The table their store filled, and an id-to-name table beside it.
 
-    One 2026 team (Cog-gurts Week 1) writes `AudioDatabase.add_hash(key, id,
-    offset)` to fill `self.hash_map`, and matches with a pure function
-    `match_fingerprint(recording_fp, database, song_index)` that takes that
-    table as an argument and returns `song_index[best]`. The database is
-    neither an argument their store took nor a module global: it is state on
-    the object their store is a method of, and the only way to hand it to the
-    matcher is to read it off that object once the store has run.
+    One corpus team fills `self.hash_map` from a method and matches with a
+    pure `match_fingerprint(recording_fp, database, song_index)` that takes
+    that table as an argument. The database is neither an argument their store
+    took nor a module global: it is state on the object their store is a
+    method of, and the only way to hand it to the matcher is to read it off
+    that object once the store has run.
 
     Which attribute it is, is not asked in advance and never read from a
     name. After enrolling, exactly one attribute holding a non-empty mapping
@@ -2841,27 +2807,23 @@ class _FromTheirStore:
         """Whether enrolling is what put something in this mapping.
 
         A store object arrives with mappings that have nothing to do with
-        songs. Week 1's corpus has a database class whose constructor makes a
-        metadata table beside its fingerprint table, and a settings dict read
-        at construction is the same shape. Counting any non-empty mapping as
-        a candidate made such an object ambiguous and refused a pairing that
-        works, on the grounds that two tables meant two answers -- when one of
-        them was never an answer, because their store never touched it.
+        songs: a database class whose constructor makes a metadata table
+        beside its fingerprint table is in the corpus. Counting any non-empty
+        mapping as a candidate made such an object ambiguous and refused a
+        pairing that works.
 
         So the comparison is the object before enrolling against the object
         after. Identity and size detect replacement and growth; a deep copy
         detects nested in-place changes. Failed copying or equality leaves a
         table possibly changed, so it cannot rule out an ambiguous store.
 
-        This only ever narrows. When their store filled nothing at all there
-        is no difference to read, and `arguments` falls back to naming what
-        the object holds, which is the most that can honestly be said.
+        When their store filled nothing at all there is no difference to
+        read, and `arguments` falls back to naming what the object holds.
         """
 
         before = self._before.get(name)
         if before is None:
-            # An attribute their store created while enrolling. Nothing else
-            # could have made it.
+            # An attribute their store created while enrolling.
             return True
         was, size, contents = before
         if value is not was or len(value) != size:
@@ -2884,10 +2846,9 @@ class _FromTheirStore:
         ]
         filled = [pair for pair in holds if self._filled_here(*pair)]
         if not filled:
-            # Their store put nothing anywhere this query could read, so there
-            # is no difference to tell their table from their settings by.
-            # What the object holds is then the whole of what can be reported,
-            # and reporting it is what names both tables in the refusal.
+            # Their store put nothing anywhere this query could read, so
+            # there is no difference to tell their table from their settings
+            # by, and what the object holds is the whole of what can be said.
             filled = holds
         if not filled:
             raise AmbiguousStore("their store filled nothing this query could read")
@@ -2990,9 +2951,6 @@ class _Asked:
 
     The week's acceptance test owns the call, so the search cannot see the
     answer by asking for it; it sees it by being the thing that was called.
-    That is the only evidence available for whether looking for readers is
-    worth doing, and it is exactly the right evidence: readers read what the
-    query returned.
     """
 
     __slots__ = ("_ask", "answer")
@@ -3012,12 +2970,9 @@ class _Asked:
     def ran(self) -> bool:
         """Whether the query was reached and returned rather than raised.
 
-        That is the whole condition, and anything narrower is a guess about
-        their code. Requiring a non-empty answer looked safe and was not: a
-        reader whose job is to turn an empty tally into an empty ranking is
-        exactly the function that makes such a pairing answer, and skipping
-        it meant no repository whose query returns `{}` before its readers
-        run could ever be paired.
+        Anything narrower is a guess about their code: requiring a non-empty
+        answer makes a reader that turns an empty tally into an empty ranking
+        unreachable.
         """
 
         return self.answer is not _UNASKED
@@ -3030,32 +2985,24 @@ def _shapes_for(
 ) -> List[_Shape]:
     """Every store-and-query arrangement worth trying, plainest first.
 
-    Ordered so the search a week already had runs first and unchanged. A week
-    that declares neither gets exactly one shape and one pass, which is why
-    the attempt counts on the 2026 corpus are the same numbers as before.
+    Ordered plainest first, so a week that declares neither a factory nor
+    readers gets exactly one shape and one pass.
     """
 
     shapes = [_Shape()]
     found = [c for c in candidates if factories and _safely(factories, c)] if factories else []
     for factory in found:
         shapes.append(_Shape(factory, ()))
-    # One more, last, and only ever tried for a store that is a method of one
-    # of their objects and a query that takes three arguments: their store's
-    # own filled table handed to their query, with an id-to-name table beside
-    # it. Both of those are checked per pairing rather than enumerated here,
-    # because whether an object has a filled table is not knowable until a
-    # store has run. A week that declares no readers and no factories still
-    # gets this shape, but every pairing in it is skipped before their code
-    # runs unless the store and the query have those two properties.
+    # One more, last: their store's own filled table handed to their query,
+    # with an id-to-name table beside it. Checked per pairing rather than
+    # enumerated here, because whether an object has a filled table is not
+    # knowable until a store has run.
     shapes.append(_Shape(state=True))
-    # Readers are not enumerated here. Every ordered pair of candidates
-    # times every reader permutation multiplied the pairing search past any
-    # budget: measured on rutvim2009 Week1, 50 candidates and two reader
-    # slots make 13,525 shapes and about 200 million attempts against a
-    # ceiling of 20,000, so the search would never reach the shape that
-    # binds. Readers are looked for afterwards, and only for a pairing whose
-    # query actually returned something to read; see `_read_further` and
-    # `_Asked`.
+    # Readers are not enumerated here. Every ordered pair of candidates times
+    # every reader permutation is past any budget: 50 candidates and two
+    # reader slots make 13,525 shapes and about 200 million attempts against a
+    # ceiling of 20,000. Readers are looked for afterwards, and only for a
+    # pairing whose query returned something to read; see `_read_further`.
     return shapes
 
 
@@ -3097,11 +3044,8 @@ def _read_further(
     same reason.
 
     Settling it by rebuilding the database, re-enrolling the fixture and
-    re-querying it once per candidate tail is what this replaces. Measured on
-    Cog-gurts__Shazam-Project: 125,104 such runs after the pairing search, and
-    one 2026 repository spent 274 seconds inside a single tail whose reader
-    could not read the answer anyway. Neither is a clock away: the work was
-    re-enrolment, and a reader no longer does any.
+    re-querying it once per candidate tail is what this replaces: on one
+    corpus repository that was 125,104 such runs after the pairing search.
 
     Shortest tails first, stopping at the first tail the week grades as fully
     answered. ``floor`` is the grade the query already earned on its own, and
@@ -3308,10 +3252,10 @@ def _memo_key(
 def _remembered(chain) -> Dict[str, Any]:
     """The part of a binding a replay needs, as plain data.
 
-    Every field a step was called with, not only which function it was. The
-    two are different claims and the difference is measurable: a step replayed
-    without the tuning, the input form, the side inputs, or the per-item loop
-    that made it run is a call the student's code never received.
+    Every field a step was called with, not only which function it was: a
+    step replayed without the tuning, the input form, the side inputs, or the
+    per-item loop that made it run is a call the student's code never
+    received.
     """
 
     steps = list(chain.steps)
@@ -3334,11 +3278,9 @@ def _remembered(chain) -> Dict[str, Any]:
         "perItem": [step.per_item for step in steps],
         "elements": [step.element for step in steps],
         "selfOnly": [step.self_only for step in steps],
-        # Which reading of the upstream value each step was called with.
-        # Without it a replay has to work that out from the shapes again,
-        # and a fused step that returns both a spectrogram and its peaks
-        # offers two readings their next function accepts; see
-        # `Candidate.handoff`.
+        # Which reading of the upstream value each step was called with: a
+        # fused step that returns both a spectrogram and its peaks offers two
+        # readings their next function accepts. See `Candidate.handoff`.
         "handoffs": [step.handoff for step in steps],
         "fits": [[name, step.label] for name, step in chain.fits],
         "branches": {
@@ -3379,9 +3321,7 @@ def _replay(
     # role is several branches, is searched again rather than replayed. The
     # names alone do not restore it: a fit stage's value has to be recomputed
     # by running their function, and a branch's later steps are methods of an
-    # object that only exists once the branch before it has run. Re-running
-    # all of that is the search, so there is nothing to save and a stale
-    # replay would be worse than a slow check.
+    # object that only exists once the branch before it has run.
     if stored.get("fits") or stored.get("branches"):
         return None
 
@@ -3506,15 +3446,10 @@ def _retuned(
 ) -> Tuple[Candidate, ...]:
     """The remembered chain, each step carrying how it was called.
 
-    An entry written before tunings were remembered has none, and a chain
-    that needed one would then raise on its first call. Refusing the entry
-    (`KeyError`) sends that case back through the search, which is the
-    honest answer: the record did not say how to call their code.
-
-    The same rule now covers the argument plan, the per-item loop, and which
-    part of each item's result the step produced. A side input is looked up
-    again by name in the pool the caller passed, because the value is the
-    benchmark's own resource and never belongs in a cache file.
+    An entry that does not say how a step was called is refused (`KeyError`)
+    and sent back through the search. A side input is looked up again by name
+    in the pool the caller passed, because the value is the benchmark's own
+    resource and never belongs in a cache file.
     """
 
     labels = stored["chain"]
@@ -3610,8 +3545,8 @@ def _aligned(stored: Dict[str, Any], name: str, labels: Sequence[Any]) -> List[A
 def _scored_placeholder(chain) -> Verdict:
     """Resolution succeeded; the benchmark supplies the real verdict.
 
-    Kept deliberately plain: this module found the code, and what the code is
-    worth is the scorer's sentence to write, not discovery's.
+    Kept plain: what the code is worth is the scorer's sentence to write, not
+    discovery's.
     """
 
     from .verdict import SCORED, Verdict as _Verdict
@@ -3634,12 +3569,10 @@ def _store_candidates(found: Discovery, steps: Sequence[Candidate]) -> List[Cand
 
     used = {step.label for step in steps}
     # Methods are excluded by the class they came off and the attribute they
-    # are, not by their label. A method has two labels depending on how the
-    # search reached its object: `instances_in` builds one per exported class
-    # and names it `audio.Engine().find_peaks`, while a constructor stage
-    # hands `_reachable` the class candidate's own label and gets
-    # `audio.Engine.find_peaks`. Matching strings would filter one spelling
-    # and miss the other, which is the spelling the pipeline path produces.
+    # are, not by their label: the same method is named
+    # `audio.Engine().find_peaks` when `instances_in` built the object and
+    # `audio.Engine.find_peaks` when a constructor stage did, so matching
+    # strings filters one spelling and misses the other.
     used_methods = {
         (step.owner, step.attribute)
         for step in steps
@@ -3647,10 +3580,10 @@ def _store_candidates(found: Discovery, steps: Sequence[Candidate]) -> List[Cand
     }
     candidates = [c for c in callables_in(found.namespace) if c.label not in used]
     for label, instance in instances_in(found.namespace):
-        # A team whose peak finder is a method on the same class as their store
-        # had that method offered back as a database, so the pairing loop spent
-        # attempts proving a fingerprinter cannot store a song. Attempts are the
-        # scarce thing here: KrazeeCoder resolves at 3962 of them.
+        # A team whose peak finder is a method on the same class as their
+        # store had that method offered back as a database, spending attempts
+        # proving a fingerprinter cannot store a song. Attempts are the scarce
+        # thing here: one corpus repository resolves at 3,962 of them.
         candidates.extend(
             c
             for c in methods_of(label, instance)
@@ -3689,9 +3622,8 @@ def _graded_packages(benchmark: str) -> FrozenSet[str]:
 def _local_gap(missing: Optional[str], benchmark: str = "") -> str:
     """What to say when the missing package is one this track's image carries.
 
-    Their code is fine and the graded run has this package. What they are
-    looking at is their own environment, so the step is to install it, not to
-    declare it.
+    Their code is fine and the graded run has this package, so the step is to
+    install it here, not to declare it.
     """
 
     if not missing:
@@ -3759,13 +3691,9 @@ def _next_step_for_stall(found: Discovery, benchmark: str = "") -> str:
     )
 
     # Split the two cases, because they call for opposite things. A package
-    # this track's image carries is missing from this laptop and present in the
-    # graded run, so the fix is to install it. Anything else is theirs to
-    # declare, and declaring it is what makes the graded run work.
-    #
-    # Per track, not global: the graded environment is three different images,
-    # and "the graded run has it" is false for at least one of them for almost
-    # any package. See `_graded_packages`.
+    # this track's image carries is missing from this laptop and present in
+    # the graded run, so the fix is to install it. Anything else is theirs to
+    # declare. Per track, not global; see `_graded_packages`.
     graded = _graded_packages(benchmark)
     local = [name for name in missing if name.split(".")[0] in graded]
     theirs = [name for name in missing if name.split(".")[0] not in graded]
