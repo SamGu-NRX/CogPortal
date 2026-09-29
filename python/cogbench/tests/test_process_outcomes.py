@@ -149,11 +149,9 @@ class ProcessOutcomes(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             marker = Path(temporary) / 'pid'
             def work():
-                # Written through a temporary name and renamed. `write_text`
-                # creates the file before it has the pid in it, so a reader
-                # watching for existence can find it empty; on Linux that
-                # happened, the killer raised ValueError, nothing was killed,
-                # and the child ran to the deadline instead.
+                # Written through a temporary name and renamed, because
+                # `write_text` creates the file before it has the pid in it
+                # and a reader watching for existence finds it empty.
                 staging = marker.with_suffix('.writing')
                 staging.write_text(str(os.getpid()))
                 os.replace(str(staging), str(marker))

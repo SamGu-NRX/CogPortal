@@ -252,10 +252,9 @@ class NotebookTests(unittest.TestCase):
         self.assertIn("as they run", found.skipped[0].detail)
 
     def test_an_empty_notebook_is_called_empty(self):
-        # Measured on one 2026 repository: `master.ipynb` is a zero-byte file
-        # in the checkout and at origin, and was reported as "no importable
-        # definitions; its cells build what they use as they run", which sent
-        # a team looking for a cell that does not exist.
+        # An empty notebook reported as "no importable definitions; its cells
+        # build what they use as they run" sends a team looking for a cell
+        # that does not exist.
         (self.tmp / "master.ipynb").write_text("")
         found = discover(self.tmp)
         self.assertEqual(found.skipped[0].detail, "is empty")
@@ -303,13 +302,9 @@ class ReportTests(unittest.TestCase):
         (self.tmp / "a.py").write_text("def f():\n    return 1\n")
         record = discover(self.tmp).to_dict()
         self.assertEqual(record["rootReason"], "code sits at the repository root")
-        # A subset, not the constant. `_install_stubs` deliberately declines to
-        # stand in for a module that is genuinely importable, so the record
-        # names what was replaced on this machine rather than what the list
-        # allows. Asserting the whole tuple passes only on an interpreter that
-        # happens to have none of them installed, and fails on any student
-        # laptop carrying streamlit or pyaudio, which is the case the code
-        # under test exists to handle.
+        # A subset, not the constant. `_install_stubs` declines to stand in
+        # for a module that is genuinely importable, so asserting the whole
+        # tuple fails on any machine carrying streamlit or pyaudio.
         self.assertIn("microphone", record["stubbed"])
         for name in record["stubbed"]:
             self.assertIn(name, STUBBED_MODULES)
@@ -648,6 +643,68 @@ class PackageImportTests(unittest.TestCase):
         self.assertFalse(is_package_directory(self.tmp))
 
 
+    def test_initializer_relative_imports_share_the_discovered_module(self):
+        core = self._core(initializer=True)
+        (core / "__init__.py").write_text(
+            "from .profile import Profile\n"
+            "from . import normalize\n"
+        )
+        (core / "uses_exports.py").write_text(
+            "from . import Profile, normalize\n"
+        )
+
+        found = discover(self.tmp)
+        modules = {entry.name: entry.module for entry in found.modules}
+
+        self.assertEqual(found.skipped, [])
+        self.assertIs(modules["uses_exports"].Profile, modules["profile"].Profile)
+        self.assertIs(modules["uses_exports"].normalize, modules["normalize"])
+
+    def test_initializer_functions_update_the_package_namespace(self):
+        core = self._core(initializer=True)
+        (core / "__init__.py").write_text(
+            "COUNT = 0\n"
+            "def increment():\n"
+            "    global COUNT\n"
+            "    COUNT += 1\n"
+        )
+        (core / "uses_counter.py").write_text(
+            "from . import increment\n"
+            "increment()\n"
+            "from . import COUNT\n"
+        )
+
+        found = discover(self.tmp)
+        modules = {entry.name: entry.module for entry in found.modules}
+
+        self.assertEqual(found.skipped, [])
+        self.assertEqual(modules["uses_counter"].COUNT, 1)
+
+    def test_initializer_annotation_retry_keeps_package_identity(self):
+        core = self._core(initializer=True)
+        (core / "__init__.py").write_text(
+            "COUNT = 0\n"
+            "def increment():\n"
+            "    global COUNT\n"
+            "    COUNT += 1\n"
+            "from . import child\n"
+            "def count() -> UnknownAnnotation:\n"
+            "    return COUNT\n"
+        )
+        (core / "child.py").write_text("from . import increment\n")
+        (core / "uses_counter.py").write_text(
+            "from . import child, count\n"
+            "child.increment()\n"
+            "VALUE = count()\n"
+        )
+
+        found = discover(self.tmp)
+        modules = {entry.name: entry.module for entry in found.modules}
+
+        self.assertEqual(found.skipped, [])
+        self.assertEqual(modules["uses_counter"].VALUE, 1)
+
+
 class PackageIsolationTests(unittest.TestCase):
     """Two directories may both hold database.py. Neither may become the
     other, in one repository or across two scored in the same process."""
@@ -729,6 +786,41 @@ class PackageIsolationTests(unittest.TestCase):
         self.assertNotIn("database", sys.modules)
 
 
+    def test_initializer_exports_are_isolated_between_repositories(self):
+        before_modules = set(sys.modules)
+        before_finders = [
+            finder for finder in sys.meta_path
+            if isinstance(finder, discover_module._PackageFinder)
+        ]
+        for name in ("alpha", "beta"):
+            repository = self._repository(name, name)
+            core = repository / "core"
+            (core / "__init__.py").write_text("from .normalize import WHERE\n")
+            (core / "database.py").write_text(
+                "from . import WHERE\ndef where():\n    return WHERE\n"
+            )
+
+            found = discover(repository)
+            database = next(e.module for e in found.modules if e.name == "database")
+
+            self.assertEqual(found.skipped, [])
+            self.assertEqual(database.where(), name)
+            self.assertEqual(
+                [
+                    key for key in set(sys.modules) - before_modules
+                    if key.startswith("_cogbench_pkg_") or key == "__init__"
+                ],
+                [],
+            )
+            self.assertEqual(
+                [
+                    finder for finder in sys.meta_path
+                    if isinstance(finder, discover_module._PackageFinder)
+                ],
+                before_finders,
+            )
+
+
 class PackageRegressionTests(unittest.TestCase):
     """The flat layouts resolve today and must keep resolving identically.
     Eleven of the thirteen 2026 repositories import at least one file under a
@@ -800,6 +892,80 @@ class PackageRegressionTests(unittest.TestCase):
         self.assertIn("__init__", skipped)
         self.assertEqual(skipped["__init__"].reason, "missing_dependency")
         self.assertIn("database", [entry.name for entry in found.modules])
+
+
+    def test_failed_initializer_does_not_leave_partial_exports_in_children(self):
+        core = self.tmp / "core"
+        core.mkdir()
+        (core / "__init__.py").write_text(
+            "READY = True\n"
+            "from . import child\n"
+            "raise RuntimeError('broken package setup')\n"
+        )
+        (core / "child.py").write_text("from . import READY\n")
+        (core / "independent.py").write_text("VALUE = 7\n")
+
+        found = discover(self.tmp)
+        skipped = {entry.name: entry for entry in found.skipped}
+
+        self.assertEqual(skipped["__init__"].reason, "raised")
+        self.assertIn("broken package setup", skipped["__init__"].detail)
+        self.assertIn("child", skipped)
+        self.assertEqual([entry.name for entry in found.modules], ["independent"])
+
+
+class PackageResetOwnershipTests(unittest.TestCase):
+    def setUp(self):
+        from types import ModuleType
+
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name).resolve()
+        self.package = ModuleType("_cogbench_pkg_reset_fixture")
+        self.package.__path__ = [str(self.root)]
+        self.pristine = dict(self.package.__dict__)
+
+    def test_dependency_alias_does_not_own_its_canonical_module(self):
+        from unittest.mock import patch
+
+        canonical = json.__name__
+        alias = self.package.__name__ + ".compat"
+        sentinel = self.package.__name__ + ".unavailable"
+        self.assertIs(sys.modules[canonical], json)
+        with patch.dict(sys.modules, {
+            self.package.__name__: self.package,
+            alias: json,
+            sentinel: None,
+        }):
+            self.package.partial = True
+            discover_module._reset_package(self.package, self.pristine)
+
+            self.assertIs(sys.modules[canonical], json)
+            self.assertNotIn(alias, sys.modules)
+            self.assertIn(sentinel, sys.modules)
+            self.assertIsNone(sys.modules[sentinel])
+            self.assertNotIn("partial", self.package.__dict__)
+
+    def test_student_child_alias_is_removed_with_the_failed_child(self):
+        from types import ModuleType
+        from unittest.mock import patch
+
+        child_name = self.package.__name__ + ".child"
+        bare_alias = "cogbench_reset_child_alias"
+        child = ModuleType(child_name)
+        child.__file__ = str(self.root / "child.py")
+        Path(child.__file__).write_text("VALUE = 1\n")
+        with patch.dict(sys.modules, {
+            self.package.__name__: self.package,
+            child_name: child,
+            bare_alias: child,
+        }):
+            self.package.child = child
+            discover_module._reset_package(self.package, self.pristine)
+
+            self.assertNotIn(child_name, sys.modules)
+            self.assertNotIn(bare_alias, sys.modules)
+            self.assertNotIn("child", self.package.__dict__)
 
 
 class SurveyIsolationTests(unittest.TestCase):

@@ -15,7 +15,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from cogbench import cli, execution, isolate, memo, runner
+from cogbench import cli, execution, isolate, memo, runner, storage
 from cogbench.discovery_spec import DiscoverySpec
 from cogbench.models import RepositoryState
 
@@ -293,6 +293,35 @@ class LocalCommands(TinyProject):
         self.assertEqual(keys[0], keys[1])
         self.assertNotEqual(keys[1], keys[2])
         self.assertEqual(len(set(self.copies)), 3)
+
+    @unittest.skipUnless(hasattr(os, "fork"), "requires fork")
+    def test_captured_weights_survive_private_execution_cleanup(self):
+        from test_resolve import REPO
+
+        class CapturingBenchmark(TinyDiscoveryBenchmark):
+            def discovery(self):
+                from dataclasses import replace
+                def prepare(root, modules, *, capture):
+                    retained = capture(root / "weights.bin")
+                    assert retained.read_bytes() == b"tiny weights"
+                    return {}
+                return replace(super().discovery(), prepare=prepare,
+                               weights_consumed=lambda submission: True)
+
+        (self.root / "theirs.py").write_text(REPO)
+        source = self.root / "weights.bin"
+        source.write_bytes(b"tiny weights")
+        with patch.object(cli, "load_benchmark", side_effect=lambda name: CapturingBenchmark(self.root)), \
+                patch.object(cli, "repository_state", side_effect=self.identity):
+            code, record = self.main("check", isolate.run_isolated)
+        self.assertEqual(code, 0, record)
+        receipt, = record["discovery"]["weightsCaptured"]
+        self.assertEqual(receipt["path"], "weights.bin")
+        self.assertFalse(self.copies[-1].parent.exists())
+        source.write_bytes(b"changed after checking")
+        retained = storage.retained_input(self.root, receipt["path"],
+                                          receipt["sha256"], receipt["size"])
+        self.assertEqual(retained.read_bytes(), b"tiny weights")
 
 
 class PrivateLinks(TinyProject):

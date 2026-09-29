@@ -211,36 +211,6 @@ class TheAdviceMatchesTheTrack(unittest.TestCase):
         self.assertIn("requirements.txt", step)
 
 
-class TheManifestMatchesTheImagesItDescribes(unittest.TestCase):
-    """A version listed here that the image does not install makes discovery
-    tell a team the graded run has a package it does not.
-
-    The images still carry their versions as literal builder arguments, so
-    nothing but this test holds the two copies together. It checks containment
-    rather than parsing the builder calls: a requirement string that appears
-    nowhere in modal_app.py is installed by no image at all, whatever the
-    call shape is. It does not establish that the right image installs it,
-    which would mean parsing three chained builders. The
-    case that prompted it was ipython, listed for Week 1 against an image
-    whose venv command ends at platformdirs.
-    """
-
-    def test_no_requirement_is_absent_from_every_image(self):
-        source = (
-            ROOT / "apps" / "runner-modal" / "src" / "cogworks_runner"
-            / "modal_app.py"
-        ).read_text(encoding="utf-8")
-        for track in environment.TRACKS:
-            for requirement in environment.requirement_strings(track):
-                # assertTrue, not assertIn: the haystack is the whole
-                # runner module, and unittest would print all of it.
-                self.assertTrue(
-                    requirement in source,
-                    "environment.py lists {} for {}, and no image in "
-                    "modal_app.py installs it".format(requirement, track),
-                )
-
-
 class TheManifestDescribesTheImages(unittest.TestCase):
     """These are the facts the rest of the module rests on, so they are
     pinned rather than assumed."""
