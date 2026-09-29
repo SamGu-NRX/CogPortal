@@ -4477,7 +4477,7 @@ class FolderRetryReads(unittest.TestCase):
         binding, refusal = resolve_chain(self._role(), [module], (self.files,))
 
         self.assertIsNone(binding)
-        self.assertIn("/photos", refusal.notes[0])
+        self.assertIn(str(photos), refusal.notes[0])
 
     def test_a_retry_that_read_nothing_of_ours_is_not_a_binding(self):
         module = self._theirs(
