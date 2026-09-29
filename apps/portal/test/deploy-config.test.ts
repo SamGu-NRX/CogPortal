@@ -158,21 +158,18 @@ test("each environment's origins match the hosts it is routed on", async () => {
   }
 });
 
-test("staging binds ARTIFACTS to its own bucket and production binds none", async () => {
+test("each environment binds ARTIFACTS to its own bucket", async () => {
   const config = await loadConfig();
 
-  // Staging has a provisioned bucket, so the binding is checked into the block
-  // that deploys. The name matters as much as the binding: `ARTIFACTS` pointed
-  // at the production bucket would be invisible here and destructive there.
+  // The name matters as much as the binding: `ARTIFACTS` pointed at the other
+  // environment's bucket would be invisible here and wrong there, because a
+  // production run would read weights a staging team uploaded.
   assert.deepEqual(config.r2_buckets ?? [], [
     { binding: "ARTIFACTS", bucket_name: "cogportal-artifacts-dev" },
   ]);
-
-  // Production's bucket is deferred until hosted upload is accepted on
-  // staging. Naming an unprovisioned bucket is the quiet failure this guards:
-  // a Worker with ARTIFACTS unbound answers rather than throws, so production
-  // would look healthy and refuse every weight upload.
-  assert.deepEqual(config.env.production.r2_buckets ?? [], []);
+  assert.deepEqual(config.env.production.r2_buckets ?? [], [
+    { binding: "ARTIFACTS", bucket_name: "cogportal-artifacts-prod" },
+  ]);
 });
 
 test("staging and production never share stored state", async () => {

@@ -36,7 +36,6 @@
 
   // Staging's trained-file storage. `cogportal-artifacts-dev` is private: no
   // r2.dev public URL, no custom domain, reached only through this binding.
-  // Production has no R2 block until one is separately authorized.
   "r2_buckets": [
     { "binding": "ARTIFACTS", "bucket_name": "cogportal-artifacts-dev" }
   ],
@@ -159,8 +158,15 @@
           "migrations_dir": "migrations"
         }
       ],
-      // No r2_buckets here on purpose. Production gets its own bucket under
-      // separate authorization, and it must never name the staging bucket.
+      // Production's own trained-file storage, authorized separately from
+      // staging's. `cogportal-artifacts-prod` is a different bucket from
+      // `cogportal-artifacts-dev` above and is private the same way: no r2.dev
+      // URL, no custom domain, reached only through this binding. Naming the
+      // staging bucket here would let a production run read weights a staging
+      // team uploaded.
+      "r2_buckets": [
+        { "binding": "ARTIFACTS", "bucket_name": "cogportal-artifacts-prod" }
+      ],
       "durable_objects": {
         "bindings": [{ "name": "RUN_SURFACES", "class_name": "RunSurfaceHub" }]
       },
