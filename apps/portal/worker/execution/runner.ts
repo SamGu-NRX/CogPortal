@@ -13,7 +13,7 @@ import { runs } from "../db/schema";
 import { ApiHttpError } from "../http/errors";
 import { newId } from "../util/id";
 import { getLatestTeamWeights } from "../services/local-reports";
-import { weightManifest, weightObjectKey } from "../services/weights";
+import { headRecordedWeight, weightManifest, weightObjectKey } from "../services/weights";
 import { preparedEnvironmentMatchesRun, savedEnvironmentEligibility } from "../services/run-eligibility";
 
 const DEFAULT_IMAGE_DIGEST = "cogworks-week2-cpu-v1:unpublished";
@@ -181,7 +181,14 @@ function retryInputError(detail: string): ApiHttpError {
   return new ApiHttpError(409, "invalid_request", detail);
 }
 
-function recordedJob(run: RunRow): RunJobV1 {
+/**
+ * The dispatch inputs a run was actually sent with, checked against that run's
+ * own recorded columns. Every comparison is against the row, so this stays a
+ * consistency check and never consults current catalog or team state. That is
+ * what makes it safe to reuse mid-run, where the weight download needs the
+ * recorded source rather than today's repository name.
+ */
+export function recordedDispatchJob(run: RunRow): RunJobV1 {
   if (!run.dispatchJobJson) {
     throw retryInputError("This run has no recorded dispatch inputs. Start a new candidate.");
   }
@@ -226,18 +233,14 @@ async function validateRecordedWeights(env: Env, job: RunJobV1): Promise<void> {
   for (const weight of weights) {
     if (seen.has(weight.path)) throw retryInputError("Recorded weight paths contain duplicates.");
     seen.add(weight.path);
-    let key: string;
     try {
-      key = weightObjectKey(job.source.fullName, job.source.sha, weight.path);
+      weightObjectKey(job.source.fullName, job.source.sha, weight.path, weight.sha256);
     } catch {
       throw retryInputError("A recorded weight path is invalid.");
     }
-    const object = await env.ARTIFACTS.head(key);
-    if (!object) throw retryInputError(`Recorded weight ${weight.path} is unavailable.`);
-    const checksum = object.checksums.sha256;
-    const digest = checksum && [...new Uint8Array(checksum)]
-      .map((byte) => byte.toString(16).padStart(2, "0")).join("");
-    if (object.size !== weight.size || digest !== weight.sha256) {
+    const found = await headRecordedWeight(env.ARTIFACTS, job.source.fullName, job.source.sha, weight);
+    if (found.status === "missing") throw retryInputError(`Recorded weight ${weight.path} is unavailable.`);
+    if (found.status === "mismatched") {
       throw retryInputError(`Recorded weight ${weight.path} has changed or has no matching checksum.`);
     }
   }
@@ -251,7 +254,7 @@ export function validateRetryInputs(
   team: TeamRow,
   benchmark: BenchmarkRow,
 ): RunJobV1 {
-  const saved = recordedJob(failedRun);
+  const saved = recordedDispatchJob(failedRun);
   if (failedRun.status !== "failed" || failedRun.teamId !== team.id ||
       failedRun.repositoryId !== team.repoId ||
       env.EXECUTION_PROVIDER !== failedRun.provider ||
@@ -324,14 +327,19 @@ export async function enqueueRun(
   if (stored.dispatchJobJson === null) {
     let weights: WeightFile[] = [];
     if (!stored.preparedArtifactId) {
-      const report = await getLatestTeamWeights(env, stored.teamId, team.repoFullName, stored.sha);
+      // A run records no repository name of its own until this job is built,
+      // so both lookups use the team's current one and the recorded repository
+      // ID is what catches a report that belongs somewhere else.
+      const report = await getLatestTeamWeights(
+        env, stored.teamId, team.repoFullName, stored.sha, stored.repositoryId,
+      );
       weights = await weightManifest(
         env.ARTIFACTS, team.repoFullName, stored.sha, report.weightsUsed, report.weightsUploaded,
       );
     }
     const candidate = buildRunJob(env, stored, team, benchmark, weights);
     const dispatchJobJson = JSON.stringify(candidate);
-    recordedJob({ ...stored, dispatchJobJson });
+    recordedDispatchJob({ ...stored, dispatchJobJson });
     // Concurrent dispatchers may prepare different jobs. The first persisted
     // inputs win; every sender reloads that record rather than sending its own.
     await db.update(runs).set({ dispatchJobJson })
@@ -339,7 +347,7 @@ export async function enqueueRun(
   }
   const [recorded] = await db.select().from(runs).where(eq(runs.id, run.id)).limit(1);
   if (!recorded) throw retryInputError("The execution to dispatch no longer exists.");
-  const job = recordedJob(recorded);
+  const job = recordedDispatchJob(recorded);
   await validateRecordedWeights(env, job);
   if (env.RUN_QUEUE) {
     await env.RUN_QUEUE.send(job, { contentType: "json" });

@@ -4,6 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import type { Database } from "../worker/db/client.ts";
 import {
@@ -173,6 +174,8 @@ test("a benchmark id with no active version returns nothing rather than stale ro
 });
 
 
+const DIGEST = "a".repeat(64);
+
 test("a report cannot upload weights into another repository prefix", async () => {
   const { env, db } = await seededDb();
   await db.insert(localReports).values({
@@ -183,13 +186,90 @@ test("a report cannot upload weights into another repository prefix", async () =
   });
 
   await assert.rejects(
-    getWeightUploadTarget(env, "user_1", "report_other_repo", "models/search.pkl"),
+    getWeightUploadTarget(env, "user_1", "report_other_repo", "models/search.pkl", DIGEST),
     (error: unknown) =>
       error instanceof Error &&
       "status" in error &&
       error.status === 403 &&
       /team repository/.test(error.message),
   );
+});
+
+test("a known repository ID must agree on both sides, and an unknown one changes nothing", async () => {
+  const { env, db } = await seededDb();
+  const sha = "a".repeat(40);
+  const declared = {
+    sha,
+    weightsUsedJson: '["model.pkl"]',
+    weightsUploadedJson: JSON.stringify([{ path: "model.pkl", sha256: DIGEST }]),
+  };
+  await db.insert(localReports).values([
+    { ...reportRow("report_same_id", 1), repositoryId: 77, ...declared },
+    { ...reportRow("report_other_id", 1), repositoryId: 78, ...declared },
+    // The shipped CLI's complete pin still reports no ID, so this is the
+    // case that actually runs today and it must stay admissible.
+    { ...reportRow("report_no_id", 1), repositoryId: null, ...declared },
+  ]);
+
+  // Team repoId is null until a connection records it; unknown stays unknown.
+  for (const reportId of ["report_same_id", "report_other_id", "report_no_id"]) {
+    await getWeightUploadTarget(env, "user_1", reportId, "model.pkl", DIGEST);
+  }
+  await db.update(teams).set({ repoId: 77 }).where(eq(teams.id, "team_1"));
+  await getWeightUploadTarget(env, "user_1", "report_same_id", "model.pkl", DIGEST);
+  await getWeightUploadTarget(env, "user_1", "report_no_id", "model.pkl", DIGEST);
+  await assert.rejects(
+    getWeightUploadTarget(env, "user_1", "report_other_id", "model.pkl", DIGEST),
+    (error: unknown) => error instanceof Error && "status" in error && error.status === 403 &&
+      /different repository/.test(error.message),
+  );
+});
+
+test("a declared upload is admitted only at its own path and digest", async () => {
+  const { env, db } = await seededDb();
+  const sha = "a".repeat(40);
+  await db.insert(localReports).values({
+    ...reportRow("report_declared", 1), sha,
+    weightsUsedJson: '["model.pkl", "committed.pkl"]',
+    weightsUploadedJson: JSON.stringify([{ path: "model.pkl", sha256: DIGEST }]),
+  });
+
+  assert.deepEqual(
+    await getWeightUploadTarget(env, "user_1", "report_declared", "model.pkl", DIGEST),
+    { repositoryFullName: REPO, sha },
+  );
+  // The digest names the stored object, so a mismatch has to be refused before
+  // any bytes are written rather than landing at an unreferenced key.
+  await assert.rejects(
+    getWeightUploadTarget(env, "user_1", "report_declared", "model.pkl", "b".repeat(64)),
+    (error: unknown) => error instanceof Error && "status" in error && error.status === 409 &&
+      /declares a different digest/.test(error.message),
+  );
+  await assert.rejects(
+    getWeightUploadTarget(env, "user_1", "report_declared", "committed.pkl", DIGEST),
+    /does not require an upload for that weight path/,
+  );
+});
+
+test("a newest report naming another repository stops dispatch rather than falling back", async () => {
+  const { env, db } = await seededDb();
+  const sha = "b".repeat(40);
+  await db.insert(localReports).values([
+    { ...reportRow("report_older", 1), repositoryId: 77, sha, weightsUsedJson: '["older.pkl"]', syncedAt: 10 },
+    { ...reportRow("report_newest", 1), repositoryId: 78, sha, weightsUsedJson: '["newest.pkl"]', syncedAt: 20 },
+  ]);
+
+  await assert.rejects(
+    getLatestTeamWeights(env, "team_1", REPO, sha, 77),
+    /names a different repository than this execution/,
+  );
+  // Unknown on either side is unknown, not a match and not a conflict.
+  assert.deepEqual(await getLatestTeamWeights(env, "team_1", REPO, sha, null), {
+    weightsUsed: ["newest.pkl"], weightsUploaded: null,
+  });
+  assert.deepEqual(await getLatestTeamWeights(env, "team_1", REPO, sha, 78), {
+    weightsUsed: ["newest.pkl"], weightsUploaded: null,
+  });
 });
 
 test("the newest matching team report supplies the run weight paths", async () => {
@@ -253,9 +333,14 @@ test("legacy reports remain readable and upsertable without declaring committed 
     weightManifest({ head: async () => null }, REPO, sha, weights.weightsUsed, weights.weightsUploaded),
     /doesn't identify its uploaded weights/,
   );
-  assert.deepEqual(await getWeightUploadTarget(env, "user_1", report.reportId, "model.pkl"), {
-    repositoryFullName: REPO, sha,
-  });
+  // An unknown upload list cannot say which digest belongs at which path, and
+  // the request header is the uploader's own claim, so there is nothing left to
+  // check it against.
+  await assert.rejects(
+    getWeightUploadTarget(env, "user_1", report.reportId, "model.pkl", "a".repeat(64)),
+    (error: unknown) => error instanceof Error && "status" in error && error.status === 409 &&
+      /doesn't identify its uploaded weights/.test(error.message),
+  );
 });
 
 test("report upload requirements survive upsert and dispatch selection", async () => {
@@ -294,8 +379,12 @@ test("report upload requirements survive upsert and dispatch selection", async (
   );
   const committed = await upsertLocalReport(env, "user_1", { ...report, weightsUploaded: [] });
   assert.deepEqual(committed.report.weightsUploaded, []);
-  // Old CLIs still authorize uploads through weightsUsed.
-  await getWeightUploadTarget(env, "user_1", report.reportId, "model.pkl");
+  // An empty list is a declaration that nothing needs uploading, which is not
+  // the same as an old CLI's unknown list; see the legacy test above.
+  await assert.rejects(
+    getWeightUploadTarget(env, "user_1", report.reportId, "model.pkl", "a".repeat(64)),
+    /does not require an upload for that weight path/,
+  );
 });
 
 test("malformed provenance is rejected at the report boundary", () => {
