@@ -100,7 +100,7 @@ The dashboard reports completed usage in its attempt-budget cells; the staff vie
 
 ## Edge cases
 
-The following presentation findings retain the earlier draft's source references. They have not been rechecked against the pending UI integration.
+The following presentation findings retain the earlier draft's source references. They have not been rechecked against the integrated UI.
 
 - **The two limits have five sources and one authority.** `PRACTICE_LIMIT` and `OFFICIAL_LIMIT` in `packages/contracts/src/schema.ts:1176` are what the server enforces and what the dashboard payload carries. Four places write the numbers out instead: the admin page prints `{practiceUsed}/10 · {officialUsed}/3` (`apps/portal/src/routes/AdminPage.tsx:437`), the run console builds "of 3" into its confirmation (`RunConsole.tsx:208`), and the Discord bot hardcodes three in three places (`apps/discord-bot/src/commands.ts:185`, `:186`, `:521`, `:524`). Raising `OFFICIAL_LIMIT` to four would leave an instructor reading `4/3` and a Discord button offering "Use attempt 4 of 3".
 - **A mixed source, in the same sentence.** Both promote confirmations combine a payload value with the imported constant: "Confirm, uses attempt {quota.officialUsed + 1} of {OFFICIAL_LIMIT}" (`DashboardPage.tsx:395`) and the same shape on the run page (`RunDetailPage.tsx:277`). They agree today because both are three. They are two sources in one string.
