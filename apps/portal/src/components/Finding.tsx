@@ -1,5 +1,9 @@
 import { CornerBrackets } from "./Brackets";
 
+/** The kicker above a run's finding. Shared so a sweep that stands alone,
+ *  because the scorer had nothing to add, is introduced the same way. */
+export const FINDING_KICKER = "What this run shows";
+
 /**
  * The sentence a run is about, set larger than the number it came from.
  *
@@ -29,7 +33,7 @@ export function Finding({
   return (
     <figure className="relative py-1">
       <CornerBrackets size={14} thickness={1.5} inset={-8} className="text-detect" />
-      <div className="u-kicker">What this run shows</div>
+      <div className="u-kicker">{FINDING_KICKER}</div>
       <p className="mt-2 max-w-[58ch] font-serif text-[19px] leading-[1.45] text-ink sm:text-[21px] sm:leading-[1.4]">
         {sentence}
       </p>

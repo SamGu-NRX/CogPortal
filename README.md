@@ -93,6 +93,17 @@ virtual environment instead.
 
 ## Verification
 
+The submodule validators load each installed v2 benchmark's metric declarations,
+so install the checked-out packages in the Python environment used by `pnpm test`:
+
+```sh
+git submodule update --init --recursive
+python3 -m pip install -e python/cogbench -e benchmarks/week1 -e benchmarks/week2 -e benchmarks/week3
+```
+
+The validators reject unknown primary or sweep metrics and malformed help metadata.
+Help strings have no character cap. Validation does not load datasets or run student code.
+
 ```sh
 pnpm check
 pnpm test

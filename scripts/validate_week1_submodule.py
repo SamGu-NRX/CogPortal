@@ -22,6 +22,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+from cogbench.plugins import load_plugin
+from validate_metric_metadata import validate_metric_metadata
+
 ROOT = Path(__file__).resolve().parents[1]
 BENCHMARK = ROOT / "benchmarks" / "week1"
 PLUGIN = BENCHMARK / "audio_identification_benchmark" / "plugins.py"
@@ -131,6 +134,7 @@ def main() -> int:
             )
         )
 
+    validate_metric_metadata(load_plugin("cogworks.benchmarks.v2", "audio-identification"))
     problems = []
 
     # Every migration, not only 0020: a version bump lands as a new
