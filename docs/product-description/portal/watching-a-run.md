@@ -115,7 +115,7 @@ The right pane is `Run reference`: the full commit, the branch or `detached`, an
 
 Pressing a button opens a modal rather than arming in place. It is headed `Confirm action` with the button's own label, one sentence naming the cost, and `Close` and `Confirm`. "Run again" is different: it opens a modal headed `Run locally` and `Back to the bench` carrying one copyable line, `cogworks run --benchmark audio-identification --live`, and no confirm button at all (`RunConsole.tsx:393`). Escape and a click on the backdrop both close it.
 
-The server supplies the action list. Retry checks current execution status, capacity and recorded inputs, and admission rechecks eligibility before dispatch. Retry is offered for an eligible failure, without a failure-category prohibition. It targets that physical failure so a replay cannot choose a newer execution. The portal owner is integrating the browser controls; their final presentation is unverified here.
+The server supplies the action list. Retry checks current execution status, capacity and recorded inputs, and admission rechecks eligibility before dispatch. Retry is offered for an eligible failure, without a failure-category prohibition. It targets that physical failure so a replay cannot choose a newer execution. The browser controls were exercised locally for PR #20; their presentation in the embedded Discord Activity is unverified.
 
 While any action is in flight every button is disabled and the pressed one reads `Working…` (`RunConsole.tsx:368`).
 

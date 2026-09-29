@@ -38,7 +38,7 @@ The vocabulary used across these documents. When a document uses one of these wo
 
 **Practice run.** A hosted evaluation visible to the team. A completed evaluation uses practice quota; a failed execution does not. See [credit and quota](cross-cutting/credit-and-quota.md).
 
-**Promotion.** Turning a finished practice run into a leaderboard entry. A separate, explicit act; a run is never promoted automatically.
+**Promotion.** Starting an official evaluation of a finished practice run's commit. A separate, explicit act; a run is never promoted automatically. Its result reaches the leaderboard only when the team publishes it.
 
 **Leaderboard entry.** A promoted run, visible to every team in the cohort. Carries the team name and the run's numbers, never a person's name and never a per-person number.
 

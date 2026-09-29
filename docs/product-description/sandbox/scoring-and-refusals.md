@@ -106,7 +106,7 @@ The most expensive case is null embeddings. Week 3's `text_first_relevant_ranks`
 
 ### Every sentence the check shows
 
-All of these carry `output_invalid`, `evaluating`, and `infrastructure=False`, so all of them spend the attempt (`modal_app.py:1487`). The phase is `evaluating` and not `scoring` because what is wrong is the submission's results, and naming the scoring phase would put the platform's name on a step that never ran.
+All of these carry `output_invalid`, `evaluating`, and `infrastructure=False` (`modal_app.py:1487`). Like every failure, they use no quota. The phase is `evaluating` and not `scoring` because what is wrong is the submission's results, and naming the scoring phase would put the platform's name on a step that never ran.
 
 A number that is not finite, caught during the parse rather than by a walk afterwards, because a walk cannot see `1e400` (`modal_app.py:1359`):
 

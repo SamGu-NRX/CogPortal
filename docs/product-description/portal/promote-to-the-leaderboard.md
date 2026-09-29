@@ -179,10 +179,10 @@ Dismissing an armed confirmation starts nothing. Once admitted, the execution su
 - The run page's confirm label contains an em dash, and so does the publish blurb (`RunDetailPage.tsx:277`, `:334`). Both violate `docs/design/voice.md`. The dashboard's equivalent label uses a comma. Carried to triage.
 - The dashboard's exhausted line, "All official attempts are used.", omits the sentence the run page adds about existing official runs still being selectable. Whether that is deliberate brevity or an oversight was not established.
 - Promoting the newest rather than the best candidate is a product decision the code does not explain. Worth confirming it is intended.
-- Same-view Retry presentation and the link from a physical execution's historical page are being integrated by the portal owner. They are not accepted browser behavior at this local source checkpoint.
+- Same-console Retry and the historical page's link to the current console were exercised locally for PR #20, not on a deployed portal.
 
 - Nothing warns a team that one member is about to spend a shared official attempt, and nothing records who spent it in a place the team can read. Whether that matters was not established.
-- Final console confirmation wording remains subject to the portal owner's integration and the separate browser verification pass.
+- Final console confirmation wording has not been checked on a deployed portal.
 
 - A refresh failure after admission can leave the browser briefly stale without undoing the execution. Reopening the view must show its current execution. Assembled browser behavior remains unverified.
 
