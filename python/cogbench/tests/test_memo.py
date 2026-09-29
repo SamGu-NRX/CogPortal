@@ -902,10 +902,6 @@ class TheWorkspaceIgnoresItself(unittest.TestCase):
         self.assertEqual(status, "")
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 PACKAGE_INIT = "SCALE = {scale}\n"
 
 PACKAGE_CORE = '''
@@ -1013,3 +1009,7 @@ class AnInitializerThatDecidesWhatItsPackageReturnsIsPartOfTheKey(unittest.TestC
         self.assertTrue(self._resolve().ready)
 
         self.assertTrue(self._resolve().recalled)
+
+
+if __name__ == "__main__":
+    unittest.main()
