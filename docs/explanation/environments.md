@@ -42,10 +42,11 @@ What differs:
   `cogworks-runner-signing` for dev, `cogworks-runner-production` with
   `cogworks-runner-production-signing` for prod. A dev deploy therefore cannot
   move prod's controller or its images.
-- R2. Each environment names its own private bucket in its own `r2_buckets`
-  block, dev's being `cogportal-artifacts-dev`, and neither may name the other's.
-  An environment without the block answers 501 to a weight upload, so dev
-  predicts prod's weighted runs only while both have one.
+- R2. An environment that stores trained weights binds `ARTIFACTS` to its own
+  private bucket in its own `r2_buckets` block; dev's is
+  `cogportal-artifacts-dev`, and neither may name the other's. An environment
+  without the block answers 501 to a weight upload, so dev predicts prod's
+  weighted runs only while both have one.
 - Every secret value. Wrangler secrets do not copy between environments, so each
   is set once per environment with `wrangler secret put`.
 - `ENVIRONMENT`, which is `dev` and `production`.

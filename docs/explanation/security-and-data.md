@@ -18,8 +18,9 @@ social provider, `github`, and configures it only when both `GITHUB_CLIENT_ID`
 and `GITHUB_CLIENT_SECRET` are present. There is no password login on a hosted
 deployment: `emailAndPassword.enabled` is `devAuthAvailable(env)`, and
 `devAuthAvailable` in `apps/portal/worker/env.ts` requires
-`ENVIRONMENT=development`, which only a developer's machine sets. A hosted
-Worker cannot turn a password login on by changing one variable.
+`ENVIRONMENT=development`, `DEV_AUTH=enabled` and no GitHub credentials, and the
+checked-in hosted configurations set `dev` or `production` and `disabled`. A
+hosted Worker cannot turn a password login on by changing one variable.
 
 Four more settings in the same call are worth stating plainly, because they are
 the answers a reviewer usually wants:
