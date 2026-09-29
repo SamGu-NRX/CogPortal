@@ -770,6 +770,38 @@ export function runSurfaceCurrentEvents(snapshot: RunSurfaceSnapshot): RunStream
   return runId ? snapshot.events.filter((event) => event.sourceRunId === runId) : [];
 }
 
+export type RunLifecycleStageState = "complete" | "active" | "failed" | "cancelled" | "pending" | "not_run";
+
+/** Each stage from its own run, not its position: a surface started in the
+ * browser has no local session, so Local stays `not_run` through publication. */
+export function runSurfaceStageStates(
+  snapshot: RunSurfaceSnapshot,
+): Record<RunLifecycleStage, RunLifecycleStageState> {
+  const fromStatus = (status: RunStatus | RunSurfaceSnapshot["status"]): RunLifecycleStageState => {
+    if (status === "succeeded") return "complete";
+    if (status === "failed" || status === "cancelled") return status;
+    return "active";
+  };
+  const stage = (
+    id: Exclude<RunLifecycleStage, "published">,
+    runId: string | null,
+  ): RunLifecycleStageState => {
+    if (!runId) return id === "local" ? "not_run" : "pending";
+    if (id === snapshot.stage) return fromStatus(snapshot.status);
+    // Hosted verification requires a succeeded, and then immutable, local session.
+    if (id === "local") return "complete";
+    // These ids are the latest retry, so a retried failure never marks its stage.
+    const run = snapshot.executionHistory.find((item) => item.id === runId);
+    return run ? fromStatus(run.status) : "pending";
+  };
+  return {
+    local: stage("local", snapshot.localRunId),
+    hosted: stage("hosted", snapshot.practiceRunId),
+    official: stage("official", snapshot.officialRunId),
+    published: snapshot.published ? "complete" : "pending",
+  };
+}
+
 export const StartLocalRunRequestSchema = z.object({
   clientRunId: z.string().regex(/^localrun_[a-f0-9]{32}$/),
   benchmarkId: z.string().min(1).max(120),

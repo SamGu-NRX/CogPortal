@@ -186,6 +186,62 @@ test("every lifecycle stage is named at every width, and the tile ignores the wi
   assert.doesNotMatch(full, /class="(hidden|sr-only)[^"]*">(Local|Hosted|Official|Published)</);
 });
 
+function lifecycleStates(value: RunSurfaceSnapshot): Record<string, string> {
+  const html = renderToStaticMarkup(React.createElement(RunConsole, { snapshot: value, streamState: "closed" }));
+  const start = html.indexOf('aria-label="Run lifecycle"');
+  const rail = html.slice(start, html.indexOf("</ol>", start));
+  return Object.fromEntries(
+    [...rail.matchAll(/>(Local|Hosted|Official|Published)<\/span><span class="sr-only">([^<]+)</g)]
+      .map((match) => [match[1]!, match[2]!]),
+  );
+}
+
+function execution(id: string, mode: "practice" | "official", status: "succeeded" | "failed" | "evaluating", retryOfRunId: string | null = null) {
+  return { id, mode, status, retryOfRunId, createdAt: 1_750_000_000_000, finishedAt: null };
+}
+
+test("a result published from the browser never announces a local run", () => {
+  const published: RunSurfaceSnapshot = {
+    ...snapshot("succeeded"),
+    stage: "published",
+    published: true,
+    localRunId: null,
+    practiceRunId: "run_practice",
+    officialRunId: "run_official",
+    executionHistory: [execution("run_practice", "practice", "succeeded"), execution("run_official", "official", "succeeded")],
+  };
+  assert.deepEqual(lifecycleStates(published), {
+    Local: "not run", Hosted: "complete", Official: "complete", Published: "complete",
+  });
+});
+
+test("a retried hosted run is marked by its successor, and a later failure stays visible", () => {
+  const retrying: RunSurfaceSnapshot = {
+    ...snapshot("running"),
+    stage: "hosted",
+    localRunId: null,
+    practiceRunId: "run_retry",
+    executionHistory: [
+      execution("run_first", "practice", "failed"),
+      execution("run_retry", "practice", "evaluating", "run_first"),
+    ],
+  };
+  assert.deepEqual(lifecycleStates(retrying), {
+    Local: "not run", Hosted: "active", Official: "pending", Published: "pending",
+  });
+
+  const officialFailed: RunSurfaceSnapshot = {
+    ...snapshot("failed"),
+    stage: "official",
+    practiceRunId: "run_practice",
+    officialRunId: "run_official",
+    executionHistory: [execution("run_practice", "practice", "succeeded"), execution("run_official", "official", "failed")],
+  };
+  assert.deepEqual(lifecycleStates(officialFailed), {
+    Local: "complete", Hosted: "complete", Official: "failed", Published: "pending",
+  });
+});
+
 /**
  * What the console says when a control is missing.
  *
