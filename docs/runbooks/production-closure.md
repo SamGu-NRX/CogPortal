@@ -28,17 +28,20 @@ Both build and deployment must consume the patched config. Do not run the ordina
 
 ## 2. Capture before state, then close ingress
 
-Use only Sam-authorized credentials. Do not use `set -x`, print tokens, or borrow another session's failed credential route.
+Use only Sam-authorized credentials. Do not use `set -x`, print tokens, or borrow another session's failed credential route. `cf` hands curl the token as a header file (`-H @file`), because a header given as an argument is visible in `ps` while curl runs.
+
+CogBot is a writer the portal's own controls do not reach. It calls the portal through its `PORTAL` service binding to the `PortalRpc` entrypoint of `cogportal-production` (`apps/discord-bot/wrangler.jsonc`, `apps/portal/worker/rpc.ts`), and `PortalRpc` links Discord accounts, binds team channels, and starts, promotes, publishes and retries runs. A service binding call is not an HTTP request to the portal's hosts, so the WAF rule and the portal's workers.dev setting do not stop it. CogBot has no routes or cron; Discord reaches it only at its own workers.dev URL. The blocks below save and close that URL with the portal's, before the drain, whichever portal the deployed bot binds.
 
 ```bash
 : "${CLOUDFLARE_API_TOKEN:?supply an authorized token without logging it}"
 ACCOUNT=eb0505bac408b0230cff849b0c0ff6b4
 ZONE=73ff5d651f37365cda00117fc68b79a0
 WORKER="accounts/$ACCOUNT/workers/scripts/cogportal-production"
+BOT="accounts/$ACCOUNT/workers/scripts/cogbot"
 DO="accounts/$ACCOUNT/workers/durable_objects/namespaces/dd23153db188448596ae40cf1e3917cf"
 cf() {
   curl --silent --show-error --fail \
-    -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+    -H @<(printf 'Authorization: Bearer %s\n' "$CLOUDFLARE_API_TOKEN") \
     -H 'Content-Type: application/json' \
     "https://api.cloudflare.com/client/v4/$1" "${@:2}" |
     jq -e 'if .success then . else error("Cloudflare refused the request") end'
@@ -50,6 +53,8 @@ cf "zones/$ZONE/rulesets/phases/http_request_firewall_custom/entrypoint" \
   > "$WINDOW/before-firewall.json"
 jq '.result | {enabled,previews_enabled}' "$WINDOW/before-subdomain.json" > "$WINDOW/restore-subdomain.json"
 jq '[.result.schedules[] | {cron}]' "$WINDOW/before-schedules.json" > "$WINDOW/restore-schedules.json"
+cf "$BOT/subdomain" > "$WINDOW/before-bot-subdomain.json"
+jq '.result | {enabled,previews_enabled}' "$WINDOW/before-bot-subdomain.json" > "$WINDOW/restore-bot-subdomain.json"
 ```
 
 A missing custom-rules entrypoint is a stop, not an empty successful read. Sam can create the temporary rule through the dashboard, or approve creation of that entrypoint separately. Never PUT a replacement ruleset over existing rules.
@@ -64,9 +69,10 @@ cf "zones/$ZONE/rulesets/$RULESET/rules" -X POST --data \
 RULE=$(jq -er '.result.rules[0] | select(.action=="block" and .enabled==true and .expression=="http.host in {\"cogportal.sillion.app\" \"cogactivity.sillion.app\"}") | .id' "$WINDOW/created-firewall.json")
 printf '%s\n' "$RULE" > "$WINDOW/closure-rule-id.txt"
 # Save non-secret shell state before continuing; do not repeat the rule POST.
-declare -p WINDOW SOURCE_CONFIG ACCOUNT ZONE WORKER DO RULESET RULE > "$WINDOW/resume.sh"
+declare -p WINDOW SOURCE_CONFIG ACCOUNT ZONE WORKER BOT DO RULESET RULE > "$WINDOW/resume.sh"
 declare -f cf >> "$WINDOW/resume.sh"
 cf "$WORKER/subdomain" -X POST --data '{"enabled":false,"previews_enabled":false}' > "$WINDOW/close-subdomain-result.json"
+cf "$BOT/subdomain" -X POST --data '{"enabled":false,"previews_enabled":false}' > "$WINDOW/close-bot-subdomain-result.json"
 cf "$WORKER/schedules" -X PUT --data '[]' > "$WINDOW/close-schedules-result.json"
 date -u +%FT%TZ > "$WINDOW/closure-requested-at.txt"
 ```
@@ -89,14 +95,16 @@ Run these independent GETs after closure. On later reads change the first assign
 ```bash
 STAGE=closed
 cf "$WORKER/subdomain" > "$WINDOW/$STAGE-subdomain.json"
+cf "$BOT/subdomain" > "$WINDOW/$STAGE-bot-subdomain.json"
 cf "$WORKER/schedules" > "$WINDOW/$STAGE-schedules.json"
 cf "zones/$ZONE/rulesets/$RULESET" > "$WINDOW/$STAGE-firewall.json"
 jq -e '.result.enabled==false and .result.previews_enabled==false' "$WINDOW/$STAGE-subdomain.json"
+jq -e '.result.enabled==false and .result.previews_enabled==false' "$WINDOW/$STAGE-bot-subdomain.json"
 jq -e '.result.schedules==[]' "$WINDOW/$STAGE-schedules.json"
 jq -e --arg id "$RULE" '.result.rules[0] | .id==$id and .enabled==true and .action=="block" and .expression=="http.host in {\"cogportal.sillion.app\" \"cogactivity.sillion.app\"}"' "$WINDOW/$STAGE-firewall.json"
 ```
 
-Verify the current account workers.dev hostname and the current version's preview URL from the provider, rather than guessing them. Record denied HTTP probes for both custom domains, workers.dev and the version preview URL, with URL, UTC time, status and headers. Use unauthenticated GET `/` only, never login or a run-page read. A redirect, SPA success, or application response is not denial. Confirm no earlier account rule exempts these requests; if the WAF rule does not block them, stop.
+Verify the current account workers.dev hostname and the current version's preview URL from the provider, rather than guessing them. Record denied HTTP probes for both custom domains, workers.dev, the version preview URL and cogbot's workers.dev URL, with URL, UTC time, status and headers. Use unauthenticated GET `/` only, never login or a run-page read. A redirect, SPA success, or application response is not denial. Confirm no earlier account rule exempts these requests; if the WAF rule does not block them, stop.
 
 Allow the documented 15-minute cron propagation period, then account for completion of requests and scheduled invocations already admitted. Record the actual drain evidence. Quiet D1 timestamps or absence of error logs is not proof: an alarm can park on Discord backoff or retry before a D1 write. Recheck the previously reviewed caller/route/queue/workflow inventory at the window; a new writer invalidates this procedure.
 
@@ -174,6 +182,7 @@ When root authorizes reopening, restore only the controls this worksheet changed
 
 ```bash
 cf "$WORKER/subdomain" -X POST --data-binary "@$WINDOW/restore-subdomain.json" > "$WINDOW/reopen-subdomain-result.json"
+cf "$BOT/subdomain" -X POST --data-binary "@$WINDOW/restore-bot-subdomain.json" > "$WINDOW/reopen-bot-subdomain-result.json"
 cf "$WORKER/schedules" -X PUT --data-binary "@$WINDOW/restore-schedules.json" > "$WINDOW/reopen-schedules-result.json"
 cf "zones/$ZONE/rulesets/$RULESET/rules/$RULE" -X DELETE > "$WINDOW/reopen-firewall-result.json"
 git apply --reverse --check docs/runbooks/production-closure.patch

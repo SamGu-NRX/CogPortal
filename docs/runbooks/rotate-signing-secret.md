@@ -355,10 +355,13 @@ have it exported), and a production check that silently probes staging is worse
 than no check:
 
 ```sh
-RUNNER_SIGNING_SECRET=... .venv-test/bin/python \
-  apps/runner-modal/tools/verify_dispatch.py \
+RUNNER_SIGNING_SECRET="$(jq -r .RUNNER_SIGNING_SECRET ~/.cogworks/secrets/cogworks-runner-production-signing.json)" \
+  .venv-test/bin/python apps/runner-modal/tools/verify_dispatch.py \
   --url https://samgu-nrx--cogworks-runner-production-submit-job.modal.run
 ```
+
+The value comes from the protected file step 1 wrote for production's secret,
+so it is never typed and never lands in shell history.
 
 It sends refusable requests plus one correctly signed job naming a SHA of forty
 zeros, which is well-formed and does not exist, so an accepted job dies fetching
