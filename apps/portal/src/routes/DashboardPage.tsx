@@ -235,7 +235,7 @@ export function DashboardPage() {
                   View run
                 </Link>
                 <Link
-                  to="/leaderboard"
+                  to={`/leaderboard?benchmark=${encodeURIComponent(d.benchmark.id)}`}
                   className="font-mono text-[11.5px] tracking-[0.06em] text-ink uppercase underline decoration-rule underline-offset-4 hover:decoration-ink"
                 >
                   Leaderboard

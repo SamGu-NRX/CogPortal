@@ -3,6 +3,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type {
   RunLifecycleStage,
+  RunLifecycleStageState,
   RunStreamEvent,
   RunSurfaceAction,
   RunSurfaceSnapshot,
@@ -11,6 +12,7 @@ import {
   collapseRepeatedRunEvents,
   runSurfaceCurrentEvents,
   runSurfaceCurrentRunId,
+  runSurfaceStageStates,
 } from "@cogworks/contracts/schema";
 import type { StreamState } from "@/lib/run-surface-stream";
 import type { RunSurfaceMutationInput } from "@/lib/api";
@@ -68,15 +70,14 @@ function formatMetric(snapshot: RunSurfaceSnapshot): string | null {
   return metric.unit ? `${value} ${metric.unit}` : value;
 }
 
-function stageMark(snapshot: RunSurfaceSnapshot, stage: RunLifecycleStage): string {
-  const active = STAGES.findIndex((item) => item.id === snapshot.stage);
-  const index = STAGES.findIndex((item) => item.id === stage);
-  if (index < active || snapshot.stage === "published") return "✓";
-  if (index > active) return "○";
-  if (snapshot.status === "failed" || snapshot.status === "cancelled") return "×";
-  if (snapshot.status === "running") return "●";
-  return "✓";
-}
+const STAGE_MARKS: Record<RunLifecycleStageState, { mark: string; tone: string; label: string }> = {
+  complete: { mark: "✓", tone: "text-verify", label: "complete" },
+  active: { mark: "●", tone: "text-verify", label: "active" },
+  failed: { mark: "×", tone: "text-detect", label: "failed" },
+  cancelled: { mark: "×", tone: "text-detect", label: "stopped" },
+  pending: { mark: "○", tone: "text-ink-faint", label: "pending" },
+  not_run: { mark: "–", tone: "text-ink-faint", label: "not run" },
+};
 
 function statusCopy(snapshot: RunSurfaceSnapshot): string {
   if (snapshot.status === "failed") return "Run failed";
@@ -148,6 +149,7 @@ export function RunConsole({
   const [newEvents, setNewEvents] = useState(0);
   const currentRunId = runSurfaceCurrentRunId(snapshot);
   const currentEvents = runSurfaceCurrentEvents(snapshot);
+  const stageStates = runSurfaceStageStates(snapshot);
   const previousEvents = useRef({
     surfaceId: snapshot.id,
     runId: currentRunId,
@@ -333,10 +335,11 @@ export function RunConsole({
         )}
         {/* The slot Retry would occupy. The server only sends this when the
             recorded inputs themselves cannot be sent again, so it is the only
-            case we can name; its absence says nothing about quota or access. */}
-        {failed && !retryOffered && snapshot.retryRefusal && (
+            case we can name; its absence says nothing about quota or access.
+            The compact tile has no sidebar, so a source refusal goes here. */}
+        {failed && !retryOffered && (snapshot.retryRefusal ?? (compact ? snapshot.sourceRefusal : null)) && (
           <p className="mt-4 max-w-prose text-[12px] leading-relaxed text-ink-secondary">
-            {snapshot.retryRefusal}
+            {snapshot.retryRefusal ?? snapshot.sourceRefusal}
           </p>
         )}
         {error && <p role="alert" className="mt-4 border-l-2 border-detect pl-3 text-[12px] text-detect-deep">{error}</p>}
@@ -372,19 +375,19 @@ export function RunConsole({
           stack under the mark where a quarter of the row cannot hold both. */}
       <ol className="grid grid-cols-4 border-b border-rule" aria-label="Run lifecycle">
         {STAGES.map((stage) => {
-          const mark = stageMark(snapshot, stage.id);
+          const { mark, tone, label } = STAGE_MARKS[stageStates[stage.id]];
           return (
             <li
               key={stage.id}
               aria-current={stage.id === snapshot.stage ? "step" : undefined}
               className={`flex flex-col items-center justify-center gap-0.5 border-r border-rule-soft px-1 py-1.5 last:border-r-0 ${compact ? "min-h-11" : "min-h-14 sm:flex-row sm:justify-start sm:gap-2 sm:px-4 sm:py-0"}`}
             >
-              <span className={`font-mono text-[15px] leading-none ${mark === "×" ? "text-detect" : mark === "○" ? "text-ink-faint" : "text-verify"}`} aria-hidden="true">{mark}</span>
+              <span className={`font-mono text-[15px] leading-none ${tone}`} aria-hidden="true">{mark}</span>
               {/* The gallery's 360px viewport leaves a 277px compact row.
                   Four-pixel padding keeps "Published" on one line with the
                   loaded font; narrower rows can still wrap rather than clip. */}
               <span className={`text-center leading-tight font-medium uppercase tracking-[0.05em] [overflow-wrap:anywhere] ${compact ? "text-[10px]" : "text-[10px] sm:text-[11px]"}`}>{stage.label}</span>
-              <span className="sr-only">{mark === "✓" ? "complete" : mark === "●" ? "active" : mark === "×" ? "failed" : "pending"}</span>
+              <span className="sr-only">{label}</span>
             </li>
           );
         })}

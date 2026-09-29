@@ -55,15 +55,10 @@
  *   `../github/commits.ts` could have applied on its way past. See
  *   `resolveCoAuthorLogin` for what counts as a resolution and why anything
  *   else is dropped.
- * - `RunRecord.createdAt` is deliberately *not* sourced from the `runs`
- *   table's `created_at` column despite matching process.py's `Run.created_at`
- *   field name. `first_light` is about when a run finished and scored, and
- *   this portal already has an established answer for that in
- *   `worker/services/team-nudges.ts` (`lastScoredAt`): `finishedAt` on a
- *   `status = 'succeeded'` run. Using the DB's `created_at` (queue time)
- *   here would both mismatch that sibling feature and report the wrong
- *   instant. See `buildProcessSignals`'s caller in `routes/team.ts` for
- *   where this mapping happens.
+ * - `RunRecord.finishedAt` where process.py's `Run` has `created_at`. First
+ *   light is when a run finished and scored, the same instant
+ *   `worker/services/team-nudges.ts` reports as `lastScoredAt`; a queue time
+ *   would be the wrong one.
  */
 
 import type { CoAuthorTrailer, CommitRecord } from "../github/commits";
@@ -355,12 +350,11 @@ export function stageFootprint(
  * observation, not supplementary evidence with gaps the way commits are, so
  * `firstLight` never checks history quality the way the commit-derived
  * signals do -- a bulk-uploaded repository can still have run history, and
- * that history is exactly as trustworthy as any other team's. See the
- * module docstring for where `createdAt`'s value actually comes from.
+ * that history is exactly as trustworthy as any other team's.
  */
 export interface RunRecord {
   runId: string;
-  createdAt: number;
+  finishedAt: number;
   scored: boolean;
 }
 
@@ -379,8 +373,8 @@ export interface FirstLightSignal {
 export function firstLight(runs: RunRecord[]): FirstLightSignal {
   const scored = runs.filter((run) => run.scored);
   if (scored.length === 0) return { firstScoredAt: null, scoredRunCount: 0 };
-  const earliest = scored.reduce((min, run) => (run.createdAt < min.createdAt ? run : min));
-  return { firstScoredAt: earliest.createdAt, scoredRunCount: scored.length };
+  const earliest = scored.reduce((min, run) => (run.finishedAt < min.finishedAt ? run : min));
+  return { firstScoredAt: earliest.finishedAt, scoredRunCount: scored.length };
 }
 
 // ---------------------------------------------------------------------------
