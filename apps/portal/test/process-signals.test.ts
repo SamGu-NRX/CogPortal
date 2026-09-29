@@ -699,8 +699,17 @@ test("a run that scores after history was read is on the next visit, without ask
   assert.equal(route.tokens.length, 1, "history came from the stored read");
   assert.equal(after.computedAt, before.computedAt, "and says when that read happened");
 
+  // The route before this format served any row younger than 30 minutes as a
+  // complete response, so a rolled-back Worker must find every new row expired.
+  const [row] = await route.db.select().from(teamProcessSignals);
+  assert.ok(row);
+  assert.equal(Date.now() - row.computedAt < 30 * 60_000, false, "the previous route would serve this row");
+
   // Past thirty minutes the history is read again.
-  await route.db.update(teamProcessSignals).set({ computedAt: Date.now() - 31 * 60_000 });
+  const stored = JSON.parse(row.signalsJson) as { checkedAt: number };
+  await route.db.update(teamProcessSignals).set({
+    signalsJson: JSON.stringify({ ...stored, checkedAt: Date.now() - 31 * 60_000 }),
+  });
   const expired = await route.request();
   assert.equal(route.tokens.length, 2);
   assert.ok(expired.computedAt > before.computedAt);
@@ -752,7 +761,7 @@ test("a stored row that isn't this repository's history is read again, not serve
   // History read for the repository the team had before a switch, stored
   // after the switch deleted the row.
   await store(JSON.stringify({
-    kind: "commit-history.v1", repository: "course/old-project", branch: "main",
+    kind: "commit-history.v1", repository: "course/old-project", branch: "main", checkedAt: storedAt,
     result: { ok: true, commits: [commit(), commit({ sha: "b".repeat(40) })], truncated: false },
   }));
   const fromOtherRepository = await route.request();

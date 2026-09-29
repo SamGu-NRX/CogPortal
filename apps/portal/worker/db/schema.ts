@@ -173,7 +173,8 @@ export const teamNudges = sqliteTable(
 /**
  * A team's GitHub commit history, reused for 30 minutes; the signals built
  * from it are not stored (`worker/routes/team.ts`). `signalsJson` keeps its
- * old name. `historyQuality` is a column so a query can filter on it.
+ * old name, and `computedAt` is 0 for those rows (see `StoredCommitHistorySchema`).
+ * `historyQuality` is a column so a query can filter on it.
  */
 export const teamProcessSignals = sqliteTable("team_process_signals", {
   teamId: text("team_id").primaryKey().references(() => teams.id),

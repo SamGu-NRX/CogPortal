@@ -215,14 +215,18 @@ const MAX_STORED_HISTORY_BYTES = 1_000_000;
  * `team_process_signals.signals_json` holds only GitHub history. Signals also
  * depend on runs, and caching them hid a team's first scored run. Repository
  * and branch are checked on read, so a read that lands after a repository
- * switch is never served; any other shape is a miss. The previous route
- * served any fresh row as a full response, so rolling back to it requires
- * `DELETE FROM team_process_signals`.
+ * switch is never served; any other shape is a miss.
+ *
+ * The read time lives in `checkedAt`, and the row's `computed_at` is written
+ * as 0. The route before this format served any row younger than 30 minutes
+ * as a complete response, so a rolled-back Worker would have failed the team
+ * panel on these rows; with 0 it treats them as expired and recomputes.
  */
 const StoredCommitHistorySchema = z.object({
   kind: z.literal("commit-history.v1"),
   repository: z.string(),
   branch: z.string(),
+  checkedAt: z.number(),
   result: z.discriminatedUnion("ok", [
     z.object({
       ok: z.literal(true),
@@ -252,7 +256,7 @@ async function readCommitHistory(
     .from(teamProcessSignals)
     .where(eq(teamProcessSignals.teamId, team.id))
     .limit(1);
-  if (cached && now - cached.computedAt < COMMIT_HISTORY_CACHE_MS) {
+  if (cached) {
     let json: unknown = null;
     try {
       json = JSON.parse(cached.signalsJson);
@@ -262,10 +266,11 @@ async function readCommitHistory(
     const stored = StoredCommitHistorySchema.safeParse(json);
     if (
       stored.success
+      && now - stored.data.checkedAt < COMMIT_HISTORY_CACHE_MS
       && stored.data.repository === team.repoFullName
       && stored.data.branch === team.defaultBranch
     ) {
-      return { result: stored.data.result, checkedAt: cached.computedAt };
+      return { result: stored.data.result, checkedAt: stored.data.checkedAt };
     }
   }
 
@@ -295,16 +300,17 @@ async function readCommitHistory(
       kind: "commit-history.v1",
       repository: team.repoFullName,
       branch: team.defaultBranch,
+      checkedAt: now,
       result: storable,
     } satisfies z.infer<typeof StoredCommitHistorySchema>);
     const historyQuality = storable.ok ? classifyHistoryQuality(storable.commits) : HISTORY_FETCH_FAILED;
     if (new TextEncoder().encode(signalsJson).byteLength <= MAX_STORED_HISTORY_BYTES) {
       await db
         .insert(teamProcessSignals)
-        .values({ teamId: team.id, computedAt: now, signalsJson, historyQuality })
+        .values({ teamId: team.id, computedAt: 0, signalsJson, historyQuality })
         .onConflictDoUpdate({
           target: teamProcessSignals.teamId,
-          set: { computedAt: now, signalsJson, historyQuality },
+          set: { computedAt: 0, signalsJson, historyQuality },
         });
     }
   }
