@@ -5,9 +5,9 @@ import { setupCommandLines } from "../src/lib/setup-progress.ts";
 // Accepted release sources, including the Vision fork rather than its upstream.
 const sources = [
   ["audio-identification", "cogworks-week1-audio-benchmark", "b156644aecc810e0b93535e320098f96c39ae04e"],
-  ["vision-recognition", "cogworks-week2-vision-benchmark", "b9055031bf25a18594651d89610f3fbcd7462db8"],
-  ["vision-clustering", "cogworks-week2-vision-benchmark", "b9055031bf25a18594651d89610f3fbcd7462db8"],
-  ["language-search", "cogworks-week3-language-benchmark", "6dc63fe8f6af2b3554a21f7707debb138f31ae4e"],
+  ["vision-recognition", "cogworks-week2-vision-benchmark", "c177cf23cdd4f8dbe55401a2eb4bada4c64d37c2"],
+  ["vision-clustering", "cogworks-week2-vision-benchmark", "c177cf23cdd4f8dbe55401a2eb4bada4c64d37c2"],
+  ["language-search", "cogworks-week3-language-benchmark", "1004766b66a4405ceda1a1b014a0438098a6570e"],
 ] as const;
 
 function commands(benchmarkId: string) {

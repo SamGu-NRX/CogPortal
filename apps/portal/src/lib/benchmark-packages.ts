@@ -30,12 +30,11 @@ export interface BenchmarkPackage {
  * reaches that through this page, which serves whichever pin its own deploy
  * carries, but `--portal` at an older deployment does.
  *
- * The retained-input SDK and Week3 pin move together: reports name captured
- * bytes and sync uploads those retained files, rather than rereading changed
- * project weights. The accepted local contract/storage and memo checks cover
- * supported adapters; they do not establish weighted course compatibility.
- * `d9405278` preserves that implementation and repairs its CI fixtures and
- * strict Week3 validator. Final combined live rehearsal remains separate.
+ * `d9405278` is the retained-input SDK: reports name captured bytes and sync
+ * uploads those retained files rather than rereading changed project weights.
+ * It is not the SDK this branch's hosted image bakes, and the Week 3 revision
+ * that reads its retained copies is not on this branch, so the benchmark pins
+ * below follow this branch's gitlinks rather than that pairing.
  */
 export const COGBENCH_SOURCE =
   "git+https://github.com/SamGu-NRX/CogPortal.git@d9405278aac8268cd340e589f36dbad766d1e2a0#subdirectory=python/cogbench";
@@ -51,20 +50,13 @@ const WEEK1_AUDIO: BenchmarkPackage = {
 const WEEK2_VISION: BenchmarkPackage = {
   distribution: "cogworks-week2-vision-benchmark",
   source:
-    "git+https://github.com/SamGu-NRX/cogworks-week2-vision-benchmark.git@b9055031bf25a18594651d89610f3fbcd7462db8",
+    "git+https://github.com/SamGu-NRX/cogworks-week2-vision-benchmark.git@c177cf23cdd4f8dbe55401a2eb4bada4c64d37c2",
 };
 
-// Matches the verified staging image, which runs 6dc63fe. Earlier revisions
-// counted the SDK's retained copy of a trained model as a second candidate for
-// the trained image projection and withheld the weight inputs, so a student
-// checking locally on one saw their image side unbound while a hosted run
-// scored it. Observed on staging run_28df471772; this revision also stops
-// repeating the chance baselines as notes and names the metric its chart
-// draws, so a local check and a hosted result read the same way.
 const WEEK3_LANGUAGE: BenchmarkPackage = {
   distribution: "cogworks-week3-language-benchmark",
   source:
-    "git+https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git@6dc63fe8f6af2b3554a21f7707debb138f31ae4e",
+    "git+https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git@1004766b66a4405ceda1a1b014a0438098a6570e",
 };
 
 export const BENCHMARK_PACKAGES: Readonly<Record<string, BenchmarkPackage>> = {
