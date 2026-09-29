@@ -30,7 +30,9 @@ export function StepRail({ children }: { children: ReactNode }) {
  * saw. Unknown is a read that failed, which is not the same as work nobody
  * did: both produce an empty verified set.
  */
-export type StepState = "verified" | "checked" | "pending" | "unknown";
+/** `note` is a step the portal never verifies (a prerequisite it cannot
+ *  watch), so it is announced as untracked rather than as work still owed. */
+export type StepState = "verified" | "checked" | "pending" | "unknown" | "note";
 
 export function Step({
   index,
@@ -80,7 +82,9 @@ export function Step({
                 ? "Checked off from your terminal. "
                 : state === "unknown"
                   ? "Progress unknown. "
-                  : "Not verified yet. "}
+                  : state === "note"
+                    ? "Not tracked. "
+                    : "Not verified yet. "}
           </span>
           <h2 className="font-serif text-[16.5px] font-semibold text-ink">{title}</h2>
           {state === "verified" && (
