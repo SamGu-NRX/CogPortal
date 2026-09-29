@@ -60,7 +60,7 @@ function commit(overrides: Partial<CommitRecord> = {}): CommitRecord {
 const NO_ROSTER: RosterMember[] = [];
 
 function run(overrides: Partial<RunRecord> = {}): RunRecord {
-  return { runId: "run_1", createdAt: T0, scored: true, ...overrides };
+  return { runId: "run_1", finishedAt: T0, scored: true, ...overrides };
 }
 
 // ---------------------------------------------------------------------------
@@ -109,7 +109,7 @@ test("bulk_upload marks every commit-derived signal unavailable, with a reason",
 test("first light still reports a scored run even when the commit history is bulk_upload", () => {
   const input: BuildProcessSignalsInput = {
     commitsResult: { ok: true, commits: [commit({ sha: "a".repeat(40) })] },
-    runs: [run({ runId: "run_1", createdAt: T0, scored: true })],
+    runs: [run({ runId: "run_1", finishedAt: T0, scored: true })],
     weekLabel: "week1",
     roster: NO_ROSTER,
   };
@@ -125,7 +125,7 @@ test("first light still reports a scored run even when the commit history is bul
 test("first light ignores commit history entirely, including a fetch failure", () => {
   const input: BuildProcessSignalsInput = {
     commitsResult: { ok: false, reason: "fetch_failed" },
-    runs: [run({ runId: "run_1", createdAt: T0, scored: true })],
+    runs: [run({ runId: "run_1", finishedAt: T0, scored: true })],
     weekLabel: "week1",
     roster: NO_ROSTER,
   };
@@ -317,7 +317,7 @@ test("no output key, anywhere in the tree, is a per-person total or a line count
         }),
       ],
     },
-    runs: [run({ runId: "run_1", createdAt: T0 + 2 * DAY, scored: true })],
+    runs: [run({ runId: "run_1", finishedAt: T0 + 2 * DAY, scored: true })],
     weekLabel: "week1",
     roster: [
       { login: "grace", email: "grace@dev.local" },
@@ -416,7 +416,7 @@ test("every group of findings is one sentence, however many stages or files it c
         }),
       ],
     },
-    runs: [run({ runId: "run_1", createdAt: T0 + 3 * DAY, scored: true })],
+    runs: [run({ runId: "run_1", finishedAt: T0 + 3 * DAY, scored: true })],
     weekLabel: "week1",
     roster: NO_ROSTER,
   });
@@ -518,7 +518,7 @@ test("a repository switch drops the old repository's runs, and says so", async (
   }
   assert.equal(await resolveWeekLabel(db, "team_test", 111), "week1");
   assert.deepEqual(await scoredRunRecords(db, "team_test", 111), [
-    { runId: "old", createdAt: 21, scored: true },
+    { runId: "old", finishedAt: 21, scored: true },
   ]);
 
   await db.update(teams).set({ repoId: 222 }).where(eq(teams.id, "team_test"));
@@ -584,7 +584,13 @@ test("a run for another repository never speaks for the connected one", async ()
 });
 
 
-test("the process route does not cache a GitHub 401 and reads history again after sign-in", async () => {
+/**
+ * The real `/v1/team/process` route for a signed-in member of a team on
+ * `course/project`, with GitHub answered by `github`. `tokens` records the
+ * authorization header of every commit-list request, so a test can see
+ * whether history was read again.
+ */
+async function processRoute(github: (token: string | null, url: string) => Response) {
   const binding = freshBinding();
   const db = drizzle(binding as never) as unknown as Database;
   const env = {
@@ -611,51 +617,151 @@ test("the process route does not cache a GitHub 401 and reads history again afte
   await db.update(users).set({ githubLogin: "ada", cohortId: "cohort_test" })
     .where(eq(users.id, userId));
   await db.insert(teamMembers).values({ teamId: "team_test", userId, role: "write" });
-  await db.insert(accounts).values({
-    id: "github_account", accountId: "github_ada", providerId: "github", userId,
-    accessToken: await symmetricEncrypt({ key: env.BETTER_AUTH_SECRET!, data: "expired-token" }),
-  });
+  const storeToken = async (token: string) => {
+    const accessToken = await symmetricEncrypt({ key: env.BETTER_AUTH_SECRET!, data: token });
+    await db.insert(accounts)
+      .values({ id: "github_account", accountId: "github_ada", providerId: "github", userId, accessToken })
+      .onConflictDoUpdate({ target: accounts.id, set: { accessToken } });
+  };
+  await storeToken("current-token");
   env.GITHUB_CLIENT_ID = "test-client";
   env.GITHUB_CLIENT_SECRET = "test-secret";
   const cookie = signIn.headers.getSetCookie().map((value) => value.split(";")[0]).join("; ");
   const app = new Hono<AppEnv>();
   registerTeamRoutes(app);
   app.onError(handleError);
-  const request = () => app.fetch(new Request("http://localhost:5173/v1/team/process", {
-    headers: { cookie },
-  }), env);
-  const originalFetch = globalThis.fetch;
   const tokens: Array<string | null> = [];
-  globalThis.fetch = async (input, init) => {
-    assert.equal(String(input), "https://api.github.com/repos/course/project/commits?sha=main&per_page=100&page=1");
-    const token = new Headers(init?.headers).get("authorization");
-    tokens.push(token);
-    return token === "Bearer renewed-token"
-      ? Response.json([])
-      : new Response(null, { status: 401 });
+  const request = async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (input, init) => {
+      const url = String(input);
+      assert.ok(url.startsWith("https://api.github.com/repos/course/project/commits"), url);
+      const token = new Headers(init?.headers).get("authorization");
+      if (url.endsWith("/commits?sha=main&per_page=100&page=1")) tokens.push(token);
+      return github(token, url);
+    };
+    try {
+      const response = await app.fetch(new Request("http://localhost:5173/v1/team/process", {
+        headers: { cookie },
+      }), env);
+      assert.equal(response.status, 200);
+      return TeamProcessSignalsSchema.parse(await response.json());
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   };
-  try {
-    const rejected = await request();
-    assert.equal(rejected.status, 200);
-    const payload = await rejected.json() as { historyQuality: string; findingSentences: string[] };
-    assert.equal(payload.historyQuality, HISTORY_FETCH_FAILED);
-    assert.equal(payload.findingSentences[0], UNAUTHORIZED_HISTORY_REASON);
-    assert.deepEqual(await db.select().from(teamProcessSignals), []);
+  return { db, request, tokens, storeToken };
+}
 
-    // A successful new GitHub sign-in replaces the account's stored token.
-    await db.update(accounts).set({
-      accessToken: await symmetricEncrypt({ key: env.BETTER_AUTH_SECRET!, data: "renewed-token" }),
-    }).where(eq(accounts.id, "github_account"));
-    const renewed = await request();
-    assert.equal(renewed.status, 200);
-    assert.equal((await renewed.json() as { historyQuality: string }).historyQuality, HISTORY_EMPTY);
-    assert.deepEqual(tokens, ["Bearer expired-token", "Bearer renewed-token"]);
-    const cached = await db.select().from(teamProcessSignals);
-    assert.equal(cached.length, 1);
-    assert.equal(cached[0].historyQuality, HISTORY_EMPTY);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
+test("the process route does not cache a GitHub 401 and reads history again after sign-in", async () => {
+  const route = await processRoute((token) =>
+    token === "Bearer renewed-token" ? Response.json([]) : new Response(null, { status: 401 }));
+  await route.storeToken("expired-token");
+  const rejected = await route.request();
+  assert.equal(rejected.historyQuality, HISTORY_FETCH_FAILED);
+  assert.equal(rejected.findingSentences[0], UNAUTHORIZED_HISTORY_REASON);
+  assert.deepEqual(await route.db.select().from(teamProcessSignals), []);
+
+  // A successful new GitHub sign-in replaces the account's stored token.
+  await route.storeToken("renewed-token");
+  const renewed = await route.request();
+  assert.equal(renewed.historyQuality, HISTORY_EMPTY);
+  assert.deepEqual(route.tokens, ["Bearer expired-token", "Bearer renewed-token"]);
+  const cached = await route.db.select().from(teamProcessSignals);
+  assert.equal(cached.length, 1);
+  assert.equal(cached[0].historyQuality, HISTORY_EMPTY);
+});
+
+async function scoredRun(db: Database, id: string, finishedAt: number) {
+  await db.insert(runs).values({
+    id, teamId: "team_test", repositoryId: 111,
+    benchmarkId: "audio-identification", benchmarkVersion: 1,
+    contractVersion: "cogworks.submissions.v2", mode: "practice", status: "succeeded",
+    branch: "main", sha: "a".repeat(40), attemptNumber: 1,
+    createdAt: finishedAt - 60_000, finishedAt, provider: "fixture",
+  });
+}
+
+test("a run that scores after history was read is on the next visit, without asking GitHub again", async () => {
+  // The route used to cache the whole response for thirty minutes, runs
+  // included, so a team's first scored run stayed "No run has scored end to
+  // end yet" on the team page while the dashboard showed the result.
+  const route = await processRoute(() => Response.json([]));
+  const before = await route.request();
+  assert.equal(before.firstLight.firstScoredAt, null);
+  assert.match(before.findingSentences.join(" "), /No run has scored end to end yet/);
+
+  await scoredRun(route.db, "run_scored", T0);
+  const after = await route.request();
+  assert.deepEqual(after.firstLight, { firstScoredAt: T0, scoredRunCount: 1 });
+  assert.doesNotMatch(after.findingSentences.join(" "), /No run has scored end to end yet/);
+  assert.equal(after.weekLabel, "week1", "the stage map follows the run as well");
+  assert.equal(route.tokens.length, 1, "history came from the stored read");
+  assert.equal(after.computedAt, before.computedAt, "and says when that read happened");
+
+  // Past thirty minutes the history is read again.
+  await route.db.update(teamProcessSignals).set({ computedAt: Date.now() - 31 * 60_000 });
+  const expired = await route.request();
+  assert.equal(route.tokens.length, 2);
+  assert.ok(expired.computedAt > before.computedAt);
+});
+
+test("a history too large to store is still read, and the page still answers", async () => {
+  // 40 commits of 300 long paths is over D1's 2 MB row limit. The write used
+  // to be on the response path, so it would have failed the whole panel.
+  const longPath = (index: number) => `data/${"deeply/nested/".repeat(12)}image_${index}.png`;
+  const route = await processRoute((_token, url) => {
+    if (url.includes("/commits?")) {
+      return Response.json(Array.from({ length: 40 }, (_, index) => ({ sha: String(index).padStart(40, "0") })));
+    }
+    return Response.json({
+      sha: url.slice(url.lastIndexOf("/") + 1),
+      commit: { author: { name: "Ada", date: "2026-07-01T00:00:00Z" }, message: "images" },
+      author: { login: "ada" },
+      files: Array.from({ length: 300 }, (_, index) => ({ filename: longPath(index) })),
+    });
+  });
+  await scoredRun(route.db, "run_scored", T0);
+  const first = await route.request();
+  assert.equal(first.historyWindow?.commits, 40);
+  assert.equal(first.firstLight.firstScoredAt, T0);
+  assert.deepEqual(await route.db.select().from(teamProcessSignals), [], "nothing oversized was stored");
+  await route.request();
+  assert.equal(route.tokens.length, 2, "so the next visit reads GitHub again");
+});
+
+test("a stored row that isn't this repository's history is read again, not served", async () => {
+  const route = await processRoute(() => Response.json([]));
+  const storedAt = Date.now();
+  const store = (signalsJson: string) => route.db.insert(teamProcessSignals)
+    .values({ teamId: "team_test", computedAt: storedAt, signalsJson, historyQuality: HISTORY_USABLE })
+    .onConflictDoUpdate({ target: teamProcessSignals.teamId, set: { computedAt: storedAt, signalsJson } });
+
+  // What older versions stored: the finished signals, stale first light and all.
+  await store(JSON.stringify({
+    historyQuality: "usable", historyWindow: null, weekLabel: null, stageFootprint: {},
+    firstLight: { firstScoredAt: null, scoredRunCount: 0 }, boundaryChurn: [], ownershipBreadth: {},
+    findingSentences: ["No run has scored end to end yet."],
+  }));
+  await scoredRun(route.db, "run_scored", T0);
+  const fromOldRow = await route.request();
+  assert.equal(route.tokens.length, 1, "an old payload is a miss");
+  assert.equal(fromOldRow.firstLight.firstScoredAt, T0);
+  assert.equal(fromOldRow.historyQuality, HISTORY_EMPTY);
+
+  // History read for the repository the team had before a switch, stored
+  // after the switch deleted the row.
+  await store(JSON.stringify({
+    kind: "commit-history.v1", repository: "course/old-project", branch: "main",
+    result: { ok: true, commits: [commit(), commit({ sha: "b".repeat(40) })], truncated: false },
+  }));
+  const fromOtherRepository = await route.request();
+  assert.equal(route.tokens.length, 2, "another repository's history is a miss");
+  assert.equal(fromOtherRepository.historyWindow?.commits, 0);
+
+  await store("not json");
+  await route.request();
+  assert.equal(route.tokens.length, 3, "a malformed row is a miss");
 });
 
 // ---------------------------------------------------------------------------
@@ -765,7 +871,7 @@ test("the window stays within the subrequest budget the platform allows", async 
 test("a fetch failure reports no window at all, rather than an empty one", () => {
   const signals = buildProcessSignals({
     commitsResult: { ok: false, reason: "fetch_failed" },
-    runs: [run({ runId: "run_1", createdAt: T0, scored: true })],
+    runs: [run({ runId: "run_1", finishedAt: T0, scored: true })],
     weekLabel: "week1",
     roster: NO_ROSTER,
   });
@@ -774,26 +880,6 @@ test("a fetch failure reports no window at all, rather than an empty one", () =>
   assert.equal(signals.historyWindow, null);
   assert.equal(signals.historyQuality, HISTORY_FETCH_FAILED);
   assert.deepEqual(signals.boundaryChurn, [], "and no churn is claimed from it");
-});
-
-test("a signals payload cached before the window existed still parses", () => {
-  // team_process_signals stores whatever the deployed version serialized. A
-  // row written before historyWindow has no such key, and the browser parses
-  // every response strictly, so this is what stops a deploy blanking the team
-  // page for every team with a warm cache.
-  const cached = {
-    historyQuality: "usable",
-    weekLabel: "week1",
-    stageFootprint: {},
-    firstLight: { firstScoredAt: null, scoredRunCount: 0 },
-    boundaryChurn: [],
-    ownershipBreadth: {},
-    findingSentences: [],
-    computedAt: T0,
-  };
-
-  const parsed = TeamProcessSignalsSchema.parse(cached);
-  assert.equal(parsed.historyWindow, null, "absent reads as unknown, not as zero commits");
 });
 
 test("a truncated window does not let a sentence claim the whole project", () => {
@@ -813,7 +899,7 @@ test("a truncated window does not let a sentence claim the whole project", () =>
         }),
       ),
     },
-    runs: [run({ runId: "run_1", createdAt: T0, scored: true })],
+    runs: [run({ runId: "run_1", finishedAt: T0, scored: true })],
     weekLabel: "week1",
     roster: NO_ROSTER,
   });
@@ -839,7 +925,7 @@ test("a complete history still speaks plainly", () => {
         }),
       ),
     },
-    runs: [run({ runId: "run_1", createdAt: T0, scored: true })],
+    runs: [run({ runId: "run_1", finishedAt: T0, scored: true })],
     weekLabel: "week1",
     roster: NO_ROSTER,
   });
@@ -865,7 +951,7 @@ test("the adapter-file section is absent when nothing touched those files", () =
         commit({ sha: "b".repeat(40), authoredAt: T0 + 2 * DAY, filesChanged: ["database.py"] }),
       ],
     },
-    runs: [run({ runId: "run_1", createdAt: T0, scored: true })],
+    runs: [run({ runId: "run_1", finishedAt: T0, scored: true })],
     weekLabel: "week1",
     roster: NO_ROSTER,
   });

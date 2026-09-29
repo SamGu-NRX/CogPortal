@@ -1079,8 +1079,9 @@ export const ChurnEventSchema = z.object({
 });
 export type ChurnEvent = z.infer<typeof ChurnEventSchema>;
 
-/** GET /api/v1/team/process — team members only. Cached; recomputed when
- *  older than 30 minutes (see worker/routes/team.ts). `weekLabel` is null
+/** GET /api/v1/team/process — team members only. Computed on every request
+ *  from current runs; only the GitHub commit history is reused, for up to 30
+ *  minutes (see worker/routes/team.ts). `weekLabel` is null
  *  for a team with no runs yet, which is also when `stageFootprint` and
  *  `ownershipBreadth` are empty objects: no run means no way to know which
  *  capstone stage map applies, so there is no stage list to report against. */
@@ -1100,18 +1101,15 @@ export const HistoryWindowSchema = z.object({
 
 export const TeamProcessSignalsSchema = z.object({
   historyQuality: HistoryQualitySchema,
-  // Defaulted, not merely nullable. `team_process_signals` holds payloads
-  // serialized by whatever version wrote them, and rows written before this
-  // field existed have no key at all. The browser parses every response
-  // strictly, so a bare `.nullable()` would have blanked the team page for
-  // every team with a warm cache until it expired.
-  historyWindow: HistoryWindowSchema.nullable().default(null),
+  historyWindow: HistoryWindowSchema.nullable(),
   weekLabel: z.enum(["week1", "week2", "week3"]).nullable(),
   stageFootprint: z.record(z.string(), StageActivitySchema),
   firstLight: FirstLightSchema,
   boundaryChurn: z.array(ChurnEventSchema),
   ownershipBreadth: z.record(z.string(), z.array(z.string())),
   findingSentences: z.array(z.string()),
+  /** When GitHub was last asked for commit history; run-derived fields are
+   *  always current. Not renamed: pages open across a deploy parse strictly. */
   computedAt: z.number(),
 });
 export type TeamProcessSignals = z.infer<typeof TeamProcessSignalsSchema>;
