@@ -59,16 +59,27 @@ def main() -> None:
         expected = None
     else:
         cases = clustering_scenarios(official)
-        count = sum(len(case.images) for case in cases)
-        if len(cases) != 3 or not 80 <= count <= 120:
-            raise SystemExit("Official clustering manifest must contain three bounded cases.")
+        # Stability repeats reuse the base images for findings, not extra scores.
+        scored = [case for case in cases if case.scored]
+        count = sum(len(case.images) for case in scored)
+        if len(scored) != 3 or not 80 <= count <= 120:
+            raise SystemExit(
+                "Official clustering manifest must contain three scored base cases "
+                "with 80 to 120 total images, excluding stability repetitions."
+            )
         expected = [list(case.expected_labels) for case in cases]
 
     target = args.volume_root.resolve() / args.track / args.dataset_version
     target.parent.mkdir(parents=True, exist_ok=True)
     temporary = Path(tempfile.mkdtemp(prefix=".week2-official-", dir=str(target.parent)))
     try:
-        payload, plans = encode_cases(args.track, cases)
+        # No key: this permutation is a carrier, not a secret. It is undone
+        # by `attach_recognition_gold` and the controller reshuffles each run
+        # with its own keyed seed, so an operator's machine does not need
+        # RUNNER_SIGNING_SECRET. Re-materializing the same manifest deals the
+        # same plan and writes the same archive members; the archive's bytes
+        # still differ, because zipfile stamps each entry with the clock.
+        payload, plans = encode_cases(args.track, cases, seed_key=None)
         if args.track == "vision-recognition":
             expected = recognition_gold(plans)
         (temporary / "payload.zip").write_bytes(payload)
@@ -84,7 +95,14 @@ def main() -> None:
     except Exception:
         shutil.rmtree(str(temporary), ignore_errors=True)
         raise
-    print("Materialized {} official images for {}.".format(count, args.track))
+    if args.track == "vision-clustering":
+        print(
+            "Materialized {} scored clustering cases with {} images and {} stability repetitions.".format(
+                len(scored), count, len(cases) - len(scored)
+            )
+        )
+    else:
+        print("Materialized {} official images for {}.".format(count, args.track))
 
 
 if __name__ == "__main__":

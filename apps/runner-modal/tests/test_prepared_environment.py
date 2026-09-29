@@ -54,6 +54,26 @@ def require_packages(*names):
         raise unittest.SkipTest("Optional test dependencies are absent: " + ", ".join(missing))
 
 
+#: The groups `cogbench.plugins.load_benchmark` searches, in its order.
+BENCHMARK_GROUPS = ("cogworks.benchmarks.v2", "cogworks.benchmarks.v1")
+
+
+def require_registered_benchmark(benchmark_id):
+    """Require registration for tests that use the plugin loader.
+
+    Earlier tests add Week 2 source to sys.path even in other CI lanes, where
+    its entry points are absent. Check registration without catching loader
+    errors, so a registered but broken plugin still fails the test.
+    """
+    require_benchmark(benchmark_id)
+    from cogbench.plugins import plugin_names
+
+    if not any(benchmark_id in plugin_names(group) for group in BENCHMARK_GROUPS):
+        raise unittest.SkipTest(
+            "{} has no plugin registration in this test environment".format(benchmark_id)
+        )
+
+
 def job():
     return {
         "preparedArtifactId": "im-snapshot",
@@ -98,6 +118,50 @@ class DependencyGateTest(unittest.TestCase):
         with mock.patch.object(importlib.util, "find_spec", side_effect=ImportError("broken installation")):
             with self.assertRaisesRegex(ImportError, "broken installation"):
                 require_benchmark("language-search")
+
+    def test_importable_but_unregistered_benchmark_is_a_skip(self):
+        # The Week 1 and Week 3 CI lanes, where the submodule is checked out
+        # and another test module has already put it on sys.path.
+        with mock.patch.object(importlib.util, "find_spec", return_value=object()):
+            with mock.patch("cogbench.plugins.plugin_names", return_value=[]):
+                with self.assertRaisesRegex(unittest.SkipTest, "no plugin registration"):
+                    require_registered_benchmark("vision-recognition")
+
+    def test_registered_benchmark_is_not_a_skip(self):
+        for group in BENCHMARK_GROUPS:
+            with self.subTest(group=group):
+                names = {group: ["vision-recognition"]}
+                with mock.patch.object(importlib.util, "find_spec", return_value=object()):
+                    with mock.patch("cogbench.plugins.plugin_names",
+                                    side_effect=lambda value: names.get(value, [])):
+                        require_registered_benchmark("vision-recognition")
+
+    def test_the_registration_gate_cannot_mask_a_loader_failure(self):
+        # Membership, never a caught PluginError: a plugin that is registered
+        # and fails to load has to reach the caller as that failure.
+        loader = mock.Mock(side_effect=RuntimeError("broken plugin"))
+        with mock.patch.object(importlib.util, "find_spec", return_value=object()):
+            with mock.patch("cogbench.plugins.plugin_names", return_value=["vision-recognition"]):
+                with mock.patch("cogbench.plugins.load_benchmark", loader):
+                    require_registered_benchmark("vision-recognition")
+        loader.assert_not_called()
+
+    def test_the_registration_gate_admits_exactly_what_loads_here(self):
+        # No mocks. Whatever this lane installed, a benchmark the gate admits
+        # must actually load, or the gate is letting work through that cannot
+        # run. Lanes with nothing installed skip.
+        from cogbench.plugins import load_benchmark
+
+        admitted = []
+        for benchmark_id in env.SANDBOX_CONTRACTS:
+            try:
+                require_registered_benchmark(benchmark_id)
+            except unittest.SkipTest:
+                continue
+            self.assertEqual(load_benchmark(benchmark_id).benchmark_id, benchmark_id)
+            admitted.append(benchmark_id)
+        if not admitted:
+            self.skipTest("No benchmark is installed here")
 
     def test_probe_contract_defect_is_not_a_skip_when_dependencies_exist(self):
         with mock.patch.object(importlib.util, "find_spec", return_value=object()):
@@ -494,7 +558,7 @@ class DecoderDriverGoldenTest(unittest.TestCase):
         self.assertEqual(calls, ["factory", ("enroll", "known"), ("recognize", 2),
                                  ("enroll", "new"), ("recognize", 2)])
 
-    def test_vision_clustering_contract1_forwards_seed_without_gold(self):
+    def test_vision_clustering_contract1_forwards_the_case_fields_without_gold(self):
         require_benchmark("vision-clustering")
         import numpy as np
         from facial_recognition_benchmark.adapters import AdapterContractError
@@ -504,16 +568,22 @@ class DecoderDriverGoldenTest(unittest.TestCase):
         arrays = {"images/{:04d}.npy".format(i): np.full((2, 2, 3), i, dtype=np.uint8)
                   for i in range(3)}
         wire = payload({"benchmark_id": "vision-clustering", "cases": [
-            # Contract 1 does not carry these controller-only fields through
-            # decoding. Preserving them later requires a new contract fixture.
-            {"images": [0, 1, 2], "seed": 7, "scored": False, "scenario_key": "sweep"},
+            # A base and its repetition. The current decoder keeps `scored` and
+            # `scenario_key`; the sandbox reads neither, which is why that
+            # addition left the contract at 1. test_saved_contract_pairs runs
+            # both decoders over an official bundle and compares the metrics.
+            {"images": [0, 1, 2], "seed": 7, "scored": True, "scenario_key": "base"},
+            {"images": [0, 1, 2], "seed": 11, "scored": False, "scenario_key": "base"},
         ]}, arrays)
         benchmark_id, cases = decode_cases(wire)
-        self.assertEqual((benchmark_id, len(cases)), ("vision-clustering", 1))
-        self.assertEqual(cases[0].expected_labels, [])
-        self.assertEqual(cases[0].seed, 7)
-        self.assertTrue(cases[0].scored)
-        self.assertIsNone(cases[0].scenario_key)
+        self.assertEqual((benchmark_id, len(cases)), ("vision-clustering", 2))
+        base, repetition = cases
+        self.assertEqual([base.expected_labels, repetition.expected_labels], [[], []])
+        self.assertEqual((base.seed, base.scored, base.scenario_key), (7, True, "base"))
+        self.assertEqual((repetition.seed, repetition.scored, repetition.scenario_key),
+                         (11, False, "base"))
+        # The driver takes one scenario and reads neither field, so the rest of
+        # this runs a single case.
         seen = []
 
         class Adapter:
@@ -521,7 +591,7 @@ class DecoderDriverGoldenTest(unittest.TestCase):
                 seen.append((seed, [int(image[0, 0, 0]) for image in images]))
                 return [np.int64(9), np.int64(9), "other"]
 
-        self.assertEqual(run_clustering_scenario(lambda model: Adapter(), object(), cases[0]), [9, 9, "other"])
+        self.assertEqual(run_clustering_scenario(lambda model: Adapter(), object(), base), [9, 9, "other"])
         self.assertEqual(seen, [(7, [0, 1, 2])])
 
         class Broken:
@@ -529,7 +599,7 @@ class DecoderDriverGoldenTest(unittest.TestCase):
                 return [0]
 
         with self.assertRaisesRegex(AdapterContractError, "returned 1 labels for 3 images"):
-            run_clustering_scenario(lambda model: Broken(), object(), cases[0])
+            run_clustering_scenario(lambda model: Broken(), object(), base)
 
     def test_language_contract1_has_six_cases_and_one_shared_preparation(self):
         require_benchmark("language-search")

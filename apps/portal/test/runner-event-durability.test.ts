@@ -253,6 +253,10 @@ async function seedRun(db: Database, options: { mode?: "practice" | "official" }
     benchmarkId: AUDIO,
     benchmarkVersion: 1,
     contractVersion: "cogworks.submissions.v1",
+    // Run creation copies the catalog scorer onto the run, and publication
+    // compares the two. Seeding the column's '1' default would make this run
+    // unpublishable for a reason these tests are not about.
+    scorerVersion: "identification-v1",
     mode,
     status: "evaluating",
     branch: "main",

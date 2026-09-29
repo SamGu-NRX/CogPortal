@@ -23,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import test_prepared_restore as prepared_restore
 from test_prepared_restore import SOURCE, functions, job
 from test_saved_contract_pairs import FIXTURES, saved
-from test_prepared_environment import require_benchmark
+from test_prepared_environment import require_registered_benchmark
 from cogworks_runner.prepared_environment import bind_environment, probe
 from cogworks_runner.protocol import canonical_json, validate_job
 
@@ -61,7 +61,9 @@ def controller_space(base):
 
 class SavedVisionReuse(unittest.TestCase):
     def test_reuse_preserves_provisioning_and_scores_old_driver_with_current_encoder(self):
-        require_benchmark("vision-recognition")
+        # This drives execute_job, which loads the benchmark through its entry
+        # point, so importable source is not enough to run it.
+        require_registered_benchmark("vision-recognition")
         import numpy as np
         from facial_recognition_benchmark import drivers
         if not hasattr(drivers, "query_phases"):
