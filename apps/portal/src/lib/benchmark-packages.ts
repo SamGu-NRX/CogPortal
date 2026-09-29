@@ -59,14 +59,14 @@ const WEEK2_VISION: BenchmarkPackage = {
 // f5f7347 builds a team's database before calling an image encoder that is
 // one of its methods. The SDK no longer lends a run the object discovery
 // built, so 6dc63fe, which called the encoder first, failed CI run 35766833651.
-// No staging image has run it or its test follow-up a2fdcfd yet. 6dc63fe is
-// the revision verified on staging (run_28df471772), where earlier revisions
-// had left a trained image projection unbound locally while a hosted run
-// scored it.
+// No staging image has run it or its test-only follow-ups up to 94c7e64 yet.
+// 6dc63fe is the revision verified on staging (run_28df471772), where earlier
+// revisions had left a trained image projection unbound locally while a
+// hosted run scored it.
 const WEEK3_LANGUAGE: BenchmarkPackage = {
   distribution: "cogworks-week3-language-benchmark",
   source:
-    "git+https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git@a2fdcfd02a3aa26e7e7685514eb260d3dd7d4fe0",
+    "git+https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git@94c7e64f7e3bf5193be1805b4258f017d044a088",
 };
 
 export const BENCHMARK_PACKAGES: Readonly<Record<string, BenchmarkPackage>> = {
