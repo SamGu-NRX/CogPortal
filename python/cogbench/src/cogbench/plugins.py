@@ -16,18 +16,12 @@ class BenchmarkInstall(NamedTuple):
     source: str
 
 
-# What to tell a student whose benchmark package is missing. The CLI is
-# installed as a package and cannot read the parent checkout, so the commands
-# are written out here.
-#
-# These are the distributions students install, which is not the same list as
-# `.gitmodules`: Week 2 is developed in one repository and published from
-# another, so its advice names the published fork rather than the submodule
-# URL. Treating the two as one table is what left this advice pointing at
-# commits no student could install.
-#
-# Moving a pin here is a coordinated change: the portal's own installer copy
-# and the benchmark catalog restate the same versions and are owned elsewhere.
+# What to tell a student whose benchmark package is missing. The URL is the
+# one in .gitmodules and the commit is the gitlink beside it, restated here
+# because the CLI is installed as a package and cannot read the parent
+# checkout. test_plugins.py reads both back out of the repository, so a
+# submodule bump that misses this table breaks CI rather than a student's
+# install. The portal's installer copy restates the same revisions.
 BENCHMARK_INSTALLS: Dict[str, BenchmarkInstall] = {
     "audio-identification": BenchmarkInstall(
         "cogworks-week1-audio-benchmark",
