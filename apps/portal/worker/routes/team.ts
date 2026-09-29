@@ -203,26 +203,21 @@ const MODULE_WEEK_LABELS: Record<string, WeekLabel> = {
   language: "week3",
 };
 
-/** How long a repository's commit history is reused before GitHub is asked
- *  again. Reading it costs up to 41 of a Worker's 50 subrequests
- *  (`../github/commits.ts`); runs are read fresh on every request. */
+/** Reading history costs up to 41 of a Worker's 50 subrequests. */
 const COMMIT_HISTORY_CACHE_MS = 30 * 60 * 1000;
 
-/** D1 refuses a row over 2,000,000 bytes. Forty commits of GitHub's 300 files
- *  each can pass that with long paths, and a failed write would lose the
- *  whole response, so a history this large is used once and not stored. */
+/** Below D1's 2,000,000-byte row limit, which 40 commits of 300 long paths
+ *  can pass. A failed write would fail the response, so larger history is
+ *  used without being stored. */
 const MAX_STORED_HISTORY_BYTES = 1_000_000;
 
 /**
- * What `team_process_signals.signals_json` holds: the commit history as read
- * from GitHub, never signals derived from it. The signals also depend on the
- * team's runs, which change far more often than a thirty-minute cache, and a
- * cached copy of them kept a team's first scored run off the page.
- *
- * The repository and branch travel with the history, so a read that finishes
- * after the team switches repository cannot be served as the new one's. A row
- * in any other shape, including the signal payloads older versions wrote, is
- * a miss.
+ * `team_process_signals.signals_json` holds only GitHub history. Signals also
+ * depend on runs, and caching them hid a team's first scored run. Repository
+ * and branch are checked on read, so a read that lands after a repository
+ * switch is never served; any other shape is a miss. The previous route
+ * served any fresh row as a full response, so rolling back to it requires
+ * `DELETE FROM team_process_signals`.
  */
 const StoredCommitHistorySchema = z.object({
   kind: z.literal("commit-history.v1"),

@@ -772,9 +772,8 @@ export function runSurfaceCurrentEvents(snapshot: RunSurfaceSnapshot): RunStream
 
 export type RunLifecycleStageState = "complete" | "active" | "failed" | "cancelled" | "pending" | "not_run";
 
-/** What each lifecycle stage recorded, read from that stage's own run rather
- * than from its position in the rail. A surface started from the browser has
- * no local session, so its local stage stays `not_run` through publication. */
+/** Each stage from its own run, not its position: a surface started in the
+ * browser has no local session, so Local stays `not_run` through publication. */
 export function runSurfaceStageStates(
   snapshot: RunSurfaceSnapshot,
 ): Record<RunLifecycleStage, RunLifecycleStageState> {
@@ -789,10 +788,9 @@ export function runSurfaceStageStates(
   ): RunLifecycleStageState => {
     if (!runId) return id === "local" ? "not_run" : "pending";
     if (id === snapshot.stage) return fromStatus(snapshot.status);
-    // Hosted verification starts only from a succeeded local session, and a
-    // finished session accepts no further events, so a later stage proves it.
+    // Hosted verification requires a succeeded, and then immutable, local session.
     if (id === "local") return "complete";
-    // The ids are already the heads of their retry chains.
+    // These ids are the latest retry, so a retried failure never marks its stage.
     const run = snapshot.executionHistory.find((item) => item.id === runId);
     return run ? fromStatus(run.status) : "pending";
   };
@@ -1110,10 +1108,8 @@ export const TeamProcessSignalsSchema = z.object({
   boundaryChurn: z.array(ChurnEventSchema),
   ownershipBreadth: z.record(z.string(), z.array(z.string())),
   findingSentences: z.array(z.string()),
-  /** When GitHub was last asked for the commit history. Everything built
-   *  from runs is current as of the response. The name predates that split
-   *  and stays, because a renamed required field breaks every page loaded
-   *  before a deploy until it is reloaded. */
+  /** When GitHub was last asked for commit history; run-derived fields are
+   *  always current. Not renamed: pages open across a deploy parse strictly. */
   computedAt: z.number(),
 });
 export type TeamProcessSignals = z.infer<typeof TeamProcessSignalsSchema>;

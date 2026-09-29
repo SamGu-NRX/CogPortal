@@ -262,9 +262,8 @@ export function useTeam() {
   return useQuery({ queryKey: ["team"], queryFn: api.team });
 }
 
-/** The four process signals. The worker reads runs on every request and
- *  reuses only GitHub commit history, so each visit to the page asks again: a
- *  run that scored since the last visit belongs on it. No polling. */
+/** The four process signals. Runs are read fresh by the worker, so each
+ *  visit asks again; no polling. */
 export function useTeamProcess() {
   return useQuery({
     queryKey: ["team-process"],

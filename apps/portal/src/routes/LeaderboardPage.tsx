@@ -36,10 +36,16 @@ function visionViewOf(benchmarkId: string): VisionView {
 
 export function LeaderboardPage() {
   const benchmarks = useBenchmarks();
-  // A published result links here with `?benchmark=`, which picks its track
-  // and, for Vision, its exact tab once the catalog names the module. The bare
-  // page opens on the first course module, and Vision on Overall.
-  //
+  const [searchParams] = useSearchParams();
+  const requested = searchParams.get("benchmark");
+  // A picked tab survives refetches and resets on the next navigation, even to the same link.
+  const arrival = useLocation().key;
+  const [picked, setPicked] = useState<{ arrival: string; module: Module; visionView: VisionView } | null>(null);
+  const choice = picked?.arrival === arrival ? picked : null;
+  const target = requested ? benchmarks.data?.find((b) => b.id === requested) : undefined;
+  // No tab until the catalog names the module; defaulting would flash Audio first.
+  const resolving = requested !== null && benchmarks.isPending;
+  const module: Module | null = choice?.module ?? target?.module ?? (resolving ? null : TRACKS[0]!.module);
   // Vision opens on Overall, which is the summary of the other two. Overall
   // is empty until a team publishes a Recognition and a Clustering result
   // from one commit, and that used to read as "no results published yet"
@@ -47,18 +53,6 @@ export function LeaderboardPage() {
   // what Overall needs and where the rest is, not choosing the tab for the
   // reader: which board has rows is a fact about this week that would move
   // the tab under them on a refetch.
-  const [searchParams] = useSearchParams();
-  const requested = searchParams.get("benchmark");
-  // A tab the reader picks holds through refetches until they navigate again,
-  // including to the same link, which asks for its benchmark afresh.
-  const arrival = useLocation().key;
-  const [picked, setPicked] = useState<{ arrival: string; module: Module; visionView: VisionView } | null>(null);
-  const choice = picked?.arrival === arrival ? picked : null;
-  const target = requested ? benchmarks.data?.find((b) => b.id === requested) : undefined;
-  // Until the catalog answers, a requested benchmark has no known module, and
-  // guessing the first one would show Audio before jumping away from it.
-  const resolving = requested !== null && benchmarks.isPending;
-  const module: Module | null = choice?.module ?? target?.module ?? (resolving ? null : TRACKS[0]!.module);
   const visionView: VisionView = choice?.visionView ?? (target ? visionViewOf(target.id) : "overall");
   const pick = (next: { module?: Module; visionView?: VisionView }) =>
     setPicked({

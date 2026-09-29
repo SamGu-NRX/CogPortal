@@ -171,12 +171,9 @@ export const teamNudges = sqliteTable(
 );
 
 /**
- * A team's commit history as last read from GitHub, reused for 30 minutes so
- * a page load does not spend 41 subrequests re-reading it. The signals built
- * from it are not stored; see `worker/routes/team.ts`. `signalsJson` keeps its
- * name from when it held them. One row per team, always replaced as a whole:
- * `historyQuality` is that history's quality, in its own column so a query
- * can filter by it without parsing JSON in SQL.
+ * A team's GitHub commit history, reused for 30 minutes; the signals built
+ * from it are not stored (`worker/routes/team.ts`). `signalsJson` keeps its
+ * old name. `historyQuality` is a column so a query can filter on it.
  */
 export const teamProcessSignals = sqliteTable("team_process_signals", {
   teamId: text("team_id").primaryKey().references(() => teams.id),
