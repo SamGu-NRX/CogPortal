@@ -2094,10 +2094,12 @@ def _evaluate(job: Dict[str, Any], snapshot_id: str, inputs: List[Any]) -> Tuple
             "/tmp/cog-evaluate.py",
             job["benchmark"]["id"],
             str(job["runtime"]["maxOutputBytes"]),
+            # Strict UTF-8 text mode turns one invalid byte into a provider failure.
+            text=False,
         )
         process.wait()
         if process.returncode != 0:
-            detail = process.stderr.read()[-240:]
+            detail = process.stderr.read().decode("utf-8", "replace")[-240:]
             normalized = detail.lower()
             category = "output_invalid" if "prediction" in normalized else "student_runtime"
             raise RunnerFailure(category, "evaluating", detail or "Evaluation failed.", False)
@@ -2154,10 +2156,12 @@ def _evaluate_v2(
             "/tmp/cog-evaluate.py",
             job["benchmark"]["id"],
             str(job["runtime"]["maxOutputBytes"]),
+            # Strict UTF-8 text mode turns one invalid byte into a provider failure.
+            text=False,
         )
         process.wait()
         if process.returncode != 0:
-            stderr_text = process.stderr.read()
+            stderr_text = process.stderr.read().decode("utf-8", "replace")
             detail = _last_error_line(stderr_text)
             # No platform-fault branch here, deliberately. See
             # _platform_owned_evaluation_failure below: anything this process
@@ -2303,10 +2307,12 @@ def _evaluate_week3(
             "/tmp/cog-evaluate.py",
             job["benchmark"]["id"],
             str(job["runtime"]["maxOutputBytes"]),
+            # Strict UTF-8 text mode turns one invalid byte into a provider failure.
+            text=False,
         )
         process.wait()
         if process.returncode != 0:
-            stderr_text = process.stderr.read()
+            stderr_text = process.stderr.read().decode("utf-8", "replace")
             detail = _last_error_line(stderr_text)
             # No platform-fault branch. _week3_cases already decoded and
             # validated the same artifacts in this process, before the sandbox
@@ -2383,10 +2389,12 @@ def _evaluate_week1(
             "/tmp/cog-evaluate.py",
             job["benchmark"]["id"],
             str(job["runtime"]["maxOutputBytes"]),
+            # Strict UTF-8 text mode turns one invalid byte into a provider failure.
+            text=False,
         )
         process.wait()
         if process.returncode != 0:
-            stderr_text = process.stderr.read()
+            stderr_text = process.stderr.read().decode("utf-8", "replace")
             detail = _last_error_line(stderr_text)
             # No platform-fault branch. _week1_cases renders the same corpus
             # from the same seeds in this process and verifies it against the

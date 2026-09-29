@@ -16,7 +16,7 @@ from pathlib import Path
 from unittest import mock
 
 from test_prepared_restore import (
-    SOURCE, LazyImage, Reporter, functions, job, shape_valid_observation,
+    SOURCE, LazyImage, Reporter, Stream, functions, job, shape_valid_observation,
 )
 from test_prepared_environment import env, require_packages
 
@@ -28,17 +28,6 @@ def prepare_script():
         ):
             return ast.literal_eval(node.value)
     raise AssertionError("PREPARE_SCRIPT is missing")
-
-
-class Stream:
-    """A process stream as Modal returns it: bytes, or strict UTF-8 text."""
-
-    def __init__(self, value, text):
-        self.value = value.encode("utf-8") if isinstance(value, str) else value
-        self.text = text
-
-    def read(self):
-        return self.value.decode("utf-8") if self.text else self.value
 
 
 class PrepareAttribution(unittest.TestCase):
