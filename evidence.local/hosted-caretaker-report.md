@@ -141,3 +141,54 @@ Heads after the merge: #8 `c7efcdc`, #13 `f26c3bd`, #15 `12df96f`, #16
 `e4cdfeb`, #19 `c701d34`, #24 `e264e1d`, #27 `7f1e9bc`. Runner suite (Python
 3.8), `pnpm check`, portal and bot tests green locally at every step that
 carries the affected code.
+
+## Review dispositions on unchanged heads, 2026-09-29
+
+No head moved since 2026-09-22. Sam's `@coderabbitai review` (Sept 26-28)
+produced completed reviews on the current heads of #8, #15, #19, #23, #26,
+#34, #42 and Vision #1, #3, #4. On #13, #16, #24, #27, #30, #37 CodeRabbit
+reports "Review completed" but posted no review, so a content review there is
+not proven; Aikido's deep review did complete on those heads with no threads.
+Greptile (credits used) and Macroscope (credit exhausted) did not review.
+Vision #5 is a draft and was skipped. No required checks exist on the stacked
+bases; every head's rollup is SUCCESS.
+
+Supported, awaiting a writer (no branch was written in this phase):
+
+- #8 `the-ask.md:54` still says promotion spends the attempt when work
+  begins; #8's `34d7777` moved the list to completed-only counting.
+- #8 `scoring-and-refusals.md:109` says every `output_invalid` spends the
+  attempt, contradicting #8's own line 103.
+- #8 `gate-1-modal.md:356-362` and the `.dev.vars.example`
+  RUNNER_IMAGE_DIGEST block still describe `environmentDigest` as three
+  inputs including this value; `environment_digest` hashes the prepared
+  record, evaluation script, controller Python and plugin and scorer
+  versions. The `.dev.vars.example` wording is mine from `f2e091c`.
+- #23 `production-closure.md:41` puts the Cloudflare token in curl's argv,
+  and `rotate-signing-secret.md:359` has the operator type the production
+  secret inline; #23's own `platform.md` rules out both.
+- #42 `deploy-your-own.md:30` says step 6 renames things; it is step 5.
+- #42 `deploy-your-own.md:189` makes dev cleanup optional; #42's own
+  `security-and-data.md:173-181` says the published `VISION26` code admits
+  anyone to any database carrying the seed.
+- #42 `environments.md:9` and its "nothing else" heading overclaim against
+  its own R2 bullet; that bullet goes wrong once #37 binds production.
+- Vision #1 `plugins.py:424` renders "no face in 2 ones"; `roles.py:1070`
+  docstring says unreadable answers are scored as "I do not know", while
+  `roles.py:939` refuses them.
+- Vision #3 `discovered.py:316-320` is accurate against Foundation's SDK and
+  stale under SDK #7, whose `fresh()` re-reads the repository.
+- Vision #4 `plugins.py:250,330` tells every team their clustering is
+  Whispers; a discovered chain may be anything.
+- #1 (not mine) `timeouts-and-limits.md:181` says `RUNNER_IMAGE_DIGEST`
+  changes the sandbox; it selects nothing.
+
+Not defects: #8 run-page diagram (the head's `RunDetailPage.tsx:221` still
+renders "Run practice again"; Retry UI is #22); #15 gitlink-to-squash (the
+merge-commit strategy keeps the pin); #19 empty signing secret (the Worker
+refuses dispatch at `runner.ts:49`, and a runner holding "" rejects every
+portal-signed job); #23 pins (plugins.py is the CLI's install hint, not the
+hosted scorer; the landing table owns the disagreement); #23 upload cap (raw
+PUT, not multipart; whether Cloudflare's 100 MB is 10^8 bytes is unverified);
+#42 dev-auth wording (`env.ts:98-103` needs three conditions, so one variable
+cannot enable it); #34 32-entry overflow (caller caps at `modal_app.py:2783`).
