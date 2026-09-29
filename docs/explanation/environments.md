@@ -6,7 +6,7 @@ The decision matters because the alternative is worse in a specific way. If the
 environment a change is checked in differs from the one students use, the check
 stops being evidence. Two environments built from one configuration file, with
 one set of pins and one migrations directory, mean a passing journey on dev is a
-real prediction about prod.
+real prediction about prod, except where the list below says they differ.
 
 ## The two environments
 
@@ -26,7 +26,7 @@ binding names `cogportal-production`, so at any moment the bot talks to exactly
 one portal. Pointing it at dev means editing `apps/discord-bot/wrangler.jsonc`
 and redeploying, which the comments in that file describe.
 
-## They differ in names, secrets, and data, and nothing else
+## They differ in names, secrets, data and storage, and nothing else
 
 Wrangler keys are not inheritable, so `env.production` re-declares every
 variable, route, and binding rather than overriding a few.
@@ -42,9 +42,10 @@ What differs:
   `cogworks-runner-signing` for dev, `cogworks-runner-production` with
   `cogworks-runner-production-signing` for prod. A dev deploy therefore cannot
   move prod's controller or its images.
-- R2. Dev binds `ARTIFACTS` to the private bucket `cogportal-artifacts-dev`.
-  Prod has no `r2_buckets` block until one is separately authorized, and it must
-  never name dev's bucket.
+- R2. Each environment names its own private bucket in its own `r2_buckets`
+  block, dev's being `cogportal-artifacts-dev`, and neither may name the other's.
+  An environment without the block answers 501 to a weight upload, so dev
+  predicts prod's weighted runs only while both have one.
 - Every secret value. Wrangler secrets do not copy between environments, so each
   is set once per environment with `wrangler secret put`.
 - `ENVIRONMENT`, which is `dev` and `production`.

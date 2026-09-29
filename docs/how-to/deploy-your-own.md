@@ -27,7 +27,7 @@ You need:
 - Node with `pnpm`, and Python 3.11 with `uv` for the Modal tooling.
 
 Two names in this repository are ours, not yours: the Worker names `cogportal`
-and `cogbot`, and the `sillion.app` hostnames. Step 6 changes them.
+and `cogbot`, and the `sillion.app` hostnames. Step 5 changes them.
 
 ## 1. Get a real checkout
 
@@ -186,8 +186,10 @@ pnpm exec wrangler d1 execute cogportal-db-prod --remote --env production --comm
   "UPDATE cohorts SET slug = 'your-slug', name = 'Your Cohort Name' WHERE id = 'cohort_bwsi26'"
 ```
 
-Run the same two statements against the dev database if you want dev clean as
-well. Check the result before handing the code out:
+Dev is public too, and its database took the same seed, so do the same there:
+rotate the code in dev's admin console, then run both statements against
+`cogportal-db` without `--env production`. Check the result before handing the
+code out:
 
 ```sh
 pnpm exec wrangler d1 execute cogportal-db-prod --remote --env production --command \
