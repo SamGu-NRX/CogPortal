@@ -30,17 +30,15 @@ export interface BenchmarkPackage {
  * reaches that through this page, which serves whichever pin its own deploy
  * carries, but `--portal` at an older deployment does.
  *
- * `cb8b582` is the head of the SDK reconciliation PR (#48): retained scoring
- * inputs together with isolated execution, the same SDK code this checkout
- * bakes into the hosted images. It was installed from this exact URL and its
- * files checked byte for byte against the commit. Its own "install it with"
- * advice, shown only when a benchmark is missing, still names Vision c177cf23
- * and Language b166f5c, because #48's base lacks the catalog and runner
- * changes the newer revisions below need. No combined live rehearsal has run
- * on it.
+ * `40d31a2` is this release candidate's own commit. Its SDK is the SDK
+ * reconciliation PR (#48) plus this page's benchmark revisions in its
+ * "install it with" advice, so the CLI and this page name the same
+ * benchmarks; #48 itself keeps the revisions its base can validate. It was
+ * installed from this exact URL and its files checked byte for byte against
+ * the commit. No combined live rehearsal has run on it.
  */
 export const COGBENCH_SOURCE =
-  "git+https://github.com/SamGu-NRX/CogPortal.git@cb8b5829df946b4cd564dabf9362f0f91541de54#subdirectory=python/cogbench";
+  "git+https://github.com/SamGu-NRX/CogPortal.git@40d31a2a9d653983dd69fa57034f12a196a4b216#subdirectory=python/cogbench";
 
 const WEEK1_AUDIO: BenchmarkPackage = {
   distribution: "cogworks-week1-audio-benchmark",
