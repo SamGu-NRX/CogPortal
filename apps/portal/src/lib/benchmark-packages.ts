@@ -43,7 +43,7 @@ export const COGBENCH_SOURCE =
 const WEEK1_AUDIO: BenchmarkPackage = {
   distribution: "cogworks-week1-audio-benchmark",
   source:
-    "git+https://github.com/SamGu-NRX/cogworks-week1-audio-benchmark.git@839dd06bc2a14d2b1fa2202f9dc107ff5789c75a",
+    "git+https://github.com/SamGu-NRX/cogworks-week1-audio-benchmark.git@4e516f39ffbeefe579e093260b2865eb354c17a7",
 };
 
 // Recognition and clustering are two tracks out of one distribution, so a
@@ -51,7 +51,7 @@ const WEEK1_AUDIO: BenchmarkPackage = {
 const WEEK2_VISION: BenchmarkPackage = {
   distribution: "cogworks-week2-vision-benchmark",
   source:
-    "git+https://github.com/SamGu-NRX/cogworks-week2-vision-benchmark.git@43e5a8f917562038748cd392e5ae86720c0e11d7",
+    "git+https://github.com/SamGu-NRX/cogworks-week2-vision-benchmark.git@a3dd948d0c108fabf070b4f159acdecd4d6c3897",
 };
 
 // f5f7347 builds a team's database before calling an image encoder that is

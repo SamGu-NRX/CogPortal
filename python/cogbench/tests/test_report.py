@@ -344,7 +344,7 @@ class CheckTests(unittest.TestCase):
         self.assertIn(
             'python -m pip install "cogworks-week1-audio-benchmark @ '
             'git+https://github.com/SamGu-NRX/cogworks-week1-audio-benchmark.git'
-            '@839dd06bc2a14d2b1fa2202f9dc107ff5789c75a"',
+            '@4e516f39ffbeefe579e093260b2865eb354c17a7"',
             text,
         )
 
