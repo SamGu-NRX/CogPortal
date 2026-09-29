@@ -1,4 +1,5 @@
 import type { Context, Hono } from "hono";
+import { z } from "zod";
 import { and, asc, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { FIXTURE_REPO } from "@cogworks/contracts/fixtures";
 import {
@@ -7,7 +8,7 @@ import {
   TeamProcessSignalsSchema,
   UpdateTeamRequestSchema,
 } from "@cogworks/contracts/schema";
-import type { TeamDetail, TeamMember, TeamProcessSignals } from "@cogworks/contracts/schema";
+import type { TeamDetail, TeamMember } from "@cogworks/contracts/schema";
 import type { AppEnv } from "../env";
 import { devAuthAvailable, githubConfigured } from "../env";
 import { getGithubToken } from "../auth/better-auth";
@@ -27,13 +28,19 @@ import type { AuthState } from "../auth/session";
 import type { TeamRow } from "../db/schema";
 import { RealGitHubClient } from "../github/client";
 import { fetchCommitHistory } from "../github/commits";
+import type { CommitRecord, FetchCommitsResult } from "../github/commits";
 import { teamRole } from "../github/permissions";
 import { fixtureRepository } from "../github/team";
 import type { ConnectRepository } from "../github/team";
 import { validateTemplateRepository } from "../github/template";
 import { ApiHttpError } from "../http/errors";
 import { parseBody, respond } from "../http/respond";
-import { buildProcessSignals, findingSentences } from "../services/process-signals";
+import {
+  buildProcessSignals,
+  classifyHistoryQuality,
+  findingSentences,
+  HISTORY_FETCH_FAILED,
+} from "../services/process-signals";
 import type { RosterMember, RunRecord, WeekLabel } from "../services/process-signals";
 
 function memberRole(role: string): TeamMember["role"] {
@@ -196,8 +203,118 @@ const MODULE_WEEK_LABELS: Record<string, WeekLabel> = {
   language: "week3",
 };
 
-/** How long a cached `team_process_signals` row is served before recomputing. */
-const PROCESS_SIGNALS_CACHE_MS = 30 * 60 * 1000;
+/** How long a repository's commit history is reused before GitHub is asked
+ *  again. Reading it costs up to 41 of a Worker's 50 subrequests
+ *  (`../github/commits.ts`); runs are read fresh on every request. */
+const COMMIT_HISTORY_CACHE_MS = 30 * 60 * 1000;
+
+/** D1 refuses a row over 2,000,000 bytes. Forty commits of GitHub's 300 files
+ *  each can pass that with long paths, and a failed write would lose the
+ *  whole response, so a history this large is used once and not stored. */
+const MAX_STORED_HISTORY_BYTES = 1_000_000;
+
+/**
+ * What `team_process_signals.signals_json` holds: the commit history as read
+ * from GitHub, never signals derived from it. The signals also depend on the
+ * team's runs, which change far more often than a thirty-minute cache, and a
+ * cached copy of them kept a team's first scored run off the page.
+ *
+ * The repository and branch travel with the history, so a read that finishes
+ * after the team switches repository cannot be served as the new one's. A row
+ * in any other shape, including the signal payloads older versions wrote, is
+ * a miss.
+ */
+const StoredCommitHistorySchema = z.object({
+  kind: z.literal("commit-history.v1"),
+  repository: z.string(),
+  branch: z.string(),
+  result: z.discriminatedUnion("ok", [
+    z.object({
+      ok: z.literal(true),
+      commits: z.array(z.object({
+        sha: z.string(),
+        authorLogin: z.string(),
+        authoredAt: z.number(),
+        filesChanged: z.array(z.string()),
+        coAuthors: z.array(z.object({ name: z.string(), email: z.string() })),
+      }) satisfies z.ZodType<CommitRecord>),
+      truncated: z.boolean(),
+    }),
+    // Unauthorized is never stored; see `readCommitHistory`.
+    z.object({ ok: z.literal(false), reason: z.enum(["not_found", "rate_limited", "fetch_failed"]) }),
+  ]),
+});
+
+async function readCommitHistory(
+  c: Context<AppEnv>,
+  db: Database,
+  team: { id: string; repoFullName: string; defaultBranch: string },
+  userId: string,
+): Promise<{ result: FetchCommitsResult; checkedAt: number }> {
+  const now = Date.now();
+  const [cached] = await db
+    .select()
+    .from(teamProcessSignals)
+    .where(eq(teamProcessSignals.teamId, team.id))
+    .limit(1);
+  if (cached && now - cached.computedAt < COMMIT_HISTORY_CACHE_MS) {
+    let json: unknown = null;
+    try {
+      json = JSON.parse(cached.signalsJson);
+    } catch {
+      // A malformed row is a miss like any other.
+    }
+    const stored = StoredCommitHistorySchema.safeParse(json);
+    if (
+      stored.success
+      && stored.data.repository === team.repoFullName
+      && stored.data.branch === team.defaultBranch
+    ) {
+      return { result: stored.data.result, checkedAt: cached.computedAt };
+    }
+  }
+
+  let result: FetchCommitsResult;
+  if (team.repoFullName === FIXTURE_REPO.fullName && devAuthAvailable(c.env)) {
+    // The dev fixture repo isn't a real GitHub repository, so there is no
+    // commit history to fetch -- and nothing to honestly call "fetch
+    // failed" either, since we never tried and failed. Confirmed-empty is
+    // the accurate state here, not a fabricated one.
+    result = { ok: true, commits: [], truncated: false };
+  } else {
+    const githubToken = githubConfigured(c.env)
+      ? await getGithubToken(authFor(c), userId, c.req.raw.headers)
+      : null;
+    result = githubToken
+      ? await fetchCommitHistory(team.repoFullName, team.defaultBranch, githubToken)
+      : { ok: false, reason: "fetch_failed" };
+  }
+
+  // Storing a GitHub 401 would keep asking the student to sign in again
+  // after their new sign-in succeeds.
+  let storable: z.infer<typeof StoredCommitHistorySchema>["result"] | null = null;
+  if (result.ok) storable = result;
+  else if (result.reason !== "unauthorized") storable = { ok: false, reason: result.reason };
+  if (storable) {
+    const signalsJson = JSON.stringify({
+      kind: "commit-history.v1",
+      repository: team.repoFullName,
+      branch: team.defaultBranch,
+      result: storable,
+    } satisfies z.infer<typeof StoredCommitHistorySchema>);
+    const historyQuality = storable.ok ? classifyHistoryQuality(storable.commits) : HISTORY_FETCH_FAILED;
+    if (new TextEncoder().encode(signalsJson).byteLength <= MAX_STORED_HISTORY_BYTES) {
+      await db
+        .insert(teamProcessSignals)
+        .values({ teamId: team.id, computedAt: now, signalsJson, historyQuality })
+        .onConflictDoUpdate({
+          target: teamProcessSignals.teamId,
+          set: { computedAt: now, signalsJson, historyQuality },
+        });
+    }
+  }
+  return { result, checkedAt: now };
+}
 
 /**
  * Runs that stand as evidence for the repository the team has connected.
@@ -273,10 +390,8 @@ export async function resolveWeekLabel(
 /**
  * Runs that count toward `firstLight`: only ones that made it all the way
  * through scoring, and only for the connected repository (see
- * `forConnectedRepository`). Mirrors `team-nudges.ts`'s established "scored
- * run" convention (`status = 'succeeded'` and keyed off `finishedAt`, not
- * `createdAt`) rather than re-deriving it -- see the divergence note on
- * `RunRecord` in `../services/process-signals.ts`.
+ * `forConnectedRepository`). A scored run is `status = 'succeeded'` at its
+ * `finishedAt`, the convention `team-nudges.ts` already uses.
  */
 export async function scoredRunRecords(
   db: Database,
@@ -293,7 +408,7 @@ export async function scoredRunRecords(
     ));
   return scored
     .filter((run): run is { id: string; finishedAt: number } => run.finishedAt !== null)
-    .map((run) => ({ runId: run.id, createdAt: run.finishedAt, scored: true }));
+    .map((run) => ({ runId: run.id, finishedAt: run.finishedAt, scored: true }));
 }
 
 /**
@@ -325,49 +440,22 @@ export function registerTeamRoutes(app: Hono<AppEnv>): void {
     const auth = await requireTeam(c);
     const db = getDb(c.env);
     const teamId = auth.team.id;
-    const now = Date.now();
 
-    const [cached] = await db
-      .select()
-      .from(teamProcessSignals)
-      .where(eq(teamProcessSignals.teamId, teamId))
-      .limit(1);
-    if (cached && now - cached.computedAt < PROCESS_SIGNALS_CACHE_MS) {
-      const signals = JSON.parse(cached.signalsJson) as Omit<TeamProcessSignals, "computedAt">;
-      return respond(c, TeamProcessSignalsSchema, { ...signals, computedAt: cached.computedAt });
-    }
-
-    const [weekLabel, runRecords, roster, runsElsewhere] = await Promise.all([
+    const [history, weekLabel, runRecords, roster, runsElsewhere] = await Promise.all([
+      readCommitHistory(c, db, auth.team, auth.user.id),
       resolveWeekLabel(db, teamId, auth.team.repoId),
       scoredRunRecords(db, teamId, auth.team.repoId),
       teamRoster(db, teamId),
       hasRunsElsewhere(db, teamId, auth.team.repoId),
     ]);
-
-    let commitsResult: Awaited<ReturnType<typeof fetchCommitHistory>>;
-    if (auth.team.repoFullName === FIXTURE_REPO.fullName && devAuthAvailable(c.env)) {
-      // The dev fixture repo isn't a real GitHub repository, so there is no
-      // commit history to fetch -- and nothing to honestly call "fetch
-      // failed" either, since we never tried and failed. Confirmed-empty is
-      // the accurate state here, not a fabricated one.
-      commitsResult = { ok: true, commits: [], truncated: false };
-    } else {
-      const githubToken = githubConfigured(c.env)
-        ? await getGithubToken(authFor(c), auth.user.id, c.req.raw.headers)
-        : null;
-      commitsResult = githubToken
-        ? await fetchCommitHistory(auth.team.repoFullName, auth.team.defaultBranch, githubToken)
-        : { ok: false, reason: "fetch_failed" };
-    }
-
     const signals = buildProcessSignals({
-      commitsResult,
+      commitsResult: history.result,
       runs: runRecords,
       weekLabel,
       roster,
       runsElsewhere,
     });
-    const payload: Omit<TeamProcessSignals, "computedAt"> = {
+    return respond(c, TeamProcessSignalsSchema, {
       historyQuality: signals.historyQuality,
       historyWindow: signals.historyWindow,
       weekLabel: signals.weekLabel,
@@ -376,22 +464,8 @@ export function registerTeamRoutes(app: Hono<AppEnv>): void {
       boundaryChurn: signals.boundaryChurn,
       ownershipBreadth: signals.ownershipBreadth,
       findingSentences: findingSentences(signals),
-    };
-
-    // Caching a GitHub 401 would keep asking the student to sign in again
-    // after their new sign-in succeeds.
-    if (commitsResult.ok || commitsResult.reason !== "unauthorized") {
-      const signalsJson = JSON.stringify(payload);
-      await db
-        .insert(teamProcessSignals)
-        .values({ teamId, computedAt: now, signalsJson, historyQuality: signals.historyQuality })
-        .onConflictDoUpdate({
-          target: teamProcessSignals.teamId,
-          set: { computedAt: now, signalsJson, historyQuality: signals.historyQuality },
-        });
-    }
-
-    return respond(c, TeamProcessSignalsSchema, { ...payload, computedAt: now });
+      computedAt: history.checkedAt,
+    });
   });
 
   app.patch("/team", async (c) => {
@@ -525,9 +599,9 @@ export function registerTeamRoutes(app: Hono<AppEnv>): void {
           templateSourceRepoId: repository.sourceRepositoryId,
         })
         .where(eq(teams.id, auth.team.id));
-      // The cached signals describe the repository that was connected a
-      // moment ago. Serving them for another thirty minutes shows the old
-      // repository's stages and commits under the new repository's name.
+      // The cached history is the repository that was connected a moment
+      // ago. Serving it for another thirty minutes shows the old repository's
+      // stages and commits under the new repository's name.
       await db.delete(teamProcessSignals).where(eq(teamProcessSignals.teamId, auth.team.id));
     } catch (error) {
       if (isUniqueConstraintError(error)) {

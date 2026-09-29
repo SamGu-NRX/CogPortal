@@ -166,7 +166,7 @@ function Signals({
         />
       )}
       <p className="mt-5 border-t border-rule-soft pt-2 font-mono text-[10.5px] text-ink-faint">
-        Read {formatTimeAgo(signals.computedAt)}
+        History checked {formatTimeAgo(signals.computedAt)}
         {signals.historyWindow
           ? `, from your ${signals.historyWindow.truncated ? "most recent " : ""}${signals.historyWindow.commits} commit${signals.historyWindow.commits === 1 ? "" : "s"}`
           : ""}

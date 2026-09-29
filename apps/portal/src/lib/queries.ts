@@ -262,14 +262,14 @@ export function useTeam() {
   return useQuery({ queryKey: ["team"], queryFn: api.team });
 }
 
-/** The four process signals. The worker recomputes these at most every 30
- *  minutes and serves a cached row in between, so refetching on focus would
- *  spend a request to get the same bytes back. */
+/** The four process signals. The worker reads runs on every request and
+ *  reuses only GitHub commit history, so each visit to the page asks again: a
+ *  run that scored since the last visit belongs on it. No polling. */
 export function useTeamProcess() {
   return useQuery({
     queryKey: ["team-process"],
     queryFn: api.teamProcess,
-    staleTime: 5 * 60_000,
+    staleTime: 0,
   });
 }
 
