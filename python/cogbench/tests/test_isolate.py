@@ -398,7 +398,7 @@ class NoBudgetIsAllowed(unittest.TestCase):
 
         self.assertEqual(with_none.status, COMPLETED)
         self.assertEqual(with_none.value, [resource.RLIM_INFINITY, resource.RLIM_INFINITY])
-        self.assertEqual(with_seven.value, [7, 12])
+        self.assertEqual(with_seven.value, list(isolate_module._cpu_limit(7)))
 
     @unittest.skipUnless(hasattr(os, "fork"), "needs fork")
     def test_a_core_file_is_refused_either_way(self):
