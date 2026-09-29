@@ -30,7 +30,7 @@ export interface BenchmarkPackage {
  * reaches that through this page, which serves whichever pin its own deploy
  * carries, but `--portal` at an older deployment does.
  *
- * `4825fab` is the head of the SDK reconciliation PR (#48): retained scoring
+ * `cb8b582` is the head of the SDK reconciliation PR (#48): retained scoring
  * inputs together with isolated execution, the same SDK code this checkout
  * bakes into the hosted images. It was installed from this exact URL and its
  * files checked byte for byte against the commit. Its own "install it with"
@@ -40,7 +40,7 @@ export interface BenchmarkPackage {
  * on it.
  */
 export const COGBENCH_SOURCE =
-  "git+https://github.com/SamGu-NRX/CogPortal.git@4825fabd6655973b8ccd097e047848b31cb0c1c5#subdirectory=python/cogbench";
+  "git+https://github.com/SamGu-NRX/CogPortal.git@cb8b5829df946b4cd564dabf9362f0f91541de54#subdirectory=python/cogbench";
 
 const WEEK1_AUDIO: BenchmarkPackage = {
   distribution: "cogworks-week1-audio-benchmark",
