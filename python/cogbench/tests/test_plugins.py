@@ -57,22 +57,22 @@ class PluginDiscoveryTests(unittest.TestCase):
             "audio-identification": (
                 'python -m pip install "cogworks-week1-audio-benchmark @ '
                 'git+https://github.com/SamGu-NRX/cogworks-week1-audio-benchmark.git'
-                '@b156644aecc810e0b93535e320098f96c39ae04e"'
+                '@839dd06bc2a14d2b1fa2202f9dc107ff5789c75a"'
             ),
             "vision-recognition": (
                 'python -m pip install "cogworks-week2-vision-benchmark @ '
                 'git+https://github.com/SamGu-NRX/cogworks-week2-vision-benchmark.git'
-                '@b9055031bf25a18594651d89610f3fbcd7462db8"'
+                '@4351ee9f237d85c6eb7d66b355bcfbc54f89bf14"'
             ),
             "vision-clustering": (
                 'python -m pip install "cogworks-week2-vision-benchmark @ '
                 'git+https://github.com/SamGu-NRX/cogworks-week2-vision-benchmark.git'
-                '@b9055031bf25a18594651d89610f3fbcd7462db8"'
+                '@4351ee9f237d85c6eb7d66b355bcfbc54f89bf14"'
             ),
             "language-search": (
                 'python -m pip install "cogworks-week3-language-benchmark @ '
                 'git+https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git'
-                '@6dc63fe8f6af2b3554a21f7707debb138f31ae4e"'
+                '@f5f7347bbe16f179156e05e996deb356050b47be"'
             ),
         }
         self.assertEqual(

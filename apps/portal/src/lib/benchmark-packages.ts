@@ -43,7 +43,7 @@ export const COGBENCH_SOURCE =
 const WEEK1_AUDIO: BenchmarkPackage = {
   distribution: "cogworks-week1-audio-benchmark",
   source:
-    "git+https://github.com/SamGu-NRX/cogworks-week1-audio-benchmark.git@b156644aecc810e0b93535e320098f96c39ae04e",
+    "git+https://github.com/SamGu-NRX/cogworks-week1-audio-benchmark.git@839dd06bc2a14d2b1fa2202f9dc107ff5789c75a",
 };
 
 // Recognition and clustering are two tracks out of one distribution, so a
@@ -51,20 +51,19 @@ const WEEK1_AUDIO: BenchmarkPackage = {
 const WEEK2_VISION: BenchmarkPackage = {
   distribution: "cogworks-week2-vision-benchmark",
   source:
-    "git+https://github.com/SamGu-NRX/cogworks-week2-vision-benchmark.git@b9055031bf25a18594651d89610f3fbcd7462db8",
+    "git+https://github.com/SamGu-NRX/cogworks-week2-vision-benchmark.git@4351ee9f237d85c6eb7d66b355bcfbc54f89bf14",
 };
 
-// Matches the verified staging image, which runs 6dc63fe. Earlier revisions
-// counted the SDK's retained copy of a trained model as a second candidate for
-// the trained image projection and withheld the weight inputs, so a student
-// checking locally on one saw their image side unbound while a hosted run
-// scored it. Observed on staging run_28df471772; this revision also stops
-// repeating the chance baselines as notes and names the metric its chart
-// draws, so a local check and a hosted result read the same way.
+// f5f7347 builds a team's database before calling an image encoder that is
+// one of its methods. The SDK no longer lends a run the object discovery
+// built, so 6dc63fe, which called the encoder first, failed CI run 35766833651.
+// No staging image has run f5f7347 yet. 6dc63fe is the revision verified on
+// staging (run_28df471772), where earlier revisions had left a trained image
+// projection unbound locally while a hosted run scored it.
 const WEEK3_LANGUAGE: BenchmarkPackage = {
   distribution: "cogworks-week3-language-benchmark",
   source:
-    "git+https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git@6dc63fe8f6af2b3554a21f7707debb138f31ae4e",
+    "git+https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git@f5f7347bbe16f179156e05e996deb356050b47be",
 };
 
 export const BENCHMARK_PACKAGES: Readonly<Record<string, BenchmarkPackage>> = {

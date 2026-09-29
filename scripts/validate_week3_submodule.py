@@ -13,7 +13,7 @@ from validate_metric_metadata import validate_metric_metadata
 
 ROOT = Path(__file__).resolve().parents[1]
 BENCHMARK = ROOT / "benchmarks" / "week3"
-REVIEWED_COMMIT = "6dc63fe8f6af2b3554a21f7707debb138f31ae4e"
+REVIEWED_COMMIT = "f5f7347bbe16f179156e05e996deb356050b47be"
 
 PLUGIN_EXPECTATIONS = {
     'benchmark_id = "language-search"': "benchmark id",

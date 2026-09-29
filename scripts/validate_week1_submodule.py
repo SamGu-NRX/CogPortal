@@ -32,7 +32,7 @@ MIGRATIONS = ROOT / "apps" / "portal" / "migrations"
 MIGRATION = MIGRATIONS / "0020_week1_audio.sql"
 RUNNER = ROOT / "apps" / "portal" / "worker" / "execution" / "runner.ts"
 
-REVIEWED_COMMIT = "b156644aecc810e0b93535e320098f96c39ae04e"
+REVIEWED_COMMIT = "839dd06bc2a14d2b1fa2202f9dc107ff5789c75a"
 
 # The literal values reviewed into 0020_week1_audio.sql. Checked against
 # every migration, not that file: a later migration rewriting the row is
