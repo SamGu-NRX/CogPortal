@@ -62,10 +62,13 @@ const PORTAL_SIDE_OAUTH_ERRORS = new Set([
 
 /**
  * Three sentences, because the student's next move differs and the portal
- * should not claim more than the response shows. A refused grant is fixed by a
- * fresh one. A refusal naming our credentials will refuse again, so sending the
- * student back costs them time. Anything else, a rate limit or an edge failure
- * included, is a refusal we cannot explain, and calling it ours would be a guess.
+ * should not claim more than the response shows. A refused grant is usually
+ * fixed by a fresh one, but `invalid_grant` also covers a redirect or client
+ * mismatch (RFC 6749 section 5.2) that refuses every time, so the student is
+ * told when to stop reopening. A refusal naming our credentials will refuse
+ * again, so sending the student back costs them time. Anything else, a rate
+ * limit or an edge failure included, is a refusal we cannot explain, and
+ * calling it ours would be a guess.
  */
 export function activityTokenRejection(
   status: number,
@@ -77,7 +80,7 @@ export function activityTokenRejection(
     logged: { evt: "activity_token_exchange_rejected", status, error },
     message:
       error === "invalid_grant"
-        ? "Discord would not accept that authorization. Close the Activity and open it again for a fresh one."
+        ? "Discord would not accept that authorization. Close the Activity and open it again, and tell an instructor if it keeps happening."
         : PORTAL_SIDE_OAUTH_ERRORS.has(error)
           ? "Discord turned down this Activity's sign-in, and reopening won't change that. Tell an instructor; the fix is on our side."
           : "Discord did not answer this sign-in. Open the Activity again, and tell an instructor if it keeps happening.",

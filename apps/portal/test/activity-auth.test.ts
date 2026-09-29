@@ -68,8 +68,10 @@ test("the record carries the reason and nothing else", () => {
   assert.doesNotMatch(JSON.stringify(rejection.logged), /client_secret|code=|REDACTED/);
 });
 
-test("a refused grant sends the student back for a fresh one", () => {
-  assert.match(activityTokenRejection(400, { error: "invalid_grant" }).message, /open it again/);
+test("a refused grant sends the student back for a fresh one, and says when to stop", () => {
+  const { message } = activityTokenRejection(400, { error: "invalid_grant" });
+  assert.match(message, /open it again/);
+  assert.match(message, /tell an instructor if it keeps happening/);
 });
 
 test("only a refusal that names our credentials says reopening cannot help", () => {
