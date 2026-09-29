@@ -88,8 +88,10 @@ what that would take.
 
 ## Then the demo
 
-Terminal first, then the site. Fifteen minutes, and it answers the question
-anyone technical is holding: does it actually run.
+The site, then the terminal, then back to the site. About ten minutes, and it
+answers the question anyone technical is holding: does it actually run. The
+order, the timings, and the optional extras are in
+[the pitch walkthrough](pitch-walkthrough.md).
 
 ---
 
@@ -101,5 +103,7 @@ anyone technical is holding: does it actually run.
   right there.
 - Do not explain the architecture unless asked. He is not being asked to
   approve a design.
-- If he asks what it cost the course: nothing in lecture time. A student
-  connects a repository and runs three commands.
+- If he asks what it takes to adopt: a team signs in with GitHub, joins the
+  cohort and connects their repository, and each student activates the course
+  environment for the week, installs the tool and the benchmark with the two
+  commands on the Setup page, then runs `cogworks check` and `cogworks run`.
