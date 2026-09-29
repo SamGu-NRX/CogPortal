@@ -30,6 +30,7 @@ import tarfile
 import tempfile
 import unittest
 import zipfile
+from email.parser import Parser
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -75,10 +76,33 @@ def _export(destination: Path) -> Path:
 
 
 def _declared_version(project: Path) -> str:
-    for line in (project / "pyproject.toml").read_text(encoding="utf-8").splitlines():
-        if line.startswith("version = "):
-            return line.split("=", 1)[1].strip().strip('"')
-    raise AssertionError("pyproject.toml declares no version")
+    # The version is dynamic. Ask the declared backend to resolve source
+    # metadata independently of the wheel whose imported version we check.
+    with tempfile.TemporaryDirectory(prefix="cogbench-metadata-") as destination:
+        finished = subprocess.run(
+            [
+                sys.executable, "-B", "-c",
+                "import sys; from setuptools.build_meta import "
+                "prepare_metadata_for_build_wheel; "
+                "prepare_metadata_for_build_wheel(sys.argv[1])",
+                destination,
+            ],
+            cwd=project,
+            capture_output=True,
+            text=True,
+        )
+        if finished.returncode != 0:
+            raise AssertionError(
+                "resolving the exported project's metadata failed:\n"
+                + finished.stdout + finished.stderr
+            )
+        metadata = list(Path(destination).glob("*.dist-info/METADATA"))
+        if len(metadata) != 1:
+            raise AssertionError(f"expected one project metadata file, found {metadata}")
+        version = Parser().parsestr(metadata[0].read_text(encoding="utf-8"))["Version"]
+        if not version:
+            raise AssertionError("project metadata declares no version")
+        return version
 
 
 def _installed(name: str) -> bool:
@@ -171,6 +195,27 @@ class TheTreeCarriesNoGeneratedCopyOfThePackage(unittest.TestCase):
             "whenever the source file is not newer. Remove it from the tree; "
             ".gitignore does not untrack a file that is already committed.",
         )
+
+
+class ADeclaredVersionComesFromTheProject(unittest.TestCase):
+    def test_dynamic_metadata_resolves_the_exported_source_attribute(self):
+        reason = _unusable_backend()
+        if reason:
+            self.skipTest(f"no offline metadata build here: {reason}")
+        with tempfile.TemporaryDirectory(prefix="cogbench-version-") as scratch:
+            project = Path(scratch)
+            source = project / "src" / "cogbench"
+            source.mkdir(parents=True)
+            (source / "__init__.py").write_text('__version__ = "9.8.7"\n')
+            (project / "pyproject.toml").write_text(
+                '[build-system]\nrequires = ["setuptools>=68"]\n'
+                'build-backend = "setuptools.build_meta"\n'
+                '[project]\nname = "cogworks-benchmark"\ndynamic = ["version"]\n'
+                '[tool.setuptools.dynamic]\nversion = {attr = "cogbench.__version__"}\n'
+                '[tool.setuptools.packages.find]\nwhere = ["src"]\n'
+            )
+
+            self.assertEqual(_declared_version(project), "9.8.7")
 
 
 class AWheelFromAnUntouchedExportCarriesTheSource(unittest.TestCase):
