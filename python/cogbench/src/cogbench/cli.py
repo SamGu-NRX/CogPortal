@@ -1262,10 +1262,6 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 raise PortalError("This portal is not linked. Run `cogworks link` first.")
             path = _resolve_report(args.path, project_root)
             report = LocalReport.from_json(path.read_text(encoding="utf-8"))
-            # The report goes first: it names the digest each upload is checked
-            # against, so the portal can refuse bytes that are not the ones
-            # this run scored.
-            sync_report(portal, token, json.loads(report.to_json()))
             receipts = report.weights_uploaded
             if receipts is None and report.weights_used:
                 raise PortalError(
@@ -1273,13 +1269,22 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     "Use an explicit weight input or the retained model loader, "
                     "then run again before uploading or verifying weights."
                 )
+            # Every retained copy is found and checked before anything is
+            # posted, so a local failure leaves no report on the portal that
+            # names weights it will never receive.
+            sources = []
             for receipt in receipts or []:
                 try:
-                    source = storage.retained_input(
+                    sources.append((receipt, storage.retained_input(
                         project_root, receipt["path"], receipt["sha256"], receipt["size"]
-                    )
+                    )))
                 except storage.RetentionError as error:
                     raise PortalError(str(error)) from error
+            # The report goes before the uploads: it names the digest each one
+            # is checked against, so the portal can refuse bytes that are not
+            # the ones this run scored.
+            sync_report(portal, token, json.loads(report.to_json()))
+            for receipt, source in sources:
                 try:
                     destination = upload_weight(
                         portal,

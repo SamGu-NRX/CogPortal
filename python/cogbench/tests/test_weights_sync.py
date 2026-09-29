@@ -19,7 +19,7 @@ sys.path.insert(0, str(ROOT / "python" / "cogbench" / "src"))
 
 from cogbench.models import LocalReport, Metric, RepositoryState
 from cogbench.cli import main
-from cogbench.client import upload_weight
+from cogbench.client import UPLOAD_TIMEOUT_SECONDS, upload_weight
 from cogbench import storage
 
 
@@ -202,28 +202,34 @@ class SyncUploadsEveryScoredWeight(unittest.TestCase):
 
     def test_a_missing_capture_stops_the_sync(self):
         self.receipt.retained.unlink()
-        code, _, upload, _, err = self._sync(
+        code, sync, upload, _, err = self._sync(
             self._report([self.receipt.path], self._receipts())
         )
         self.assertEqual(code, 2)
         upload.assert_not_called()
+        # Nothing reaches the portal before every local check has passed.
+        sync.assert_not_called()
         self.assertIn("run the benchmark again", err)
 
     def test_a_corrupted_capture_stops_the_sync(self):
         self.receipt.retained.write_bytes(b"tampered")
-        code, _, upload, _, err = self._sync(
+        code, sync, upload, _, err = self._sync(
             self._report([self.receipt.path], self._receipts())
         )
         self.assertEqual(code, 2)
         upload.assert_not_called()
+        # Nothing reaches the portal before every local check has passed.
+        sync.assert_not_called()
         self.assertIn("no longer matches the report", err)
 
     def test_a_report_that_cannot_say_which_bytes_is_refused(self):
-        code, _, upload, _, err = self._sync(
+        code, sync, upload, _, err = self._sync(
             self._report([self.receipt.path], None)
         )
         self.assertEqual(code, 2)
         upload.assert_not_called()
+        # Nothing reaches the portal before every local check has passed.
+        sync.assert_not_called()
         self.assertIn("doesn't establish which weight bytes", err)
 
 
@@ -251,8 +257,9 @@ class UploadWeightDigestHeaderTest(unittest.TestCase):
                 def read(self):
                     return b'{"destination":"weights/test/repo/model.pkl"}'
 
-            def open_request(request):
+            def open_request(request, timeout=None):
                 captured.update({key.lower(): value for key, value in request.header_items()})
+                captured["timeout"] = timeout
                 return Response()
 
             with patch("cogbench.client.urllib.request.urlopen", side_effect=open_request):
@@ -272,6 +279,8 @@ class UploadWeightDigestHeaderTest(unittest.TestCase):
             hashlib.sha256(b"trained weights").hexdigest(),
         )
         self.assertEqual(captured["content-length"], str(len(b"trained weights")))
+        # A stalled connection must end in an error the student can retry.
+        self.assertEqual(captured["timeout"], UPLOAD_TIMEOUT_SECONDS)
 
 
 if __name__ == "__main__":

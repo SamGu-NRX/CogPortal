@@ -155,6 +155,14 @@ def update_setup_checks(
     )
 
 
+#: How long one socket operation of a weight upload may block. urllib applies
+#: it to each connect, send and read rather than to the whole request, so it
+#: stops a stalled upload without cutting off a large one that is still moving.
+#: Longer than the 15 seconds JSON requests get because a send carries a
+#: chunk of the file; no measurement chose 60.
+UPLOAD_TIMEOUT_SECONDS = 60
+
+
 def upload_weight(
     portal: str,
     token: str,
@@ -199,7 +207,7 @@ def upload_weight(
                 headers=headers,
                 method="PUT",
             )
-            with urllib.request.urlopen(request) as response:
+            with urllib.request.urlopen(request, timeout=UPLOAD_TIMEOUT_SECONDS) as response:
                 payload = json.loads(response.read().decode("utf-8"))
                 return str(payload["destination"])
     except urllib.error.HTTPError as error:
