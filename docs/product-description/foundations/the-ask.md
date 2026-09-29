@@ -51,7 +51,7 @@ The moment abandoning the ask stops being free. It is a different moment on ever
 - **A local report.** The first byte written to `.cogbench/reports/local_<hex>.json`.
 - **A device link.** The moment the token is written to the config file, which happens after the browser approval, not before.
 - **A live run.** The moment the session is opened and the Discord bubble is posted, which is visible to the whole team.
-- **A promotion.** The moment the official attempt is spent.
+- **A promotion.** The official execution is admitted and reserves official capacity while active. A failure uses no quota; a completed evaluation counts toward the three.
 - **A sandbox stage.** The moment `modal.Sandbox.create` returns, which is when the first `preparing` status reaches the portal.
 
 Before this moment an interrupt leaves nothing behind. After it, something survives, and the document says what.
