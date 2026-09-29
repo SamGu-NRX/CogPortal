@@ -178,7 +178,7 @@ The sandbox still writes the marker (`modal_app.py:746`). Nothing reads it, and 
 
 **Discord.** Limits are not mentioned in any Discord message. A timed-out run appears as a failed run.
 
-**Configuration.** `RUNNER_PYTHON_VERSION` and `RUNNER_IMAGE_DIGEST` change what the sandbox is, not what it may use. Every limit in the table above is a literal in source.
+**Configuration.** `RUNNER_PYTHON_VERSION` and `RUNNER_IMAGE_DIGEST` change neither what the sandbox is nor what it may use. The Worker records them on the job as `runtime.pythonVersion` and `runtime.imageDigest` (`apps/portal/worker/execution/runner.ts:121`, `:125`); Modal picks the image by name, and the runner reads only the CPU, memory, timeout and output fields of `runtime`. Every limit in the table above is a literal in source.
 
 ## Edge cases
 
