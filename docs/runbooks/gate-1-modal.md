@@ -354,12 +354,11 @@ when nothing changed.
 `RUNNER_IMAGE_DIGEST`. Set it in your `.dev.vars` as `<name>@<id>`.
 
 The digest selects nothing: `_sandbox_image` in `modal_app.py` picks an image
-by name. Its only use is one of three inputs to the `environmentDigest`
-reported on a completed run, alongside the prepared snapshot id and the plugin
-version. So the placeholder cannot fail a dispatch, and it does not collapse
-the record either: the snapshot id is the first input and already differs
-whenever the image differs. What the placeholder costs is one input that says
-nothing.
+by name, and the runner never reads the `runtime.imageDigest` the Worker sends.
+The `environmentDigest` on a completed run hashes the prepared-environment
+record, the evaluation script, the controller's Python and the plugin and
+scorer versions, so a placeholder here cannot fail a dispatch or change that
+record.
 
 Setting a real id is still worth doing, but know what it buys. One string
 cannot name three images, the runner picks the image per benchmark, and a run
