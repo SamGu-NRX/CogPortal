@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import re
 import sys
 import unittest
 from importlib.util import find_spec
@@ -11,7 +12,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from validate_metric_metadata import validate_metric_metadata
+from validate_metric_metadata import SWEEP_TEXT_LIMIT, validate_metric_metadata
 
 
 class MetricMetadataTests(unittest.TestCase):
@@ -69,6 +70,49 @@ class MetricMetadataTests(unittest.TestCase):
                 self.benchmark.primary_metric = primary
                 with self.assertRaisesRegex(ValueError, "metric_labels needs nonempty string keys and labels"):
                     validate_metric_metadata(self.benchmark)
+
+    def test_sweep_text_fits_the_protocol(self):
+        self.benchmark.sweep_x_key = "rung_index"
+        self.benchmark.sweep_y_key = "mrr"
+        long_key = "m" * (SWEEP_TEXT_LIMIT + 1)
+        self.benchmark.metric_labels[long_key] = "Long"
+        self.benchmark.metric_labels["m" * SWEEP_TEXT_LIMIT] = "Longest allowed"
+
+        self.benchmark.sweep_metric = "m" * SWEEP_TEXT_LIMIT
+        self.benchmark.sweep_axis_label = "a" * SWEEP_TEXT_LIMIT
+        validate_metric_metadata(self.benchmark)
+
+        self.benchmark.sweep_metric = long_key
+        with self.assertRaisesRegex(ValueError, "sweep metric 'm+' must be 1 to 60 characters"):
+            validate_metric_metadata(self.benchmark)
+
+        # Without sweep_metric the runner sends the primary metric as the sweep's.
+        self.benchmark.sweep_metric = None
+        self.benchmark.primary_metric = long_key
+        with self.assertRaisesRegex(ValueError, "sweep metric"):
+            validate_metric_metadata(self.benchmark)
+
+        self.benchmark.primary_metric = "overall"
+        self.benchmark.sweep_axis_label = "a" * (SWEEP_TEXT_LIMIT + 1)
+        with self.assertRaisesRegex(ValueError, "sweep_axis_label"):
+            validate_metric_metadata(self.benchmark)
+
+    def test_sweep_text_is_unchecked_without_a_declared_sweep(self):
+        long_key = "m" * (SWEEP_TEXT_LIMIT + 1)
+        self.benchmark.metric_labels[long_key] = "Long"
+        self.benchmark.primary_metric = long_key
+        validate_metric_metadata(self.benchmark)
+
+    def test_sweep_limit_matches_both_contract_schemas(self):
+        contracts = ROOT / "packages" / "contracts" / "src"
+        for path, start in (("protocol.ts", "export const SweepSchema"), ("schema.ts", "sweep: z")):
+            source = (contracts / path).read_text(encoding="utf-8")
+            block = source[source.index(start):][:400]
+            for field in ("axis", "metric"):
+                with self.subTest(schema=path, field=field):
+                    limit = re.search(field + r": z\.string\(\)[^,]*?\.max\((\d+)\)", block)
+                    self.assertIsNotNone(limit)
+                    self.assertEqual(int(limit.group(1)), SWEEP_TEXT_LIMIT)
 
     def test_valid_long_help_is_not_capped_or_changed(self):
         for length in (645, 5_000):
