@@ -288,6 +288,34 @@ test("the same sentence survives Discord's tile, where there is no sidebar", () 
   assert.match(html, /Repository or benchmark\/runtime configuration changed since this run\./);
 });
 
+const LEFT_REPOSITORY = "This run came from a repository your team is no longer connected to.";
+
+test("a tile whose Retry is withheld for a changed repository still says why", () => {
+  // The server withholds Retry with only a source refusal after the team
+  // switches repository, and the tile has no sidebar to show that in.
+  const count = (html: string, text: string) => html.split(text).length - 1;
+  const render = (over: Partial<RunSurfaceSnapshot>, compact: boolean) => renderToStaticMarkup(
+    React.createElement(RunConsole, {
+      snapshot: failedHosted({ sourceRefusal: LEFT_REPOSITORY, ...over }),
+      streamState: "closed",
+      compact,
+      onAction: () => undefined,
+    }),
+  );
+
+  const tile = render({}, true);
+  assert.doesNotMatch(tile, />Retry</);
+  assert.equal(count(tile, LEFT_REPOSITORY), 1);
+
+  // The recorded-inputs refusal answers the Retry question first.
+  const both = render({ retryRefusal: CHANGED_INPUTS }, true);
+  assert.equal(count(both, CHANGED_INPUTS), 1);
+  assert.equal(count(both, LEFT_REPOSITORY), 0);
+
+  // The full console already shows it beside the run reference, once.
+  assert.equal(count(render({}, false), LEFT_REPOSITORY), 1);
+});
+
 test("an offered Retry carries no refusal beside it", () => {
   // The server sends the sentence and the action together only when they
   // disagree, but the console must not print both even then.

@@ -335,10 +335,11 @@ export function RunConsole({
         )}
         {/* The slot Retry would occupy. The server only sends this when the
             recorded inputs themselves cannot be sent again, so it is the only
-            case we can name; its absence says nothing about quota or access. */}
-        {failed && !retryOffered && snapshot.retryRefusal && (
+            case we can name; its absence says nothing about quota or access.
+            The compact tile has no sidebar, so a source refusal goes here. */}
+        {failed && !retryOffered && (snapshot.retryRefusal ?? (compact ? snapshot.sourceRefusal : null)) && (
           <p className="mt-4 max-w-prose text-[12px] leading-relaxed text-ink-secondary">
-            {snapshot.retryRefusal}
+            {snapshot.retryRefusal ?? snapshot.sourceRefusal}
           </p>
         )}
         {error && <p role="alert" className="mt-4 border-l-2 border-detect pl-3 text-[12px] text-detect-deep">{error}</p>}
