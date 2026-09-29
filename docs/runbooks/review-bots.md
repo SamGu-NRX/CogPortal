@@ -89,8 +89,9 @@ for a review when all of these hold:
 
 The last rule has two exceptions. A request that CodeRabbit answered with `Review
 rate limited` was refused rather than served, so it left the head unreviewed and the
-queue may ask again on a later run. A `pending` status older than 30 minutes is a
-stalled review, and the queue may ask again for the same reason. Without these
+queue may ask again on a later run. A `pending` status is a stalled review when both
+it and the latest request are older than 30 minutes, and the queue may ask again for
+the same reason. Without these
 exceptions a pull request whose request was refused or stalled would never be
 reviewed, which is the problem the queue exists to fix. Retries stop after three requests for the same
 head, and the run logs that the pull request needs a human.

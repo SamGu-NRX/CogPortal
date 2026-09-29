@@ -167,9 +167,11 @@ async function decide(pr) {
       status.state === 'success' &&
       /rate limited/i.test(description) &&
       Date.parse(status.created_at) > Date.parse(last.created_at);
-    // A pending status reaching this point is older than PENDING_STALE_MS. Counting the
-    // request that started it as served would leave the head unreviewed indefinitely.
-    const stalled = status?.state === 'pending';
+    // A pending status reaching this point is older than PENDING_STALE_MS. It is a stall
+    // only when the latest request has also had that long; otherwise CodeRabbit may not
+    // have updated the status for it yet, and asking again would spend an attempt.
+    const stalled =
+      status?.state === 'pending' && Date.now() - Date.parse(last.created_at) >= PENDING_STALE_MS;
 
     if (!refused && !stalled) {
       return {
