@@ -61,6 +61,15 @@ class MetricMetadataTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "metric_labels"):
                     validate_metric_metadata(self.benchmark)
 
+    def test_whitespace_only_keys_and_labels_are_rejected(self):
+        # The runner shows labels unmodified, so these would render as blank captions.
+        for labels, primary in (({"   ": "Blank key"}, "   "), ({"overall": "   "}, "overall")):
+            with self.subTest(labels=labels):
+                self.benchmark.metric_labels = labels
+                self.benchmark.primary_metric = primary
+                with self.assertRaisesRegex(ValueError, "metric_labels needs nonempty string keys and labels"):
+                    validate_metric_metadata(self.benchmark)
+
     def test_valid_long_help_is_not_capped_or_changed(self):
         for length in (645, 5_000):
             with self.subTest(length=length):

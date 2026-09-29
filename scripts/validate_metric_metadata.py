@@ -11,7 +11,7 @@ def validate_metric_metadata(benchmark) -> None:
     if not isinstance(labels, Mapping) or not labels:
         raise ValueError("{}: metric_labels must be a nonempty mapping".format(name))
     for key, label in labels.items():
-        if not isinstance(key, str) or not key or not isinstance(label, str) or not label:
+        if not isinstance(key, str) or not key.strip() or not isinstance(label, str) or not label.strip():
             raise ValueError("{}: metric_labels needs nonempty string keys and labels".format(name))
 
     for field in ("primary_metric", "sweep_metric"):
