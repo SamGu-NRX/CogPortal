@@ -20,7 +20,8 @@ from cogbench._namespace import (  # noqa: E402
 )
 from cogbench.discover import discover  # noqa: E402
 from cogbench.pipeline import (  # noqa: E402
-    Candidate, Role, Stage, _Timeout, instances_in, methods_of, runtime_pool,
+    Candidate, Fixtures, Role, Stage, _Timeout, instances_in, methods_of,
+    runtime_pool,
 )
 from cogbench.progress import Progress  # noqa: E402
 from cogbench.resolve import (  # noqa: E402
@@ -2192,6 +2193,216 @@ class AMethodCarriedOutOfABranchNeedsThatBranchToHaveRun(unittest.TestCase):
         self.assertIsNot(
             first.branches["search"][0].receiver, second.branches["search"][0].receiver
         )
+
+
+BREAK_VARIABLE = "COGBENCH_TEST_BREAK"
+
+
+class AFixtureReadsAnEarlierBranchOnThisReading(unittest.TestCase):
+    """A branch fixture may read an earlier branch's output out of the pool,
+    and the form its step bound with may exist only because of that output.
+    Bagel's week 3 is the shape: the prepare fixture offers the image branch's
+    projected rows when the pool holds them, the store binds on that form, and
+    search is a method of the store.
+
+    No step names the image branch, so renewal used to leave it unrun. The
+    fixture then offered only the raw form, the recorded form index was out of
+    range, and the search branch was refused on every trial.
+    """
+
+    SOURCE = RECORDER + '''
+
+def _broken(name):
+    return name in _os.environ.get("{}", "").split(",")
+
+
+def unrelated(rows):
+    _record("unrelated")
+    if _broken("unrelated"):
+        raise RuntimeError("unrelated broke")
+    return [r + 1 for r in rows]
+
+
+def project(rows):
+    _record("project")
+    if _broken("project"):
+        raise RuntimeError("project broke")
+    return [r * 10 for r in rows]
+
+
+class Store:
+    def __init__(self, projected, ids):
+        if any(value < 10 for value in projected):
+            raise ValueError("expected projected rows")
+        _record("Store")
+        self.rows = dict(zip(ids, projected))
+
+    def lookup(self, keys):
+        return [self.rows[key] for key in keys]
+'''.format(BREAK_VARIABLE)
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.ran = _recording(self)
+        (self.tmp / "theirs.py").write_text(self.SOURCE)
+        self.addCleanup(os.environ.pop, BREAK_VARIABLE, None)
+        ids = ["a", "b"]
+
+        def forms(pool, chains):
+            offered = [([1, 2], ids)]
+            # Read twice, as a week's hook may: once to decide, once to use.
+            if pool.get("image") is not None:
+                offered.append((pool["image"], ids))
+            return Fixtures(tuple(offered))
+
+        self.role = Role(
+            "all",
+            (),
+            branches=(
+                Role("unrelated",
+                     (Stage("unrelated", produces=lambda v: v == [2, 3]),),
+                     fixture=([1, 2],)),
+                Role("image",
+                     (Stage("image", produces=lambda v: v == [10, 20]),),
+                     fixture=([1, 2],)),
+                Role("prepare",
+                     (Stage("prepare", produces=lambda v: hasattr(v, "lookup")),),
+                     fixture=forms),
+                Role("search",
+                     (Stage("search", produces=lambda v: v == [10, 20]),),
+                     fixture=(ids,)),
+            ),
+        )
+
+    def _resolve(self):
+        submission = resolve(
+            self.tmp, chain_role=self.role, fixture=([1, 2],),
+            accepts=lambda chains, *_: (True, ""), arrangements=None,
+        )
+        self.assertTrue(submission.ready, submission.verdict.headline)
+        return submission
+
+    def test_ordinary_discovery_binds_search_on_the_projected_form(self):
+        submission = self._resolve()
+
+        self.assertEqual(
+            submission.to_dict()["branches"],
+            {
+                "image": ["theirs.project"],
+                "prepare": ["theirs.Store"],
+                "search": ["theirs.Store.lookup"],
+                "unrelated": ["theirs.unrelated"],
+            },
+        )
+        self.assertEqual(submission.branches["prepare"][0].form, 1)
+        self.assertEqual(submission.missing, {})
+
+    def test_a_run_makes_only_the_branch_the_fixture_read_and_once(self):
+        submission = self._resolve()
+        # Would fail the run if anything called it.
+        os.environ[BREAK_VARIABLE] = "unrelated"
+        before = len(self.ran())
+
+        run = submission.fresh()
+        self.addCleanup(run.close)
+
+        self.assertTrue(run.ready, run.verdict.headline)
+        self.assertEqual(run.branches["prepare"][0].form, 1)
+        self.assertEqual(run.branches["search"][0].bound(["b", "a"]), [20, 10])
+        # The image branch before the store it feeds, each once, and the
+        # branch nothing read not at all.
+        self.assertEqual(self.ran()[before:], ["project", "Store"])
+
+    def test_a_read_branch_that_fails_is_named_rather_than_its_reader(self):
+        submission = self._resolve()
+        os.environ[BREAK_VARIABLE] = "project"
+
+        with self.assertRaises(Unmapped) as caught:
+            submission.fresh()
+
+        # Not the prepare branch, and not an out-of-range form index.
+        self.assertEqual(caught.exception.reason, "branch_failed")
+        self.assertEqual(caught.exception.label, "image")
+        self.assertIn("RuntimeError", caught.exception.detail)
+
+
+class AnEarlierBranchIsMadeWithWhatItsOwnTurnHeld(unittest.TestCase):
+    """Every fixture on a fresh reading sees what the search's pool held when
+    its branch bound: the same names, in the same order, and the same chains.
+
+    `count` binds after `image` and a later step takes it by name, so renewal
+    makes it at its own turn, before prepare's fixture asks for `image`. The
+    image fixture, made late, must still see no branch output, and prepare's
+    must list `image` before `count` though `count` ran first.
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        (self.tmp / "theirs.py").write_text(
+            "def project(rows):\n    return [r * 10 for r in rows]\n"
+            "def count(rows):\n    return len(rows)\n"
+            "class Store:\n"
+            "    def __init__(self, projected, ids, count):\n"
+            "        if any(value < 10 for value in projected):\n"
+            "            raise ValueError('expected projected rows')\n"
+            "        self.rows = dict(zip(ids, projected))\n"
+            "    def lookup(self, keys):\n"
+            "        return [self.rows[key] for key in keys]\n"
+        )
+        self.seen = []
+        names = {"image", "count", "prepare", "search"}
+        ids = ["a", "b"]
+
+        def image_input(pool, chains):
+            self.seen.append(("image", [n for n in pool if n in names], list(chains)))
+            return ([1, 2],)
+
+        def forms(pool, chains):
+            self.seen.append(("prepare", [n for n in pool if n in names], list(chains)))
+            offered = [([1, 2], ids)]
+            if pool.get("image") is not None:
+                offered.append((pool["image"], ids))
+            return Fixtures(tuple(offered))
+
+        self.role = Role(
+            "all",
+            (),
+            branches=(
+                Role("image",
+                     (Stage("image", produces=lambda v: v == [10, 20]),),
+                     fixture=image_input),
+                Role("count",
+                     (Stage("count", produces=lambda v: v == 2),),
+                     fixture=([1, 2],)),
+                Role("prepare",
+                     (Stage("prepare", produces=lambda v: hasattr(v, "lookup"),
+                            extras=("count",)),),
+                     fixture=forms),
+                Role("search",
+                     (Stage("search", produces=lambda v: v == [10, 20]),),
+                     fixture=(ids,)),
+            ),
+        )
+
+    def test_each_fixture_sees_what_it_saw_when_its_branch_bound(self):
+        submission = resolve(
+            self.tmp, chain_role=self.role, fixture=([1, 2],),
+            accepts=lambda chains, *_: (True, ""), arrangements=None,
+        )
+        self.assertTrue(submission.ready, submission.verdict.headline)
+        self.assertEqual(list(submission.branches), ["image", "count", "prepare", "search"])
+        del self.seen[:]
+
+        run = submission.fresh()
+        self.addCleanup(run.close)
+
+        self.assertEqual(run.branches["search"][0].bound(["b", "a"]), [20, 10])
+        self.assertEqual(self.seen, [
+            ("prepare", ["image", "count"], ["image", "count"]),
+            ("image", [], []),
+        ])
 
 
 class TheWeeksTestReadsTheStoreItsDriverJustBuilt(unittest.TestCase):

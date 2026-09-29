@@ -70,7 +70,7 @@ class ProcessOutcomes(unittest.TestCase):
         self.assertEqual(result.signal, signal.SIGXCPU)
         self.assertFalse(result.alarm_fired)
         self.assertIn('CPU', result.detail)
-        self.assertIn('10 seconds soft, 15 seconds hard', result.detail)
+        self.assertIn('{} seconds soft, {} seconds hard'.format(*isolate._cpu_limit(10)), result.detail)
 
     def test_framing_failures_keep_their_reason(self):
         cases = [(b'', 'eof'), (b'\0', 'truncated_header'),
@@ -149,11 +149,9 @@ class ProcessOutcomes(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             marker = Path(temporary) / 'pid'
             def work():
-                # Written through a temporary name and renamed. `write_text`
-                # creates the file before it has the pid in it, so a reader
-                # watching for existence can find it empty; on Linux that
-                # happened, the killer raised ValueError, nothing was killed,
-                # and the child ran to the deadline instead.
+                # Written through a temporary name and renamed, because
+                # `write_text` creates the file before it has the pid in it
+                # and a reader watching for existence finds it empty.
                 staging = marker.with_suffix('.writing')
                 staging.write_text(str(os.getpid()))
                 os.replace(str(staging), str(marker))
@@ -306,6 +304,7 @@ class ProcessOutcomes(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary, \
              patch.object(isolate, 'run_operation', return_value=result), \
              patch.object(isolate, '_isolation_backend', side_effect=lambda: isolate.run_operation), \
+             patch.object(isolate, '_usable_cpus', return_value=4), \
              patch.object(cli, 'plugin_names', return_value=['fixture']), \
              patch.object(cli, 'load_benchmark', return_value=Benchmark()), \
              patch('sys.stdout', new_callable=io.StringIO) as output:
@@ -324,8 +323,8 @@ class ProcessOutcomes(unittest.TestCase):
             'readReason': 'eof',
             'limits': {
                 'wallSeconds': 300,
-                'cpuSeconds': 300,
-                'cpuHardSeconds': 305,
+                'cpuSeconds': 1200,
+                'cpuHardSeconds': 1205,
                 'memoryBytes': 1234,
             },
         })

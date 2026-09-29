@@ -1,0 +1,145 @@
+{
+  "benchmarkId": "audio-identification",
+  "benchmarkVersion": 1,
+  "contractVersion": "cogworks.submissions.v2",
+  "diagnostics": [
+    "Identification falls gradually from 68% at 5 songs to 54% at 30, without a single point where it breaks.",
+    "21% of queries had the right song somewhere in the list but not near the top.",
+    "Retrieval found something, so this is the tally losing, not the fingerprints: check that you count matches per time offset rather than summing every hash hit, and that the same code path resamples both what you enroll and what you query.",
+    "Clean clips identify at 100% but pitch-shifted clips at 8%.",
+    "A shifted clip moves every peak to a different frequency bin, so the stored keys stop matching; this is the expected behavior of the capstone design and is worth reporting, not hiding.",
+    "Every clip from a song that was never enrolled still came back with a candidate.",
+    "Nothing in the assignment required an abstain path, so this does not affect the score, but a minimum tally or a first-to-second ratio is what would give you one.",
+    "Weakest cell: pitch_+1 at 0% top-1.",
+    "Outcome split over 240 scored queries: 129 top_1, 28 top_k, 51 ranking_failure, 32 retrieval_failure."
+  ],
+  "dirty": false,
+  "finishedAt": 1789380587761,
+  "metrics": [
+    {
+      "help": "How often the right song came back first, averaged over eight equally weighted conditions: clean, short, two noise levels, and four pitch shifts. Half of those are pitch, which the course never asks for, because it is the only condition measured to separate teams: an audited student sweep held 0.97 through the worst noise and collapsed to 10-25% at one or two semitones. Clips of songs that were never enrolled are not counted here; they are reported beside it as confident false matches. This is the leaderboard number.",
+      "higherIsBetter": true,
+      "key": "identification_score",
+      "label": "Identification score",
+      "precision": 4,
+      "primary": true,
+      "unit": null,
+      "value": 0.5375
+    },
+    {
+      "help": "Studio-quality clips, no perturbation. The capstone's own baseline case: if this is not near 1.0, the pipeline is broken rather than merely untuned.",
+      "higherIsBetter": true,
+      "key": "clean_top1",
+      "label": "Clean top-1",
+      "precision": 3,
+      "primary": false,
+      "unit": null,
+      "value": 1.0
+    },
+    {
+      "help": "Clips with white noise added at a target signal-to-noise ratio -- the capstone's \"how well does a studio-quality clip, low-noise clip, ..., or very noisy clip match\" question. Noise is added with signal_power / 10**(snr_db/10), the same formula the course uses.",
+      "higherIsBetter": true,
+      "key": "noisy_top1",
+      "label": "Noisy top-1",
+      "precision": 3,
+      "primary": false,
+      "unit": null,
+      "value": 1.0
+    },
+    {
+      "help": "The capstone's \"how short of a clip can be matched\" question. Fewer peaks means fewer fanout pairs, so the offset histogram has less to vote with.",
+      "higherIsBetter": true,
+      "key": "short_clip_top1",
+      "label": "Short clip top-1",
+      "precision": 3,
+      "primary": false,
+      "unit": null,
+      "value": 1.0
+    },
+    {
+      "help": "Clips shifted in pitch. NOT part of the assignment -- reported because a shift moves every peak to a different frequency bin, so the (f1, f2, dt) keys stop matching. Expected behavior of the design the course teaches, shown rather than hidden.",
+      "higherIsBetter": true,
+      "key": "pitch_top1",
+      "label": "Pitch-shifted top-1",
+      "precision": 3,
+      "primary": false,
+      "unit": null,
+      "value": 0.075
+    },
+    {
+      "help": "Share of clips where the right song shared no fingerprint at all with the query. This is a fingerprinting problem: peak-picking, fanout, or a sample-rate mismatch between enroll and query.",
+      "higherIsBetter": false,
+      "key": "retrieval_failure_rate",
+      "label": "No candidate found",
+      "precision": 3,
+      "primary": false,
+      "unit": null,
+      "value": 0.13333333333333333
+    },
+    {
+      "help": "Share of clips where the right song was found but something else won the tally. This is a voting problem, not a fingerprinting one -- the capstone's tally step, where votes must be counted per time offset rather than summed over every hash hit.",
+      "higherIsBetter": false,
+      "key": "ranking_failure_rate",
+      "label": "Wrong song ranked first",
+      "precision": 3,
+      "primary": false,
+      "unit": null,
+      "value": 0.2125
+    },
+    {
+      "help": "1/N for a catalog of N songs: what naming a song at random scores. The floor every other number on this page should be read against.",
+      "higherIsBetter": true,
+      "key": "chance_top1",
+      "label": "Chance",
+      "precision": 3,
+      "primary": false,
+      "relatesTo": "identification_score",
+      "role": "floor",
+      "unit": null,
+      "value": 0.03333333333333333
+    },
+    {
+      "help": "Whole-clip mean log spectrum, nearest neighbour. No peaks, no fingerprints, no offsets -- none of the capstone. Beating chance is not evidence of a working pipeline; beating this is the first sign that the fingerprinting is doing something.",
+      "higherIsBetter": true,
+      "key": "trivial_baseline_top1",
+      "label": "Trivial baseline",
+      "precision": 3,
+      "primary": false,
+      "relatesTo": "identification_score",
+      "role": "floor",
+      "unit": null,
+      "value": 0.24166666666666667
+    },
+    {
+      "help": "Median wall-clock time for one identify call, after warm-up. Reported, never scored.",
+      "higherIsBetter": false,
+      "key": "median_identify_seconds",
+      "label": "Median identify time",
+      "precision": 3,
+      "primary": false,
+      "role": "reported",
+      "unit": null,
+      "value": 0.0252
+    },
+    {
+      "help": "The capstone's \"how much larger is the leading tally than the next-largest\" question, as an AUC: how well the top-1-versus-top-2 gap separates correct answers from wrong ones. A high value means that ratio is a usable confidence signal.",
+      "higherIsBetter": true,
+      "key": "margin_separation",
+      "label": "Margin separation (AUC)",
+      "precision": 3,
+      "primary": false,
+      "role": "reported",
+      "unit": null,
+      "value": 0.7737847222222223
+    }
+  ],
+  "outputDigest": "2ef7199bf1b26a21129b4d012f5097efdc4089ad6ea83a4102a13f3203ea7ab2",
+  "pluginVersion": "0.1.0",
+  "reportId": "local_ad2343f2e0c94802bc7a36338b5c896b",
+  "repositoryFullName": "SamGu-NRX/cogportal-demo-week1",
+  "repositoryId": null,
+  "sdkVersion": "0.2.0",
+  "sha": "71258046e60fecd3295c0b52236fc6e476b0e9cf",
+  "startedAt": 1789380575807,
+  "weightsUsed": []
+}

@@ -6,7 +6,7 @@ import json
 import os
 import time
 from pathlib import Path
-from typing import Any, Callable, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from . import __version__
 from .models import LocalReport, Metric
@@ -68,9 +68,13 @@ def execute(
     cwd: Path,
     smoke: bool = False,
     progress: Optional[Callable[..., None]] = None,
+    weight_names: Optional[List[str]] = None,
+    weights: Optional[List[Dict[str, Any]]] = None,
 ) -> LocalReport:
     if str(getattr(benchmark, "contract_version", "")) == "cogworks.submissions.v2":
-        return _execute_v2(benchmark, adapter, cwd, smoke, progress)
+        return _execute_v2(
+            benchmark, adapter, cwd, smoke, progress, weight_names, weights
+        )
     if progress:
         _progress(progress, "contract_check")
     cases = list(benchmark.public_cases())
@@ -103,6 +107,8 @@ def execute(
         metrics=list(metrics),
         diagnostics=list(diagnostics),
         predictions=predictions,
+        weights_used=None if weight_names is None else [str(n) for n in weight_names],
+        weights_uploaded=None if weights is None else [dict(item) for item in weights],
     )
 
 
@@ -161,6 +167,9 @@ def _metric(
     primary_key: str,
     labels: Optional[dict] = None,
     lower_is_better: Any = (),
+    help_text: Optional[str] = None,
+    role: Optional[str] = None,
+    relates_to: Optional[str] = None,
 ) -> Metric:
     label_map = _V2_LABELS if labels is None else labels
     return Metric(
@@ -170,7 +179,17 @@ def _metric(
         unit=None,
         higher_is_better=key not in lower_is_better,
         primary=key == primary_key,
-        precision=3,
+        # The primary is the leaderboard number and teams differ in the fourth
+        # place (0.5375 against 0.5292 on two real week 1 repositories), so it
+        # keeps four; the rest are read for shape, not rank.
+        precision=4 if key == primary_key else 3,
+        help=help_text,
+        # Same story as `help` above: without these the local builder
+        # reported a floor as an ordinary scored number with an arrow on it,
+        # while the hosted path sent the role. A local report and a hosted
+        # one describe the same run and have to say the same thing.
+        role=role,
+        relates_to=relates_to,
     )
 
 
@@ -180,6 +199,8 @@ def _execute_v2(
     cwd: Path,
     smoke: bool,
     progress: Optional[Callable[..., None]],
+    weight_names: Optional[List[str]] = None,
+    weights: Optional[List[Dict[str, Any]]] = None,
     model_factory: Callable[[], Any] = _facenet_model,
 ) -> LocalReport:
     tier = "test" if smoke else "evaluation"
@@ -190,6 +211,13 @@ def _execute_v2(
         model_factory = plugin_model_factory
     labels = getattr(benchmark, "metric_labels", None)
     lower_is_better = getattr(benchmark, "lower_is_better", ())
+    # What each number means, in the course's vocabulary. The hosted path
+    # passes this through (modal_app.py `_wire`); without it a student
+    # debugging locally sees bare numbers while the portal explains them.
+    # Absent on plugins that predate metric_help, hence the plain lookup.
+    help_text = getattr(benchmark, "metric_help", None) or {}
+    roles = getattr(benchmark, "metric_roles", None) or {}
+    relations = getattr(benchmark, "metric_relations", None) or {}
     if progress:
         _progress(progress, "contract_check")
     try:
@@ -223,9 +251,21 @@ def _execute_v2(
         for key, value in scores.items()
     ):
         raise ContractError("Benchmark scorer returned invalid v2 metrics.")
-    primary_key = str(benchmark.primary_metric)
+    # A plugin may say which metric is primary for THIS run, after scoring.
+    # Week 3 withholds `overall` when the image side was never measured and
+    # names `text_mrr` instead; the class attribute stays the general answer.
+    primary_key = str(getattr(benchmark, "primary_metric_for_run", None) or benchmark.primary_metric)
     metrics = [
-        _metric(key, value, primary_key, labels, lower_is_better)
+        _metric(
+            key,
+            value,
+            primary_key,
+            labels,
+            lower_is_better,
+            help_text.get(key),
+            roles.get(key),
+            relations.get(key),
+        )
         for key, value in scores.items()
     ]
     if not any(metric.primary for metric in metrics):
@@ -243,6 +283,8 @@ def _execute_v2(
         metrics=metrics,
         diagnostics=list(getattr(benchmark, "last_diagnostics", [])),
         predictions=outputs,
+        weights_used=None if weight_names is None else [str(n) for n in weight_names],
+        weights_uploaded=None if weights is None else [dict(item) for item in weights],
     )
 
 

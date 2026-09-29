@@ -1889,14 +1889,7 @@ class ARunsOwnFolderGoesWhenTheRunDoes(_AFolder):
 
 
 class AReaderThatAlsoReadsItsOwnThingsStillBinds(_AFolder):
-    """Their code reads its own package directory beside the benchmark's
-    folder, which is ordinary: a model's weights, a config, a cache.
-
-    Nothing classifies those reads or refuses them. What the run claims is
-    that their code asked for a directory of that name and that this call's
-    files were in it; whether the answer was computed from them is what the
-    week's own acceptance test decides, on a fresh reading.
-    """
+    """External weight-file opens remain allowed alongside the input listing."""
 
     SOURCE = '''
 import os
@@ -1907,10 +1900,10 @@ class Album:
     def __init__(self):
         self.where = "baseImages"
         self.count = len(os.listdir(self.where))
-        self.weights = sorted(os.listdir(Path(__file__).resolve().parent / "models"))
+        self.weights = (Path(__file__).resolve().parent / "models" / "facenet.pt").read_bytes()
 
     def names(self):
-        sorted(os.listdir(Path(__file__).resolve().parent / "models"))
+        (Path(__file__).resolve().parent / "models" / "facenet.pt").read_bytes()
         return sorted(os.listdir(self.where))
 '''
 
@@ -1928,20 +1921,14 @@ class Album:
         made = run.chain[0].bound(self.B)
 
         self.assertEqual(run.chain[1].bound(made), ["four.png", "three.png"])
-        self.assertEqual(made.weights, ["facenet.pt"])
+        self.assertEqual(made.weights, b"weights")
 
 
 class ARememberedAnswerEarnsNoClaimAboutTheInput(_AFolder):
-    """Their class answers out of its own state the second time it is asked.
+    """An observed listing does not prove the answer depends on those files.
 
-    The search binds it, because on the call that bound, their code asked for
-    a folder and the benchmark's files were in it. That is all the record
-    says. It does not say the answer was computed from them, because a list of
-    the paths their code touched cannot show that, and this repository is the
-    counterexample: the remembered answer names files nobody ever wrote.
-
-    What settles it is the week's acceptance test on a fresh reading, which is
-    where their module state starts over.
+    The retry lists the supplied directory but returns remembered names. The
+    week's acceptance test owns the answer; discovery only establishes access.
     """
 
     SOURCE = '''
@@ -1956,6 +1943,7 @@ class Album:
             _tried.append(1)
             self.remembered = sorted(os.listdir("baseImages"))
         else:
+            os.listdir("baseImages")
             self.remembered = ["remembered.png", "remembered-too.png"]
 
     def names(self):

@@ -4,7 +4,9 @@ import json
 import time
 import urllib.error
 import urllib.request
+from pathlib import Path
 from typing import Any, Dict, List, Optional
+from urllib.parse import quote
 
 from . import __version__
 
@@ -151,3 +153,70 @@ def update_setup_checks(
         retry=False,
         timeout=10,
     )
+
+
+#: How long one socket operation of a weight upload may block. urllib applies
+#: it to each connect, send and read rather than to the whole request, so it
+#: stops a stalled upload without cutting off a large one that is still moving.
+#: Longer than the 15 seconds JSON requests get because a send carries a
+#: chunk of the file; no measurement chose 60.
+UPLOAD_TIMEOUT_SECONDS = 60
+
+
+def upload_weight(
+    portal: str,
+    token: str,
+    report_id: str,
+    rel_path: str,
+    weight_path: Path,
+    expected_sha256: str,
+    size: int,
+) -> str:
+    """Upload one retained input under the digest its report already published.
+
+    The digest and the length come from the capture receipt, not from this
+    file: the portal checks the stream against the digest the report named, so
+    a retained copy that no longer matches is refused there as well as here.
+    """
+
+    # Workers caps request bodies at 100 MB on Free and Pro plans, and this
+    # account's plan is not established. The largest 2026 corpus weight is
+    # 411 KB; Week 3's separate 200 MiB discovery probe is unchanged.
+    max_weight_bytes = 100 * 1024 * 1024
+    if size > max_weight_bytes:
+        raise PortalError("Weight files may not exceed 100 MiB: {}".format(rel_path))
+
+    encoded_path = quote(rel_path, safe="/")
+    headers = {
+        "Accept": "application/json",
+        "User-Agent": USER_AGENT,
+        "Authorization": "Bearer {}".format(token),
+        "Content-Length": str(size),
+        "X-Cogworks-Weight-SHA256": expected_sha256,
+    }
+
+    url = normalize_portal(portal) + "/api/v1/local-reports/{}/weights/{}".format(
+        report_id, encoded_path
+    )
+
+    try:
+        with weight_path.open("rb") as stream:
+            request = urllib.request.Request(
+                url,
+                data=stream,
+                headers=headers,
+                method="PUT",
+            )
+            with urllib.request.urlopen(request, timeout=UPLOAD_TIMEOUT_SECONDS) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+                return str(payload["destination"])
+    except urllib.error.HTTPError as error:
+        raw = error.read()
+        try:
+            payload = json.loads(raw.decode("utf-8"))
+            message = payload["error"]["message"]
+        except (ValueError, KeyError, TypeError):
+            message = "CogPortal returned HTTP {}.".format(error.code)
+        raise PortalError(message) from error
+    except urllib.error.URLError as error:
+        raise PortalError("Could not reach CogPortal: {}".format(error.reason)) from error
