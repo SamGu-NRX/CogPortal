@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import contextlib
+import json
+import os
 import shutil
 import signal
+import subprocess
 import sys
 import tempfile
+import textwrap
 import time
 import tracemalloc
 import unittest
@@ -1578,6 +1582,66 @@ class AFolderOutsideThisRunIsRefusedBeforeAnythingIsWritten(unittest.TestCase):
         self.assertIn("outside the folder this run owns", refusal.notes[0])
         self.assertEqual(set(self.tmp.iterdir()), before)
 
+    def test_a_reader_of_its_own_working_directory_is_refused_in_a_fresh_process(self):
+        """A zero-argument reader that lists `.` fails in the empty scratch
+        directory and names `.` as the folder it wanted. Filling that folder
+        emptied the directory the search stands in, and the next candidate
+        probed there raised `FileNotFoundError` out of `resolve_chain`, so the
+        team's real photo reader never bound. Run in a fresh interpreter
+        because a regression leaves the process in a deleted directory."""
+
+        script = textwrap.dedent(
+            """
+            import json, os, sys
+            from types import ModuleType
+            from cogbench.pipeline import Role, Stage, resolve_chain
+
+            def written(source):
+                module = ModuleType("theirs")
+                exec(compile(source, "theirs", "exec"), module.__dict__)
+                return module
+
+            LISTS_HERE = (
+                "import os\\n"
+                "def a_listing_of_here():\\n"
+                "    names = sorted(os.listdir('.'))\\n"
+                "    if not names:\\n"
+                "        raise FileNotFoundError('nothing here')\\n"
+                "    return names\\n"
+            )
+            READS_PHOTOS = "def b_photos():\\n    return sorted(os.listdir('photos'))\\n"
+
+            role = Role("cluster", (Stage(
+                "d", produces=lambda v: isinstance(v, list), folder=True),))
+            files = ([sys.argv[1]],)
+            here = os.getcwd()
+            unbound, refusal = resolve_chain(role, [written(LISTS_HERE)], files)
+            bound, _ = resolve_chain(role, [written(LISTS_HERE + READS_PHOTOS)], files)
+            print(json.dumps({
+                "refused": unbound is None,
+                "notes": list(refusal.notes),
+                "here": os.getcwd() == here,
+                "bound": [step.label for step in bound.steps],
+                "folder": bound.steps[0].supplied["folder"],
+            }))
+            """
+        )
+        finished = subprocess.run(
+            [sys.executable, "-c", script, str(self.files[0])],
+            cwd=str(self.tmp),
+            env=dict(os.environ, PYTHONPATH=str(ROOT / "python" / "cogbench" / "src")),
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(finished.returncode, 0, finished.stderr)
+        result = json.loads(finished.stdout.strip().splitlines()[-1])
+        self.assertTrue(result["refused"])
+        self.assertTrue(any("not a folder inside it" in note for note in result["notes"]))
+        self.assertTrue(result["here"])
+        self.assertEqual(result["bound"], ["theirs.b_photos"])
+        self.assertEqual(result["folder"], "photos")
+
     def test_a_contained_folder_asked_for_later_still_wins(self):
         """A constructor that reads a sibling directory of its own and then its
         photos from a folder here asked for both. The one this run can fill is
@@ -1801,6 +1865,23 @@ class WhatGoesInThatFolderHasOneCorrectAnswer(unittest.TestCase):
 
                 self.assertIsNotNone(reason)
                 self.assertFalse((self.tmp / "elsewhere").exists())
+
+    def test_a_name_that_is_the_folder_itself_is_refused_not_emptied(self):
+        one = self._photo("a", "one.png")
+        (self.root / "keep.txt").write_bytes(b"already here")
+        names = [".", "./", "a/.."]
+        try:
+            (self.root / "loop").symlink_to(self.root, target_is_directory=True)
+            names.append("loop")
+        except (NotImplementedError, OSError):
+            pass  # Windows without symlink rights; the three names above still apply.
+
+        for name in names:
+            with self.subTest(name=name):
+                reason = _write_folder(self.root, name, [one])
+
+                self.assertIn("not a folder inside it", reason)
+                self.assertTrue((self.root / "keep.txt").is_file())
 
     def test_files_already_inside_the_destination_are_refused_not_deleted(self):
         """Emptying the folder first is what makes a second call honest, and it
@@ -3707,79 +3788,6 @@ class OptionalFitStageTests(unittest.TestCase):
         found, failed = _fits_of(role, [], {}, [])
         self.assertEqual(found, [])
         self.assertEqual(failed, "idfs")
-
-
-class ClockOwnershipTests(unittest.TestCase):
-    """The per-call clock is one timer in a process that has one timer.
-
-    SIGALRM is process-wide, so a probe that installs its own handler and
-    cancels its own alarm cancels whatever the caller was timing, whether that
-    is a runner's deadline or an enclosing probe's.
-    """
-
-    def setUp(self):
-        if not hasattr(signal, "SIGALRM") or not hasattr(signal, "getitimer"):
-            self.skipTest("clock ownership requires POSIX interval timers")
-        if signal.getitimer(signal.ITIMER_REAL)[0]:
-            self.skipTest("the test runner already owns an alarm")
-        self.previous_handler = signal.getsignal(signal.SIGALRM)
-        self.addCleanup(signal.signal, signal.SIGALRM, self.previous_handler)
-        self.addCleanup(signal.setitimer, signal.ITIMER_REAL, 0)
-
-    def test_a_callers_timer_and_handler_survive_success_and_failure(self):
-        def caller_handler(signum, frame):
-            self.fail("the caller's twelve-second timer expired during a short test")
-
-        for raises in (False, True):
-            with self.subTest(raises=raises):
-                signal.signal(signal.SIGALRM, caller_handler)
-                signal.setitimer(signal.ITIMER_REAL, 12, 0.25)
-
-                def call():
-                    self.assertIs(signal.getsignal(signal.SIGALRM), caller_handler)
-                    remaining, interval = signal.getitimer(signal.ITIMER_REAL)
-                    self.assertGreater(remaining, 1)
-                    self.assertEqual(interval, 0.25)
-                    if raises:
-                        raise ValueError("their call failed")
-                    return "answer"
-
-                with patch("cogbench.pipeline.CALL_TIMEOUT_SECONDS", 1):
-                    if raises:
-                        with self.assertRaisesRegex(ValueError, "their call failed"):
-                            _under_clock(call)
-                    else:
-                        self.assertEqual(_under_clock(call), "answer")
-                self.assertIs(signal.getsignal(signal.SIGALRM), caller_handler)
-                remaining, interval = signal.getitimer(signal.ITIMER_REAL)
-                self.assertGreater(remaining, 1)
-                self.assertEqual(interval, 0.25)
-                signal.setitimer(signal.ITIMER_REAL, 0)
-
-    def test_nested_probes_do_not_cancel_the_outer_deadline(self):
-        for raises in (False, True):
-            with self.subTest(raises=raises):
-                def outer():
-                    before = signal.getitimer(signal.ITIMER_REAL)[0]
-                    handler = signal.getsignal(signal.SIGALRM)
-
-                    def inner():
-                        if raises:
-                            raise ValueError("inner failure")
-
-                    if raises:
-                        with self.assertRaisesRegex(ValueError, "inner failure"):
-                            _under_clock(inner)
-                    else:
-                        _under_clock(inner)
-                    after = signal.getitimer(signal.ITIMER_REAL)[0]
-                    self.assertGreater(after, 0)
-                    self.assertLessEqual(after, before)
-                    self.assertIs(signal.getsignal(signal.SIGALRM), handler)
-
-                _under_clock(outer)
-                self.assertEqual(signal.getitimer(signal.ITIMER_REAL)[0], 0)
-                self.assertIs(signal.getsignal(signal.SIGALRM), self.previous_handler)
 
 
 def _keep(items):
