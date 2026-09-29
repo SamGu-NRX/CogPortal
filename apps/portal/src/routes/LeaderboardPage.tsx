@@ -2,6 +2,7 @@ import { ArrowDown01Icon, ArrowUpRight01Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useState } from "react";
+import { useLocation, useSearchParams } from "react-router";
 import type { Benchmark, LeaderboardEntry, Module } from "@cogworks/contracts/schema";
 import { EmptyState } from "@/components/EmptyState";
 import { LoadingMark, QueryError } from "@/components/Feedback";
@@ -27,9 +28,18 @@ const ROW_GRID = "grid grid-cols-[3rem_minmax(0,1fr)_auto_2rem] items-baseline g
 
 type VisionView = "overall" | "recognition" | "clustering";
 
+function visionViewOf(benchmarkId: string): VisionView {
+  if (benchmarkId === "vision-recognition") return "recognition";
+  if (benchmarkId === "vision-clustering") return "clustering";
+  return "overall";
+}
+
 export function LeaderboardPage() {
   const benchmarks = useBenchmarks();
-  const [module, setModule] = useState<Module>(TRACKS[0]!.module);
+  // A published result links here with `?benchmark=`, which picks its track
+  // and, for Vision, its exact tab once the catalog names the module. The bare
+  // page opens on the first course module, and Vision on Overall.
+  //
   // Vision opens on Overall, which is the summary of the other two. Overall
   // is empty until a team publishes a Recognition and a Clustering result
   // from one commit, and that used to read as "no results published yet"
@@ -37,7 +47,25 @@ export function LeaderboardPage() {
   // what Overall needs and where the rest is, not choosing the tab for the
   // reader: which board has rows is a fact about this week that would move
   // the tab under them on a refetch.
-  const [visionView, setVisionView] = useState<VisionView>("overall");
+  const [searchParams] = useSearchParams();
+  const requested = searchParams.get("benchmark");
+  // A tab the reader picks holds through refetches until they navigate again,
+  // including to the same link, which asks for its benchmark afresh.
+  const arrival = useLocation().key;
+  const [picked, setPicked] = useState<{ arrival: string; module: Module; visionView: VisionView } | null>(null);
+  const choice = picked?.arrival === arrival ? picked : null;
+  const target = requested ? benchmarks.data?.find((b) => b.id === requested) : undefined;
+  // Until the catalog answers, a requested benchmark has no known module, and
+  // guessing the first one would show Audio before jumping away from it.
+  const resolving = requested !== null && benchmarks.isPending;
+  const module: Module | null = choice?.module ?? target?.module ?? (resolving ? null : TRACKS[0]!.module);
+  const visionView: VisionView = choice?.visionView ?? (target ? visionViewOf(target.id) : "overall");
+  const pick = (next: { module?: Module; visionView?: VisionView }) =>
+    setPicked({
+      arrival,
+      module: next.module ?? module ?? TRACKS[0]!.module,
+      visionView: next.visionView ?? visionView,
+    });
   const reduce = useReducedMotion();
 
   const forModule = (m: Module): Benchmark | undefined => {
@@ -54,7 +82,7 @@ export function LeaderboardPage() {
         : visionView === "clustering"
           ? clustering
           : recognition
-      : forModule(module);
+      : module ? forModule(module) : undefined;
 
   return (
     <div className="anim-rise mx-auto w-full max-w-3xl py-12">
@@ -75,7 +103,7 @@ export function LeaderboardPage() {
               key={track.module}
               role="tab"
               aria-selected={active}
-              onClick={() => setModule(track.module)}
+              onClick={() => pick({ module: track.module })}
               className={`u-pressable relative inline-flex min-h-11 items-center gap-2 px-1 font-mono text-[11.5px] font-medium tracking-[0.09em] uppercase transition-colors duration-150 ${
                 active ? "text-ink" : "text-ink-secondary hover:text-ink"
               }`}
@@ -125,7 +153,7 @@ export function LeaderboardPage() {
                 type="button"
                 role="tab"
                 aria-selected={active}
-                onClick={() => setVisionView(value)}
+                onClick={() => pick({ visionView: value })}
                 className={`u-pressable relative inline-flex min-h-11 items-center px-1 font-mono text-[11px] font-medium tracking-[0.08em] uppercase transition-colors duration-150 ${
                   active ? "text-ink" : "text-ink-secondary hover:text-ink"
                 }`}

@@ -112,17 +112,38 @@ test("failure trace shows the last good step plus the safe failure category", ()
   assert.match(lines[1]!, /× Evaluation timed out {2}`1:00`/);
 });
 
+function execution(
+  id: string,
+  mode: "practice" | "official",
+  status: RunSurfaceSnapshot["executionHistory"][number]["status"],
+) {
+  return { id, mode, status, retryOfRunId: null, createdAt: 1_750_000_000_000, finishedAt: null };
+}
+
 test("rail carries stage provenance and cancelled stays unclaimed", () => {
-  assert.equal(
-    stageRail(snapshot({ stage: "hosted" }), fmt),
-    "✓ local  ● hosted  ○ official  ○ published",
-  );
-  assert.equal(
-    stageRail(snapshot({ stage: "hosted" }), fmt, "subtext"),
-    "-# ✓ local  ● hosted  ○ official  ○ published",
-  );
+  const hosted = snapshot({
+    stage: "hosted",
+    practiceRunId: "run_2",
+    executionHistory: [execution("run_2", "practice", "evaluating")],
+  });
+  assert.equal(stageRail(hosted, fmt), "✓ local  ● hosted  ○ official  ○ published");
+  assert.equal(stageRail(hosted, fmt, "subtext"), "-# ✓ local  ● hosted  ○ official  ○ published");
   assert.match(stageRail(snapshot({ status: "cancelled", phase: "cancelled" }), fmt), /○ local/);
-  assert.match(stageRail(snapshot({ stage: "published", status: "succeeded", published: true }), fmt), /✓ published/);
+});
+
+test("rail names no local stage for a run started in the browser, even once published", () => {
+  // The rail used to tick every stage before the current one and every stage
+  // of a published surface, so a browser run claimed a local run it never had.
+  const published = snapshot({
+    stage: "published",
+    status: "succeeded",
+    published: true,
+    localRunId: null,
+    practiceRunId: "run_p",
+    officialRunId: "run_o",
+    executionHistory: [execution("run_p", "practice", "succeeded"), execution("run_o", "official", "succeeded")],
+  });
+  assert.equal(stageRail(published, fmt, "subtext"), "-# ✓ hosted  ✓ official  ✓ published");
 });
 
 test("button policy: nothing while running, primary-first at terminal", () => {

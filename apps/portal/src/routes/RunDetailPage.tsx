@@ -394,7 +394,7 @@ export function RunDetailPage() {
             <p className="max-w-prose text-[14px] leading-relaxed text-ink">
               This result is your team's public entry.{" "}
               <Link
-                to="/leaderboard"
+                to={`/leaderboard?benchmark=${encodeURIComponent(run.benchmarkId)}`}
                 className="underline decoration-rule underline-offset-4 hover:decoration-ink"
               >
                 See it on the leaderboard.
