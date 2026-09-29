@@ -169,7 +169,7 @@ class PreparedRestore(unittest.TestCase):
         class Sandbox:
             filesystem = Files()
 
-            def exec(self, *args):
+            def exec(self, *args, text=True):
                 pristine = "-m" in args
                 events.append("probe" if pristine else "student-install")
                 return types.SimpleNamespace(

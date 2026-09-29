@@ -1574,10 +1574,14 @@ def _prepare(job: Dict[str, Any], reporter: LiveReporter) -> Tuple[str, Dict[str
                 job["benchmark"]["id"],
                 job["benchmark"]["contractVersion"],
                 json.dumps(weight_requests, separators=(",", ":")),
+                # Modal decodes text streams as strict UTF-8, so one invalid
+                # byte from a team's install would raise on read and be filed
+                # as a provider failure. Decode here and keep the message.
+                text=False,
             )
             process.wait()
         if process.returncode != 0:
-            stderr_text = process.stderr.read()
+            stderr_text = process.stderr.read().decode("utf-8", "replace")
             # The exception message, not the tail of the traceback. Slicing the
             # last 240 characters produced details like "line 144, in <module>"
             # -- the traceback's own last frame, which names our sandbox script

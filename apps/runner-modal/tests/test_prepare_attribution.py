@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import ast
 import contextlib
-import io
 import json
 import os
 import subprocess
@@ -29,6 +28,17 @@ def prepare_script():
         ):
             return ast.literal_eval(node.value)
     raise AssertionError("PREPARE_SCRIPT is missing")
+
+
+class Stream:
+    """A process stream as Modal returns it: bytes, or strict UTF-8 text."""
+
+    def __init__(self, value, text):
+        self.value = value.encode("utf-8") if isinstance(value, str) else value
+        self.text = text
+
+    def read(self):
+        return self.value.decode("utf-8") if self.text else self.value
 
 
 class PrepareAttribution(unittest.TestCase):
@@ -92,7 +102,7 @@ class PrepareAttribution(unittest.TestCase):
         class Sandbox:
             filesystem = Files()
 
-            def exec(self, *args):
+            def exec(self, *args, text=True):
                 if "-m" in args:
                     events.append("probe")
                     try:
@@ -104,7 +114,7 @@ class PrepareAttribution(unittest.TestCase):
                     events.append("student-install")
                     code, output, error = result.returncode, result.stdout, result.stderr
                 return types.SimpleNamespace(
-                    returncode=code, stdout=io.StringIO(output), stderr=io.StringIO(error),
+                    returncode=code, stdout=Stream(output, text), stderr=Stream(error, text),
                     wait=lambda: None,
                 )
 
@@ -236,3 +246,15 @@ class PrepareAttribution(unittest.TestCase):
                 self.assertEqual((failure.category, failure.phase, failure.infrastructure),
                                  ("adapter_missing", "contract_check", False))
                 self.assertIsNone(failure.refusal)
+
+    def test_undecodable_install_output_keeps_its_message(self):
+        for message, category in (("RuntimeError: The search for your code could not finish.",
+                                   "adapter_missing"),
+                                  ("ERROR: No matching distribution found for tensorfloww",
+                                   "dependency_install")):
+            with self.subTest(category=category):
+                stderr = b"\xff\xfe" + message.encode()
+                result = types.SimpleNamespace(returncode=1, stdout="", stderr=stderr)
+                failure, _ = self.controller_failure(result, {})
+                self.assertEqual((failure.category, failure.infrastructure), (category, False))
+                self.assertIn(message.split(": ", 1)[1], str(failure))
