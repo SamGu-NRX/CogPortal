@@ -87,11 +87,12 @@ for a review when all of these hold:
 - no `@coderabbitai review` comment exists that is newer than the head commit's
   committer date, which a rebase resets.
 
-The last rule has one exception. A request that CodeRabbit answered with `Review
+The last rule has two exceptions. A request that CodeRabbit answered with `Review
 rate limited` was refused rather than served, so it left the head unreviewed and the
-queue may ask again on a later run. Without that exception a pull request whose first
-request happened to land during a rate-limit window would never be reviewed, which is
-the problem the queue exists to fix. Retries stop after three requests for the same
+queue may ask again on a later run. A `pending` status older than 30 minutes is a
+stalled review, and the queue may ask again for the same reason. Without these
+exceptions a pull request whose request was refused or stalled would never be
+reviewed, which is the problem the queue exists to fix. Retries stop after three requests for the same
 head, and the run logs that the pull request needs a human.
 
 The queue never posts `@coderabbitai full review`. The full-review command re-reads

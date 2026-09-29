@@ -167,8 +167,11 @@ async function decide(pr) {
       status.state === 'success' &&
       /rate limited/i.test(description) &&
       Date.parse(status.created_at) > Date.parse(last.created_at);
+    // A pending status reaching this point is older than PENDING_STALE_MS. Counting the
+    // request that started it as served would leave the head unreviewed indefinitely.
+    const stalled = status?.state === 'pending';
 
-    if (!refused) {
+    if (!refused && !stalled) {
       return {
         action: 'skip',
         reason: `${last.user.login} already asked on ${last.created_at}`,
@@ -178,14 +181,17 @@ async function decide(pr) {
     if (requests.length >= MAX_ATTEMPTS_PER_HEAD) {
       return {
         action: 'skip',
-        reason: `asked ${requests.length} times and CodeRabbit is still rate limited, so a human should look`,
+        reason: `asked ${requests.length} times and CodeRabbit is still ${stalled ? 'stalled' : 'rate limited'}, so a human should look`,
         headAt,
       };
     }
   }
 
   const said = status ? `CodeRabbit last said "${description}"` : 'CodeRabbit never reported on this head';
-  const again = requests.length > 0 ? `, and the last request was rate limited (attempt ${requests.length + 1})` : '';
+  const again =
+    requests.length > 0
+      ? `, and the last request ${status?.state === 'pending' ? 'stalled' : 'was rate limited'} (attempt ${requests.length + 1})`
+      : '';
   return { action: 'request', reason: `${said}${again}`, headAt };
 }
 
