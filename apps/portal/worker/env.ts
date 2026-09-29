@@ -15,7 +15,14 @@ export interface Bindings {
 }
 
 const serverSchema = {
-  ENVIRONMENT: z.enum(["development", "production"]),
+  /**
+   * Which deployment this is. "development" is the only local value, and it is
+   * the one every branch below tests for: local relaxes auth, validates
+   * response bodies against their schemas, and trusts the Vite origin. The two
+   * hosted values name their environment and behave identically, so a hosted
+   * Worker cannot be made to relax anything by naming itself.
+   */
+  ENVIRONMENT: z.enum(["development", "dev", "production"]),
   DEV_AUTH: z.enum(["enabled", "disabled"]),
   /** Owner-only setup controls, independent of the login provider. */
   ONBOARDING_DEV_TOOLS: z.enum(["enabled", "disabled"]).optional(),

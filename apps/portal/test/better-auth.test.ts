@@ -21,12 +21,29 @@ function testEnv(overrides: Partial<Env> = {}): Env {
   } as unknown as Env;
 }
 
-test("authentication configuration fails closed outside explicit development auth", () => {
-  const production = createAuth(
-    testEnv({ ENVIRONMENT: "production", DEV_AUTH: "enabled" }),
-  );
-  assert.equal(production.options.emailAndPassword?.enabled, false);
+test("both hosted environments behave alike and only the local one relaxes auth", () => {
+  // ENVIRONMENT names the deployment; "dev" and "production" are both hosted
+  // and must not differ, or naming a Worker would grant it local behavior.
+  const common = { DEV_AUTH: "enabled", BETTER_AUTH_URL: "https://cogportal.sillion.app" } as const;
+  for (const environment of ["dev", "production"] as const) {
+    const auth = createAuth(testEnv({ ENVIRONMENT: environment, ...common }));
+    assert.equal(
+      auth.options.emailAndPassword?.enabled,
+      false,
+      `${environment} must not enable password sign-in`,
+    );
+    assert.ok(
+      !auth.options.trustedOrigins?.includes("http://localhost:5173"),
+      `${environment} must not trust the Vite origin`,
+    );
+  }
 
+  const local = createAuth(testEnv({ ENVIRONMENT: "development", ...common }));
+  assert.equal(local.options.emailAndPassword?.enabled, true);
+  assert.ok(local.options.trustedOrigins?.includes("http://localhost:5173"));
+});
+
+test("authentication configuration fails closed on incomplete or unsafe settings", () => {
   assert.throws(
     () => createAuth(testEnv({ GITHUB_CLIENT_ID: "client-id" })),
     /requires both GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET/,
