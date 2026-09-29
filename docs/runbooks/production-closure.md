@@ -28,7 +28,7 @@ Both build and deployment must consume the patched config. Do not run the ordina
 
 ## 2. Capture before state, then close ingress
 
-Use only Sam-authorized credentials. Do not use `set -x`, print tokens, or borrow another session's failed credential route.
+Use only Sam-authorized credentials. Do not use `set -x`, print tokens, or borrow another session's failed credential route. `cf` hands curl the token as a header file (`-H @file`), because a header given as an argument is visible in `ps` while curl runs.
 
 ```bash
 : "${CLOUDFLARE_API_TOKEN:?supply an authorized token without logging it}"
@@ -38,7 +38,7 @@ WORKER="accounts/$ACCOUNT/workers/scripts/cogportal-production"
 DO="accounts/$ACCOUNT/workers/durable_objects/namespaces/dd23153db188448596ae40cf1e3917cf"
 cf() {
   curl --silent --show-error --fail \
-    -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+    -H @<(printf 'Authorization: Bearer %s\n' "$CLOUDFLARE_API_TOKEN") \
     -H 'Content-Type: application/json' \
     "https://api.cloudflare.com/client/v4/$1" "${@:2}" |
     jq -e 'if .success then . else error("Cloudflare refused the request") end'
