@@ -862,6 +862,13 @@ export const SETUP_STEPS = [
 export const SetupStepSchema = z.enum(SETUP_STEPS);
 export type SetupStep = z.infer<typeof SetupStepSchema>;
 
+// Each benchmark has its own environment, package, and entry points.
+export const BENCHMARK_SCOPED_SETUP_STEPS = ["environment", "project", "wiring"] as const;
+export type BenchmarkScopedSetupStep = (typeof BENCHMARK_SCOPED_SETUP_STEPS)[number];
+export function isBenchmarkScopedStep(step: SetupStep): step is BenchmarkScopedSetupStep {
+  return BENCHMARK_SCOPED_SETUP_STEPS.some((scopedStep) => scopedStep === step);
+}
+
 /** POST /api/v1/cli/setup/checks. A linked CLI sends only coarse pass
  *  evidence: no paths, source, logs, predictions, metrics, or reports. */
 export const SetupEvidenceRequestSchema = z
@@ -873,6 +880,8 @@ export const SetupEvidenceRequestSchema = z
     pythonVersion: z.string().min(1).max(40),
     benchmarkIds: z.array(z.string().min(1).max(100)).max(12),
     submissionIds: z.array(z.string().min(1).max(100)).max(12),
+    // Older CLIs cannot name a benchmark; their evidence stays unscoped.
+    checkedBenchmarkId: z.string().min(1).max(100).optional(),
   })
   .strict();
 export type SetupEvidenceRequest = z.infer<typeof SetupEvidenceRequestSchema>;
@@ -889,6 +898,7 @@ export type SetupEvidenceResponse = z.infer<typeof SetupEvidenceResponseSchema>;
 export const SetupStateSchema = z
   .object({
     verified: z.array(SetupStepSchema),
+    verifiedByBenchmark: z.record(z.string(), z.array(SetupStepSchema)),
   })
   .strict();
 export type SetupState = z.infer<typeof SetupStateSchema>;

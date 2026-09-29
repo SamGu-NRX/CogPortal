@@ -209,9 +209,13 @@ export const setupVerifications = sqliteTable(
     userId: text("user_id").notNull().references(() => users.id),
     teamId: text("team_id").notNull().references(() => teams.id),
     step: text("step").notNull(),
+    // Empty means no benchmark was recorded, including evidence from older CLIs.
+    benchmarkId: text("benchmark_id").notNull().default(""),
     verifiedAt: integer("verified_at").notNull(),
   },
-  (table) => [primaryKey({ columns: [table.userId, table.teamId, table.step] })],
+  (table) => [
+    primaryKey({ columns: [table.userId, table.teamId, table.step, table.benchmarkId] }),
+  ],
 );
 
 export const benchmarks = sqliteTable(

@@ -11,6 +11,7 @@ import {
   dismissSetup,
   isSetupDismissed,
   setupProgress,
+  verifiedSteps,
 } from "@/lib/setup-progress";
 
 /**
@@ -33,7 +34,7 @@ export function SetupNudge() {
     team.data.isAdmin ? "created" : "joined",
     {
       teammates: team.data.members.length >= 2,
-      terminal: setupState.data?.verified,
+      terminal: verifiedSteps(setupState.data),
     },
   );
   if (done >= total) return null;
