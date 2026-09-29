@@ -402,7 +402,11 @@ test("a 601-character persisted refusal still produces a snapshot", async (t) =>
     refusalJson: JSON.stringify({ ...refusal, headline }),
   });
 
-  const snapshot = await buildRunSurfaceSnapshot({ DB: binding, EXECUTION_PROVIDER: "modal" } as unknown as Env, surfaceId);
+  const { runSurfaceHubs } = await import("./fixtures/run-surface-hub.ts");
+  const runtime = { DB: binding, EXECUTION_PROVIDER: "modal" } as unknown as Env;
+  runtime.RUN_SURFACES = runSurfaceHubs(runtime).namespace;
+  const snapshot = await buildRunSurfaceSnapshot(runtime, surfaceId);
+  assert.equal(snapshot.snapshotRevision, 1);
   assert.equal(snapshot.id, surfaceId);
   assert.equal(snapshot.status, "failed");
   assert.equal(snapshot.refusalHeadline, headline.slice(0, 600));
