@@ -21,13 +21,16 @@ from typing import Any, Dict, Optional
 
 
 # Release declarations, checked against concrete decoder/driver fixtures in
-# test_prepared_environment.py. Language 1 has one text, one retrieval and four
-# search cases. Scorer-only changes do not change this sandbox contract.
+# test_prepared_environment.py. Language 2 decodes nine cases: one text plus
+# four retrieval and four search rungs, with a separate pool per component.
+# The frozen Language 1 decoder emits only six from the same wire payload;
+# test_saved_contract_pairs.py proves that pair must refuse reuse before scoring.
+# Scorer-only changes do not change a sandbox contract.
 SANDBOX_CONTRACTS = {
     "audio-identification": 1,
     "vision-recognition": 1,
     "vision-clustering": 1,
-    "language-search": 1,
+    "language-search": 2,
 }
 
 # EVALUATE_SCRIPT in modal_app.py explicitly requires sys.version_info[:2]
@@ -69,7 +72,10 @@ _MODULES = {
 _REQUIRED_CALLABLES = {
     "cogbench.plugins": (("load_benchmark",), ("load_submission",)),
     "cogbench.resolve": (("from_spec",),),
-    "cogbench.discover": (("_Redirects",), ("_Redirects", "enter"), ("_Redirects", "leave")),
+    "cogbench.discover": (
+        ("_Redirects",), ("_Redirects", "enter"), ("_Redirects", "leave"),
+        ("_Redirects", "__enter__"), ("_Redirects", "__exit__"),
+    ),
 }
 
 UNKNOWN = "Prepared environment compatibility is unknown."
