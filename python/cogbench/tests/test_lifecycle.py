@@ -3074,6 +3074,20 @@ class AWeekThatReadsAFolderAndLoadsAModel(_AFolder):
 
         self.assertFalse((self.caller / "data" / "photos" / "one.png").exists())
 
+    def test_a_run_refuses_to_furnish_its_own_home(self):
+        """The scored side of the same rule the search follows: `.` names the
+        run's own directory, and emptying it would remove what the run stands in."""
+
+        run = self._resolved().fresh()
+        self.addCleanup(self._quietly, run.close)
+        run.chain[0].bound(self.B)
+        home = run._owned._home
+
+        with self.assertRaises(Unmapped):
+            run._owned.furnish(".", self.B)
+
+        self.assertTrue((home / "data" / "photos").is_dir())
+
     def test_the_caller_s_own_folder_is_left_alone(self):
         run = self._resolved().fresh()
         self.addCleanup(self._quietly, run.close)

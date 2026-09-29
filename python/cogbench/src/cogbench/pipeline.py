@@ -2236,7 +2236,9 @@ def _write_folder(root: Any, name: str, files: Sequence[Any]) -> Optional[str]:
 
     An escaping or absolute name is refused rather than clamped. The name came
     out of their code, and a benchmark that quietly rewrites ``../photos`` into
-    a folder of its own choosing has written somewhere nobody asked it to.
+    a folder of its own choosing has written somewhere nobody asked it to. A
+    name that resolves to ``root`` itself (``.``, ``a/..``, a link back to it)
+    is refused too: emptying it would remove the directory the call stands in.
 
     Every source has to be a file on disk. Copying the ones that exist and
     leaving out the rest would run their code over a smaller batch than the
@@ -2269,6 +2271,8 @@ def _write_folder(root: Any, name: str, files: Sequence[Any]) -> Optional[str]:
         resolved.relative_to(root)
     except (OSError, ValueError):
         return "{!r} is outside the folder this run owns".format(name)
+    if resolved == root:
+        return "{!r} is the folder this run owns, not a folder inside it".format(name)
 
     sources = [Path(source) for source in files]
     missing = []

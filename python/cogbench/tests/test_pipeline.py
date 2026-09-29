@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import contextlib
+import json
 import os
 import shutil
 import signal
+import subprocess
 import sys
 import tempfile
+import textwrap
 import time
 import tracemalloc
 import unittest
@@ -1513,6 +1516,66 @@ class AFolderOutsideThisRunIsRefusedBeforeAnythingIsWritten(unittest.TestCase):
         self.assertIn("outside the folder this run owns", refusal.notes[0])
         self.assertEqual(set(self.tmp.iterdir()), before)
 
+    def test_a_reader_of_its_own_working_directory_is_refused_in_a_fresh_process(self):
+        """A zero-argument reader that lists `.` fails in the empty scratch
+        directory and names `.` as the folder it wanted. Filling that folder
+        emptied the directory the search stands in, and the next candidate
+        probed there raised `FileNotFoundError` out of `resolve_chain`, so the
+        team's real photo reader never bound. Run in a fresh interpreter
+        because a regression leaves the process in a deleted directory."""
+
+        script = textwrap.dedent(
+            """
+            import json, os, sys
+            from types import ModuleType
+            from cogbench.pipeline import Role, Stage, resolve_chain
+
+            def written(source):
+                module = ModuleType("theirs")
+                exec(compile(source, "theirs", "exec"), module.__dict__)
+                return module
+
+            LISTS_HERE = (
+                "import os\\n"
+                "def a_listing_of_here():\\n"
+                "    names = sorted(os.listdir('.'))\\n"
+                "    if not names:\\n"
+                "        raise FileNotFoundError('nothing here')\\n"
+                "    return names\\n"
+            )
+            READS_PHOTOS = "def b_photos():\\n    return sorted(os.listdir('photos'))\\n"
+
+            role = Role("cluster", (Stage(
+                "d", produces=lambda v: isinstance(v, list), folder=True),))
+            files = ([sys.argv[1]],)
+            here = os.getcwd()
+            unbound, refusal = resolve_chain(role, [written(LISTS_HERE)], files)
+            bound, _ = resolve_chain(role, [written(LISTS_HERE + READS_PHOTOS)], files)
+            print(json.dumps({
+                "refused": unbound is None,
+                "notes": list(refusal.notes),
+                "here": os.getcwd() == here,
+                "bound": [step.label for step in bound.steps],
+                "folder": bound.steps[0].supplied["folder"],
+            }))
+            """
+        )
+        finished = subprocess.run(
+            [sys.executable, "-c", script, str(self.files[0])],
+            cwd=str(self.tmp),
+            env=dict(os.environ, PYTHONPATH=str(ROOT / "python" / "cogbench" / "src")),
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(finished.returncode, 0, finished.stderr)
+        result = json.loads(finished.stdout.strip().splitlines()[-1])
+        self.assertTrue(result["refused"])
+        self.assertTrue(any("not a folder inside it" in note for note in result["notes"]))
+        self.assertTrue(result["here"])
+        self.assertEqual(result["bound"], ["theirs.b_photos"])
+        self.assertEqual(result["folder"], "photos")
+
     def test_retry_listing_an_outside_folder_is_refused(self):
         """A later input listing cannot justify the retry's outside listing."""
 
@@ -1731,6 +1794,23 @@ class WhatGoesInThatFolderHasOneCorrectAnswer(unittest.TestCase):
 
                 self.assertIsNotNone(reason)
                 self.assertFalse((self.tmp / "elsewhere").exists())
+
+    def test_a_name_that_is_the_folder_itself_is_refused_not_emptied(self):
+        one = self._photo("a", "one.png")
+        (self.root / "keep.txt").write_bytes(b"already here")
+        names = [".", "./", "a/.."]
+        try:
+            (self.root / "loop").symlink_to(self.root, target_is_directory=True)
+            names.append("loop")
+        except (NotImplementedError, OSError):
+            pass  # Windows without symlink rights; the three names above still apply.
+
+        for name in names:
+            with self.subTest(name=name):
+                reason = _write_folder(self.root, name, [one])
+
+                self.assertIn("not a folder inside it", reason)
+                self.assertTrue((self.root / "keep.txt").is_file())
 
     def test_files_already_inside_the_destination_are_refused_not_deleted(self):
         """Emptying the folder first is what makes a second call honest, and it
