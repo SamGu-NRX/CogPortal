@@ -173,7 +173,7 @@ It is the whole failure block for a run that carries a refusal, and it replaces 
 
 **The heading names where the run stopped.** `refused`, and then `at {stage}` when a stage can be named, with the stage itself in full ink (`RefusalCard.tsx:122-126`). The stage is read out of the headline, because the payload carries no field for it: `cogbench.verdict` writes the stage into the not_wired sentence and nowhere else, in one of two forms that both put the name between "the" and "step" (`RefusalCard.tsx:68-82`, quoting `python/cogbench/src/cogbench/verdict.py:389` and `:397`). A headline of any other shape returns null and the header falls back to the run's phase, so a new verdict wording degrades to a coarser true answer rather than a wrong one. The distinction is the point: "REFUSED AT DATABASE" tells a team which hand-off to go look at, and "REFUSED AT CONTRACT CHECK" only tells them when (`RefusalCard.tsx:114-116`).
 
-**The collapsed failure sits beside it.** It keeps the failure code and mode. The recovery policy is the same in either mode: a failed execution uses no quota. Final failure-card wording is part of the portal owner's pending integration.
+**The collapsed failure sits beside it.** It keeps the failure code and mode. The recovery policy is the same in either mode: a failed execution uses no quota. Final failure-card wording has not been checked on a deployed portal.
 
 **Then the headline, as one line of ink** (`RefusalCard.tsx:130-132`). It is the only place the stage the run wanted is named at all, which is why it leads (`RefusalCard.tsx:20-22`).
 
@@ -315,7 +315,7 @@ The masthead's own chips finish the record. The mode chip reads `Practice` in ne
 
 ## Open questions and verification
 
-- The old physical-page branch restart is being replaced in the portal integration. Verify that the current-view link uses only the stored view identity, and that Retry keeps the failed execution's exact source and mode.
+- The page's old restart is gone in favour of the `Open current run` link. On a deployed portal, verify that the link uses only the stored view identity and that Retry keeps the failed execution's exact source and mode.
 - A succeeded run with diagnostics but no primary metric renders a finding and no `RESULTS` panel, so "The scorer had no notes on this run." can never appear for it. Whether that combination occurs was not established.
 - Whether the finding genuinely leads the eye ahead of the 5xl number below it was not observed, and it is the central claim of the page's design. It needs a screenshot. **Unverified.**
 - Whether a student can tell a floor from a score at a glance in the supporting list was not observed. The floor renders inline as `floor 0.42` at the metric's own precision, which reads correctly in the source. **Unverified.**
