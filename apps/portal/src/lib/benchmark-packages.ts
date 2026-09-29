@@ -51,7 +51,7 @@ const WEEK1_AUDIO: BenchmarkPackage = {
 const WEEK2_VISION: BenchmarkPackage = {
   distribution: "cogworks-week2-vision-benchmark",
   source:
-    "git+https://github.com/SamGu-NRX/cogworks-week2-vision-benchmark.git@4351ee9f237d85c6eb7d66b355bcfbc54f89bf14",
+    "git+https://github.com/SamGu-NRX/cogworks-week2-vision-benchmark.git@43e5a8f917562038748cd392e5ae86720c0e11d7",
 };
 
 // f5f7347 builds a team's database before calling an image encoder that is

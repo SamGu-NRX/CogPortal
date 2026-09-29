@@ -564,11 +564,12 @@ image bakes this checkout's `python/cogbench/src`, and that is what the probe
 reports as `sdkVersion` and hashes in the `sdk` manifest. The **student** SDK
 pin is separate: it is what a team installs on their own machine.
 
-The student SDK pin is now `1b7fc261`, in `COGBENCH_SOURCE`
+For that rehearsal the student SDK pin was `1b7fc261`, in `COGBENCH_SOURCE`
 (`apps/portal/src/lib/benchmark-packages.ts`) and restated in
 `apps/portal/test/command-sheet.test.ts` so moving it takes two deliberate
-edits. The Audio benchmark stays at `b156644a`, the submodule pointer this
-checkout carries; do not repin that as part of a configuration change.
+edits. The Audio benchmark was `b156644a`, the submodule pointer that checkout
+carried. Current pins are in `benchmark-packages.ts`; a configuration change
+never repins a benchmark.
 
 `b8ae7ce2` adds the saved-sync roles fix to `094a6f1a`. Its child `1b7fc261`
 removes ten stale generated SDK files that made an untouched export build from
