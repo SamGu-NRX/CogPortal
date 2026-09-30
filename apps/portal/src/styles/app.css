@@ -16,7 +16,13 @@
   --color-paper-sunken: #efe9db;
   --color-ink: #1c2637;
   --color-ink-secondary: #4b566b;
-  --color-ink-faint: #7d8697;
+  /* Faint ink is mostly small text (metadata, placeholders, SVG axis labels).
+     The old #7d8697 measured 3.03:1 on paper-sunken and 3.31:1 on paper,
+     below the 4.5:1 AA text minimum. This keeps its hue and saturation with
+     lightness lowered from 0.541 to 0.42: its worst measured pair is 4.66:1
+     (detect-wash over paper), 5.13:1 on paper, and it stays about 7 L*
+     lighter than ink-secondary so the three ink steps still read. */
+  --color-ink-faint: #5f6777;
   --color-rule: rgb(28 38 55 / 0.16);
   --color-rule-soft: rgb(28 38 55 / 0.08);
 
