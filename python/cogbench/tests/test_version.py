@@ -1,105 +1,126 @@
-"""The version a student sees has to be the version they have.
-
-`cogbench/__init__.py` restated the number that `pyproject.toml` declares,
-and the two drifted: the package said 0.1.0 while the source tree had moved
-on. `cogworks --version` and the `cliVersion` field in every local report
-both read the restated one, so a student comparing their output against a
-runbook was given a number that named a release they did not have.
-
-The number now comes from the installed package's own metadata, which cannot
-disagree with itself.
-"""
+"""Version provenance follows imported code, even beside another distribution."""
 
 from __future__ import annotations
 
-import re
+import ast
+import json
+import os
+import shutil
+import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[3]
-sys.path.insert(0, str(ROOT / "python" / "cogbench" / "src"))
-
-PYPROJECT = ROOT / "python" / "cogbench" / "pyproject.toml"
+PACKAGE = Path(__file__).resolve().parents[1]
+SOURCE = PACKAGE / "src"
 
 
 def _declared_version() -> str:
-    for line in PYPROJECT.read_text(encoding="utf-8").splitlines():
-        if line.startswith("version = "):
-            return line.split("=", 1)[1].strip().strip('"')
-    raise AssertionError("pyproject.toml declares no version")
+    tree = ast.parse((SOURCE / "cogbench" / "__init__.py").read_text(encoding="utf-8"))
+    values = [
+        ast.literal_eval(node.value)
+        for node in tree.body
+        if isinstance(node, ast.Assign)
+        and any(isinstance(target, ast.Name) and target.id == "__version__"
+                for target in node.targets)
+    ]
+    if len(values) != 1 or not isinstance(values[0], str):
+        raise AssertionError("cogbench.__version__ must be one literal string")
+    return values[0]
 
 
-class TheVersionIsNotRestated(unittest.TestCase):
-    def test_the_package_does_not_hard_code_a_number(self):
-        """A literal here is the drift this file exists to prevent.
+# Exercise the actual CLI parser and setup payload without a portal or GitHub call.
+PROBE = """
+import contextlib
+import io
+import json
+from importlib.metadata import PackageNotFoundError, version
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
+import cogbench
+from cogbench import cli, runner
 
-        Asserted against the source rather than against the value, because
-        the value is correct on any machine where the two happen to agree,
-        which is exactly how the drift went unnoticed.
-        """
+output = io.StringIO()
+with contextlib.redirect_stdout(output):
+    try:
+        cli.main(["--version"])
+    except SystemExit as exc:
+        assert exc.code == 0, exc.code
+with patch.object(cli, "repository_state", return_value=SimpleNamespace(full_name="fixture/team")), \\
+     patch.object(cli, "plugin_names", return_value=[]):
+    payload = cli._setup_payload(["environment"], Path.cwd())
+try:
+    installed = version("cogworks-benchmark")
+except PackageNotFoundError:
+    installed = None
+print(json.dumps({"version": cogbench.__version__, "cli": output.getvalue().strip(),
+                  "cliVersion": payload["cliVersion"], "runner": runner.__version__,
+                  "installed": installed, "file": cogbench.__file__}))
+"""
 
-        source = (
-            ROOT / "python" / "cogbench" / "src" / "cogbench" / "__init__.py"
-        ).read_text(encoding="utf-8")
-        literal = re.search(r'^__version__\s*=\s*"[0-9]', source, re.MULTILINE)
-        self.assertIsNone(
-            literal,
-            "__version__ must come from the installed package, not a literal",
+
+class ImportedVersion(unittest.TestCase):
+    def _probe(self, paths, cwd):
+        # Local editable installs can leave egg-info beside src/cogbench. Copy
+        # only the package so each fixture controls all visible metadata.
+        source = Path(cwd) / "source"
+        shutil.copytree(SOURCE / "cogbench", source / "cogbench", ignore=shutil.ignore_patterns("__pycache__"))
+        paths = [source if path == SOURCE else path for path in paths]
+        env = dict(os.environ, PYTHONPATH=os.pathsep.join(map(str, paths)))
+        result = subprocess.run(
+            [sys.executable, "-S", "-c", PROBE], cwd=str(cwd), env=env,
+            capture_output=True, text=True, timeout=30, check=True,
         )
+        payload = json.loads(result.stdout)
+        self.assertEqual(Path(payload["file"]).resolve(), (source / "cogbench" / "__init__.py").resolve())
+        return payload
 
-    def test_it_reports_the_declared_version_when_installed(self):
-        import cogbench
+    def _assert_consumers(self, result):
+        for key in ("version", "cli", "cliVersion", "runner"):
+            self.assertEqual(result[key], _declared_version(), key)
 
-        # In a checkout with the package installed (editable or not) the two
-        # must agree. Where it is not installed at all the fallback answers,
-        # and that case is covered below.
-        if cogbench.__version__ != "0+source":
-            self.assertEqual(cogbench.__version__, _declared_version())
+    def test_source_without_installed_metadata(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result = self._probe([SOURCE], directory)
+        self.assertIsNone(result["installed"])
+        self._assert_consumers(result)
 
-    def test_an_uninstalled_source_tree_says_so_rather_than_guessing(self):
-        """A wrong version is worse than an obviously absent one.
+    def test_source_shadowing_another_installed_distribution(self):
+        with tempfile.TemporaryDirectory() as directory:
+            installed = Path(directory) / "site-packages"
+            metadata = installed / "cogworks_benchmark-9.9.9.dist-info"
+            metadata.mkdir(parents=True)
+            (metadata / "METADATA").write_text(
+                "Metadata-Version: 2.1\nName: cogworks-benchmark\nVersion: 9.9.9\n",
+                encoding="utf-8",
+            )
+            package = installed / "cogbench"
+            package.mkdir()
+            (package / "__init__.py").write_text('__version__ = "9.9.9"\n', encoding="utf-8")
+            result = self._probe([SOURCE, installed], directory)
+        # Prove metadata really resolves to the other release, not just that
+        # imported code reports the expected number in an ordinary checkout.
+        self.assertEqual(result["installed"], "9.9.9")
+        self._assert_consumers(result)
 
-        Simulated rather than staged in a real interpreter: building a venv
-        with no metadata anywhere above it is slow and fragile, and the branch
-        under test is one `except`.
-        """
-
-        from importlib.metadata import PackageNotFoundError
-
-        def _resolve(lookup):
-            try:
-                return lookup("cogworks-benchmark")
-            except PackageNotFoundError:
-                return "0+source"
-
-        def _absent(_name):
-            raise PackageNotFoundError("cogworks-benchmark")
-
-        self.assertEqual(_resolve(_absent), "0+source")
-        self.assertEqual(_resolve(lambda _n: "9.9.9"), "9.9.9")
+    def test_build_configuration_uses_the_imported_literal(self):
+        config = (PACKAGE / "pyproject.toml").read_text(encoding="utf-8")
+        self.assertIn('dynamic = ["version"]', config)
+        self.assertIn('[tool.setuptools.dynamic]\nversion = { attr = "cogbench.__version__" }', config)
+        self.assertNotRegex(config, r'(?m)^version\s*=\s*["\']')
+        _declared_version()
 
 
 class ThePublishedVersionIsNotAlreadyTaken(unittest.TestCase):
-    """TestPyPI refuses a second upload of one version.
-
-    0.1.0 is published. Dispatching the publish workflow without moving the
-    number fails at the upload step, after a green build, which reads as a
-    broken pipeline rather than as the one-line fix it is.
-    """
-
-    #: Versions already on TestPyPI. Checked by hand against
-    #: https://test.pypi.org/pypi/cogworks-benchmark/json on 2026-08-20; there
-    #: is no network in this suite and a test that reaches one would fail
-    #: offline for a reason that has nothing to do with the code.
+    # Checked against TestPyPI on 2026-08-20. Keep this test offline.
     PUBLISHED = ("0.1.0",)
 
     def test_the_declared_version_is_new(self):
         self.assertNotIn(
-            _declared_version(),
-            self.PUBLISHED,
-            "this version is already on TestPyPI; the publish workflow would "
-            "refuse it. Move the number in pyproject.toml.",
+            _declared_version(), self.PUBLISHED,
+            "This version is already on TestPyPI; change cogbench.__version__ before publishing.",
         )
 
 

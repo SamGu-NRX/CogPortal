@@ -16,38 +16,32 @@ class BenchmarkInstall(NamedTuple):
     source: str
 
 
-# What to tell a student whose benchmark package is missing. The CLI is
-# installed as a package and cannot read the parent checkout, so the commands
-# are written out here.
-#
-# These are the distributions students install, which is not the same list as
-# `.gitmodules`: Week 2 is developed in one repository and published from
-# another, so its advice names the published fork rather than the submodule
-# URL. Treating the two as one table is what left this advice pointing at
-# commits no student could install.
-#
-# Moving a pin here is a coordinated change: the portal's own installer copy
-# and the benchmark catalog restate the same versions and are owned elsewhere.
+# What to tell a student whose benchmark package is missing. The URL is the
+# one in .gitmodules and the commit is the gitlink beside it, restated here
+# because the CLI is installed as a package and cannot read the parent
+# checkout. test_plugins.py reads both back out of the repository, so a
+# submodule bump that misses this table breaks CI rather than a student's
+# install. The portal's installer copy restates the same revisions.
 BENCHMARK_INSTALLS: Dict[str, BenchmarkInstall] = {
     "audio-identification": BenchmarkInstall(
         "cogworks-week1-audio-benchmark",
         "git+https://github.com/SamGu-NRX/cogworks-week1-audio-benchmark.git"
-        "@b156644aecc810e0b93535e320098f96c39ae04e",
+        "@4e516f39ffbeefe579e093260b2865eb354c17a7",
     ),
     "vision-recognition": BenchmarkInstall(
         "cogworks-week2-vision-benchmark",
         "git+https://github.com/SamGu-NRX/cogworks-week2-vision-benchmark.git"
-        "@b9055031bf25a18594651d89610f3fbcd7462db8",
+        "@a3dd948d0c108fabf070b4f159acdecd4d6c3897",
     ),
     "vision-clustering": BenchmarkInstall(
         "cogworks-week2-vision-benchmark",
         "git+https://github.com/SamGu-NRX/cogworks-week2-vision-benchmark.git"
-        "@b9055031bf25a18594651d89610f3fbcd7462db8",
+        "@a3dd948d0c108fabf070b4f159acdecd4d6c3897",
     ),
     "language-search": BenchmarkInstall(
         "cogworks-week3-language-benchmark",
         "git+https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git"
-        "@6dc63fe8f6af2b3554a21f7707debb138f31ae4e",
+        "@94c7e64f7e3bf5193be1805b4258f017d044a088",
     ),
 }
 
@@ -92,6 +86,13 @@ def load_plugin(group: str, name: str, instantiate_classes: bool = True) -> Any:
     matches = [point for point in _unique_entry_points(group) if point.name == name]
     if not matches:
         installed = plugin_names(group)
+        if not group.startswith("cogworks.benchmarks."):
+            raise PluginError(
+                '"{}" is not installed in "{}" (available: {}). Install the '
+                "package that provides it and run this again.".format(
+                    name, group, ", ".join(installed) or "none"
+                )
+            )
         # Two readers, two sentences. A benchmark that is simply not
         # installed is the ordinary case and the student's next step is one
         # command, so say that and nothing else rather than naming the
