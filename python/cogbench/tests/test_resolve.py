@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import shutil
 import sys
@@ -907,19 +908,172 @@ class WhatTheRepositoryItselfSuppliesIsReadOnceTheRootIsKnown(unittest.TestCase)
         self.assertEqual(seen["root"], self.tmp)
         self.assertEqual(seen["modules"], ["theirs"])
 
-    def test_the_weights_the_hook_loaded_are_recorded_and_kept_out_of_the_pool(self):
+    def test_the_weights_the_hook_captured_are_recorded_and_kept_out_of_the_pool(self):
+        weights = self.tmp / "data"
+        weights.mkdir(exist_ok=True)
+        (weights / "b.npy").write_bytes(b"second")
+        (weights / "a.npy").write_bytes(b"first")
+
+        def prepare(root, modules, capture=None):
+            # Loading through `capture` is what declares the weight; the hook
+            # does not name it a second time.
+            for name in ("b.npy", "a.npy"):
+                capture(root / "data" / name)
+            return {"W": 3}
+
         submission = resolve(
             self.tmp,
             chain_role=self.role,
             fixture=([1, 2],),
             accepts=lambda chain, *_: (chain[0].bound([1]) == [3], ""),
             arrangements=None,
-            prepare=lambda root, modules: {"W": 3, "weights_used": ["data/b.npy", "data/a.npy"]},
+            prepare=prepare,
+            weights_consumed=lambda submission: True,
         )
 
         self.assertTrue(submission.ready, submission.verdict.headline)
         self.assertEqual(submission.weights_used, ("data/a.npy", "data/b.npy"))
         self.assertEqual(submission.to_dict()["weightsUsed"], ["data/a.npy", "data/b.npy"])
+        captured = submission.to_dict()["weightsCaptured"]
+        self.assertEqual([item["path"] for item in captured], ["data/a.npy", "data/b.npy"])
+        self.assertEqual([item["size"] for item in captured], [len(b"first"), len(b"second")])
+
+    def _resolve_twice(self, prepare, **extra):
+        """Search once so the memo is written, then resolve again onto it."""
+
+        first = resolve(
+            self.tmp,
+            chain_role=self.role,
+            fixture=([1, 2],),
+            accepts=lambda chain, *_: (chain[0].bound([1]) == [3], ""),
+            arrangements=None,
+            prepare=prepare,
+            remember=True,
+            benchmark="week3",
+            **extra
+        )
+        second = resolve(
+            self.tmp,
+            chain_role=self.role,
+            fixture=([1, 2],),
+            accepts=lambda chain, *_: (chain[0].bound([1]) == [3], ""),
+            arrangements=None,
+            prepare=prepare,
+            remember=True,
+            benchmark="week3",
+            **extra
+        )
+        return first, second
+
+    def test_a_replayed_run_names_this_resolutions_weights_not_the_remembered_ones(self):
+        """The memo remembers the binding, not the weights. A recalled chain
+        came back with none at all, so a second run reported as though the
+        repository had no weights in it. Both resolutions declare a different
+        name and a different W, so stale metadata cannot pass this."""
+
+        names = iter(["data/first.npy", "data/second.npy"])
+        values = iter([3, 5])
+
+        def prepare(root, modules):
+            return {"W": next(values), "weights_used": [next(names)]}
+
+        first, second = self._resolve_twice(prepare)
+
+        self.assertTrue(first.ready, first.verdict.headline)
+        self.assertTrue(second.ready, second.verdict.headline)
+        self.assertTrue(second.recalled, "the second resolution did not replay")
+        self.assertEqual(first.weights_used, ("data/first.npy",))
+        self.assertEqual(second.weights_used, ("data/second.npy",))
+        self.assertIsNone(second.weights_captured)
+        # The replayed binding runs on this resolution's W, not the one the
+        # remembered run was built with.
+        self.assertEqual(second.chain[0].bound([1]), [5])
+
+    def test_a_replayed_run_publishes_this_resolutions_captured_bytes(self):
+        """The retained file changes between the two runs, so a receipt
+        carried over from the first would name bytes this run never read."""
+
+        weights = self.tmp / "data"
+        weights.mkdir(exist_ok=True)
+        target = weights / "a.npy"
+        target.write_bytes(b"first bytes")
+        values = iter([3, 5])
+
+        def prepare(root, modules, capture=None):
+            capture(root / "data" / "a.npy")
+            return {"W": next(values)}
+
+        first = resolve(
+            self.tmp, chain_role=self.role, fixture=([1, 2],),
+            accepts=lambda chain, *_: (chain[0].bound([1]) == [3], ""),
+            arrangements=None, prepare=prepare, remember=True, benchmark="week3",
+            weights_consumed=lambda submission: True,
+        )
+        target.write_bytes(b"second bytes, entirely different")
+        second = resolve(
+            self.tmp, chain_role=self.role, fixture=([1, 2],),
+            accepts=lambda chain, *_: (chain[0].bound([1]) == [3], ""),
+            arrangements=None, prepare=prepare, remember=True, benchmark="week3",
+            weights_consumed=lambda submission: True,
+        )
+
+        self.assertTrue(second.recalled, "the second resolution did not replay")
+        self.assertEqual(second.weights_used, ("data/a.npy",))
+        receipt = second.weights_captured[0]
+        self.assertEqual(receipt["sha256"], hashlib.sha256(b"second bytes, entirely different").hexdigest())
+        self.assertEqual(receipt["size"], len(b"second bytes, entirely different"))
+        self.assertNotEqual(receipt["sha256"], first.weights_captured[0]["sha256"])
+        self.assertEqual(second.chain[0].bound([1]), [5])
+
+    def test_a_replayed_no_weight_run_still_has_no_weights(self):
+        first, second = self._resolve_twice(lambda root, modules: {"W": 3})
+
+        self.assertTrue(second.recalled, "the second resolution did not replay")
+        self.assertEqual(second.weights_used, ())
+        self.assertEqual(second.weights_captured, ())
+        self.assertEqual(second.to_dict()["weightsCaptured"], [])
+
+    def test_a_hook_that_captures_and_also_names_weights_is_refused(self):
+        """Two answers to one question. Dropping the list would hide the
+        disagreement instead of settling it."""
+
+        weights = self.tmp / "data"
+        weights.mkdir(exist_ok=True)
+        (weights / "a.npy").write_bytes(b"first")
+
+        def prepare(root, modules, capture=None):
+            capture(root / "data" / "a.npy")
+            return {"W": 3, "weights_used": ["data/a.npy"]}
+
+        submission = resolve(
+            self.tmp,
+            chain_role=self.role,
+            fixture=([1, 2],),
+            accepts=lambda chain, *_: (chain[0].bound([1]) == [3], ""),
+            arrangements=None,
+            prepare=prepare,
+        )
+
+        self.assertFalse(submission.ready)
+        self.assertIn("Capture is the declaration", submission.verdict.headline)
+
+    def test_a_legacy_hook_still_scores_and_publishes_no_receipt(self):
+        """It named a weight nobody retained, so the run keeps the name and
+        says nothing about which bytes it was. It still scores locally."""
+
+        submission = resolve(
+            self.tmp,
+            chain_role=self.role,
+            fixture=([1, 2],),
+            accepts=lambda chain, *_: (chain[0].bound([1]) == [3], ""),
+            arrangements=None,
+            prepare=lambda root, modules: {"W": 3, "weights_used": ["data/a.npy"]},
+        )
+
+        self.assertTrue(submission.ready, submission.verdict.headline)
+        self.assertEqual(submission.weights_used, ("data/a.npy",))
+        self.assertIsNone(submission.weights_captured)
+        self.assertIsNone(submission.to_dict()["weightsCaptured"])
 
     def test_the_benchmarks_own_extras_win_over_the_repositorys(self):
         submission = resolve(
