@@ -471,6 +471,36 @@ test("once a reload is asked for, later returns neither check again nor reveal t
   h.assertReplacedForAnotherAccount();
 });
 
+test("a header retry that succeeds hands focus to the account menu", async (t) => {
+  const h = await harness(t, "shared", "/public");
+  h.leave("visibility");
+  h.server.session("fail");
+  await h.comeBack("visibility");
+  h.server.session("answer");
+  const retry = [...h.container.querySelectorAll("button")].find((button) => button.textContent === "Try again")!;
+  retry.focus();
+  await act(async () => retry.click());
+  await h.flush();
+  const menu = h.container.querySelector('header [aria-haspopup="menu"]');
+  assert.equal(h.window.document.activeElement, menu, "focus fell to the body");
+});
+
+test("a header retry leaves focus alone if the user moved on while it checked", async (t) => {
+  const h = await harness(t, "shared", "/public");
+  h.leave("visibility");
+  h.server.session("fail");
+  await h.comeBack("visibility");
+  h.server.session("hold");
+  const retry = [...h.container.querySelectorAll("button")].find((button) => button.textContent === "Try again")!;
+  retry.focus();
+  await act(async () => retry.click());
+  const elsewhere = [...h.container.querySelectorAll<HTMLAnchorElement>("header nav a")].at(-1)!;
+  elsewhere.focus();
+  h.server.releaseSession("alice");
+  await h.flush();
+  assert.equal(h.window.document.activeElement, elsewhere, "the retry took focus back");
+});
+
 test("a return while the browser is offline fails with a retry instead of waiting", async (t) => {
   const h = await harness(t, "shared", "/public");
   t.after(() => onlineManager.setOnline(true));

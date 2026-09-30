@@ -254,7 +254,8 @@ export function Concealed({
  * public page stays readable), the slot offers the retry instead of going
  * blank. On a phone the account slot is too narrow for a sentence, so the
  * retry takes its own row under the header. The button stays mounted through
- * a retry, so keyboard focus is not dropped.
+ * a retry, so keyboard focus is not dropped, and when a retry succeeds focus
+ * moves to the account control that replaces it.
  */
 export function AccountSlot({ children, className = "" }: { children: ReactNode; className?: string }) {
   const { gate, retry, covered } = useContext(GateContext);
@@ -264,8 +265,20 @@ export function AccountSlot({ children, className = "" }: { children: ReactNode;
   if (asked && gate.state === "open") setAsked(false);
   const checking = asked && gate.state === "closed";
   const recovering = !covered && (gate.state === "failed" || checking);
+  const slot = useRef<HTMLDivElement>(null);
+  const retryHadFocus = useRef(false);
+  // Runs before the gate's own focus restore, which then sees focus taken.
+  // Only when focus went down with the retry: a user who moved elsewhere
+  // while it checked keeps their place.
+  useEffect(() => {
+    if (gate.state !== "open" || !retryHadFocus.current) return;
+    retryHadFocus.current = false;
+    if (document.activeElement && document.activeElement !== document.body) return;
+    slot.current?.querySelector<HTMLElement>("button, a[href]")?.focus();
+  }, [gate.state]);
   return (
     <div
+      ref={slot}
       className={`grid items-center justify-items-end *:col-start-1 *:row-start-1 ${
         recovering ? "max-sm:order-last max-sm:w-full max-sm:justify-items-stretch" : ""
       } ${className}`}
@@ -281,8 +294,9 @@ export function AccountSlot({ children, className = "" }: { children: ReactNode;
             className="aria-disabled:cursor-progress aria-disabled:text-ink-secondary"
             aria-describedby="session-retry-note"
             aria-disabled={checking || undefined}
-            onClick={() => {
+            onClick={(event) => {
               if (checking) return;
+              retryHadFocus.current = document.activeElement === event.currentTarget;
               setAsked(true);
               retry();
             }}
