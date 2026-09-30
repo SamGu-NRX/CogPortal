@@ -111,9 +111,9 @@ cogworks report
 - `run` scores the public practice benchmark.
 - `report` prints the latest saved report again, or the one you name.
 
-`test` and `run` both save a report under `.cogbench/reports/`, and the two
-scores can differ, so run `run` last before you sync a result you mean to
-share.
+`test` and `run` both save a report under `.cogbench/reports/`, stamped with
+the command that made it. A `test` score covers only the small smoke-test
+case, so run `run` last before you sync a result you mean to share.
 
 `--benchmark` is required on `check`, `test`, and `run`, and `--json` on any
 of the three prints output a script can read. Each command exits 0 when it
@@ -165,12 +165,13 @@ cogworks sync .cogbench/reports/<report>.json
 ```
 
 The dashboard lists it under **LOCAL REPORTS**, marked
-`SELF-REPORTED · NOT PROMOTABLE`, with the commit, the result, and when it
-was synced. It is your machine's claim, so it can never go on the leaderboard.
-`sync` needs a linked device. It sends the metrics, diagnostics, commit, and
-dirty flag, plus a copy of every weights file the run read, committed or not.
-It never sends your source, other files, environment variables, predictions,
-or logs.
+`SELF-REPORTED · NOT PROMOTABLE`, with the commit, the command that made it
+(`test` or `run`), the result, and when it was synced. It is your machine's
+claim, so it can never go on the leaderboard. `sync` needs a linked device.
+It sends the metrics, diagnostics, command, commit, and dirty flag, plus a
+copy of every weights file the run read, committed or not. `cogworks run
+--live` sends the same report when it finishes, without the weights. Neither
+sends your source, other files, environment variables, predictions, or logs.
 
 `cogworks status` shows the portal, team, and repository this machine is
 linked to, and when the link expires. To remove a machine, revoke it from
