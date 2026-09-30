@@ -155,15 +155,16 @@ function storedSpellings(repositoryFullName: string): string[] {
   return lowercase === repositoryFullName ? [lowercase] : [repositoryFullName, lowercase];
 }
 
-/** Every key a recorded weight may sit at, in reading order: content-addressed
- *  under each spelling, then the pre-digest key. The first object found is
- *  the answer, so one that fails its checks is refused, not skipped. */
+/** Every key a recorded weight may sit at, in reading order: for each
+ *  spelling, content-addressed then pre-digest. The exact spelling's pair comes
+ *  first, so every lookup that resolved before lowercase uploads still resolves
+ *  the same way. The first object found is the answer, so one that fails its
+ *  checks is refused, not skipped. */
 function storedWeightKeys(repositoryFullName: string, sha: string, path: string, sha256: string): string[] {
-  const spellings = storedSpellings(repositoryFullName);
-  return [
-    ...spellings.map((name) => weightObjectKey(name, sha, path, sha256)),
-    ...spellings.map((name) => legacyWeightObjectKey(name, sha, path)),
-  ];
+  return storedSpellings(repositoryFullName).flatMap((name) => [
+    weightObjectKey(name, sha, path, sha256),
+    legacyWeightObjectKey(name, sha, path),
+  ]);
 }
 
 function hex(bytes: ArrayBuffer): string {

@@ -24,6 +24,15 @@ function reportRepositoryIs(name: string) {
   return sql`lower(${localReports.repositoryFullName}) = lower(${name})`;
 }
 
+/** The listing form of the id check upload and dispatch make: a report whose
+ *  known repository id differs from the team's is another repository, whatever
+ *  its name. Unknown on either side is not a conflict. */
+function reportRepositoryIdAgrees(repoId: number | null) {
+  return repoId === null
+    ? sql`1 = 1`
+    : sql`(${localReports.repositoryId} is null or ${localReports.repositoryId} = ${repoId})`;
+}
+
 function parseReportRow(row: {
   report: typeof localReports.$inferSelect;
   login: string | null;
@@ -93,6 +102,7 @@ export async function listTeamLocalReports(
   const predicates = [
     inArray(localReports.userId, scope.memberUserIds),
     reportRepositoryIs(scope.repoFullName),
+    reportRepositoryIdAgrees(scope.repoId),
   ];
   if (benchmarkId) {
     // A benchmark bump keeps the id and raises the version, so an id-only
@@ -140,6 +150,7 @@ export async function listUntrackedLocalReports(env: Env, userId: string): Promi
     .where(and(
       inArray(localReports.userId, scope.memberUserIds),
       reportRepositoryIs(scope.repoFullName),
+      reportRepositoryIdAgrees(scope.repoId),
       sql`${localReports.benchmarkVersion} is not ${trackVersion}`,
     ))
     .orderBy(desc(localReports.syncedAt))

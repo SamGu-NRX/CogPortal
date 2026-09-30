@@ -600,6 +600,7 @@ test("a weight uploaded under one spelling is found under another spelling of th
   assert.deepEqual(await weightManifest(bucket, "Course/Team", sha, [weight.path], [weight]), [weight]);
   assert.deepEqual(reads, [
     `weight-objects/Course/Team/${sha}/${SHA256_ABC}/model.pkl`,
+    `weights/Course/Team/${sha}/model.pkl`,
     `weight-objects/course/team/${sha}/${SHA256_ABC}/model.pkl`,
   ]);
   reads.length = 0;
@@ -638,4 +639,22 @@ test("an object stored under the run's exact spelling stays reachable, and a bad
   );
   assert.equal((await headRecordedWeight(bucketWith(bad), "Course/Team", sha, weight)).status, "mismatched");
   assert.deepEqual(reads, [exactKey, exactKey]);
+});
+
+test("the exact spelling's pre-digest object still wins over a lowercase key", async () => {
+  // Before lowercase uploads, a run spelled "Course/Team" read its content key
+  // and then its pre-digest key. That pair still comes first, so a valid legacy
+  // object is not shadowed by whatever the lowercase key holds.
+  const sha = "a".repeat(40);
+  const weight = { path: "model.pkl", size: 3, sha256: SHA256_ABC };
+  const legacyKey = `weights/Course/Team/${sha}/model.pkl`;
+  const lowercaseKey = `weight-objects/course/team/${sha}/${SHA256_ABC}/model.pkl`;
+  const objects = new Map<string, R2Object>([
+    [legacyKey, { size: 3, checksums: { sha256: hexBytes(SHA256_ABC) } } as R2Object],
+    [lowercaseKey, { size: 3, checksums: {} } as R2Object],
+  ]);
+  const bucket = { head: async (key: string) => objects.get(key) ?? null };
+
+  assert.equal((await headRecordedWeight(bucket, "Course/Team", sha, weight)).status, "matched");
+  assert.deepEqual(await weightManifest(bucket, "Course/Team", sha, [weight.path], [weight]), [weight]);
 });

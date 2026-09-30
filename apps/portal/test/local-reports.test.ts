@@ -547,6 +547,12 @@ test("a report spelled with different letter case is listed, admitted for upload
     (await listTeamLocalReports(env, "user_1", BENCHMARK)).map((report) => report.reportId),
     ["report_lowercase_origin"],
   );
+  await db.update(benchmarks).set({ active: false }).where(eq(benchmarks.id, BENCHMARK));
+  assert.deepEqual(
+    (await listUntrackedLocalReports(env, "user_1")).map((report) => report.reportId),
+    ["report_lowercase_origin"],
+  );
+  await db.update(benchmarks).set({ active: true }).where(eq(benchmarks.id, BENCHMARK));
   // The report keeps the spelling it was synced with.
   assert.equal((await getLocalReport(env, "report_lowercase_origin"))?.repositoryFullName, "demo-org/team-repo");
   assert.deepEqual(
@@ -581,8 +587,12 @@ test("ignoring letter case still refuses a different repository", async () => {
     getWeightUploadTarget(env, "user_1", "report_other_id", "model.pkl", DIGEST),
     /names a different repository than the uploader's team/,
   );
-  assert.deepEqual(
-    (await listTeamLocalReports(env, "user_1")).map((report) => report.reportId),
-    ["report_other_id"],
+  // Neither is listed: one is another name, the other another known id.
+  assert.deepEqual(await listTeamLocalReports(env, "user_1"), []);
+  assert.deepEqual(await listUntrackedLocalReports(env, "user_1"), []);
+  // Dispatch refuses the conflicting id rather than falling back to no weights.
+  await assert.rejects(
+    getLatestTeamWeights(env, "team_1", MIXED_CASE_REPO, sha, 1, BENCHMARK),
+    /names a different repository than this execution/,
   );
 });
