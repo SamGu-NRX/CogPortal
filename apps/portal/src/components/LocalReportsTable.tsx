@@ -31,6 +31,11 @@ export function LocalReportsTable({
   const captionId = useId();
   const scrollerRef = useRef<HTMLDivElement>(null);
   const overflows = useHorizontalOverflow(scrollerRef);
+  const [focused, setFocused] = useState(false);
+  // Held while focused: a table that stops overflowing under the keyboard
+  // (a phone rotated to landscape) would otherwise drop focus to the page,
+  // and the next Tab would start again from the top.
+  const stop = overflows || focused;
   return (
     <>
       {/* Scrolls inside the panel, not the page, when a long title or large
@@ -40,9 +45,11 @@ export function LocalReportsTable({
       <div
         ref={scrollerRef}
         className="overflow-x-auto"
-        tabIndex={overflows ? 0 : undefined}
-        role={overflows ? "region" : undefined}
-        aria-labelledby={overflows ? captionId : undefined}
+        tabIndex={stop ? 0 : undefined}
+        role={stop ? "region" : undefined}
+        aria-labelledby={stop ? captionId : undefined}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
       >
         <table className="w-full text-left text-[13px]">
           <caption id={captionId} className="sr-only">{caption}</caption>
