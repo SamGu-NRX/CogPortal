@@ -786,6 +786,7 @@ def _check(benchmark: str, as_json: bool, project_root: Path) -> int:
             survey=survey,
             local_gap_note=gap_note(benchmark, checks["localGap"]),
             submission_source=checks["submissionSource"],
+            submission_detail=checks["submissionDetail"],
             installed_reference=installed_reference,
             unread_detail=unread_detail,
             declaration_error=declaration_error,

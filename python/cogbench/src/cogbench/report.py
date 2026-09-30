@@ -169,6 +169,7 @@ def render_check(
     survey: Optional[Dict[str, object]] = None,
     local_gap_note: str = "",
     submission_source: Optional[str] = None,
+    submission_detail: Optional[str] = None,
     installed_reference: bool = False,
     unread_detail: str = "",
     search_unavailable: str = "",
@@ -185,6 +186,11 @@ def render_check(
     report with no search in it, because "your package was used as is" and
     "this benchmark cannot be searched for" are different facts and the reader
     acts differently on each.
+
+    ``submission_detail`` is the declaration that resolved, as
+    ``"benchmark_adapter.py:create_submission"``. Only its filename is shown,
+    because a repository can declare in either of two files and naming the
+    wrong one sends the reader to a file that does not exist.
 
     ``installed_reference`` says a package registering this benchmark is
     installed on this machine. It is worth one sentence and never counts as
@@ -272,7 +278,11 @@ def render_check(
             else:
                 lines.append("Install it, then run this again.")
         elif submission_source == "file":
-            lines.append("Your submission.py at the repository root was used, so nothing was searched for.")
+            filename = (submission_detail or "").split(":")[0] or "adapter file"
+            lines.append(
+                "Your {} at the repository root was used, so nothing was "
+                "searched for.".format(filename)
+            )
         else:
             # Nothing declared and nothing searched: this benchmark does not
             # describe its task to the search. Before this branch existed the
