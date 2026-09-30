@@ -228,7 +228,8 @@ export function TrackSwitcher({
                             size={6}
                             thickness={1}
                             inset={3}
-                            className={MODULE_ACCENT[track.module].text}
+                            // Out of the flex row, or justify-between centers the title.
+                            className={`absolute inset-0 ${MODULE_ACCENT[track.module].text}`}
                           />
                         )}
                         <span
