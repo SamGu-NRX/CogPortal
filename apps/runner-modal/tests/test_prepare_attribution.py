@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import ast
 import contextlib
-import io
 import json
 import os
 import subprocess
@@ -17,7 +16,7 @@ from pathlib import Path
 from unittest import mock
 
 from test_prepared_restore import (
-    SOURCE, LazyImage, Reporter, functions, job, shape_valid_observation,
+    SOURCE, LazyImage, Reporter, Stream, functions, job, shape_valid_observation,
 )
 from test_prepared_environment import env, require_packages
 
@@ -92,7 +91,7 @@ class PrepareAttribution(unittest.TestCase):
         class Sandbox:
             filesystem = Files()
 
-            def exec(self, *args):
+            def exec(self, *args, text=True):
                 if "-m" in args:
                     events.append("probe")
                     try:
@@ -104,7 +103,7 @@ class PrepareAttribution(unittest.TestCase):
                     events.append("student-install")
                     code, output, error = result.returncode, result.stdout, result.stderr
                 return types.SimpleNamespace(
-                    returncode=code, stdout=io.StringIO(output), stderr=io.StringIO(error),
+                    returncode=code, stdout=Stream(output, text), stderr=Stream(error, text),
                     wait=lambda: None,
                 )
 
@@ -236,3 +235,15 @@ class PrepareAttribution(unittest.TestCase):
                 self.assertEqual((failure.category, failure.phase, failure.infrastructure),
                                  ("adapter_missing", "contract_check", False))
                 self.assertIsNone(failure.refusal)
+
+    def test_undecodable_install_output_keeps_its_message(self):
+        for message, category in (("RuntimeError: The search for your code could not finish.",
+                                   "adapter_missing"),
+                                  ("ERROR: No matching distribution found for tensorfloww",
+                                   "dependency_install")):
+            with self.subTest(category=category):
+                stderr = b"\xff\xfe" + message.encode()
+                result = types.SimpleNamespace(returncode=1, stdout="", stderr=stderr)
+                failure, _ = self.controller_failure(result, {})
+                self.assertEqual((failure.category, failure.infrastructure), (category, False))
+                self.assertIn(message.split(": ", 1)[1], str(failure))

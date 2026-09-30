@@ -68,6 +68,17 @@ def functions(*names, **globals_):
     return namespace
 
 
+class Stream:
+    """A process stream as Modal returns it: bytes, or strict UTF-8 text."""
+
+    def __init__(self, value, text):
+        self.value = value.encode("utf-8") if isinstance(value, str) else value
+        self.text = text
+
+    def read(self):
+        return self.value.decode("utf-8") if self.text else self.value
+
+
 class Store(dict):
     def put(self, key, value, skip_if_exists=False):
         if skip_if_exists and key in self:
@@ -169,7 +180,7 @@ class PreparedRestore(unittest.TestCase):
         class Sandbox:
             filesystem = Files()
 
-            def exec(self, *args):
+            def exec(self, *args, text=True):
                 pristine = "-m" in args
                 events.append("probe" if pristine else "student-install")
                 return types.SimpleNamespace(
@@ -320,10 +331,11 @@ raise ValueError("my own bug")
 ''')
         self.assertNotEqual(returncode, 0)
         self.assertIn("sandboxContract incompatible", stderr)
-        process = types.SimpleNamespace(returncode=returncode, wait=lambda: None, stderr=io.StringIO(stderr))
         sandbox = types.SimpleNamespace(
             filesystem=types.SimpleNamespace(write_text=lambda *args: None, write_bytes=lambda *args: None),
-            exec=lambda *args: process, terminate=lambda: None,
+            exec=lambda *args, text=True: types.SimpleNamespace(
+                returncode=returncode, wait=lambda: None, stderr=Stream(stderr, text)),
+            terminate=lambda: None,
         )
         space = functions(
             "RunnerFailure", "_evaluate_v2", "_last_error_line", "_fit", "_take_units",

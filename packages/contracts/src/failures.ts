@@ -64,6 +64,9 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
     // Says nothing about pyproject.toml entry points: that is packaging
     // metadata none of the thirteen 2026 capstones has, and the platform no
     // longer needs it now that it finds a team's code by running it.
+    // This code also covers a search that stopped partway, after the team's
+    // own installation ran, when nobody can say whose code stopped it. The
+    // explanation therefore claims only that scoring was not reached.
     explanation:
       "This run did not reach scoring. The available details are below.",
     action:
