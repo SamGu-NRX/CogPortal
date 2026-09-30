@@ -305,13 +305,18 @@ async function readCommitHistory(
     } satisfies z.infer<typeof StoredCommitHistorySchema>);
     const historyQuality = storable.ok ? classifyHistoryQuality(storable.commits) : HISTORY_FETCH_FAILED;
     if (new TextEncoder().encode(signalsJson).byteLength <= MAX_STORED_HISTORY_BYTES) {
-      await db
-        .insert(teamProcessSignals)
-        .values({ teamId: team.id, computedAt: 0, signalsJson, historyQuality })
-        .onConflictDoUpdate({
-          target: teamProcessSignals.teamId,
-          set: { computedAt: 0, signalsJson, historyQuality },
-        });
+      try {
+        await db
+          .insert(teamProcessSignals)
+          .values({ teamId: team.id, computedAt: 0, signalsJson, historyQuality })
+          .onConflictDoUpdate({
+            target: teamProcessSignals.teamId,
+            set: { computedAt: 0, signalsJson, historyQuality },
+          });
+      } catch (error) {
+        // The cache is optional; fetched history still answers this visit.
+        console.warn("Team commit history cache write failed", error);
+      }
     }
   }
   return { result, checkedAt: now };

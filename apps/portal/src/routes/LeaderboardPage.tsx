@@ -40,8 +40,14 @@ export function LeaderboardPage() {
   const requested = searchParams.get("benchmark");
   // A picked tab survives refetches and resets on the next navigation, even to the same link.
   const arrival = useLocation().key;
-  const [picked, setPicked] = useState<{ arrival: string; module: Module; visionView: VisionView } | null>(null);
-  const choice = picked?.arrival === arrival ? picked : null;
+  const [selection, setSelection] = useState<{
+    arrival: string;
+    picked: { module: Module; visionView: VisionView } | null;
+  }>({ arrival, picked: null });
+  if (selection.arrival !== arrival) {
+    setSelection({ arrival, picked: null });
+  }
+  const choice = selection.arrival === arrival ? selection.picked : null;
   const target = requested ? benchmarks.data?.find((b) => b.id === requested) : undefined;
   // No tab until the catalog names the module; defaulting would flash Audio first.
   const resolving = requested !== null && benchmarks.isPending;
@@ -55,10 +61,12 @@ export function LeaderboardPage() {
   // the tab under them on a refetch.
   const visionView: VisionView = choice?.visionView ?? (target ? visionViewOf(target.id) : "overall");
   const pick = (next: { module?: Module; visionView?: VisionView }) =>
-    setPicked({
+    setSelection({
       arrival,
-      module: next.module ?? module ?? TRACKS[0]!.module,
-      visionView: next.visionView ?? visionView,
+      picked: {
+        module: next.module ?? module ?? TRACKS[0]!.module,
+        visionView: next.visionView ?? visionView,
+      },
     });
   const reduce = useReducedMotion();
 
