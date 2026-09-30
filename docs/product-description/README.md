@@ -85,6 +85,8 @@ Progress is tracked in the [coverage table](#coverage) below.
 
 ### Scope decisions
 
+- **2026-09-11, recovery correction.** Changed recovery paragraphs cite local source `a0e8eac` in `/Users/samgu/Programming Projects/CogPortal-pr1-review`. Other behavior retains its earlier references. Failed executions use no quota; completed evaluations count. Same-view browser Retry is still being integrated, and no verification status is promoted by this source-only correction.
+
 - **Four flows, one document set.** The skill this repo was built from would normally give each surface its own repo, because the unit of interaction differs per surface. That was overridden deliberately: a student crosses all four surfaces in one afternoon, and the interesting inconsistencies are exactly the ones that live between them. The cost is that the five phases of an *ask* are named generically enough to cover a page arrival, a shell invocation, a slash command, and a sandbox stage. Where a surface's own words are clearer, the document says both.
 - **No browser verification in this pass.** The documents were drafted from code and tests only. Anything the skill's process would settle by running the product is written from what the code says will happen and marked **unverified**. A separate pass drives the browser after today's changes land.
 - **2026-09-10, the first-use restoration.** `portal/setup.md` was corrected where it had drifted: the tool is installed from a pinned commit with `--force-reinstall` rather than from a branch with `--upgrade`, the page carries titles and reasons again rather than five bare commands, and completion shows a panel. `SETUP-02`, `-05`, `-06` and `-07` were rewritten because the behaviour they described no longer exists, and `SETUP-08` to `-14`, `SIGNIN-06` to `-09` and `START-07` to `-08` were added for the restored guidance. Every one of them is `not run`. The implementer drove the local pages while building them, which is not a verification pass and did not move any Result: reading code and clicking your own work are the two things the Result column is not allowed to record.
@@ -150,7 +152,7 @@ sandbox/
   timeouts-and-limits.md         every limit, and who a timeout is attributed to
 
 cross-cutting/
-  credit-and-quota.md            what a run costs, what is refunded, what happens at zero
+  credit-and-quota.md            completed-evaluation limits, free failures and capacity while running
   refusals-and-disclosure.md     the refusal vocabulary across all four surfaces
   live-updates.md                the run surface, heartbeats, reconnection, and replay
   what-the-benchmark-supplied.md what the platform discloses it provided rather than measured
