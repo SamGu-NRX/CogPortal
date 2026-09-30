@@ -11,7 +11,12 @@ import {
 } from "@cogworks/contracts/schema";
 import { runSourceRefusal } from "../services/run-source";
 import type { Database } from "../db/client";
-import { canPublishOfficialRun, existingPromotion, savedEnvironmentEligibility } from "../services/run-eligibility";
+import {
+  canPublishOfficialRun,
+  existingPromotion,
+  NO_CONSOLE_PROMOTION_REFUSAL,
+  savedEnvironmentEligibility,
+} from "../services/run-eligibility";
 import {
   benchmarks,
   leaderboardSelections,
@@ -178,7 +183,9 @@ export async function serializeRunDetail(
   const promoted = promotable && row.surfaceId
     ? existingPromotion(await db.select().from(runs).where(eq(runs.surfaceId, row.surfaceId)))
     : null;
-  if (promoted) {
+  if (promotable && !row.surfaceId) {
+    promotionRefusal = NO_CONSOLE_PROMOTION_REFUSAL;
+  } else if (promoted) {
     promotionRefusal = promoted.refusal;
     promotedTo = promoted.promotedTo;
   } else if (promotable && row.provider === "modal") {

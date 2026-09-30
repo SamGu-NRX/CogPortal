@@ -22,7 +22,12 @@ import {
 import { respond } from "../http/respond";
 import { runSourceRefusal } from "../services/run-source";
 import { readRunAccounting } from "../services/run-accounting";
-import { canPublishOfficialRun, existingPromotion, savedEnvironmentEligibility } from "../services/run-eligibility";
+import {
+  canPublishOfficialRun,
+  existingPromotion,
+  NO_CONSOLE_PROMOTION_REFUSAL,
+  savedEnvironmentEligibility,
+} from "../services/run-eligibility";
 
 export function registerDashboardRoutes(app: Hono<AppEnv>): void {
   app.get("/dashboard", async (c) => {
@@ -76,10 +81,11 @@ export function registerDashboardRoutes(app: Hono<AppEnv>): void {
     const promoted = candidate?.surfaceId
       ? existingPromotion(allRuns.filter((run) => run.surfaceId === candidate.surfaceId))
       : null;
-    const promotionEligibility = candidate && !promoted && c.env.EXECUTION_PROVIDER === "modal"
+    const promotionEligibility = candidate?.surfaceId && !promoted && c.env.EXECUTION_PROVIDER === "modal"
       ? savedEnvironmentEligibility(candidate, benchmark, auth.team) : null;
-    const promotionRefusal = promoted?.refusal
-      ?? (promotionEligibility?.eligible === false ? promotionEligibility.reason : null);
+    const promotionRefusal = candidate && !candidate.surfaceId
+      ? NO_CONSOLE_PROMOTION_REFUSAL
+      : promoted?.refusal ?? (promotionEligibility?.eligible === false ? promotionEligibility.reason : null);
 
     // One statement for every primary metric this response needs: the run
     // log's rows, the two runs named above it, and the published selection.

@@ -661,6 +661,35 @@ for (const official of ["succeeded", "failed"] as const) {
   });
 }
 
+test("a practice run with no console says why it can't be promoted, on every path", async () => {
+  // Rows from before run consoles have no surface to attach an official
+  // attempt to. Promotion always refused them while both pages offered it.
+  const { db, binding } = freshDb();
+  await seedPromotion(db);
+  await db.update(benchmarks).set({ active: false }).where(and(eq(benchmarks.id, BENCHMARK_ID), ne(benchmarks.version, 1)));
+  await db.insert(runMetrics).values({ runId: PRACTICE_RUN_ID, key: "accuracy", label: "Accuracy",
+    value: 0.8, unit: null, higherIsBetter: true, isPrimary: true, precision: 2 });
+  await db.update(runs).set({ surfaceId: null }).where(eq(runs.id, PRACTICE_RUN_ID));
+  const refusal = "This run is from before runs had a console, so it can't be promoted. Start a new practice run to create a candidate.";
+  const { app, runtime, cookie, promote } = await authenticatedPromotion(db, binding);
+
+  const dashboard = DashboardSchema.parse(await (await app.fetch(new Request(`http://localhost:5173/dashboard?benchmark=${BENCHMARK_ID}`, { headers: { cookie } }), runtime)).json());
+  assert.equal(dashboard.latestCandidate?.id, PRACTICE_RUN_ID);
+  assert.equal(dashboard.promotionRefusal, refusal);
+  const html = renderDashboard(dashboard);
+  assert.doesNotMatch(html, /Promote to official/);
+  assert.ok(html.includes(refusal.replaceAll("'", "&#x27;")));
+
+  const detail = RunDetailSchema.parse(await (await app.fetch(new Request(`http://localhost:5173/runs/${PRACTICE_RUN_ID}`, { headers: { cookie } }), runtime)).json());
+  assert.equal(detail.promotionRefusal, refusal);
+  assert.equal(detail.promotedTo, null);
+
+  const response = await promote();
+  assert.equal(response.status, 409);
+  assert.equal((await response.json() as { error: { message: string } }).error.message, refusal);
+  assert.equal((await db.select().from(runs)).length, 1);
+});
+
 test("an unpromoted candidate still offers Promote with the next attempt number", async () => {
   const { db, binding } = freshDb();
   await seedPromotion(db);

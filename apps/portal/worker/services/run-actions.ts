@@ -38,6 +38,7 @@ import {
   currentSurfaceRun,
   existingPromotion,
   fixtureRetryRefusal,
+  NO_CONSOLE_PROMOTION_REFUSAL,
   type ExistingPromotion,
   savedEnvironmentEligibility,
 } from "./run-eligibility";
@@ -397,9 +398,10 @@ export async function promotePracticeRun(
     .limit(1);
   if (!parentRow) throw new ApiHttpError(404, "not_found", "Run not found.");
   const parent = await syncRun(db, parentRow);
-  if (parent.mode !== "practice" || parent.status !== "succeeded" || parent.refundedAt !== null || !parent.surfaceId) {
+  if (parent.mode !== "practice" || parent.status !== "succeeded" || parent.refundedAt !== null) {
     throw new ApiHttpError(409, "not_promotable", "Only a succeeded hosted run can be promoted.");
   }
+  if (!parent.surfaceId) throw new ApiHttpError(409, "not_promotable", NO_CONSOLE_PROMOTION_REFUSAL);
   // Before any attempt is claimed: an official attempt is a claim about the
   // connected repository, and this run may not be from it.
   requireRunSource(actor, parent, "promote it");

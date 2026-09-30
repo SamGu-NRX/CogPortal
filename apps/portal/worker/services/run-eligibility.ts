@@ -98,6 +98,12 @@ export function currentSurfaceRun(rows: RunRow[], mode: RunRow["mode"]): RunRow 
  * Promote. `refusal` is set when that attempt can't stand in for the promotion
  * any more, and says what to do next.
  */
+/** A practice run recorded before runs had a console has nowhere to attach an
+ *  official attempt, so promotion refuses it. The pages say so instead of
+ *  offering the control. */
+export const NO_CONSOLE_PROMOTION_REFUSAL =
+  "This run is from before runs had a console, so it can't be promoted. Start a new practice run to create a candidate.";
+
 export interface ExistingPromotion {
   promotedTo: PromotedTo;
   refusal: string | null;
