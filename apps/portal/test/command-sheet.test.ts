@@ -69,6 +69,8 @@ test("the tool is installed from a commit, like every other package here", () =>
   );
   assert.doesNotMatch(tool, /CogPortal\.git@main/);
   assert.doesNotMatch(tool, /test\.pypi\.org/);
+  // Restate the accepted release pin so a typo or unreviewed move fails CI.
+  assert.match(tool, /@d9405278aac8268cd340e589f36dbad766d1e2a0#/);
   // --force-reinstall, not just --upgrade. The version stays 0.2.0 across
   // pins, so pip treats an equal version as already satisfied: measured, an
   // --upgrade between two pins exited zero and left the older commit
@@ -77,15 +79,16 @@ test("the tool is installed from a commit, like every other package here", () =>
   assert.match(tool, /--force-reinstall/);
 });
 
-test("only the tool is force-reinstalled, never a benchmark", () => {
-  // The tool declares no dependencies, so forcing it reinstalls nothing else.
-  // A benchmark brings the course stack (librosa, numba, numpy), and forcing
-  // one of those would rebuild an environment the student spent an afternoon
-  // installing.
-  const forced = lines().filter((line) => line.command.includes("--force-reinstall"));
+test("forced benchmark replacement excludes the course dependencies", () => {
+  // Pins can change without a package version bump. Replace the benchmark,
+  // but do not force replacement of its already-satisfactory dependencies.
+  const benchmark = lines().find((line) => line.id === "benchmark");
+  assert.ok(benchmark);
+  const phases = benchmark.command.split(" && ");
 
-  assert.equal(forced.length, 1, "exactly one command may force a reinstall");
-  assert.match(forced[0].command, /cogworks-benchmark @/);
+  assert.equal(phases.length, 2);
+  assert.doesNotMatch(phases[0], /--force-reinstall|--no-deps/);
+  assert.match(phases[1], /--force-reinstall --no-deps/);
 });
 
 test("the check that claims to update this page carries the flag that does it", () => {

@@ -34,14 +34,12 @@
     }
   ],
 
-  // Enable R2 on the account and create both buckets, then uncomment this and
-  // the production block below. Until then the worker deploys without them,
-  // the weights upload answers 501, and every other surface is unaffected.
-  // A staging upload must not be able to replace a production artifact, which
-  // is why the two environments name different buckets.
-  // "r2_buckets": [
-  //   { "binding": "ARTIFACTS", "bucket_name": "cogportal-artifacts-dev" }
-  // ],
+  // Staging's trained-file storage. `cogportal-artifacts-dev` is private: no
+  // r2.dev public URL, no custom domain, reached only through this binding.
+  // Production has no R2 block until one is separately authorized.
+  "r2_buckets": [
+    { "binding": "ARTIFACTS", "bucket_name": "cogportal-artifacts-dev" }
+  ],
 
   "durable_objects": {
     "bindings": [
@@ -78,10 +76,15 @@
     "COURSE_GUILD_ID": "1515858059027550321",
     "RUNNER_SIGNING_KEY_ID": "runner-v1",
     "RUNNER_PYTHON_VERSION": "3.11",
+    // One value, recorded on every run, while `_sandbox_image` picks one of
+    // three images per benchmark. So a real id here is false for two tracks.
+    // Build provenance is per image, in the probe receipts; see the runbook.
     "RUNNER_IMAGE_DIGEST": "cogworks-python-3.11:unpublished",
     "RUN_STALE_AFTER_SECONDS": "3600",
-    // The Modal app, redeployed from this branch on 2026-09-04 as v17. Going
-    // back to scripted runs is one edit here and one deploy, about a minute.
+    // Staging's own Modal app. Production runs cogworks-runner-production,
+    // so a deploy here cannot move production's controller or images. Which
+    // version and commit are live moves with every deploy, so read it from
+    // `modal app history cogworks-runner` rather than from a line here.
     "MODAL_RUNNER_URL": "https://samgu-nrx--cogworks-runner-submit-job.modal.run",
     "EXECUTION_PROVIDER": "modal"
   },
@@ -92,14 +95,20 @@
 
   // ─────────────────────────────────────────────────────────────────────────
   // PRODUCTION environment (worker "cogportal-production", cogportal.sillion.app).
-  // Deploy with: `pnpm run deploy:production`. The Cloudflare Vite plugin must
+  // Deploy with: `pnpm --filter @cogworks/portal run deploy:production`
+  // (there is no root script for it). The Cloudflare Vite plugin must
   // select the named environment while building as well as while deploying.
   // Wrangler keys (vars, routes, bindings, secrets) are NON-inheritable, so
   // everything is re-declared here.
   //
-  // BEFORE the first prod deploy (owner-owned; see the launch checklist):
-  //   1. Import the D1 backup into cogportal-db-prod, then apply migrations
-  //      0014–0017 (or start prod fresh — your call).
+  // This block describes the intended production configuration. Checking it in
+  // deploys nothing. Matching Modal images/controller, schema and secrets
+  // still need coordinated promotion before hosted execution. The ordered
+  // gates are docs/runbooks/platform.md, "Production release gates", which is
+  // the list to follow rather than this comment.
+  //
+  //   1. Reconcile cogportal-db-prod. The sequence is owned by the migration
+  //      reviewer. Do not improvise it from filenames.
   //   2. Register the prod GitHub OAuth callback
   //      https://cogportal.sillion.app/api/auth/callback/github. Either add it to
   //      the existing cog-portal-beta App (and keep GITHUB_CLIENT_ID below) OR
@@ -108,7 +117,7 @@
   //   3. Set ALL prod secrets on the cogportal-production worker (they do not
   //      copy from the staging worker): BETTER_AUTH_SECRET, GITHUB_CLIENT_SECRET,
   //      DISCORD_BOT_TOKEN, DISCORD_CLIENT_SECRET, ACTIVITY_SESSION_SECRET,
-  //      PLATFORM_OWNER_LOGINS, RUNNER_SIGNING_SECRET —
+  //      PLATFORM_OWNER_LOGINS, RUNNER_SIGNING_SECRET,
   //      via `wrangler secret put <NAME> --env production`.
   //   4. PLATFORM_OWNER_LOGINS (set in step 3) is the only roster that lives
   //      in configuration. It holds the GitHub logins of the people who
@@ -123,7 +132,13 @@
   //      a fresh database that table is empty, which is fine: owners are staff
   //      automatically and can add the first row. A TA for one team is a
   //      team_tas row, assigned per team in the same console.
-  //   5. Confirm the prod Discord app / activity domain values below.
+  //   5. Confirm the Discord application settings by reading them in the
+  //      Developer Portal. Both environments name the same application and the
+  //      same guild, which is confirmed live, not just here in source. Nothing
+  //      a Worker or a public API can show reveals the OAuth redirect list,
+  //      whether Activities are enabled, the root URL mapping, or the
+  //      interactions endpoint, so those are an owner read of the app settings.
+  //      Deploying a Worker does not move any Discord mapping.
   // ─────────────────────────────────────────────────────────────────────────
   "env": {
     "production": {
@@ -144,9 +159,8 @@
           "migrations_dir": "migrations"
         }
       ],
-      // "r2_buckets": [
-      //   { "binding": "ARTIFACTS", "bucket_name": "cogportal-artifacts" }
-      // ],
+      // No r2_buckets here on purpose. Production gets its own bucket under
+      // separate authorization, and it must never name the staging bucket.
       "durable_objects": {
         "bindings": [{ "name": "RUN_SURFACES", "class_name": "RunSurfaceHub" }]
       },
@@ -161,14 +175,33 @@
         "PUBLIC_ORIGIN": "https://cogportal.sillion.app",
         "BETTER_AUTH_URL": "https://cogportal.sillion.app",
         "ACTIVITY_ORIGIN": "https://cogactivity.sillion.app",
-        // TODO(owner): confirm the prod Discord application + guild ids.
+        // Same application and guild as staging, confirmed against live
+        // metadata. What is not readable from here is the app's own settings;
+        // see the runbook.
         "DISCORD_CLIENT_ID": "1526706029356646460",
         "COURSE_GUILD_ID": "1515858059027550321",
+        // Must equal the key id inside THIS environment's Modal secret,
+        // cogworks-runner-production-signing. Each app has one active key and
+        // no key-id-to-secret map, so a divergence is a bare 401. The two
+        // environments keep the same id and different secret values.
         "RUNNER_SIGNING_KEY_ID": "runner-v1",
         "RUNNER_PYTHON_VERSION": "3.11",
+        // Placeholder for the reason given in the staging block.
         "RUNNER_IMAGE_DIGEST": "cogworks-python-3.11:unpublished",
         "RUN_STALE_AFTER_SECONDS": "3600",
-        "EXECUTION_PROVIDER": "fixture"
+        // Production's own Modal app, cogworks-runner-production, which pins
+        // each sandbox image to an immutable id instead of the names a
+        // staging release republishes. Modal derives this hostname from the
+        // app and function names; read it back from the deploy output before
+        // this Worker is deployed rather than trusting the pattern.
+        "MODAL_RUNNER_URL": "https://samgu-nrx--cogworks-runner-production-submit-job.modal.run",
+        // Target state. Dispatch stays impossible until RUNNER_SIGNING_SECRET
+        // exists here; assertModalConfigured answers 501 without it.
+        //
+        // Not a rollback switch. "fixture" does not stop execution, it
+        // fabricates it, writing simulated metrics into the production
+        // database. To stop production execution see the runbook.
+        "EXECUTION_PROVIDER": "modal"
       }
     }
   }
