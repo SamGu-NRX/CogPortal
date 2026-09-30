@@ -30,7 +30,7 @@ A practice run succeeds. The dashboard grows a block under the start controls: a
 
 The student presses it. The button does not fire; it re-labels itself "Confirm, uses attempt 1 of 3" and waits. Pressing again promotes; waiting four seconds disarms it, so "an abandoned first click can't fire later" (`apps/portal/src/components/ConfirmButton.tsx:6`).
 
-The server checks current repository write access, candidate eligibility, active execution and official capacity. Modal promotion requires a prepared artifact reference before admission. A reference alone does not prove that Modal can still restore the snapshot. At this source checkpoint, promotion does not explicitly compare the candidate's repository identity before admission; that check remains part of the pending integration.
+The server checks current repository write access, candidate eligibility, active execution and official capacity. Before admission, the recorded repository ID must match the team's connected repository. Modal promotion also requires a prepared artifact reference. A reference alone does not prove that Modal can still restore the snapshot; provider restoration and browser acceptance remain unverified.
 
 The run page also names the saved commit and hidden official inputs before confirmation, with the remaining official capacity beside it. Its legacy wording and punctuation differ from the dashboard; final copy is part of the pending browser integration.
 
@@ -117,7 +117,7 @@ The act is the same everywhere; what changes is the wording, the confirmation st
 | Modifier | Set before the ask | Changed while it works |
 | --- | --- | --- |
 | Who you are | Both acts require current GitHub write access on the connected repository, checked live on every call (`run-actions.ts:79`, `run-actions.ts:416`), with the same three sentences as starting a run. The browser applies no role check, so every team member sees both buttons. There is no instructor override and no approval step: any member can spend the team's scarce attempts alone. | No effect within the request. A permission removed on GitHub a moment later does not reach the answer in flight. |
-| Where your team and repository stand | Retry rechecks the recorded repository identity, current access and exact saved source. Promotion's explicit pre-admission identity check remains pending integration at this checkpoint. | An admitted execution retains its recorded source; later requests recheck eligibility. |
+| Where your team and repository stand | Retry rechecks the recorded repository identity, current access and exact saved source. Promotion also checks the recorded repository ID against the team's connected repository before admission. | An admitted execution retains its recorded source; later requests recheck eligibility. |
 | Which week's benchmark | Attempts are counted per team, per benchmark, and per benchmark version (`apps/portal/worker/routes/dashboard.ts:53`), so three attempts on Week 1 and three on Week 2 are separate budgets. Publication is per benchmark version too, so a team has one public entry per version rather than one overall. | A version bump between reading the page and pressing the button is refused with "That benchmark version is not active." (`run-actions.ts:119`). |
 | Practice or leaderboard | This is the modifier. Promotion is the only path from one to the other, and it is one-way: an official run cannot be demoted, and a practice run can never appear on the leaderboard. The dataset changes with it, from `practice-v1` to the benchmark's own official dataset version (`run-actions.ts:382`). | The mode of a run never changes. Promoting creates a second run; the practice run stays exactly as it was, on its own page, still readable. |
 | Flags, options, and where you are typing | Three surfaces offer promotion and they differ only in wording and confirmation style: the dashboard arms in place, the run page also arms in place, and the console opens a modal. Publication is offered on the run page and the console, and never on the dashboard, whose `PUBLISHED RESULT` panel is read-only. | No effect. |
@@ -179,10 +179,10 @@ Dismissing an armed confirmation starts nothing. Once admitted, the execution su
 - The run page's confirm label contains an em dash, and so does the publish blurb (`RunDetailPage.tsx:277`, `:334`). Both violate `docs/design/voice.md`. The dashboard's equivalent label uses a comma. Carried to triage.
 - The dashboard's exhausted line, "All official attempts are used.", omits the sentence the run page adds about existing official runs still being selectable. Whether that is deliberate brevity or an oversight was not established.
 - Promoting the newest rather than the best candidate is a product decision the code does not explain. Worth confirming it is intended.
-- Same-view Retry presentation and the link from a physical execution's historical page are being integrated by the portal owner. They are not accepted browser behavior at this local source checkpoint.
+- Same-console Retry and the historical page's link to the current console were exercised locally for PR #20, not on a deployed portal.
 
 - Nothing warns a team that one member is about to spend a shared official attempt, and nothing records who spent it in a place the team can read. Whether that matters was not established.
-- Final console confirmation wording remains subject to the portal owner's integration and the separate browser verification pass.
+- Final console confirmation wording has not been checked on a deployed portal.
 
 - A refresh failure after admission can leave the browser briefly stale without undoing the execution. Reopening the view must show its current execution.
 

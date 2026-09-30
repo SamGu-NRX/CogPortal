@@ -23,6 +23,7 @@ import { handleError } from "../worker/http/errors.ts";
 import { registerLocalRunRoutes } from "../worker/routes/local-runs.ts";
 import { buildRunSurfaceSnapshot } from "../worker/services/run-surfaces.ts";
 import { sha256Hex } from "../worker/util/crypto.ts";
+import { runSurfaceHubs } from "./fixtures/run-surface-hub.ts";
 
 // Which repository a synced local run is recorded against. The CLI only reads
 // the origin remote, so it cannot name GitHub's numeric id; the route records
@@ -97,18 +98,17 @@ async function seed(db: Database): Promise<void> {
 }
 
 function env(binding: unknown): Env {
-  return {
+  // SAFETY: these routes use the test D1 shim and the hub fixture, not ASSETS.
+  const runtime = {
     DB: binding,
     ENVIRONMENT: "development",
     DEV_AUTH: "disabled",
     EXECUTION_PROVIDER: "fixture",
     PUBLIC_ORIGIN: "https://portal.example",
-    // Starting a run publishes its surface to the realtime hub; accept and drop it.
-    RUN_SURFACES: {
-      idFromName: (name: string) => name,
-      get: () => ({ fetch: async () => new Response(null, { status: 200 }) }),
-    },
-  } as unknown as Env;
+  } as Env;
+  // Snapshots round-trip through the hub, so the real one stands in here.
+  runtime.RUN_SURFACES = runSurfaceHubs(runtime).namespace;
+  return runtime;
 }
 
 function start(binding: unknown, repositoryFullName = FIXTURE_REPO.fullName): Promise<Response> {

@@ -69,7 +69,7 @@ stateDiagram-v2
     reading --> result_view : status succeeded
     live --> failed_view : a poll returns failed
     live --> result_view : a poll returns succeeded
-    failed_view --> reading : "Run practice again", a new run, a new page
+    failed_view --> [*] : "Open current run" goes to the console, where Retry is offered
     result_view --> [*] : promote-to-the-leaderboard.md takes over
     failed_view --> [*]
     absent --> [*]
@@ -95,11 +95,11 @@ A session that expired renders `SESSION ENDED` instead, and a genuine server fau
 
 ### The work begins
 
-Reading a finished run never begins any work. The page has exactly two controls that do, and both are on the failure path or the promotion path.
+Reading a finished run never begins any work. The page has exactly two controls that do, promote and publish, and both are on the promotion path.
 
 Recovery uses Retry in the current run view. It starts a new execution of the same recorded source and configuration, preserves practice or official mode, and leaves the previous execution in history. A physical run page remains about that execution.
 
-> Technical note: at this backend checkpoint, run detail supplies a nullable stored `surfaceId`. The portal owner is replacing the old branch-based restart with a link to the current console, where the server-offered Retry action belongs. That browser integration is not accepted here.
+> Technical note: run detail supplies a nullable stored `surfaceId`. When it is set, the page links to the current console (`Open current run`), where the server offers Retry. A legacy run without one has no link; recovery there is a new practice run from the dashboard.
 
 The second is promotion, which is [`promote-to-the-leaderboard.md`](promote-to-the-leaderboard.md).
 
@@ -173,7 +173,7 @@ It is the whole failure block for a run that carries a refusal, and it replaces 
 
 **The heading names where the run stopped.** `refused`, and then `at {stage}` when a stage can be named, with the stage itself in full ink (`RefusalCard.tsx:122-126`). The stage is read out of the headline, because the payload carries no field for it: `cogbench.verdict` writes the stage into the not_wired sentence and nowhere else, in one of two forms that both put the name between "the" and "step" (`RefusalCard.tsx:68-82`, quoting `python/cogbench/src/cogbench/verdict.py:389` and `:397`). A headline of any other shape returns null and the header falls back to the run's phase, so a new verdict wording degrades to a coarser true answer rather than a wrong one. The distinction is the point: "REFUSED AT DATABASE" tells a team which hand-off to go look at, and "REFUSED AT CONTRACT CHECK" only tells them when (`RefusalCard.tsx:114-116`).
 
-**The collapsed failure sits beside it.** It keeps the failure code and mode. The recovery policy is the same in either mode: a failed execution uses no quota. Final failure-card wording is part of the portal owner's pending integration.
+**The collapsed failure sits beside it.** It keeps the failure code and mode. The recovery policy is the same in either mode: a failed execution uses no quota. Final failure-card wording has not been checked on a deployed portal.
 
 **Then the headline, as one line of ink** (`RefusalCard.tsx:130-132`). It is the only place the stage the run wanted is named at all, which is why it leads (`RefusalCard.tsx:20-22`).
 
@@ -204,7 +204,7 @@ The refusal's `notes` field is not rendered at all, for the same reason the head
 
 **Collapsed**, when a refusal leads, the failure card keeps the code and mode rather than repeating the refusal's explanation. It must not imply that a failed evaluation spent quota.
 
-**Full**, for every other failure, it is titled `FAILED DURING {PHASE}` in capitals, with the phase taken from the failure itself, and a mono code chip in the panel's corner. Under it: a serif title, an explanation, the raw `failureDetail` in a preformatted block when there is one, a `What to do` block, a `Reproduce locally` copy block when a command applies, and for an official run one line stating the cost.
+**Full**, for every other failure, it is titled `FAILED DURING {PHASE}` in capitals, with the phase taken from the failure itself, and a mono code chip in the panel's corner. Under it: a serif title, an explanation, the raw `failureDetail` in a preformatted block when there is one, a `What to do` block, and a `Reproduce locally` copy block when a command applies.
 
 Failed practice and official executions use no quota. Legacy consumed-attempt wording is not a separate policy.
 
@@ -266,9 +266,9 @@ The masthead's own chips finish the record. The mode chip reads `Practice` in ne
 | Event | Before the work begins | While it works |
 | --- | --- | --- |
 | You stop it yourself | Nothing to stop. There is no cancel on this page, and no code path anywhere writes the `cancelled` status the rail and the status chip both have words for. | Closing an expanded metric note or collapsing the log changes only what is on screen. Neither is persisted, so a reload returns every row to its folded state. |
-| You do something else mid-way | Leaving the page loses nothing; the record is durable. | Pressing "Run practice again" navigates away to the new run as soon as the server answers. Pressing it twice is stopped by the button's busy state and, failing that, by the server's `active_run_exists`. |
+| You do something else mid-way | Leaving the page loses nothing; the record is durable. | Nothing on a failed run's page starts work; `Open current run` is a link. |
 | A teammate acts at the same time | A teammate promoting this run does not change this page, which describes one run. Their new official run is a different page. | The page does not poll once terminal, so a teammate's action is invisible until a reload. The one visible consequence is a promote button that has gone stale and will be refused by the server. |
-| The network or the portal fails | A failed load replaces the page with the query-error card and a "Back to dashboard" link. | Nothing is in flight, so nothing to lose. A failed retry prints either the server's sentence or "The action couldn't be completed. Try again." under the button (`RunDetailPage.tsx:224-230`). |
+| The network or the portal fails | A failed load replaces the page with the query-error card and a "Back to dashboard" link. | Nothing is in flight, so nothing to lose. |
 | The page or the process goes away | Nothing pending. | The record is durable and identical on reload, apart from the expanded rows and the expanded log, which reset. |
 | The thing being measured changes | The run is about a commit that was resolved when it started. A push, a branch deletion, or a repository change does not alter it. | A benchmark version bump does not alter a finished run either. It does alter the quota shown beside promote, and it makes the run's own version visibly older than the active one, which the page shows as `v3` in the metadata line and never flags. |
 | The platform refuses or credit runs out | Reading history is free and is never refused for quota. | Retry and promotion require available capacity. Only a completed evaluation uses quota. |
@@ -305,8 +305,7 @@ The masthead's own chips finish the record. The mode chip reads `Practice` in ne
 - **The page announces its status to a screen reader on every render** through a visually hidden live region reading `Run status: Succeeded` (`RunDetailPage.tsx:122-124`), which on a terminal run fires once and then never again.
 - **An expanded metric note is not addressable.** The disclosure is component state with a generated id, so there is no way to link a teammate to an open explanation, and a reload closes every one.
 - **The refusal card renders inside a failure only.** `run.refusal` is a field on every run detail, but the page only reads it inside the failure block (`RunDetailPage.tsx:174`), so a refusal attached to a run that somehow succeeded would never be shown.
-- **A refusal suppresses the reproduce command and the raw detail.** The collapsed failure card keeps the code, the mode, and the attempt, and drops the title, the explanation, the `failureDetail` block, the `What to do` text, and the `Reproduce locally` copy block (`FailureCard.tsx:35-42`). For `E-ADAPTER` that is the intended trade, since the refusal says the same thing in the team's own names, but the copyable command is gone with it and the card's `next` row offers `cogworks check` rather than `cogworks run`.
-- **The official attempt line changes shape with the card.** A full card states the cost as a sentence in coloured type, and only for an official run (`FailureCard.tsx:79-89`); the collapsed line states it as two or three words, for every run (`:38-41`). An official refusal therefore reports its cost more quietly than an official failure of any other kind.
+- **A refusal suppresses the reproduce command and the raw detail.** The collapsed failure card keeps the code and the mode, and drops the title, the explanation, the `failureDetail` block, the `What to do` text, and the `Reproduce locally` copy block (`FailureCard.tsx:35-42`). For `E-ADAPTER` that is the intended trade, since the refusal says the same thing in the team's own names, but the copyable command is gone with it and the card's `next` row offers `cogworks check` rather than `cogworks run`.
 - **The heading and the headline can name different stages.** The heading prefers the stage parsed out of the headline and falls back to the phase the page read off the failure (`RefusalCard.tsx:117`), so `PHASE_LABELS[failure.phase]` is used only when the parse fails. A headline that names a stage the phase disagrees with is resolved silently in the headline's favour.
 - **An official failure keeps its detail.** Retry leaves that failure and any late findings attached to the old execution, rather than replacing them with the successor's result.
 - **Two runs on the same commit look identical above the fold.** The masthead shows the run label, the mode, the status, the benchmark, the branch, and the commit, and two practice runs of the same commit differ only in their label and their timestamp.
@@ -316,7 +315,7 @@ The masthead's own chips finish the record. The mode chip reads `Practice` in ne
 
 ## Open questions and verification
 
-- The old physical-page branch restart is being replaced in the portal integration. Verify that the current-view link uses only the stored view identity, and that Retry keeps the failed execution's exact source and mode.
+- The page's old restart is gone in favour of the `Open current run` link. On a deployed portal, verify that the link uses only the stored view identity and that Retry keeps the failed execution's exact source and mode.
 - A succeeded run with diagnostics but no primary metric renders a finding and no `RESULTS` panel, so "The scorer had no notes on this run." can never appear for it. Whether that combination occurs was not established.
 - Whether the finding genuinely leads the eye ahead of the 5xl number below it was not observed, and it is the central claim of the page's design. It needs a screenshot. **Unverified.**
 - Whether a student can tell a floor from a score at a glance in the supporting list was not observed. The floor renders inline as `floor 0.42` at the metric's own precision, which reads correctly in the source. **Unverified.**

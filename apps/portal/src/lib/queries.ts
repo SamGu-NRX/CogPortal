@@ -8,6 +8,8 @@ import {
   ACTIVE_RUN_POLL_MS,
   isBenchmarkScopedStep,
   isTerminal,
+  shouldReplaceRunSurfaceSnapshot,
+  type RunSurfaceSnapshot,
   type AdminOverview,
   type AdminStaffRoster,
 } from "@cogworks/contracts/schema";
@@ -126,7 +128,8 @@ export function useMutateRunSurface() {
       ? api.mutateRunSurface(input.surfaceId, "retry", { runId: input.runId })
       : api.mutateRunSurface(input.surfaceId, input.action),
     onSuccess: (snapshot) => {
-      qc.setQueryData(["run-surface", snapshot.id], snapshot);
+      qc.setQueryData<RunSurfaceSnapshot>(["run-surface", snapshot.id], (current) =>
+        !current || shouldReplaceRunSurfaceSnapshot(current, snapshot) ? snapshot : current);
       void qc.invalidateQueries({ queryKey: ["dashboard"] });
       void qc.invalidateQueries({ queryKey: ["runs"] });
     },
