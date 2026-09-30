@@ -160,8 +160,8 @@ cogworks sync .cogbench/reports/<report>.json
 ```
 
 The dashboard lists it under **LOCAL REPORTS**, marked
-`SELF-REPORTED · NOT PROMOTABLE`, with your GitHub login, the commit, and the
-result. It is your machine's claim, so it can never go on the leaderboard.
+`SELF-REPORTED · NOT PROMOTABLE`, with the commit, the result, and when it
+was synced. It is your machine's claim, so it can never go on the leaderboard.
 `sync` needs a linked device. It sends the metrics, diagnostics, commit, and
 dirty flag, plus a copy of every weights file the run read, committed or not.
 It never sends your source, other files, environment variables, predictions,

@@ -18,7 +18,7 @@ A student who has just run `cogworks run` types `cogworks sync`:
 Synced local_9f2c1e4a7b3d8065c1f2a9e0b4d7c536 as LOCAL · SELF-REPORTED.
 ```
 
-Exit 0. The report is now on the dashboard under the team's synced reports, attributed to the GitHub login behind the device, with its metrics, its diagnostics, its commit, and whether the working tree was dirty.
+Exit 0. The report is now on the dashboard under the team's synced reports, showing its commit, whether the working tree was dirty, its primary result, and when it was synced. The portal also stores its metrics, its diagnostics and the GitHub login behind the device; the dashboard table leaves the login out, and Discord's local-report view shows it.
 
 Nothing about the repository's contents goes with it. The digest of the predictions is stripped from the payload before it is sent (`python/cogbench/src/cogbench/client.py:88`), so the portal receives numbers and sentences, not evidence it could re-check. That is the honest shape for a claim the portal is going to label self-reported anyway.
 

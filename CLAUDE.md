@@ -305,9 +305,10 @@ in-place edit of a version teams have already published against.
   design pass. Dashboard has been decluttered, but not reconsidered. Run
   Detail now leads with `Finding` and the sweep trace; the rest of it has
   not been reconsidered around them.
-- **TODO(product):** The four process signals compute and test but reach no
-  page. `docs/design/the-instrument-not-the-judge.md` names the TA triage
-  console as the design for that page.
+- **TODO(product):** The four process signals reach only the team's own Team
+  page ("Where the work went", `ProcessPanel`). No staff or TA view reads them;
+  `docs/design/the-instrument-not-the-judge.md` names the TA triage console as
+  the design for that page.
 - **TODO(release):** Fork enforcement is off. Setting
   `GITHUB_TEMPLATE_REPO_ID` to `1339633157` turns it on, and doing so before
   every team has forked locks out the 2026 repositories, none of which

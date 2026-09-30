@@ -58,9 +58,9 @@ pipelines.
 
 ## Keep teams moving
 
-Each row under **TEAMS** shows the team, its repository, and how much of its
-hosted-run allowance it has used. Open a row to see its published score and
-to manage it:
+Each row under **TEAMS** shows the team, its repository, and how many practice
+runs and official attempts it has completed across every benchmark. Open a row
+to see its published score and to manage it:
 
 - Assign a TA by GitHub login. The TA must have signed in to the portal once.
 - Add a member by GitHub login. They must have signed in and joined the
