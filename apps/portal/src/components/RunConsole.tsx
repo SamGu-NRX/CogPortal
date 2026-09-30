@@ -397,6 +397,8 @@ export function RunConsole({
           aria-labelledby="run-action-title"
           className="m-auto w-[calc(100%-2rem)] max-w-md border border-rule bg-paper-raised p-5 text-ink shadow-2xl backdrop:bg-ink/45 anim-rise"
           onCancel={(event) => { event.preventDefault(); closeDialog(); }}
+          // The restore gate closes open dialogs natively; follow it.
+          onClose={() => { if (pendingAction || showCommand) closeDialog(); }}
           onMouseDown={(event) => { if (event.target === event.currentTarget) closeDialog(); }}
         >
             <div className="u-kicker">{showCommand ? "Run locally" : "Confirm action"}</div>

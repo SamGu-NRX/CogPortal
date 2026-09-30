@@ -1,5 +1,6 @@
 import { Link, NavLink, Outlet } from "react-router";
 import { nextStagePath } from "@/App";
+import { AccountSlot } from "@/components/RestoreGate";
 import { UserMenu } from "@/components/UserMenu";
 import { useSession } from "@/lib/queries";
 
@@ -53,7 +54,8 @@ export function Shell() {
             {session?.team && <TopNavLink to="/dashboard">Dashboard</TopNavLink>}
             <TopNavLink to="/leaderboard">Leaderboard</TopNavLink>
           </nav>
-          <div className="flex items-center gap-4 max-[359px]:order-2">
+          {/* The account's name is withheld with the page it belongs to. */}
+          <AccountSlot className="max-[359px]:order-2">
             {session?.user ? (
               <UserMenu
                 user={session.user}
@@ -69,7 +71,7 @@ export function Shell() {
                 Sign in
               </Link>
             )}
-          </div>
+          </AccountSlot>
         </div>
       </header>
 

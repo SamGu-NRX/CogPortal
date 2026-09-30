@@ -6,6 +6,7 @@ import type { Benchmark, LeaderboardEntry, Module } from "@cogworks/contracts/sc
 import { EmptyState } from "@/components/EmptyState";
 import { LoadingMark, QueryError } from "@/components/Feedback";
 import { formatDateTime, formatMetricValue } from "@/lib/format";
+import { useAccountRevealed } from "@/components/RestoreGate";
 import { EASE_OUT } from "@/lib/motion";
 import {
   useBenchmarks,
@@ -296,6 +297,10 @@ function StandingsTable({
 function EntryRow({ entry, index }: { entry: LeaderboardEntry; index: number }) {
   const [open, setOpen] = useState(false);
   const reduce = useReducedMotion();
+  // The board is public, but "you" names the account on screen, which a
+  // returning tab has not confirmed yet.
+  const revealed = useAccountRevealed();
+  const isYou = entry.isYou && revealed;
 
   return (
     <motion.li
@@ -306,7 +311,7 @@ function EntryRow({ entry, index }: { entry: LeaderboardEntry; index: number }) 
         ease: EASE_OUT,
         delay: reduce ? 0 : Math.min(index, 8) * 0.035,
       }}
-      className={`border-b border-rule-soft ${entry.isYou ? "bg-detect-wash" : ""}`}
+      className={`border-b border-rule-soft ${isYou ? "bg-detect-wash" : ""}`}
     >
       <button
         type="button"
@@ -329,7 +334,7 @@ function EntryRow({ entry, index }: { entry: LeaderboardEntry; index: number }) 
           {entry.provenance === "archive" && (
             <span className="u-kicker leading-tight">2026 cohort, anonymized</span>
           )}
-          {entry.isYou && (
+          {isYou && (
             <span className="shrink-0 bg-detect px-1 py-px font-mono text-[9.5px] font-medium tracking-[0.09em] text-paper-raised">
               YOU
             </span>

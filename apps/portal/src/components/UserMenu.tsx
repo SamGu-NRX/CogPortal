@@ -12,6 +12,7 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import type { Session } from "@cogworks/contracts/schema";
+import { useAccountRevealed } from "@/components/RestoreGate";
 import { firstName } from "@/lib/format";
 import { EASE_OUT } from "@/lib/motion";
 import { useLogout } from "@/lib/queries";
@@ -35,6 +36,10 @@ export function UserMenu({
   nextPath: string;
 }) {
   const [open, setOpen] = useState(false);
+  // A concealed menu is inert, but its document key handler is not, so an
+  // open menu would keep swallowing arrow keys on the page behind it.
+  const revealed = useAccountRevealed();
+  if (open && !revealed) setOpen(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);

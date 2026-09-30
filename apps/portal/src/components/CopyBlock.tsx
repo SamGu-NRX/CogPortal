@@ -1,12 +1,21 @@
 import { useEffect, useRef, useState } from "react";
 
-/** A copyable command line — mono, single action, 44px target. */
+/** A copyable command line: mono, single action, 44px target. */
 export function CopyBlock({
   text,
   className = "",
+  wrap = false,
 }: {
   text: string;
   className?: string;
+  /** Let a long command wrap instead of scrolling out of view.
+   *
+   *  Turn it on when the tail is worth reading: the pinned install is 189
+   *  characters and ends in the commit it pins, so scrolling would hide the
+   *  load-bearing part. Leave it off when the tail is opaque, like a signed
+   *  token, where wrapping only trades a line nobody reads for a block that
+   *  crowds out the page. Off by default. */
+  wrap?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -31,7 +40,17 @@ export function CopyBlock({
 
   return (
     <div className={`flex items-stretch gap-0 ${className}`}>
-      <code className="min-w-0 flex-1 overflow-x-auto border border-rule bg-paper-sunken px-3 py-2.5 font-mono text-[12.5px] whitespace-pre text-ink">
+      <code
+        // A scrolling box has to be reachable by keyboard to be scrollable by
+        // one, the way the run console's log is. A wrapped block scrolls
+        // nowhere, so it takes no tab stop.
+        tabIndex={wrap ? undefined : 0}
+        className={`min-w-0 flex-1 border border-rule bg-paper-sunken px-3 py-2.5 font-mono text-[12.5px] text-ink ${
+          wrap
+            ? "whitespace-pre-wrap [overflow-wrap:anywhere]"
+            : "overflow-x-auto whitespace-pre focus-visible:outline-offset-[-2px]"
+        }`}
+      >
         {text}
       </code>
       <button

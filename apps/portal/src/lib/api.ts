@@ -142,7 +142,13 @@ export const api = {
       body: { fullName },
     }),
 
-  setupState: () => request("/api/v1/setup/state", SetupStateSchema),
+  setupState: (benchmarkId?: string) =>
+    request(
+      benchmarkId
+        ? `/api/v1/setup/state?benchmarkId=${encodeURIComponent(benchmarkId)}`
+        : "/api/v1/setup/state",
+      SetupStateSchema,
+    ),
   resetSetupState: () =>
     request("/api/v1/setup/state", z.object({ ok: z.literal(true) }), {
       method: "DELETE",
