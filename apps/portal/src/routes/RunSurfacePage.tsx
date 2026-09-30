@@ -44,10 +44,11 @@ export function RunSurfacePage() {
         busyAction={mutation.isPending ? mutation.variables?.action ?? null : null}
         error={mutationError}
         onOpenPortal={() => navigate("/dashboard")}
-        onAction={async (action) => {
+        onOpenRun={(runId) => navigate(`/runs/${encodeURIComponent(runId)}`)}
+        onAction={async (input) => {
           setMutationError(null);
           try {
-            const next = await mutation.mutateAsync({ surfaceId: stream.snapshot!.id, action });
+            const next = await mutation.mutateAsync(input);
             // A rerun answers with the successor surface; staying on the old
             // id would keep showing the finished run it was created from.
             if (next.id !== surfaceId) {

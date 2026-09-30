@@ -186,6 +186,19 @@ function publishSurfaceInBackground(
   );
 }
 
+/**
+ * The record governs, not the claim: a legacy row with no recorded id keeps
+ * none, and a bound row must still name the team's current connection. Runs
+ * after the admission gate, so any non-null claim already equals that id.
+ */
+function replayRepositoryMatches(
+  recorded: number | null,
+  claimed: number | null,
+  teamRepoId: number | null,
+): boolean {
+  return recorded === null ? claimed === null : recorded === teamRepoId;
+}
+
 export function registerLocalRunRoutes(app: Hono<AppEnv>): void {
   app.post("/v1/local-runs", async (c) => {
     const device = await requireDevice(c);
@@ -227,6 +240,14 @@ export function registerLocalRunRoutes(app: Hono<AppEnv>): void {
         `This device is running ${body.repositoryFullName}, but your team is connected to ${membership.team.repoFullName}.`,
       );
     }
+    // A claim the connection cannot corroborate is refused, not dropped.
+    if (body.repositoryId !== null && body.repositoryId !== membership.team.repoId) {
+      throw new ApiHttpError(
+        409,
+        "forbidden",
+        `This device reports a different repository than your team's connection to ${membership.team.repoFullName}.`,
+      );
+    }
 
     const now = Date.now();
     const sessionId = body.clientRunId;
@@ -238,11 +259,12 @@ export function registerLocalRunRoutes(app: Hono<AppEnv>): void {
       .limit(1);
     if (existing) {
       if (
+        existing.teamId !== membership.team.id ||
         existing.deviceId !== device.deviceId ||
         existing.userId !== device.userId ||
         existing.benchmarkId !== body.benchmarkId ||
         existing.benchmarkVersion !== body.benchmarkVersion ||
-        existing.repositoryId !== body.repositoryId ||
+        !replayRepositoryMatches(existing.repositoryId, body.repositoryId, membership.team.repoId) ||
         existing.repositoryFullName.toLowerCase() !== body.repositoryFullName.toLowerCase() ||
         existing.sha !== body.sha ||
         existing.branch !== (body.branch ?? null) ||
@@ -299,7 +321,9 @@ export function registerLocalRunRoutes(app: Hono<AppEnv>): void {
         deviceId: device.deviceId,
         benchmarkId: body.benchmarkId,
         benchmarkVersion: body.benchmarkVersion,
-        repositoryId: body.repositoryId,
+        // The verified connection, not the SDK's nullable claim: a row with no
+        // recorded id reads as predating the record and cannot be verified.
+        repositoryId: membership.team.repoId,
         repositoryFullName: body.repositoryFullName,
         sha: body.sha,
         branch: body.branch ?? null,
@@ -325,11 +349,12 @@ export function registerLocalRunRoutes(app: Hono<AppEnv>): void {
         .limit(1);
       if (
         !conflict ||
+        conflict.teamId !== membership.team.id ||
         conflict.deviceId !== device.deviceId ||
         conflict.userId !== device.userId ||
         conflict.benchmarkId !== body.benchmarkId ||
         conflict.benchmarkVersion !== body.benchmarkVersion ||
-        conflict.repositoryId !== body.repositoryId ||
+        !replayRepositoryMatches(conflict.repositoryId, body.repositoryId, membership.team.repoId) ||
         conflict.repositoryFullName.toLowerCase() !== body.repositoryFullName.toLowerCase() ||
         conflict.sha !== body.sha ||
         conflict.branch !== (body.branch ?? null) ||

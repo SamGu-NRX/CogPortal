@@ -9,7 +9,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import type { Session } from "@cogworks/contracts/schema";
 import { firstName } from "@/lib/format";
@@ -81,6 +81,29 @@ export function UserMenu({
       document.removeEventListener("pointerdown", onPointerDown);
       document.removeEventListener("keydown", onKeyDown);
     };
+  }, [open]);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    const placeMenu = () => {
+      const root = rootRef.current;
+      const menu = menuRef.current;
+      if (!root || !menu) return;
+
+      // Match TrackSwitcher's viewport gutter; the header can wrap at either side.
+      const gutter = 16;
+      const viewportWidth = document.documentElement.clientWidth;
+      menu.style.maxWidth = `${viewportWidth - gutter * 2}px`;
+      const anchor = root.getBoundingClientRect();
+      const width = menu.offsetWidth;
+      const preferredLeft = anchor.right - width < gutter ? anchor.left : anchor.right - width;
+      const left = Math.max(gutter, Math.min(preferredLeft, viewportWidth - width - gutter));
+      menu.style.right = `${anchor.right - left - width}px`;
+      menu.style.transformOrigin = `${anchor.right - left}px top`;
+    };
+    placeMenu();
+    window.addEventListener("resize", placeMenu);
+    return () => window.removeEventListener("resize", placeMenu);
   }, [open]);
 
   // Focus the first item once the menu is on screen.
@@ -162,7 +185,6 @@ export function UserMenu({
                 : { opacity: 0, scale: 0.98, transition: { duration: 0.12, ease: "easeOut" } }
             }
             transition={{ duration: 0.18, ease: EASE_OUT }}
-            style={{ transformOrigin: "top right" }}
             className="absolute top-full right-0 z-50 mt-2 w-52 border border-rule bg-paper-raised py-1 shadow-[0_8px_24px_rgb(28_38_55/0.10)]"
           >
             {hasTeam ? (

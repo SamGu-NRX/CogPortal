@@ -1,9 +1,12 @@
+import { ArrowUpRight01Icon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import { StrictMode, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Common, DiscordSDK, Events } from "@discord/embedded-app-sdk";
 import { z } from "zod";
 import {
   RunSurfaceSnapshotSchema,
+  shouldReplaceRunSurfaceSnapshot,
   type RunSurfaceSnapshot,
 } from "@cogworks/contracts/schema";
 
@@ -112,7 +115,7 @@ function ActivityApp() {
   const [loading, setLoading] = useState(true);
   const [startupError, setStartupError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [mutation, setMutation] = useState<"verify_hosted" | "promote_official" | "publish_result" | "rerun_hosted" | null>(null);
+  const [mutation, setMutation] = useState<"verify_hosted" | "promote_official" | "publish_result" | "rerun_hosted" | "retry" | null>(null);
   const [layoutMode, setLayoutMode] = useState<ActivityLayoutMode>(Common.LayoutModeTypeObject.FOCUSED);
 
   useEffect(() => {
@@ -229,7 +232,12 @@ function ActivityApp() {
           <p className="mt-4 text-[14px] text-ink-secondary">Connect your fork in the browser to join or start your team. Then close this Activity and open it again.</p>
           <button type="button" className="mt-6 min-h-11 bg-ink px-5 text-[13px] font-medium text-paper-raised" onClick={() => {
             if (sdk) void sdk.commands.openExternalLink({ url: session.portalUrl });
-          }}>Finish team setup ↗</button>
+          }}>
+            <span className="inline-flex items-center gap-1.5">
+              Finish team setup
+              <HugeiconsIcon icon={ArrowUpRight01Icon} size={12} strokeWidth={1.8} aria-hidden="true" />
+            </span>
+          </button>
         </section>
       </main>
     );
@@ -243,7 +251,12 @@ function ActivityApp() {
           <p className="mt-4 text-[14px] text-ink-secondary">Discord is attached to your existing GitHub-first portal account. No repository access or Discord login is stored on your laptop.</p>
           <button type="button" className="mt-6 min-h-11 bg-ink px-5 text-[13px] font-medium text-paper-raised" onClick={() => {
             if (sdk) void sdk.commands.openExternalLink({ url: session.linkUrl });
-          }}>Link Cog*Portal ↗</button>
+          }}>
+            <span className="inline-flex items-center gap-1.5">
+              Link Cog*Portal
+              <HugeiconsIcon icon={ArrowUpRight01Icon} size={12} strokeWidth={1.8} aria-hidden="true" />
+            </span>
+          </button>
           {/* The Activity does not poll for link completion, so a student who
               links in the browser returns to this same card and reads it as a
               failure. Naming the recovery costs one line. */}
@@ -269,17 +282,24 @@ function ActivityApp() {
               const url = `${PORTAL_ORIGIN}/run-surfaces/${stream.snapshot!.id}`;
               if (sdk) void sdk.commands.openExternalLink({ url });
             }}
-            onAction={async (action) => {
-              setMutation(action);
+            onOpenRun={(runId) => {
+              if (sdk) void sdk.commands.openExternalLink({ url: `${PORTAL_ORIGIN}/runs/${encodeURIComponent(runId)}` });
+            }}
+            onAction={async (input) => {
+              setMutation(input.action);
               setActionError(null);
               try {
                 const next = await jsonRequest(
-                  `/activity/run-surfaces/${encodeURIComponent(stream.snapshot!.id)}/actions/${action}`,
+                  `/activity/run-surfaces/${encodeURIComponent(input.surfaceId)}/actions/${input.action}`,
                   RunSurfaceSnapshotSchema,
-                  { method: "POST" },
+                  { method: "POST", body: input.action === "retry" ? { runId: input.runId } : undefined },
                 );
-                setSurfaces((items) => [next, ...items.filter((item) => item.id !== next.id)]);
-                setSelectedId(next.id);
+                setSurfaces((items) => {
+                  const previous = items.find((item) => item.id === next.id);
+                  if (previous && !shouldReplaceRunSurfaceSnapshot(previous, next)) return items;
+                  return [next, ...items.filter((item) => item.id !== next.id)];
+                });
+                setSelectedId((current) => current === input.surfaceId ? next.id : current);
               } catch (caught) {
                 setActionError(caught instanceof Error ? caught.message : "That action could not be completed.");
               } finally {
