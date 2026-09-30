@@ -37,8 +37,14 @@ function loadHighlighter(): Promise<Highlight> {
       langs: [bash.default, toml.default, python.default],
       engine: createJavaScriptRegexEngine(),
     });
+    // Shiki stops tokenizing a line after 500 ms of wall time by default and
+    // paints the rest of it in one colour. Every line here is a command the
+    // portal writes, a few hundred characters at most, so only a busy CPU
+    // reaches the limit: the pinned install's first highlight took about 45 ms
+    // idle and up to 330 ms with the cores oversubscribed four times. Without
+    // the limit, a starved machine highlights the command late but whole.
     return (code, lang, focusable) =>
-      h.codeToHtml(code, { lang, theme: "cogportal-paper", tabindex: focusable ? "0" : false });
+      h.codeToHtml(code, { lang, theme: "cogportal-paper", tabindex: focusable ? "0" : false, tokenizeTimeLimit: 0 });
   }).catch((error: unknown) => {
     // Not cached: the next mount asks again, which recovers wherever the
     // browser refetches a failed module (whatwg/html#10327). Browsers that
