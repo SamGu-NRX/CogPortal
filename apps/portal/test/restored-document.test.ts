@@ -407,6 +407,50 @@ test("a session read sent as alice before the switch is not taken as the answer"
   assert.ok(!h.container.textContent?.includes(tokenFor("alice")));
 });
 
+test("a mutation alice sent before the switch cannot write into bob's cache", async (t) => {
+  const h = await harness(t);
+  // Stands in for any mutation whose onSuccess writes a shared entry, as
+  // useUpdateTeam writes ["team"]; its response arrives after the switch.
+  let answer!: (value: string) => void;
+  const late = h.client.getMutationCache().build(h.client, {
+    mutationFn: () => new Promise<string>((resolve) => { answer = resolve; }),
+    onSuccess: (team: string) => { h.client.setQueryData(["team-written-by-mutation"], team); },
+  });
+  let settled = false;
+  void late.execute(undefined).finally(() => { settled = true; });
+  h.leave("bfcache");
+  h.server.signInDirectly("bob");
+  await h.comeBack("bfcache");
+  // The gate knows it is bob, but waits for alice's write before clearing.
+  assert.ok(!h.exposed().includes(tokenFor("bob")), "bob's page opened while alice's write was pending");
+  assert.ok(!h.exposed().includes(tokenFor("alice")));
+
+  await act(async () => answer("alice's team"));
+  await h.flush();
+  assert.ok(settled);
+  assert.equal(h.client.getQueryData(["team-written-by-mutation"]), undefined, "alice's late write survived into bob's cache");
+  assert.ok(h.exposed().includes(tokenFor("bob")));
+});
+
+test("a same-account restore from the back/forward cache rereads what it shows", async (t) => {
+  const h = await harness(t);
+  const reads = () => h.client.getQueryCache().findAll({ queryKey: ["setup-state"] })
+    .reduce((sum, query) => sum + query.state.dataUpdateCount, 0);
+  const before = reads();
+  h.leave("bfcache");
+  await h.comeBack("bfcache");
+  await h.flush();
+  assert.ok(reads() > before, "a restored page kept answers of unknown age");
+  assert.ok(h.exposed().includes(tokenFor("alice")));
+
+  // A tab that was only hidden keeps its answers, as before the gate.
+  const afterRestore = reads();
+  h.leave("visibility");
+  await h.comeBack("visibility");
+  await h.flush();
+  assert.equal(reads(), afterRestore);
+});
+
 test("the same login on the same team is the same account", () => {
   const alice = sessionFor("alice");
   assert.equal(sameAccount(alice, sessionFor("alice")), true);
