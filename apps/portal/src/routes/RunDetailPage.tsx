@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { ArrowLeft01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Link, useNavigate, useParams } from "react-router";
@@ -58,14 +59,16 @@ export function RunDetailPage() {
   if (runQuery.isPending) return <LoadingMark label="Reading run record" />;
   if (runQuery.isError) {
     return (
-      <QueryError error={runQuery.error} retry={() => void runQuery.refetch()}>
-        <Link
-          to="/dashboard"
-          className="text-[13px] text-ink underline underline-offset-4"
-        >
-          Back to dashboard
-        </Link>
-      </QueryError>
+      <div className="py-14">
+        <QueryError error={runQuery.error} retry={() => void runQuery.refetch()}>
+          <Link
+            to="/dashboard"
+            className="text-[13px] text-ink underline underline-offset-4"
+          >
+            Back to dashboard
+          </Link>
+        </QueryError>
+      </div>
     );
   }
 
@@ -131,46 +134,46 @@ export function RunDetailPage() {
         Run status: {STATUS_LABELS[run.status]}
       </div>
 
-      <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 font-mono text-[12px] text-ink-secondary">
-        {run.status === "failed" && (
-          <>
-            <span>{runNumberLabel(run.id)}</span>
-            <span aria-hidden="true" className="text-rule">|</span>
-          </>
-        )}
-        <span>
-          {run.benchmarkId} / v{run.benchmarkVersion}
-        </span>
-        <span aria-hidden="true" className="text-rule">|</span>
-        {/* The repository this run used, which is not always the one the team
-            is connected to now. Without it a commit sits here with nothing
-            saying which repository it belongs to. */}
-        {run.repo ? (
-          <a
-            href={run.repo.url}
-            target="_blank"
-            rel="noreferrer"
-            className="text-ink underline decoration-rule underline-offset-4 hover:decoration-ink"
-          >
-            {run.repo.fullName}
-          </a>
-        ) : (
-          <span className="text-ink-faint" title="This run predates the recorded repository name.">
-            repository not recorded
-          </span>
-        )}
-        <span aria-hidden="true" className="text-rule">|</span>
-        <span>{run.branch}</span>
-        <ShaChip sha={run.sha} shortSha={run.shortSha} />
-        <span aria-hidden="true" className="text-rule">|</span>
-        <span>{formatDateTime(run.createdAt)}</span>
-        {duration && (
-          <>
-            <span aria-hidden="true" className="text-rule">|</span>
-            <span className="u-tnum">{duration}</span>
-          </>
-        )}
-      </p>
+      {/* Each item leads with its separator; the row starts one separator left
+          of the clip, so an item that begins a wrapped line hides it. The clip
+          sits 6px out so a focus outline survives; the glyph is 12px further. */}
+      <div className="mt-2 [clip-path:inset(-8px_-8px_-8px_-6px)]">
+        <p className="-ml-8 flex flex-wrap items-center gap-y-1.5 font-mono text-[12px] text-ink-secondary">
+          {run.status === "failed" && <MetaItem>{runNumberLabel(run.id)}</MetaItem>}
+          <MetaItem>
+            {run.benchmarkId} / v{run.benchmarkVersion}
+          </MetaItem>
+          {/* The repository this run used, which is not always the one the team
+              is connected to now. Without it a commit sits here with nothing
+              saying which repository it belongs to. */}
+          <MetaItem>
+            {run.repo ? (
+              <a
+                href={run.repo.url}
+                target="_blank"
+                rel="noreferrer"
+                className="text-ink underline decoration-rule underline-offset-4 hover:decoration-ink"
+              >
+                {run.repo.fullName}
+              </a>
+            ) : (
+              <span className="text-ink-faint" title="This run predates the recorded repository name.">
+                repository not recorded
+              </span>
+            )}
+          </MetaItem>
+          <MetaItem>{run.branch}</MetaItem>
+          <MetaItem>
+            <ShaChip sha={run.sha} shortSha={run.shortSha} />
+          </MetaItem>
+          <MetaItem>{formatDateTime(run.createdAt)}</MetaItem>
+          {duration && (
+            <MetaItem>
+              <span className="u-tnum">{duration}</span>
+            </MetaItem>
+          )}
+        </p>
+      </div>
       {run.weightsSupplied.length > 0 && (
         <p className="mt-2 break-words font-mono text-[11px] leading-relaxed text-ink-faint">
           {run.weightsSupplied.join(", ")} from your local run at {run.shortSha}
@@ -424,5 +427,14 @@ export function RunDetailPage() {
         </Panel>
       )}
     </div>
+  );
+}
+
+function MetaItem({ children }: { children: ReactNode }) {
+  return (
+    <span className="flex min-w-0 max-w-full items-center">
+      <span aria-hidden="true" className="w-8 shrink-0 text-center text-rule">|</span>
+      <span className="min-w-0 [overflow-wrap:anywhere]">{children}</span>
+    </span>
   );
 }

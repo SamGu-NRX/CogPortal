@@ -264,11 +264,12 @@ export function DashboardPage() {
             </p>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[560px] text-left text-[13px]">
+              {/* No author column: a name beside a score reads as that
+                  student's grade. The result belongs to the commit. */}
+              <table className="w-full text-left text-[13px]">
                 <caption className="sr-only">Self-reported local CogBench results</caption>
                 <thead className="border-b border-rule font-mono text-[10.5px] text-ink-faint">
                   <tr>
-                    <th scope="col" className="pb-2 font-medium">Student</th>
                     <th scope="col" className="pb-2 font-medium">Commit</th>
                     <th scope="col" className="pb-2 font-medium">Result</th>
                     <th scope="col" className="pb-2 text-right font-medium">Synced</th>
@@ -279,7 +280,6 @@ export function DashboardPage() {
                     const primary = report.metrics.find((metric) => metric.primary);
                     return (
                       <tr key={report.reportId}>
-                        <td className="py-2.5 font-mono text-ink">{report.author.login}</td>
                         <td className="py-2.5 font-mono text-ink-secondary">
                           {report.sha ? report.sha.slice(0, 7) : "not recorded"}
                           {report.dirty ? " · dirty" : ""}
@@ -467,6 +467,7 @@ function CurrentRunPanel({
                   `cogworks run --benchmark ${d.benchmark.id}\n` +
                   `cogworks sync`
                 }
+                wrap
               />
             </div>
           </div>
