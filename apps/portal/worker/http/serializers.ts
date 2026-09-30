@@ -1,4 +1,4 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import {
   RUN_PHASES,
   RunDetailSchema,
@@ -18,6 +18,7 @@ import {
   runMetrics,
   runPhases,
   type BenchmarkRow,
+  type RunMetricRow,
   type RunRow,
   type TeamRow,
 } from "../db/schema";
@@ -55,7 +56,7 @@ export function serializeTeam(row: TeamRow): Team {
   };
 }
 
-export function serializeMetric(row: typeof runMetrics.$inferSelect): Metric {
+export function serializeMetric(row: RunMetricRow): Metric {
   return {
     key: row.key,
     label: row.label,
@@ -70,15 +71,40 @@ export function serializeMetric(row: typeof runMetrics.$inferSelect): Metric {
   };
 }
 
-export async function serializeRunSummary(db: Database, row: RunRow): Promise<RunSummary> {
-  const [primary] = await db
-    .select()
-    .from(runMetrics)
-    .where(and(eq(runMetrics.runId, row.id), eq(runMetrics.isPrimary, true)))
-    .limit(1);
+/** D1 binds at most 100 parameters per statement; one of them here is the
+ *  primary flag, so an id list is read in pages of 99. */
+const IDS_PER_STATEMENT = 99;
 
+/**
+ * The primary metric of each run named, in as few statements as D1 allows.
+ *
+ * A page that lists runs reads this once for the whole page instead of once
+ * per run, and hands over whatever list it has: the run list has no page
+ * bound, so the paging lives here rather than at each caller.
+ */
+export async function readPrimaryMetrics(
+  db: Database,
+  runIds: string[],
+): Promise<Map<string, RunMetricRow>> {
+  const primaries = new Map<string, RunMetricRow>();
+  for (let start = 0; start < runIds.length; start += IDS_PER_STATEMENT) {
+    const rows = await db
+      .select()
+      .from(runMetrics)
+      .where(and(
+        inArray(runMetrics.runId, runIds.slice(start, start + IDS_PER_STATEMENT)),
+        eq(runMetrics.isPrimary, true),
+      ));
+    for (const row of rows) primaries.set(row.runId, row);
+  }
+  return primaries;
+}
+
+export function buildRunSummary(row: RunRow, primary: RunMetricRow | null): RunSummary {
   return {
     id: row.id,
+    // The run's own source, so a commit in a list can be attributed. Detail
+    // spreads this summary, so both answer from the same place.
     repo: runSource(row.repositoryFullName),
     mode: row.mode,
     status: row.status,
@@ -104,13 +130,29 @@ export async function serializeRunSummary(db: Database, row: RunRow): Promise<Ru
   };
 }
 
+export async function serializeRunSummary(db: Database, row: RunRow): Promise<RunSummary> {
+  const primaries = await readPrimaryMetrics(db, [row.id]);
+  return buildRunSummary(row, primaries.get(row.id) ?? null);
+}
+
+/**
+ * A run, in full, from the run's own row.
+ *
+ * The team is here for one question only: whether a new promotion of this run
+ * could still be authorised, which is genuinely about the team as it is now.
+ * What the run *was* still comes from the run. Those two were the same
+ * expression once, and that is what made every old run claim the team's
+ * current repository.
+ */
 export async function serializeRunDetail(
   db: Database,
   row: RunRow,
   team: { repoId: number | null; repoFullName: string },
 ): Promise<RunDetail> {
-  const [summary, phases, metrics, selection] = await Promise.all([
-    serializeRunSummary(db, row),
+  // Independent reads, so they travel as one D1 round trip rather than three.
+  // The summary's primary metric comes out of the metrics this already reads,
+  // the way the leaderboard picks its primary, so it costs no fourth statement.
+  const [phases, metrics, selection] = await db.batch([
     db.select().from(runPhases).where(eq(runPhases.runId, row.id)).orderBy(asc(runPhases.phase)),
     db.select().from(runMetrics).where(eq(runMetrics.runId, row.id)).orderBy(asc(runMetrics.key)),
     db
@@ -125,6 +167,7 @@ export async function serializeRunDetail(
       )
       .limit(1),
   ]);
+  const summary = buildRunSummary(row, metrics.find((metric) => metric.isPrimary) ?? null);
   const phaseOrder = new Map(RUN_PHASES.map((phase, index) => [phase, index]));
   let promotionRefusal: string | null = null;
   if (row.provider === "modal" && row.mode === "practice" && row.status === "succeeded" && row.refundedAt === null) {
