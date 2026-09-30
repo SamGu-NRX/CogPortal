@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import {
   type LocalReportInput,
   LocalReportSchema,
@@ -10,6 +10,28 @@ import type { Env } from "../env";
 import { getDb } from "../db/client";
 import { benchmarks, localReports, teamMembers, teams, users } from "../db/schema";
 import { ApiHttpError } from "../http/errors";
+
+/**
+ * Whether a report's recorded repository name is `name`, ignoring letter case.
+ *
+ * GitHub resolves repository names without case, and the CLI records whatever
+ * spelling the student's `origin` remote uses (cogbench `_github_full_name`),
+ * so "demo-org/team-repo" and the team's "Demo-Org/Team-Repo" are one
+ * repository. A name is still only a locator: where both sides know the
+ * repository id, that is what refuses a different repository.
+ */
+function reportRepositoryIs(name: string) {
+  return sql`lower(${localReports.repositoryFullName}) = lower(${name})`;
+}
+
+/** The listing form of the id check upload and dispatch make: a report whose
+ *  known repository id differs from the team's is another repository, whatever
+ *  its name. Unknown on either side is not a conflict. */
+function reportRepositoryIdAgrees(repoId: number | null) {
+  return repoId === null
+    ? sql`1 = 1`
+    : sql`(${localReports.repositoryId} is null or ${localReports.repositoryId} = ${repoId})`;
+}
 
 function parseReportRow(row: {
   report: typeof localReports.$inferSelect;
@@ -79,7 +101,8 @@ export async function listTeamLocalReports(
   if (!scope || scope.memberUserIds.length === 0) return [];
   const predicates = [
     inArray(localReports.userId, scope.memberUserIds),
-    eq(localReports.repositoryFullName, scope.repoFullName),
+    reportRepositoryIs(scope.repoFullName),
+    reportRepositoryIdAgrees(scope.repoId),
   ];
   if (benchmarkId) {
     // A benchmark bump keeps the id and raises the version, so an id-only
@@ -102,6 +125,34 @@ export async function listTeamLocalReports(
     .from(localReports)
     .innerJoin(users, eq(localReports.userId, users.id))
     .where(and(...predicates))
+    .orderBy(desc(localReports.syncedAt))
+    .limit(50);
+  return rows.map(parseReportRow);
+}
+
+/**
+ * Reports no dashboard track lists: those whose version is not its benchmark's
+ * highest active one, the version `listTeamLocalReports` pins a track to. That
+ * covers an inactive benchmark and a superseded version alike. The rule runs
+ * before the limit, so a busy active track can't push these out of the list.
+ */
+export async function listUntrackedLocalReports(env: Env, userId: string): Promise<LocalReport[]> {
+  const scope = await getUserTeamReportScope(env, userId);
+  if (!scope || scope.memberUserIds.length === 0) return [];
+  // `IS NOT` rather than `<>`: a benchmark with no active version has a null
+  // maximum, and `<>` against null would drop exactly the reports this is for.
+  const trackVersion = sql`(select max(${benchmarks.version}) from ${benchmarks}
+    where ${benchmarks.id} = ${localReports.benchmarkId} and ${benchmarks.active} = 1)`;
+  const rows = await getDb(env)
+    .select({ report: localReports, login: users.githubLogin, email: users.email, name: users.name })
+    .from(localReports)
+    .innerJoin(users, eq(localReports.userId, users.id))
+    .where(and(
+      inArray(localReports.userId, scope.memberUserIds),
+      reportRepositoryIs(scope.repoFullName),
+      reportRepositoryIdAgrees(scope.repoId),
+      sql`${localReports.benchmarkVersion} is not ${trackVersion}`,
+    ))
     .orderBy(desc(localReports.syncedAt))
     .limit(50);
   return rows.map(parseReportRow);
@@ -213,7 +264,8 @@ export async function getWeightUploadTarget(
   if (report.userId !== userId) {
     throw new ApiHttpError(403, "forbidden", "That report belongs to another account.");
   }
-  if (report.repositoryFullName !== scope.repoFullName) {
+  const recordedName = report.repositoryFullName;
+  if (recordedName === null || recordedName.toLowerCase() !== scope.repoFullName.toLowerCase()) {
     throw new ApiHttpError(403, "forbidden", "That report does not belong to the uploader's team repository.");
   }
   // Only when both sides know an ID. The CLI's complete pin still reports
@@ -244,7 +296,7 @@ export async function getWeightUploadTarget(
   if (!report.sha) {
     throw new ApiHttpError(400, "invalid_request", "The report has no repository revision for this weight.");
   }
-  return { repositoryFullName: report.repositoryFullName, sha: report.sha };
+  return { repositoryFullName: recordedName, sha: report.sha };
 }
 
 /**
@@ -282,7 +334,7 @@ export async function getLatestTeamWeights(
     .where(
       and(
         inArray(localReports.userId, memberUserIds),
-        eq(localReports.repositoryFullName, repositoryFullName),
+        reportRepositoryIs(repositoryFullName),
         eq(localReports.sha, sha),
         eq(localReports.benchmarkId, benchmarkId),
       ),

@@ -20,6 +20,7 @@ import {
   getLatestTeamWeights,
   getWeightUploadTarget,
   listTeamLocalReports,
+  listUntrackedLocalReports,
   getLocalReport,
   upsertLocalReport,
 } from "../worker/services/local-reports.ts";
@@ -163,6 +164,96 @@ test("an unscoped list still returns every synced report", async () => {
 
   const reports = await listTeamLocalReports(env, "user_1");
   assert.equal(reports.length, 2);
+});
+
+/* The dashboard lists reports for inactive benchmarks from the unscoped list,
+ * so that list has to carry them for the team and nobody else's. */
+test("the unscoped list returns an inactive benchmark's report to its team only", async () => {
+  const { env, db } = await seededDb();
+  await db.insert(benchmarks).values([benchmarkRow(1, false)]);
+  await db.insert(users).values({ id: "user_2", name: "Grace", email: "grace@example.com" });
+  await db.insert(teams).values({
+    id: "team_2",
+    cohortId: "cohort_1",
+    name: "Difference Engines",
+    repoOwner: "other-org",
+    repoName: "other-repo",
+    repoFullName: "other-org/other-repo",
+    repoUrl: "https://github.com/other-org/other-repo",
+    defaultBranch: "main",
+  });
+  await db.insert(teamMembers).values({ teamId: "team_2", userId: "user_2", role: "admin" });
+  await db.insert(localReports).values([
+    reportRow("report_inactive", 1),
+    // Another team's report, both against its own repository and against
+    // this team's. Neither belongs in this team's list.
+    { ...reportRow("report_other_team", 1), userId: "user_2", repositoryFullName: "other-org/other-repo" },
+    { ...reportRow("report_other_team_same_repo", 1), userId: "user_2" },
+  ]);
+
+  const mine = await listTeamLocalReports(env, "user_1");
+  assert.deepEqual(mine.map((report) => report.reportId), ["report_inactive"]);
+  assert.equal(mine[0].benchmarkId, BENCHMARK);
+  assert.equal(mine[0].benchmarkVersion, 1);
+
+  const theirs = await listTeamLocalReports(env, "user_2");
+  assert.deepEqual(theirs.map((report) => report.reportId), ["report_other_team"]);
+});
+
+/* The dashboard's "Other benchmarks" group: every report whose version is not
+ * its benchmark's highest active one, and nothing a track already lists. */
+test("the untracked list holds superseded and inactive-benchmark reports, not current ones", async () => {
+  const { env, db } = await seededDb();
+  await db.insert(benchmarks).values([
+    benchmarkRow(1, false),
+    benchmarkRow(2, true),
+    { ...benchmarkRow(1, false), id: "test-inactive-benchmark" },
+  ]);
+  await db.insert(users).values({ id: "user_2", name: "Grace", email: "grace@example.com" });
+  await db.insert(teams).values({
+    id: "team_2", cohortId: "cohort_1", name: "Difference Engines", repoOwner: "other-org",
+    repoName: "other-repo", repoFullName: "other-org/other-repo",
+    repoUrl: "https://github.com/other-org/other-repo", defaultBranch: "main",
+  });
+  await db.insert(teamMembers).values({ teamId: "team_2", userId: "user_2", role: "admin" });
+  await db.insert(localReports).values([
+    reportRow("report_current", 2),
+    { ...reportRow("report_superseded", 1), syncedAt: 1_750_000_003_000 },
+    { ...reportRow("report_inactive", 1), benchmarkId: "test-inactive-benchmark", syncedAt: 1_750_000_004_000 },
+    { ...reportRow("report_uncatalogued", 3), benchmarkId: "retired-benchmark", syncedAt: 1_750_000_005_000 },
+    { ...reportRow("report_other_team", 1), userId: "user_2", repositoryFullName: "other-org/other-repo" },
+  ]);
+
+  assert.deepEqual(
+    (await listUntrackedLocalReports(env, "user_1")).map((report) => report.reportId),
+    ["report_uncatalogued", "report_inactive", "report_superseded"],
+  );
+  assert.deepEqual(
+    (await listTeamLocalReports(env, "user_1", BENCHMARK)).map((report) => report.reportId),
+    ["report_current"],
+  );
+});
+
+test("an inactive-benchmark report stays listed behind fifty newer on-track reports", async () => {
+  // The limit applies after the rule. Filtering an unscoped 50-row page on
+  // the client instead lost this report once a track had 50 newer ones.
+  const { env, db } = await seededDb();
+  await db.insert(benchmarks).values([
+    benchmarkRow(2, true),
+    { ...benchmarkRow(1, false), id: "test-inactive-benchmark" },
+  ]);
+  await db.insert(localReports).values([
+    { ...reportRow("report_inactive", 1), benchmarkId: "test-inactive-benchmark" },
+    ...Array.from({ length: 50 }, (_, index) => ({
+      ...reportRow(`report_current_${index}`, 2),
+      syncedAt: 1_750_000_010_000 + index,
+    })),
+  ]);
+
+  assert.deepEqual(
+    (await listUntrackedLocalReports(env, "user_1")).map((report) => report.reportId),
+    ["report_inactive"],
+  );
 });
 
 test("a benchmark id with no active version returns nothing rather than stale rows", async () => {
@@ -429,4 +520,79 @@ test("malformed provenance is rejected at the report boundary", () => {
     }).success, false);
   }
   assert.equal(LocalReportInputSchema.shape.weightsUploaded.safeParse([1]).success, false);
+});
+
+/* GitHub repository names are case-insensitive, and the CLI records whatever
+ * spelling the student's `origin` remote uses (python/cogbench/src/cogbench/
+ * project.py, `_github_full_name`). A report from a lowercase origin of the
+ * team's "Demo-Org/Team-Repo" is the same repository. It was hidden from the
+ * dashboard, refused at weight upload, and skipped at dispatch, which then sent
+ * the run with no weights. Case is ignored; anything else still refuses. */
+const MIXED_CASE_REPO = "Demo-Org/Team-Repo";
+
+test("a report spelled with different letter case is listed, admitted for upload and dispatched", async () => {
+  const { env, db } = await seededDb();
+  await db.update(teams).set({ repoFullName: MIXED_CASE_REPO, repoId: 1 }).where(eq(teams.id, "team_1"));
+  await db.insert(benchmarks).values([benchmarkRow(1, true)]);
+  const sha = "c".repeat(40);
+  await db.insert(localReports).values({
+    ...reportRow("report_lowercase_origin", 1),
+    repositoryFullName: MIXED_CASE_REPO.toLowerCase(),
+    sha,
+    weightsUsedJson: '["model.pkl"]',
+    weightsUploadedJson: JSON.stringify([{ path: "model.pkl", sha256: DIGEST }]),
+  });
+
+  assert.deepEqual(
+    (await listTeamLocalReports(env, "user_1", BENCHMARK)).map((report) => report.reportId),
+    ["report_lowercase_origin"],
+  );
+  await db.update(benchmarks).set({ active: false }).where(eq(benchmarks.id, BENCHMARK));
+  assert.deepEqual(
+    (await listUntrackedLocalReports(env, "user_1")).map((report) => report.reportId),
+    ["report_lowercase_origin"],
+  );
+  await db.update(benchmarks).set({ active: true }).where(eq(benchmarks.id, BENCHMARK));
+  // The report keeps the spelling it was synced with.
+  assert.equal((await getLocalReport(env, "report_lowercase_origin"))?.repositoryFullName, "demo-org/team-repo");
+  assert.deepEqual(
+    await getWeightUploadTarget(env, "user_1", "report_lowercase_origin", "model.pkl", DIGEST),
+    { repositoryFullName: "demo-org/team-repo", sha },
+  );
+  assert.deepEqual(await getLatestTeamWeights(env, "team_1", MIXED_CASE_REPO, sha, 1, BENCHMARK), {
+    weightsUsed: ["model.pkl"],
+    weightsUploaded: [{ path: "model.pkl", sha256: DIGEST }],
+  });
+});
+
+test("ignoring letter case still refuses a different repository", async () => {
+  const { env, db } = await seededDb();
+  await db.update(teams).set({ repoFullName: MIXED_CASE_REPO, repoId: 1 }).where(eq(teams.id, "team_1"));
+  const sha = "c".repeat(40);
+  const declared = {
+    sha,
+    weightsUsedJson: '["model.pkl"]',
+    weightsUploadedJson: JSON.stringify([{ path: "model.pkl", sha256: DIGEST }]),
+  };
+  await db.insert(localReports).values([
+    { ...reportRow("report_other_name", 1), ...declared, repositoryFullName: "demo-org/team-repo-2" },
+    { ...reportRow("report_other_id", 1), ...declared, repositoryFullName: "demo-org/team-repo", repositoryId: 99 },
+  ]);
+
+  await assert.rejects(
+    getWeightUploadTarget(env, "user_1", "report_other_name", "model.pkl", DIGEST),
+    /does not belong to the uploader's team repository/,
+  );
+  await assert.rejects(
+    getWeightUploadTarget(env, "user_1", "report_other_id", "model.pkl", DIGEST),
+    /names a different repository than the uploader's team/,
+  );
+  // Neither is listed: one is another name, the other another known id.
+  assert.deepEqual(await listTeamLocalReports(env, "user_1"), []);
+  assert.deepEqual(await listUntrackedLocalReports(env, "user_1"), []);
+  // Dispatch refuses the conflicting id rather than falling back to no weights.
+  await assert.rejects(
+    getLatestTeamWeights(env, "team_1", MIXED_CASE_REPO, sha, 1, BENCHMARK),
+    /names a different repository than this execution/,
+  );
 });

@@ -1,4 +1,5 @@
 import { PreparedEnvironmentV1Schema, type PreparedEnvironmentV1 } from "@cogworks/contracts/protocol";
+import type { PromotedTo } from "@cogworks/contracts/schema";
 import type { BenchmarkRow, RunRow, TeamRow } from "../db/schema";
 
 type SavedRun = Pick<RunRow,
@@ -88,6 +89,36 @@ export function fixtureRetryRefusal(
 export function currentSurfaceRun(rows: RunRow[], mode: RunRow["mode"]): RunRow | null {
   const replaced = new Set(rows.map((row) => row.retryOfRunId).filter((id) => id !== null));
   return rows.find((row) => row.mode === mode && !replaced.has(row.id)) ?? null;
+}
+
+/**
+ * The official attempt a practice run was already promoted to, read from the
+ * rows on its console. Promotion answers with this attempt instead of spending
+ * another, so it is also what the dashboard and run page offer in place of
+ * Promote. `refusal` is set when that attempt can't stand in for the promotion
+ * any more, and says what to do next.
+ */
+/** A practice run recorded before runs had a console has nowhere to attach an
+ *  official attempt, so promotion refuses it. The pages say so instead of
+ *  offering the control. */
+export const NO_CONSOLE_PROMOTION_REFUSAL =
+  "This run is from before runs had a console, so it can't be promoted. Start a new practice run to create a candidate.";
+
+export interface ExistingPromotion {
+  promotedTo: PromotedTo;
+  refusal: string | null;
+}
+
+export function existingPromotion(surfaceRows: RunRow[]): ExistingPromotion | null {
+  const official = currentSurfaceRun(surfaceRows, "official");
+  if (!official) return null;
+  const next = "Start a new practice run to create the next candidate to promote.";
+  const refusal = official.status === "failed"
+    ? `That official attempt already ran and failed. ${next}`
+    : official.refundedAt !== null
+      ? `That official attempt was refunded. ${next}`
+      : null;
+  return { promotedTo: { runId: official.id, attemptNumber: official.attemptNumber }, refusal };
 }
 
 export function canPublishOfficialRun(

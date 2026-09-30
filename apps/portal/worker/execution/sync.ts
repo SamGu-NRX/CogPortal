@@ -3,7 +3,7 @@ import { FIXTURE_PHASE_DURATIONS_MS } from "@cogworks/contracts/fixtures";
 import { RUN_PHASES, isTerminal, type FailureCategory } from "@cogworks/contracts/schema";
 import type { Database } from "../db/client";
 import { runMetrics, runPhases, runs, type RunRow } from "../db/schema";
-import { fixtureLog, fixtureMetrics, fixtureScenario } from "./fixture";
+import { fixtureLog, fixtureMetrics, fixtureOutcome } from "./fixture";
 
 /**
  * Advances a fixture run to the state implied by wall-clock time. This lazy,
@@ -15,7 +15,8 @@ export async function syncRun(db: Database, row: RunRow, now = Date.now()): Prom
   if (isTerminal(row.status)) return row;
   if (row.provider !== "fixture") return row;
 
-  const scenario = fixtureScenario(row.branch);
+  // In this run's track's wording; the scenario's default detail is Vision's.
+  const outcome = fixtureOutcome(row.branch, row.benchmarkId);
   let offset = 0;
   let nextStatus: RunRow["status"] = "queued";
   let finishedAt: number | null = null;
@@ -37,10 +38,10 @@ export async function syncRun(db: Database, row: RunRow, now = Date.now()): Prom
     });
 
     if (hasStarted && !hasEnded) nextStatus = phase;
-    if (scenario.outcome.kind === "failed" && scenario.outcome.phase === phase && hasEnded) {
+    if (outcome.kind === "failed" && outcome.phase === phase && hasEnded) {
       nextStatus = "failed";
       finishedAt = endedAt;
-      terminalFailure = scenario.outcome;
+      terminalFailure = outcome;
       break;
     }
     offset += FIXTURE_PHASE_DURATIONS_MS[phase];
@@ -50,7 +51,7 @@ export async function syncRun(db: Database, row: RunRow, now = Date.now()): Prom
     (total, phase) => total + FIXTURE_PHASE_DURATIONS_MS[phase],
     0,
   );
-  if (scenario.outcome.kind === "succeeded" && now >= row.createdAt + totalDuration) {
+  if (outcome.kind === "succeeded" && now >= row.createdAt + totalDuration) {
     nextStatus = "succeeded";
     finishedAt = row.createdAt + totalDuration;
   }

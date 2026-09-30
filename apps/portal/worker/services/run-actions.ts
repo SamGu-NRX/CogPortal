@@ -23,7 +23,6 @@ import {
   teams,
   users,
   type BenchmarkRow,
-  type RunRow,
   type TeamRow,
 } from "../db/schema";
 import { syncRun, syncTeamRuns } from "../execution/sync";
@@ -34,7 +33,15 @@ import { runSourceRefusal } from "./run-source";
 import { randomHex } from "../util/id";
 import { sha256Hex } from "../util/crypto";
 import { publishRunSurface } from "./run-surfaces";
-import { canPublishOfficialRun, currentSurfaceRun, fixtureRetryRefusal, savedEnvironmentEligibility } from "./run-eligibility";
+import {
+  canPublishOfficialRun,
+  currentSurfaceRun,
+  existingPromotion,
+  fixtureRetryRefusal,
+  NO_CONSOLE_PROMOTION_REFUSAL,
+  type ExistingPromotion,
+  savedEnvironmentEligibility,
+} from "./run-eligibility";
 import { insertRunWithCapacity, readRunAccounting } from "./run-accounting";
 
 export interface RunActor {
@@ -156,17 +163,10 @@ function isUniqueConstraintError(error: unknown): boolean {
   return error instanceof Error && /unique constraint failed/i.test(error.message);
 }
 
-function existingOfficialPromotion(run: RunRow, surfaceId: string) {
-  if (run.status === "failed" || run.refundedAt !== null) {
-    throw new ApiHttpError(
-      409,
-      "not_promotable",
-      run.status === "failed"
-        ? "That official attempt already ran and failed. Start a new practice run to create the next candidate to promote."
-        : "That official attempt was refunded. Start a new practice run to create the next candidate to promote.",
-    );
-  }
-  return { runId: run.id, surfaceId };
+/** A repeated promotion returns the attempt it already started, spending nothing. */
+function repeatPromotion(promotion: ExistingPromotion, surfaceId: string) {
+  if (promotion.refusal) throw new ApiHttpError(409, "not_promotable", promotion.refusal);
+  return { runId: promotion.promotedTo.runId, surfaceId };
 }
 
 async function insertPhaseSkeleton(env: Env, runId: string): Promise<void> {
@@ -398,15 +398,16 @@ export async function promotePracticeRun(
     .limit(1);
   if (!parentRow) throw new ApiHttpError(404, "not_found", "Run not found.");
   const parent = await syncRun(db, parentRow);
-  if (parent.mode !== "practice" || parent.status !== "succeeded" || parent.refundedAt !== null || !parent.surfaceId) {
+  if (parent.mode !== "practice" || parent.status !== "succeeded" || parent.refundedAt !== null) {
     throw new ApiHttpError(409, "not_promotable", "Only a succeeded hosted run can be promoted.");
   }
+  if (!parent.surfaceId) throw new ApiHttpError(409, "not_promotable", NO_CONSOLE_PROMOTION_REFUSAL);
   // Before any attempt is claimed: an official attempt is a claim about the
   // connected repository, and this run may not be from it.
   requireRunSource(actor, parent, "promote it");
   const attached = await db.select().from(runs).where(eq(runs.surfaceId, parent.surfaceId));
-  const existing = currentSurfaceRun(attached, "official");
-  if (existing) return existingOfficialPromotion(existing, parent.surfaceId);
+  const existing = existingPromotion(attached);
+  if (existing) return repeatPromotion(existing, parent.surfaceId);
   const benchmark = await activeBenchmark(env, parent.benchmarkId, parent.benchmarkVersion);
   if (env.EXECUTION_PROVIDER === "modal") {
     const eligibility = savedEnvironmentEligibility(parent, benchmark, actor.team);
@@ -457,8 +458,8 @@ export async function promotePracticeRun(
     if (!inserted.meta.changes) throw new ApiHttpError(409, "quota_exhausted", "The official-attempt quota is exhausted.");
   } catch (error) {
     const attached = await db.select().from(runs).where(eq(runs.surfaceId, parent.surfaceId));
-    const raced = currentSurfaceRun(attached, "official");
-    if (raced) return existingOfficialPromotion(raced, parent.surfaceId);
+    const raced = existingPromotion(attached);
+    if (raced) return repeatPromotion(raced, parent.surfaceId);
     if (error instanceof ApiHttpError) throw error;
     if (isUniqueConstraintError(error)) {
       throw new ApiHttpError(409, "active_run_exists", "A run is already active for this benchmark.");

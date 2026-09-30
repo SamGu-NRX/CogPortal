@@ -131,6 +131,38 @@ class ReportFormattingTests(unittest.TestCase):
         self.assertIn("Latency: 12.3 ms", text)
 
 
+class LinkConsentTests(unittest.TestCase):
+    def test_link_names_what_sync_sends_before_asking_for_approval(self):
+        # The sentence is consent: `sync` uploads a report and its weights and
+        # `run --live` sends the finished report, so it has to name both and
+        # can't list scores among the things CogPortal never receives.
+        stdout = io.StringIO()
+        start = {
+            "verificationUri": "https://portal.example/connections?user_code=ABCD",
+            "userCode": "ABCD",
+            "deviceCode": "device-code",
+            "pollIntervalSeconds": 5,
+            "expiresAt": 10_000,
+        }
+        with patch("cogbench.cli.start_device_link", return_value=start), \
+                patch("cogbench.cli.poll_device_link", return_value={"token": "t", "expiresAt": 1}), \
+                patch("cogbench.cli.save_token"), \
+                patch("cogbench.cli.repository_state", return_value=SimpleNamespace(full_name=None)), \
+                patch("cogbench.cli._installed_benchmark_hint", return_value="vision-recognition"), \
+                redirect_stdout(stdout), redirect_stderr(io.StringIO()):
+            self.assertEqual(
+                main(["link", "--portal", "https://portal.example", "--no-browser"]), 0
+            )
+        text = stdout.getvalue()
+        consent = text[: text.index("Open https://portal.example")]
+        self.assertIn(
+            "A report's scores and notes go up when you run `cogworks sync` or "
+            "`cogworks run --live`, and weights only with `cogworks sync`.",
+            consent,
+        )
+        self.assertNotIn("never source, paths, logs, predictions, scores", consent)
+
+
 class HelpTextTests(unittest.TestCase):
     def _subcommand_help(self, command):
         stdout = io.StringIO()

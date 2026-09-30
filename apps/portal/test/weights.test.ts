@@ -4,6 +4,7 @@ import { buildRunJob, hmacSignature } from "../worker/execution/runner.ts";
 import { verifyRunnerSignature } from "../worker/routes/runner-events.ts";
 import {
   MAX_WEIGHT_BYTES,
+  headRecordedWeight,
   uploadWeight,
   validateWeightPath,
   weightManifest,
@@ -567,4 +568,93 @@ test("weight download signatures can use the 900-second prepare window", async (
 
   await assert.rejects(verifyRunnerSignature(context, payload), /timestamp is invalid/);
   await verifyRunnerSignature(context, payload, 900);
+});
+
+/* Repository names are case-insensitive on GitHub, and a report records its
+ * origin's spelling while a run records the team's. New uploads land under the
+ * lowercase name, so any spelling of the same repository finds them. Reads try
+ * the exact spelling first: an object written before this under the spelling
+ * a run already uses stays where that run looks. */
+test("a weight uploaded under one spelling is found under another spelling of the same repository", async () => {
+  const sha = "a".repeat(40);
+  const weight = { path: "model.pkl", size: 3, sha256: SHA256_ABC };
+  const stored = new Map<string, R2Object>();
+  const reads: string[] = [];
+  // SAFETY: uploadWeight supplies a stream and checksum to put; the readers
+  // call head and read only size/checksums. Other R2 properties are unused.
+  const bucket = {
+    put: async (key: string, value: ReadableStream<Uint8Array>, options: R2PutOptions) => {
+      const body = await new Response(value).arrayBuffer();
+      stored.set(key, { size: body.byteLength, checksums: { sha256: hexBytes(String(options.sha256)) } } as R2Object);
+      return {} as R2Object;
+    },
+    head: async (key: string) => {
+      reads.push(key);
+      return stored.get(key) ?? null;
+    },
+  } as unknown as R2Bucket;
+
+  const uploaded = await uploadWeight(bucket, "course/team", sha, weight.path, stream("abc"), "3", weight.sha256);
+  assert.equal(uploaded.destination, `weight-objects/course/team/${sha}/${SHA256_ABC}/model.pkl`);
+
+  assert.deepEqual(await weightManifest(bucket, "Course/Team", sha, [weight.path], [weight]), [weight]);
+  assert.deepEqual(reads, [
+    `weight-objects/Course/Team/${sha}/${SHA256_ABC}/model.pkl`,
+    `weights/Course/Team/${sha}/model.pkl`,
+    `weight-objects/course/team/${sha}/${SHA256_ABC}/model.pkl`,
+  ]);
+  reads.length = 0;
+  assert.equal((await headRecordedWeight(bucket, "COURSE/team", sha, weight)).status, "matched");
+
+  // A mixed-case upload writes the same lowercase key.
+  stored.clear();
+  const mixed = await uploadWeight(bucket, "Course/Team", sha, weight.path, stream("abc"), "3", weight.sha256);
+  assert.equal(mixed.destination, uploaded.destination);
+});
+
+test("an object stored under the run's exact spelling stays reachable, and a bad one is still refused", async () => {
+  const sha = "a".repeat(40);
+  const weight = { path: "model.pkl", size: 3, sha256: SHA256_ABC };
+  const exactKey = `weight-objects/Course/Team/${sha}/${SHA256_ABC}/model.pkl`;
+  const reads: string[] = [];
+  const bucketWith = (object: R2Object) => ({
+    head: async (key: string) => {
+      reads.push(key);
+      return key === exactKey ? object : null;
+    },
+  });
+
+  const good = { size: 3, checksums: { sha256: hexBytes(SHA256_ABC) } } as R2Object;
+  assert.deepEqual(await weightManifest(bucketWith(good), "Course/Team", sha, [weight.path], [weight]), [weight]);
+  assert.equal((await headRecordedWeight(bucketWith(good), "Course/Team", sha, weight)).status, "matched");
+  assert.deepEqual(reads, [exactKey, exactKey]);
+
+  // An object at the exact key that fails its checks is refused, never
+  // replaced by whatever the lowercase key holds.
+  reads.length = 0;
+  const bad = { size: 3, checksums: {} } as R2Object;
+  await assert.rejects(
+    weightManifest(bucketWith(bad), "Course/Team", sha, [weight.path], [weight]),
+    /has no SHA-256 checksum/,
+  );
+  assert.equal((await headRecordedWeight(bucketWith(bad), "Course/Team", sha, weight)).status, "mismatched");
+  assert.deepEqual(reads, [exactKey, exactKey]);
+});
+
+test("the exact spelling's pre-digest object still wins over a lowercase key", async () => {
+  // Before lowercase uploads, a run spelled "Course/Team" read its content key
+  // and then its pre-digest key. That pair still comes first, so a valid legacy
+  // object is not shadowed by whatever the lowercase key holds.
+  const sha = "a".repeat(40);
+  const weight = { path: "model.pkl", size: 3, sha256: SHA256_ABC };
+  const legacyKey = `weights/Course/Team/${sha}/model.pkl`;
+  const lowercaseKey = `weight-objects/course/team/${sha}/${SHA256_ABC}/model.pkl`;
+  const objects = new Map<string, R2Object>([
+    [legacyKey, { size: 3, checksums: { sha256: hexBytes(SHA256_ABC) } } as R2Object],
+    [lowercaseKey, { size: 3, checksums: {} } as R2Object],
+  ]);
+  const bucket = { head: async (key: string) => objects.get(key) ?? null };
+
+  assert.equal((await headRecordedWeight(bucket, "Course/Team", sha, weight)).status, "matched");
+  assert.deepEqual(await weightManifest(bucket, "Course/Team", sha, [weight.path], [weight]), [weight]);
 });

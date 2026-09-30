@@ -103,6 +103,16 @@ export function useLocalReports(benchmarkId: string) {
   });
 }
 
+/** Reports no track's benchmark-scoped list can reach, such as those for an
+ *  inactive benchmark. The server decides which those are. */
+export function useUntrackedLocalReports() {
+  return useQuery({
+    queryKey: ["untracked-local-reports"],
+    queryFn: api.untrackedLocalReports,
+    staleTime: 30_000,
+  });
+}
+
 export function useRun(runId: string) {
   return useQuery({
     queryKey: ["run", runId],

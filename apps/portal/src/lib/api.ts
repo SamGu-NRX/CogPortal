@@ -228,6 +228,9 @@ export const api = {
       `/api/v1/local-reports?benchmark=${encodeURIComponent(benchmarkId)}`,
       LocalReportListSchema,
     ),
+  /** Reports for a benchmark version no track lists, newest 50 first. */
+  untrackedLocalReports: () =>
+    request("/api/v1/local-reports?untracked=1", LocalReportListSchema),
   dashboard: (benchmarkId: string) =>
     request(
       `/api/dashboard?benchmark=${encodeURIComponent(benchmarkId)}`,

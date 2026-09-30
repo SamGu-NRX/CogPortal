@@ -11,12 +11,18 @@ import {
 } from "@cogworks/contracts/schema";
 import { runSourceRefusal } from "../services/run-source";
 import type { Database } from "../db/client";
-import { canPublishOfficialRun, savedEnvironmentEligibility } from "../services/run-eligibility";
+import {
+  canPublishOfficialRun,
+  existingPromotion,
+  NO_CONSOLE_PROMOTION_REFUSAL,
+  savedEnvironmentEligibility,
+} from "../services/run-eligibility";
 import {
   benchmarks,
   leaderboardSelections,
   runMetrics,
   runPhases,
+  runs,
   type BenchmarkRow,
   type RunMetricRow,
   type RunRow,
@@ -170,7 +176,19 @@ export async function serializeRunDetail(
   const summary = buildRunSummary(row, metrics.find((metric) => metric.isPrimary) ?? null);
   const phaseOrder = new Map(RUN_PHASES.map((phase, index) => [phase, index]));
   let promotionRefusal: string | null = null;
-  if (row.provider === "modal" && row.mode === "practice" && row.status === "succeeded" && row.refundedAt === null) {
+  let promotedTo: RunDetail["promotedTo"] = null;
+  const promotable = row.mode === "practice" && row.status === "succeeded" && row.refundedAt === null;
+  // The same order promotion checks in: an attempt already promoted from this
+  // console answers before the saved environment is asked about.
+  const promoted = promotable && row.surfaceId
+    ? existingPromotion(await db.select().from(runs).where(eq(runs.surfaceId, row.surfaceId)))
+    : null;
+  if (promotable && !row.surfaceId) {
+    promotionRefusal = NO_CONSOLE_PROMOTION_REFUSAL;
+  } else if (promoted) {
+    promotionRefusal = promoted.refusal;
+    promotedTo = promoted.promotedTo;
+  } else if (promotable && row.provider === "modal") {
     const [benchmark] = await db.select().from(benchmarks)
       .where(and(eq(benchmarks.id, row.benchmarkId), eq(benchmarks.version, row.benchmarkVersion))).limit(1);
     const eligibility = savedEnvironmentEligibility(row,
@@ -181,6 +199,7 @@ export async function serializeRunDetail(
   return {
     ...summary,
     promotionRefusal,
+    promotedTo,
     surfaceId: row.surfaceId,
     contractVersion: row.contractVersion,
     parentRunId: row.parentRunId,
