@@ -141,6 +141,31 @@ function legacyWeightObjectKey(repositoryFullName: string, sha: string, path: st
   return `weights/${locator(repositoryFullName, sha)}/${validateWeightPath(path)}`;
 }
 
+/**
+ * The repository spellings a weight may be stored under, in reading order.
+ *
+ * GitHub resolves repository names without case, and a report records its
+ * `origin`'s spelling while a run records the team's, so uploads write the
+ * lowercase spelling that every spelling of the repository can derive. The
+ * exact spelling is read first because objects written before that sit under
+ * their report's spelling, which is where a run spelled the same way looks.
+ */
+function storedSpellings(repositoryFullName: string): string[] {
+  const lowercase = repositoryFullName.toLowerCase();
+  return lowercase === repositoryFullName ? [lowercase] : [repositoryFullName, lowercase];
+}
+
+/** Every key a recorded weight may sit at, in reading order: content-addressed
+ *  under each spelling, then the pre-digest key. The first object found is
+ *  the answer, so one that fails its checks is refused, not skipped. */
+function storedWeightKeys(repositoryFullName: string, sha: string, path: string, sha256: string): string[] {
+  const spellings = storedSpellings(repositoryFullName);
+  return [
+    ...spellings.map((name) => weightObjectKey(name, sha, path, sha256)),
+    ...spellings.map((name) => legacyWeightObjectKey(name, sha, path)),
+  ];
+}
+
 function hex(bytes: ArrayBuffer): string {
   return [...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
@@ -169,13 +194,13 @@ async function locateRecordedWeight<T extends StoredObject>(
   sha: string,
   weight: WeightFile,
 ): Promise<RecordedWeightLookup<T>> {
-  const object = await read(weightObjectKey(repositoryFullName, sha, weight.path, weight.sha256));
-  if (object) {
-    return storedBytesMatch(object, weight) ? { status: "matched", object } : { status: "mismatched" };
+  for (const key of storedWeightKeys(repositoryFullName, sha, weight.path, weight.sha256)) {
+    const object = await read(key);
+    if (object) {
+      return storedBytesMatch(object, weight) ? { status: "matched", object } : { status: "mismatched" };
+    }
   }
-  const legacy = await read(legacyWeightObjectKey(repositoryFullName, sha, weight.path));
-  if (!legacy) return { status: "missing" };
-  return storedBytesMatch(legacy, weight) ? { status: "matched", object: legacy } : { status: "mismatched" };
+  return { status: "missing" };
 }
 
 export function headRecordedWeight(
@@ -257,7 +282,7 @@ export async function uploadWeight(
   sha256: string | null | undefined,
 ): Promise<{ path: string; size: number; sha256: string; destination: string }> {
   const digest = parseWeightDigest(sha256);
-  const destination = weightObjectKey(repositoryFullName, sha, path, digest);
+  const destination = weightObjectKey(repositoryFullName.toLowerCase(), sha, path, digest);
   if (!body) throw new ApiHttpError(400, "invalid_request", "Weight file body is missing.");
   const size = parseWeightLength(contentLength);
 
@@ -331,8 +356,11 @@ export async function weightManifest(
     // Only on a miss, and only for the path this report named: see
     // `legacyWeightObjectKey`. An object at the content-addressed key that
     // fails the checks below is refused rather than looked up again.
-    const object = (await bucket.head(weightObjectKey(repositoryFullName, sha, path, sha256)))
-      ?? (await bucket.head(legacyWeightObjectKey(repositoryFullName, sha, path)));
+    let object: R2Object | null = null;
+    for (const key of storedWeightKeys(repositoryFullName, sha, path, sha256)) {
+      object = await bucket.head(key);
+      if (object) break;
+    }
     if (!object) {
       throw new ApiHttpError(
         409,

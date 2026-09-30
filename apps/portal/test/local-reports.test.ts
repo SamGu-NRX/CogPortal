@@ -521,3 +521,68 @@ test("malformed provenance is rejected at the report boundary", () => {
   }
   assert.equal(LocalReportInputSchema.shape.weightsUploaded.safeParse([1]).success, false);
 });
+
+/* GitHub repository names are case-insensitive, and the CLI records whatever
+ * spelling the student's `origin` remote uses (python/cogbench/src/cogbench/
+ * project.py, `_github_full_name`). A report from a lowercase origin of the
+ * team's "Demo-Org/Team-Repo" is the same repository. It was hidden from the
+ * dashboard, refused at weight upload, and skipped at dispatch, which then sent
+ * the run with no weights. Case is ignored; anything else still refuses. */
+const MIXED_CASE_REPO = "Demo-Org/Team-Repo";
+
+test("a report spelled with different letter case is listed, admitted for upload and dispatched", async () => {
+  const { env, db } = await seededDb();
+  await db.update(teams).set({ repoFullName: MIXED_CASE_REPO, repoId: 1 }).where(eq(teams.id, "team_1"));
+  await db.insert(benchmarks).values([benchmarkRow(1, true)]);
+  const sha = "c".repeat(40);
+  await db.insert(localReports).values({
+    ...reportRow("report_lowercase_origin", 1),
+    repositoryFullName: MIXED_CASE_REPO.toLowerCase(),
+    sha,
+    weightsUsedJson: '["model.pkl"]',
+    weightsUploadedJson: JSON.stringify([{ path: "model.pkl", sha256: DIGEST }]),
+  });
+
+  assert.deepEqual(
+    (await listTeamLocalReports(env, "user_1", BENCHMARK)).map((report) => report.reportId),
+    ["report_lowercase_origin"],
+  );
+  // The report keeps the spelling it was synced with.
+  assert.equal((await getLocalReport(env, "report_lowercase_origin"))?.repositoryFullName, "demo-org/team-repo");
+  assert.deepEqual(
+    await getWeightUploadTarget(env, "user_1", "report_lowercase_origin", "model.pkl", DIGEST),
+    { repositoryFullName: "demo-org/team-repo", sha },
+  );
+  assert.deepEqual(await getLatestTeamWeights(env, "team_1", MIXED_CASE_REPO, sha, 1, BENCHMARK), {
+    weightsUsed: ["model.pkl"],
+    weightsUploaded: [{ path: "model.pkl", sha256: DIGEST }],
+  });
+});
+
+test("ignoring letter case still refuses a different repository", async () => {
+  const { env, db } = await seededDb();
+  await db.update(teams).set({ repoFullName: MIXED_CASE_REPO, repoId: 1 }).where(eq(teams.id, "team_1"));
+  const sha = "c".repeat(40);
+  const declared = {
+    sha,
+    weightsUsedJson: '["model.pkl"]',
+    weightsUploadedJson: JSON.stringify([{ path: "model.pkl", sha256: DIGEST }]),
+  };
+  await db.insert(localReports).values([
+    { ...reportRow("report_other_name", 1), ...declared, repositoryFullName: "demo-org/team-repo-2" },
+    { ...reportRow("report_other_id", 1), ...declared, repositoryFullName: "demo-org/team-repo", repositoryId: 99 },
+  ]);
+
+  await assert.rejects(
+    getWeightUploadTarget(env, "user_1", "report_other_name", "model.pkl", DIGEST),
+    /does not belong to the uploader's team repository/,
+  );
+  await assert.rejects(
+    getWeightUploadTarget(env, "user_1", "report_other_id", "model.pkl", DIGEST),
+    /names a different repository than the uploader's team/,
+  );
+  assert.deepEqual(
+    (await listTeamLocalReports(env, "user_1")).map((report) => report.reportId),
+    ["report_other_id"],
+  );
+});
