@@ -121,7 +121,7 @@ No guess at a cause. A system that cannot read their code cannot know whether th
 | You stop it yourself | No claim has been made, so there is nothing to retract. | A run stopped part way produces a failure, not a refusal. The distinction holds: a failure says something went wrong; a refusal says nothing went wrong and here is why there is no number. |
 | You do something else mid-way | No effect. | No effect on the vocabulary. |
 | A teammate acts at the same time | No effect. | No effect. Claims are about a run, and a run is about one commit. |
-| The portal fails | No claim. | A failure whose category is marked `infrastructure` is the platform's, and the platform pays for it with a refund. That flag is the credit system's version of the same honesty rule. |
+| The portal fails | No claim. | Failure attribution comes from the controller's evidence. It determines the explanation, not quota use. |
 | The process goes away | No claim. | A run killed at the container level is attributed by elapsed time and signal, never by reading text the student could have written. See [`../sandbox/timeouts-and-limits.md`](../sandbox/timeouts-and-limits.md). |
 | The thing being measured changes | No effect. | No effect. A run's claims are about the commit it resolved at the start. |
 | Refused, or out of credit | An exhausted quota is refused before any work, and the sentence says which quota. | Not reachable; credit is checked before work begins. |
@@ -132,7 +132,7 @@ No guess at a cause. A system that cannot read their code cannot know whether th
 
 **The team owns it.** Every claim is about a team's repository at a commit. The one claim about a person is the GitHub login on a synced local report, which names who ran it, not how they did.
 
-**Credit.** The `infrastructure` flag on a failure decides whether the team pays. See [`../cross-cutting/credit-and-quota.md`](../cross-cutting/credit-and-quota.md).
+**Credit.** All failed executions use no quota. Attribution does not change that rule. See [credit and quota](../cross-cutting/credit-and-quota.md).
 
 **What the benchmark supplied.** Defined above, and detailed in [`../cross-cutting/what-the-benchmark-supplied.md`](../cross-cutting/what-the-benchmark-supplied.md).
 
@@ -156,4 +156,4 @@ No guess at a cause. A system that cannot read their code cannot know whether th
 - The Discord 300-character truncation of a refusal headline is untested: `apps/discord-bot/test/refusal-message.test.ts:16` asserts `headline.slice(0, 300).length <= 300` on a string literal defined in the test itself, which is a tautology. Carried to triage.
 - Whether `LOCAL · SELF-REPORTED` appears anywhere in the browser with that exact wording was not confirmed; the dashboard's local-report section was read but its per-row rendering was not.
 
-Verified against Cog\*Portal commit `f74e087`.
+Verified against Cog\*Portal commit `a0e8eac` for quota policy; unchanged descriptions retain their earlier references.

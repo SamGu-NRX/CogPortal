@@ -6,6 +6,8 @@ import json
 import time
 from typing import Any, Dict
 
+from .prepared_environment import PreparedEnvironmentError, validate_record_shape
+
 
 PROTOCOL_VERSION = "1"
 MAX_CLOCK_SKEW_SECONDS = 300
@@ -33,7 +35,7 @@ def validate_job(value: Any) -> Dict[str, Any]:
         "runtime",
         "callback",
     }
-    allowed = required | {"weights"}
+    allowed = required | {"weights", "preparedEnvironment"}
     if not required.issubset(value) or not set(value).issubset(allowed):
         raise ProtocolError("Run job fields do not match protocol v1.")
     if value["protocolVersion"] != PROTOCOL_VERSION:
@@ -42,6 +44,20 @@ def validate_job(value: Any) -> Dict[str, Any]:
         raise ProtocolError("Invalid run mode.")
     if value["mode"] == "official" and not value["preparedArtifactId"]:
         raise ProtocolError("Official runs require a prepared artifact.")
+    evidence = value.get("preparedEnvironment")
+    if evidence is not None:
+        try:
+            validate_record_shape(evidence)
+        except PreparedEnvironmentError as error:
+            raise ProtocolError(str(error)) from error
+    benchmark = value.get("benchmark")
+    if not isinstance(benchmark, dict):
+        raise ProtocolError("Run benchmark is invalid.")
+    sandbox_contract = benchmark.get("sandboxContract")
+    if sandbox_contract is not None and (
+        type(sandbox_contract) is not int or sandbox_contract < 1
+    ):
+        raise ProtocolError("Sandbox contract is invalid.")
     source = value["source"]
     if not isinstance(source, dict) or len(str(source.get("sha", ""))) != 40:
         raise ProtocolError("Run source is invalid.")

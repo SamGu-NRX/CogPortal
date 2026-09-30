@@ -83,9 +83,9 @@ There is one more refusal that no student will see. The stream endpoint answers 
 
 ### The work begins
 
-Nothing begins here. The run already exists, it was paid for on the dashboard, and it will finish whether or not a browser is open.
+Nothing begins here. The execution already exists and will finish whether or not a browser is open. Only completion uses quota.
 
-The one exception is the console's action buttons, which are not watching but doing. "Verify hosted" and "Rerun hosted" both start a practice run, spending one of the team's ten. "Promote to official" spends an official attempt. "Publish result" changes what the cohort sees. Each is behind a modal that names the cost in a sentence before anything happens, which is described under "While it works" below and, for the two official ones, in [`promote-to-the-leaderboard.md`](promote-to-the-leaderboard.md).
+The console's actions can start new work. Hosted verification and promotion reserve capacity while running and count only when completed. Retry preserves the failed execution's source and mode in the same console. Publication selects an existing result without cost.
 
 ### While it works
 
@@ -115,7 +115,7 @@ The right pane is `Run reference`: the full commit, the branch or `detached`, an
 
 Pressing a button opens a modal rather than arming in place. It is headed `Confirm action` with the button's own label, one sentence naming the cost, and `Close` and `Confirm`. "Run again" is different: it opens a modal headed `Run locally` and `Back to the bench` carrying one copyable line, `cogworks run --benchmark audio-identification --live`, and no confirm button at all (`RunConsole.tsx:393`). Escape and a click on the backdrop both close it.
 
-Which buttons exist is decided server-side from the stage and status, not by the browser (`services/run-surfaces.ts:318`). A finished local run offers "Verify hosted" and "Run again"; a finished hosted run offers "Promote to official" and "Rerun hosted"; a succeeded official run offers "Publish result". While a run is running there are no buttons at all. Their sentences name the cost plainly: "Run {shortSha} on the hosted benchmark? This uses one of the team's shared practice runs." and "Start a new hosted lifecycle at this exact commit? The current result stays unchanged." (`RunConsole.tsx:205`).
+The server supplies the action list. Retry checks current execution status, capacity and recorded inputs, and admission rechecks eligibility before dispatch. Retry is offered for an eligible failure, without a failure-category prohibition. It targets that physical failure so a replay cannot choose a newer execution. The portal owner is integrating the browser controls; their final presentation is unverified here.
 
 While any action is in flight every button is disabled and the pressed one reads `Working…` (`RunConsole.tsx:368`).
 
@@ -217,4 +217,4 @@ The stream is called a "safe event stream" for a reason. It carries a code from 
 - Whether the console's clock restarting on promotion reads as a bug to a student was not observed. **Unverified.**
 - The console's action set is computed on the server and rendered without explanation, so a stage that offers nothing shows an empty column with no sentence saying why. Whether that reads as a loading state was not observed. **Unverified.**
 
-Verified against Cog\*Portal commit `f74e087`.
+Verified against Cog\*Portal commit `a0e8eac` for recovery policy; unchanged layout references retain the earlier draft. Assembled UI remains unverified.
