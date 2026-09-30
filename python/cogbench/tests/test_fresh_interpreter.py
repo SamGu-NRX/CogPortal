@@ -474,12 +474,18 @@ def create_submission(inputs):
     def test_interrupt_cleans_worker_and_descendant(self):
         self.submission('import time\ntime.sleep(120)')
         environment = dict(os.environ, PYTHONPATH=os.pathsep.join(sys.path))
-        source = '''from pathlib import Path
+        # This models Ctrl+C, so the parent installs Python's normal SIGINT
+        # handler. A non-interactive shell starts `&` jobs with SIGINT ignored
+        # and exec keeps that: a suite launched that way handed the parent an
+        # ignored SIGINT, and the test timed out against a correct SDK.
+        source = '''import signal
+signal.signal(signal.SIGINT, signal.default_int_handler)
 from cogbench.isolate import run_operation
 run_operation('check', {'name': 'boundary-fixture', 'repository': %r, 'as_json': True})
 ''' % str(self.repo)
         parent = subprocess.Popen([sys.executable, '-c', source], env=environment,
                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        observed = None
         try:
             deadline = time.monotonic() + 15
             while not self.record.exists() and time.monotonic() < deadline:
@@ -493,6 +499,16 @@ run_operation('check', {'name': 'boundary-fixture', 'repository': %r, 'as_json':
             wait_gone(self, observed['descendant'])
         finally:
             if parent.poll() is None:
+                # The worker leads its own session with our pipes open, and
+                # killing only the parent left it running for its two-minute
+                # sleep, holding communicate() the whole time. Signalled only
+                # while the parent lives: until the parent reaps the worker,
+                # its pid, and so its group id, cannot be reused.
+                if observed is not None:
+                    try:
+                        os.killpg(observed['pid'], signal.SIGKILL)
+                    except OSError:
+                        pass
                 parent.kill()
                 parent.communicate()
 
