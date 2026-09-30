@@ -14,6 +14,7 @@ import { getFamilyLeaderboardReadModel, getLeaderboardReadModel } from "../worke
 import { publishOfficialRun, type RunActor } from "../worker/services/run-actions.ts";
 
 const MIGRATIONS = join(dirname(fileURLToPath(import.meta.url)), "..", "migrations");
+const LOCAL_SEED = join(MIGRATIONS, "..", "scripts", "seed-local.sql");
 const UPGRADE = "0044_week2_recognition_v2.sql";
 const RECOGNITION = "vision-recognition";
 const CLUSTERING = "vision-clustering";
@@ -25,6 +26,8 @@ function freshDb(beforeUpgrade = false) {
   const upgradeAt = files.indexOf(UPGRADE);
   assert.ok(upgradeAt >= 0, `${UPGRADE} is missing`);
   for (const file of beforeUpgrade ? files.slice(0, upgradeAt) : files) migrate(file);
+  // The demo teams these tests run as come from the local seed, as under `pnpm dev`.
+  sqlite.exec(readFileSync(LOCAL_SEED, "utf8"));
   const binding = {
     prepare(query: string) {
       const statement = sqlite.prepare(query);

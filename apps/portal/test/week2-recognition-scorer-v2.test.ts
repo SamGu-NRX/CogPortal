@@ -30,6 +30,7 @@ import { fileURLToPath } from "node:url";
  */
 
 const MIGRATIONS = join(dirname(fileURLToPath(import.meta.url)), "..", "migrations");
+const LOCAL_SEED = join(MIGRATIONS, "..", "scripts", "seed-local.sql");
 const BUMP = "0044_week2_recognition_v2.sql";
 
 function migrationFiles(): string[] {
@@ -98,6 +99,8 @@ test("a run scored under the old lifecycle keeps the version that scored it", ()
   const at = files.indexOf(BUMP);
   assert.ok(at > 0, `${BUMP} is missing from ${MIGRATIONS}`);
   const sqlite = replay(files.slice(0, at));
+  // The nine demo runs recorded against v1 come from the local seed.
+  sqlite.exec(readFileSync(LOCAL_SEED, "utf8"));
 
   assert.equal(scorerVersions(sqlite)["vision-recognition@2"], "recognition-v1");
 
@@ -127,4 +130,5 @@ test("a run scored under the old lifecycle keeps the version that scored it", ()
   // v1, still says what scored it.
   assert.deepEqual(runVersions(sqlite), before);
   assert.ok(before.some((row) => row.id === "run_old" && row.scorer_version === "recognition-v1"));
+  assert.equal(before.filter((row) => row.id !== "run_old").length, 9);
 });

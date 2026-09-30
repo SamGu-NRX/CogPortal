@@ -177,19 +177,17 @@ A code decides which cohort a person joins, and cohort boundaries then hold:
 `teams` is unique on cohort plus repository, and a student already on a team in
 another cohort gets 409 `already_on_team` instead of crossing.
 
-One shipped default needs attention before anyone signs in.
-`apps/portal/migrations/0002_seed.sql` inserts an active cohort whose join code
-is `VISION26`, six demo teams owned by `cogworks-demo`, and invented runs with
-metrics and leaderboard selections. Those rows make local development usable, and
-a fresh remote database takes them as well. Until an owner rotates the code, the
-one published in this repository admits anyone, and the six teams that do not
-exist appear in the list a student picks a team from
+`apps/portal/migrations/0002_seed.sql` gives every new database one active
+cohort with a random join code, which only an owner sees in the admin console.
+The demo data (join code `VISION26`, six teams owned by `cogworks-demo`, and
+invented runs with metrics and leaderboard selections) is in
+`apps/portal/scripts/seed-local.sql`, and only `pnpm db:seed:local` applies it,
+to the local database. A hosted database that applied the earlier `0002_seed.sql`
+still has those rows and the published code, because wrangler never runs a
+recorded migration twice. There, until an owner rotates the code, `VISION26`
+admits anyone, and the six teams appear in the list a student picks a team from
 (`GET /api/cohorts/teams` in `apps/portal/worker/routes/team-membership.ts`).
-The invented selections are for `vision-recognition` version 1, which
-`0013_week2_vision.sql` retires, so the current leaderboard does not rank them,
-but they stay in the database. `docs/how-to/deploy-your-own.md` step 8 is the
-removal, for a fresh database before anyone signs in. This is worth fixing in
-the seed rather than in a runbook, and nobody has done that yet.
+`docs/how-to/deploy-your-own.md` step 8 covers checking for them.
 
 ## How Discord linking works, and what the bot can see
 

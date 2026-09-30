@@ -12,6 +12,7 @@
     "test": "pnpm -r --if-present test && pnpm test:python",
     "test:python": "python3 scripts/run_python_tests.py",
     "db:migrate:local": "pnpm --filter @cogworks/portal db:migrate:local",
+    "db:seed:local": "pnpm --filter @cogworks/portal db:seed:local",
     "deploy:portal": "pnpm --filter @cogworks/portal run deploy",
     "deploy:discord": "pnpm --filter @cogworks/discord-bot run deploy"
   }

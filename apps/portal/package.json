@@ -7,12 +7,13 @@
   "description": "Cog*Portal — hosted benchmark control plane for the CogWorks capstones",
   "scripts": {
     "dev": "vite",
-    "predev": "wrangler d1 migrations apply cogportal-db --local",
+    "predev": "pnpm db:migrate:local && pnpm db:seed:local",
     "build": "tsc -b && vite build && node scripts/scrub-dist-secrets.mjs",
     "check": "tsc -b",
     "test": "TSX_TSCONFIG_PATH=tsconfig.app.json tsx --test test/*.test.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate:local": "wrangler d1 migrations apply cogportal-db --local",
+    "db:seed:local": "wrangler d1 execute cogportal-db --local --file scripts/seed-local.sql",
     "deploy": "pnpm build && wrangler deploy",
     "deploy:production": "CLOUDFLARE_ENV=production VITE_PORTAL_ORIGIN=https://cogportal.sillion.app VITE_ACTIVITY_HOSTNAME=cogactivity.sillion.app pnpm build && CLOUDFLARE_ENV=production wrangler deploy --env production"
   },
