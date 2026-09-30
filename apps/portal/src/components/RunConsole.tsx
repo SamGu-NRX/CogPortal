@@ -126,7 +126,7 @@ export function RunConsole({
   streamState: StreamState;
   onAction?: (action: Mutation) => void | Promise<void>;
   onOpenPortal?: () => void;
-  busyAction?: Mutation | null;
+  busyAction?: Mutation | "retry" | null;
   error?: string | null;
   embedded?: boolean;
   compact?: boolean;

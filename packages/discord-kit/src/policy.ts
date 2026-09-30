@@ -14,10 +14,11 @@ export interface SurfaceButtonSpec {
   style: 1 | 2;
 }
 
-const PRIMARY_ORDER = ["publish_result", "promote_official", "verify_hosted"] as const;
+const PRIMARY_ORDER = ["retry", "publish_result", "promote_official", "verify_hosted"] as const;
 const SECONDARY_ORDER = ["rerun_hosted", "run_again"] as const;
 
 const LABELS: Record<SurfaceButtonSpec["action"], string> = {
+  retry: "Retry",
   publish_result: "Publish result",
   promote_official: "Promote to official",
   verify_hosted: "Verify hosted",
