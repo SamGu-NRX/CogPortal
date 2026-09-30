@@ -2,6 +2,7 @@ import { and, asc, eq } from "drizzle-orm";
 import {
   RUN_PHASES,
   RunDetailSchema,
+  runSource,
   type Benchmark,
   type Metric,
   type RunDetail,
@@ -101,11 +102,7 @@ export async function serializeRunSummary(db: Database, row: RunRow): Promise<Ru
   };
 }
 
-export async function serializeRunDetail(
-  db: Database,
-  row: RunRow,
-  team: TeamRow,
-): Promise<RunDetail> {
+export async function serializeRunDetail(db: Database, row: RunRow): Promise<RunDetail> {
   const [summary, phases, metrics, selection] = await Promise.all([
     serializeRunSummary(db, row),
     db.select().from(runPhases).where(eq(runPhases.runId, row.id)).orderBy(asc(runPhases.phase)),
@@ -138,13 +135,11 @@ export async function serializeRunDetail(
     surfaceId: row.surfaceId,
     contractVersion: row.contractVersion,
     parentRunId: row.parentRunId,
-    repo: {
-      owner: team.repoOwner,
-      name: team.repoName,
-      fullName: team.repoFullName,
-      url: team.repoUrl,
-      defaultBranch: team.defaultBranch,
-    },
+    // The run's own source, not the team's current one. These used to be the
+    // same expression, which meant a team that changed its repository rewrote
+    // what every earlier run claimed: the new repository's name above the old
+    // repository's commit (B-06).
+    repo: runSource(row.repositoryFullName),
     phases: phases
       .sort((a, b) => (phaseOrder.get(a.phase) ?? 0) - (phaseOrder.get(b.phase) ?? 0))
       .map((phase) => ({
