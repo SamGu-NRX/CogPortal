@@ -182,20 +182,21 @@ export function RunConsole({
   }, [retryOffered]);
   const failureEvent = [...currentEvents].reverse().find((event) => event.code.startsWith("run.failed."));
   const failureReason = snapshot.refusalHeadline || (failureEvent ? EVENT_COPY[failureEvent.code] : null);
-  // A failed run's folded summary ends at its failure: an event recorded
-  // after it (a late completion) belongs in the details, not the summary.
-  let summaryEnd = timelineEvents.length;
+  // A failed run's folded summary ends at its failure and never says the run
+  // completed. The Worker can fail a run after the runner reports completion,
+  // and the failure event may be missing; either way the completion belongs
+  // in the details, not the summary.
+  let summaryEvents = timelineEvents;
   if (failed) {
     for (let index = timelineEvents.length - 1; index >= 0; index -= 1) {
       if (timelineEvents[index]!.code.startsWith("run.failed.")) {
-        summaryEnd = index + 1;
+        summaryEvents = timelineEvents.slice(0, index + 1);
         break;
       }
     }
+    summaryEvents = summaryEvents.filter((event) => event.code !== "run.completed");
   }
-  const visibleEvents = terminal && !historyExpanded
-    ? timelineEvents.slice(0, summaryEnd).slice(-3)
-    : timelineEvents;
+  const visibleEvents = terminal && !historyExpanded ? summaryEvents.slice(-3) : timelineEvents;
   const historyToggle = failed
     ? { open: "Hide details", closed: "Show details" }
     : { open: "Show summary", closed: `Show all ${timelineEvents.length}` };
@@ -446,7 +447,7 @@ export function RunConsole({
             }}
           >
             {visibleEvents.length ? visibleEvents.map((event) => <EventLine key={event.eventId} event={event} />) : (
-              <li className="px-5 py-12 text-center text-[13px] text-ink-faint">{terminal ? "No structured events were recorded." : "Waiting for the first structured event."}</li>
+              <li className="px-5 py-12 text-center text-[13px] text-ink-faint">{!terminal ? "Waiting for the first structured event." : timelineEvents.length ? "This run's events are under Show details." : "No structured events were recorded."}</li>
             )}
           </ul>
           {!terminal && newEvents > 0 && (
