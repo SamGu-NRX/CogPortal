@@ -47,7 +47,9 @@ export function Shell() {
   const { data: session } = useSession();
   const team = session?.team ?? null;
   const isStaff = Boolean(session?.user && (session.user.platformRole === "staff" || session.user.isTa));
-  const onboarding = Boolean(session?.user && !team);
+  // Staff run the console without a team, so "Get started" would send them
+  // to create one they don't need.
+  const onboarding = Boolean(session?.user && !team && !isStaff);
 
   const tabs = (
     <>
