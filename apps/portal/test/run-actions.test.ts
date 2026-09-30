@@ -18,6 +18,7 @@ import {
   RunDetailSchema,
   RUN_PHASES,
   RunSurfaceSnapshotSchema,
+  runSurfaceStageStates,
   type Dashboard,
   type RunSurfaceSnapshot,
 } from "@cogworks/contracts/schema";
@@ -1245,6 +1246,52 @@ async function seedLocalSource(db: Database): Promise<void> {
   await db.update(runSurfaces).set({ localRunId: "local_source" }).where(eq(runSurfaces.id, SURFACE_ID));
 }
 
+test("a browser-started surface reports no local run through failure, Retry and publication", async () => {
+  // The console used to tick every stage before the current one, and every
+  // stage once published, so this surface claimed a local run it never had.
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  const stages = async () => runSurfaceStageStates(await buildRunSurfaceSnapshot(env(binding, "fixture"), SURFACE_ID));
+  await db.update(runs).set({
+    status: "failed", provider: "fixture", finishedAt: NOW + 2_000, failureCategory: "student_runtime",
+  }).where(eq(runs.id, PRACTICE_RUN_ID));
+  assert.deepEqual(await stages(), { local: "not_run", hosted: "failed", official: "pending", published: "pending" });
+
+  await retryRun(env(binding, "fixture"), actor, SURFACE_ID, PRACTICE_RUN_ID);
+  assert.deepEqual(await stages(), { local: "not_run", hosted: "active", official: "pending", published: "pending" });
+  const [successor] = await db.select().from(runs).where(eq(runs.retryOfRunId, PRACTICE_RUN_ID));
+  assert.ok(successor);
+  await db.update(runs).set({ status: "succeeded", finishedAt: NOW + 3_000 }).where(eq(runs.id, successor.id));
+  // The failed original stays in the history; the hosted mark follows its successor.
+  assert.deepEqual(await stages(), { local: "not_run", hosted: "complete", official: "pending", published: "pending" });
+
+  const officialId = await seedOfficial(db, "succeeded");
+  await db.update(runs).set({ provider: "fixture", repositoryFullName: FIXTURE_REPO.fullName }).where(eq(runs.id, officialId));
+  await publishOfficialRun(env(binding, "fixture"), actor, officialId);
+  const published = await buildRunSurfaceSnapshot(env(binding, "fixture"), SURFACE_ID);
+  assert.equal(published.stage, "published");
+  assert.deepEqual(runSurfaceStageStates(published), {
+    local: "not_run", hosted: "complete", official: "complete", published: "complete",
+  });
+});
+
+test("a local-started surface keeps its local mark through an official failure and publication", async () => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  await seedLocalSource(db);
+  const stages = async () => runSurfaceStageStates(await buildRunSurfaceSnapshot(env(binding, "fixture"), SURFACE_ID));
+  assert.deepEqual(await stages(), { local: "complete", hosted: "complete", official: "pending", published: "pending" });
+
+  const failedId = await seedOfficial(db, "failed");
+  assert.deepEqual(await stages(), { local: "complete", hosted: "complete", official: "failed", published: "pending" });
+
+  await db.delete(runs).where(eq(runs.id, failedId));
+  const officialId = await seedOfficial(db, "succeeded");
+  await db.update(runs).set({ provider: "fixture", repositoryFullName: FIXTURE_REPO.fullName }).where(eq(runs.id, officialId));
+  await publishOfficialRun(env(binding, "fixture"), actor, officialId);
+  assert.deepEqual(await stages(), { local: "complete", hosted: "complete", official: "complete", published: "complete" });
+});
+
 test("local-only console keeps recorded source and uses the verification refusal after a repository change", async () => {
   const { db, binding } = freshDb();
   await seedPromotion(db);
@@ -1391,6 +1438,8 @@ test("dashboard API and rendered candidate agree with detail for unknown, change
   assert.equal(published.selection?.source?.fullName, "some-org/the-repository-it-ran-from");
   assert.equal(published.selection?.runId, PRACTICE_RUN_ID);
   assert.match(renderDashboard(published), /PUBLISHED RESULT[\s\S]*some-org\/the-repository-it-ran-from/);
+  // The published entry's own board, not the leaderboard's first module.
+  assert.match(renderDashboard(published), /href="\/leaderboard\?benchmark=vision-recognition"/);
 
   const firstRun = renderDashboard({
     ...published,

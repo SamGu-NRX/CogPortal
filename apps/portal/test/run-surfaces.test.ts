@@ -102,6 +102,8 @@ test("an eligible official result still offers Publish and a selected result lin
   const selected = renderOfficialDetail(true, true);
   assert.match(selected, /PUBLISHED/);
   assert.match(selected, /See it on the leaderboard/);
+  // The leaderboard opens on the first course module unless told otherwise.
+  assert.match(selected, /href="\/leaderboard\?benchmark=vision-recognition"/);
   assert.doesNotMatch(selected, /Publish to leaderboard|ATTEMPT REFUNDED/);
 });
 
