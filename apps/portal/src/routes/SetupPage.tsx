@@ -119,11 +119,14 @@ function SetupGuide({
 
   // The count and the rail read the same array, so the masthead can never
   // claim a number the steps do not show.
-  const { done, total } = setupCommandProgress(lines);
+  const { done, verified, total } = setupCommandProgress(lines);
   // Signed for the track above, so switching tracks fetches a fresh set and a
   // command copied for one benchmark cannot tick another's box.
   const tokens = replay ? undefined : setupState.data?.tokens;
   const complete = !evidenceFailed && done === total;
+  // A checked-off step is the student's word, so the completion panel claims
+  // (and colours as) verified only what the portal itself observed.
+  const observed = verified === total;
   const benchmarkTitle = track.benchmark?.title ?? track.benchmarkId;
   const environment = benchmarkEnvironment(track.benchmarkId);
 
@@ -299,10 +302,13 @@ function SetupGuide({
       </div>
 
       {complete ? (
-        <Panel label="SETUP COMPLETE" tone="good" className="mt-8">
+        <Panel label="SETUP COMPLETE" tone={observed ? "good" : "default"} className="mt-8">
           <p className="text-[14px] leading-[1.6] text-ink">
-            Everything the portal can verify checks out. Whether the code is
-            any good is what runs are for, and there's no limit on local ones.
+            {observed
+              ? "Everything the portal can verify checks out."
+              : "Every step is ticked; the ones marked checked off are your own report rather than something the portal saw."}{" "}
+            Whether the code is any good is what runs are for, and there's no
+            limit on local ones.
           </p>
           <div className="mt-4">
             <Code lang="bash" code={`cogworks run --benchmark ${track.benchmarkId}`} />
