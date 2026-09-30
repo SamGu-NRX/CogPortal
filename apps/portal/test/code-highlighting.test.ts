@@ -121,6 +121,18 @@ test("a shell command is highlighted, and the visible text is exactly the comman
   assert.ok(colours.some((style) => /#2e6b4f/i.test(style)), "the string colour is not the paper theme's");
 });
 
+test("a machine too busy to keep time still highlights the whole line", async (t) => {
+  // Each clock read lands 300 ms after the last, simulating a process the CPU
+  // keeps setting aside; the likely cause of this file's one full-suite failure.
+  const start = Date.now();
+  let reads = 0;
+  t.mock.method(Date, "now", () => start + 300 * ++reads);
+  const { container } = await mount(t, React.createElement(Code, { code: LONG, lang: "bash" }), isHighlighted);
+  const colours = coloured(container);
+  assert.ok(colours.length > 1, `the line collapsed to ${colours.length} colour`);
+  assert.ok(colours.some((style) => /#2e6b4f/i.test(style)), "the quoted string lost its colour");
+});
+
 test("the copied string is the command, not the markup around it", async (t) => {
   const { container, writes } = await mount(t, React.createElement(Code, { code: LONG, lang: "bash" }), isHighlighted);
   const button = container.querySelector("button");
