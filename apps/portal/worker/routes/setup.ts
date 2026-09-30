@@ -30,6 +30,9 @@ import { parseBody, respond } from "../http/respond";
 
 const ResetResponseSchema = z.object({ ok: z.literal(true) });
 
+/* ── Check-off commands ───────────────────────────────────────────────── */
+
+/** One token per checkable step, all for the benchmark the page is showing. */
 async function checkOffTokens(
   env: Env,
   userId: string,
