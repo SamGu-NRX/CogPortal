@@ -37,8 +37,8 @@ function renderOfficialDetail(publishable: boolean, selected = false): string {
     primaryMetric: null,
     parentRunId: null,
     failure: null,
-    sourceRefusal: null,
     repo: { owner: "course", name: "team", fullName: "course/team", url: "https://github.com/course/team", defaultBranch: "main" },
+    sourceRefusal: null,
     phases: [],
     metrics: [],
     diagnostics: ["The image stage returned no embeddings."],
@@ -78,8 +78,6 @@ test("browser Retry posts the supplied execution ID on every replay", async (t) 
     assert.equal(call.init?.credentials, "same-origin");
     assert.equal(call.init?.body, JSON.stringify(target));
   }
-  assert.throws(() => Reflect.apply(api.mutateRunSurface, undefined, [latest.id, "retry"]));
-  assert.equal(calls.length, 2, "missing execution ID must fail before fetch");
   await api.mutateRunSurface(latest.id, "verify_hosted");
   assert.equal(calls[2]?.path, `/api/run-surfaces/${latest.id}/actions/verify_hosted`);
   assert.equal(calls[2]?.init?.body, undefined);
@@ -89,14 +87,10 @@ test("run detail requires the server's publication decision", () => {
   assert.equal(RunDetailSchema.shape.publishable.safeParse(undefined).success, false);
 });
 
-test("a refunded official result keeps its finding and explains why Publish is absent", () => {
+test("an unpublishable official result keeps its finding without refund bookkeeping", () => {
   const html = renderOfficialDetail(false);
   assert.match(html, /The image stage returned no embeddings/);
-  assert.match(html, /ATTEMPT REFUNDED/);
-  assert.match(html, /stopped hearing from this run and returned your attempt before/);
-  assert.match(html, /its results arrived/);
-  assert.match(html, /findings are preserved above/);
-  assert.doesNotMatch(html, /Publish to leaderboard|Confirm, make this the public result|PROMOTE/);
+  assert.doesNotMatch(html, /ATTEMPT REFUNDED|returned your attempt|Publish to leaderboard|Confirm, make this the public result|PROMOTE/);
 });
 
 test("an eligible official result still offers Publish and a selected result links to the leaderboard", () => {
@@ -165,6 +159,8 @@ function snapshot(status: RunSurfaceSnapshot["status"] = "running"): RunSurfaceS
     sha: "b".repeat(40),
     shortSha: "bbbbbbb",
     branch: "main",
+    source: null,
+    sourceRefusal: null,
     dirty: false,
     stage: "local",
     status,

@@ -1,6 +1,6 @@
 # The run
 
-> Recovery policy was read against local commit `a0e8eac`. Unchanged layout and sandbox details below retain their earlier source references. Same-view browser controls are still being integrated by the portal owner and are not hand-verified here.
+> Recovery policy was read against local commit `a0e8eac`. Unchanged layout and sandbox details below retain their earlier source references. Same-console Retry and the historical page's link to the current console ship in this branch; this document did not check them in a browser.
 
 ## Summary
 
@@ -233,4 +233,4 @@ Retry requests another execution of the same source in the same mode and view. T
 - The glossary defines *practice run*, *promotion*, and *credit*, and has no entry for *official run*, *official attempt*, *phase*, or *refund*, all of which this document and [`../cross-cutting/credit-and-quota.md`](../cross-cutting/credit-and-quota.md) rely on. They are defined here rather than coined; the glossary should point at these two documents the way it already points at credit.
 - No run was watched end to end against a deployed portal for this pass. Every phase transition, every failure category, and every string above is read from the source. **Unverified.**
 
-Verified against Cog\*Portal commit `a0e8eac` for recovery policy; unchanged descriptions retain their cited earlier references. Browser integration remains unverified.
+Verified against Cog\*Portal commit `a0e8eac` for recovery policy; unchanged descriptions retain their cited earlier references. The browser controls were exercised locally for PR #20; the embedded Discord Activity, provider snapshot restoration and the production onboarding journey remain unverified.

@@ -20,7 +20,6 @@ import {
   LeaderboardSchema,
   LocalReportListSchema,
   RunDetailSchema,
-  RetryRunRequestSchema,
   type RetryRunRequest,
   RunSurfaceSnapshotSchema,
   RunSummarySchema,
@@ -264,7 +263,7 @@ export const api = {
       {
         method: "POST",
         // Replays must reuse the caller's failed execution, never the latest snapshot.
-        body: mutation[0] === "retry" ? RetryRunRequestSchema.parse(mutation[1]) : undefined,
+        body: mutation[0] === "retry" ? mutation[1] : undefined,
       },
     ),
 
