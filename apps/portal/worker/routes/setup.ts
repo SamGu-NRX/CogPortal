@@ -3,6 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import {
   SETUP_STEPS,
+  isBenchmarkScopedStep,
   SetupEvidenceRequestSchema,
   SetupEvidenceResponseSchema,
   SetupStateSchema,
@@ -13,7 +14,7 @@ import { requireDevice } from "../auth/device";
 import { isPlatformOwner } from "../auth/roles";
 import { authorizationLogin, requireTeam } from "../auth/session";
 import { getDb } from "../db/client";
-import { setupVerifications, teamMembers, teams } from "../db/schema";
+import { benchmarks, setupVerifications, teamMembers, teams } from "../db/schema";
 import { onboardingDevToolsAvailable, type AppEnv } from "../env";
 import { ApiHttpError } from "../http/errors";
 import { parseBody, respond } from "../http/respond";
@@ -27,7 +28,7 @@ function normalizedRepository(value: string): string {
 async function setupState(c: Parameters<typeof requireTeam>[0]) {
   const auth = await requireTeam(c);
   const rows = await getDb(c.env)
-    .select({ step: setupVerifications.step })
+    .select({ step: setupVerifications.step, benchmarkId: setupVerifications.benchmarkId })
     .from(setupVerifications)
     .where(
       and(
@@ -35,15 +36,28 @@ async function setupState(c: Parameters<typeof requireTeam>[0]) {
         eq(setupVerifications.teamId, auth.team.id),
       ),
     );
-  const verified = new Set(
-    rows.flatMap(({ step }) => {
-      const parsed = SetupStepSchema.safeParse(step);
-      return parsed.success ? [parsed.data] : [];
-    }),
-  );
+  const unscoped = new Set<SetupStep>();
+  const scoped = new Map<string, Set<SetupStep>>();
+  for (const row of rows) {
+    const parsed = SetupStepSchema.safeParse(row.step);
+    if (!parsed.success) continue;
+    if (!row.benchmarkId) {
+      unscoped.add(parsed.data);
+      continue;
+    }
+    const steps = scoped.get(row.benchmarkId) ?? new Set<SetupStep>();
+    steps.add(parsed.data);
+    scoped.set(row.benchmarkId, steps);
+  }
   return {
     auth,
-    verified: SETUP_STEPS.filter((step) => verified.has(step)),
+    verified: SETUP_STEPS.filter((step) => unscoped.has(step)),
+    verifiedByBenchmark: Object.fromEntries(
+      [...scoped].map(([benchmarkId, steps]) => [
+        benchmarkId,
+        SETUP_STEPS.filter((step) => steps.has(step)),
+      ]),
+    ),
   };
 }
 
@@ -51,7 +65,10 @@ export function registerSetupRoutes(app: Hono<AppEnv>): void {
   app.get("/v1/setup/state", async (c) => {
     const state = await setupState(c);
     c.header("Cache-Control", "private, no-store");
-    return respond(c, SetupStateSchema, { verified: state.verified });
+    return respond(c, SetupStateSchema, {
+      verified: state.verified,
+      verifiedByBenchmark: state.verifiedByBenchmark,
+    });
   });
 
   app.post("/v1/cli/setup/checks", async (c) => {
@@ -82,15 +99,32 @@ export function registerSetupRoutes(app: Hono<AppEnv>): void {
       );
     }
 
-    const accepted = [...new Set(body.checks)] as SetupStep[];
+    if (body.checkedBenchmarkId) {
+      const [benchmark] = await db
+        .select({ id: benchmarks.id })
+        .from(benchmarks)
+        .where(eq(benchmarks.id, body.checkedBenchmarkId))
+        .limit(1);
+      if (!benchmark) {
+        throw new ApiHttpError(
+          400,
+          "invalid_request",
+          "This benchmark isn't in the portal's catalog. Check the benchmark ID in your command.",
+        );
+      }
+    }
+
+    const accepted = [...new Set(body.checks)];
     const now = Date.now();
     for (const step of accepted) {
+      const benchmarkId = isBenchmarkScopedStep(step) ? body.checkedBenchmarkId ?? "" : "";
       await db
         .insert(setupVerifications)
         .values({
           userId: device.userId,
           teamId: membership.team.id,
           step,
+          benchmarkId,
           verifiedAt: now,
         })
         .onConflictDoUpdate({
@@ -98,6 +132,7 @@ export function registerSetupRoutes(app: Hono<AppEnv>): void {
             setupVerifications.userId,
             setupVerifications.teamId,
             setupVerifications.step,
+            setupVerifications.benchmarkId,
           ],
           set: { verifiedAt: now },
         });

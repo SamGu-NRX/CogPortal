@@ -93,12 +93,17 @@ class PluginDiscoveryTests(unittest.TestCase):
             )
 
     def test_the_command_is_a_pip_line_a_student_can_paste(self):
-        self.assertEqual(
-            benchmark_install_command("audio-identification"),
-            'python -m pip install "cogworks-week1-audio-benchmark @ '
-            "git+https://github.com/SamGu-NRX/cogworks-week1-audio-benchmark.git"
-            '@61ef56ebb14a47419ad9b27c79dfdd82aca798f2"',
+        # The revision is checked against the submodule above. What this
+        # pins is the shape, so a change to the quoting or the PEP 508 name
+        # cannot pass by agreeing with a copy of itself.
+        command = benchmark_install_command("audio-identification")
+        self.assertTrue(
+            command.startswith(
+                'python -m pip install "cogworks-week1-audio-benchmark @ git+https://'
+            ),
+            command,
         )
+        self.assertRegex(command, r'@[0-9a-f]{40}"$')
 
     @patch("cogbench.plugins._entry_points", return_value=[])
     def test_a_known_missing_benchmark_prints_the_exact_install_command(self, _entry_points):

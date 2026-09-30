@@ -1,3 +1,4 @@
+import type { SetupState, SetupStep } from "@cogworks/contracts/schema";
 import { useCallback, useState } from "react";
 
 /**
@@ -108,6 +109,24 @@ export function setupSteps(
     verifiedByCli("wiring"),
   ];
   return { done: states.filter(Boolean).length, total: states.length };
+}
+
+/**
+ * Steps the CLI has verified. `cogworks check --benchmark X --update-setup`
+ * records environment, project and wiring under X, because an install line
+ * names one distribution and wiring resolves one benchmark's entry points.
+ * A page showing X reads X's rows beside the unscoped ones; the dashboard
+ * nudge, which shows no track, counts a step any benchmark verified.
+ */
+export function verifiedSteps(
+  state: SetupState | undefined,
+  benchmarkId?: string,
+): SetupStep[] {
+  if (!state) return [];
+  const scoped = benchmarkId
+    ? (state.verifiedByBenchmark[benchmarkId] ?? [])
+    : Object.values(state.verifiedByBenchmark).flat();
+  return [...new Set([...state.verified, ...scoped])];
 }
 
 export function setupProgress(
