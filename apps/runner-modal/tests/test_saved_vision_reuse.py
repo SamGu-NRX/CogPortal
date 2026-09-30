@@ -29,32 +29,19 @@ from cogworks_runner.protocol import canonical_json, validate_job
 
 
 def controller_space(base):
-    """Load controller functions and their constants without importing Modal."""
-    names = {
-        "EVALUATE_SCRIPT", "_SAFE_INT", "_TYPE_WORDS", "_V2_PREDICTION_SHAPES",
-        "_NULLABLE_PREDICTION_FIELDS", "_NUMERIC_MATRIX_FIELDS", "_EMPTY_ROW_OK",
-        "_RECOGNITION_BATCHES",
-    }
-    constants = []
-    found = set()
-    for node in ast.parse(SOURCE.read_text()).body:
-        targets = node.targets if isinstance(node, ast.Assign) else (
-            [node.target] if isinstance(node, ast.AnnAssign) else []
-        )
-        matched = {target.id for target in targets if isinstance(target, ast.Name)} & names
-        if matched:
-            constants.append(node)
-            found.update(matched)
-    assert found == names, "Controller constant extraction is incomplete"
+    """Load controller functions and the sandbox script without importing Modal."""
+    script = [
+        node for node in ast.parse(SOURCE.read_text()).body
+        if isinstance(node, ast.Assign)
+        and any(getattr(target, "id", None) == "EVALUATE_SCRIPT" for target in node.targets)
+    ]
+    assert len(script) == 1, "EVALUATE_SCRIPT is no longer one module-level assignment"
     space = functions(
-        "RunnerFailure", "execute_job", "_load_benchmark", "_evaluate_v2",
-        "_restore_v2_predictions", "_load_predictions", "_NonFiniteNumber",
-        "_reject_constant", "_finite_float", "_bounded_int", "_type_word",
-        "_refuse_output", "_check_predictions", "_check_matrix_field",
+        "execute_job", "_load_benchmark", "_evaluate_v2",
         "_collect_wiring", "_last_error_line", "_v2_metrics", "_primary_for_run",
         "_sweep_wire", "_diagnostic_lines", **base,
     )
-    exec(compile(ast.Module(constants, []), str(SOURCE), "exec"), space)
+    exec(compile(ast.Module(script, []), str(SOURCE), "exec"), space)
     space["validate_job"] = validate_job
     return space
 

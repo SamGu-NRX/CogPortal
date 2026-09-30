@@ -31,80 +31,19 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "apps" / "runner-modal" / "src"))
 
+from cogworks_runner import prediction_validation as validation
+from cogworks_runner.failure import RunnerFailure
+
 MODAL_APP = ROOT / "apps" / "runner-modal" / "src" / "cogworks_runner" / "modal_app.py"
 SOURCE = MODAL_APP.read_text(encoding="utf-8")
 
 
-def _validation_namespace() -> dict:
-    """Load the validation helpers from source, without importing modal.
-
-    `modal_app` imports modal and fastapi at module scope and the test
-    interpreter has neither, which is why every test in this directory reads
-    what it needs out of the AST. Taking the real nodes rather than a copy is
-    the point: a test built on a paraphrase of the shipped code stops being
-    evidence about the shipped code.
-    """
-
-    module = ast.parse(SOURCE)
-    wanted_functions = {
-        "_reject_constant",
-        "_finite_float",
-        "_bounded_int",
-        "_load_predictions",
-        "_type_word",
-        "_refuse_output",
-        "_check_matrix_field",
-        "_check_predictions",
-        "_restore_v2_predictions",
-    }
-    wanted_assignments = {
-        "_SAFE_INT",
-        "_V2_PREDICTION_SHAPES",
-        "_NULLABLE_PREDICTION_FIELDS",
-        "_NUMERIC_MATRIX_FIELDS",
-        "_EMPTY_ROW_OK",
-        "_RECOGNITION_BATCHES",
-        "_TYPE_WORDS",
-    }
-    body = []
-    for node in module.body:
-        if isinstance(node, ast.FunctionDef) and node.name in wanted_functions:
-            body.append(node)
-        elif isinstance(node, ast.ClassDef) and node.name in ("_NonFiniteNumber", "RunnerFailure"):
-            body.append(node)
-        elif isinstance(node, ast.AnnAssign) and getattr(node.target, "id", None) in wanted_assignments:
-            body.append(node)
-        elif isinstance(node, ast.Assign) and any(
-            getattr(t, "id", None) in wanted_assignments for t in node.targets
-        ):
-            body.append(node)
-
-    missing = wanted_functions - {n.name for n in body if isinstance(n, ast.FunctionDef)}
-    assert not missing, "modal_app.py is missing {}".format(sorted(missing))
-    # Constants are named here too, and a missing one is a NameError raised
-    # from inside a json parse hook, which surfaces as an unreadable failure
-    # in whichever test happens to parse a number first. Fail here instead.
-    found_names = set()
-    for node in body:
-        if isinstance(node, ast.AnnAssign):
-            found_names.add(getattr(node.target, "id", None))
-        elif isinstance(node, ast.Assign):
-            found_names.update(getattr(t, "id", None) for t in node.targets)
-    absent = wanted_assignments - found_names
-    assert not absent, "modal_app.py is missing {}".format(sorted(absent))
-
-    namespace: dict = {"json": json, "Any": object, "Dict": dict, "List": list, "Tuple": tuple, "Optional": None}
-    exec(compile(ast.Module(body=body, type_ignores=[]), "<modal_app>", "exec"), namespace)
-    return namespace
-
-
-NS = _validation_namespace()
-LOAD = NS["_load_predictions"]
-CHECK = NS["_check_predictions"]
-RESTORE = NS["_restore_v2_predictions"]
-FAILURE = NS["RunnerFailure"]
-SHAPES = NS["_V2_PREDICTION_SHAPES"]
-MATRIX_FIELDS = NS["_NUMERIC_MATRIX_FIELDS"]
+LOAD = validation.load_predictions
+CHECK = validation.check_predictions
+RESTORE = validation.restore_v2_predictions
+FAILURE = RunnerFailure
+SHAPES = validation._V2_PREDICTION_SHAPES
+MATRIX_FIELDS = validation._NUMERIC_MATRIX_FIELDS
 
 
 def _recognition_plan():
@@ -130,7 +69,7 @@ def _enclosing_call(source: str, target: ast.Call):
 
     ast nodes carry no parent pointer, so the tree is walked once looking for
     the node that holds this one. Used to ask whether a read of the
-    predictions file is wrapped in `_load_predictions(...)` without matching
+    predictions file is wrapped in `load_predictions(...)` without matching
     on source formatting.
     """
 
@@ -188,7 +127,7 @@ def _week3_metrics():
 
 
 class _Benchmark:
-    """The two attributes _check_predictions reads off a plugin."""
+    """The two attributes check_predictions reads off a plugin."""
 
     def __init__(self, benchmark_id: str, contract_version: str = "cogworks.submissions.v2"):
         self.benchmark_id = benchmark_id
@@ -899,7 +838,7 @@ class RealDriverPayloadTests(unittest.TestCase):
 class RecognitionBatchTests(unittest.TestCase):
     """The two-batch shape, checked where it is the shape that exists.
 
-    _restore_v2_predictions runs before _check_predictions, because the check
+    restore_v2_predictions runs before check_predictions, because the check
     reads the lifecycle keys and those only exist once the shuffle is undone.
     That means the sandbox's own two-batch output is visible only inside the
     restore, so the restore is where it gets checked.
@@ -966,7 +905,7 @@ class RecognitionBatchTests(unittest.TestCase):
         self.assertEqual(RESTORE(payload, []), payload)
 
     def test_a_count_mismatch_is_left_to_the_count_check(self):
-        # One message for one fault: _check_predictions owns the count and
+        # One message for one fault: check_predictions owns the count and
         # words it for the reader, so the restore returns early rather than
         # raising a second, worse-worded refusal.
         honest = {"before_enrollment": ["ada", "grace", None], "after_enrollment": ["grace"]}
@@ -988,7 +927,7 @@ class WiringTests(unittest.TestCase):
         # counted a literal string carrying a newline and twelve spaces of
         # indentation, so reformatting one of the four calls onto a single
         # line reddened the test while the code stayed correct. What matters
-        # is that every read is an argument to _load_predictions, and that is
+        # is that every read is an argument to load_predictions, and that is
         # a shape question, not a whitespace one.
         reads = 0
         wrapped = 0
@@ -1003,10 +942,48 @@ class WiringTests(unittest.TestCase):
                 continue
             reads += 1
             parent = _enclosing_call(SOURCE, node)
-            if parent is not None and getattr(parent.func, "id", None) == "_load_predictions":
+            if parent is not None and getattr(parent.func, "id", None) == "load_predictions":
                 wrapped += 1
         self.assertEqual(reads, 4, "expected four reads of the predictions file")
-        self.assertEqual(wrapped, reads, "a read bypasses _load_predictions")
+        self.assertEqual(wrapped, reads, "a read bypasses load_predictions")
+
+    def test_the_controller_uses_these_functions_and_this_failure_type(self):
+        # The tests above exercise prediction_validation directly, so they are
+        # evidence about the runner only if modal_app calls the same objects.
+        # A copy left behind in modal_app would also be a second RunnerFailure
+        # class, and execute_job's isinstance check would report its refusals
+        # as platform faults.
+        # Every binding of a name anywhere in modal_app, so an alias or a later
+        # rebinding counts too. An import records where the name came from.
+        bindings: dict = {}
+        for node in ast.walk(ast.parse(SOURCE)):
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                origin = node.module if isinstance(node, ast.ImportFrom) and node.level == 1 else None
+                for alias in node.names:
+                    bindings.setdefault(alias.asname or alias.name, []).append((origin, alias.name))
+            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                bindings.setdefault(node.name, []).append(None)
+            elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+                bindings.setdefault(node.id, []).append(None)
+            elif isinstance(node, ast.arg):
+                bindings.setdefault(node.arg, []).append(None)
+        shared = {
+            "RunnerFailure": ("failure", "RunnerFailure"),
+            "check_predictions": ("prediction_validation", "check_predictions"),
+            "load_predictions": ("prediction_validation", "load_predictions"),
+            "restore_v2_predictions": ("prediction_validation", "restore_v2_predictions"),
+        }
+        for name, origin in shared.items():
+            self.assertEqual(bindings.get(name), [origin], name)
+        # Nor may modal_app keep its own copy of a helper or table.
+        own = set()
+        for node in ast.parse(Path(validation.__file__).read_text(encoding="utf-8")).body:
+            if isinstance(node, (ast.FunctionDef, ast.ClassDef)):
+                own.add(node.name)
+            elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                own.update(target.id for target in targets if isinstance(target, ast.Name))
+        self.assertEqual((own - set(shared)) & set(bindings), set())
 
     def test_no_validation_lives_inside_the_sandbox_script(self):
         # EVALUATE_SCRIPT is a source string executed inside the sandbox, in
@@ -1024,11 +1001,11 @@ class WiringTests(unittest.TestCase):
                 script = node.value.value
         self.assertIsNotNone(script, "EVALUATE_SCRIPT is no longer a plain string constant")
         for name in (
-            "_check_predictions",
+            "check_predictions",
             "_check_matrix_field",
-            "_load_predictions",
+            "load_predictions",
             "_refuse_output",
-            "_restore_v2_predictions",
+            "restore_v2_predictions",
             "output_invalid",
             "_V2_PREDICTION_SHAPES",
             "_NUMERIC_MATRIX_FIELDS",
@@ -1036,6 +1013,7 @@ class WiringTests(unittest.TestCase):
             "parse_constant",
             "parse_float",
             "_NonFiniteNumber",
+            "prediction_validation",
         ):
             self.assertNotIn(name, script, "{} moved into the sandbox".format(name))
 
@@ -1065,19 +1043,19 @@ class WiringTests(unittest.TestCase):
             "the sandbox no longer writes the batch keys this check reads",
         )
         self.assertEqual(
-            set(NS["_RECOGNITION_BATCHES"]), {"before_enrollment", "after_enrollment"}
+            set(validation._RECOGNITION_BATCHES), {"before_enrollment", "after_enrollment"}
         )
 
     def test_check_runs_before_the_phase_becomes_scoring(self):
         # Order is what decides who gets blamed. Once phase is "scoring",
         # execute_job's handler turns any non-RunnerFailure into category
         # "scorer" with infrastructure=True, which misattributes invalid output.
-        check_at = SOURCE.index("_check_predictions(benchmark, predictions, case_count)")
+        check_at = SOURCE.index("check_predictions(benchmark, predictions, case_count)")
         phase_at = SOURCE.index('phase = "scoring"')
         self.assertLess(check_at, phase_at)
 
     def test_refusal_identifies_invalid_submission_output(self):
-        failure = NS["_refuse_output"]("anything")
+        failure = validation._refuse_output("anything")
         self.assertEqual(failure.category, "output_invalid")
         self.assertFalse(failure.infrastructure)
         self.assertEqual(failure.phase, "evaluating")
