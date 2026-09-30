@@ -387,6 +387,19 @@ const GATES: {
   },
 ];
 
+// The first two rungs are the Week 3 reference submission's measured search MRR on
+// the test tier (verbatim, keywords); the last two are illustrative.
+const LANGUAGE_SWEEP: NonNullable<RunDetailType["sweep"]> = {
+  axis: "how far the query is from the caption",
+  metric: "search_mrr",
+  points: [
+    { x: 0, y: 0.6337 },
+    { x: 1, y: 0.558 },
+    { x: 2, y: 0.49 },
+    { x: 3, y: 0.46 },
+  ],
+};
+
 export function GalleryPage() {
   return (
     <div className="mx-auto w-full max-w-4xl py-10">
@@ -556,12 +569,12 @@ export function GalleryPage() {
         Week 3 stopped repeating its chance baselines as notes, so a run that
         went well now arrives with no diagnostics at all. The curve is then the
         only thing in the panel, and it keeps the same introduction rather than
-        opening unlabelled. Reachable only from a successful weighted Language
-        run, which is why it is here.
+        opening unlabelled. Only a successful weighted Language run reaches this
+        state, which is why it is here.
       </p>
       <Panel className="mt-4">
         <div className="u-kicker mb-2">{FINDING_KICKER}</div>
-        <SweepTrace sweep={SWEEPS[0].sweep} />
+        <SweepTrace sweep={LANGUAGE_SWEEP} />
       </Panel>
 
       <h2 className="mt-12 font-serif text-xl font-semibold text-ink">
