@@ -717,6 +717,7 @@ export const schema = {
 
 export type TeamProcessSignalsRow = typeof teamProcessSignals.$inferSelect;
 export type RunRow = typeof runs.$inferSelect;
+export type RunMetricRow = typeof runMetrics.$inferSelect;
 export type BenchmarkRow = typeof benchmarks.$inferSelect;
 export type TeamRow = typeof teams.$inferSelect;
 export type RunSurfaceRow = typeof runSurfaces.$inferSelect;
