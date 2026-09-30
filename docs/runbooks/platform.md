@@ -362,7 +362,8 @@ Create a bucket before deploying the environment that binds it. Staging's is
 done:
 
 ```sh
-wrangler r2 bucket create cogportal-artifacts-dev   # done 2026-09-15
+wrangler r2 bucket create cogportal-artifacts-dev    # done 2026-09-15
+wrangler r2 bucket create cogportal-artifacts-prod   # done 2026-09-15
 ```
 
 R2 is activated on the account as of the 2026-09-15 read; the earlier code
@@ -373,12 +374,16 @@ domains. Leave it that way. Weights are reached through the `ARTIFACTS`
 binding and signed portal downloads, so a public URL would only widen who can
 read a team's trained file.
 
-`cogportal-artifacts` for production is deliberately not created and
-`env.production` deliberately has no `r2_buckets` block, so production weight
-upload answers 501 until hosted upload is accepted on staging. Create it in
-the same step that adds the production binding, never before, and never point
-production at the staging bucket: weights are addressed by repository and
-commit, so one shared bucket would collide on exactly the case that matters.
+Production's bucket is `cogportal-artifacts-prod`, created once hosted upload
+was accepted on staging, and `env.production` binds it as `ARTIFACTS`. It is
+private the same way: `wrangler r2 bucket dev-url get cogportal-artifacts-prod`
+reports public access disabled. A hosted Language run has written and read a
+trained file through it.
+
+The two names must stay distinct. Weights are addressed by repository and
+commit, so one shared bucket would collide on exactly the case that matters,
+and a production run would be able to read weights a staging team uploaded.
+`deploy-config.test.ts` asserts both names for that reason.
 
 **Verify the binding rather than assuming a refusal.** It would be convenient
 if Wrangler always refused a deploy naming a bucket that does not exist, and
@@ -728,9 +733,9 @@ request to a deployed origin, so run it deliberately. Do not reach for
       catalog flag alone does not survive `0018`
 - [ ] Audio activation in production named as an explicit decision, not
       inherited from a migration
-- [ ] staging's `cogportal-artifacts-dev` bound as `ARTIFACTS` and still
-      private, `env.production` still carrying no `r2_buckets` block, and
-      production storage authorized separately after staging acceptance
+- [ ] each environment's `ARTIFACTS` bound to its own private bucket,
+      `cogportal-artifacts-dev` for staging and `cogportal-artifacts-prod` for
+      production, and neither pointed at the other's
 - [ ] production secrets set by name on `cogportal-production`, including
       `RUNNER_SIGNING_SECRET`
 - [ ] four probe receipts, one per served benchmark, each exited 0 and naming
