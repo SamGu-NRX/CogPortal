@@ -19,6 +19,7 @@ from cogbench._namespace import (  # noqa: E402
     Bundle, Project, Unmapped, declared_in, reads_anything,
 )
 from cogbench.discover import discover  # noqa: E402
+from cogbench.execution import entered_project, private_project  # noqa: E402
 from cogbench.pipeline import (  # noqa: E402
     Candidate, Role, Stage, _Timeout, instances_in, methods_of, runtime_pool,
 )
@@ -1580,6 +1581,46 @@ class AValueTheirModuleComputedWhenItLoadedCanAnswerAFitStage(unittest.TestCase)
 
         self.assertTrue(submission.ready, submission.verdict.headline)
         self.assertEqual(submission.to_dict()["fits"], [["idfs", "theirs.compute_idfs"]])
+
+
+class EveryReadingOfThePrivateCopyRetriesInPlace(unittest.TestCase):
+    """The CLI resolves inside its private execution copy, where the first
+    reading's working-directory retry runs in place. Search trials and the
+    fresh scoring handoff read the copy again through the throwaway mirror,
+    which refused to overwrite the cache the first reading had left there, so
+    a module that reads its data relatively and then writes a cache was found
+    and then skipped, and the repository came back not_read."""
+
+    def test_a_module_that_writes_at_import_still_scores(self):
+        for target in ("Path(__file__).parent / 'cache.txt'", "Path('cache.txt')"):
+            with self.subTest(target=target):
+                original = Path(tempfile.mkdtemp()).resolve()
+                self.addCleanup(shutil.rmtree, original, ignore_errors=True)
+                (original / "data.txt").write_text("fixture")
+                (original / "theirs.py").write_text(
+                    "from pathlib import Path\n"
+                    "Path('data.txt').read_text()\n"
+                    "({}).write_text('cache')\n".format(target) + REPO
+                )
+
+                with private_project(original) as paths, entered_project(paths):
+                    submission = resolve(
+                        paths.execution,
+                        chain_role=ROLE,
+                        fixture=FIXTURE,
+                        accepts=_accepts,
+                        arrangements=_arrangements,
+                        project=paths,
+                        remember=False,
+                    )
+                    self.addCleanup(submission.close)
+                    self.assertTrue(submission.ready, submission.verdict.headline)
+                    renewed = submission.fresh()
+                    self.addCleanup(renewed.close)
+                    self.assertTrue(renewed.ready)
+                    self.assertEqual(renewed.chain[0].bound(*FIXTURE), [(14, 44100)])
+
+                self.assertFalse((original / "cache.txt").exists())
 
 
 class EveryTrialRecomputesTheirSideInputs(unittest.TestCase):

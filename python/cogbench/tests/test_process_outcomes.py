@@ -29,6 +29,23 @@ def _spent_budget(pid, seconds):
 
 @unittest.skipUnless(hasattr(os, 'fork'), 'requires POSIX isolation')
 class ProcessOutcomes(unittest.TestCase):
+    def test_forked_work_cannot_publish_the_grandchilds_return(self):
+        def work():
+            descendant = os.fork()
+            if descendant == 0:
+                return "grandchild"
+            os.waitpid(descendant, 0)
+            return "direct child"
+        result = isolate.run_isolated(work, timeout_seconds=5)
+        self.assertEqual(result.status, isolate.COMPLETED, result)
+        self.assertEqual(result.value, "direct child")
+
+    def test_parent_allocation_refusal_is_a_categorized_failure(self):
+        with patch.object(isolate, '_read_payload', side_effect=MemoryError):
+            result = isolate.run_isolated(lambda: 42, timeout_seconds=5)
+        self.assertEqual(result.status, isolate.CRASHED, result)
+        self.assertEqual(result.read_reason, 'payload_allocation_failed')
+
     def test_self_sigkill_is_unknown_not_a_timeout(self):
         for _ in range(10):
             result = isolate.run_isolated(lambda: os.kill(os.getpid(), signal.SIGKILL))
@@ -286,16 +303,32 @@ class ProcessOutcomes(unittest.TestCase):
             def cache_status(self, tier):
                 from types import SimpleNamespace
                 return SimpleNamespace(ready=True, path=Path('/tmp'), message='')
-        with patch.object(isolate, 'run_operation', return_value=result), \
+        with tempfile.TemporaryDirectory() as temporary, \
+             patch.object(isolate, 'run_operation', return_value=result), \
              patch.object(isolate, '_isolation_backend', side_effect=lambda: isolate.run_operation), \
              patch.object(cli, 'plugin_names', return_value=['fixture']), \
              patch.object(cli, 'load_benchmark', return_value=Benchmark()), \
              patch('sys.stdout', new_callable=io.StringIO) as output:
-            code = cli._check('fixture', True, Path('/tmp'))
+            code = cli._check('fixture', True, Path(temporary))
         record = json.loads(output.getvalue())
         self.assertEqual(code, 2)
         self.assertIn(result.detail, record['submissionError'])
-        self.assertEqual(record['isolationDetail'], result.diagnostics())
+        # Named, not compared against the same `diagnostics()` that produced
+        # them: dropping an observed-death field from that method left this
+        # green, which is the one thing it exists to catch.
+        self.assertEqual(record['isolationDetail'], {
+            'status': 'crashed',
+            'detail': 'stopped by SIGKILL; the cause is unknown',
+            'signal': 9,
+            'alarmFired': False,
+            'readReason': 'eof',
+            'limits': {
+                'wallSeconds': 300,
+                'cpuSeconds': 300,
+                'cpuHardSeconds': 305,
+                'memoryBytes': 1234,
+            },
+        })
         self.assertIsNone(record['submissionDetail'])
 
 
@@ -380,3 +413,55 @@ class ReapFailureModes(unittest.TestCase):
         self.assertIsNone(result.signal)
         self.assertNotIn('exited without', result.detail)
         terminate.assert_called_once_with(123, reaped=False)
+
+
+@unittest.skipUnless(hasattr(os, 'fork'), 'requires POSIX isolation')
+class APublishedResultDoesNotOutrankAnObservedDeath(unittest.TestCase):
+    """A child can write a valid envelope and then fail anyway.
+
+    Both endings below used to come back `completed`, value 42, signal None.
+    Acceptance checked that an exit had been observed, never that it
+    succeeded. The payload is the child's claim about its work; the exit is
+    the evidence for it, and here the parent watched the evidence fail.
+    """
+
+    def _publish_then(self, ending):
+        read_fd, write_fd = os.pipe()
+        pid = os.fork()
+        if pid == 0:  # pragma: no cover - child
+            os.setsid()
+            os.close(read_fd)
+            body = json.dumps({'status': 'completed', 'detail': '', 'value': 42}).encode('utf-8')
+            frame = struct.pack('!I', len(body)) + body
+            while frame:
+                frame = frame[os.write(write_fd, frame):]
+            os.close(write_fd)
+            ending()
+        os.close(write_fd)
+        return isolate._collect(pid, read_fd, None, None)
+
+    def test_a_nonzero_exit_after_publishing_is_a_crash(self):
+        result = self._publish_then(lambda: os._exit(23))
+        self.assertEqual(result.status, isolate.CRASHED)
+        self.assertIsNone(result.value)
+        self.assertEqual(result.read_reason, 'result_published_then_exit_23')
+        self.assertIn('status 23', result.detail)
+
+    def test_a_signal_after_publishing_is_a_crash(self):
+        result = self._publish_then(
+            lambda: os.kill(os.getpid(), signal.SIGKILL)
+        )
+        self.assertEqual(result.status, isolate.CRASHED)
+        self.assertIsNone(result.value)
+        self.assertEqual(
+            result.read_reason,
+            'result_published_then_signal_{}'.format(int(signal.SIGKILL)),
+        )
+
+    def test_a_clean_exit_after_publishing_still_returns_the_result(self):
+        """The rule is about failure, not about publishing."""
+
+        result = self._publish_then(lambda: os._exit(0))
+        self.assertEqual(result.status, isolate.COMPLETED)
+        self.assertEqual(result.value, 42)
+        self.assertIsNone(result.read_reason)

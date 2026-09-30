@@ -1,4 +1,5 @@
 """Real on-disk plugins cross the exec boundary without inherited test mocks."""
+import hashlib
 import io
 import json
 import os
@@ -7,6 +8,7 @@ try:
 except ImportError:
     resource = None
 import signal
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -121,7 +123,11 @@ def create_submission(inputs):
         self.assertTrue(view['ready'])
         observed = json.loads(self.record.read_text())
         self.assertNotEqual(observed['pid'], os.getpid())
-        self.assertEqual(observed['cwd'], str(self.repo))
+        execution = Path(observed['cwd'])
+        self.assertNotEqual(execution, self.repo)
+        self.assertEqual(execution.name, self.repo.name)
+        self.assertTrue(execution.parent.name.startswith('cogworks-execution-'))
+        self.assertFalse(execution.parent.exists(), 'parent must remove the execution copy')
         self.assertEqual(observed['cpu'], [300, 305])
         self.assertEqual(observed['core'], [0, 0])
         # macOS may reject RLIMIT_AS; never claim installation if it did.
@@ -184,18 +190,53 @@ Path(%r).write_text(json.dumps(list(resource.getrlimit(resource.RLIMIT_CPU))))
 """ % str(marker)
         (self.repo / 'sitecustomize.py').write_text(hook)
         (nested / 'sitecustomize.py').write_text(hook)
-        # Explicitly import the same hook from student code. This must work,
-        # but only after _child has installed the CPU limit.
+        # The same hook under a name the interpreter cannot already have
+        # imported. `sitecustomize` is the name site processing uses, and some
+        # builds ship one: on Homebrew's 3.13 it is already in sys.modules, so
+        # a student file of that name is shadowed and `import sitecustomize`
+        # does nothing. That is a fact about the host, not about this
+        # boundary, and asserting through it made the test read as a boundary
+        # failure on those machines. The ordering claim is what this test is
+        # for, so it uses a name only the repository provides.
+        after_limits = self.root / 'after-limits.json'
+        (self.repo / 'student_startup_probe.py').write_text(
+            hook.replace(str(marker), str(after_limits))
+        )
         submission = self.repo / 'submission.py'
-        submission.write_text('import sitecustomize\n' + submission.read_text())
+        submission.write_text('import student_startup_probe\n' + submission.read_text())
         for entry in (self.repo, nested, alias):
             with self.subTest(entry=str(entry)), patch.object(sys, 'path', [str(entry)] + sys.path):
+                if after_limits.exists():
+                    after_limits.unlink()
                 view, status, detail = cli._read_repository('boundary-fixture', self.repo, True)
             self.assertEqual(status, isolate.COMPLETED, detail)
             self.assertTrue(view['ready'])
-            self.assertEqual(json.loads(marker.read_text()), [300, 305])
+            self.assertFalse(
+                marker.exists(),
+                'a sitecustomize in the repository ran during interpreter startup',
+            )
+            # And a module the repository provides, imported after limits, sees
+            # them installed.
+            self.assertEqual(json.loads(after_limits.read_text()), [300, 305])
             observed = json.loads(self.record.read_text())
             wait_gone(self, observed['descendant'])
+
+    def test_a_repository_file_named_like_a_standard_module_does_not_break_check(self):
+        """The fresh interpreter could import from the repository before it
+        imported cogbench's CLI (the `python -c` working-directory entry, then
+        the explicit prepend), so a team's `datetime.py` answered the CLI's own
+        `from datetime import datetime` and check failed before it read
+        anything. A forked child already has the CLI loaded."""
+
+        self.submission()
+        (self.repo / 'datetime.py').write_text('def stamp():\n    return "their helper"\n')
+
+        view, status, detail = cli._read_repository('boundary-fixture', self.repo, True)
+
+        self.assertEqual(status, isolate.COMPLETED, detail)
+        self.assertTrue(view['ready'])
+        observed = json.loads(self.record.read_text())
+        wait_gone(self, observed['descendant'])
 
     def test_ancestor_startup_hook_cannot_silently_disable_limits(self):
         self.submission()
@@ -258,10 +299,102 @@ resource.setrlimit = lambda *args: None
                  redirect_stdout(io.StringIO()) as output:
                 code = cli.main([command, '--benchmark', 'boundary-fixture', '--json'])
             self.assertEqual(code, 0, output.getvalue())
-            self.assertEqual(json.loads(output.getvalue())['benchmarkId'], 'boundary-fixture')
+            report = json.loads(output.getvalue())
+            self.assertEqual(report['benchmarkId'], 'boundary-fixture')
+            # The identity is not the result: skipping prediction and scoring
+            # entirely left this green. The fixture benchmark reports no
+            # metrics, so the digest is what says predictions were made. An
+            # empty prediction list has a fixed one.
+            empty = hashlib.sha256(
+                json.dumps([], sort_keys=True, separators=(',', ':')).encode('utf-8')
+            ).hexdigest()
+            self.assertRegex(report['outputDigest'], r'^[0-9a-f]{64}$')
+            self.assertNotEqual(report['outputDigest'], empty,
+                                'the run predicted nothing')
             observed = json.loads(self.record.read_text())
             self.assertEqual(observed['cpu'], [resource.RLIM_INFINITY, resource.RLIM_INFINITY], 'scored runs retain their unbounded CPU budget')
             wait_gone(self, observed['descendant'])
+
+    def test_native_resource_writes_stay_private_through_scoring(self):
+        database = self.repo / 'existing.sqlite'
+        with sqlite3.connect(str(database)) as db:
+            db.execute('CREATE TABLE state(value INTEGER)')
+            db.execute('INSERT INTO state VALUES (10)')
+        db.close()
+        original = database.read_bytes()
+        source = self.repo / 'src'
+        source.mkdir()
+        (source / 'local_resource.py').write_text(
+            'from pathlib import Path\nROOT = Path(__file__).resolve().parent.parent\n')
+        environment = self.repo / '.venv'
+        environment.mkdir()
+        (environment / 'pyvenv.cfg').write_text('home = fixture\n')
+        (environment / 'python').symlink_to(sys.executable)
+        packages = environment / 'site-packages'
+        packages.mkdir()
+        (packages / 'environment_fixture.py').write_text('VALUE = 42\n')
+        sys.path[:0] = [str(source), str(packages)]
+        self.addCleanup(sys.path.remove, str(source))
+        self.addCleanup(sys.path.remove, str(packages))
+        (self.repo / 'submission.py').write_text('''
+from pathlib import Path
+import sqlite3
+ROOT = Path(__file__).resolve().parent
+from local_resource import ROOT as SOURCE_ROOT
+from environment_fixture import VALUE
+assert SOURCE_ROOT == ROOT and VALUE == 42
+assert not (ROOT / '.venv').exists()
+assert Path.cwd() == ROOT
+with sqlite3.connect(str(ROOT / 'existing.sqlite')) as db:
+    db.execute('UPDATE state SET value = value + 1')
+db.close()
+def create_submission(inputs):
+    with sqlite3.connect(str(ROOT / 'existing.sqlite')) as db:
+        assert db.execute('SELECT value FROM state').fetchone()[0] == 11
+        db.execute('UPDATE state SET value = value + 1')
+    db.close()
+    (ROOT / 'generated.txt').write_text('prediction ran')
+    return [str(ROOT) for _ in inputs]
+''')
+        benchmark_file = self.root / 'boundary_fixture.py'
+        benchmark_file.write_text(benchmark_file.read_text() + '''
+    def score(self, predictions, expected):
+        from pathlib import Path
+        import json, sqlite3
+        root = Path(predictions[0])
+        assert root.is_dir()
+        assert (root / 'generated.txt').read_text() == 'prediction ran'
+        with sqlite3.connect(str(root / 'existing.sqlite')) as db:
+            assert db.execute('SELECT value FROM state').fetchone()[0] == 12
+        db.close()
+        Path(%r).write_text(json.dumps({'root': str(root)}))
+        return [], ['private resource scored']
+''' % str(self.record))
+        (self.repo / '.gitignore').write_text('.cogbench/\n.venv/\n__pycache__/\n')
+        for args in (
+            ['init', '-q'],
+            ['remote', 'add', 'origin', 'https://github.com/students/private-fixture.git'],
+            ['add', 'submission.py', 'existing.sqlite', '.gitignore', 'src'],
+            ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+             '-c', 'commit.gpgsign=false', 'commit', '-qm', 'fixture'],
+        ):
+            subprocess.run(['git'] + args, cwd=str(self.repo), check=True, capture_output=True)
+        sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=str(self.repo), text=True).strip()
+        for command in ('test', 'run'):
+            with self.subTest(command=command), patch.object(cli.Path, 'cwd', return_value=self.repo), \
+                 self.reject_raw_fork(), redirect_stdout(io.StringIO()) as output:
+                code = cli.main([command, '--benchmark', 'boundary-fixture', '--json'])
+            self.assertEqual(code, 0, output.getvalue())
+            report = json.loads(output.getvalue())
+            self.assertEqual(report['diagnostics'], ['private resource scored'])
+            self.assertEqual(report['sha'], sha)
+            self.assertEqual(report['repositoryFullName'], 'students/private-fixture')
+            self.assertFalse(report['dirty'])
+            copied = Path(json.loads(self.record.read_text())['root'])
+            self.assertNotEqual(copied, self.repo)
+            self.assertFalse(copied.parent.exists())
+            self.assertEqual(database.read_bytes(), original)
+            self.assertFalse((self.repo / 'generated.txt').exists())
 
     def test_score_time_attribute_lookup_uses_validated_course_file(self):
         owned = self.root / 'validated.pkl'
@@ -341,12 +474,17 @@ def create_submission(inputs):
     def test_interrupt_cleans_worker_and_descendant(self):
         self.submission('import time\ntime.sleep(120)')
         environment = dict(os.environ, PYTHONPATH=os.pathsep.join(sys.path))
-        source = '''from pathlib import Path
+        # This models Ctrl+C, so the parent installs Python's SIGINT handler: a
+        # non-interactive shell starts `&` jobs with SIGINT ignored, and exec
+        # passes that on to the parent.
+        source = '''import signal
+signal.signal(signal.SIGINT, signal.default_int_handler)
 from cogbench.isolate import run_operation
 run_operation('check', {'name': 'boundary-fixture', 'repository': %r, 'as_json': True})
 ''' % str(self.repo)
         parent = subprocess.Popen([sys.executable, '-c', source], env=environment,
                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        observed = None
         try:
             deadline = time.monotonic() + 15
             while not self.record.exists() and time.monotonic() < deadline:
@@ -360,6 +498,15 @@ run_operation('check', {'name': 'boundary-fixture', 'repository': %r, 'as_json':
             wait_gone(self, observed['descendant'])
         finally:
             if parent.poll() is None:
+                # The worker leads its own session and holds our pipes, so
+                # killing only the parent blocks communicate() for its whole
+                # sleep. Safe only while the parent lives: until it reaps the
+                # worker, the worker's pid (its group id) cannot be reused.
+                if observed is not None:
+                    try:
+                        os.killpg(observed['pid'], signal.SIGKILL)
+                    except OSError:
+                        pass
                 parent.kill()
                 parent.communicate()
 

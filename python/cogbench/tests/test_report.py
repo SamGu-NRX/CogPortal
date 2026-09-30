@@ -314,9 +314,20 @@ class CheckTests(unittest.TestCase):
                 unread_detail="segfaulted",
             )
         )
-        self.assertIn("ended the process before it finished", text)
+        self.assertIn("Could not finish checking your repository", text)
         self.assertIn("segfaulted", text)
-        self.assertIn("one at a time", text)
+        self.assertNotIn("rather than raising", text)
+
+    def test_copy_refusal_does_not_blame_a_student_import(self):
+        reason = 'No space left on device. The original was not run.'
+        text = '\n'.join(render_check(
+            benchmark='fixture', python_version='3.8', hosted_python=None,
+            benchmark_ready=True, repository='team/repo', submission=None,
+            unread_detail=reason,
+        ))
+        self.assertIn(reason, ' '.join(text.split()))
+        self.assertNotIn('import taking the interpreter down', text)
+        self.assertNotIn('one at a time', text)
 
     def test_a_missing_benchmark_says_so_rather_than_reporting_nothing(self):
         text = "\n".join(

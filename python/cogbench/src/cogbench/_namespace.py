@@ -396,7 +396,7 @@ class Project:
 
     __slots__ = (
         "_repository", "_hints", "_declared_root", "_resource_files",
-        "_origin", "_found", "_observed", "_fresh_modules", "_where",
+        "_private_copy", "_origin", "_found", "_observed", "_fresh_modules", "_where",
         "_instances", "_pinned", "_receivers",
         "_models", "_holding", "_home", "_closed", "_calls", "_bindings",
     )
@@ -410,6 +410,7 @@ class Project:
         declared_root: Optional[str] = None,
         resource_files: Optional[Dict[str, Path]] = None,
         observed: Optional[Set[Path]] = None,
+        private_copy: bool = False,
     ) -> None:
         #: Where each module the candidates came off was read from, by the
         #: name a candidate carries (`module_origins`). A discovery may be
@@ -423,6 +424,8 @@ class Project:
         self._hints = tuple(hints)
         self._declared_root = declared_root
         self._resource_files = dict(resource_files or {})
+        #: Passed through to `discover`; see `Submission._private_copy`.
+        self._private_copy = private_copy
         #: A set the caller owns. Every file this project's reading and this
         #: project's own late imports touched is reported into it, which is how
         #: the memo key finds out about a source nobody hashed at lookup.
@@ -645,6 +648,7 @@ class Project:
                 hints=self._hints,
                 declared_root=self._declared_root,
                 resource_files=self._resource_files,
+                private_copy=self._private_copy,
             )
             self._found = found
             self._where = (

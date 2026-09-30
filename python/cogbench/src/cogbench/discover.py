@@ -1545,8 +1545,11 @@ def _mirror_into(source: Path, destination: Path) -> None:
 
 
 @contextlib.contextmanager
-def _reading_from(folder: Path):
-    """Work from a throwaway copy of the module's own folder, not from it.
+def _reading_from(folder: Path, *, private_copy: bool = False):
+    """Retry from the module's folder, already private for CLI operations.
+
+    Direct SDK discovery returns live modules without owning their lifetime,
+    so it still uses the import-only mirror described below.
 
     The retry below re-executes a module with its own directory as the
     working directory, because a module that reads ``data/trumpet.wav`` at
@@ -1590,6 +1593,17 @@ def _reading_from(folder: Path):
     """
 
     global _GUARDED, _GUARD_INSTALLED
+
+    # The CLI owns these files through scoring. Another mirror would discard
+    # import-created resources and install an unnecessary audit hook.
+    if private_copy:
+        previous = os.getcwd()
+        try:
+            os.chdir(folder)
+            yield
+        finally:
+            os.chdir(previous)
+        return
 
     with tempfile.TemporaryDirectory(prefix="cogworks-import-") as temporary:
         mirror = Path(temporary).resolve()
@@ -1852,6 +1866,7 @@ def _import_one(
     redirects: Optional["_Redirects"] = None,
     *,
     into: Optional[ModuleType] = None,
+    private_copy: bool = False,
 ) -> Tuple[Optional[ModuleType], Optional[SkippedModule], _Notes]:
     """Import one module, retrying only where the failure is ours to answer.
 
@@ -1945,7 +1960,7 @@ def _import_one(
             into.__dict__.update(children)
         try:
             if folder is not None:
-                with _reading_from(folder):
+                with _reading_from(folder, private_copy=private_copy):
                     module, error, failure = _execute(
                         name, path, source, timeout, package,
                         future_annotations=future, into=into,
@@ -2128,6 +2143,8 @@ def _run_package_body(
     path: Path,
     timeout: float,
     redirects: Optional["_Redirects"],
+    *,
+    private_copy: bool = False,
 ) -> Tuple[Optional[ModuleType], Optional[SkippedModule], _Notes]:
     """Execute an ``__init__.py`` as the body of its package.
 
@@ -2158,7 +2175,8 @@ def _run_package_body(
     # the same three retries. `package=None` because the body is not a member
     # of the package, it is the package; `into` is where it runs.
     body, failure, notes = _import_one(
-        "__init__", path, None, timeout, None, redirects, into=module
+        "__init__", path, None, timeout, None, redirects,
+        into=module, private_copy=private_copy,
     )
     return body, failure, notes
 
@@ -2193,8 +2211,13 @@ class _NotebookFsFinder:
         directories: Sequence[Path],
         import_timeout: float,
         redirects: Optional["_Redirects"] = None,
+        *,
+        private_copy: bool = False,
     ) -> None:
         self._directories = list(directories)
+        #: The retry mode `load_modules` was given, so a notebook reached
+        #: through `ipynb.fs` is read the way the notebook pass reads it.
+        self._private_copy = private_copy
         self._timeout = import_timeout
         self._redirects = redirects
         self._made: List[str] = []
@@ -2232,7 +2255,8 @@ class _NotebookFsFinder:
         # `_import_one` is also what gives this path the import deadline this
         # finder was handed and never used, and the same retries.
         module, failure, notes = _import_one(
-            stem, notebook, source, self._timeout, None, self._redirects
+            stem, notebook, source, self._timeout, None, self._redirects,
+            private_copy=self._private_copy,
         )
         if module is None:
             if failure is not None and failure.reason == "too_slow":
@@ -2616,6 +2640,7 @@ def load_modules(
     journal: Optional[Callable[[str, object], None]] = None,
     resource_files: Optional[Mapping[str, Path]] = None,
     keep: Optional["ImportContext"] = None,
+    private_copy: bool = False,
 ) -> Tuple[List[LoadedModule], List[SkippedModule], List[str]]:
     """Import every module in ``root``, then in each of ``extra``.
 
@@ -2654,7 +2679,9 @@ def load_modules(
     directories = [root] + [path for path in extra if path != root]
     redirects = _Redirects(resource_files or {})
     redirects.enter()
-    notebooks = _NotebookFsFinder(directories, import_timeout, redirects)
+    notebooks = _NotebookFsFinder(
+        directories, import_timeout, redirects, private_copy=private_copy
+    )
     sys.meta_path.insert(0, notebooks)
 
     loaded: List[LoadedModule] = []
@@ -2693,7 +2720,8 @@ def load_modules(
                     body, failure, notes = sys.modules.get(package), None, _Notes()
                 else:
                     body, failure, notes = _run_package_body(
-                        package, initializer, import_timeout, redirects
+                        package, initializer, import_timeout, redirects,
+                        private_copy=private_copy,
                     )
                 if failure is not None:
                     skipped.append(failure)
@@ -2762,7 +2790,7 @@ def load_modules(
             # only evidence that it was the one being read.
             _note(journal, "reading", path)
             module, failure, notes = _import_one(
-                name, path, None, import_timeout, package, redirects
+                name, path, None, import_timeout, package, redirects, private_copy=private_copy
             )
             if module is not None:
                 entry = LoadedModule(
@@ -2793,7 +2821,7 @@ def load_modules(
                 continue
             _note(journal, "reading", path)
             module, failure, notes = _import_one(
-                path.stem, path, source, import_timeout, None, redirects
+                path.stem, path, source, import_timeout, None, redirects, private_copy=private_copy
             )
             # When an earlier `from ipynb.fs.full...` already read it, that
             # read is the one that happened and these notes are empty.
@@ -3369,6 +3397,7 @@ def discover(
     import_timeout: float = IMPORT_TIMEOUT_SECONDS,
     journal: Optional[Callable[[str, object], None]] = None,
     resource_files: Optional[Mapping[str, Path]] = None,
+    private_copy: bool = False,
 ) -> Discovery:
     """Choose a root, import what imports, and report all of it.
 
@@ -3430,6 +3459,7 @@ def discover(
                 journal=journal,
                 resource_files=resource_files,
                 keep=kept,
+                private_copy=private_copy,
             )
             stubbed = stubbed_now()
     else:
@@ -3442,6 +3472,7 @@ def discover(
                     journal=journal,
                     resource_files=resource_files,
                     keep=kept,
+                    private_copy=private_copy,
                 )
                 stubbed = stubbed_now()
     return Discovery(

@@ -40,6 +40,7 @@ from ._namespace import (
     taken_as_data,
 )
 from .discover import Discovery, discover, _Redirects
+from .execution import ExecutionPaths
 from .isolate import hash_seed_in_effect as _hash_seed_in_effect
 from .progress import Progress
 from .pipeline import (
@@ -275,6 +276,11 @@ class Submission:
     _repository: Optional[Path] = None
     _hints: Tuple[str, ...] = ()
     _declared_root: Optional[str] = None
+    #: Whether `_repository` is the CLI's private execution copy. A reading
+    #: of it must use the same import retry the first reading used: the first
+    #: one leaves import-time files in the copy, and the mirror retry would
+    #: then refuse to overwrite them and skip the module.
+    _private_copy: bool = False
     #: The role this bound to, by name, and the benchmark's own inputs taken
     #: before any of their code ran. Both are what `_renewed` needs to put the
     #: binding back on a new reading: the name roots the scope a fit stage was
@@ -575,6 +581,7 @@ class Submission:
             declared_root=self._declared_root,
             resource_files=self._resource_files,
             observed=self._observed,
+            private_copy=self._private_copy,
         )
 
     def report(self) -> SubmissionReport:
@@ -1462,6 +1469,7 @@ def resolve(
     construct: Optional[Callable[..., Any]] = None,
     weights_consumed: Optional[Callable[["Submission"], bool]] = None,
     expects: Optional[str] = None,
+    project: Optional[ExecutionPaths] = None,
 ) -> Submission:
     """Resolve one repository against one week's task.
 
@@ -1555,6 +1563,8 @@ def resolve(
             )
 
         repository = Path(repository).resolve()
+        project = project or ExecutionPaths(repository, repository)
+        private_copy = project.execution != project.original
 
         watcher.phase("Reading your repository")
         found = discover(
@@ -1562,6 +1572,7 @@ def resolve(
             hints=hints,
             declared_root=declared_root,
             resource_files=resource_files,
+            private_copy=private_copy,
         )
         weights_used: Tuple[str, ...] = ()
         weights_captured: Optional[Tuple[Dict[str, Any], ...]] = ()
@@ -1692,6 +1703,7 @@ def resolve(
                 declared_root=declared_root,
                 resource_files=resource_files,
                 observed=observed,
+                private_copy=private_copy,
             )
 
         #: Everything the benchmark hands their code, taken now, before any of
@@ -1817,6 +1829,7 @@ def resolve(
         #: repository, and what the benchmark hands their code.
         again: Dict[str, Any] = {
             "_repository": repository,
+            "_private_copy": private_copy,
             "_hints": tuple(hints),
             "_declared_root": declared_root,
             "_observed": observed,
@@ -1858,11 +1871,12 @@ def resolve(
                 extras=extras, identities=identities, resource_files=resource_files,
                 weights_used=weights_used, readers=readers, max_attempts=max_attempts,
                 arrangements=arrangements is not None, factories=factories is not None,
+                project=project,
             )
             if remember else ""
         )
         keyed_sources = set(memo.source_paths(found)) if key else set()
-        stored = memo.read(repository, key) if key else None
+        stored = memo.read(project.original, key) if key else None
         if stored:
             # Validation runs project code. Its namespace and mutable supplied
             # values must not become the returned submission or a cold search.
@@ -1871,6 +1885,7 @@ def resolve(
                     validation_found = discover(
                         repository, hints=hints, declared_root=declared_root,
                         resource_files=resource_files,
+                        private_copy=private_copy,
                     )
                     validation = _under_clock(lambda: _replay(
                         deepcopy(stored), validation_found, chain_role, arrangements,
@@ -2179,7 +2194,7 @@ def resolve(
         if arrangements is None:
             watcher.done()
             if key:
-                memo.write(repository, key, dict(_remembered(chain), arrangement=-1))
+                memo.write(project.original, key, dict(_remembered(chain), arrangement=-1))
             # `fresh` puts the whole binding on a reading of its own, so a
             # scored run starts from their modules as their file wrote them
             # rather than as the search left them.
@@ -2218,7 +2233,7 @@ def resolve(
         watcher.done()
         if key:
             memo.write(
-                repository,
+                project.original,
                 key,
                 dict(
                     _remembered(chain),
@@ -3248,6 +3263,7 @@ def _memo_key(
     extras: Optional[Dict[str, Any]], identities: Sequence[Any],
     resource_files: Optional[Dict[str, Path]], weights_used: Sequence[str],
     readers: int, max_attempts: int, arrangements: bool, factories: bool,
+    project: Optional[ExecutionPaths] = None,
 ) -> str:
     """Identify supported search inputs; opaque inputs deliberately skip caching.
 
@@ -3293,7 +3309,7 @@ def _memo_key(
         "arrangements": arrangements,
         "factories": factories,
     }
-    return memo.fingerprint(paths, benchmark=benchmark, inputs=inputs)
+    return memo.fingerprint(paths, benchmark=benchmark, inputs=inputs, project=project)
 
 
 def _remembered(chain) -> Dict[str, Any]:

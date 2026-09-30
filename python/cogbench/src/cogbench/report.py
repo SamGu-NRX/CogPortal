@@ -174,6 +174,7 @@ def render_check(
     installed_reference: bool = False,
     unread_detail: str = "",
     search_unavailable: str = "",
+    declaration_error: str = "",
 ) -> List[str]:
     """The whole report, in the order a person asks about it.
 
@@ -193,9 +194,9 @@ def render_check(
     scoring it while standing in a student's repository reports somebody
     else's number as theirs.
 
-    ``unread_detail`` is filled when the process reading the repository ended
-    before it reported. Then there is no verdict to print, and saying that is
-    the report.
+    ``unread_detail`` explains why no valid check report arrived, including
+    copy refusal, child failure and malformed results. It does not imply that
+    student code ran or caused the failure.
 
     ``search_unavailable`` is why the search could not run at all, when the
     benchmark could not describe its task right now. It is a different fact
@@ -240,17 +241,15 @@ def render_check(
         lines.append("")
         lines.extend(
             _wrapped(
-                "Reading your repository ended the process before it finished: "
-                "{}.".format(unread_detail)
+                "Could not finish checking your repository: {}".format(unread_detail)
             )
         )
-        lines.extend(
-            _wrapped(
-                "That is an import taking the interpreter down rather than "
-                "raising, so import your modules one at a time to find which "
-                "one does it."
-            )
-        )
+        return lines
+
+    if declaration_error:
+        lines.append("")
+        lines.extend(_wrapped("Your adapter file could not be loaded: {}".format(declaration_error)))
+        lines.extend(_wrapped("Fix the error in that file, then run the check again."))
         return lines
 
     if submission is None:
