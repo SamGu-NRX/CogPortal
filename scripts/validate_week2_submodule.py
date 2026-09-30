@@ -4,6 +4,9 @@ import json
 import subprocess
 from pathlib import Path
 
+from cogbench.plugins import load_plugin
+from validate_metric_metadata import validate_metric_metadata
+
 
 ROOT = Path(__file__).resolve().parents[1]
 BENCHMARK = ROOT / "benchmarks" / "week2"
@@ -35,6 +38,7 @@ def main() -> None:
         "vision-clustering": (2, "clustering-v2", "clustering_pairwise_f1"),
     }
     for track, values in expected.items():
+        validate_metric_metadata(load_plugin("cogworks.benchmarks.v2", track))
         record = descriptor["tracks"].get(track)
         actual_values = (
             record.get("benchmark_version"),
