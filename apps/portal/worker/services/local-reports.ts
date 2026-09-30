@@ -58,6 +58,7 @@ function parseReportRow(row: {
     weightsUploaded: row.report.weightsUploadedJson == null
       ? null
       : JSON.parse(row.report.weightsUploadedJson),
+    command: row.report.command ?? undefined,
     author: { login: row.login ?? row.email.split("@")[0], name: row.name },
     syncedAt: row.report.syncedAt,
     trust: "local_self_reported",
@@ -204,6 +205,7 @@ export async function upsertLocalReport(
     diagnosticsJson: JSON.stringify(body.diagnostics),
     weightsUsedJson: JSON.stringify(body.weightsUsed),
     weightsUploadedJson: body.weightsUploaded == null ? null : JSON.stringify(body.weightsUploaded),
+    command: body.command ?? null,
     syncedAt: Date.now(),
   };
   if (existing) {

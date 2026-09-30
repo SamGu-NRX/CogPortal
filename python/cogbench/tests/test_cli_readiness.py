@@ -317,6 +317,8 @@ class ScoredRunIsolation(unittest.TestCase):
             self.assertNotEqual(report.diagnostics, ["child pid: {}".format(parent)])
             self.assertEqual(report.metrics, metrics)
             self.assertEqual(report.weights_uploaded, uploads)
+            # Stamped from the command line, not from anything execute returned.
+            self.assertEqual(report.command, command)
             path = save_report(report, root)
             self.assertEqual(LocalReport.from_json(path.read_text()), report)
             return path
@@ -332,6 +334,7 @@ class ScoredRunIsolation(unittest.TestCase):
                 self.assertEqual(payload["weightsUsed"], ["weights.pkl"])
                 self.assertEqual(payload["weightsUploaded"], uploads)
                 self.assertEqual(payload["metrics"], [metric.to_wire() for metric in metrics])
+                self.assertEqual(payload["command"], command)
                 saved.assert_called_once()
 
     def test_a_crash_in_resolution_or_execution_reports_no_result(self):

@@ -494,6 +494,8 @@ export const localReports = sqliteTable("local_reports", {
   weightsUsedJson: text("weights_used_json").notNull().default("[]"),
   /** Required uploads; NULL preserves unknown provenance on legacy reports. */
   weightsUploadedJson: text("weights_uploaded_json"),
+  /** `test` or `run`; NULL for a report synced before the CLI recorded it. */
+  command: text("command", { enum: ["test", "run"] }),
   syncedAt: integer("synced_at").notNull(),
 });
 

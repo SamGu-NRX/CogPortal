@@ -111,6 +111,22 @@ class ASkipIsCountedAsRoutineOnlyWhenItsReasonSaysSo(unittest.TestCase):
         self.assertIn("libsndfile", text)
 
 
+class TheDeclaredFileIsNamed(unittest.TestCase):
+    def _lines(self, detail):
+        return "\n".join(render_check(
+            benchmark="audio", python_version="3.8.20", hosted_python=None,
+            benchmark_ready=True, repository="course/team", submission=None,
+            submission_source="file", submission_detail=detail,
+        ))
+
+    def test_the_file_that_resolved_is_the_one_named(self):
+        text = self._lines("benchmark_adapter.py:create_submission")
+        self.assertIn("Your benchmark_adapter.py at the repository root was used", text)
+        self.assertNotIn("Your submission.py", text)
+        self.assertIn("Your submission.py at the repository root was used",
+                      self._lines("submission.py:create_submission"))
+
+
 class CheckTests(unittest.TestCase):
     def _ready(self) -> Submission:
         trace = (

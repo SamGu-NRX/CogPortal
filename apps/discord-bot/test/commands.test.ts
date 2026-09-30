@@ -630,3 +630,39 @@ test("signature verifier rejects missing and malformed signatures", async () => 
   assert.equal(await verifyDiscordRequest("00".repeat(32), null, "1", body), false);
   assert.equal(await verifyDiscordRequest("bad", "00".repeat(64), "1", body), false);
 });
+
+test("each local report line names the command that produced its number", async () => {
+  const report = (reportId: string, value: number, command?: "test" | "run") => ({
+    reportId, benchmarkId: "vision-recognition", benchmarkVersion: 2,
+    contractVersion: "cogworks.submissions.v2", sdkVersion: "0.2.0", pluginVersion: "0.2.0",
+    repositoryId: null, repositoryFullName: "course/team", sha: "a".repeat(40), dirty: false,
+    startedAt: 1, finishedAt: 2,
+    metrics: [{ key: "top1", label: "Top-1", value, unit: null, higherIsBetter: true, primary: true, precision: 1 }],
+    diagnostics: [], weightsUsed: [], weightsUploaded: [],
+    ...(command ? { command } : {}),
+    author: { login: "ada", name: "Ada" }, syncedAt: 3, trust: "local_self_reported" as const,
+  });
+  const portal: PortalRpcContract = {
+    ...basePortal,
+    async getLocalReports() {
+      return { linked: true, reports: [report("r1", 1, "test"), report("r2", 0.6, "run"), report("r3", 0.7)] };
+    },
+  };
+  const body = responseText(await executeCommand(command("local"), portal, guildId, portalOrigin));
+  assert.match(body, /`test`.*\*\*1\.0\*\*/);
+  assert.match(body, /`run`.*\*\*0\.6\*\*/);
+  // A report from before the CLI recorded the command is not given either label.
+  assert.match(body, /command not recorded.*\*\*0\.7\*\*/);
+  assert.match(body, /a `test` line scored only the small smoke-test cases/);
+
+  const runsOnly: PortalRpcContract = {
+    ...basePortal,
+    async getLocalReports() {
+      return { linked: true, reports: [report("r2", 0.6, "run")] };
+    },
+  };
+  assert.doesNotMatch(
+    responseText(await executeCommand(command("local"), runsOnly, guildId, portalOrigin)),
+    /smoke-test/,
+  );
+});

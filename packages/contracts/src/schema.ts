@@ -551,6 +551,14 @@ export const LocalReportInputSchema = z.object({
     path: z.string().min(1).max(500),
     sha256: z.string().regex(/^[a-f0-9]{64}$/),
   })).max(32).nullish(),
+  /**
+   * The CLI command that wrote the report (cogbench `REPORT_COMMANDS`): a
+   * `test` scores the small smoke-test cases, a `run` the practice set.
+   * Absent on reports from before the CLI recorded it; any other value is
+   * refused rather than stored as a label nobody can read. Self-reported,
+   * and read by nothing that decides eligibility.
+   */
+  command: z.enum(["test", "run"]).optional(),
 });
 export type LocalReportInput = z.infer<typeof LocalReportInputSchema>;
 

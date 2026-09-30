@@ -167,7 +167,7 @@ test("reports no track shows get their own group, labelled by benchmark and with
   assert.match(group, /bbbbbbb <span class="whitespace-nowrap">· dirty<\/span>/);
   assert.match(group, /Face Recognition <span[^>]*>v1<\/span>/);
   assert.match(group, /0\.640/);
-  assert.match(group, /aren&#x27;t open for hosted runs, so they have no track/);
+  assert.match(group, /Reports from benchmarks or versions that are not open for hosted runs\./);
 
   // No author in any form: not the login, not the display name.
   for (const author of [INACTIVE.author, SUPERSEDED.author, ON_TRACK.author]) {
@@ -189,7 +189,7 @@ test("the panel appears for untracked reports alone, with no empty track table",
 
   assert.match(html, /LOCAL REPORTS/);
   assert.match(untrackedGroup(html), /Song Identification/);
-  // The track table (and its Student header) is absent rather than empty.
+  // The track table is absent rather than empty.
   assert.doesNotMatch(html, /Self-reported local CogBench results<\/caption>/);
   assert.doesNotMatch(html, /<section aria-labelledby="untracked-reports-heading" class=/);
 });
