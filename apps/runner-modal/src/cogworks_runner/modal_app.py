@@ -1374,7 +1374,9 @@ def _sweep_wire(benchmark):
         return None
     return {
         "axis": getattr(benchmark, "sweep_axis_label", "difficulty"),
-        "metric": benchmark.primary_metric,
+        # Week 3 plots search MRR, not its primary overall score. Producer
+        # validators check the declaration before a pin reaches this runtime.
+        "metric": getattr(benchmark, "sweep_metric", None) or benchmark.primary_metric,
         "points": wire,
     }
 
