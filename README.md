@@ -57,11 +57,11 @@ cp apps/portal/.dev.vars.example apps/portal/.dev.vars
 pnpm dev
 ```
 
-`pnpm dev` applies local D1 migrations and starts CogPortal. With
-`DEV_AUTH=enabled`, local sign-in accepts a development username; the seeded
-cohort code is `VISION26`. After the monorepo move, an old root-level
-`.dev.vars` is intentionally not loaded; copy only the values you still need
-into `apps/portal/.dev.vars`.
+`pnpm dev` applies local D1 migrations, loads the local demo data
+(`pnpm db:seed:local`), and starts CogPortal. With `DEV_AUTH=enabled`, local
+sign-in accepts a development username; the demo cohort code is `VISION26`.
+After the monorepo move, an old root-level `.dev.vars` is intentionally not
+loaded; copy only the values you still need into `apps/portal/.dev.vars`.
 
 For the student-style path, install the local packages into the already active
 CogWorks prerequisite environment. Your environment may be named

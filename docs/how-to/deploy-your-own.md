@@ -190,39 +190,22 @@ A fresh database takes the whole directory in order. If you are reconciling a
 database that already has rows, do not derive the sequence from filenames;
 `docs/runbooks/platform.md` section 6 explains why and who owns that decision.
 
-## 8. Replace the seeded cohort and clear the demo rows
+## 8. Rename the seeded cohort
 
 This step is for the two databases you created in step 4, after step 7 and
-before any student signs in. The statements below delete every team and run in
-the database they target, so never point them at a database a course already
-uses.
+before any student signs in.
 
-`apps/portal/migrations/0002_seed.sql` inserts a cohort whose join code is
-`VISION26`, six demo teams owned by `cogworks-demo`, and invented runs with
-metrics and leaderboard selections. Those rows exist to make local development
-usable, and a fresh remote database takes them too. Left alone, the join code
-published in this repository admits anyone to your cohort, and the six teams
-that do not exist are offered to every student choosing a team.
-
-The admin console manages one cohort and cannot create another, so rename the
-seeded one rather than adding a second. Its code changes in the admin console,
-which exists only once step 10 has deployed the portal, so this step does the
-database half and step 10 finishes it. Remove the demo data and rename the
-cohort in production:
+`apps/portal/migrations/0002_seed.sql` gives every new database one cohort,
+`cohort_bwsi26`, with a random join code, plus the benchmark catalog. The admin
+console manages that one cohort and cannot create another, so rename it rather
+than adding a second. The join code is visible only in the admin console, which
+exists once step 10 has deployed the portal, so this step does the database
+half and step 10 finishes it. Rename the cohort in both databases:
 
 ```sh
 cd apps/portal
 pnpm exec wrangler d1 execute cogportal-db-prod --remote --env production --command \
-  "DELETE FROM leaderboard_selections; DELETE FROM official_attempts; DELETE FROM run_metrics; DELETE FROM run_phases; DELETE FROM runs; DELETE FROM teams;"
-pnpm exec wrangler d1 execute cogportal-db-prod --remote --env production --command \
   "UPDATE cohorts SET slug = 'your-slug', name = 'Your Cohort Name' WHERE id = 'cohort_bwsi26'"
-```
-
-Dev is public too, and its database took the same seed, so do the same there:
-
-```sh
-pnpm exec wrangler d1 execute cogportal-db --remote --command \
-  "DELETE FROM leaderboard_selections; DELETE FROM official_attempts; DELETE FROM run_metrics; DELETE FROM run_phases; DELETE FROM runs; DELETE FROM teams;"
 pnpm exec wrangler d1 execute cogportal-db --remote --command \
   "UPDATE cohorts SET slug = 'your-slug', name = 'Your Cohort Name' WHERE id = 'cohort_bwsi26'"
 ```
@@ -235,6 +218,24 @@ pnpm exec wrangler d1 execute cogportal-db-prod --remote --env production --comm
   "SELECT id, slug, name, active FROM cohorts; SELECT count(*) AS teams FROM teams"
 pnpm exec wrangler d1 execute cogportal-db --remote --command \
   "SELECT id, slug, name, active FROM cohorts; SELECT count(*) AS teams FROM teams"
+```
+
+The demo cohort code `VISION26`, the six `cogworks-demo` teams and their
+invented runs live in `apps/portal/scripts/seed-local.sql`. Only
+`pnpm db:seed:local` applies it, always with `--local`, and `pnpm dev` runs it
+for you. A database that applied `0002_seed.sql` before the demo rows moved
+out still holds them, and its join code is still the published `VISION26`;
+wrangler never runs a recorded migration twice, so upgrading changes neither.
+Rotate that code in step 10. If the team count above is not zero on a database
+nobody uses yet, those are the demo rows. These clear every team and run, so
+run each only against a database whose count was not zero and that no course
+uses yet:
+
+```sh
+pnpm exec wrangler d1 execute cogportal-db-prod --remote --env production --command \
+  "DELETE FROM leaderboard_selections; DELETE FROM official_attempts; DELETE FROM run_metrics; DELETE FROM run_phases; DELETE FROM runs; DELETE FROM teams;"
+pnpm exec wrangler d1 execute cogportal-db --remote --command \
+  "DELETE FROM leaderboard_selections; DELETE FROM official_attempts; DELETE FROM run_metrics; DELETE FROM run_phases; DELETE FROM runs; DELETE FROM teams;"
 ```
 
 Leave the `benchmarks` rows alone. Later migrations build on the seed's rows:
@@ -335,8 +336,10 @@ after the Modal gates in `docs/runbooks/gate-1-modal.md` pass. Until
 `RUNNER_SIGNING_SECRET` is set, dispatch answers 501 rather than failing quietly.
 
 Now finish step 8. In each environment, sign in with a login from
-`PLATFORM_OWNER_LOGINS`, open the admin console, and rotate the join code. The
-seeded `VISION26` stops working, and the new code is the one you hand out.
+`PLATFORM_OWNER_LOGINS` and open the admin console. If it shows `VISION26`,
+the database took the older seed and that code is public, so rotate it before
+handing anything out. The code the console shows is the one you hand out;
+rotate it there whenever one leaks.
 
 ## 11. Deploy the bot and point Discord at it
 
