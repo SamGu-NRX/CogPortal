@@ -41,6 +41,19 @@ COURSE_GUILD_ID=""
 # Required only for live team run bubbles. Keep this in .dev.vars locally and
 # set it with `wrangler secret put DISCORD_BOT_TOKEN` in deployed environments.
 DISCORD_BOT_TOKEN=""
+
+# The Discord Activity's OAuth2 secrets, from the same application as the bot
+# above. Without both, /api/activity/* answers 501 and the Activity never opens.
+# DISCORD_CLIENT_ID is deliberately absent: it is not a secret and wrangler.jsonc
+# already supplies it to local dev, so an empty line here would shadow a working
+# value and cause the 501 it looks like it prevents. DISCORD_CLIENT_SECRET is the
+# OAuth2 client secret from the Developer Portal, not the bot token. Set both
+# with `wrangler secret put` per deployed environment; secrets do not copy from
+# staging to production.
+DISCORD_CLIENT_SECRET=""
+# Signs the Activity's own state and session cookies. Any long random string of
+# your own. Changing it ends every Activity session that is currently open.
+ACTIVITY_SESSION_SECRET=""
 PUBLIC_ORIGIN="http://localhost:5173"
 RUNNER_SIGNING_KEY_ID="runner-v1"
 # SECRET. Leave empty unless you are running against real Modal locally; empty
