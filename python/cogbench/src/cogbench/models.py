@@ -123,6 +123,11 @@ class RepositoryState:
     branch: Optional[str] = None
 
 
+#: The commands that write a local report. The portal's LocalReportInputSchema
+#: restates this list, so a new command has to be added on both sides.
+REPORT_COMMANDS = ("test", "run")
+
+
 @dataclass(frozen=True)
 class LocalReport:
     report_id: str
@@ -147,6 +152,12 @@ class LocalReport:
     #: so the length has to survive here or sync would have to measure some
     #: current file to find it, which is the reread this design removes.
     weights_uploaded: Optional[List[Dict[str, Any]]] = None
+    #: The CLI command that produced this report: ``"test"`` scores the small
+    #: smoke-test cases and ``"run"`` the whole public practice set, so their
+    #: numbers answer different questions. ``None`` only for a report written
+    #: before the field existed, which is shown as unrecorded, never guessed.
+    #: The student's machine writes it, so it is self-reported like the rest.
+    command: Optional[str] = None
 
     @classmethod
     def create(
@@ -217,6 +228,9 @@ class LocalReport:
                 None if self.weights_uploaded is None
                 else [dict(entry) for entry in self.weights_uploaded]
             ),
+            # Omitted rather than null for an old report, so the field's
+            # absence is the one way to say "not recorded".
+            **({} if self.command is None else {"command": self.command}),
         }
 
     def to_json(self) -> str:
@@ -306,4 +320,25 @@ class LocalReport:
             output_digest=str(value["outputDigest"]),
             weights_used=[str(item) for item in value.get("weightsUsed", [])],
             weights_uploaded=cls._weights_uploaded(value),
+            command=cls._command(value),
         )
+
+    @staticmethod
+    def _command(value: Dict[str, Any]) -> Optional[str]:
+        """The producing command, or None for a report that predates it.
+
+        Absence is the only legacy form. A value that is present but not one
+        of ours is refused, because reading it as either command would label
+        a number as something it was not.
+        """
+
+        if "command" not in value:
+            return None
+        command = value["command"]
+        if command not in REPORT_COMMANDS:
+            raise ValueError(
+                "command must be one of {}, not {!r}".format(
+                    ", ".join(repr(item) for item in REPORT_COMMANDS), command
+                )
+            )
+        return str(command)

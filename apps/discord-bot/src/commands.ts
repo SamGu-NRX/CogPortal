@@ -359,27 +359,34 @@ async function localView(
   const result = await portal.getLocalReports(guildId, user.id);
   if (!result.linked) return connectView(interaction, portal, guildId, user);
   const fmt = emojiFormatter(interaction.application_id);
-  const lines = result.reports.slice(0, 8).map((report) => {
+  const shown = result.reports.slice(0, 8);
+  const lines = shown.map((report) => {
     const primary = report.metrics.find((metric) => metric.primary);
     const state = report.dirty
       ? "dirty worktree"
       : report.sha
         ? chip(report.sha.slice(0, 7))
         : "no commit";
+    // A test and a run score different case sets, so the number is labeled
+    // with the command that produced it, as on the dashboard.
     return metaLine([
       `${fmt(report.dirty ? "cog_active" : "cog_done")} **${report.author.login}**`,
       state,
+      report.command ? chip(report.command) : "command not recorded",
       primary ? `**${metricValue(primary)}**` : null,
     ]);
   });
   const body = lines.length
     ? lines.join("\n")
     : "No local reports yet. Local practice stays private until someone chooses to share it.";
+  const testNote = shown.some((report) => report.command === "test")
+    ? "\n-# a `test` line scored only the small smoke-test cases; `cogworks run` scores the practice set"
+    : "";
   return componentMessage(
     [
       surface(
         [
-          text(`### ${fmt("cog_notes")} Local field notes\n${body}\n\n-# self-reported, never leaderboard-eligible`),
+          text(`### ${fmt("cog_notes")} Local field notes\n${body}\n\n-# self-reported, never leaderboard-eligible${testNote}`),
           separator(),
           ...navigation("local", interaction, portalOrigin),
         ],

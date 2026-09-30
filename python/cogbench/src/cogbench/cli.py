@@ -211,11 +211,31 @@ def _update_setup(
     print("setup: updated {}".format(", ".join(str(step) for step in accepted)))
 
 
+def _report_kind(report: LocalReport) -> str:
+    """How a report is labeled wherever it is printed.
+
+    A report from before the command was recorded stays plain LOCAL; calling
+    it a run would be a guess.
+    """
+
+    if report.command is None:
+        return "LOCAL"
+    return "LOCAL {}".format(report.command.upper())
+
+
 def _print_report(report: LocalReport, as_json: bool = False) -> None:
     if as_json:
         print(report.to_json())
         return
-    print("{} v{} · LOCAL · SELF-REPORTED".format(report.benchmark_id, report.benchmark_version))
+    print("{} v{} · {} · SELF-REPORTED".format(
+        report.benchmark_id, report.benchmark_version, _report_kind(report)
+    ))
+    if report.command == "test":
+        print(
+            "This smoke test scored only the small test cases. "
+            "`cogworks run --benchmark {}` scores the full practice set."
+            .format(report.benchmark_id)
+        )
     for metric in report.metrics:
         precision = max(metric.precision, 4) if metric.primary else metric.precision
         value = ("{:.%df}" % precision).format(metric.value)
@@ -1100,6 +1120,9 @@ def _run_view(args: argparse.Namespace, project_root: Path, *, project=None, pro
                 weight_names=weight_names,
                 weights=weights,
             )
+            # Stamped from the command itself, the same fact that chose the
+            # cases above, so a smoke-test number is never read as a run.
+            report = replace(report, command=args.command)
             return json.dumps(project.describe(json.loads(report.to_json())))
 
 
@@ -1305,7 +1328,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                         receipt["path"], receipt["size"], destination
                     )
                 )
-            print("Synced {} as LOCAL · SELF-REPORTED.".format(report.report_id))
+            print("Synced {} as {} · SELF-REPORTED.".format(report.report_id, _report_kind(report)))
             return 0
         if args.command == "status":
             portal = _portal(args.portal)

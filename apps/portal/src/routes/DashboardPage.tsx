@@ -6,6 +6,7 @@ import { Code } from "@/components/Code";
 import { ConfirmButton } from "@/components/ConfirmButton";
 import { EmptyState } from "@/components/EmptyState";
 import { LoadingMark, QueryError } from "@/components/Feedback";
+import { LocalReportsTable } from "@/components/LocalReportsTable";
 import { Panel } from "@/components/Panel";
 import { PhaseRail } from "@/components/PhaseRail";
 import { QuotaCells } from "@/components/QuotaCells";
@@ -263,44 +264,7 @@ export function DashboardPage() {
               Synced local reports are temporarily unavailable. Hosted and official results are unaffected.
             </p>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[560px] text-left text-[13px]">
-                <caption className="sr-only">Self-reported local CogBench results</caption>
-                <thead className="border-b border-rule font-mono text-[10.5px] text-ink-faint">
-                  <tr>
-                    <th scope="col" className="pb-2 font-medium">Student</th>
-                    <th scope="col" className="pb-2 font-medium">Commit</th>
-                    <th scope="col" className="pb-2 font-medium">Result</th>
-                    <th scope="col" className="pb-2 text-right font-medium">Synced</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-rule-soft">
-                  {reports.slice(0, 5).map((report) => {
-                    const primary = report.metrics.find((metric) => metric.primary);
-                    return (
-                      <tr key={report.reportId}>
-                        <td className="py-2.5 font-mono text-ink">{report.author.login}</td>
-                        <td className="py-2.5 font-mono text-ink-secondary">
-                          {report.sha ? report.sha.slice(0, 7) : "not recorded"}
-                          {report.dirty ? " · dirty" : ""}
-                        </td>
-                        <td className="py-2.5 text-ink">
-                          {primary ? formatMetricValue(primary) : "no primary metric"}
-                        </td>
-                        <td className="py-2.5 text-right text-ink-faint">
-                          {formatTimeAgo(report.syncedAt)}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-              {reports.length > 5 && (
-                <p className="mt-2 font-mono text-[10.5px] text-ink-faint">
-                  showing the 5 newest of {reports.length} synced reports
-                </p>
-              )}
-            </div>
+            <LocalReportsTable reports={reports} />
           )}
         </Panel>
       )}
