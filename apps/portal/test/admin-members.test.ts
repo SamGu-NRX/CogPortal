@@ -9,7 +9,7 @@ import { drizzle } from "drizzle-orm/d1";
 import { Hono } from "hono";
 import { createAuth } from "../worker/auth/better-auth.ts";
 import type { Database } from "../worker/db/client.ts";
-import { benchmarks, leaderboardSelections, officialAttempts, runMetrics, runs, cohorts, teamMembers, teamTas, teams, users } from "../worker/db/schema.ts";
+import { benchmarks, leaderboardSelections, officialAttempts, platformStaff, runMetrics, runs, cohorts, teamMembers, teamTas, teams, users } from "../worker/db/schema.ts";
 import type { AppEnv, Env } from "../worker/env.ts";
 import { handleError } from "../worker/http/errors.ts";
 import { registerAdminRoutes } from "../worker/routes/admin.ts";
@@ -415,6 +415,85 @@ test("the overview reads every team at once and keeps each team's figures on its
     [empty.members, empty.tas, empty.practiceUsed, empty.officialUsed, empty.published],
     [[], [], 0, 0, null],
   );
+});
+
+test("a TA's overview holds their assigned live teams and nothing from any other team", async () => {
+  // Owners and TAs share one summary read and differ only in the team
+  // predicate they pass, so the owner test above says nothing about the TA's.
+  // Dropping the assignment filter would hand a TA every team's members and
+  // scores; dropping the live-cohort filter would show an old cohort's team.
+  const h = harness();
+  await h.seedCohorts();
+  for (const id of ["team_a", "team_b", "team_c"]) await h.seedTeam(id);
+  await h.seedTeam("team_old", OTHER_COHORT);
+  const ta = await h.signIn("tara", null);
+  const rostered = await h.signIn("rosa", null);
+  for (const login of ["alice", "bob", "carol", "uma"]) await h.signIn(login);
+  await h.db.insert(platformStaff).values({ login: "rosa", displayLogin: "rosa", grantedBy: OWNER, grantedAt: 1 });
+  await h.db.insert(teamMembers).values([
+    { teamId: "team_a", userId: await h.userId("alice"), role: "admin" },
+    { teamId: "team_b", userId: await h.userId("bob"), role: "write" },
+    { teamId: "team_c", userId: await h.userId("carol"), role: "admin" },
+  ]);
+  const taraId = await h.userId("tara");
+  await h.db.insert(teamTas).values([
+    { teamId: "team_a", userId: taraId, assignedAt: 1 },
+    { teamId: "team_b", userId: taraId, assignedAt: 1 },
+    { teamId: "team_old", userId: taraId, assignedAt: 1 },
+    { teamId: "team_c", userId: await h.userId("uma"), assignedAt: 1 },
+  ]);
+  await h.db.insert(benchmarks).values({
+    id: "test_vision", version: 1, title: "Face recognition", contractVersion: "test-v1",
+    entryPointName: "test_vision", module: "vision", summary: "Test", active: true, primaryMetricKey: "accuracy",
+  });
+  const run = (teamId: string, id: string, mode: "practice" | "official") => ({
+    id, teamId, mode, benchmarkId: "test_vision", benchmarkVersion: 1, contractVersion: "test-v1",
+    status: "succeeded" as const, branch: "main", sha: "a".repeat(40), createdAt: 1,
+  });
+  await h.db.insert(runs).values([
+    run("team_a", "a_practice", "practice"),
+    run("team_a", "a_official", "official"),
+    run("team_b", "b_practice_1", "practice"),
+    run("team_b", "b_practice_2", "practice"),
+    run("team_c", "c_practice_1", "practice"),
+    run("team_c", "c_practice_2", "practice"),
+    run("team_c", "c_practice_3", "practice"),
+    run("team_c", "c_official", "official"),
+  ]);
+  const metric = { key: "accuracy", label: "Accuracy", higherIsBetter: true, isPrimary: true, precision: 3 };
+  await h.db.insert(runMetrics).values([
+    { ...metric, runId: "a_official", value: 0.9 },
+    { ...metric, runId: "c_official", value: 0.4 },
+  ]);
+  await h.db.insert(leaderboardSelections).values([
+    { teamId: "team_a", benchmarkId: "test_vision", benchmarkVersion: 1, runId: "a_official", selectedAt: 1 },
+    { teamId: "team_c", benchmarkId: "test_vision", benchmarkVersion: 1, runId: "c_official", selectedAt: 1 },
+  ]);
+
+  const result = await h.call("GET", "/admin/overview", { cookie: ta });
+  assert.equal(result.status, 200);
+  const overview: AdminOverview = result.body;
+  assert.equal(overview.scope, "ta");
+  assert.deepEqual(
+    overview.teams.map((team) => ({
+      id: team.id,
+      members: team.members.map((member) => member.login),
+      tas: team.tas.map((assigned) => assigned.login),
+      practiceUsed: team.practiceUsed,
+      officialUsed: team.officialUsed,
+      score: team.published?.score ?? null,
+    })),
+    [
+      { id: "team_a", members: ["alice"], tas: ["tara"], practiceUsed: 1, officialUsed: 1, score: 0.9 },
+      { id: "team_b", members: ["bob"], tas: ["tara"], practiceUsed: 2, officialUsed: 0, score: null },
+    ],
+  );
+
+  // Rostered staff reach the console without an assignment, and an empty
+  // assignment list must mean no teams rather than every team.
+  const withoutAssignments = await h.call("GET", "/admin/overview", { cookie: rostered });
+  assert.equal(withoutAssignments.status, 200);
+  assert.deepEqual(withoutAssignments.body.teams, []);
 });
 
 /**
