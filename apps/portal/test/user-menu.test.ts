@@ -67,7 +67,7 @@ async function mount(t: TestContext, initialRight: number, initialViewport = 345
   const menu = container.querySelector<HappyElement>('[role="menu"]');
   assert.ok(menu);
   return {
-    window, container, trigger, menu,
+    window, trigger, menu,
     resize: async (nextRight: number, nextViewport = viewport) => {
       right = nextRight;
       viewport = nextViewport;
