@@ -55,6 +55,14 @@ export function SetupPage() {
   );
 }
 
+/**
+ * The setup guide: one page from "you have a team" to "the tool called your
+ * code", as a numbered rail a student works down.
+ *
+ * Every tick is something CogPortal observed. A command reports through the
+ * device you linked, so a box fills because evidence arrived, never because
+ * the page was told to believe something.
+ */
 function SetupGuide({
   team,
   login,
@@ -358,6 +366,8 @@ function SetupGuide({
   );
 }
 
+/* ── Terminal check-off ───────────────────────────────────────────────── */
+
 /**
  * One line, pasted in the same terminal, and the box ticks itself.
  *
@@ -396,6 +406,7 @@ function TerminalCheckoff({
       <p className="text-[12px] text-ink-faint">
         Done here? Run this in the same terminal and the box ticks itself.
       </p>
+      {/* Keep the signed token plain and on one scrollable line. */}
       <CopyBlock
         className="mt-1.5"
         lang="text"

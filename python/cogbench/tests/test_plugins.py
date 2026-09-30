@@ -52,27 +52,67 @@ class PluginDiscoveryTests(unittest.TestCase):
         with self.assertRaisesRegex(PluginError, "More than one"):
             load_plugin("cogworks.submissions.v1", "vision-recognition")
 
+    def test_every_shipped_benchmark_names_the_submodule_this_checkout_pins(self):
+        """The table in plugins.py is a copy, so this reads the originals back.
+
+        The command it produces is what a stuck student pastes, and the CLI is
+        installed as a package with no parent checkout to consult, so the URL
+        and the commit have to be literals in the source. That makes them a
+        second statement of `.gitmodules` and the gitlinks beside it. A
+        submodule bump that misses the table would otherwise hand a student a
+        pip command for a different revision of the benchmark they are being
+        scored against, and the path that prints it is the one a stuck student
+        is already on.
+        """
+
+        from cogbench.environment import BENCHMARK_TRACKS
+
+        urls = {}
+        path = None
+        for line in (ROOT / ".gitmodules").read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if stripped.startswith("path ="):
+                path = stripped.split("=", 1)[1].strip()
+            elif stripped.startswith("url =") and path:
+                urls[path] = stripped.split("=", 1)[1].strip()
+
+        for benchmark, track in BENCHMARK_TRACKS.items():
+            validator = ROOT / "scripts" / "validate_{}_submodule.py".format(track)
+            reviewed = next(
+                line.split("=", 1)[1].strip().strip('"')
+                for line in validator.read_text(encoding="utf-8").splitlines()
+                if line.startswith("REVIEWED_COMMIT")
+            )
+            expected = "git+{}@{}".format(urls["benchmarks/" + track], reviewed)
+            self.assertIn(
+                expected,
+                benchmark_install_command(benchmark),
+                "{} installs a different revision than benchmarks/{} is pinned "
+                "to; move the table in plugins.py with the submodule"
+                .format(benchmark, track),
+            )
+
     def test_every_shipped_benchmark_has_its_pinned_install_command(self):
         expected = {
             "audio-identification": (
                 'python -m pip install "cogworks-week1-audio-benchmark @ '
                 'git+https://github.com/SamGu-NRX/cogworks-week1-audio-benchmark.git'
-                '@b156644aecc810e0b93535e320098f96c39ae04e"'
+                '@4e516f39ffbeefe579e093260b2865eb354c17a7"'
             ),
             "vision-recognition": (
                 'python -m pip install "cogworks-week2-vision-benchmark @ '
                 'git+https://github.com/SamGu-NRX/cogworks-week2-vision-benchmark.git'
-                '@b9055031bf25a18594651d89610f3fbcd7462db8"'
+                '@a3dd948d0c108fabf070b4f159acdecd4d6c3897"'
             ),
             "vision-clustering": (
                 'python -m pip install "cogworks-week2-vision-benchmark @ '
                 'git+https://github.com/SamGu-NRX/cogworks-week2-vision-benchmark.git'
-                '@b9055031bf25a18594651d89610f3fbcd7462db8"'
+                '@a3dd948d0c108fabf070b4f159acdecd4d6c3897"'
             ),
             "language-search": (
                 'python -m pip install "cogworks-week3-language-benchmark @ '
                 'git+https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git'
-                '@6dc63fe8f6af2b3554a21f7707debb138f31ae4e"'
+                '@94c7e64f7e3bf5193be1805b4258f017d044a088"'
             ),
         }
         self.assertEqual(
@@ -100,6 +140,27 @@ class PluginDiscoveryTests(unittest.TestCase):
             "run this again.",
         )
 
+    @patch("cogbench.plugins._entry_points", return_value=[])
+    def test_missing_non_benchmark_plugins_do_not_suggest_a_benchmark_install(self, _entry_points):
+        for group in ("cogworks.submissions.v1", "other.plugins.v1"):
+            with self.subTest(group=group), self.assertRaises(PluginError) as caught:
+                load_plugin(group, "audio-identification")
+            message = str(caught.exception)
+            self.assertIn(group, message)
+            self.assertIn("package that provides", message)
+            self.assertNotIn("benchmark", message)
+            self.assertNotIn("pip install", message)
+
+    @patch("cogbench.plugins._entry_points")
+    def test_missing_non_benchmark_name_lists_its_own_group(self, entry_points):
+        entry_points.return_value = [FakeEntryPoint("available", "module:Adapter", object())]
+        with self.assertRaises(PluginError) as caught:
+            load_plugin("cogworks.submissions.v1", "missing")
+        message = str(caught.exception)
+        self.assertIn("cogworks.submissions.v1", message)
+        self.assertIn("available", message)
+        self.assertNotIn("benchmarks", message)
+
     @patch("cogbench.plugins._entry_points")
     def test_v2_submission_class_is_loaded_as_raw_factory(self, entry_points):
         class Factory:
@@ -113,10 +174,6 @@ class PluginDiscoveryTests(unittest.TestCase):
             load_submission("vision-recognition", "cogworks.submissions.v2"),
             Factory,
         )
-
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 class AMissingBenchmarkReadsLikeAnAnswer(unittest.TestCase):
@@ -160,3 +217,7 @@ class AMissingBenchmarkReadsLikeAnAnswer(unittest.TestCase):
         # installed; both must name the thing asked for and neither may leak
         # the packaging vocabulary.
         self.assertNotIn("Entry-point", message)
+
+
+if __name__ == "__main__":
+    unittest.main()
