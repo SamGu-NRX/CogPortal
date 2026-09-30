@@ -20,7 +20,7 @@ from typing import Any, Dict, List, Optional, Tuple
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "apps/runner-modal/src"))
 sys.path.insert(0, str(Path(__file__).parent))
-from test_prepared_environment import require_benchmark
+from test_prepared_environment import require_registered_benchmark
 from cogworks_runner.prepared_environment import (
     PreparedEnvironmentError, bind_environment, probe,
     validate_observation, validate_prepared_environment,
@@ -66,6 +66,17 @@ def functions(*names, **globals_):
                  **globals_}
     exec(compile(ast.Module(nodes, []), str(SOURCE), "exec"), namespace)
     return namespace
+
+
+class Stream:
+    """A process stream as Modal returns it: bytes, or strict UTF-8 text."""
+
+    def __init__(self, value, text):
+        self.value = value.encode("utf-8") if isinstance(value, str) else value
+        self.text = text
+
+    def read(self):
+        return self.value.decode("utf-8") if self.text else self.value
 
 
 class Store(dict):
@@ -142,7 +153,7 @@ def shape_valid_observation():
 
 class RestoreDependencyGate(unittest.TestCase):
     def test_available_dependency_does_not_hide_a_probe_contract_defect(self):
-        with mock.patch(__name__ + ".require_benchmark"):
+        with mock.patch(__name__ + ".require_registered_benchmark"):
             with mock.patch(__name__ + ".probe", side_effect=PreparedEnvironmentError("real contract defect")):
                 with self.assertRaisesRegex(PreparedEnvironmentError, "real contract defect"):
                     PreparedRestore().observation()
@@ -152,7 +163,7 @@ class PreparedRestore(unittest.TestCase):
     def observation(self):
         # These are real installed modules, not paths or package labels supplied
         # by a student-controlled response. The test lane needs Week 2 installed.
-        require_benchmark("vision-recognition")
+        require_registered_benchmark("vision-recognition")
         return probe("vision-recognition")
 
     def prepare_space(self, observation, fail_probe=False):
@@ -169,7 +180,7 @@ class PreparedRestore(unittest.TestCase):
         class Sandbox:
             filesystem = Files()
 
-            def exec(self, *args):
+            def exec(self, *args, text=True):
                 pristine = "-m" in args
                 events.append("probe" if pristine else "student-install")
                 return types.SimpleNamespace(
@@ -283,6 +294,7 @@ class PreparedRestore(unittest.TestCase):
         self.assertEqual(events[0]["preparedEnvironment"], evidence)
         self.assertEqual(events[0]["preparedEnvironment"]["pythonVersion"], observed["pythonVersion"])
 
+    @mock.patch.dict(os.environ, {"RUNNER_SIGNING_SECRET": "prepared-restore-fixture"})
     def test_missing_snapshot_keeps_provider_restore_failure(self):
         observed = self.observation()
         evidence = bind_environment(job(), observed, "im-deleted", "im-base")
@@ -307,6 +319,7 @@ class PreparedRestore(unittest.TestCase):
         self.assertEqual(caught.exception.phase, "evaluating")
         self.assertTrue(caught.exception.infrastructure)
 
+    @mock.patch.dict(os.environ, {"RUNNER_SIGNING_SECRET": "prepared-restore-fixture"})
     def test_student_exception_cannot_request_platform_compatibility_attribution(self):
         self.observation()
         sys.path.insert(0, str(Path(__file__).parent))
@@ -318,10 +331,11 @@ raise ValueError("my own bug")
 ''')
         self.assertNotEqual(returncode, 0)
         self.assertIn("sandboxContract incompatible", stderr)
-        process = types.SimpleNamespace(returncode=returncode, wait=lambda: None, stderr=io.StringIO(stderr))
         sandbox = types.SimpleNamespace(
             filesystem=types.SimpleNamespace(write_text=lambda *args: None, write_bytes=lambda *args: None),
-            exec=lambda *args: process, terminate=lambda: None,
+            exec=lambda *args, text=True: types.SimpleNamespace(
+                returncode=returncode, wait=lambda: None, stderr=Stream(stderr, text)),
+            terminate=lambda: None,
         )
         space = functions(
             "RunnerFailure", "_evaluate_v2", "_last_error_line", "_fit", "_take_units",
