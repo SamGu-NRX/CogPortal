@@ -8,9 +8,14 @@ do not contain `benchmarks/week2`:
 
 ```bash
 git clone --recurse-submodules <cogportal-repository-url>
+git submodule sync --recursive
 git submodule update --init --recursive
 python scripts/validate_week2_submodule.py
 ```
+
+`git submodule sync` is there because a checkout keeps whichever submodule URL
+it was cloned with, so one made before `benchmarks/week2` changed source keeps
+fetching from the old one.
 
 ## 1. Verify the repository
 
