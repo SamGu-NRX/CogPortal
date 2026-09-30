@@ -182,7 +182,20 @@ export function RunConsole({
   }, [retryOffered]);
   const failureEvent = [...currentEvents].reverse().find((event) => event.code.startsWith("run.failed."));
   const failureReason = snapshot.refusalHeadline || (failureEvent ? EVENT_COPY[failureEvent.code] : null);
-  const visibleEvents = terminal && !historyExpanded ? timelineEvents.slice(-3) : timelineEvents;
+  // A failed run's folded summary ends at its failure: an event recorded
+  // after it (a late completion) belongs in the details, not the summary.
+  let summaryEnd = timelineEvents.length;
+  if (failed) {
+    for (let index = timelineEvents.length - 1; index >= 0; index -= 1) {
+      if (timelineEvents[index]!.code.startsWith("run.failed.")) {
+        summaryEnd = index + 1;
+        break;
+      }
+    }
+  }
+  const visibleEvents = terminal && !historyExpanded
+    ? timelineEvents.slice(0, summaryEnd).slice(-3)
+    : timelineEvents;
   const historyToggle = failed
     ? { open: "Hide details", closed: "Show details" }
     : { open: "Show summary", closed: `Show all ${timelineEvents.length}` };
@@ -217,7 +230,7 @@ export function RunConsole({
     }
   }, [currentEvents.length, currentRunId, snapshot.id, terminal]);
 
-  // Removing the focused log must not strand keyboard focus on the document.
+  // Folding the focused log makes it unfocusable; keep focus on the toggle.
   useLayoutEffect(() => {
     if (failed && !historyExpanded && logFocusedRef.current) {
       historyToggleRef.current?.focus();
@@ -418,7 +431,7 @@ export function RunConsole({
               ))}
             </div>
           )}
-          {(!failed || historyExpanded) && <ul
+          <ul
             ref={logRef}
             onFocus={() => { logFocusedRef.current = true; }}
             onBlur={() => { logFocusedRef.current = false; }}
@@ -435,7 +448,7 @@ export function RunConsole({
             {visibleEvents.length ? visibleEvents.map((event) => <EventLine key={event.eventId} event={event} />) : (
               <li className="px-5 py-12 text-center text-[13px] text-ink-faint">{terminal ? "No structured events were recorded." : "Waiting for the first structured event."}</li>
             )}
-          </ul>}
+          </ul>
           {!terminal && newEvents > 0 && (
             <button
               type="button"
