@@ -1,6 +1,7 @@
 import type { MetricRole } from "@cogworks/contracts/schema";
 import { sql } from "drizzle-orm";
 import {
+  check,
   index,
   integer,
   primaryKey,
@@ -8,6 +9,7 @@ import {
   sqliteTable,
   text,
   uniqueIndex,
+  type AnySQLiteColumn,
 } from "drizzle-orm/sqlite-core";
 
 export const cohorts = sqliteTable("cohorts", {
@@ -268,8 +270,12 @@ export const benchmarks = sqliteTable(
     datasetVersion: text("dataset_version").notNull().default("practice-v1"),
     scorerVersion: text("scorer_version").notNull().default("1"),
     runtimeVersion: text("runtime_version").notNull().default("python-3.11"),
+    sandboxContract: integer("sandbox_contract"),
   },
-  (table) => [primaryKey({ columns: [table.id, table.version] })],
+  (table) => [
+    primaryKey({ columns: [table.id, table.version] }),
+    check("benchmarks_sandbox_contract_positive", sql`${table.sandboxContract} IS NULL OR (typeof(${table.sandboxContract}) = 'integer' AND ${table.sandboxContract} > 0)`),
+  ],
 );
 
 export const benchmarkFamilies = sqliteTable(
@@ -326,6 +332,9 @@ export const runs = sqliteTable("runs", {
   sha: text("sha").notNull(),
   repositoryId: integer("repository_id"),
   parentRunId: text("parent_run_id"),
+  retryOfRunId: text("retry_of_run_id").references((): AnySQLiteColumn => runs.id),
+  /** Original dispatch inputs, including weight digests, for exact-source Retry. */
+  dispatchJobJson: text("dispatch_job_json"),
   attemptNumber: integer("attempt_number"),
   failureCategory: text("failure_category", {
     enum: [
@@ -373,6 +382,9 @@ export const runs = sqliteTable("runs", {
   provider: text("provider", { enum: ["fixture", "modal"] }).notNull().default("fixture"),
   protocolVersion: text("protocol_version").notNull().default("1"),
   preparedArtifactId: text("prepared_artifact_id"),
+  /** Authenticated controller provisioning evidence. Null means unknown, not a
+   * match to the current image or scorer labels. */
+  preparedEnvironmentJson: text("prepared_environment_json"),
   environmentDigest: text("environment_digest"),
   datasetVersion: text("dataset_version").notNull().default("practice-v1"),
   scorerVersion: text("scorer_version").notNull().default("1"),
@@ -381,6 +393,11 @@ export const runs = sqliteTable("runs", {
   lastEventSequence: integer("last_event_sequence").notNull().default(-1),
   surfaceId: text("surface_id"),
 }, (table) => [
+  uniqueIndex("runs_retry_of_unique").on(table.retryOfRunId),
+  // Each mode starts one chain; failed executions can each have one successor.
+  uniqueIndex("runs_surface_mode_unique")
+    .on(table.surfaceId, table.mode)
+    .where(sql`${table.retryOfRunId} IS NULL`),
   // Enforce the quota check across concurrent run starts (migration 0015).
   uniqueIndex("runs_one_active_per_team_benchmark")
     .on(table.teamId, table.benchmarkId)
