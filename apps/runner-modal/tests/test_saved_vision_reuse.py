@@ -10,7 +10,6 @@ import ast
 import contextlib
 import copy
 import hashlib
-import io
 import json
 import os
 import sys
@@ -136,7 +135,7 @@ class SavedVisionReuse(unittest.TestCase):
                 class Sandbox:
                     filesystem = Files()
 
-                    def exec(self, *args):
+                    def exec(self, *args, text=True):
                         test.assertEqual(args, ("python", "/tmp/cog-evaluate.py",
                                                 "vision-recognition", "8192"),
                                          "Reuse must execute evaluation only, never install")
@@ -148,7 +147,7 @@ class SavedVisionReuse(unittest.TestCase):
                         files["/tmp/cog-predictions.json"] = json.dumps(predictions)
                         files["/tmp/cog-student.log"] = ""
                         return types.SimpleNamespace(returncode=0, wait=lambda: None,
-                                                     stderr=io.StringIO(""))
+                                                     stderr=prepared_restore.Stream("", text))
 
                     def terminate(self):
                         calls.append("terminate")
