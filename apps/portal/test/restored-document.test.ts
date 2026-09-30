@@ -4,7 +4,7 @@ import * as React from "react";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Route, Routes } from "react-router";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { onlineManager, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Window } from "happy-dom";
 import type { Session } from "@cogworks/contracts/schema";
 import { RequireStage } from "../src/App.tsx";
@@ -147,7 +147,8 @@ type Return = "bfcache" | "visibility";
 /** A page outside every route guard, like the landing page or the board. */
 const PUBLIC_TEXT = "Standings open when the track is calibrated.";
 
-async function harness(t: test.TestContext, teams: Teams = "shared", path = "/setup") {
+/** `cold` holds the first session read, so the page has painted nobody yet. */
+async function harness(t: test.TestContext, teams: Teams = "shared", path = "/setup", cold = false) {
   const window = new Window({ url: `https://portal.example${path}` });
   const server = portal(teams);
   const globals = {
@@ -247,6 +248,7 @@ async function harness(t: test.TestContext, teams: Teams = "shared", path = "/se
   };
 
   server.signInDirectly("alice");
+  if (cold) server.session("hold");
   await act(async () => root.render(
     React.createElement(QueryClientProvider, { client },
       React.createElement(BrowserRouter, null,
@@ -265,10 +267,12 @@ async function harness(t: test.TestContext, teams: Teams = "shared", path = "/se
     ),
   ));
   await flush();
-  if (path === "/setup") assert.ok(exposed().includes(tokenFor("alice")), "alice's setup command never painted");
-  assert.ok(exposed().includes("Account menu for alice"));
+  if (!cold) {
+    if (path === "/setup") assert.ok(exposed().includes(tokenFor("alice")), "alice's setup command never painted");
+    assert.ok(exposed().includes("Account menu for alice"));
+  }
 
-  return { server, client, container, flush, exposed, watchExposed, operableButtons, assertConcealment, leave, comeBack };
+  return { window, server, client, container, flush, exposed, watchExposed, operableButtons, assertConcealment, leave, comeBack };
 }
 
 for (const kind of ["bfcache", "visibility"] as const) {
@@ -451,6 +455,51 @@ test("a public page keeps its content and offers a retry when the session read f
   assert.ok(!h.exposed().includes("Checking"), "an ordinary return showed as a retry");
   h.server.releaseSession("bob");
   await h.flush();
+});
+
+test("a return while the browser is offline fails with a retry instead of waiting", async (t) => {
+  const h = await harness(t, "shared", "/public");
+  t.after(() => onlineManager.setOnline(true));
+  h.leave("visibility");
+  onlineManager.setOnline(false);
+  h.server.session("fail");
+  await h.comeBack("visibility");
+  assert.deepEqual(h.operableButtons(), ["Try again"], "the read paused instead of failing");
+  assert.ok(h.exposed().includes(PUBLIC_TEXT));
+});
+
+test("a first read the gate retried and lost offers one retry, and it opens the gate", async (t) => {
+  const h = await harness(t, "shared", "/setup", true);
+  h.leave("visibility");
+  h.server.signInDirectly("bob");
+  h.server.session("fail");
+  await h.comeBack("visibility");
+  assert.deepEqual(h.operableButtons(), ["Try again"]);
+
+  h.server.session("answer");
+  // The page's own retry sits in the concealed layer, out of reach.
+  const retry = [...h.container.querySelectorAll("button")]
+    .find((button) => button.textContent === "Try again" && !button.closest("[inert]"))!;
+  await act(async () => retry.click());
+  await h.flush();
+  assert.ok(h.exposed().includes(tokenFor("bob")));
+  assert.equal(h.container.querySelector("[inert]"), null, "the page retry left the gate closed");
+});
+
+test("an account menu left open is closed when the page is concealed", async (t) => {
+  const h = await harness(t, "shared", "/public");
+  const trigger = h.container.querySelector<HTMLButtonElement>('header [aria-haspopup="menu"]')!;
+  await act(async () => trigger.click());
+  await h.flush();
+  assert.equal(trigger.getAttribute("aria-expanded"), "true");
+
+  h.leave("visibility");
+  h.server.session("fail");
+  await h.comeBack("visibility");
+  const key = new h.window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true });
+  h.window.document.dispatchEvent(key);
+  assert.equal(key.defaultPrevented, false, "the concealed menu still swallowed the arrow key");
+  assert.equal(trigger.getAttribute("aria-expanded"), "false");
 });
 
 test("a session read sent as alice before the switch is not taken as the answer", async (t) => {
