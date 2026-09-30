@@ -1,5 +1,5 @@
-import { useEffect } from "react";
 import {
+  queryOptions,
   useMutation,
   useQuery,
   useQueryClient,
@@ -21,60 +21,15 @@ import { CHECKLIST_MACHINE_STEPS } from "./setup-progress";
  *  do not reach for this constant to scope a run, a quota, or setup copy. */
 export const DEFAULT_BENCHMARK = "vision-recognition";
 
+/** Shared with the restore gate, which reads the same entry fresh. */
+export const sessionQuery = queryOptions({
+  queryKey: ["session"],
+  queryFn: api.session,
+  staleTime: 60_000,
+});
+
 export function useSession() {
-  return useQuery({
-    queryKey: ["session"],
-    queryFn: api.session,
-    staleTime: 60_000,
-  });
-}
-
-/**
- * Whether a restored document has to throw away what it is holding.
- *
- * Signing out invalidates the cache of the document that signed out. The back
- * button can hand back a *different* document from the browser's back/forward
- * cache, complete with the account that was signed in when it was put away,
- * and nothing invalidates that one: `refetchOnWindowFocus` is off and the
- * session is fresh for 60 seconds by its own clock, which did not run while
- * the page was frozen. Measured twice in Helium: sign out, sign in as someone
- * else, press Back, and the previous account's name is on the page. A reload
- * corrects it, which is the tell that only the cache is stale.
- *
- * `persisted` is the whole condition. An ordinary load already fetches on
- * mount, so invalidating there would only duplicate that request.
- *
- * Split out from the listener so it can be tested without a DOM.
- */
-export function shouldRevalidateRestoredDocument(event: { persisted: boolean }): boolean {
-  return event.persisted;
-}
-
-/** The listener itself, so a test can exercise the decision and the call
- *  together rather than asserting that a boolean equals itself. */
-export function restoredDocumentListener(
-  invalidate: () => void,
-): (event: { persisted: boolean }) => void {
-  return (event) => {
-    if (!shouldRevalidateRestoredDocument(event)) return;
-    invalidate();
-  };
-}
-
-/**
- * Drop everything a restored document is holding, so the page it shows belongs
- * to whoever is signed in now. Session-gated data is all of it: the account,
- * the team, the cohort and every route guard that reads them.
- */
-export function useRevalidateOnRestore(): void {
-  const qc = useQueryClient();
-  useEffect(() => {
-    const onPageShow = restoredDocumentListener(() => {
-      void qc.invalidateQueries();
-    });
-    window.addEventListener("pageshow", onPageShow);
-    return () => window.removeEventListener("pageshow", onPageShow);
-  }, [qc]);
+  return useQuery(sessionQuery);
 }
 
 export function useBenchmarks() {
