@@ -87,10 +87,10 @@ takes the same time as one without.
 
 ## Trained weights
 
-R2 is enabled on the Cloudflare account and staging binds `ARTIFACTS` to the
-private bucket `cogportal-artifacts-dev`. Production's `cogportal-artifacts` is
-deferred until hosted upload is accepted on staging; see docs/runbooks/
-platform.md, "Gate R2". Each uploaded file is capped at 100 MiB because Workers
+R2 is enabled on the Cloudflare account and each environment binds `ARTIFACTS`
+to its own private bucket: staging to `cogportal-artifacts-dev`, production to
+`cogportal-artifacts-prod`. They are never the same bucket, because weights are
+addressed by repository and commit; see docs/runbooks/platform.md, "Gate R2". Each uploaded file is capped at 100 MiB because Workers
 limits request bodies to 100 MB on Free and Pro plans, and this account's plan
 is not established. A hosted run builds its weight manifest from the newest
 synced report for that repository and commit.
