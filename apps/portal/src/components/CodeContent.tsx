@@ -37,8 +37,12 @@ function loadHighlighter(): Promise<Highlight> {
       langs: [bash.default, toml.default, python.default],
       engine: createJavaScriptRegexEngine(),
     });
+    // Shiki stops tokenizing a line after 500 ms of wall time by default and
+    // paints the rest in one colour. Every line here is a short command the
+    // portal writes, so there is no runaway line to guard against, and a line
+    // that runs past the cutoff should highlight late but whole.
     return (code, lang, focusable) =>
-      h.codeToHtml(code, { lang, theme: "cogportal-paper", tabindex: focusable ? "0" : false });
+      h.codeToHtml(code, { lang, theme: "cogportal-paper", tabindex: focusable ? "0" : false, tokenizeTimeLimit: 0 });
   });
   return highlighterPromise;
 }
