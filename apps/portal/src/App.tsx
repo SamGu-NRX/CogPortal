@@ -52,8 +52,16 @@ export function RequireStage({
   if (!session) {
     // A failed session read with nothing cached would otherwise be an
     // unresolvable loading mark. A warm tab still has data and falls
-    // through to the stage checks below.
-    if (isError) return <QueryError error={error} retry={() => void refetch()} />;
+    // through to the stage checks below. The error sits under the restore
+    // gate, because a read the gate retried and lost is the gate's failure,
+    // and only the gate's retry reopens it.
+    if (isError) {
+      return (
+        <Concealed status className="flex flex-1 flex-col">
+          <QueryError error={error} retry={() => void refetch()} />
+        </Concealed>
+      );
+    }
     return <LoadingMark />;
   }
 
@@ -76,7 +84,11 @@ export function RequireStage({
 export function RequireStaff({ children }: { children: ReactNode }) {
   const { data: session, isPending, isError, error, refetch } = useSession();
   if (isError && !session) {
-    return <QueryError error={error} retry={() => void refetch()} />;
+    return (
+      <Concealed status className="flex flex-1 flex-col">
+        <QueryError error={error} retry={() => void refetch()} />
+      </Concealed>
+    );
   }
   if (isPending || !session) return <LoadingMark />;
   if (!session.user) return <Navigate to="/signin" replace />;

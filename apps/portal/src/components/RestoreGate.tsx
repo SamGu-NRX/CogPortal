@@ -93,7 +93,10 @@ export function RestoreGate({ children }: { children: ReactNode }) {
     await qc.cancelQueries({ queryKey: sessionQuery.queryKey, exact: true });
     let session: Session;
     try {
-      session = await qc.fetchQuery({ ...sessionQuery, staleTime: 0 });
+      // "always" because the default pauses a read while the browser reports
+      // itself offline, which would hold the gate on its loading mark with
+      // no reason given and no retry. Failing shows both.
+      session = await qc.fetchQuery({ ...sessionQuery, staleTime: 0, networkMode: "always" });
     } catch (error) {
       if (mine !== attempt.current) return;
       running.current = false;

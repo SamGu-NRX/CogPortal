@@ -113,16 +113,18 @@ async function renderComplete(t: test.TestContext, byHand: string[]) {
   ));
   const panel = [...container.querySelectorAll("section")].find((section) => section.textContent?.includes("SETUP COMPLETE"));
   assert.ok(panel, "the completion panel did not render");
-  return panel.textContent ?? "";
+  return { text: panel.textContent ?? "", verificationGreen: panel.classList.contains("bg-verify-wash") };
 }
 
 test("a setup the portal observed end to end says it checks out", async (t) => {
-  const text = await renderComplete(t, []);
+  const { text, verificationGreen } = await renderComplete(t, []);
   assert.match(text, /Everything the portal can verify checks out\./);
+  assert.ok(verificationGreen);
 });
 
 test("a setup finished with check-offs does not claim the portal verified it", async (t) => {
-  const text = await renderComplete(t, ["clone", "environment"]);
+  const { text, verificationGreen } = await renderComplete(t, ["clone", "environment"]);
   assert.doesNotMatch(text, /verify checks out/);
+  assert.ok(!verificationGreen, "self-reported steps were coloured as verified");
   assert.match(text, /checked off are your own report rather than something the portal saw/);
 });
