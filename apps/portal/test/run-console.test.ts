@@ -375,3 +375,13 @@ test("a run from another repository gets one sentence, not two", () => {
   assert.match(html, /no longer connected to/);
   assert.doesNotMatch(html, /matched to the connected repository/);
 });
+
+test("a failed run's folded summary still shows its last events, not an empty box", () => {
+  const html = renderToStaticMarkup(React.createElement(RunConsole, {
+    snapshot: snapshot("failed"),
+    streamState: "closed",
+  }));
+  assert.match(html, /Run summary/);
+  assert.match(html, /Show details/);
+  assert.equal((html.match(/class="run-event/g) ?? []).length, 3);
+});
