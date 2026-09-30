@@ -1230,14 +1230,20 @@ class Handed:
 
         return tuple(self._bundle._names)
 
-    def pool(self, local: Optional[Dict[str, Any]] = None) -> _Pool:
+    def pool(
+        self,
+        local: Optional[Dict[str, Any]] = None,
+        deferred: Optional[Mapping[str, Callable[[], Any]]] = None,
+    ) -> _Pool:
         """The side inputs a week's own fixture hook may read.
 
         ``local`` is what their code produced for this trial, which overlays
         the benchmark's names exactly as `_resolve_branches` overlays them.
+        ``deferred`` is what their code would produce if asked, one maker per
+        name, called only when that name is read.
         """
 
-        return _Pool(self, local, self._bundle._names)
+        return _Pool(self, local, self._bundle._names, deferred)
 
 
 class _Pool(MutableMapping):
@@ -1261,15 +1267,21 @@ class _Pool(MutableMapping):
     Writes, deletes and `copy` keep to this mapping. They do not reach the
     trial's reconstruction, which is shared, so a week that rearranges the
     pool it was given changes its own view and nothing else.
+
+    An earlier branch's output is offered the same way. Renewal holds a maker
+    for it rather than the value, because running that branch calls their code
+    and a branch whose output nothing reads must not run: if it raises on this
+    reading, the run would fail over a value it never used.
     """
 
-    __slots__ = ("_handed", "_local", "_names", "_gone")
+    __slots__ = ("_handed", "_local", "_names", "_gone", "_deferred")
 
     def __init__(
         self,
         handed: "Handed",
         local: Optional[Dict[str, Any]] = None,
         names: Sequence[str] = (),
+        deferred: Optional[Mapping[str, Callable[[], Any]]] = None,
     ) -> None:
         #: Shared, so every value this hands out comes from the same
         #: reconstruction as the rest of the trial.
@@ -1279,13 +1291,15 @@ class _Pool(MutableMapping):
         #: The benchmark's own names, in the order they were snapshotted.
         self._names = list(names)
         self._gone: Set[str] = set()
+        #: Their products not made yet. The maker keeps what it made, so every
+        #: view of this trial reads one value.
+        self._deferred: Dict[str, Callable[[], Any]] = dict(deferred or {})
 
     def _keys(self) -> List[str]:
         order = [name for name in self._names if name not in self._gone]
-        order.extend(
-            name for name in self._local
-            if name not in self._gone and name not in self._names
-        )
+        for name in list(self._local) + list(self._deferred):
+            if name not in self._gone and name not in order:
+                order.append(name)
         return order
 
     def __iter__(self) -> Iterator[str]:
@@ -1295,13 +1309,17 @@ class _Pool(MutableMapping):
         return len(self._keys())
 
     def __contains__(self, key: Any) -> bool:
-        return key not in self._gone and (key in self._local or key in self._names)
+        return key not in self._gone and (
+            key in self._local or key in self._deferred or key in self._names
+        )
 
     def __getitem__(self, key: str) -> Any:
         if key in self._gone:
             raise KeyError(key)
         if key in self._local:
             return self._local[key]
+        if key in self._deferred:
+            return self._deferred[key]()
         if key in self._names:
             return self._handed.extra(key)
         raise KeyError(key)
@@ -1329,7 +1347,7 @@ class _Pool(MutableMapping):
 
         # The constructor takes its own `dict` of the overlay and its own
         # `list` of the names; the removed set is made again here.
-        made = _Pool(self._handed, self._local, self._names)
+        made = _Pool(self._handed, self._local, self._names, self._deferred)
         made._gone = set(self._gone)
         return made
 
