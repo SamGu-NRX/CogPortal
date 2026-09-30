@@ -98,12 +98,26 @@ def decode_payload(payload: bytes) -> Tuple[str, bool, List[Any]]:
     # `checks.validate_rankings` does not reject. Local and hosted disagreed
     # silently, which is the one outcome this platform must never produce.
     #
-    # `np.asarray` returns the same object when the dtype already matches, and
-    # `np.load` gives float32 here, so the retrieval and search cases share one
-    # array as they do locally.
+    # Sharing stops at the component boundary, again as `materialize_cases`
+    # does: search works on a copy, because nothing in the contract asks a
+    # submission's `prepare_database` to leave the pool alone and the retrieval
+    # rungs are ranked after it runs. One array across both components let an
+    # in-place prepare move all three rewritten retrieval scores.
     pool_image_ids = [int(value) for value in metadata["pool_image_ids"]]
     pool_descriptors = np.asarray(descriptors, dtype=np.float32)
+    search_descriptors = pool_descriptors.copy()
 
+    from language_search_benchmark import perturb
+
+    # Same kinds, same rungs, same order as `datasets.materialize_cases`. The
+    # controller scores its own copy of the tier against what this returns, by
+    # position, so the two lists agreeing is the whole contract.
+    #
+    # The rung queries are regenerated here rather than shipped: each rewrite
+    # is a pure function of the caption and its position, so the sandbox
+    # derives byte-identical queries from what it already has, and the payload
+    # does not grow by one full query list per rung.
+    rewrites = [rung for rung in perturb.RUNGS if rung != "verbatim"]
     cases: List[Any] = [
         TextCase(
             kind="text",
@@ -118,27 +132,41 @@ def decode_payload(payload: bytes) -> Tuple[str, bool, List[Any]]:
             gold_rows=None,
             tie_break_seed=seed,
         ),
+        SearchCase(
+            kind="search",
+            queries=perturb.rewrite_all(queries, "verbatim"),
+            image_ids=pool_image_ids,
+            descriptors=search_descriptors,
+            gold_image_ids=None,
+            k=search_k,
+            tie_break_seed=seed,
+            rung="verbatim",
+        ),
     ]
-
-    # The rung queries are regenerated here rather than shipped. Each rewrite
-    # is a pure function of the caption and its position, so the sandbox
-    # derives byte-identical queries from what it already has, and the payload
-    # does not grow by one full query list per rung.
-    from language_search_benchmark import perturb
-
-    for rung in perturb.RUNGS:
-        cases.append(
-            SearchCase(
-                kind="search",
-                queries=perturb.rewrite_all(queries, rung),
-                image_ids=pool_image_ids,
-                descriptors=pool_descriptors,
-                gold_image_ids=None,
-                k=search_k,
-                tie_break_seed=seed,
-                rung=rung,
-            )
+    cases += [
+        RetrievalCase(
+            kind="retrieval",
+            queries=perturb.rewrite_all(queries, rung),
+            descriptors=pool_descriptors,
+            gold_rows=None,
+            tie_break_seed=seed,
+            rung=rung,
         )
+        for rung in rewrites
+    ]
+    cases += [
+        SearchCase(
+            kind="search",
+            queries=perturb.rewrite_all(queries, rung),
+            image_ids=pool_image_ids,
+            descriptors=search_descriptors,
+            gold_image_ids=None,
+            k=search_k,
+            tie_break_seed=seed,
+            rung=rung,
+        )
+        for rung in rewrites
+    ]
     return benchmark_id, bool(metadata["showcase"]), cases
 
 
@@ -181,4 +209,12 @@ def attach_gold(cases: Sequence[Any], gold: Dict[str, Sequence[int]]) -> List[An
         replace(text, group_rows=group_rows),
         replace(retrieval, gold_rows=gold_rows),
         replace(search, gold_image_ids=gold_ids),
-    ] + [replace(case, gold_image_ids=gold_ids) for case in rungs]
+    ] + [
+        # A retrieval rung is ranked on the controller, so its answer is a pool
+        # row; a search rung is ranked by the submission, so its answer is an
+        # image id. Different fields on different dataclasses.
+        replace(case, gold_rows=gold_rows)
+        if getattr(case, "kind", "") == "retrieval"
+        else replace(case, gold_image_ids=gold_ids)
+        for case in rungs
+    ]
