@@ -10,7 +10,7 @@ import {
   useState,
 } from "react";
 import { flushSync } from "react-dom";
-import { useQueryClient } from "@tanstack/react-query";
+import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import type { Session } from "@cogworks/contracts/schema";
 import { sessionQuery } from "@/lib/queries";
 import { LoadingMark, QueryError } from "./Feedback";
@@ -23,6 +23,22 @@ export function sameAccount(before: Session | undefined, after: Session): boolea
     (before.user?.login ?? null) === (after.user?.login ?? null) &&
     (before.team?.id ?? null) === (after.team?.id ?? null)
   );
+}
+
+/** Resolves once no mutation is pending. A mutation sent before the switch
+ *  still runs its onSuccess, which can write the previous account's answer
+ *  into a shared cache entry, so the cache is cleared only after that. */
+function mutationsSettled(qc: QueryClient): Promise<void> {
+  const cache = qc.getMutationCache();
+  const pending = () => cache.getAll().some((mutation) => mutation.state.status === "pending");
+  if (!pending()) return Promise.resolve();
+  return new Promise((resolve) => {
+    const unsubscribe = cache.subscribe(() => {
+      if (pending()) return;
+      unsubscribe();
+      resolve();
+    });
+  });
 }
 
 type Gate = { state: "open" } | { state: "closed" } | { state: "failed"; error: unknown };
@@ -54,6 +70,9 @@ export function RestoreGate({ children }: { children: ReactNode }) {
   // cached session rather than rejecting, so this is load-bearing.
   const attempt = useRef(0);
   const running = useRef(false);
+  // Set by a back/forward-cache restore, whose cached answers may be of any
+  // age; a tab that was only hidden keeps its own freshness rules.
+  const restored = useRef(false);
 
   const check = useCallback(async () => {
     const mine = ++attempt.current;
@@ -72,12 +91,18 @@ export function RestoreGate({ children }: { children: ReactNode }) {
       return;
     }
     if (mine !== attempt.current) return;
-    running.current = false;
+    const notSession = { predicate: (query: { queryKey: readonly unknown[] }) => query.queryKey[0] !== "session" };
     if (!sameAccount(paintedFor.current, session)) {
+      await mutationsSettled(qc);
+      if (mine !== attempt.current) return;
       // Removing a query also drops a response still on the wire for it.
-      qc.removeQueries({ predicate: (query) => query.queryKey[0] !== "session" });
+      qc.removeQueries(notSession);
       setTree((n) => n + 1);
+    } else if (restored.current) {
+      void qc.invalidateQueries(notSession);
     }
+    restored.current = false;
+    running.current = false;
     open.current = true;
     setGate({ state: "open" });
   }, [qc]);
@@ -110,7 +135,9 @@ export function RestoreGate({ children }: { children: ReactNode }) {
       if (event.persisted) close();
     };
     const onPageShow = (event: PageTransitionEvent) => {
-      if (event.persisted) reopen();
+      if (!event.persisted) return;
+      restored.current = true;
+      reopen();
     };
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("pagehide", onPageHide);
@@ -152,6 +179,12 @@ export function RestoreGate({ children }: { children: ReactNode }) {
       <Fragment key={tree}>{children}</Fragment>
     </GateContext.Provider>
   );
+}
+
+/** Whether the account on screen is known to be the one signed in now. For
+ *  account-specific marks on pages that are otherwise public. */
+export function useAccountRevealed(): boolean {
+  return useContext(GateContext).gate.state === "open";
 }
 
 /**
