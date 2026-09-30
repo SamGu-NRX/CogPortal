@@ -53,6 +53,8 @@ export async function getLeaderboardReadModel(
       and(
         eq(leaderboardSelections.benchmarkId, benchmark.id),
         eq(leaderboardSelections.benchmarkVersion, benchmark.version),
+        // Historical selections stay stored, but different scorers do not rank together.
+        eq(runs.scorerVersion, benchmark.scorerVersion),
       ),
     );
   const metrics = selected.length
@@ -131,7 +133,15 @@ export async function getFamilyLeaderboardReadModel(
     .select({ selection: leaderboardSelections, run: runs, team: teams })
     .from(leaderboardSelections)
     .innerJoin(runs, eq(leaderboardSelections.runId, runs.id))
-    .innerJoin(teams, eq(leaderboardSelections.teamId, teams.id));
+    .innerJoin(teams, eq(leaderboardSelections.teamId, teams.id))
+    .innerJoin(
+      benchmarks,
+      and(
+        eq(runs.benchmarkId, benchmarks.id),
+        eq(runs.benchmarkVersion, benchmarks.version),
+        eq(runs.scorerVersion, benchmarks.scorerVersion),
+      ),
+    );
   const relevant = selected.filter((row) =>
     canPublishOfficialRun(row.run) && components.some(
       (component) =>
