@@ -9,22 +9,24 @@ from unittest.mock import patch
 
 
 SOURCE = Path(__file__).resolve().parents[1] / "src/cogworks_runner/modal_app.py"
+sys.path.insert(0, str(SOURCE.parents[1]))
+
+from cogworks_runner.failure import RunnerFailure
 
 
 def controller_contract():
     # Compile the actual guard without importing Modal or constructing its images.
     module = ast.parse(SOURCE.read_text(encoding="utf-8"))
-    names = {"RunnerFailure", "_load_benchmark"}
     definitions = [
         node for node in module.body
-        if isinstance(node, (ast.ClassDef, ast.FunctionDef)) and node.name in names
+        if isinstance(node, ast.FunctionDef) and node.name == "_load_benchmark"
     ]
-    assert {node.name for node in definitions} == names
-    namespace = {}
+    assert len(definitions) == 1
+    namespace = {"RunnerFailure": RunnerFailure}
     future = ast.parse("from __future__ import annotations").body
     source = ast.Module(body=future + definitions, type_ignores=[])
     exec(compile(source, str(SOURCE), "exec"), namespace)
-    return namespace["_load_benchmark"], namespace["RunnerFailure"]
+    return namespace["_load_benchmark"], RunnerFailure
 
 
 class ScorerContractTests(unittest.TestCase):
