@@ -19,6 +19,7 @@ import sys
 import tempfile
 import unittest
 from contextlib import redirect_stdout
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -122,6 +123,40 @@ class CheckAndRunAgree(unittest.TestCase):
         self.assertIsNotNone(scoreable.factory)
         self.assertEqual(adapter()[0], "discovered")
 
+    def test_a_missing_declaration_still_searches_and_clears_its_missing_file_error(self):
+        cli._discover = lambda *a, **k: (_Ready(), None, None)
+        scoreable = cli._scoreable('fixture', _Discoverable(), self.tmp, as_json=True)
+        self.assertEqual(scoreable.source, 'discovery')
+        self.assertIsNone(scoreable.declared_error)
+
+    def test_a_broken_declaration_does_not_fall_back_to_discovery(self):
+        (self.tmp / 'submission.py').write_text('def create_submission(:\n')
+        cli._discover = lambda *a, **k: self.fail('broken declaration must stop discovery')
+        scoreable = cli._scoreable('fixture', _Discoverable(), self.tmp, as_json=True)
+        self.assertIsNone(scoreable.factory)
+        self.assertEqual(scoreable.declared_source, 'file')
+        self.assertIn('SyntaxError', scoreable.declared_error)
+        benchmark = _Discoverable()
+        benchmark.cache_status = lambda tier: SimpleNamespace(ready=True, path=self.tmp, message='')
+        with patch.object(cli, 'plugin_names', return_value=['fixture']), \
+             patch.object(cli, 'load_benchmark', return_value=benchmark), \
+             patch.object(cli, 'model_cache_status', return_value={'ready': True}), \
+             patch.object(isolate, '_isolation_backend', return_value=None), \
+             redirect_stdout(io.StringIO()) as output:
+            code = cli._check('fixture', False, self.tmp)
+        self.assertEqual(code, 2)
+        self.assertIn('SyntaxError', output.getvalue())
+        self.assertIn('Fix the error in that file', output.getvalue())
+        self.assertNotIn('taking the interpreter down', output.getvalue())
+
+    def test_discovery_failure_keeps_the_specific_reason(self):
+        with patch.object(cli, 'from_spec', side_effect=RuntimeError('fixture preparation failed')):
+            submission, survey, unavailable = cli._discover(
+                'fixture', self.tmp, True, spec=object())
+        self.assertIsNone(submission)
+        self.assertIsNone(survey)
+        self.assertEqual(unavailable, 'RuntimeError: fixture preparation failed')
+
     def test_a_declared_file_is_scored_without_searching(self):
         cli.resolve_submission = lambda *a, **k: ("theirs", "file", "submission.py")
         cli._discover = lambda *a, **k: self.fail("a declaration ends the question")
@@ -161,7 +196,12 @@ class ReadingCannotTakeTheCommandDown(unittest.TestCase):
 
     def test_the_reading_happens_somewhere_else(self):
         parent = os.getpid()
-        cli._check_view = lambda *a, **k: {"pid": os.getpid(), "report": None}
+        # A complete view plus the pid this test is about: the boundary
+        # rejects one missing the keys `_check` reads.
+        cli._check_view = lambda *a, **k: dict(
+            {key: None for key in cli._CHECK_VIEW_KEYS},
+            ready=False, pid=os.getpid(),
+        )
 
         view, status, _detail = cli._read_repository("b", self.tmp, True)
 
@@ -188,22 +228,38 @@ class ReadingCannotTakeTheCommandDown(unittest.TestCase):
             code = cli._check("audio-identification", False, self.tmp)
 
         self.assertEqual(code, 2)
-        self.assertIn("ended the process before it finished", stdout.getvalue())
+        self.assertIn("Could not finish checking your repository", stdout.getvalue())
 
 
 @unittest.skipUnless(hasattr(os, "fork"), "no fork, so nothing to isolate")
 class ScoredRunIsolation(unittest.TestCase):
     def setUp(self):
+        self.live_runs = []
         platform_patch = patch.object(isolate, "_isolation_backend", side_effect=lambda: isolate.run_isolated)
         platform_patch.start()
         self.addCleanup(platform_patch.stop)
         self.tmp = Path(tempfile.mkdtemp()).resolve()
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
 
+    def _new_live_run(self, *args):
+        live = cli._LiveRun("https://fixture.invalid", "token", "session")
+        self.live_runs.append(live)
+        return live
+
     def _main(self, command="run", *flags):
         stdout = io.StringIO()
-        with patch.object(cli.Path, "cwd", return_value=self.tmp), redirect_stdout(stdout):
-            code = cli.main([command, "--benchmark", "fixture", *flags])
+        previous_cwd = Path.cwd()
+        try:
+            os.chdir(str(self.tmp))
+            with redirect_stdout(stdout):
+                code = cli.main([command, "--benchmark", "fixture", *flags])
+        finally:
+            os.chdir(str(previous_cwd))
+            # Keep mocked HTTP active until the terminal fallback retires.
+            for live in self.live_runs:
+                live._sender.join(timeout=1)
+                live._heartbeat.join(timeout=1)
+                self.assertFalse(live._sender.is_alive())
         return code, stdout.getvalue()
 
     def _report(self, **kwargs):
@@ -222,7 +278,11 @@ class ScoredRunIsolation(unittest.TestCase):
 
         def resolve(*args, **kwargs):
             self.assertNotEqual(os.getpid(), parent)
-            self.assertEqual(args[2], self.tmp)
+            copied = args[2]
+            self.assertNotEqual(copied, self.tmp)
+            self.assertTrue(copied.is_dir())
+            self.assertEqual(kwargs['project'].execution, copied)
+            self.assertEqual(kwargs['project'].original, self.tmp)
             return lambda: "unpicklable adapter"
 
         def execute(benchmark, adapter, root, **kwargs):
@@ -292,7 +352,7 @@ class ScoredRunIsolation(unittest.TestCase):
         self.assertIsNone(seen["timeout_seconds"], "no wall clock on a scored run")
         self.assertIsNone(seen["memory_bytes"], "no ceiling on a scored run")
 
-    def test_live_worker_sends_progress_and_a_terminal_event_from_the_child(self):
+    def test_parent_sends_child_progress_and_terminal_event(self):
         parent = os.getpid()
         events = self.tmp / "live-events.json"
 
@@ -300,24 +360,24 @@ class ScoredRunIsolation(unittest.TestCase):
             events.write_text(json.dumps({"pid": os.getpid(), "events": history}))
 
         def execute(*args, **kwargs):
+            self.assertNotEqual(os.getpid(), parent)
             kwargs["progress"]("evaluating", 1, 1)
             if fail:
                 raise cli.ContractError("adapter returned the wrong shape")
-            return self._report()
+            return replace(self._report(), diagnostics=['loaded {}'.format(os.getcwd())])
 
         for fail in (False, True):
             with self.subTest(fail=fail), \
-                    patch.object(cli, "load_benchmark", return_value=object()), \
+                    patch.object(cli, "load_benchmark", return_value=SimpleNamespace(benchmark_id="fixture", benchmark_version=1)), \
                     patch.object(cli, "_submission_for", return_value=lambda: None), \
-                    patch.object(cli, "_start_live_run", side_effect=lambda *args:
-                                 cli._LiveRun("https://fixture.invalid", "token", "session")), \
+                    patch.object(cli, "_start_live_run", side_effect=self._new_live_run), \
                     patch.object(cli, "send_local_run_event"), \
                     patch.object(cli, "send_local_run_event_batch", side_effect=deliver_batch), \
                     patch.object(cli, "execute", side_effect=execute):
                 code, text = self._main("run", "--live", "--json")
                 self.assertEqual(code, 2 if fail else 0, text)
                 sent = json.loads(events.read_text())
-                self.assertNotEqual(sent["pid"], parent)
+                self.assertEqual(sent["pid"], parent)
                 self.assertEqual([event["type"] for event in sent["events"]],
                                  ["progress", "progress", "failed" if fail else "completed"])
                 self.assertEqual(sent["events"][1]["progress"]["current"], 1)
@@ -325,6 +385,131 @@ class ScoredRunIsolation(unittest.TestCase):
                     self.assertEqual(sent["events"][-1]["code"], "run.failed.contract")
                 else:
                     self.assertEqual(sent["events"][-1]["report"]["benchmarkId"], "fixture")
+                    self.assertEqual(sent["events"][-1]["report"]["diagnostics"],
+                                     json.loads(text)["diagnostics"])
+                    self.assertNotIn('cogworks-execution-', str(sent["events"][-1]["report"]))
+
+    def test_live_raised_classification_recognizes_only_exact_type_prefixes(self):
+        cases = ((isolate.RAISED, "ContractError: bad shape", "contract"),
+                 (isolate.RAISED, "MemoryError: allocation failed", "memory"),
+                 (isolate.RAISED, "TimeoutError: too slow", "timeout"),
+                 (isolate.RAISED, "RuntimeError: ContractError: bad shape", "runtime"),
+                 (isolate.RAISED, "ContractErrorExtra: bad shape", "runtime"),
+                 (isolate.RAISED, "ContractError", "runtime"),
+                 (CRASHED, "MemoryError: not a raised envelope", "runtime"),
+                 (isolate.TIMED_OUT, "wall clock expired", "timeout"))
+        for status, detail, category in cases:
+            with self.subTest(status=status, detail=detail), \
+                    patch.object(cli, "_live_benchmark", return_value={"benchmark_id": "fixture", "benchmark_version": 1}), \
+                    patch.object(cli, "_start_live_run", side_effect=self._new_live_run), \
+                    patch.object(cli, "_local_operation", return_value=Outcome(status, detail=detail)), \
+                    patch.object(cli, "send_local_run_event"), \
+                    patch.object(cli, "send_local_run_event_batch") as batch:
+                code, text = self._main("run", "--live", "--json")
+                self.assertEqual(code, 2, text)
+                terminal = batch.call_args.args[3][-1]
+                self.assertEqual(terminal["code"], "run.failed." + category)
+                self.assertNotIn("report", terminal)
+
+    def test_live_identity_import_is_isolated_before_a_session_exists(self):
+        with tempfile.TemporaryDirectory() as installed:
+            installed = Path(installed)
+            metadata = installed / "live_identity_fixture-1.0.dist-info"
+            metadata.mkdir()
+            (metadata / "METADATA").write_text("Name: live-identity-fixture\nVersion: 1.0\n")
+            (metadata / "entry_points.txt").write_text(
+                "[cogworks.benchmarks.v1]\nfixture = live_identity_fixture:Benchmark\n")
+            marker = installed / "import-pid"
+            module = installed / "live_identity_fixture.py"
+            for backend in (isolate.run_isolated, isolate.run_operation):
+                for action in ("pass", "os._exit(23)", "os.kill(os.getpid(), signal.SIGKILL)"):
+                    module.write_text(
+                        "import os, signal\nfrom pathlib import Path\n"
+                        "Path({!r}).write_text(str(os.getpid()))\n{}\n"
+                        "class Benchmark:\n    benchmark_id = 'live-identity-fixture'\n"
+                        "    benchmark_version = 1\n".format(str(marker), action))
+                    with self.subTest(backend=backend.__name__, action=action), \
+                            patch.object(sys, "path", [str(installed)] + sys.path), \
+                            patch.object(isolate, "_isolation_backend", return_value=backend), \
+                            patch.object(cli, "_start_live_run") as start:
+                        if action == "pass":
+                            self.assertEqual(cli._live_benchmark("fixture", self.tmp),
+                                             {"benchmark_id": "live-identity-fixture", "benchmark_version": 1})
+                        else:
+                            code, text = self._main("run", "--live", "--json")
+                            self.assertEqual(code, 2, text)
+                        self.assertNotEqual(int(marker.read_text()), os.getpid())
+                        self.assertNotIn("live_identity_fixture", sys.modules)
+                        start.assert_not_called()
+
+    def test_invalid_identity_prevents_session_creation(self):
+        for identity in (None, {}, {"benchmark_id": "fixture", "benchmark_version": True},
+                         {"benchmark_id": "fixture", "benchmark_version": "1"},
+                         {"benchmark_id": "", "benchmark_version": 1},
+                         {"benchmark_id": "fixture", "benchmark_version": 0}):
+            with self.subTest(identity=identity), \
+                    patch.object(isolate, "run_isolated", return_value=Outcome(isolate.COMPLETED, value=identity)), \
+                    patch.object(cli, "_start_live_run") as start:
+                code, text = self._main("run", "--live", "--json")
+                self.assertEqual(code, 2, text)
+                start.assert_not_called()
+
+    def test_live_parent_requires_a_valid_report_and_successful_save(self):
+        for value, save_error in (("{}", None), (self._report().to_json(), OSError("disk full"))):
+            with self.subTest(value=value, save_error=save_error), \
+                    patch.object(cli, "load_benchmark", return_value=SimpleNamespace(benchmark_id="fixture", benchmark_version=1)), \
+                    patch.object(cli, "_start_live_run", side_effect=self._new_live_run), \
+                    patch.object(cli, "_local_operation", return_value=Outcome(isolate.COMPLETED, value=value)), \
+                    patch.object(cli, "save_report", side_effect=save_error) as save, \
+                    patch.object(cli, "send_local_run_event"), \
+                    patch.object(cli, "send_local_run_event_batch") as batch:
+                code, text = self._main("run", "--live", "--json")
+                self.assertEqual(code, 2)
+                self.assertEqual([event["type"] for event in batch.call_args.args[3]], ["failed"])
+                if save_error is None:
+                    save.assert_not_called()
+
+    def test_live_parent_closes_session_on_unexpected_operation_exception(self):
+        with patch.object(cli, "load_benchmark", return_value=SimpleNamespace(benchmark_id="fixture", benchmark_version=1)), \
+                patch.object(cli, "_start_live_run", side_effect=self._new_live_run), \
+                patch.object(cli, "_local_operation", side_effect=RuntimeError("unexpected")), \
+                patch.object(cli, "send_local_run_event"), \
+                patch.object(cli, "send_local_run_event_batch") as batch:
+            with self.assertRaisesRegex(RuntimeError, "unexpected"):
+                self._main("run", "--live", "--json")
+            self.assertEqual([event["type"] for event in batch.call_args.args[3]], ["failed"])
+
+    def test_live_benchmark_startup_excludes_student_imports_and_restores_cwd(self):
+        (self.tmp / "live_startup_shadow.py").write_text("raise AssertionError('student imported')")
+        original_path = list(sys.path)
+        def load(name):
+            self.assertNotEqual(Path.cwd(), self.tmp)
+            self.assertNotIn(str(self.tmp), sys.path)
+            with self.assertRaises(ModuleNotFoundError):
+                __import__("live_startup_shadow")
+            return SimpleNamespace(benchmark_id="fixture", benchmark_version=1)
+        previous = Path.cwd()
+        try:
+            os.chdir(self.tmp)
+            with patch.object(sys, "path", [str(self.tmp)] + original_path), \
+                    patch.object(cli, "load_benchmark", side_effect=load):
+                cli._live_identity("fixture", self.tmp)
+                self.assertEqual(Path.cwd(), self.tmp)
+                self.assertEqual(sys.path, [str(self.tmp)] + original_path)
+        finally:
+            os.chdir(previous)
+
+    def test_live_no_fork_still_forwards_progress_and_completes(self):
+        with patch.object(isolate, "_isolation_backend", return_value=None), \
+                patch.object(cli, "load_benchmark", return_value=SimpleNamespace(benchmark_id="fixture", benchmark_version=1)), \
+                patch.object(cli, "_submission_for", return_value=lambda: None), \
+                patch.object(cli, "execute", return_value=self._report()), \
+                patch.object(cli, "_start_live_run", side_effect=self._new_live_run), \
+                patch.object(cli, "send_local_run_event"), \
+                patch.object(cli, "send_local_run_event_batch") as batch:
+            code, text = self._main("run", "--live", "--json")
+            self.assertEqual(code, 0, text)
+            self.assertEqual([event["type"] for event in batch.call_args.args[3]], ["progress", "completed"])
 
     def test_json_redirects_python_and_native_output_through_execution(self):
         script = r'''
@@ -353,13 +538,14 @@ cli.load_benchmark = lambda *args: object()
 cli._submission_for = resolve
 cli.execute = execute
 from cogbench import isolate
-isolate._isolation_backend = lambda: isolate.run_isolated
+isolate._isolation_backend = lambda: None if os.environ.get("FIXTURE_NO_FORK") else isolate.run_isolated
 raise SystemExit(cli.main(["run", "--benchmark", "fixture"] + sys.argv[1:]))
 '''
         environment = dict(os.environ, PYTHONDONTWRITEBYTECODE="1",
                            PYTHONPATH=str(ROOT / "python/cogbench/src"))
-        for flags in (["--json"], []):
-            with self.subTest(flags=flags):
+        for no_fork, flags in ((False, ['--json']), (False, []), (True, ['--json']), (True, [])):
+            with self.subTest(no_fork=no_fork, flags=flags):
+                environment['FIXTURE_NO_FORK'] = '1' if no_fork else ''
                 result = subprocess.run([sys.executable, "-c", script, *flags], cwd=self.tmp,
                                         env=environment, capture_output=True, text=True, timeout=30)
                 self.assertEqual(result.returncode, 0, result.stderr)

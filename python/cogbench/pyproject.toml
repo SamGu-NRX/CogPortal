@@ -14,7 +14,7 @@ name = "cogworks-benchmark"
 # The number also has to move for a plainer reason: 0.1.0 is already on
 # TestPyPI, and an index refuses a second upload of one version. Publishing
 # is `publish-testpypi.yml`, dispatched by hand.
-version = "0.2.0"
+dynamic = ["version"]
 description = "Offline-first CogWorks benchmark SDK and CLI"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -31,6 +31,9 @@ cogworks = "cogbench.cli:main"
 [project.urls]
 Repository = "https://github.com/CogWorksBWSI/CogPortal"
 Issues = "https://github.com/CogWorksBWSI/CogPortal/issues"
+
+[tool.setuptools.dynamic]
+version = { attr = "cogbench.__version__" }
 
 [tool.setuptools.packages.find]
 where = ["src"]

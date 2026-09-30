@@ -25,6 +25,8 @@ class JsonEnvelope(unittest.TestCase):
     def test_completed_and_raised_have_only_their_allowed_fields(self):
         completed = {'status': 'completed', 'detail': '', 'value': {'unicode': 'λ', 'items': [None, True, 3, 2.5]}}
         result = self.read(json.dumps(completed).encode('utf-8'))
+        # Returning RAISED while keeping the value used to pass this.
+        self.assertEqual(result.status, isolate.COMPLETED)
         self.assertEqual(result.value, completed['value'])
         self.assertIsNone(result.signal)
         self.assertFalse(result.alarm_fired)
