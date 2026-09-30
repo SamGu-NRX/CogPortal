@@ -16,8 +16,10 @@ export const ProtocolMetricSchema = z.object({
    * capstone it corresponds to. Optional because plugins written before it
    * exists do not send one; a metric with no explanation renders without the
    * help affordance rather than with an empty one.
+   * A length cap rejected Week 3's valid 645-character search_mrr help and
+   * lost a scored result. Preserve the producer's explanation without a cap.
    */
-  help: z.string().max(600).optional(),
+  help: z.string().optional(),
 });
 
 /**
