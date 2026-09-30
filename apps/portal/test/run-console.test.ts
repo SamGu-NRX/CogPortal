@@ -186,6 +186,62 @@ test("every lifecycle stage is named at every width, and the tile ignores the wi
   assert.doesNotMatch(full, /class="(hidden|sr-only)[^"]*">(Local|Hosted|Official|Published)</);
 });
 
+function lifecycleStates(value: RunSurfaceSnapshot): Record<string, string> {
+  const html = renderToStaticMarkup(React.createElement(RunConsole, { snapshot: value, streamState: "closed" }));
+  const start = html.indexOf('aria-label="Run lifecycle"');
+  const rail = html.slice(start, html.indexOf("</ol>", start));
+  return Object.fromEntries(
+    [...rail.matchAll(/>(Local|Hosted|Official|Published)<\/span><span class="sr-only">([^<]+)</g)]
+      .map((match) => [match[1]!, match[2]!]),
+  );
+}
+
+function execution(id: string, mode: "practice" | "official", status: "succeeded" | "failed" | "evaluating", retryOfRunId: string | null = null) {
+  return { id, mode, status, retryOfRunId, createdAt: 1_750_000_000_000, finishedAt: null };
+}
+
+test("a result published from the browser never announces a local run", () => {
+  const published: RunSurfaceSnapshot = {
+    ...snapshot("succeeded"),
+    stage: "published",
+    published: true,
+    localRunId: null,
+    practiceRunId: "run_practice",
+    officialRunId: "run_official",
+    executionHistory: [execution("run_practice", "practice", "succeeded"), execution("run_official", "official", "succeeded")],
+  };
+  assert.deepEqual(lifecycleStates(published), {
+    Local: "not run", Hosted: "complete", Official: "complete", Published: "complete",
+  });
+});
+
+test("a retried hosted run is marked by its successor, and a later failure stays visible", () => {
+  const retrying: RunSurfaceSnapshot = {
+    ...snapshot("running"),
+    stage: "hosted",
+    localRunId: null,
+    practiceRunId: "run_retry",
+    executionHistory: [
+      execution("run_first", "practice", "failed"),
+      execution("run_retry", "practice", "evaluating", "run_first"),
+    ],
+  };
+  assert.deepEqual(lifecycleStates(retrying), {
+    Local: "not run", Hosted: "active", Official: "pending", Published: "pending",
+  });
+
+  const officialFailed: RunSurfaceSnapshot = {
+    ...snapshot("failed"),
+    stage: "official",
+    practiceRunId: "run_practice",
+    officialRunId: "run_official",
+    executionHistory: [execution("run_practice", "practice", "succeeded"), execution("run_official", "official", "failed")],
+  };
+  assert.deepEqual(lifecycleStates(officialFailed), {
+    Local: "complete", Hosted: "complete", Official: "failed", Published: "pending",
+  });
+});
+
 /**
  * What the console says when a control is missing.
  *
@@ -230,6 +286,34 @@ test("the same sentence survives Discord's tile, where there is no sidebar", () 
   }));
   assert.doesNotMatch(html, /Run reference/);
   assert.match(html, /Repository or benchmark\/runtime configuration changed since this run\./);
+});
+
+const LEFT_REPOSITORY = "This run came from a repository your team is no longer connected to.";
+
+test("a tile whose Retry is withheld for a changed repository still says why", () => {
+  // The server withholds Retry with only a source refusal after the team
+  // switches repository, and the tile has no sidebar to show that in.
+  const count = (html: string, text: string) => html.split(text).length - 1;
+  const render = (over: Partial<RunSurfaceSnapshot>, compact: boolean) => renderToStaticMarkup(
+    React.createElement(RunConsole, {
+      snapshot: failedHosted({ sourceRefusal: LEFT_REPOSITORY, ...over }),
+      streamState: "closed",
+      compact,
+      onAction: () => undefined,
+    }),
+  );
+
+  const tile = render({}, true);
+  assert.doesNotMatch(tile, />Retry</);
+  assert.equal(count(tile, LEFT_REPOSITORY), 1);
+
+  // The recorded-inputs refusal answers the Retry question first.
+  const both = render({ retryRefusal: CHANGED_INPUTS }, true);
+  assert.equal(count(both, CHANGED_INPUTS), 1);
+  assert.equal(count(both, LEFT_REPOSITORY), 0);
+
+  // The full console already shows it beside the run reference, once.
+  assert.equal(count(render({}, false), LEFT_REPOSITORY), 1);
 });
 
 test("an offered Retry carries no refusal beside it", () => {
