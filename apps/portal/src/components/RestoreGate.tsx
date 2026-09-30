@@ -114,6 +114,10 @@ export function RestoreGate({ children }: { children: ReactNode }) {
     open.current = false;
     paintedFor.current = qc.getQueryData(sessionQuery.queryKey);
     focused.current = document.activeElement;
+    // A modal dialog stays in the top layer when its ancestor is concealed,
+    // and it would keep the gate's own retry inert. A confirm left open
+    // across a hide is cancelled, not carried to whoever returns.
+    for (const dialog of document.querySelectorAll<HTMLDialogElement>("dialog[open]")) dialog.close();
     // Committed before the handler returns, because the back/forward cache
     // freezes whatever the DOM holds at that point.
     flushSync(() => setGate({ state: "closed" }));
