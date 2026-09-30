@@ -337,6 +337,10 @@ function CurrentRunPanel({
   const candidateRefusal = d.latestCandidate
     ? d.latestCandidate.sourceRefusal ?? d.promotionRefusal
     : null;
+  // Promoting a run twice returns its first attempt and spends nothing, so a
+  // promoted candidate links to that attempt instead of offering a confirm
+  // that names the next attempt number.
+  const promotedTo = d.latestCandidate?.promotedTo ?? null;
 
   const active = d.activeRun;
 
@@ -507,8 +511,8 @@ function CurrentRunPanel({
         <div className="mt-6 border-t border-rule pt-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <div className={`u-kicker ${candidateRefusal ? "text-ink-secondary" : "text-verify-deep"}`}>
-                {candidateRefusal ? "Previous result" : "Candidate ready"}
+              <div className={`u-kicker ${candidateRefusal || promotedTo ? "text-ink-secondary" : "text-verify-deep"}`}>
+                {candidateRefusal ? "Previous result" : promotedTo ? "Promoted" : "Candidate ready"}
               </div>
               <p className="mt-1 text-[14px]">
                 <Link
@@ -527,7 +531,16 @@ function CurrentRunPanel({
                 {d.latestCandidate.repo?.fullName ?? "source not recorded"}
               </p>
             </div>
-            {!candidateRefusal && (
+            {promotedTo ? (
+              <Link
+                to={`/runs/${promotedTo.runId}`}
+                className="inline-flex min-h-11 items-center font-mono text-[11.5px] tracking-[0.06em] text-ink uppercase underline decoration-rule underline-offset-4 hover:decoration-ink"
+              >
+                {promotedTo.attemptNumber === null
+                  ? "Official attempt"
+                  : `Official attempt #${promotedTo.attemptNumber}`}
+              </Link>
+            ) : !candidateRefusal && (
               <ConfirmButton
                 label="Promote to official"
                 confirmLabel={`Confirm, uses attempt ${d.quota.officialUsed + 1} of ${OFFICIAL_LIMIT}`}
@@ -543,9 +556,11 @@ function CurrentRunPanel({
             </p>
           ) : (
             <p className="mt-2 font-mono text-[11px] leading-relaxed text-ink-faint">
-              {officialLeft <= 0
-                ? "All official attempts are used."
-                : "Runs the same commit against hidden inputs. Logs are suppressed."}
+              {promotedTo
+                ? "A run is promoted once, so the next attempt starts from a new practice run."
+                : officialLeft <= 0
+                  ? "All official attempts are used."
+                  : "Runs the same commit against hidden inputs. Logs are suppressed."}
             </p>
           )}
           {promoteError && (

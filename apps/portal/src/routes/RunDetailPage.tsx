@@ -2,7 +2,7 @@ import { ArrowLeft01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Link, useNavigate, useParams } from "react-router";
 import { ApiRequestError } from "@/lib/api";
-import { OFFICIAL_LIMIT, isTerminal } from "@cogworks/contracts/schema";
+import { OFFICIAL_LIMIT, isTerminal, type PromotedTo } from "@cogworks/contracts/schema";
 import { ConfirmButton } from "@/components/ConfirmButton";
 import { FailureCard } from "@/components/FailureCard";
 import { LoadingMark, QueryError } from "@/components/Feedback";
@@ -322,15 +322,32 @@ export function RunDetailPage() {
 
       {/* ── Next action ── */}
       {run.status === "succeeded" && run.mode === "practice" && (
-        <Panel label="PROMOTE" className="mt-4">
+        <Panel label={run.promotedTo ? "OFFICIAL ATTEMPT" : "PROMOTE"} className="mt-4">
           {/* The server refuses a promotion of a run that is not about the
               connected repository, or whose saved environment can no longer be
               reused, so the control is not offered. Saying why beats a button
-              that fails. The source answer comes first on the server. */}
+              that fails. The source answer comes first on the server.
+
+              A run already promoted gets its attempt instead. Promoting it
+              again returns that attempt and spends nothing, so a confirm
+              naming the next attempt number would be a false consequence. */}
           {(run.sourceRefusal ?? run.promotionRefusal) ? (
-            <p className="max-w-prose text-[14px] text-ink-secondary">
-              {run.sourceRefusal ?? run.promotionRefusal}
-            </p>
+            <>
+              <p className="max-w-prose text-[14px] text-ink-secondary">
+                {run.sourceRefusal ?? run.promotionRefusal}
+              </p>
+              {run.promotedTo && <PromotedAttemptLink promotedTo={run.promotedTo} />}
+            </>
+          ) : run.promotedTo ? (
+            <>
+              <p className="max-w-prose text-[14px] text-ink-secondary">
+                This run was promoted to{" "}
+                {officialAttemptLabel(run.promotedTo.attemptNumber)}, which reruns{" "}
+                <span className="font-mono text-[13px]">{run.shortSha}</span>{" "}
+                against the hidden inputs.
+              </p>
+              <PromotedAttemptLink promotedTo={run.promotedTo} />
+            </>
           ) : (
           <>
           <p className="max-w-prose text-[14px] text-ink-secondary">
@@ -430,5 +447,22 @@ export function RunDetailPage() {
         </Panel>
       )}
     </div>
+  );
+}
+
+function officialAttemptLabel(attemptNumber: number | null): string {
+  return attemptNumber === null ? "an official attempt" : `official attempt #${attemptNumber}`;
+}
+
+function PromotedAttemptLink({ promotedTo }: { promotedTo: PromotedTo }) {
+  return (
+    <Link
+      to={`/runs/${promotedTo.runId}`}
+      className="mt-3 inline-flex min-h-11 items-center text-[13px] text-ink underline decoration-rule underline-offset-4 hover:decoration-ink"
+    >
+      {promotedTo.attemptNumber === null
+        ? "Open the official attempt"
+        : `Open attempt #${promotedTo.attemptNumber}`}
+    </Link>
   );
 }

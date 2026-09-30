@@ -604,6 +604,79 @@ test("a candidate whose saved environment cannot be reused loses Promote and say
   assert.doesNotMatch(html, /Promote to official/);
 });
 
+for (const official of ["succeeded", "failed"] as const) {
+  test(`a practice run already promoted to a ${official} attempt links to it instead of offering another`, async () => {
+    // Promotion is idempotent per console: asking again returns the attempt it
+    // already started. The dashboard and run page used to keep offering
+    // "Confirm, uses attempt 2 of 3" for that run, a consequence the server
+    // never carries out.
+    const { db, binding } = freshDb();
+    await seedPromotion(db);
+    await db.update(benchmarks).set({ active: false }).where(and(eq(benchmarks.id, BENCHMARK_ID), ne(benchmarks.version, 1)));
+    await db.insert(runMetrics).values({ runId: PRACTICE_RUN_ID, key: "accuracy", label: "Accuracy",
+      value: 0.8, unit: null, higherIsBetter: true, isPrimary: true, precision: 2 });
+    const officialId = await seedOfficial(db, official);
+    const refusal = official === "failed"
+      ? "That official attempt already ran and failed. Start a new practice run to create the next candidate to promote."
+      : null;
+    const { app, runtime, cookie, promote } = await authenticatedPromotion(db, binding);
+    const scope = { teamId: "team_test", benchmarkId: BENCHMARK_ID, benchmarkVersion: 1 };
+    const runsBefore = await db.select().from(runs);
+    const accountingBefore = await readRunAccounting(db, scope);
+
+    const dashboardResponse = await app.fetch(new Request(`http://localhost:5173/dashboard?benchmark=${BENCHMARK_ID}`, { headers: { cookie } }), runtime);
+    assert.equal(dashboardResponse.status, 200);
+    const dashboard = DashboardSchema.parse(await dashboardResponse.json());
+    assert.equal(dashboard.latestCandidate?.id, PRACTICE_RUN_ID);
+    assert.deepEqual(dashboard.latestCandidate?.promotedTo, { runId: officialId, attemptNumber: 1 });
+    assert.equal(dashboard.promotionRefusal, refusal);
+
+    const detailResponse = await app.fetch(new Request(`http://localhost:5173/runs/${PRACTICE_RUN_ID}`, { headers: { cookie } }), runtime);
+    assert.equal(detailResponse.status, 200);
+    const detail = RunDetailSchema.parse(await detailResponse.json());
+    assert.deepEqual(detail.promotedTo, { runId: officialId, attemptNumber: 1 });
+    assert.equal(detail.promotionRefusal, refusal);
+
+    const html = renderDashboard(dashboard);
+    assert.doesNotMatch(html, /Promote to official/);
+    assert.doesNotMatch(html, /Candidate ready/);
+    assert.ok(html.includes(`href="/runs/${officialId}"`));
+    assert.match(html, /Official attempt #1/);
+
+    // Twice, so a retried click and a second tab both land on the same answer.
+    for (let request = 0; request < 2; request += 1) {
+      const response = await promote();
+      if (refusal) {
+        assert.equal(response.status, 409);
+        const body = await response.json() as { error: { code: string; message: string } };
+        assert.equal(body.error.code, "not_promotable");
+        assert.equal(body.error.message, refusal);
+      } else {
+        assert.equal(response.status, 201);
+        assert.deepEqual(await response.json(), { runId: officialId });
+      }
+    }
+    assert.deepEqual(await db.select().from(runs), runsBefore);
+    assert.deepEqual(await readRunAccounting(db, scope), accountingBefore);
+  });
+}
+
+test("an unpromoted candidate still offers Promote with the next attempt number", async () => {
+  const { db, binding } = freshDb();
+  await seedPromotion(db);
+  await db.update(benchmarks).set({ active: false }).where(and(eq(benchmarks.id, BENCHMARK_ID), ne(benchmarks.version, 1)));
+  await db.insert(runMetrics).values({ runId: PRACTICE_RUN_ID, key: "accuracy", label: "Accuracy",
+    value: 0.8, unit: null, higherIsBetter: true, isPrimary: true, precision: 2 });
+  const { app, cookie, runtime } = await authenticatedPromotion(db, binding);
+  const response = await app.fetch(new Request(`http://localhost:5173/dashboard?benchmark=${BENCHMARK_ID}`, { headers: { cookie } }), runtime);
+  const dashboard = DashboardSchema.parse(await response.json());
+  assert.equal(dashboard.latestCandidate?.promotedTo, null);
+  assert.equal(dashboard.promotionRefusal, null);
+  const html = renderDashboard(dashboard);
+  assert.match(html, /Candidate ready/);
+  assert.match(html, /Promote to official/);
+});
+
 test("every run in the log carries its own primary metric, including the ones that have none", async () => {
   // The dashboard reads one metric row set for the whole page and groups it by
   // run id. A grouping that drifted would put one run's score on another's

@@ -22,7 +22,7 @@ import {
 import { respond } from "../http/respond";
 import { runSourceRefusal } from "../services/run-source";
 import { readRunAccounting } from "../services/run-accounting";
-import { canPublishOfficialRun, savedEnvironmentEligibility } from "../services/run-eligibility";
+import { canPublishOfficialRun, existingPromotion, savedEnvironmentEligibility } from "../services/run-eligibility";
 
 export function registerDashboardRoutes(app: Hono<AppEnv>): void {
   app.get("/dashboard", async (c) => {
@@ -70,9 +70,16 @@ export function registerDashboardRoutes(app: Hono<AppEnv>): void {
 
     const active = allRuns.find((run) => !["succeeded", "failed", "cancelled"].includes(run.status));
     const candidate = allRuns.find((run) => run.mode === "practice" && run.status === "succeeded" && run.refundedAt === null);
-    const promotionEligibility = candidate && c.env.EXECUTION_PROVIDER === "modal"
+    // In the order promotion checks them: an attempt already promoted from
+    // this console answers first, so the saved environment is only asked
+    // about a run that has not been promoted.
+    const promoted = candidate?.surfaceId
+      ? existingPromotion(allRuns.filter((run) => run.surfaceId === candidate.surfaceId))
+      : null;
+    const promotionEligibility = candidate && !promoted && c.env.EXECUTION_PROVIDER === "modal"
       ? savedEnvironmentEligibility(candidate, benchmark, auth.team) : null;
-    const promotionRefusal = promotionEligibility?.eligible === false ? promotionEligibility.reason : null;
+    const promotionRefusal = promoted?.refusal
+      ?? (promotionEligibility?.eligible === false ? promotionEligibility.reason : null);
 
     // One statement for every primary metric this response needs: the run
     // log's rows, the two runs named above it, and the published selection.
@@ -134,6 +141,7 @@ export function registerDashboardRoutes(app: Hono<AppEnv>): void {
         ? {
             ...summarize(candidate),
             sourceRefusal: runSourceRefusal(auth.team, candidate, "promote it"),
+            promotedTo: promoted?.promotedTo ?? null,
           }
         : null,
       promotionRefusal,

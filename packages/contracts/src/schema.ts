@@ -200,10 +200,21 @@ export const RunSummarySchema = z.object({
 });
 export type RunSummary = z.infer<typeof RunSummarySchema>;
 
+/** The official attempt a practice run was already promoted to. Promoting it
+ *  again returns this attempt and spends nothing, so pages link to it instead
+ *  of offering Promote. */
+export const PromotedToSchema = z.object({
+  runId: z.string(),
+  attemptNumber: z.number().int().nullable(),
+});
+export type PromotedTo = z.infer<typeof PromotedToSchema>;
+
 export const RunDetailSchema = RunSummarySchema.extend({
-  /** Saved-environment refusal for a succeeded practice run. Null does not
-   * establish authorization or available quota. */
+  /** Why a succeeded practice run can't be promoted: its official attempt is
+   * spent, or its saved environment can't be reused. Null does not establish
+   * authorization or available quota. */
   promotionRefusal: z.string().max(600).nullable().default(null),
+  promotedTo: PromotedToSchema.nullable().default(null),
   surfaceId: z.string().regex(/^surface_[a-f0-9]{20}$/).nullable().default(null),
   contractVersion: z.string(),
   parentRunId: z.string().nullable(),
@@ -920,8 +931,13 @@ export const DashboardSchema = z.object({
   /** Most recent succeeded practice run, retained even when something prevents
    *  promotion. Its two refusals answer different questions and can both be
    *  set: `sourceRefusal` is which repository the run came from, and
-   *  `promotionRefusal` is whether its saved environment can still be reused. */
-  latestCandidate: RunSummarySchema.extend({ sourceRefusal: z.string().nullable() }).nullable(),
+   *  `promotionRefusal` is whether its official attempt is spent or its saved
+   *  environment can still be reused. `promotedTo` is set once it has been
+   *  promoted. */
+  latestCandidate: RunSummarySchema.extend({
+    sourceRefusal: z.string().nullable(),
+    promotedTo: PromotedToSchema.nullable().default(null),
+  }).nullable(),
   promotionRefusal: z.string().max(600).nullable().default(null),
   selection: SelectionSchema.nullable(),
   runs: z.array(RunSummarySchema),
