@@ -1,5 +1,5 @@
 import type { Hono } from "hono";
-import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import {
   AdminAddMemberRequestSchema,
@@ -33,7 +33,7 @@ import {
 import { ApiHttpError } from "../http/errors";
 import { parseBody, respond } from "../http/respond";
 import { isUniqueConstraintError } from "./team";
-import { acceptedRunPredicate, readRunAccounting } from "../services/run-accounting";
+import { acceptedRunPredicate, readUsedRunsByTeam } from "../services/run-accounting";
 
 const AdminCohortSchema = z.object({
   slug: z.string(),
@@ -47,14 +47,23 @@ function memberRole(role: string): TeamMember["role"] {
   throw new Error("Team member has an invalid role.");
 }
 
-async function getAdminTeamSummary(
+/**
+ * Console summaries for every team `teamWhere` selects, in name order.
+ *
+ * Each part is one statement for all teams rather than one per team. The
+ * overview used to spend six per team: 223 D1 queries for one page load on a
+ * local cohort of 36 live teams. D1's free plan documents a limit of 50 per
+ * invocation, which that pattern passes at about eight teams.
+ */
+async function readAdminTeamSummaries(
   db: Database,
-  teamId: string,
-): Promise<AdminTeamSummary> {
-  const [[team], members, tas, accounting, [published]] = await Promise.all([
-    db.select().from(teams).where(eq(teams.id, teamId)).limit(1),
+  teamWhere: SQL,
+): Promise<AdminTeamSummary[]> {
+  const [teamRows, members, tas, used, published] = await Promise.all([
+    db.select().from(teams).where(teamWhere).orderBy(asc(teams.name)),
     db
       .select({
+        teamId: teamMembers.teamId,
         login: users.githubLogin,
         email: users.email,
         name: users.name,
@@ -62,9 +71,11 @@ async function getAdminTeamSummary(
       })
       .from(teamMembers)
       .innerJoin(users, eq(teamMembers.userId, users.id))
-      .where(eq(teamMembers.teamId, teamId)),
+      .innerJoin(teams, eq(teams.id, teamMembers.teamId))
+      .where(teamWhere),
     db
       .select({
+        teamId: teamTas.teamId,
         login: users.githubLogin,
         email: users.email,
         name: users.name,
@@ -72,12 +83,16 @@ async function getAdminTeamSummary(
       })
       .from(teamTas)
       .innerJoin(users, eq(teamTas.userId, users.id))
-      .where(eq(teamTas.teamId, teamId))
+      .innerJoin(teams, eq(teams.id, teamTas.teamId))
+      .where(teamWhere)
       .orderBy(asc(users.githubLogin)),
     // Admin team totals intentionally span every benchmark and version.
-    readRunAccounting(db, { teamId, allBenchmarks: true }),
+    readUsedRunsByTeam(db, teamWhere),
+    // Every team's qualifying selections, newest first; the first per team is
+    // the one shown.
     db
       .select({
+        teamId: leaderboardSelections.teamId,
         value: runMetrics.value,
         benchmarkName: benchmarks.title,
         benchmarkVersion: leaderboardSelections.benchmarkVersion,
@@ -103,50 +118,61 @@ async function getAdminTeamSummary(
         ),
       )
       .innerJoin(runs, eq(runs.id, leaderboardSelections.runId))
-      .where(and(eq(leaderboardSelections.teamId, teamId), eq(runs.mode, "official"), acceptedRunPredicate()))
-      .orderBy(desc(leaderboardSelections.selectedAt))
-      .limit(1),
+      .innerJoin(teams, eq(teams.id, leaderboardSelections.teamId))
+      .where(and(teamWhere, eq(runs.mode, "official"), acceptedRunPredicate()))
+      .orderBy(desc(leaderboardSelections.selectedAt)),
   ]);
-  if (!team) throw new ApiHttpError(404, "not_found", "Team not found.");
   const roleOrder: Record<TeamMember["role"], number> = {
     admin: 0,
     maintain: 1,
     write: 2,
   };
-  const serializedMembers = members
-    .map((member) => ({
-      login: member.login ?? member.email.split("@")[0],
-      name: member.name,
-      role: memberRole(member.role),
-    }))
-    .sort(
-      (left, right) =>
-        roleOrder[left.role] - roleOrder[right.role] || left.login.localeCompare(right.login),
-    );
-  return {
-    id: team.id,
-    name: team.name,
-    provenance: team.provenance,
-    repoFullName: team.repoFullName,
-    members: serializedMembers,
-    tas: tas.map((ta) => ({
-      login: ta.login ?? ta.email.split("@")[0],
-      name: ta.name,
-      avatarUrl: ta.avatarUrl,
-    })),
-    practiceUsed: accounting.practiceUsed,
-    officialUsed: accounting.officialUsed,
-    // Retained for older clients. Failures no longer require a refund decision.
-    refundsGiven: 0,
-    published:
-      published?.value == null
-        ? null
-        : {
-            score: published.value,
-            benchmarkName: published.benchmarkName ?? null,
-            benchmarkVersion: published.benchmarkVersion,
-          },
-  };
+  return teamRows.map((team) => {
+    const latest = published.find((row) => row.teamId === team.id);
+    const usage = used.get(team.id);
+    return {
+      id: team.id,
+      name: team.name,
+      provenance: team.provenance,
+      repoFullName: team.repoFullName,
+      members: members
+        .filter((member) => member.teamId === team.id)
+        .map((member) => ({
+          login: member.login ?? member.email.split("@")[0],
+          name: member.name,
+          role: memberRole(member.role),
+        }))
+        .sort(
+          (left, right) =>
+            roleOrder[left.role] - roleOrder[right.role] || left.login.localeCompare(right.login),
+        ),
+      tas: tas
+        .filter((ta) => ta.teamId === team.id)
+        .map((ta) => ({
+          login: ta.login ?? ta.email.split("@")[0],
+          name: ta.name,
+          avatarUrl: ta.avatarUrl,
+        })),
+      practiceUsed: usage?.practiceUsed ?? 0,
+      officialUsed: usage?.officialUsed ?? 0,
+      // Retained for older clients. Failures no longer require a refund decision.
+      refundsGiven: 0,
+      published:
+        latest?.value == null
+          ? null
+          : {
+              score: latest.value,
+              benchmarkName: latest.benchmarkName ?? null,
+              benchmarkVersion: latest.benchmarkVersion,
+            },
+    };
+  });
+}
+
+async function getAdminTeamSummary(db: Database, teamId: string): Promise<AdminTeamSummary> {
+  const [summary] = await readAdminTeamSummaries(db, eq(teams.id, teamId));
+  if (!summary) throw new ApiHttpError(404, "not_found", "Team not found.");
+  return summary;
 }
 
 /**
@@ -268,11 +294,11 @@ export function registerAdminRoutes(app: Hono<AppEnv>): void {
     // Archive teams are last year's scores under replaced names. They have no
     // members and will never run, so on a triage list they would all read
     // "no hosted runs" and sit above every live team. Staff manage live teams.
-    const live = and(eq(teams.cohortId, cohort.id), eq(teams.provenance, "live"));
-    const teamRows = scope.isOwner
-      ? await db.select({ id: teams.id }).from(teams).where(live).orderBy(asc(teams.name))
+    const live = and(eq(teams.cohortId, cohort.id), eq(teams.provenance, "live"))!;
+    const summaries = scope.isOwner
+      ? await readAdminTeamSummaries(db, live)
       : scope.teamIds.length > 0
-        ? await db.select({ id: teams.id }).from(teams).where(and(live, inArray(teams.id, scope.teamIds))).orderBy(asc(teams.name))
+        ? await readAdminTeamSummaries(db, and(live, inArray(teams.id, scope.teamIds))!)
         : [];
     const unassigned = scope.isOwner
       ? await db
@@ -287,9 +313,6 @@ export function registerAdminRoutes(app: Hono<AppEnv>): void {
         .where(and(eq(users.cohortId, cohort.id), isNull(teamMembers.teamId)))
         .orderBy(asc(users.githubLogin))
       : [];
-    const summaries = await Promise.all(
-      teamRows.map((team) => getAdminTeamSummary(db, team.id)),
-    );
     const serializedUnassigned = unassigned.map((user) => ({
       login: user.login ?? user.email.split("@")[0],
       name: user.name,
