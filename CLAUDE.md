@@ -305,3 +305,7 @@ in-place edit of a version teams have already published against.
   than `.github/workflows/`, because the publishing token lacks the
   `workflow` scope. A token with that scope could move it and delete the
   copy step from `ci/README.md`.
+
+## Portfolio entry
+
+`.portfolio/project.md` is this project's entry on kgu.one. When a change alters what the project does, its results, awards, stack or links, update that file in the same change, following the rules in its header.
