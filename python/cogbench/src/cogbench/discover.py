@@ -2211,8 +2211,13 @@ class _NotebookFsFinder:
         directories: Sequence[Path],
         import_timeout: float,
         redirects: Optional["_Redirects"] = None,
+        *,
+        private_copy: bool = False,
     ) -> None:
         self._directories = list(directories)
+        #: The retry mode `load_modules` was given, so a notebook reached
+        #: through `ipynb.fs` is read the way the notebook pass reads it.
+        self._private_copy = private_copy
         self._timeout = import_timeout
         self._redirects = redirects
         self._made: List[str] = []
@@ -2250,7 +2255,8 @@ class _NotebookFsFinder:
         # `_import_one` is also what gives this path the import deadline this
         # finder was handed and never used, and the same retries.
         module, failure, notes = _import_one(
-            stem, notebook, source, self._timeout, None, self._redirects
+            stem, notebook, source, self._timeout, None, self._redirects,
+            private_copy=self._private_copy,
         )
         if module is None:
             if failure is not None and failure.reason == "too_slow":
@@ -2673,7 +2679,9 @@ def load_modules(
     directories = [root] + [path for path in extra if path != root]
     redirects = _Redirects(resource_files or {})
     redirects.enter()
-    notebooks = _NotebookFsFinder(directories, import_timeout, redirects)
+    notebooks = _NotebookFsFinder(
+        directories, import_timeout, redirects, private_copy=private_copy
+    )
     sys.meta_path.insert(0, notebooks)
 
     loaded: List[LoadedModule] = []
