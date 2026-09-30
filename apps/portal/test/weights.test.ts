@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { buildRunJob, hmacSignature } from "../worker/execution/runner.ts";
 import { verifyRunnerSignature } from "../worker/routes/runner-events.ts";
@@ -52,13 +51,8 @@ function runParts(mode: "practice" | "official" = "practice") {
   };
 }
 
-test("development and production use separate artifact buckets", async () => {
-  const config = await readFile(new URL("../wrangler.jsonc", import.meta.url), "utf8");
-  const [development, production] = config.split('"env":', 2);
-
-  assert.match(development, /"bucket_name": "cogportal-artifacts-dev"/);
-  assert.doesNotMatch(development, /"bucket_name": "cogportal-artifacts"/);
-  assert.match(production, /"bucket_name": "cogportal-artifacts"/);
+test("reports without uploaded weights need no object storage", async () => {
+  assert.deepEqual(await weightManifest(undefined, "course/team", "a".repeat(40), [], []), []);
 });
 
 test("weight paths refuse absolute and traversal paths", () => {

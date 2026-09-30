@@ -117,7 +117,9 @@ export function setupCommandLines(input: {
       // failed for everyone who ran it, and the resolver reads the repository
       // directly instead.
       id: "benchmark",
-      command: `python -m pip install "${pkg.distribution} @ ${pkg.source}"`,
+      // Resolve dependencies first, then replace the same-version benchmark
+      // without force-reinstalling its NumPy/Pillow dependencies too.
+      command: `python -m pip install "${pkg.distribution} @ ${pkg.source}" && python -m pip install --force-reinstall --no-deps "${pkg.distribution} @ ${pkg.source}"`,
       verified: input.verified("project"),
       benchmarkScoped: isBenchmarkScopedStep("project"),
       evidenceSource: "setup-state",
