@@ -317,13 +317,9 @@ export function useSetupState(benchmarkId?: string) {
   const login = session?.user?.login ?? null;
   const teamId = session?.team?.id ?? null;
   return useQuery({
-    // The key names everything the response is about. The evidence is read
-    // per account and team, and the check-off tokens are signed for one
-    // account, one team and one track, so an entry keyed on less hands one
-    // account's command to another. Keyed on the track alone, whoever signed
-    // in next in the same tab was shown the previous account's cached tokens,
-    // and a request that account sent before signing out landed as the new
-    // account's answer.
+    // The key names everything the response is about: the evidence is read
+    // per account and team, and each check-off token is signed for one
+    // account, one team and one track.
     queryKey: ["setup-state", login, teamId, benchmarkId ?? null],
     queryFn: () => api.setupState(benchmarkId),
     // Both consumers sit behind the team route guard, so this only holds the
