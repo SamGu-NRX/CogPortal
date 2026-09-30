@@ -17,11 +17,12 @@ rail, and the Connections device panel while no device is linked
 (`apps/portal/src/routes/ConnectionsPage.tsx:254`). The CLI's own sentence still names only
 the setup page.
 
-A student types `cogworks link` and reads three lines before anything is decided:
+A student types `cogworks link` and reads four lines before anything is decided:
 
 ```
 Connecting to https://cogportal.example
-CogPortal receives setup check names, package versions, and your GitHub repository; never source, paths, logs, predictions, scores, or environment variables.
+CogPortal receives setup check names, package versions, and your GitHub repository.
+A report's scores and notes go up when you run `cogworks sync` or `cogworks run --live`, and weights only with `cogworks sync`. Source, logs, predictions, and environment variables stay on this machine.
 Open https://cogportal.example/connections?user_code=A3F9-2C81-D40B&return_to=setup and confirm code A3F9-2C81-D40B.
 ```
 
@@ -40,7 +41,7 @@ Linked ada-macbook.local. Local commands still work offline.
 setup: updated clone
 ```
 
-Exit 0. The privacy sentence is printed before the code, so it is on screen while the student is deciding whether to approve, which is the only moment it can do any work.
+Exit 0. The two privacy lines are printed before the code, so they are on screen while the student is deciding whether to approve, which is the only moment they can do any work.
 
 Run from somewhere that is not the team project, the last line is a note instead of a setup update, and it still exits 0:
 
@@ -53,7 +54,8 @@ And when nobody approves the code, the terminal is silent for ten minutes and th
 
 ```
 Connecting to https://cogportal.example
-CogPortal receives setup check names, package versions, and your GitHub repository; never source, paths, logs, predictions, scores, or environment variables.
+CogPortal receives setup check names, package versions, and your GitHub repository.
+A report's scores and notes go up when you run `cogworks sync` or `cogworks run --live`, and weights only with `cogworks sync`. Source, logs, predictions, and environment variables stay on this machine.
 Open https://cogportal.example/connections?user_code=A3F9-2C81-D40B&return_to=setup and confirm code A3F9-2C81-D40B.
 cogworks: The device link expired before it was approved.
 ```

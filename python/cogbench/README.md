@@ -201,9 +201,9 @@ Publishing puts one official run on the public leaderboard for your team. It
 costs nothing, and you can change which run it is as often as you like.
 
 Week 1 song identification runs locally, but it has no hosted runs until the
-course turns that benchmark on, and the dashboard doesn't list its synced
-reports. Its test grid doesn't yet tell a good pipeline from a weak one, so a
-hosted number would mislead.
+course turns that benchmark on. Its synced reports still show on the
+dashboard, under **Other benchmarks**. Its test grid doesn't yet tell a good
+pipeline from a weak one, so a hosted number would mislead.
 
 ## What a result is for
 

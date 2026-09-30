@@ -47,8 +47,9 @@ member open it.
 
 ## Check which benchmarks are open
 
-Students can start hosted runs, and see synced local reports on the
-dashboard, only for active benchmarks. Semantic image search and both Week 2
+Students can start hosted runs only for active benchmarks. Synced local
+reports for an inactive benchmark or version still show on the dashboard,
+under **Other benchmarks**. Semantic image search and both Week 2
 vision tracks are active. Week 1 song identification is inactive on purpose:
 its calibration showed that the shipped query grid does not separate a tuned
 pipeline from a crippled one, so a hosted number would mislead

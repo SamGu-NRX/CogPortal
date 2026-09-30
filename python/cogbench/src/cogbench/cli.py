@@ -1226,8 +1226,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             print("Connecting to {}".format(portal))
             # Linking sends setup facts on its own. A report goes up from
             # `sync` and from the end of `run --live` (`_LiveRun.completed`);
-            # weight files only from `sync`. This used to list scores among
-            # the things never sent, which both commands contradict.
+            # weight files only from `sync`.
             print("CogPortal receives setup check names, package versions, and your GitHub repository.")
             print(
                 "A report's scores and notes go up when you run `cogworks sync` or "

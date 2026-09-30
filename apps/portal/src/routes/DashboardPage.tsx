@@ -351,8 +351,7 @@ function UntrackedReports({
         Other benchmarks
       </h3>
       <p className="mt-1.5 max-w-[62ch] text-[12.5px] leading-[1.55] text-ink-secondary">
-        These versions aren't open for hosted runs, so they have no track;
-        their synced reports show here on every one.
+        Reports from benchmarks or versions that are not open for hosted runs.
       </p>
       {/* Scrolls inside the panel, not the page, when a long title or large
           text makes the row wider than a phone. */}
