@@ -134,8 +134,56 @@ export const RepoRefSchema = z.object({
 });
 export type RepoRef = z.infer<typeof RepoRefSchema>;
 
+/**
+ * The repository a finished run actually ran from.
+ *
+ * Narrower than `RepoRef` on purpose: a run has no default branch, it has the
+ * branch it ran. Everything here is derived from the one name the run recorded
+ * at creation, so there is nothing to keep in step with the team.
+ */
+export const RunSourceSchema = z.object({
+  owner: z.string(),
+  name: z.string(),
+  fullName: z.string(),
+  url: z.string(),
+});
+export type RunSource = z.infer<typeof RunSourceSchema>;
+
+/**
+ * A run's recorded repository name, as something a page can link to.
+ *
+ * `null` in, `null` out: a run from before the name was recorded has an
+ * unknown source, and saying so is the point. Callers must not substitute the
+ * team's current repository for it.
+ *
+ * The URL is built rather than stored because GitHub's `html_url` is always
+ * `https://github.com/{full_name}` (the fixture repository included), so
+ * storing it too would be the same fact written twice, free to drift. A
+ * repository renamed on GitHub keeps redirecting from the old name, which is
+ * the behaviour this wants: the link names what the run used.
+ */
+export function runSource(fullName: string | null | undefined): RunSource | null {
+  // Stricter than the wire regex elsewhere in this file, because the result
+  // becomes a URL. GitHub owners are alphanumeric and hyphens, repositories add
+  // dots and underscores; anything else ("owner/repo/extra",
+  // "owner/repo?tab=readme") would build a link pointing somewhere the run
+  // never used. A repository named only of dots would resolve above itself.
+  if (!fullName || !/^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/.test(fullName)) return null;
+  const slash = fullName.indexOf("/");
+  if (/^\.+$/.test(fullName.slice(slash + 1))) return null;
+  return {
+    owner: fullName.slice(0, slash),
+    name: fullName.slice(slash + 1),
+    fullName,
+    url: `https://github.com/${fullName}`,
+  };
+}
+
 export const RunSummarySchema = z.object({
   id: z.string(),
+  /** The repository this run ran from, or null when it predates the recorded
+   *  name. A commit with no repository beside it cannot be attributed. */
+  repo: RunSourceSchema.nullable(),
   mode: RunModeSchema,
   status: RunStatusSchema,
   benchmarkId: z.string(),
@@ -159,7 +207,13 @@ export const RunDetailSchema = RunSummarySchema.extend({
   surfaceId: z.string().regex(/^surface_[a-f0-9]{20}$/).nullable().default(null),
   contractVersion: z.string(),
   parentRunId: z.string().nullable(),
-  repo: RepoRefSchema,
+  /** Null when the run predates the recorded name. Never the team's current
+   *  repository standing in for an unknown one. */
+  repo: RunSourceSchema.nullable(),
+  /** Why a new promotion is refused, when the reason is that this run is not
+   *  about the repository the team is connected to. Null when it is. The page
+   *  shows this instead of a control the server would refuse. */
+  sourceRefusal: z.string().nullable(),
   phases: z.array(PhaseTimingSchema),
   metrics: z.array(MetricSchema),
   /** The scorer's own notes on this run: which component scored zero and why.
@@ -679,6 +733,12 @@ export const RunSurfaceSnapshotSchema = z.object({
    * authorization, capacity, or provider/weight availability. */
   retryRefusal: z.string().max(600).nullable().default(null),
   events: z.array(RunStreamEventSchema).max(250),
+  /** Repository of the current stage, paired with its commit. Null when
+   *  that run predates the recorded name. */
+  source: RunSourceSchema.nullable(),
+  /** Why promotion, rerun and publication are absent from `actions`, when the
+   *  reason is that this run is not about the connected repository. */
+  sourceRefusal: z.string().nullable(),
   actions: z.array(RunSurfaceActionSchema),
   simulated: z.boolean(),
 });
@@ -810,6 +870,7 @@ export type DeviceStatus = z.infer<typeof DeviceStatusSchema>;
 
 export const SelectionSchema = z.object({
   runId: z.string(),
+  source: RunSourceSchema.nullable(),
   selectedAt: z.number(),
   primaryMetric: MetricSchema,
   shortSha: z.string(),
@@ -824,9 +885,11 @@ export const DashboardSchema = z.object({
   quota: QuotaSchema,
   lastResolvedSha: z.string().nullable(),
   activeRun: RunSummarySchema.nullable(),
-  /** Most recent succeeded practice run; compatibility is reported separately. */
-  latestCandidate: RunSummarySchema.nullable(),
-  /** Saved-environment refusal for latestCandidate, without changing its outcome. */
+  /** Most recent succeeded practice run, retained even when something prevents
+   *  promotion. Its two refusals answer different questions and can both be
+   *  set: `sourceRefusal` is which repository the run came from, and
+   *  `promotionRefusal` is whether its saved environment can still be reused. */
+  latestCandidate: RunSummarySchema.extend({ sourceRefusal: z.string().nullable() }).nullable(),
   promotionRefusal: z.string().max(600).nullable().default(null),
   selection: SelectionSchema.nullable(),
   runs: z.array(RunSummarySchema),
@@ -1094,6 +1157,22 @@ export type SetupStep = z.infer<typeof SetupStepSchema>;
  * `cogworks: command not found` at the next one.
  */
 export const BENCHMARK_SCOPED_SETUP_STEPS = ["environment", "project", "wiring"] as const;
+
+/**
+ * The steps that offer a check-off command.
+ *
+ * These three are the ones nothing reports until `check` runs at the end, so
+ * without them a student clones, installs and installs again against three
+ * silent boxes. `wiring` is deliberately absent: it is what `check` decides,
+ * and a student who could tick it by hand could call their entry points wired
+ * without ever having called them. `link` needs no command because the device
+ * list is evidence the moment it exists.
+ */
+export const SELF_CHECKABLE_SETUP_STEPS = ["clone", "environment", "project"] as const;
+export type SelfCheckableSetupStep = (typeof SELF_CHECKABLE_SETUP_STEPS)[number];
+export function isSelfCheckableStep(step: SetupStep): step is SelfCheckableSetupStep {
+  return (SELF_CHECKABLE_SETUP_STEPS as readonly SetupStep[]).includes(step);
+}
 export type BenchmarkScopedSetupStep = (typeof BENCHMARK_SCOPED_SETUP_STEPS)[number];
 export function isBenchmarkScopedStep(step: SetupStep): step is BenchmarkScopedSetupStep {
   return (BENCHMARK_SCOPED_SETUP_STEPS as readonly SetupStep[]).includes(step);
@@ -1139,6 +1218,17 @@ export const SetupStateSchema = z
      *  reads its own entry and nothing else, which is what stops one
      *  benchmark's setup from marking another's as done. */
     verifiedByBenchmark: z.record(z.string(), z.array(SetupStepSchema)),
+    /** Steps the student checked off from their own terminal, which is a
+     *  weaker fact than the CLI reporting one: it says a command ran on a
+     *  machine holding this page's token, not that the environment is right.
+     *  Kept apart from `verified` so the page can tick a box without calling
+     *  it observed. Same split by scope as above. */
+    checked: z.array(SetupStepSchema),
+    checkedByBenchmark: z.record(z.string(), z.array(SetupStepSchema)),
+    /** Signed check-off tokens, keyed by step, for the benchmark this state
+     *  was read for. Absent when no deployment secret is configured, which is
+     *  the one case where the page cannot offer the command. */
+    tokens: z.record(z.string(), z.string()).optional(),
   })
   .strict();
 export type SetupState = z.infer<typeof SetupStateSchema>;
@@ -1345,6 +1435,9 @@ export const API_ERROR_CODES = [
   "active_run_exists",
   "not_promotable",
   "not_selectable",
+  /** The run is not about the repository the team is connected to, so a new
+   *  promotion, rerun or publication cannot be authorised against it. */
+  "source_changed",
   "provider_unconfigured",
   "link_expired",
   "link_conflict",
