@@ -109,7 +109,15 @@ cutover. It rolls back the Worker only, not the runner or its images;
 execution, it fabricates it, and it would write simulated metrics into the
 production database.
 
-## "Staging" and "dev" name the same Worker
+## "Staging", "dev" and "beta" name the same Worker
+
+The `beta` branch combines the open pull requests into the product dev
+serves, without merging any of them. Deploy it as dev: build with
+`CLOUDFLARE_ENV` unset, read `apps/portal/dist/cogportal/wrangler.json` for the
+worker name, database id, bucket and hostnames before `wrangler deploy`, and
+export `cogportal-db` with `wrangler d1 export --remote` before applying a
+migration. Deploying the Worker does not move the runner; `modal app history
+cogworks-runner` shows which runner beta dispatches to.
 
 This page says dev. The repository still says staging in places: the comments
 in `apps/portal/wrangler.jsonc`, the runbooks under `docs/runbooks/`, the labels
