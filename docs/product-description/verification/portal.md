@@ -164,7 +164,7 @@ Not checkable by hand:
 | ADMIN-04 | P1 | owner | Rotating the join code states the consequence ([Asking](../portal/admin.md)). | Owner. | 1. Press Rotate join code. | "Confirm, the old code stops working" | not run |
 | ADMIN-05 | P2 | owner | The join code is not cached ([Interactions](../portal/admin.md)). | Owner. | 1. Read the response headers for `/api/admin/overview`. | `Cache-Control: private, no-store`. | not run |
 | ADMIN-06 | P2 | owner | A staff entry with no account says so ([Answered without work](../portal/admin.md)). | A staff login that has never signed in. | 1. Read the roster. | "not signed in yet" in place of a name. | not run |
-| ADMIN-07 | P2 | owner | A team admin cannot be removed here ([How it ends](../portal/admin.md)). | Any team. | 1. Try to remove the creator. | "A team admin cannot be removed here. Change their permission on GitHub instead." | not run |
+| ADMIN-07 | P2 | owner | A team admin cannot be removed here ([How it ends](../portal/admin.md)). | Any team. | 1. Try to remove the creator. | "A team admin can't be removed, because they hold the team's settings." | not run |
 | ADMIN-08 | P3 | owner | The join-code alphabet avoids ambiguous characters ([Edge cases](../portal/admin.md)). | Owner. | 1. Rotate the code several times and read each. | No `I`, `O`, `0`, or `1`. Eight characters. | not run |
 
 Not checkable by hand:

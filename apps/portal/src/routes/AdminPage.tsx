@@ -634,16 +634,23 @@ function TeamRow({ team, canAssignTas }: { team: AdminTeamSummary; canAssignTas:
                     >
                       {m.role === "admin" ? "creator" : m.role === "maintain" ? "maintainer" : "member"}
                     </span>
-                    <button
-                      type="button"
-                      title={`Remove ${m.login} from ${team.name}`}
-                      onClick={() => removeMember.mutate({ teamId: team.id, login: m.login })}
-                      disabled={removeMember.isPending}
-                      className="u-pressable flex min-h-8 min-w-8 items-center justify-center text-ink-faint hover:text-detect-deep disabled:opacity-40"
-                    >
-                      <HugeiconsIcon icon={UserRemove01Icon} size={14} strokeWidth={1.8} aria-hidden="true" />
-                      <span className="sr-only">Remove {m.login}</span>
-                    </button>
+                    {/* The server refuses to remove an admin, so offering the
+                        button would only lead to that refusal. The spacer keeps
+                        the role column aligned with the rows that have one. */}
+                    {m.role === "admin" ? (
+                      <span aria-hidden="true" className="min-w-8" />
+                    ) : (
+                      <button
+                        type="button"
+                        title={`Remove ${m.login} from ${team.name}`}
+                        onClick={() => removeMember.mutate({ teamId: team.id, login: m.login })}
+                        disabled={removeMember.isPending}
+                        className="u-pressable flex min-h-8 min-w-8 items-center justify-center text-ink-faint hover:text-detect-deep disabled:opacity-40"
+                      >
+                        <HugeiconsIcon icon={UserRemove01Icon} size={14} strokeWidth={1.8} aria-hidden="true" />
+                        <span className="sr-only">Remove {m.login}</span>
+                      </button>
+                    )}
                   </li>
                 ))}
               </ul>

@@ -301,7 +301,7 @@ export function registerTeamMembershipRoutes(app: Hono<AppEnv>): void {
       throw new ApiHttpError(
         403,
         "cannot_remove_creator",
-        "A team admin cannot be removed here. Change their permission on GitHub instead.",
+        "A team admin can't be removed, because they hold the team's settings.",
       );
     }
     await db

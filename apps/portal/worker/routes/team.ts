@@ -152,9 +152,8 @@ export async function requireTeamAdmin(
   // The stored role was written when the team was created or joined and was
   // never read from GitHub again, so a creator demoted or removed on GitHub
   // kept renaming the team and managing members here indefinitely. Staff
-  // could not remove them either: the removal route sees the stale admin
-  // role and points staff back at GitHub, where the change has already
-  // happened. Re-reading the permission at the gate closes that. A GitHub
+  // could not remove them either, because the removal route refuses the
+  // stale admin role. Re-reading the permission at the gate closes that. A GitHub
   // outage keeps the stored role, since refusing every admin action during
   // one would be the larger failure; the fixture team has no repository to
   // ask.

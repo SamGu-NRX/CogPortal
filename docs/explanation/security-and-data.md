@@ -170,7 +170,9 @@ reads `null` where the join code would be.
 uppercased code against an active cohort and, on a match, sets the caller's
 `cohortId`. It is not a second password. `requireUser` runs first, so the
 student is already signed in with GitHub before a code is checked, and a wrong
-code returns 403 `cohort_code_invalid` without revealing anything. An owner can
+code returns 403 `cohort_code_invalid` without revealing anything. The current
+code for a closed cohort says enrollment is closed; only someone who already
+holds that code can learn it. An owner can
 rotate the code from the admin console, which is the lever for a leaked code.
 
 A code decides which cohort a person joins, and cohort boundaries then hold:

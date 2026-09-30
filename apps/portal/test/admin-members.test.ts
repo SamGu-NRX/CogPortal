@@ -13,6 +13,7 @@ import { benchmarks, leaderboardSelections, officialAttempts, platformStaff, run
 import type { AppEnv, Env } from "../worker/env.ts";
 import { handleError } from "../worker/http/errors.ts";
 import { registerAdminRoutes } from "../worker/routes/admin.ts";
+import { registerCohortRoutes } from "../worker/routes/cohorts.ts";
 import {
   AdminOverviewSchema,
   PRACTICE_LIMIT,
@@ -94,6 +95,7 @@ function harness() {
 
   const app = new Hono<AppEnv>();
   registerAdminRoutes(app);
+  registerCohortRoutes(app);
   app.onError(handleError);
 
   return {
@@ -177,6 +179,22 @@ function harness() {
   };
 }
 
+test("a right code for a closed cohort says enrollment is closed, a wrong one does not", async () => {
+  const h = harness();
+  await h.seedCohorts();
+  const student = await h.signIn("student", null);
+
+  const closed = await h.call("POST", "/cohorts/join", { cookie: student, body: { code: "othercode" } });
+  assert.equal(closed.status, 403);
+  assert.equal(closed.body.error.message, "That code is right, but enrollment is closed. Ask your instructor to open it.");
+
+  const wrong = await h.call("POST", "/cohorts/join", { cookie: student, body: { code: "NOTACODE" } });
+  assert.equal(wrong.status, 403);
+  assert.equal(wrong.body.error.code, "cohort_code_invalid");
+  const [row] = await h.db.select({ cohortId: users.cohortId }).from(users).where(eq(users.githubLogin, "student"));
+  assert.equal(row?.cohortId, null);
+});
+
 test("admin removal of a team's creator is refused, not performed", async () => {
   const h = harness();
   await h.seedCohorts();
@@ -189,12 +207,12 @@ test("admin removal of a team's creator is refused, not performed", async () => 
   const removed = await h.call("DELETE", "/admin/teams/team_a/members/creator", { cookie: owner });
   assert.equal(removed.status, 403);
   assert.equal(removed.body.error.code, "cannot_remove_creator");
-  // Same refusal as the team page's own path, and it names the real way out:
-  // portal team authority mirrors GitHub repository permission, so the lever
-  // is on GitHub, not in a portal operation the product does not have.
+  // Same refusal as the team page's own path. It must not send staff to
+  // GitHub: the stored role is only re-read when the admin opens team
+  // settings, and a creator who owns the fork cannot be demoted there at all.
   assert.equal(
     removed.body.error.message,
-    "A team admin cannot be removed here. Change their permission on GitHub instead.",
+    "A team admin can't be removed, because they hold the team's settings.",
   );
   assert.equal(await h.roleOf("team_a", creatorId), "admin");
 });
