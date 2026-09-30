@@ -1224,9 +1224,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         if args.command == "link":
             portal = _portal(args.portal)
             print("Connecting to {}".format(portal))
+            # Linking sends setup facts on its own; a report and its weights go
+            # up only through `sync`. This used to list scores among the
+            # things never sent, which `sync` contradicts.
+            print("CogPortal receives setup check names, package versions, and your GitHub repository.")
             print(
-                "CogPortal receives setup check names, package versions, and your GitHub repository; "
-                "never source, paths, logs, predictions, scores, or environment variables."
+                "A saved report's scores and notes, with any weights it used, go up only when you "
+                "run `cogworks sync`. Source, logs, predictions, and environment variables stay "
+                "on this machine."
             )
             start = start_device_link(portal)
             print("Open {} and confirm code {}.".format(start["verificationUri"], start["userCode"]))
