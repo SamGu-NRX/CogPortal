@@ -8,8 +8,8 @@ import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { runSource } from "@cogworks/contracts/schema";
 import type { Database } from "../worker/db/client.ts";
-import { cohorts, leaderboardSelections, runs, teams } from "../worker/db/schema.ts";
-import { serializeRunDetail } from "../worker/http/serializers.ts";
+import { cohorts, leaderboardSelections, runMetrics, runs, teams } from "../worker/db/schema.ts";
+import { readPrimaryMetrics, serializeRunDetail } from "../worker/http/serializers.ts";
 
 /**
  * A finished run keeps naming the repository it actually ran from.
@@ -17,7 +17,9 @@ import { serializeRunDetail } from "../worker/http/serializers.ts";
  * The run detail payload used to build its repository from the team row, so a
  * team that changed its connected repository rewrote the past: every earlier
  * run rendered under the new repository's name, above the old repository's
- * commit (B-06).
+ * commit (B-06). These pin the two halves of the repair, the run keeping its
+ * own source and an unrecorded source staying unknown, plus the migration's
+ * guard, which is the part that decides what history is allowed to claim.
  */
 
 const MIGRATIONS = join(dirname(fileURLToPath(import.meta.url)), "..", "migrations");
@@ -49,6 +51,11 @@ function freshDb(files: string[]): { db: Database; sqlite: DatabaseSync } {
         async run() {
           return { success: true, meta: statement.run(...bound) };
         },
+        execute() {
+          const results = statement.all(...bound);
+          const { changes } = sqlite.prepare("SELECT changes() AS changes").get()!;
+          return { success: true, results, meta: { changes } };
+        },
         async all() {
           return { success: true, results: statement.all(...bound) };
         },
@@ -61,11 +68,24 @@ function freshDb(files: string[]): { db: Database; sqlite: DatabaseSync } {
       };
       return prepared;
     },
+    // One implicit transaction, and one `results` per entry, the way D1 returns
+    // rows for a batched SELECT.
+    async batch(statements: { execute(): unknown }[]) {
+      sqlite.exec("BEGIN");
+      try {
+        const results = statements.map((statement) => statement.execute());
+        sqlite.exec("COMMIT");
+        return results;
+      } catch (error) {
+        sqlite.exec("ROLLBACK");
+        throw error;
+      }
+    },
   };
   return { db: drizzle(binding as never) as unknown as Database, sqlite };
 }
 
-async function seedTeamOnOldRepository(db: Database): Promise<void> {
+async function seedTeamOnOldRepository(db: Database, repoId: number | null = 42): Promise<void> {
   await db.insert(cohorts).values({
     id: "cohort_t",
     slug: "t",
@@ -83,7 +103,7 @@ async function seedTeamOnOldRepository(db: Database): Promise<void> {
     repoFullName: OLD,
     repoUrl: `https://github.com/${OLD}`,
     defaultBranch: "main",
-    repoId: 42,
+    repoId,
   });
 }
 
@@ -110,6 +130,8 @@ async function insertRun(
   } as never);
 }
 
+/** The team as it is now, which is what decides whether a run is still
+ *  actionable. What the run *was* comes from the run. */
 async function currentTeam(db: Database) {
   const [row] = await db.select().from(teams).where(eq(teams.id, "team_1"));
   return { repoId: row!.repoId, repoFullName: row!.repoFullName };
@@ -146,6 +168,8 @@ test("a finished run still names its own repository after the team changes repos
   // The commit was always the run's own. It has to still agree with the name
   // above it, which is the pairing the defect broke.
   assert.equal(detail.sha, SHA);
+  // Readable, and no longer promotable: the page shows this instead of a
+  // control the server would refuse.
   assert.match(detail.sourceRefusal ?? "", /no longer connected to/);
   assert.match(detail.sourceRefusal ?? "", new RegExp(NEW));
 });
@@ -180,11 +204,13 @@ test("a run that recorded no repository reports none, not the team's", async () 
 test("the backfill fills a run whose own id proves the repository, and no other", async () => {
   // Applied against the schema as it stood before this migration, so this
   // exercises the shipped SQL rather than a paraphrase of it.
-  const before = migrationFiles("0045_setup_check_source.sql");
+  const before = migrationFiles("0039_setup_check_source.sql");
   const { db, sqlite } = freshDb(before);
   await seedTeamOnOldRepository(db);
 
-  // Inserted as SQL because the point is the schema as it stood at 0045, which
+  // Three shapes of history: one whose recorded id still matches the team, one
+  // from a repository the team has since left, and one from before ids existed.
+  // Inserted as SQL because the point is the schema as it stood at 0039, which
   // has no name column for the query builder to fill.
   const insert = sqlite.prepare(
     `insert into runs
@@ -197,7 +223,7 @@ test("the backfill fills a run whose own id proves the repository, and no other"
   insert.run("run_moved", SHA, 7);
   insert.run("run_ancient", SHA, null);
 
-  sqlite.exec(readFileSync(join(MIGRATIONS, "0046_run_repository_name.sql"), "utf8"));
+  sqlite.exec(readFileSync(join(MIGRATIONS, "0040_run_repository_name.sql"), "utf8"));
 
   const named = new Map(
     (await db.select({ id: runs.id, repositoryFullName: runs.repositoryFullName }).from(runs)).map((row) => [row.id, row.repositoryFullName]),
@@ -210,14 +236,18 @@ test("the backfill fills a run whose own id proves the repository, and no other"
 test("a name only becomes a link when it is a name", () => {
   assert.equal(runSource(null), null);
   assert.equal(runSource(""), null);
+  // Not a full name: no owner, or no repository after the slash.
   assert.equal(runSource("week1-capstone"), null);
   assert.equal(runSource("/week1-capstone"), null);
   assert.equal(runSource("some-student/"), null);
+  // Not two components, or not a name at all: each of these would otherwise
+  // build a URL pointing somewhere the run never used.
   assert.equal(runSource("owner/repo/extra"), null);
   assert.equal(runSource("owner/../other"), null);
   assert.equal(runSource("owner/repo?tab=readme"), null);
   assert.equal(runSource(" /repo"), null);
   assert.equal(runSource("owner /repo"), null);
+  assert.equal(runSource("owner/.."), null, "a dot segment resolves above the repository");
   assert.deepEqual(runSource(OLD), {
     owner: "some-student",
     name: "week1-capstone",
@@ -246,8 +276,37 @@ test("the run detail's refusal names no single action, because two panels share 
   assert.match(detail.sourceRefusal ?? "", /to act on it\.$/);
   assert.doesNotMatch(detail.sourceRefusal ?? "", /promote it|publish a result|verify it here|run it again/);
   assert.match(detail.sourceRefusal ?? "", /no longer connected to/);
-  // The recorded selection and the gate both survive the wording change.
   assert.equal(detail.selected, true, "the team's published entry was withdrawn");
   assert.equal(detail.publishable, true);
   assert.equal(detail.status, "succeeded");
+});
+
+test("a run list longer than D1's parameter cap still reads every primary metric", async () => {
+  // D1 refuses a statement with more than 100 bound parameters, and the run
+  // list sends every run the team has. node:sqlite has no such cap, so the
+  // statements are counted rather than the failure reproduced.
+  const { db, sqlite } = freshDb(migrationFiles());
+  await seedTeamOnOldRepository(db);
+  await insertRun(db, "run_first");
+  await insertRun(db, "run_last");
+  for (const runId of ["run_first", "run_last"]) {
+    await db.insert(runMetrics).values({
+      runId, key: "accuracy", label: "Accuracy", value: 0.5, unit: null,
+      higherIsBetter: true, isPrimary: true, precision: 2,
+    });
+  }
+  const parameterCounts: number[] = [];
+  const prepare = sqlite.prepare.bind(sqlite);
+  sqlite.prepare = (query: string) => {
+    if (query.includes('"run_metrics"')) parameterCounts.push(query.split("?").length - 1);
+    return prepare(query);
+  };
+
+  const ids = ["run_first", ...Array.from({ length: 248 }, (_, i) => `run_missing_${i}`), "run_last"];
+  const primaries = await readPrimaryMetrics(db, ids);
+
+  assert.deepEqual([...primaries.keys()].sort(), ["run_first", "run_last"]);
+  assert.equal(parameterCounts.length, 3, "250 ids should take three statements");
+  assert.ok(parameterCounts.every((count) => count <= 100), `a statement bound ${Math.max(...parameterCounts)} parameters`);
+  assert.deepEqual(await readPrimaryMetrics(db, []), new Map());
 });

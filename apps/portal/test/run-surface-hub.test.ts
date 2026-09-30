@@ -62,3 +62,16 @@ test("legacy cached payloads decode at revision zero and yield to numbered paylo
     assert.equal(RunSurfaceSnapshotSchema.safeParse({ ...legacy, snapshotRevision: invalid }).success, false);
   }
 });
+
+test("the wire contract still requires the fields an older writer omitted", () => {
+  // The hub treats a payload without these as a cache miss. That is a decision
+  // about stored bytes only; their absence stays invalid on the wire.
+  const { source: _source, sourceRefusal: _refusal, ...historical } = snapshot(1);
+  const parsed = RunSurfaceSnapshotSchema.safeParse(historical);
+  assert.equal(parsed.success, false);
+  assert.deepEqual(
+    parsed.error?.issues.map((issue) => issue.path.join(".")).sort(),
+    ["source", "sourceRefusal"],
+  );
+  assert.equal(RunSurfaceSnapshotSchema.safeParse({ ...historical, source: null, sourceRefusal: null }).success, true);
+});
