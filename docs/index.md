@@ -25,6 +25,12 @@ Steps to a goal, for someone who already knows why they are doing it.
 
 - [How to deploy your own CogPortal](how-to/deploy-your-own.md): a fresh
   installation in your own Cloudflare and Modal accounts.
+- [How to run a CogWorks cohort on CogPortal](how-to/run-the-course.md): the
+  admin console, benchmark availability, and helping a stuck team, for
+  instructors and TAs.
+- [The CogWorks Benchmark CLI](../python/cogbench/README.md): the student
+  guide, from the website's Setup page through local runs, sync, and hosted
+  runs.
 
 ## Explanation
 
