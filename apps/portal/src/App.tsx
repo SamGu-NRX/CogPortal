@@ -4,8 +4,9 @@ import type { ReactNode } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router";
 import type { Session } from "@cogworks/contracts/schema";
 import { LoadingMark, QueryError } from "@/components/Feedback";
+import { Concealed, RestoreGate } from "@/components/RestoreGate";
 import { Shell } from "@/components/Shell";
-import { useRevalidateOnRestore, useSession } from "@/lib/queries";
+import { useSession } from "@/lib/queries";
 import { AdminPage } from "@/routes/AdminPage";
 import { ConnectPage } from "@/routes/ConnectPage";
 import { ConnectionsPage } from "@/routes/ConnectionsPage";
@@ -68,7 +69,7 @@ export function RequireStage({
   }
   if (stage !== "user" && !session.cohort) return <Navigate to="/join" replace />;
   if (stage === "team" && !session.team) return <Navigate to="/connect" replace />;
-  return <>{children}</>;
+  return <Concealed status className="flex flex-1 flex-col">{children}</Concealed>;
 }
 
 /** Staff-only gate — students never see the admin console. */
@@ -82,21 +83,16 @@ export function RequireStaff({ children }: { children: ReactNode }) {
   if (session.user.platformRole !== "staff" && !session.user.isTa) {
     return <Navigate to="/" replace />;
   }
-  return <>{children}</>;
-}
-
-/** Inside the provider, because it needs the client the routes share. */
-function RestoredDocumentGuard({ children }: { children: ReactNode }) {
-  useRevalidateOnRestore();
-  return <>{children}</>;
+  return <Concealed status className="flex flex-1 flex-col">{children}</Concealed>;
 }
 
 export function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <RestoredDocumentGuard>
-        <MotionConfig reducedMotion="user">
+      <MotionConfig reducedMotion="user">
         <BrowserRouter>
+          {/* Inside the router, because its failure state links out. */}
+          <RestoreGate>
           <Routes>
             <Route element={<Shell />}>
               <Route index element={<Landing />} />
@@ -182,9 +178,9 @@ export function App() {
               <Route path="*" element={<NotFound />} />
             </Route>
           </Routes>
+          </RestoreGate>
         </BrowserRouter>
-        </MotionConfig>
-      </RestoredDocumentGuard>
+      </MotionConfig>
     </QueryClientProvider>
   );
 }
