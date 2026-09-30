@@ -6,6 +6,10 @@ accessibility first: local practice works offline after installation, hosted
 practice gives reproducible diagnostics, and official evaluation remains a
 separate, attempt-limited trust tier.
 
+Students start with [the CogWorks Benchmark CLI guide](python/cogbench/README.md).
+Instructors and TAs start with
+[how to run a CogWorks cohort](docs/how-to/run-the-course.md).
+
 ## Honest status
 
 - Portal, Discord interactions, account linking, the offline CLI, shared
