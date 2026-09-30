@@ -9,7 +9,9 @@ import type {
   ScoreResult,
 } from "./adapter";
 
-export function fixtureScenario(branch: string) {
+// Not exported: a scenario's default detail is Vision's wording, so callers
+// read the run's own track's outcome through fixtureOutcome.
+function fixtureScenario(branch: string) {
   return (
     FIXTURE_SCENARIOS.find((scenario) => scenario.branch === branch) ??
     FIXTURE_SCENARIOS.find((scenario) => scenario.branch === "main")!
@@ -18,13 +20,11 @@ export function fixtureScenario(branch: string) {
 
 /** The scripted outcome with its detail told in the requested track's terms.
  *  Tracks without their own wording keep the default. */
-export function fixtureOutcome(branch: string, benchmarkId: string) {
+export function fixtureOutcome(branch: string, benchmarkId: string): ExecutionResult["outcome"] {
   const { outcome } = fixtureScenario(branch);
   if (outcome.kind === "succeeded") return outcome;
-  return {
-    ...outcome,
-    detail: outcome.detailByBenchmark?.[benchmarkId] ?? outcome.detail,
-  };
+  const { detailByBenchmark, ...failure } = outcome;
+  return { ...failure, detail: detailByBenchmark?.[benchmarkId] ?? failure.detail };
 }
 
 function round4(value: number): number {
@@ -205,7 +205,10 @@ export function fixtureMetrics(
   ];
 }
 
-function failureExcerpt(branch: string): string[] {
+/** The traceback tail printed above the detail line. It has to name the same
+ *  frame as `fixtureOutcome`'s detail for that track, so a branch whose
+ *  detail differs by benchmark needs its excerpt to differ too. */
+function failureExcerpt(branch: string, benchmarkId: string): string[] {
   switch (branch) {
     case "loose-pins":
       return [
@@ -219,7 +222,9 @@ function failureExcerpt(branch: string): string[] {
     case "raw-tuples":
       return ["Traceback (most recent call last):", "  PredictionSchemaError: invalid prediction 14"];
     case "null-descriptor":
-      return ["Traceback (most recent call last):", "  File \"faces.py\", line 87, in recognize"];
+      return benchmarkId === "language-search"
+        ? ["Traceback (most recent call last):", "  File \"search.py\", line 52, in embed_text"]
+        : ["Traceback (most recent call last):", "  File \"faces.py\", line 87, in recognize"];
     default:
       return ["runner: submission terminated"];
   }
@@ -231,7 +236,7 @@ export function fixtureLog(
   sha: string,
   benchmarkId = "vision-recognition",
 ): string {
-  const scenario = fixtureScenario(branch);
+  const outcome = fixtureOutcome(branch, benchmarkId);
   const language = benchmarkId === "language-search";
   const installLines = language
     ? [
@@ -281,15 +286,13 @@ export function fixtureLog(
     }
   }
 
-  if (scenario.outcome.kind === "succeeded") {
+  if (outcome.kind === "succeeded") {
     const primary = fixtureMetrics(runId, branch, benchmarkId)[0]!;
     lines.push(language ? "prediction schema: 3/3 components valid" : "prediction schema: 32/32 cases valid");
     lines.push(`scorer summary: ${primary.key}=${primary.value.toFixed(4)}`);
     lines.push("run completed successfully");
   } else {
-    lines.push(...failureExcerpt(branch));
-    const outcome = fixtureOutcome(branch, benchmarkId);
-    if (outcome.kind === "failed") lines.push(outcome.detail);
+    lines.push(...failureExcerpt(branch, benchmarkId), outcome.detail);
   }
 
   const encoded = new TextEncoder().encode(lines.join("\n"));
