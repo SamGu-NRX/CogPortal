@@ -10,12 +10,17 @@ run:     cogworks
 module:  python -m cogbench
 ```
 
-The student install, from this repository's branch while PR #1 is open (TestPyPI holds 0.1.0, which has no resolver):
+The student install is from this repository. TestPyPI holds 0.1.0, which
+predates the resolver `cogworks check` now uses, so installing from there
+gives a command that cannot find anything:
 
 ```sh
-python -m pip install --upgrade "cogworks-benchmark @ git+https://github.com/SamGu-NRX/CogPortal.git@fix/product-description-triage#subdirectory=python/cogbench"
+python -m pip install --upgrade "cogworks-benchmark @ git+https://github.com/SamGu-NRX/CogPortal.git@main#subdirectory=python/cogbench"
 cogworks --help
 ```
+
+Until this SDK is on `main`, use the command on the portal's setup page
+instead; it pins the tested commit.
 
 From this monorepo, developers can instead use an editable install:
 

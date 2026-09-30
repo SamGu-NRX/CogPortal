@@ -100,7 +100,10 @@ class TerminalProgress(Progress):
         file is thousands of escape codes nobody reads.
         """
 
-        return bool(getattr(self._stream, "isatty", lambda: False)())
+        try:
+            return bool(getattr(self._stream, "isatty", lambda: False)())
+        except (ValueError, OSError):
+            return False
 
     def phase(self, headline: str) -> None:
         self._erase()
@@ -179,10 +182,14 @@ def _count(done: int, total: int) -> str:
 
 
 def _estimate(done: int, total: int, elapsed: float) -> str:
-    """How much longer, at most, phrased as the bound it actually is.
+    """How much longer, at the rate the search has managed so far.
 
-    The search ends at the first pairing that works, so the remaining time is
-    the most it can take and not what it will take.
+    The search ends at the first pairing that works, so the attempts left are
+    a ceiling. The seconds are not: they are the average attempt so far
+    multiplied out, and a later attempt can cost more than an earlier one.
+    Calling the number a bound would claim something this arithmetic does not
+    support, which for a student is worse than a rough number honestly
+    labelled.
     """
 
     if done < _ENOUGH_TO_EXTRAPOLATE or elapsed <= 0 or done >= total:
@@ -190,7 +197,7 @@ def _estimate(done: int, total: int, elapsed: float) -> str:
     remaining = (elapsed / done) * (total - done)
     if remaining < _WORTH_ESTIMATING_SECONDS:
         return ""
-    return "{} left at most".format(_duration(remaining))
+    return "{} left at this rate".format(_duration(remaining))
 
 
 def _duration(seconds: float) -> str:

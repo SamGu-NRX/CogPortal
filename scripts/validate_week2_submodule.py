@@ -10,7 +10,7 @@ from validate_metric_metadata import validate_metric_metadata
 
 ROOT = Path(__file__).resolve().parents[1]
 BENCHMARK = ROOT / "benchmarks" / "week2"
-REVIEWED_COMMIT = "b9055031bf25a18594651d89610f3fbcd7462db8"
+REVIEWED_COMMIT = "a3dd948d0c108fabf070b4f159acdecd4d6c3897"
 
 
 def main() -> None:
