@@ -10,7 +10,7 @@ from validate_metric_metadata import validate_metric_metadata
 
 ROOT = Path(__file__).resolve().parents[1]
 BENCHMARK = ROOT / "benchmarks" / "week2"
-REVIEWED_COMMIT = "c177cf23cdd4f8dbe55401a2eb4bada4c64d37c2"
+REVIEWED_COMMIT = "b9055031bf25a18594651d89610f3fbcd7462db8"
 
 
 def main() -> None:
@@ -34,7 +34,7 @@ def main() -> None:
         )
     )
     expected = {
-        "vision-recognition": (2, "recognition-v1", "recognition_score"),
+        "vision-recognition": (2, "recognition-v2", "recognition_score"),
         "vision-clustering": (2, "clustering-v2", "clustering_pairwise_f1"),
     }
     for track, values in expected.items():
@@ -57,7 +57,7 @@ def main() -> None:
     for value in (
         "cogworks.submissions.v2",
         "celeba-official-v1",
-        "recognition-v1",
+        "recognition-v2",
         "clustering-v2",
     ):
         if value not in migration:
