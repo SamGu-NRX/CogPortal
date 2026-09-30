@@ -451,6 +451,22 @@ test("a same-account restore from the back/forward cache rereads what it shows",
   assert.equal(reads(), afterRestore);
 });
 
+test("a modal left open across a hide is closed, so it cannot block the gate's retry", async (t) => {
+  const h = await harness(t);
+  // A confirm dialog in the account's tree, as RunConsole opens one.
+  const dialog = h.container.ownerDocument.createElement("dialog");
+  h.container.querySelector("main")?.append(dialog) ?? h.container.append(dialog);
+  dialog.showModal();
+  assert.ok(dialog.open);
+  h.leave("visibility");
+  assert.ok(!dialog.open, "the dialog stayed modal over the concealed page");
+
+  h.server.signInDirectly("bob");
+  h.server.session("fail");
+  await h.comeBack("visibility");
+  assert.deepEqual(h.operableButtons(), ["Try again"]);
+});
+
 test("the same login on the same team is the same account", () => {
   const alice = sessionFor("alice");
   assert.equal(sameAccount(alice, sessionFor("alice")), true);
