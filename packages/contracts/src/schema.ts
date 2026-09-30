@@ -162,14 +162,15 @@ export type RunSource = z.infer<typeof RunSourceSchema>;
  * repository renamed on GitHub keeps redirecting from the old name, which is
  * the behaviour this wants: the link names what the run used.
  */
-export function runSource(fullName: string | null): RunSource | null {
+export function runSource(fullName: string | null | undefined): RunSource | null {
   // Stricter than the wire regex elsewhere in this file, because the result
   // becomes a URL. GitHub owners are alphanumeric and hyphens, repositories add
   // dots and underscores; anything else ("owner/repo/extra",
   // "owner/repo?tab=readme") would build a link pointing somewhere the run
-  // never used.
+  // never used. A repository named only of dots would resolve above itself.
   if (!fullName || !/^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/.test(fullName)) return null;
   const slash = fullName.indexOf("/");
+  if (/^\.+$/.test(fullName.slice(slash + 1))) return null;
   return {
     owner: fullName.slice(0, slash),
     name: fullName.slice(slash + 1),
@@ -180,6 +181,9 @@ export function runSource(fullName: string | null): RunSource | null {
 
 export const RunSummarySchema = z.object({
   id: z.string(),
+  /** The repository this run ran from, or null when it predates the recorded
+   *  name. A commit with no repository beside it cannot be attributed. */
+  repo: RunSourceSchema.nullable(),
   mode: RunModeSchema,
   status: RunStatusSchema,
   benchmarkId: z.string(),
@@ -206,6 +210,10 @@ export const RunDetailSchema = RunSummarySchema.extend({
   /** Null when the run predates the recorded name. Never the team's current
    *  repository standing in for an unknown one. */
   repo: RunSourceSchema.nullable(),
+  /** Why a new promotion is refused, when the reason is that this run is not
+   *  about the repository the team is connected to. Null when it is. The page
+   *  shows this instead of a control the server would refuse. */
+  sourceRefusal: z.string().nullable(),
   phases: z.array(PhaseTimingSchema),
   metrics: z.array(MetricSchema),
   /** The scorer's own notes on this run: which component scored zero and why.
@@ -725,6 +733,12 @@ export const RunSurfaceSnapshotSchema = z.object({
    * authorization, capacity, or provider/weight availability. */
   retryRefusal: z.string().max(600).nullable().default(null),
   events: z.array(RunStreamEventSchema).max(250),
+  /** Repository of the current stage, paired with its commit. Null when
+   *  that run predates the recorded name. */
+  source: RunSourceSchema.nullable(),
+  /** Why promotion, rerun and publication are absent from `actions`, when the
+   *  reason is that this run is not about the connected repository. */
+  sourceRefusal: z.string().nullable(),
   actions: z.array(RunSurfaceActionSchema),
   simulated: z.boolean(),
 });
@@ -754,6 +768,38 @@ export function runSurfaceCurrentRunId(snapshot: RunSurfaceSnapshot): string | n
 export function runSurfaceCurrentEvents(snapshot: RunSurfaceSnapshot): RunStreamEvent[] {
   const runId = runSurfaceCurrentRunId(snapshot);
   return runId ? snapshot.events.filter((event) => event.sourceRunId === runId) : [];
+}
+
+export type RunLifecycleStageState = "complete" | "active" | "failed" | "cancelled" | "pending" | "not_run";
+
+/** Each stage from its own run, not its position: a surface started in the
+ * browser has no local session, so Local stays `not_run` through publication. */
+export function runSurfaceStageStates(
+  snapshot: RunSurfaceSnapshot,
+): Record<RunLifecycleStage, RunLifecycleStageState> {
+  const fromStatus = (status: RunStatus | RunSurfaceSnapshot["status"]): RunLifecycleStageState => {
+    if (status === "succeeded") return "complete";
+    if (status === "failed" || status === "cancelled") return status;
+    return "active";
+  };
+  const stage = (
+    id: Exclude<RunLifecycleStage, "published">,
+    runId: string | null,
+  ): RunLifecycleStageState => {
+    if (!runId) return id === "local" ? "not_run" : "pending";
+    if (id === snapshot.stage) return fromStatus(snapshot.status);
+    // Hosted verification requires a succeeded, and then immutable, local session.
+    if (id === "local") return "complete";
+    // These ids are the latest retry, so a retried failure never marks its stage.
+    const run = snapshot.executionHistory.find((item) => item.id === runId);
+    return run ? fromStatus(run.status) : "pending";
+  };
+  return {
+    local: stage("local", snapshot.localRunId),
+    hosted: stage("hosted", snapshot.practiceRunId),
+    official: stage("official", snapshot.officialRunId),
+    published: snapshot.published ? "complete" : "pending",
+  };
 }
 
 export const StartLocalRunRequestSchema = z.object({
@@ -856,6 +902,7 @@ export type DeviceStatus = z.infer<typeof DeviceStatusSchema>;
 
 export const SelectionSchema = z.object({
   runId: z.string(),
+  source: RunSourceSchema.nullable(),
   selectedAt: z.number(),
   primaryMetric: MetricSchema,
   shortSha: z.string(),
@@ -870,9 +917,11 @@ export const DashboardSchema = z.object({
   quota: QuotaSchema,
   lastResolvedSha: z.string().nullable(),
   activeRun: RunSummarySchema.nullable(),
-  /** Most recent succeeded practice run; compatibility is reported separately. */
-  latestCandidate: RunSummarySchema.nullable(),
-  /** Saved-environment refusal for latestCandidate, without changing its outcome. */
+  /** Most recent succeeded practice run, retained even when something prevents
+   *  promotion. Its two refusals answer different questions and can both be
+   *  set: `sourceRefusal` is which repository the run came from, and
+   *  `promotionRefusal` is whether its saved environment can still be reused. */
+  latestCandidate: RunSummarySchema.extend({ sourceRefusal: z.string().nullable() }).nullable(),
   promotionRefusal: z.string().max(600).nullable().default(null),
   selection: SelectionSchema.nullable(),
   runs: z.array(RunSummarySchema),
@@ -1030,8 +1079,9 @@ export const ChurnEventSchema = z.object({
 });
 export type ChurnEvent = z.infer<typeof ChurnEventSchema>;
 
-/** GET /api/v1/team/process — team members only. Cached; recomputed when
- *  older than 30 minutes (see worker/routes/team.ts). `weekLabel` is null
+/** GET /api/v1/team/process — team members only. Computed on every request
+ *  from current runs; only the GitHub commit history is reused, for up to 30
+ *  minutes (see worker/routes/team.ts). `weekLabel` is null
  *  for a team with no runs yet, which is also when `stageFootprint` and
  *  `ownershipBreadth` are empty objects: no run means no way to know which
  *  capstone stage map applies, so there is no stage list to report against. */
@@ -1051,18 +1101,15 @@ export const HistoryWindowSchema = z.object({
 
 export const TeamProcessSignalsSchema = z.object({
   historyQuality: HistoryQualitySchema,
-  // Defaulted, not merely nullable. `team_process_signals` holds payloads
-  // serialized by whatever version wrote them, and rows written before this
-  // field existed have no key at all. The browser parses every response
-  // strictly, so a bare `.nullable()` would have blanked the team page for
-  // every team with a warm cache until it expired.
-  historyWindow: HistoryWindowSchema.nullable().default(null),
+  historyWindow: HistoryWindowSchema.nullable(),
   weekLabel: z.enum(["week1", "week2", "week3"]).nullable(),
   stageFootprint: z.record(z.string(), StageActivitySchema),
   firstLight: FirstLightSchema,
   boundaryChurn: z.array(ChurnEventSchema),
   ownershipBreadth: z.record(z.string(), z.array(z.string())),
   findingSentences: z.array(z.string()),
+  /** When GitHub was last asked for commit history; run-derived fields are
+   *  always current. Not renamed: pages open across a deploy parse strictly. */
   computedAt: z.number(),
 });
 export type TeamProcessSignals = z.infer<typeof TeamProcessSignalsSchema>;
@@ -1418,6 +1465,9 @@ export const API_ERROR_CODES = [
   "active_run_exists",
   "not_promotable",
   "not_selectable",
+  /** The run is not about the repository the team is connected to, so a new
+   *  promotion, rerun or publication cannot be authorised against it. */
+  "source_changed",
   "provider_unconfigured",
   "link_expired",
   "link_conflict",

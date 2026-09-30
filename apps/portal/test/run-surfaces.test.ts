@@ -37,6 +37,7 @@ function renderOfficialDetail(publishable: boolean, selected = false): string {
     primaryMetric: null,
     parentRunId: null,
     failure: null,
+    sourceRefusal: null,
     repo: { owner: "course", name: "team", fullName: "course/team", url: "https://github.com/course/team", defaultBranch: "main" },
     phases: [],
     metrics: [],
