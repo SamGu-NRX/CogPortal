@@ -1,0 +1,56 @@
+-- Week 3's scored questions stopped being answerable from the file it hands
+-- over, so its version moves again.
+--
+-- The submission is given `Resources`, whose `captions_path` is the full
+-- COCO annotations file. That file is also the caption-to-image mapping:
+-- 400,172 pairs, built into a dictionary in one pass. Every scored verbatim
+-- query was a caption of its gold image, read out of that same file
+-- (datasets.py:485), so a lookup answered it.
+--
+-- Measured against the real scorer on the test tier, a submission that
+-- embedded nothing at all:
+--
+--   retrieval_mrr  1.0000
+--   overall        0.4822      against a reference submission at 0.6925
+--
+-- Stripping gold from the payload does not close this, and gold was already
+-- stripped. The sandbox recomputes the gold row as the position of the
+-- caption's image within `pool_image_ids`, and both of those are things the
+-- contract requires: `prepare_database(image_ids, descriptors)` is the
+-- assignment. The captions cannot be withheld either, because embedding them
+-- IS the assignment and the course teaches an IDF table over the whole
+-- corpus. The gold and the training data are the same object.
+--
+-- So the fix is in the questions rather than the payload. `retrieval_mrr`
+-- and `search_mrr` now average the three rewritten rungs, and the verbatim
+-- probes are published beside them as `retrieval_mrr_verbatim` and
+-- `search_mrr_verbatim`, run and reported but not scored.
+--
+-- Keeping them visible is deliberate. An honest submission scores about the
+-- same verbatim as rewritten; the memorizer above scores 1.00 next to 0.03.
+-- That gap is the clearest reading this benchmark produces, and burying it
+-- would trade a measurement for a number.
+--
+-- Measured movement:
+--
+--   reference   test        overall 0.6925 -> 0.6594   (-4.8%)
+--   reference   evaluation  overall 0.4241 -> 0.4097   (-3.4%)
+--   memorizer   test        overall 0.4822 -> 0.0811   (-83%)
+--
+-- The separation between an honest submission and one that embedded nothing
+-- widens from 0.2103 to 0.5783, so the instrument distinguishes them 2.7
+-- times better while costing a real submission under five percent.
+--
+-- Before making this change a band was written down predicting that
+-- decontamination would not change what the instrument measures: the ratio
+-- of rewritten to verbatim should transfer between the two components,
+-- within 0.10. On the evaluation tier, where the two are not degenerate,
+-- R_retrieval came out 0.8666 against R_search 0.8632, a difference of
+-- 0.0033. See docs/decisions/week3-verbatim-probes.md, which was committed
+-- before the number was computed.
+--
+-- Existing rows keep the scorer_version that scored them. That column
+-- records what a run measured.
+UPDATE benchmarks
+SET scorer_version = 'retrieval-v4'
+WHERE id = 'language-search' AND version = 1;

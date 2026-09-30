@@ -1,6 +1,8 @@
+import { clientEnv } from "./env.client";
+
 const parameters = new URLSearchParams(window.location.search);
 const isActivity =
-  window.location.hostname === "cogactivity-dev.sillion.app" ||
+  window.location.hostname === clientEnv.VITE_ACTIVITY_HOSTNAME ||
   window.location.hostname.endsWith(".discordsays.com") ||
   parameters.has("frame_id");
 
