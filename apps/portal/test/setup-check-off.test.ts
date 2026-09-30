@@ -306,11 +306,16 @@ test("a token is byte-identical while the page is polling", async () => {
   // The setup page refetches every 2.5s while a step is outstanding. An expiry
   // taken straight from the clock changed the command's text on every poll,
   // under a student trying to select it by hand.
-  const payload = { u: "user_1", t: "team_1", s: "clone", b: "", exp: checkOffExpiry() };
+  //
+  // A fixed clock, not Date.now(): the expiry is bucketed by UTC day, so two
+  // mints a minute apart straddle a bucket for the last minute of every day.
+  // CI hit exactly that at 23:59 UTC.
+  const now = Date.UTC(2026, 0, 15, 12);
+  const payload = { u: "user_1", t: "team_1", s: "clone", b: "", exp: checkOffExpiry(now) };
   const first = await createCheckOffToken(SECRET, payload as never);
   const second = await createCheckOffToken(SECRET, {
     ...payload,
-    exp: checkOffExpiry(Date.now() + 60_000),
+    exp: checkOffExpiry(now + 60_000),
   } as never);
   assert.equal(first, second);
 });

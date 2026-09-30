@@ -8,7 +8,7 @@ import type { ReactNode } from "react";
  *
  * A row says what it is for at the call site rather than from a table in here,
  * so the page that knows the track writes the sentence and this file stays a
- * layout. That is how the guide read before the sheet replaced it.
+ * layout.
  */
 export function StepRail({ children }: { children: ReactNode }) {
   return (
