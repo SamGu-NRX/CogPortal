@@ -135,8 +135,10 @@ export function RunDetailPage() {
       </div>
 
       {/* Each item leads with its separator; the row starts one separator left
-          of the clip, so an item that begins a wrapped line hides it. The clip
-          sits 6px out so a focus outline survives; the glyph is 12px further. */}
+          of the clip, so an item that begins a wrapped line hides it. The
+          margin widens the row leftward only; its right edge stays on the
+          clip's. The clip sits 6px out so a focus outline survives; the glyph
+          is 12px further. */}
       <div className="mt-2 [clip-path:inset(-8px_-8px_-8px_-6px)]">
         <p className="-ml-8 flex flex-wrap items-center gap-y-1.5 font-mono text-[12px] text-ink-secondary">
           {run.status === "failed" && <MetaItem>{runNumberLabel(run.id)}</MetaItem>}
