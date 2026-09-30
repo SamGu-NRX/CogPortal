@@ -228,6 +228,9 @@ export const api = {
       `/api/v1/local-reports?benchmark=${encodeURIComponent(benchmarkId)}`,
       LocalReportListSchema,
     ),
+  /** Every report the team synced for its connected repository, whatever the
+   *  benchmark or version, newest 50 first. */
+  teamLocalReports: () => request("/api/v1/local-reports", LocalReportListSchema),
   dashboard: (benchmarkId: string) =>
     request(
       `/api/dashboard?benchmark=${encodeURIComponent(benchmarkId)}`,

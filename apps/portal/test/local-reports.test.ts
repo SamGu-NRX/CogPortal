@@ -165,6 +165,40 @@ test("an unscoped list still returns every synced report", async () => {
   assert.equal(reports.length, 2);
 });
 
+/* The dashboard lists reports for inactive benchmarks from the unscoped list,
+ * so that list has to carry them for the team and nobody else's. */
+test("the unscoped list returns an inactive benchmark's report to its team only", async () => {
+  const { env, db } = await seededDb();
+  await db.insert(benchmarks).values([benchmarkRow(1, false)]);
+  await db.insert(users).values({ id: "user_2", name: "Grace", email: "grace@example.com" });
+  await db.insert(teams).values({
+    id: "team_2",
+    cohortId: "cohort_1",
+    name: "Difference Engines",
+    repoOwner: "other-org",
+    repoName: "other-repo",
+    repoFullName: "other-org/other-repo",
+    repoUrl: "https://github.com/other-org/other-repo",
+    defaultBranch: "main",
+  });
+  await db.insert(teamMembers).values({ teamId: "team_2", userId: "user_2", role: "admin" });
+  await db.insert(localReports).values([
+    reportRow("report_inactive", 1),
+    // Another team's report, both against its own repository and against
+    // this team's. Neither belongs in this team's list.
+    { ...reportRow("report_other_team", 1), userId: "user_2", repositoryFullName: "other-org/other-repo" },
+    { ...reportRow("report_other_team_same_repo", 1), userId: "user_2" },
+  ]);
+
+  const mine = await listTeamLocalReports(env, "user_1");
+  assert.deepEqual(mine.map((report) => report.reportId), ["report_inactive"]);
+  assert.equal(mine[0].benchmarkId, BENCHMARK);
+  assert.equal(mine[0].benchmarkVersion, 1);
+
+  const theirs = await listTeamLocalReports(env, "user_2");
+  assert.deepEqual(theirs.map((report) => report.reportId), ["report_other_team"]);
+});
+
 test("a benchmark id with no active version returns nothing rather than stale rows", async () => {
   const { env, db } = await seededDb();
   await db.insert(benchmarks).values([benchmarkRow(1, false)]);
