@@ -81,6 +81,7 @@ export const FIXTURE_SCENARIOS: FixtureScenario[] = [
         'Prediction 14: expected object with keys ["box","identity"], got 4-tuple.',
       detailByBenchmark: {
         "language-search": "Query 14: expected a list of image ids, got a list of (id, score) tuples.",
+        "vision-clustering": "Scenario 14: expected one cluster label per image, got a list of (label, score) tuples.",
       },
     },
   },
@@ -96,6 +97,8 @@ export const FIXTURE_SCENARIOS: FixtureScenario[] = [
       detailByBenchmark: {
         "language-search":
           "KeyError: 'zamboni' (embed_text() at search.py:52, caption 041 has an out-of-vocabulary word).",
+        "vision-clustering":
+          "TypeError: 'NoneType' object is not subscriptable (cluster() at faces.py:87, scenario 04).",
       },
     },
   },

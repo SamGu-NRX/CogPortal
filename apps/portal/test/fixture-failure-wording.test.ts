@@ -173,3 +173,28 @@ test("no scripted failure puts a Vision frame into a Language log", () => {
     assert.doesNotMatch(log, /faces\.py|recognize/, `${scenario.branch} logs Vision's frame under Language`);
   }
 });
+
+test("a Clustering run fails in Clustering's words, not recognition's", async () => {
+  const CLUSTERING = "vision-clustering";
+  for (const branch of ["null-descriptor", "raw-tuples"]) {
+    const run = await failedRun(CLUSTERING, branch);
+    const clusteringDetail = scriptedFailure(branch).detailByBenchmark?.[CLUSTERING];
+    assert.ok(clusteringDetail, `${branch} has no Clustering wording`);
+    assert.equal(run.failureDetail, clusteringDetail);
+    assert.doesNotMatch(run.log, /recognize|"box","identity"/, `${branch} logs recognition's failure under Clustering`);
+  }
+});
+
+test("a fixture log stops at the stage that failed", () => {
+  const log = (branch: string) => fixtureLog("run_1", branch, "a".repeat(40), VISION);
+  const install = log("loose-pins");
+  assert.doesNotMatch(install, /entry-point discovery|contract check|eval case/);
+  const contract = log("missing-adapter");
+  assert.match(contract, /entry-point discovery/);
+  assert.doesNotMatch(contract, /contract check: adapter factory loaded|eval case/);
+  const evaluating = log("null-descriptor");
+  assert.match(evaluating, /eval case 016\/032 complete/);
+  assert.doesNotMatch(evaluating, /eval case 017\/032/);
+  assert.match(log("raw-tuples"), /eval case 032\/032 complete/);
+  assert.match(log("main"), /run completed successfully/);
+});

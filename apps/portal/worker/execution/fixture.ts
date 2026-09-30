@@ -224,7 +224,9 @@ function failureExcerpt(branch: string, benchmarkId: string): string[] {
     case "null-descriptor":
       return benchmarkId === "language-search"
         ? ["Traceback (most recent call last):", "  File \"search.py\", line 52, in embed_text"]
-        : ["Traceback (most recent call last):", "  File \"faces.py\", line 87, in recognize"];
+        : benchmarkId === "vision-clustering"
+          ? ["Traceback (most recent call last):", "  File \"faces.py\", line 87, in cluster"]
+          : ["Traceback (most recent call last):", "  File \"faces.py\", line 87, in recognize"];
     default:
       return ["runner: submission terminated"];
   }
@@ -259,6 +261,9 @@ export function fixtureLog(
         "Requirement already satisfied: matplotlib==3.7.5",
         "Built wheel for face-finder: face_finder-0.1.0-py3-none-any.whl",
       ];
+  // A failed run's log stops at the stage that failed, as a real one does:
+  // an install failure never reaches evaluation.
+  const failedAt = outcome.kind === "failed" ? outcome.phase : null;
   const lines = [
     // Hosted control runtime is 3.11; week3 evaluates student code through
     // the image's pinned CPython 3.8.20 venv (see modal_app.week3_image).
@@ -267,22 +272,33 @@ export function fixtureLog(
     `Resolved ref refs/heads/${branch} -> ${sha}`,
     `git checkout --detach ${sha}`,
     "python -m pip 25.0.1 install --constraint /opt/cogportal/constraints.txt .",
-    ...installLines,
-    `entry-point discovery: cogworks.submissions.v2["${benchmarkId}"]`,
-    "contract check: adapter factory loaded",
-    "workspace backup complete; restoring into network-disabled evaluation VM",
   ];
-  if (language) {
-    lines.push("loading GloVe KeyedVectors (glove.6B.200d.kv, memory-mapped)");
-    for (const component of ["text", "retrieval", "search"]) {
-      lines.push(`eval component ${component} complete`);
-    }
+  if (failedAt !== "installing") {
+    lines.push(...installLines, `entry-point discovery: cogworks.submissions.v2["${benchmarkId}"]`);
+  }
+  if (failedAt !== "installing" && failedAt !== "contract_check") {
     lines.push(
-      'showcase 01/10 "two dogs running on a sandy beach" -> http://images.cocodataset.org/train2014/COCO_train2014_000000084887.jpg',
+      "contract check: adapter factory loaded",
+      "workspace backup complete; restoring into network-disabled evaluation VM",
     );
-  } else {
-    for (let caseNumber = 1; caseNumber <= 32; caseNumber += 1) {
-      lines.push(`eval case ${caseNumber.toString().padStart(3, "0")}/032 complete`);
+    // An evaluation failure stops partway; a scoring failure follows a
+    // complete evaluation.
+    const evaluated = failedAt === "evaluating" ? 0.5 : 1;
+    if (language) {
+      lines.push("loading GloVe KeyedVectors (glove.6B.200d.kv, memory-mapped)");
+      const components = ["text", "retrieval", "search"];
+      for (const component of components.slice(0, Math.floor(components.length * evaluated))) {
+        lines.push(`eval component ${component} complete`);
+      }
+      if (failedAt === null) {
+        lines.push(
+          'showcase 01/10 "two dogs running on a sandy beach" -> http://images.cocodataset.org/train2014/COCO_train2014_000000084887.jpg',
+        );
+      }
+    } else {
+      for (let caseNumber = 1; caseNumber <= 32 * evaluated; caseNumber += 1) {
+        lines.push(`eval case ${caseNumber.toString().padStart(3, "0")}/032 complete`);
+      }
     }
   }
 
