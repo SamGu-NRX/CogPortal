@@ -13,7 +13,7 @@ from validate_metric_metadata import validate_metric_metadata
 
 ROOT = Path(__file__).resolve().parents[1]
 BENCHMARK = ROOT / "benchmarks" / "week3"
-REVIEWED_COMMIT = "6dc63fe8f6af2b3554a21f7707debb138f31ae4e"
+REVIEWED_COMMIT = "94c7e64f7e3bf5193be1805b4258f017d044a088"
 
 PLUGIN_EXPECTATIONS = {
     'benchmark_id = "language-search"': "benchmark id",
@@ -21,7 +21,7 @@ PLUGIN_EXPECTATIONS = {
     'contract_version = "cogworks.submissions.v2"': "contract version",
     # Tracks the catalog row, which migration 0032 moved to retrieval-v4 when
     # `search_mrr` changed from the verbatim rung alone to the mean of the
-    # four query rewrites. Leaving this at retrieval-v2 would assert the
+    # three query rewrites. Leaving this at retrieval-v2 would assert the
     # catalog says something it no longer says.
     'scorer_version = "retrieval-v4"': "scorer version",
     'primary_metric = "overall"': "primary metric",
