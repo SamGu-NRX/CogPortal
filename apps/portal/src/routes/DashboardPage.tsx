@@ -200,17 +200,9 @@ export function DashboardPage() {
                   label="Official attempts"
                   tone="detect"
                 />
-                {/* What the cells do, which is not what the `consumed` flag
-                    does. `officialUsed` is the number of claim rows
-                    (routes/dashboard.ts), and a claim row is written when the
-                    run starts (services/run-actions.ts), so a cell fills on
-                    promotion. `consumed` is written and never read. An attempt
-                    returns when execution/refunds.ts deletes the claim, which
-                    it does for a platform-side failure up to a cap. */}
                 <p className="border-t border-rule-soft pt-3 text-[12px] leading-[1.55] text-ink-secondary">
-                  Local runs are unlimited and are not counted here. An official
-                  cell fills the moment you start that attempt, and it comes back
-                  if the run fails for a reason on our side.
+                  Completed hosted evaluations count here. Failed runs don't use
+                  quota. Local runs are unlimited.
                 </p>
               </div>
             </Panel>
