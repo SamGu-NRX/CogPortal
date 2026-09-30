@@ -103,23 +103,28 @@ cogworks report
 
 - `check` reads your repository and says which of your own functions it wired
   up, then either "Your code is wired up and ready to score." or what it
-  couldn't find.
-- `test` scores the benchmark's small test tier, which catches wrong shapes
-  and crashes before a full run.
-- `run` scores the public practice benchmark and saves a report under
-  `.cogbench/reports/`.
+  couldn't find. If your repository has a `submission.py` or
+  `benchmark_adapter.py` at its root, `check` uses that file instead of
+  searching.
+- `test` scores one small benchmark case, which catches wrong shapes and
+  crashes before a full run.
+- `run` scores the public practice benchmark.
 - `report` prints the latest saved report again, or the one you name.
 
-`--benchmark` is required on `check`, `test`, and `run`. Add `--json` for
-output a script can read. Each command exits 0 when it succeeds and 2 when it
-doesn't; a low score still exits 0.
+`test` and `run` both save a report under `.cogbench/reports/`, and the two
+scores can differ, so run `run` last before you sync a result you mean to
+share.
+
+`--benchmark` is required on `check`, `test`, and `run`, and `--json` on any
+of the three prints output a script can read. Each command exits 0 when it
+succeeds and 2 when it doesn't; a low score still exits 0.
 
 The end of one team's saved Week 1 report:
 
 ```text
-Median identify time: 0.030 s
+Median identify time: 0.025 s
 Margin separation (AUC): 0.774
-commit: 7125804 (dirty)
+commit: 7125804
 note: Identification falls gradually from 68% at 5 songs to 54% at 30, without a single point where it breaks.
 note: 21% of queries had the right song somewhere in the list but not near the top.
 ```
@@ -167,8 +172,9 @@ dirty flag, plus a copy of every weights file the run read, committed or not.
 It never sends your source, other files, environment variables, predictions,
 or logs.
 
-`cogworks status` shows which portal this machine is linked to. To remove a
-machine, revoke it from **Connections** on the website.
+`cogworks status` shows the portal, team, and repository this machine is
+linked to, and when the link expires. To remove a machine, revoke it from
+**Connections** on the website.
 
 ## Hosted runs and the leaderboard
 
@@ -204,8 +210,9 @@ hosted number would mislead.
 A run page leads with a sentence about what the run shows, such as where the
 score falls off as the benchmark gets harder, and puts the number under it.
 That's deliberate. The benchmark is an instrument for finding where your
-pipeline breaks, and it isn't a grade. The portal doesn't score people; a
-synced report names who synced it because it's that machine's claim.
+pipeline breaks, and it isn't a grade. The portal doesn't score people, so
+the dashboard lists a synced report by its commit rather than by who synced
+it.
 
 ## Discord
 
@@ -221,9 +228,10 @@ and a committed GitHub repository.
 | --- | --- |
 | `cogworks: command not found` | Activate the week's conda environment, then run the tool install line again. |
 | `check` says a course package is missing and "The hosted run has the packages" | That gap is only on your machine. Install the week's CogWeb prerequisites to run locally. |
+| `test` or `run` stops with "FaceNet is not installed" or `name 'cv2' is not defined`, after Setup says every step is done | Setup's boxes cover the CogWorks tool and benchmark, not the week's CogWeb prerequisites. Install those into this environment; `check` lists what this machine lacks after "Missing:". |
 | `check` can't read a file, or can't find two functions that fit together | It names the file or the function it needs. Fix it, commit, and run `check` again. |
 | `TypeError: 'type' object is not subscriptable` at import | The course environment is Python 3.8, and so are hosted Week 1 and Week 3 runs. Write `List[Tuple[...]]` from `typing` instead of `list[tuple[...]]`. |
-| A command prints its local result, then a portal error | The local result is saved. Check your connection and `cogworks status`, then run the command again. |
+| A command prints its local result, then a portal error | The local result stands, and if it came from `test` or `run`, its report is already saved. Check your connection and `cogworks status`, then run the command again. |
 | The "Done here?" command is refused | Copy a fresh one from the Setup page. |
 | A hosted run failed | Read the failure on the run page. Fix and push if it was your code; otherwise use Retry. |
 

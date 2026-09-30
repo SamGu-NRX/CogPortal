@@ -21,14 +21,16 @@ The portal has three staff roles, and they are not a ladder.
 An owner sees the heading **Admin**. Everyone else sees **TA workspace**, with
 only their assigned teams and no join code.
 
-No staff role can open a team's run pages or its Team page. Those carry the
+Being staff doesn't open a team's run pages or its Team page. Those carry the
 team's unpublished practice results and its process notes, so the portal
 shows them only to the team's members. To look at a run with a team, have a
 member open it.
 
 ## Open a cohort
 
-1. Sign in with a login listed in `PLATFORM_OWNER_LOGINS` and open `/admin`.
+1. Sign in with a login listed in `PLATFORM_OWNER_LOGINS`, then open
+   **Admin** from the account menu or go to `/admin`. The portal first offers
+   to join the cohort; an owner doesn't need to.
 2. Under **COHORT**, rotate the join code if the current one has been shared
    anywhere you don't control. **Rotate join code** asks you to confirm, and
    the old code stops working at once. There is no undo, so do it before you
@@ -39,7 +41,9 @@ member open it.
 4. If **COHORT** reads "enrollment closed", select **Open enrollment**. Then
    give students the code.
 5. Once everyone is in, select **Close enrollment**. A student who tries the
-   code afterwards is told the code is invalid.
+   code afterwards sees "That code doesn't match.", the same message as a
+   typo, so for a late student reopen enrollment rather than resending the
+   code.
 
 ## Check which benchmarks are open
 
@@ -58,9 +62,10 @@ pipelines.
 
 ## Keep teams moving
 
-Each row under **TEAMS** shows the team, its repository, and how many practice
-runs and official attempts it has completed across every benchmark. Open a row
-to see its published score and to manage it:
+Each row under **TEAMS** shows the team, its repository, and how many hosted
+practice runs and official attempts it has completed, counted across every
+benchmark rather than against one allowance. Open a row to see its published
+score and to manage it:
 
 - Assign a TA by GitHub login. The TA must have signed in to the portal once.
 - Add a member by GitHub login. They must have signed in and joined the
@@ -97,7 +102,8 @@ the number sits below it. The reasoning is in
 The portal doesn't compute a score for any person. A team's own Team page has
 a **Where the work went** panel, built from the repository's commits and the
 team's runs. It says who touched each stage, never how much, and it shows no
-per-person totals, percentages, or ordering of members. Staff can't open it.
+per-person totals, percentages, or ordering of members. Being staff doesn't
+open it.
 
 ## Rehearse locally before class
 
@@ -106,8 +112,22 @@ A local portal set up as in the root README's
 with any made-up login and runs a fixture instead of real scoring, so it
 rehearses the pages, not the benchmark. Those settings come from
 `apps/portal/.dev.vars`, copied from `.dev.vars.example`; to open `/admin`,
-put the login you'll use in its `PLATFORM_OWNER_LOGINS`. The CLI accepts plain HTTP only for localhost, so
-`cogworks link --portal http://localhost:5173` works against it. Real GitHub
-sign-in, hosted scoring on Modal, and the Discord bot need the deployed
-services in [the deploy guide](deploy-your-own.md), and a local rehearsal
-proves none of them.
+put the login you'll use in its `PLATFORM_OWNER_LOGINS`. `pnpm dev` also loads
+demo data: the join code `VISION26` and six demo teams with invented runs.
+
+A made-up login isn't a GitHub login, so the console controls that look one
+up (adding a member, assigning a TA, **Assign to team…**, removing a member)
+can't find it; they say "User not found." or that the user must sign in, or do
+nothing. Rehearse the student path instead by signing in as a student, joining
+with `VISION26`, and choosing **Start a team** with the fixture repository
+`cogworks-demo/face-finder`. That repository isn't on GitHub, so the Setup
+page's clone line fails. Run the CLI instead from a local repository that
+holds working code for the benchmark, with `origin` set to
+`https://github.com/cogworks-demo/face-finder.git`. The CLI accepts plain HTTP
+only for localhost, so `cogworks link --portal http://localhost:5173` works
+against it. `check --update-setup` then ticks the Setup page, and `sync` after
+a `test` or `run` shows the report on the dashboard.
+
+Real GitHub sign-in, hosted scoring on Modal, and the Discord bot need the
+deployed services in [the deploy guide](deploy-your-own.md), and a local
+rehearsal proves none of them.
