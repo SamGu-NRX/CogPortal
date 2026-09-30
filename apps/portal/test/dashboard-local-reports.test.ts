@@ -167,7 +167,7 @@ test("reports no track shows get their own group, labelled by benchmark and with
   assert.match(group, /bbbbbbb <span class="whitespace-nowrap">· dirty<\/span>/);
   assert.match(group, /Face Recognition <span[^>]*>v1<\/span>/);
   assert.match(group, /0\.640/);
-  assert.match(group, /aren&#x27;t open for hosted runs here/);
+  assert.match(group, /aren&#x27;t open for hosted runs, so they have no track/);
 
   // No author in any form: not the login, not the display name.
   for (const author of [INACTIVE.author, SUPERSEDED.author, ON_TRACK.author]) {
