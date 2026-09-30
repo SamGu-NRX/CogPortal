@@ -217,7 +217,7 @@ that succeeded, above the metrics.
 | The portal fails | No search has started, so nothing is lost. | The search does not talk to the portal at all, so a portal outage is invisible to it. What is lost is the `installing` heartbeat, so the rail stops updating while the search runs on. |
 | The process goes away | Nothing to lose. | Everything is lost, including the verdict: `/tmp/discovery.json` lives in the sandbox filesystem, and `_refusal_from` reads it only when the prepare process exits non-zero and the sandbox is still alive. A killed container produces `provider`, with no refusal attached. |
 | The thing being measured changes | The commit is resolved before the archive is fetched. | No effect. Both searches, the prepare one and the evaluate one, read the same unpacked bytes. |
-| Refused, or out of credit | Quota was settled before the run started. | Not reachable. The search spends nothing and consults nothing. A refusal produced here is a verdict about the repository, not a quota decision. |
+| Refused, or out of credit | Admission reserved capacity before the run started; a failed execution uses no quota. | Not reachable. The search spends nothing and consults nothing. A refusal produced here is a verdict about the repository, not a quota decision. |
 
 A discovery refusal leaves a failed execution and uses no quota.
 
