@@ -195,9 +195,12 @@ function SetupGuide({
       title: "Link this device",
       body: (
         <p>
-          Lets a command report back to your team. What reaches CogPortal is
-          check names, package versions and your repository, and you can revoke
-          this device from{" "}
+          Lets a command report back to your team.{" "}
+          <code className="font-mono text-[12px]">check</code> sends check
+          names, package versions and your repository.{" "}
+          <code className="font-mono text-[12px]">sync</code> uploads one saved
+          report; each weight file it used is uploaded with it or is already
+          in your commit. You can revoke this device from{" "}
           <Link
             to="/connections"
             className="text-ink underline decoration-rule underline-offset-4 hover:decoration-ink"

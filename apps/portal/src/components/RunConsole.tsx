@@ -182,7 +182,21 @@ export function RunConsole({
   }, [retryOffered]);
   const failureEvent = [...currentEvents].reverse().find((event) => event.code.startsWith("run.failed."));
   const failureReason = snapshot.refusalHeadline || (failureEvent ? EVENT_COPY[failureEvent.code] : null);
-  const visibleEvents = terminal && !historyExpanded ? timelineEvents.slice(-3) : timelineEvents;
+  // A failed run's folded summary ends at its failure and never says the run
+  // completed. The Worker can fail a run after the runner reports completion,
+  // and the failure event may be missing; either way the completion belongs
+  // in the details, not the summary.
+  let summaryEvents = timelineEvents;
+  if (failed) {
+    for (let index = timelineEvents.length - 1; index >= 0; index -= 1) {
+      if (timelineEvents[index]!.code.startsWith("run.failed.")) {
+        summaryEvents = timelineEvents.slice(0, index + 1);
+        break;
+      }
+    }
+    summaryEvents = summaryEvents.filter((event) => event.code !== "run.completed");
+  }
+  const visibleEvents = terminal && !historyExpanded ? summaryEvents.slice(-3) : timelineEvents;
   const historyToggle = failed
     ? { open: "Hide details", closed: "Show details" }
     : { open: "Show summary", closed: `Show all ${timelineEvents.length}` };
@@ -217,7 +231,7 @@ export function RunConsole({
     }
   }, [currentEvents.length, currentRunId, snapshot.id, terminal]);
 
-  // Removing the focused log must not strand keyboard focus on the document.
+  // Folding the focused log makes it unfocusable; keep focus on the toggle.
   useLayoutEffect(() => {
     if (failed && !historyExpanded && logFocusedRef.current) {
       historyToggleRef.current?.focus();
@@ -397,7 +411,7 @@ export function RunConsole({
       <div className="grid md:grid-cols-[minmax(0,1fr)_15rem]">
         <div className="relative border-b border-rule md:border-r md:border-b-0">
           <div className="flex items-center justify-between border-b border-rule-soft px-4 py-3">
-            <span className="u-kicker">{failed ? "Run history" : terminal ? "Run summary" : "Safe event stream"}</span>
+            <span className="u-kicker">{terminal ? "Run summary" : "Safe event stream"}</span>
             {terminal && (failed || timelineEvents.length > 3) && (
               <button
                 type="button"
@@ -418,7 +432,7 @@ export function RunConsole({
               ))}
             </div>
           )}
-          {(!failed || historyExpanded) && <ul
+          <ul
             ref={logRef}
             onFocus={() => { logFocusedRef.current = true; }}
             onBlur={() => { logFocusedRef.current = false; }}
@@ -433,9 +447,9 @@ export function RunConsole({
             }}
           >
             {visibleEvents.length ? visibleEvents.map((event) => <EventLine key={event.eventId} event={event} />) : (
-              <li className="px-5 py-12 text-center text-[13px] text-ink-faint">{terminal ? "No structured events were recorded." : "Waiting for the first structured event."}</li>
+              <li className="px-5 py-12 text-center text-[13px] text-ink-faint">{!terminal ? "Waiting for the first structured event." : timelineEvents.length ? "This run's events are under Show details." : "No structured events were recorded."}</li>
             )}
-          </ul>}
+          </ul>
           {!terminal && newEvents > 0 && (
             <button
               type="button"

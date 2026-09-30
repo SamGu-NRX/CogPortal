@@ -375,3 +375,34 @@ test("a run from another repository gets one sentence, not two", () => {
   assert.match(html, /no longer connected to/);
   assert.doesNotMatch(html, /matched to the connected repository/);
 });
+
+test("a failed run's folded summary still shows its last events, not an empty box", () => {
+  const html = renderToStaticMarkup(React.createElement(RunConsole, {
+    snapshot: snapshot("failed"),
+    streamState: "closed",
+  }));
+  assert.match(html, /Run summary/);
+  assert.match(html, /Show details/);
+  assert.equal((html.match(/class="run-event/g) ?? []).length, 3);
+});
+
+test("a failed run's folded summary never says the run completed", () => {
+  const failed = snapshot("failed");
+  const withCodes = (codes: RunSurfaceSnapshot["events"][number]["code"][]) => renderToStaticMarkup(React.createElement(RunConsole, {
+    snapshot: { ...failed, events: codes.map((code, index) => ({ ...failed.events[0]!, eventId: `stream_event_${index}`, sourceSequence: index, code })) },
+    streamState: "closed",
+  }));
+  // No failure event reached the stream, and the runner's completion did.
+  const missingFailure = withCodes(["evaluation.progress", "run.completed"]);
+  assert.match(missingFailure, /Evaluating/);
+  assert.doesNotMatch(missingFailure, /Run complete/);
+  // The runner reported completion, then the Worker failed the run.
+  const failedAfterCompletion = withCodes(["evaluation.progress", "run.completed", "run.failed.output"]);
+  assert.match(failedAfterCompletion, /Submission returned an invalid output/);
+  assert.doesNotMatch(failedAfterCompletion, /Run complete/);
+  // With the completion as its only event, the summary points to the details
+  // rather than claiming nothing was recorded.
+  const completionOnly = withCodes(["run.completed"]);
+  assert.doesNotMatch(completionOnly, /Run complete|No structured events/);
+  assert.match(completionOnly, /under Show details/);
+});

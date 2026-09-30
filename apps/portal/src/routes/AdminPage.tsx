@@ -529,7 +529,8 @@ function TeamRow({ team, canAssignTas }: { team: AdminTeamSummary; canAssignTas:
         </span>
         <span className="u-tnum col-start-1 row-start-3 font-mono text-[11px] text-ink-secondary sm:col-start-3 sm:row-start-1">
           {/* Totals span benchmark versions, so a single version's quota is not a denominator. */}
-          {team.practiceUsed} practice runs · {team.officialUsed} official attempts
+          {team.practiceUsed} practice run{team.practiceUsed === 1 ? "" : "s"} ·{" "}
+          {team.officialUsed} official attempt{team.officialUsed === 1 ? "" : "s"}
           {/* Only when there are any. A team that keeps hitting real
               infrastructure trouble and a team whose submission provokes the
               same platform-side failure both show up here, and both are worth
