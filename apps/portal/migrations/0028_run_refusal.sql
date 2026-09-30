@@ -1,0 +1,11 @@
+-- Why the platform could not find code to score.
+--
+-- `failure_detail` is one capped line, which is right for a log and too short
+-- for the thing a student acts on. A refusal names the step that stalled, the
+-- shape the last of their functions returned, the modules that could not be
+-- read, and the one next thing to do; truncating that to 240 characters loses
+-- exactly the part that helps.
+--
+-- Null for every other kind of failure. Their code raising is theirs to read,
+-- and the log is where it belongs.
+ALTER TABLE runs ADD COLUMN refusal_json TEXT;

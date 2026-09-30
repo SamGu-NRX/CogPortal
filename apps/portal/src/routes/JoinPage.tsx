@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Navigate, useNavigate } from "react-router";
 import { Button } from "@/components/Button";
+import { DroppedLinkNotice } from "@/components/DroppedLinkNotice";
 import { ApiRequestError } from "@/lib/api";
 import { useJoinCohort, useSession } from "@/lib/queries";
 
@@ -34,6 +35,7 @@ export function JoinPage() {
   return (
     <div className="anim-rise flex flex-1 items-center justify-center py-10">
       <div className="w-full max-w-sm">
+        <DroppedLinkNotice />
         <h1 className="text-3xl">Join the cohort</h1>
         <p className="mt-2 text-[14px] text-ink-secondary">
           Enter the join code from your instructor. You do this once.

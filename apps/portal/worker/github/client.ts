@@ -6,6 +6,17 @@ const GITHUB_ACCEPT = "application/vnd.github+json";
 
 export type GitHubRepositoryListing = Omit<GithubRepo, "claimedByTeam">;
 
+export class GitHubApiError extends Error {
+  constructor(public readonly status: number) {
+    super(`GitHub API request failed with status ${status}.`);
+    this.name = "GitHubApiError";
+  }
+}
+
+export function isGitHubUnauthorized(error: unknown): boolean {
+  return error instanceof GitHubApiError && error.status === 401;
+}
+
 export interface GitHubClient {
   resolveRef(owner: string, name: string, ref: string, token: string): Promise<string>;
   listRepositories(token: string): Promise<GitHubRepositoryListing[]>;
@@ -123,7 +134,7 @@ export async function githubApiRequest(
 
 async function githubJson(path: string, token: string): Promise<unknown> {
   const response = await githubApiRequest(path, token);
-  if (!response.ok) throw new Error(`GitHub API request failed with status ${response.status}.`);
+  if (!response.ok) throw new GitHubApiError(response.status);
   return response.json();
 }
 
@@ -195,25 +206,15 @@ export class RealGitHubClient implements GitHubClient {
     const installations = await this.listInstallations(token);
     const repositoryLists = await Promise.all(
       installations.map(async (installation) => {
-        try {
-          const payload = await githubJson(
-            `/user/installations/${installation.id}/repositories?per_page=100`,
-            token,
-          );
-          if (!isRecord(payload) || !Array.isArray(payload.repositories)) {
-            throw new Error("GitHub returned an invalid repository list.");
-          }
-          return payload.repositories.map(parseRepository);
-        } catch {
-          console.warn(
-            JSON.stringify({
-              evt: "github_api_failure",
-              operation: "list_installation_repositories",
-              installation: installation.id,
-            }),
-          );
-          return [];
+        // A failed installation lookup must reach the route's error response, not hide repositories.
+        const payload = await githubJson(
+          `/user/installations/${installation.id}/repositories?per_page=100`,
+          token,
+        );
+        if (!isRecord(payload) || !Array.isArray(payload.repositories)) {
+          throw new Error("GitHub returned an invalid repository list.");
         }
+        return payload.repositories.map(parseRepository);
       }),
     );
     const repositories = repositoryLists
@@ -236,6 +237,7 @@ export class RealGitHubClient implements GitHubClient {
             return requiredString(value, "name");
           });
         } catch {
+          // The repository is still known even when its optional branch listing fails.
           console.warn(
             JSON.stringify({ evt: "github_api_failure", operation: "list_branches", repo: fullName }),
           );
@@ -300,7 +302,7 @@ export class RealGitHubClient implements GitHubClient {
       "application/vnd.github.raw+json",
     );
     if (response.status === 404) return null;
-    if (!response.ok) throw new Error(`GitHub API request failed with status ${response.status}.`);
+    if (!response.ok) throw new GitHubApiError(response.status);
     return response.text();
   }
 }

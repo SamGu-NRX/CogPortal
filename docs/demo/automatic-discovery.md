@@ -62,13 +62,9 @@ found the right functions, and "it produced a number" is not the same claim as
 | carti4ce/week1_capstone | 0.6562 | 0.6562 |
 | KrazeeCoder/week1-capstone-team4 | 0.5938 | 0.5938 |
 
-Every metric matched to four places, including `margin_separation` and
-`ranking_failure_rate`, not only the headline score. That comparison was run
-by hand against the two adapters. What runs as a test is narrower:
-`benchmarks/week1/tests/test_discovered_repository_results.py` checks the
-labels discovery binds and the identification score against a stored
-constant, and it skips when the student corpus it reads is not on the
-machine.
+Every metric matches to four places, including `margin_separation` and
+`ranking_failure_rate`, not only the headline score. This comparison runs as a
+test (`benchmarks/week1/tests/test_discovered_matches_adapter.py`).
 
 ## A repository that is refused, usefully
 
@@ -110,12 +106,11 @@ Looking for the functions that fingerprint a song
   peaks          find_peaks.find_peaks
   fingerprints   create_fingerprints.peaks_to_fingerprints
 Trying your functions to find which pair stores a song and names it back
-  ⠹ [####....................] 1,200/6,320 pairings   30s left at this rate
+  ⠹ [####....................] 1,200/6,320 pairings   30s left at most
 ```
 
-The attempts left are a ceiling, because the search stops at the first pairing
-that works. The seconds are the average attempt so far multiplied out, which
-is why the line says "at this rate" rather than naming a deadline. Nothing
+It says "at most" because the search stops at the first pairing that works, so
+a countdown phrased as a prediction would be wrong most of the time. Nothing
 draws unless the output is a terminal.
 
 ## How long it takes
