@@ -1,7 +1,7 @@
 import { and, eq, getTableColumns, inArray, isNull, or, sql, SQL } from "drizzle-orm";
 import { OFFICIAL_LIMIT, PRACTICE_LIMIT, RUN_PHASES } from "@cogworks/contracts/schema";
 import type { Database } from "../db/client";
-import { runs } from "../db/schema";
+import { runs, teams } from "../db/schema";
 
 type BenchmarkScope = { teamId: string; benchmarkId: string; benchmarkVersion: number };
 type AccountingScope = BenchmarkScope | { teamId: string; allBenchmarks: true };
@@ -26,9 +26,11 @@ function scopePredicate(scope: AccountingScope) {
   )!;
 }
 
+function countWhen(mode: "practice" | "official", reserved: boolean) {
+  return sql<number>`count(case when ${and(eq(runs.mode, mode), reserved ? activeRunPredicate() : acceptedRunPredicate())} then 1 end)`.mapWith(Number);
+}
+
 export async function readRunAccounting(db: Database, scope: AccountingScope) {
-  const countWhen = (mode: "practice" | "official", reserved: boolean) =>
-    sql<number>`count(case when ${and(eq(runs.mode, mode), reserved ? activeRunPredicate() : acceptedRunPredicate())} then 1 end)`.mapWith(Number);
   const [counts] = await db.select({
     practiceUsed: countWhen("practice", false),
     officialUsed: countWhen("official", false),
@@ -43,6 +45,27 @@ export async function readRunAccounting(db: Database, scope: AccountingScope) {
       activeRunPredicate(),
     ));
   return { ...counts!, activeRuns: active!.value };
+}
+
+/**
+ * Accepted practice and official evaluations across every benchmark, for each
+ * team `teamWhere` selects, in one statement. The admin console lists every
+ * team at once, and readRunAccounting per team cost two statements each.
+ * A team with no runs is absent from the map.
+ *
+ * The teams go in as a subquery rather than a join because runs has no
+ * team_id index: joined, SQLite rescanned runs once per selected team for a
+ * TA's scope, and as a subquery it reads runs once for any scope.
+ */
+export async function readUsedRunsByTeam(db: Database, teamWhere: SQL) {
+  const rows = await db.select({
+    teamId: runs.teamId,
+    practiceUsed: countWhen("practice", false),
+    officialUsed: countWhen("official", false),
+  }).from(runs)
+    .where(inArray(runs.teamId, db.select({ id: teams.id }).from(teams).where(teamWhere)))
+    .groupBy(runs.teamId);
+  return new Map(rows.map((row) => [row.teamId, row]));
 }
 
 /** Admission is checked by the INSERT itself, not by a preceding read. A run
