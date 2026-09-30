@@ -16,8 +16,12 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+import types
 import unittest
 from pathlib import Path
+from unittest import mock
+
+from test_prepared_restore import Stream, functions, job
 
 ROOT = Path(__file__).resolve().parents[3]
 MODAL_APP = ROOT / "apps" / "runner-modal" / "src" / "cogworks_runner" / "modal_app.py"
@@ -36,12 +40,13 @@ def _evaluate_script() -> str:
 SCRIPT = _evaluate_script()
 
 
-def _attack(body: str) -> tuple:
+def _attack(body: str, text: bool = True) -> tuple:
     """Run one hostile submission through the real script.
 
-    Returns (returncode, stderr). The stub stands in for cogbench.plugins so
-    the script reaches student code without a benchmark installed; `body` is
-    what a submitted module does when the runner imports it.
+    Returns (returncode, stderr), with stderr as bytes when `text` is false.
+    The stub stands in for cogbench.plugins so the script reaches student code
+    without a benchmark installed; `body` is what a submitted module does when
+    the runner imports it.
     """
 
     with tempfile.TemporaryDirectory() as directory:
@@ -67,7 +72,7 @@ def _attack(body: str) -> tuple:
         process = subprocess.run(
             [sys.executable, str(script), "language-search", "8192"],
             capture_output=True,
-            text=True,
+            text=text,
             cwd=str(tmp),
             env={"PYTHONPATH": str(tmp), "PATH": "/usr/bin:/bin"},
             timeout=120,
@@ -234,6 +239,53 @@ class ControllerAttribution(unittest.TestCase):
             0,
             "attribution must not read anything the student process wrote",
         )
+
+    def test_undecodable_stderr_stays_the_submissions_failure_in_every_lane(self):
+        # Native code and subprocesses write to fd 2 below redirect_stderr, in
+        # whatever encoding they like. Modal's text mode would raise on these
+        # bytes and every lane would call it a provider failure.
+        returncode, stderr = _attack(
+            r'''
+            import os
+            os.write(2, b"libsndfile: cannot open caf\xe9.wav\n")
+            raise ValueError("my own bug")
+            ''',
+            text=False,
+        )
+        self.assertNotEqual(returncode, 0)
+        with self.assertRaises(UnicodeDecodeError):
+            stderr.decode("utf-8")
+
+
+        sandbox = types.SimpleNamespace(
+            filesystem=types.SimpleNamespace(write_text=lambda *args: None, write_bytes=lambda *args: None),
+            exec=lambda *args, text=True: types.SimpleNamespace(
+                returncode=returncode, wait=lambda: None, stderr=Stream(stderr, text)),
+            terminate=lambda: None,
+        )
+        modal = types.SimpleNamespace(
+            Image=types.SimpleNamespace(from_id=lambda value: object()),
+            Sandbox=types.SimpleNamespace(create=lambda **kwargs: sandbox),
+        )
+        # The payload encoders run before the sandbox and are not under test.
+        encoders = (
+            mock.patch("cogworks_runner.week1_payload.encode_payload", return_value=b""),
+            mock.patch("cogworks_runner.week2_payload.encode_cases", return_value=(b"", [])),
+            mock.patch("cogworks_runner.week3_payload.encode_payload", return_value=b""),
+        )
+        for lane in ("_evaluate", "_evaluate_v2", "_evaluate_week3", "_evaluate_week1"):
+            with self.subTest(lane=lane), encoders[0], encoders[1], encoders[2]:
+                space = functions(
+                    "RunnerFailure", lane, "_last_error_line", "_timed_out", "_fit",
+                    "_take_units", "_receiver_units", app=object(), modal=modal,
+                    EVALUATE_SCRIPT="real script run above",
+                    WEEK1_STUDENT_PYTHON="python", WEEK3_STUDENT_PYTHON="python",
+                )
+                with self.assertRaises(space["RunnerFailure"]) as caught:
+                    space[lane](job(), "im-saved", [])
+                failure = caught.exception
+                self.assertEqual((failure.category, failure.infrastructure), ("student_runtime", False))
+                self.assertIn("my own bug", str(failure))
 
 
 if __name__ == "__main__":

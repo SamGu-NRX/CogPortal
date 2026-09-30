@@ -24,7 +24,7 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
     explanation:
       "We could not clone your repository at the resolved commit. The repository may have been made private, or the branch may have been deleted.",
     action:
-      "Confirm the repository is public and the recorded commit is still available.",
+      "Confirm the repository is public and the branch still exists, then start a new run.",
     reproCommand: "git clone <your repository url>",
     retryable: true,
   },
@@ -61,9 +61,15 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
   adapter_missing: {
     code: "E-ADAPTER",
     title: "Nothing here could be scored",
-    // Says nothing about pyproject.toml entry points: that is packaging
-    // metadata none of the thirteen 2026 capstones has, and the platform no
-    // longer needs it now that it finds a team's code by running it.
+    // Written before the platform could find a team's code by running it.
+    // The old copy said "your package installed, but no entry point was
+    // registered" and told them to add one to pyproject.toml, which is
+    // packaging metadata that none of the thirteen 2026 capstones has and
+    // that the platform no longer needs. Sending a team to write it would
+    // cost them an afternoon on the wrong problem.
+    // This code also covers a search that stopped partway, after the team's
+    // own installation ran, when nobody can say whose code stopped it. The
+    // explanation therefore claims only that scoring was not reached.
     explanation:
       "This run did not reach scoring. The available details are below.",
     action:
@@ -87,7 +93,7 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
     explanation:
       "Evaluation started, but your submission raised an unhandled exception while processing benchmark inputs.",
     action:
-      "Reproduce with the local runner and use the recorded details to find the exception.",
+      "Reproduce with the local practice runner; the traceback excerpt is in the log below. Fix, verify locally, then run practice again before promoting.",
     reproCommand: "cogworks run --benchmark {benchmark}",
     retryable: false,
   },
@@ -117,7 +123,7 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
     explanation:
       "Your adapter returned output that failed schema validation. Extra fields, wrong types, and values outside the allowed range are all rejected.",
     action:
-      "Validate your output locally with the schema check and correct the prediction shape.",
+      "Validate your output locally with the schema check, correct the prediction shape, and run practice again before promoting.",
     reproCommand: "cogworks test --benchmark {benchmark}",
     retryable: false,
   },
@@ -127,17 +133,17 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
     explanation:
       "Your predictions were produced and retrieved, but the trusted scorer failed. This is a platform problem, not a problem with your code.",
     action:
-      "If scoring keeps failing, share the run's details with course staff.",
+      "Staff have been notified with this run's ID. Your attempt was not consumed; you may retry once the issue is resolved.",
     reproCommand: null,
     retryable: true,
   },
   provider: {
     code: "E-PROVIDER",
-    title: "The run couldn't finish",
+    title: "Execution provider failed",
     explanation:
-      "The hosted execution could not finish. The recorded details may identify where it stopped.",
+      "The isolated execution environment failed before your code ran. This is a platform problem, not a problem with your code.",
     action:
-      "If the run keeps failing, share its details with course staff.",
+      "Retry the run. If this recurs, report the run ID to course staff.",
     reproCommand: null,
     retryable: true,
   },
