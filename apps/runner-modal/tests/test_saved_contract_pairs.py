@@ -11,6 +11,7 @@ import importlib.util
 import inspect
 import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -104,6 +105,71 @@ class SavedContractPairs(unittest.TestCase):
             "detail": environment.INCOMPATIBLE, "infrastructure": True,
         })
         self.assertEqual(authenticated_job["preparedEnvironment"], record)
+
+    def test_old_clustering_decoder_scores_the_official_bundle_identically(self):
+        require_benchmark("vision-clustering")
+        from facial_recognition_benchmark.drivers import run_clustering_scenario
+        from facial_recognition_benchmark.plugins import ClusteringBenchmark
+        from cogworks_runner.week2_payload import (
+            attach_clustering_labels, decode_cases, encode_cases,
+        )
+        from cogworks_runner.prepared_environment import SANDBOX_CONTRACTS
+        from test_week2_official_format import materialize_official_bundle
+
+        base_seed = 42
+        with tempfile.TemporaryDirectory() as directory:
+            original, payload, gold, _ = materialize_official_bundle(Path(directory), base_seed)
+        self.assertEqual((sum(case.scored for case in original), len(original)), (3, 12))
+
+        # What the controller holds, and what it re-encodes for every run.
+        _, decoded = decode_cases(payload)
+        attached = attach_clustering_labels(decoded, gold)
+        reencoded, plans = encode_cases("vision-clustering", attached)
+        self.assertEqual(plans, [])
+
+        old = saved("saved_clustering_payload", "pr8_week2_payload.py")
+        _, current_cases = decode_cases(reencoded)
+        _, old_cases = old.decode_cases(reencoded)
+        # The one difference, stated so this test is not mistaken for a claim
+        # that the two decoders return equal objects.
+        self.assertEqual([(case.scored, case.scenario_key) for case in current_cases[:2]],
+                         [(True, "scenario-0"), (False, "scenario-0")])
+        self.assertEqual([(case.scored, case.scenario_key) for case in old_cases[:2]],
+                         [(True, None), (True, None)])
+
+        class Clusterer:
+            """Correct under the manifest seed, degenerate under any other.
+
+            The fixture encodes identity as pixel parity, so this scores 1.0 on
+            the scored cases and moves the seed spread off zero on the
+            repetitions. It reads images and seed, never the two fields.
+            """
+
+            def __init__(self, model):
+                pass
+
+            def cluster(self, images, *, seed):
+                if seed == base_seed:
+                    return [int(image[0, 0, 0]) % 2 for image in images]
+                return [0] * len(images)
+
+        def run_all(cases):
+            return [run_clustering_scenario(Clusterer, object(), case) for case in cases]
+
+        current_outputs, old_outputs = run_all(current_cases), run_all(old_cases)
+        self.assertEqual(current_outputs, old_outputs)
+
+        current_metrics = ClusteringBenchmark().score(current_outputs, attached)
+        scorer = ClusteringBenchmark()
+        old_metrics = scorer.score(old_outputs, attached)
+        self.assertEqual(current_metrics, old_metrics)
+        # Pinned rather than merely equal: two identically broken runs would
+        # also be equal, and the spread is what the repetitions exist to report.
+        self.assertEqual(current_metrics["clustering_pairwise_f1"], 1.0)
+        self.assertEqual(current_metrics["adjusted_rand_index"], 1.0)
+        self.assertGreater(current_metrics["clustering_seed_spread"], 0.3)
+        self.assertTrue(scorer.last_diagnostics)
+        self.assertEqual(SANDBOX_CONTRACTS["vision-clustering"], 1)
 
     def test_old_vision_driver_honors_current_shuffled_lifecycle(self):
         require_benchmark("vision-recognition")
