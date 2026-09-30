@@ -427,7 +427,7 @@ function EntryRow({ entry, index }: { entry: LeaderboardEntry; index: number }) 
               {!entry.repoUrl && entry.provenance !== "archive" && (
                 <div className="flex items-baseline justify-between gap-3 sm:col-span-2 sm:justify-start sm:gap-8">
                   <dt className="u-kicker">Repository</dt>
-                  <dd className="font-mono text-[12px] text-ink-faint">not recorded</dd>
+                  <dd className="font-mono text-[12px] text-ink-secondary">not recorded</dd>
                 </div>
               )}
             </dl>

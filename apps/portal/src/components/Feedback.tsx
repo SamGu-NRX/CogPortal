@@ -138,7 +138,9 @@ export function QueryError({
       >
         <p className="max-w-prose text-[14px] text-ink">{state.message}</p>
         {state.nextStep && (
-          <p className="mt-2 max-w-prose text-[12.5px] text-ink-faint">
+          // Not ink-faint, which fails AA on the alert wash (see app.css);
+          // this is the line the reader acts on.
+          <p className="mt-2 max-w-prose text-[12.5px] text-ink-secondary">
             {state.nextStep}
           </p>
         )}
