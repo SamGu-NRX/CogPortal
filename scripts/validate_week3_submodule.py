@@ -8,20 +8,12 @@ import re
 import subprocess
 from pathlib import Path
 
+from cogbench.plugins import load_plugin
+from validate_metric_metadata import validate_metric_metadata
+
 ROOT = Path(__file__).resolve().parents[1]
 BENCHMARK = ROOT / "benchmarks" / "week3"
-# Moved from b166f5c, which built the case grid in three places: the
-# benchmark, the sandbox decoder, and the benchmark's own test fixture. The
-# fixture is the one that mattered, because it shipped only the search
-# rewrites and so agreed with the decoder that did the same. The benchmark
-# now owns one `build_cases`, which the sandbox decoder calls instead of
-# assembling the grid itself, and declares the three rewritten retrieval
-# metrics the scorer already returned. The same range also makes the package
-# import without the SDK, which had left that repository's own CI red.
-#
-# No version in PLUGIN_EXPECTATIONS moves: a complete grid scores identically,
-# so this is not a scorer bump and needs no migration.
-REVIEWED_COMMIT = "1004766b66a4405ceda1a1b014a0438098a6570e"
+REVIEWED_COMMIT = "94c7e64f7e3bf5193be1805b4258f017d044a088"
 
 PLUGIN_EXPECTATIONS = {
     'benchmark_id = "language-search"': "benchmark id",
@@ -90,6 +82,7 @@ def main() -> None:
             "package; found {}.".format(packages)
         )
 
+    validate_metric_metadata(load_plugin("cogworks.benchmarks.v2", "language-search"))
     plugin_source = (BENCHMARK / "language_search_benchmark" / "plugins.py").read_text(
         encoding="utf-8"
     )
