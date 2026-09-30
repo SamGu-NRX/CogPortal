@@ -90,7 +90,7 @@ A metric declaring no role renders exactly as everything did before roles existe
 
 ## The prediction check
 
-Every evaluate lane converges on one call to `_check_predictions` from `execute_job` (`modal_app.py:1565`). One call site rather than four is the point: a fifth benchmark track added later is covered by construction rather than by remembering.
+Every evaluate lane converges on one call from `execute_job` to `check_predictions` (`apps/runner-modal/src/cogworks_runner/prediction_validation.py`). One call site rather than four is the point: a fifth benchmark track added later is covered by construction rather than by remembering.
 
 ### Why the check exists
 
