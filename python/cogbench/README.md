@@ -19,6 +19,10 @@ python -m pip install --upgrade "cogworks-benchmark @ git+https://github.com/Sam
 cogworks --help
 ```
 
+Until this SDK is on `main`, replace `main` in that command with the full
+SHA of a published commit that contains it. A branch name can move between
+two students running the same command; a commit cannot.
+
 From this monorepo, developers can instead use an editable install:
 
 ```sh

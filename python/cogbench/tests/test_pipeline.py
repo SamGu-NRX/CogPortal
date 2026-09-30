@@ -48,72 +48,6 @@ from cogbench.pipeline import (
 )
 
 
-@unittest.skipUnless(
-    hasattr(signal, "SIGALRM") and hasattr(signal, "getitimer"),
-    "clock ownership requires POSIX interval timers",
-)
-class ClockOwnershipTests(unittest.TestCase):
-    def setUp(self):
-        if signal.getitimer(signal.ITIMER_REAL)[0]:
-            self.skipTest("the test runner already owns an alarm")
-        self.previous_handler = signal.getsignal(signal.SIGALRM)
-        self.addCleanup(signal.signal, signal.SIGALRM, self.previous_handler)
-        self.addCleanup(signal.setitimer, signal.ITIMER_REAL, 0)
-
-    def test_a_callers_timer_and_handler_survive_success_and_failure(self):
-        def caller_handler(signum, frame):
-            self.fail("the caller's twelve-second timer expired during a short test")
-
-        for raises in (False, True):
-            with self.subTest(raises=raises):
-                signal.signal(signal.SIGALRM, caller_handler)
-                signal.setitimer(signal.ITIMER_REAL, 12, 0.25)
-
-                def call():
-                    self.assertIs(signal.getsignal(signal.SIGALRM), caller_handler)
-                    remaining, interval = signal.getitimer(signal.ITIMER_REAL)
-                    self.assertGreater(remaining, 1)
-                    self.assertEqual(interval, 0.25)
-                    if raises:
-                        raise ValueError("their call failed")
-                    return "answer"
-
-                with patch("cogbench.pipeline.CALL_TIMEOUT_SECONDS", 1):
-                    if raises:
-                        with self.assertRaisesRegex(ValueError, "their call failed"):
-                            _under_clock(call)
-                    else:
-                        self.assertEqual(_under_clock(call), "answer")
-                self.assertIs(signal.getsignal(signal.SIGALRM), caller_handler)
-                remaining, interval = signal.getitimer(signal.ITIMER_REAL)
-                self.assertGreater(remaining, 1)
-                self.assertEqual(interval, 0.25)
-                signal.setitimer(signal.ITIMER_REAL, 0)
-
-    def test_nested_probes_do_not_cancel_the_outer_deadline(self):
-        for raises in (False, True):
-            with self.subTest(raises=raises):
-                def outer():
-                    before = signal.getitimer(signal.ITIMER_REAL)[0]
-                    handler = signal.getsignal(signal.SIGALRM)
-
-                    def inner():
-                        if raises:
-                            raise ValueError("inner failure")
-
-                    if raises:
-                        with self.assertRaisesRegex(ValueError, "inner failure"):
-                            _under_clock(inner)
-                    else:
-                        _under_clock(inner)
-                    after = signal.getitimer(signal.ITIMER_REAL)[0]
-                    self.assertGreater(after, 0)
-                    self.assertLessEqual(after, before)
-                    self.assertIs(signal.getsignal(signal.SIGALRM), handler)
-
-                _under_clock(outer)
-                self.assertEqual(signal.getitimer(signal.ITIMER_REAL)[0], 0)
-                self.assertIs(signal.getsignal(signal.SIGALRM), self.previous_handler)
 
 
 def _module(name: str, **members) -> ModuleType:
@@ -1642,10 +1576,8 @@ class AFolderOutsideThisRunIsRefusedBeforeAnythingIsWritten(unittest.TestCase):
         self.assertEqual(result["bound"], ["theirs.b_photos"])
         self.assertEqual(result["folder"], "photos")
 
-    def test_a_contained_folder_asked_for_later_still_wins(self):
-        """A constructor that reads a sibling directory of its own and then its
-        photos from a folder here asked for both. The one this run can fill is
-        the one it is handed."""
+    def test_retry_listing_an_outside_folder_is_refused(self):
+        """A later input listing cannot justify the retry's outside listing."""
 
         module = _written(
             "theirs",
@@ -1660,8 +1592,8 @@ class AFolderOutsideThisRunIsRefusedBeforeAnythingIsWritten(unittest.TestCase):
 
         binding, refusal = resolve_chain(self.role, [module], (self.files,))
 
-        self.assertIsNone(refusal)
-        self.assertEqual(binding.steps[0].supplied["folder"], "photos")
+        self.assertIsNone(binding)
+        self.assertIn("elsewhere", refusal.notes[0])
 
 
 class OneProbeLeavesTheFolderBehindForTheNext(unittest.TestCase):
@@ -1712,7 +1644,6 @@ class OneProbeLeavesTheFolderBehindForTheNext(unittest.TestCase):
             "class B:\n"
             "    def __init__(self):\n"
             "        here = Path(__file__).resolve().parent / 'models'\n"
-            "        sorted(os.listdir(here))\n"
             "        self.config = (here / 'config.txt').read_text()\n"
             "        self.where = sorted(os.listdir('baseImages'))\n"
             "    def names(self):\n"
@@ -1723,9 +1654,7 @@ class OneProbeLeavesTheFolderBehindForTheNext(unittest.TestCase):
         return module
 
     def test_a_reader_that_also_opens_its_own_config_still_binds(self):
-        """A was refused for reading outside the scratch directory and so was
-        B, because the rule looked at every path a call touched rather than at
-        which folder it was handed."""
+        """Opening a model config file does not count as an outside listing."""
 
         module = self._two_candidates()
         role = Role(
@@ -3790,6 +3719,79 @@ class OptionalFitStageTests(unittest.TestCase):
         self.assertEqual(failed, "idfs")
 
 
+class ClockOwnershipTests(unittest.TestCase):
+    """The per-call clock is one timer in a process that has one timer.
+
+    SIGALRM is process-wide, so a probe that installs its own handler and
+    cancels its own alarm cancels whatever the caller was timing, whether that
+    is a runner's deadline or an enclosing probe's.
+    """
+
+    def setUp(self):
+        if not hasattr(signal, "SIGALRM") or not hasattr(signal, "getitimer"):
+            self.skipTest("clock ownership requires POSIX interval timers")
+        if signal.getitimer(signal.ITIMER_REAL)[0]:
+            self.skipTest("the test runner already owns an alarm")
+        self.previous_handler = signal.getsignal(signal.SIGALRM)
+        self.addCleanup(signal.signal, signal.SIGALRM, self.previous_handler)
+        self.addCleanup(signal.setitimer, signal.ITIMER_REAL, 0)
+
+    def test_a_callers_timer_and_handler_survive_success_and_failure(self):
+        def caller_handler(signum, frame):
+            self.fail("the caller's twelve-second timer expired during a short test")
+
+        for raises in (False, True):
+            with self.subTest(raises=raises):
+                signal.signal(signal.SIGALRM, caller_handler)
+                signal.setitimer(signal.ITIMER_REAL, 12, 0.25)
+
+                def call():
+                    self.assertIs(signal.getsignal(signal.SIGALRM), caller_handler)
+                    remaining, interval = signal.getitimer(signal.ITIMER_REAL)
+                    self.assertGreater(remaining, 1)
+                    self.assertEqual(interval, 0.25)
+                    if raises:
+                        raise ValueError("their call failed")
+                    return "answer"
+
+                with patch("cogbench.pipeline.CALL_TIMEOUT_SECONDS", 1):
+                    if raises:
+                        with self.assertRaisesRegex(ValueError, "their call failed"):
+                            _under_clock(call)
+                    else:
+                        self.assertEqual(_under_clock(call), "answer")
+                self.assertIs(signal.getsignal(signal.SIGALRM), caller_handler)
+                remaining, interval = signal.getitimer(signal.ITIMER_REAL)
+                self.assertGreater(remaining, 1)
+                self.assertEqual(interval, 0.25)
+                signal.setitimer(signal.ITIMER_REAL, 0)
+
+    def test_nested_probes_do_not_cancel_the_outer_deadline(self):
+        for raises in (False, True):
+            with self.subTest(raises=raises):
+                def outer():
+                    before = signal.getitimer(signal.ITIMER_REAL)[0]
+                    handler = signal.getsignal(signal.SIGALRM)
+
+                    def inner():
+                        if raises:
+                            raise ValueError("inner failure")
+
+                    if raises:
+                        with self.assertRaisesRegex(ValueError, "inner failure"):
+                            _under_clock(inner)
+                    else:
+                        _under_clock(inner)
+                    after = signal.getitimer(signal.ITIMER_REAL)[0]
+                    self.assertGreater(after, 0)
+                    self.assertLessEqual(after, before)
+                    self.assertIs(signal.getsignal(signal.SIGALRM), handler)
+
+                _under_clock(outer)
+                self.assertEqual(signal.getitimer(signal.ITIMER_REAL)[0], 0)
+                self.assertIs(signal.getsignal(signal.SIGALRM), self.previous_handler)
+
+
 def _keep(items):
     return list(items)
 
@@ -4431,6 +4433,178 @@ class ABranchFixtureReadsThePoolWithoutEmptyingIt(unittest.TestCase):
 
         self.assertIsInstance(made, _Broken)
         self.assertIsInstance(made.error, ValueError)
+
+
+
+
+class FolderRetryReads(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.files = []
+        for name in ("one.png", "two.png"):
+            path = self.tmp / name
+            path.write_bytes(b"pretend photo")
+            self.files.append(path)
+        self.checkout = self.tmp / "checkout"
+        (self.checkout / "src").mkdir(parents=True)
+
+    def _role(self):
+        return Role(
+            "cluster",
+            (Stage("d", produces=lambda v: isinstance(v, list), folder=True),),
+        )
+
+    def _theirs(self, source):
+        path = self.checkout / "src" / "clustering.py"
+        path.write_text(source, encoding="utf-8")
+        self.addCleanup(sys.modules.pop, "clustering", None)
+        return _imported("clustering", path)
+
+    def test_a_retry_that_also_read_their_own_photos_is_not_a_binding(self):
+        photos = self.checkout / "photos"
+        photos.mkdir()
+        (photos / "aiken.png").write_bytes(b"their photo")
+        module = self._theirs(
+            "import os\n"
+            "from pathlib import Path\n"
+            "def build():\n"
+            "    names = sorted(os.listdir('baseImages'))\n"
+            "    beside = Path(__file__).resolve().parent.parent / 'photos'\n"
+            "    return names + sorted(os.listdir(beside))\n"
+        )
+
+        binding, refusal = resolve_chain(self._role(), [module], (self.files,))
+
+        self.assertIsNone(binding)
+        self.assertIn(str(photos), refusal.notes[0])
+
+    def test_a_retry_that_read_nothing_of_ours_is_not_a_binding(self):
+        module = self._theirs(
+            "import os\n"
+            "_tried = []\n"
+            "def build():\n"
+            "    if not _tried:\n"
+            "        _tried.append(1)\n"
+            "        return sorted(os.listdir('baseImages'))\n"
+            "    return ['remembered.png', 'remembered-too.png']\n"
+        )
+
+        binding, refusal = resolve_chain(self._role(), [module], (self.files,))
+
+        self.assertIsNone(binding)
+        self.assertEqual(refusal.stage, "d")
+
+    def test_a_retry_reading_only_its_cache_is_not_a_binding(self):
+        module = self._theirs(
+            "import os\n"
+            "from pathlib import Path\n"
+            "_tried = False\n"
+            "def build():\n"
+            "    global _tried\n"
+            "    if not _tried:\n"
+            "        _tried = True\n"
+            "        return os.listdir('baseImages')\n"
+            "    Path('cache').mkdir(exist_ok=True)\n"
+            "    Path('cache/result').write_text('remembered')\n"
+            "    return [Path('cache/result').read_text()]\n"
+        )
+
+        binding, refusal = resolve_chain(self._role(), [module], (self.files,))
+
+        self.assertIsNone(binding)
+        self.assertEqual(refusal.stage, "d")
+
+    def test_writing_a_log_in_the_input_folder_is_not_a_read(self):
+        module = self._theirs(
+            "import os\n"
+            "from pathlib import Path\n"
+            "_tried = False\n"
+            "def build():\n"
+            "    global _tried\n"
+            "    if not _tried:\n"
+            "        _tried = True\n"
+            "        return os.listdir('baseImages')\n"
+            "    Path('baseImages/probe.log').write_text('cached result')\n"
+            "    return ['remembered.png']\n"
+        )
+
+        binding, refusal = resolve_chain(self._role(), [module], (self.files,))
+
+        self.assertIsNone(binding)
+        self.assertEqual(refusal.stage, "d")
+
+    def test_reading_a_new_cache_beside_the_inputs_is_not_an_input_read(self):
+        module = self._theirs(
+            "import os\n"
+            "from pathlib import Path\n"
+            "_tried = False\n"
+            "def build():\n"
+            "    global _tried\n"
+            "    if not _tried:\n"
+            "        _tried = True\n"
+            "        return os.listdir('baseImages')\n"
+            "    cache = Path('baseImages/result-cache.json')\n"
+            "    cache.write_text('remembered.png')\n"
+            "    return [cache.read_text()]\n"
+        )
+
+        binding, refusal = resolve_chain(self._role(), [module], (self.files,))
+
+        self.assertIsNone(binding)
+        self.assertEqual(refusal.stage, "d")
+
+    def test_a_reader_that_loads_weights_from_outside_still_binds(self):
+        weights = self.tmp / "weights.bin"
+        weights.write_bytes(b"pretend weights")
+        module = self._theirs(
+            "import os\n"
+            "from pathlib import Path\n"
+            "def build():\n"
+            "    with open({!r}, 'rb') as handle:\n"
+            "        handle.read()\n"
+            "    os.makedirs('cache', exist_ok=True)\n"
+            "    Path('cache/probe.log').write_text('loaded weights')\n"
+            "    os.listdir('cache')\n"
+            "    return [p.read_bytes() for p in sorted(Path('baseImages').iterdir())]\n".format(str(weights))
+        )
+        role = Role(
+            "cluster",
+            (
+                Stage(
+                    "d",
+                    produces=lambda v: v == [b"pretend photo", b"pretend photo"],
+                    folder=True,
+                ),
+            ),
+        )
+
+        binding, refusal = resolve_chain(role, [module], (self.files,))
+
+        self.assertIsNone(refusal)
+        self.assertEqual(binding.steps[0].supplied["folder"], "baseImages")
+
+    def test_a_new_search_reads_fresh_inputs_after_scratch_cleanup(self):
+        module = self._theirs(
+            "from pathlib import Path\n"
+            "calls = []\n"
+            "contents = []\n"
+            "def build():\n"
+            "    calls.append(Path.cwd())\n"
+            "    contents[:] = [p.read_bytes() for p in sorted(Path('baseImages').iterdir())]\n"
+            "    return contents\n"
+        )
+
+        for content in (b"first search", b"second search"):
+            with self.subTest(content=content):
+                self.files[0].write_bytes(content)
+                binding, refusal = resolve_chain(self._role(), [module], (self.files,))
+                self.assertIsNone(refusal)
+                self.assertEqual(binding.steps[0].supplied["folder"], "baseImages")
+                self.assertEqual(module.contents, [content, b"pretend photo"])
+                self.assertFalse(module.calls[-1].exists())
+        self.assertEqual(len(module.calls), 4)
+        self.assertNotEqual(module.calls[0], module.calls[2])
 
 
 if __name__ == "__main__":

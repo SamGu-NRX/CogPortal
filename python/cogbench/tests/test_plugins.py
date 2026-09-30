@@ -92,18 +92,33 @@ class PluginDiscoveryTests(unittest.TestCase):
                 .format(benchmark, track),
             )
 
-    def test_the_command_is_a_pip_line_a_student_can_paste(self):
-        # The revision is checked against the submodule above. What this
-        # pins is the shape, so a change to the quoting or the PEP 508 name
-        # cannot pass by agreeing with a copy of itself.
-        command = benchmark_install_command("audio-identification")
-        self.assertTrue(
-            command.startswith(
-                'python -m pip install "cogworks-week1-audio-benchmark @ git+https://'
+    def test_every_shipped_benchmark_has_its_pinned_install_command(self):
+        expected = {
+            "audio-identification": (
+                'python -m pip install "cogworks-week1-audio-benchmark @ '
+                'git+https://github.com/SamGu-NRX/cogworks-week1-audio-benchmark.git'
+                '@4e516f39ffbeefe579e093260b2865eb354c17a7"'
             ),
-            command,
+            "vision-recognition": (
+                'python -m pip install "cogworks-week2-vision-benchmark @ '
+                'git+https://github.com/SamGu-NRX/cogworks-week2-vision-benchmark.git'
+                '@c177cf23cdd4f8dbe55401a2eb4bada4c64d37c2"'
+            ),
+            "vision-clustering": (
+                'python -m pip install "cogworks-week2-vision-benchmark @ '
+                'git+https://github.com/SamGu-NRX/cogworks-week2-vision-benchmark.git'
+                '@c177cf23cdd4f8dbe55401a2eb4bada4c64d37c2"'
+            ),
+            "language-search": (
+                'python -m pip install "cogworks-week3-language-benchmark @ '
+                'git+https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git'
+                '@b166f5c15e950baccc3785839cdcc660ffe01bb4"'
+            ),
+        }
+        self.assertEqual(
+            {name: benchmark_install_command(name) for name in expected},
+            expected,
         )
-        self.assertRegex(command, r'@[0-9a-f]{40}"$')
 
     @patch("cogbench.plugins._entry_points", return_value=[])
     def test_a_known_missing_benchmark_prints_the_exact_install_command(self, _entry_points):

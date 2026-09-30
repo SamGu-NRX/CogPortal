@@ -128,7 +128,7 @@ def create_submission(inputs):
         self.assertEqual(execution.name, self.repo.name)
         self.assertTrue(execution.parent.name.startswith('cogworks-execution-'))
         self.assertFalse(execution.parent.exists(), 'parent must remove the execution copy')
-        self.assertEqual(observed['cpu'], [300, 305])
+        self.assertEqual(observed['cpu'], list(isolate._cpu_limit(300)))
         self.assertEqual(observed['core'], [0, 0])
         # macOS may reject RLIMIT_AS; never claim installation if it did.
         self.assertIn(observed['memory'][0], [resource.RLIM_INFINITY, isolate.DEFAULT_MEMORY_BYTES])
@@ -217,7 +217,7 @@ Path(%r).write_text(json.dumps(list(resource.getrlimit(resource.RLIMIT_CPU))))
             )
             # And a module the repository provides, imported after limits, sees
             # them installed.
-            self.assertEqual(json.loads(after_limits.read_text()), [300, 305])
+            self.assertEqual(json.loads(after_limits.read_text()), list(isolate._cpu_limit(300)))
             observed = json.loads(self.record.read_text())
             wait_gone(self, observed['descendant'])
 
@@ -467,7 +467,7 @@ def create_submission(inputs):
         self.assertEqual(result.timeout_seconds, 2)
         self.assertEqual(result.memory_bytes, isolate.DEFAULT_MEMORY_BYTES)
         observed = json.loads(self.record.read_text())
-        self.assertEqual(observed['cpu'], [2, 7])
+        self.assertEqual(observed['cpu'], list(isolate._cpu_limit(2)))
         wait_gone(self, observed['pid'])
         wait_gone(self, observed['descendant'])
 
@@ -546,8 +546,41 @@ class LimitReadback(unittest.TestCase):
                 raise OSError('platform refuses address-space limits')
             limits[kind] = requested
         with patch.object(resource, 'getrlimit', side_effect=get), \
-             patch.object(resource, 'setrlimit', side_effect=set_limit):
+             patch.object(resource, 'setrlimit', side_effect=set_limit), \
+             patch.object(isolate, '_usable_cpus', return_value=1):
             isolate._apply_limits(1024, 10)
         self.assertEqual(reads.count(resource.RLIMIT_AS), 1, 'refused set must not be verified')
         self.assertEqual(limits[resource.RLIMIT_CORE], (0, 0))
         self.assertEqual(limits[resource.RLIMIT_CPU], (10, 15))
+
+    def test_the_cpu_limit_scales_with_the_cpus_threads_can_use(self):
+        """RLIMIT_CPU counts every thread. A Vision recognition check on a
+        12-core Mac spent 363 CPU seconds in 42 wall seconds, because PyTorch
+        runs a thread per core, and a CPU limit equal to the 300-second wall
+        clock stopped it. The wall clock has to be the budget that decides."""
+
+        limits = {}
+        def get(kind):
+            return limits.get(kind, (resource.RLIM_INFINITY, resource.RLIM_INFINITY))
+        def set_limit(kind, requested):
+            limits[kind] = requested
+        with patch.object(resource, 'getrlimit', side_effect=get), \
+             patch.object(resource, 'setrlimit', side_effect=set_limit), \
+             patch.object(isolate, '_usable_cpus', return_value=12):
+            isolate._apply_limits(1024, 300)
+            reported = isolate.Outcome(isolate.COMPLETED, timeout_seconds=300).diagnostics()['limits']
+        self.assertEqual(limits[resource.RLIMIT_CPU], (3600, 3605))
+        self.assertEqual((reported['cpuSeconds'], reported['cpuHardSeconds']), (3600, 3605))
+        self.assertEqual(reported['wallSeconds'], 300)
+
+    def test_a_stricter_existing_cpu_limit_is_never_raised(self):
+        limits = {resource.RLIMIT_CPU: (20, 25)}
+        def get(kind):
+            return limits.get(kind, (resource.RLIM_INFINITY, resource.RLIM_INFINITY))
+        def set_limit(kind, requested):
+            limits[kind] = requested
+        with patch.object(resource, 'getrlimit', side_effect=get), \
+             patch.object(resource, 'setrlimit', side_effect=set_limit), \
+             patch.object(isolate, '_usable_cpus', return_value=12):
+            isolate._apply_limits(1024, 300)
+        self.assertEqual(limits[resource.RLIMIT_CPU], (20, 25))

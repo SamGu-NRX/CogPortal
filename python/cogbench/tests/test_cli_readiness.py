@@ -29,6 +29,7 @@ sys.path.insert(0, str(ROOT / "python" / "cogbench" / "src"))
 
 from cogbench import cli, isolate  # noqa: E402
 from cogbench.isolate import CRASHED, Outcome  # noqa: E402
+from cogbench.models import LocalReport, Metric  # noqa: E402
 from cogbench.plugins import PluginError  # noqa: E402
 
 
@@ -67,6 +68,8 @@ class _Discoverable:
 
 class _Ready:
     ready = True
+    weights_used = ()
+    weights_captured = ()
 
     def to_dict(self):
         return {"root": "."}
@@ -117,11 +120,15 @@ class CheckAndRunAgree(unittest.TestCase):
         cli._discover = lambda *a, **k: (_Ready(), None, None)
 
         scoreable = cli._scoreable("b", _Discoverable(), self.tmp, as_json=True)
-        adapter = cli._submission_for("b", _Discoverable(), self.tmp, as_json=True)
+        adapter, names, weights = cli._submission_for(
+            "b", _Discoverable(), self.tmp, as_json=True
+        )
 
         self.assertEqual(scoreable.source, "discovery")
         self.assertIsNotNone(scoreable.factory)
         self.assertEqual(adapter()[0], "discovered")
+        self.assertEqual(names, [])
+        self.assertEqual(weights, [])
 
     def test_a_missing_declaration_still_searches_and_clears_its_missing_file_error(self):
         cli._discover = lambda *a, **k: (_Ready(), None, None)
@@ -275,6 +282,14 @@ class ScoredRunIsolation(unittest.TestCase):
 
     def test_resolve_and_execute_stay_in_child_and_parent_saves_the_report(self):
         parent = os.getpid()
+        save_report = cli.save_report
+        metrics = [
+            Metric("metric_" + role, role, 0.25, None, True, role == "scored", 3,
+                   help="What this measures.", role=role,
+                   relates_to=None if role == "scored" else "metric_scored")
+            for role in ("scored", "floor", "reported", "diagnostic")
+        ]
+        uploads = [{"path": "weights.pkl", "sha256": "c" * 64, "size": 10}]
 
         def resolve(*args, **kwargs):
             self.assertNotEqual(os.getpid(), parent)
@@ -283,20 +298,28 @@ class ScoredRunIsolation(unittest.TestCase):
             self.assertTrue(copied.is_dir())
             self.assertEqual(kwargs['project'].execution, copied)
             self.assertEqual(kwargs['project'].original, self.tmp)
-            return lambda: "unpicklable adapter"
+            return (lambda: "unpicklable adapter"), ["weights.pkl"], None
 
         def execute(benchmark, adapter, root, **kwargs):
             self.assertNotEqual(os.getpid(), parent)
             self.assertEqual(adapter(), "unpicklable adapter")
             self.assertEqual(root, self.tmp)
             self.assertEqual(kwargs["smoke"], command == "test")
-            return self._report()
+            self.assertEqual(kwargs["weight_names"], ["weights.pkl"])
+            self.assertIsNone(kwargs["weights"])
+            return replace(self._report(weights_used=kwargs["weight_names"]),
+                           metrics=metrics, weights_uploaded=uploads)
 
         def save(report, root):
             self.assertEqual(os.getpid(), parent)
             self.assertEqual(root, self.tmp)
+            self.assertEqual(report.weights_used, ["weights.pkl"])
             self.assertNotEqual(report.diagnostics, ["child pid: {}".format(parent)])
-            return self.tmp / "report.json"
+            self.assertEqual(report.metrics, metrics)
+            self.assertEqual(report.weights_uploaded, uploads)
+            path = save_report(report, root)
+            self.assertEqual(LocalReport.from_json(path.read_text()), report)
+            return path
 
         for command in ("run", "test"):
             with self.subTest(command=command), patch.object(cli, "load_benchmark", return_value=object()), \
@@ -305,6 +328,10 @@ class ScoredRunIsolation(unittest.TestCase):
                     patch.object(cli, "save_report", side_effect=save) as saved:
                 code, text = self._main(command, "--json")
                 self.assertEqual(code, 0, text)
+                payload = json.loads(text)
+                self.assertEqual(payload["weightsUsed"], ["weights.pkl"])
+                self.assertEqual(payload["weightsUploaded"], uploads)
+                self.assertEqual(payload["metrics"], [metric.to_wire() for metric in metrics])
                 saved.assert_called_once()
 
     def test_a_crash_in_resolution_or_execution_reports_no_result(self):
@@ -315,7 +342,7 @@ class ScoredRunIsolation(unittest.TestCase):
             for stage in ("_submission_for", "execute"):
                 with self.subTest(command=command, stage=stage), \
                         patch.object(cli, "load_benchmark", return_value=object()), \
-                        patch.object(cli, "_submission_for", return_value=lambda: None), \
+                        patch.object(cli, "_submission_for", return_value=(lambda: None, [], [])), \
                         patch.object(cli, stage, side_effect=abort), \
                         patch.object(cli, "save_report") as saved:
                     code, text = self._main(command, "--json")
@@ -369,7 +396,7 @@ class ScoredRunIsolation(unittest.TestCase):
         for fail in (False, True):
             with self.subTest(fail=fail), \
                     patch.object(cli, "load_benchmark", return_value=SimpleNamespace(benchmark_id="fixture", benchmark_version=1)), \
-                    patch.object(cli, "_submission_for", return_value=lambda: None), \
+                    patch.object(cli, "_submission_for", return_value=(lambda: None, [], [])), \
                     patch.object(cli, "_start_live_run", side_effect=self._new_live_run), \
                     patch.object(cli, "send_local_run_event"), \
                     patch.object(cli, "send_local_run_event_batch", side_effect=deliver_batch), \
@@ -502,7 +529,7 @@ class ScoredRunIsolation(unittest.TestCase):
     def test_live_no_fork_still_forwards_progress_and_completes(self):
         with patch.object(isolate, "_isolation_backend", return_value=None), \
                 patch.object(cli, "load_benchmark", return_value=SimpleNamespace(benchmark_id="fixture", benchmark_version=1)), \
-                patch.object(cli, "_submission_for", return_value=lambda: None), \
+                patch.object(cli, "_submission_for", return_value=(lambda: None, [], [])), \
                 patch.object(cli, "execute", return_value=self._report()), \
                 patch.object(cli, "_start_live_run", side_effect=self._new_live_run), \
                 patch.object(cli, "send_local_run_event"), \
@@ -523,7 +550,7 @@ def resolve(*args, **kwargs):
     for i in range(1000):
         print("student import", i)
     os.write(1, b"native import\n")
-    return lambda: None, []
+    return lambda: None, [], []
 
 def execute(*args, **kwargs):
     print("student execution")

@@ -41,7 +41,7 @@ import threading
 import time
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Tuple
 
 __all__ = [
     "Outcome",
@@ -66,12 +66,37 @@ TIMED_OUT = "timed_out"
 #: as slow, which is a true statement about it.
 DEFAULT_TIMEOUT_SECONDS = 300
 
+def _usable_cpus() -> int:
+    """How many CPUs this process may run threads on at once."""
+
+    try:
+        return max(1, len(os.sched_getaffinity(0)))
+    except (AttributeError, OSError):
+        return max(1, os.cpu_count() or 1)
+
+
+def _cpu_limit(timeout_seconds: int) -> Tuple[int, int]:
+    """The CPU-time rlimit, soft and hard, for a wall-clock budget.
+
+    RLIMIT_CPU counts the CPU time of every thread in the process, so a child
+    whose native libraries run one thread per core spends CPU seconds several
+    times faster than wall seconds. A Vision recognition check on a 12-core
+    Mac, where PyTorch starts a thread per core, reached the 300-second CPU
+    limit while the same work took 36 CPU seconds on one thread. Scaling by
+    the usable CPUs leaves the wall clock as the budget that decides; the CPU
+    limit still stops a child that somehow outlives the wall clock.
+    """
+
+    soft = timeout_seconds * _usable_cpus()
+    return soft, soft + 5
+
+
 #: Bound only the wait after publication or pipe closure, never student work.
 #: `_child` closes the descriptor and calls `os._exit` with the bulk flush
-#: already behind it, so a child on its way out is gone in microseconds and a
-#: whole second is generous. A child still alive after that is lingering, which
-#: is the shape of the forged-payload case, so it loses its payload. This is a
-#: cleanup policy, not a measured maximum for interpreter teardown.
+#: already behind it, so a child on its way out is gone in microseconds. A
+#: child still alive after that is lingering, which is the shape of the
+#: forged-payload case, so it loses its payload. A cleanup policy, not a
+#: measured maximum for interpreter teardown.
 UNBOUNDED_REAP_SECONDS = 1.0
 
 #: Address space ceiling for the child. Above the measured peak of a real
@@ -115,12 +140,13 @@ class Outcome:
         # Exec pays plugin-import CPU inside RLIMIT_CPU; fork inherited those
         # imports for free. Heavy imports leave less CPU for a native fit.
         # Check also loads the plugin in the parent for benchmarkLoadable.
+        cpu = (None, None) if self.timeout_seconds is None else _cpu_limit(self.timeout_seconds)
         return {
             "status": self.status, "detail": self.detail, "signal": self.signal,
             "alarmFired": self.alarm_fired, "readReason": self.read_reason,
             "limits": {"wallSeconds": self.timeout_seconds,
-                       "cpuSeconds": self.timeout_seconds,
-                       "cpuHardSeconds": None if self.timeout_seconds is None else self.timeout_seconds + 5,
+                       "cpuSeconds": cpu[0],
+                       "cpuHardSeconds": cpu[1],
                        "memoryBytes": self.memory_bytes},
         }
 
@@ -209,11 +235,9 @@ def ensure_pinned_hash_seed(command: Optional[list] = None) -> bool:
     if os.name == "nt":
         # Windows has no exec: `os.execve` starts a second process and ends
         # this one, so the caller sees an exit code from a process that did
-        # no work. Measured in CI, where `cogworks --version` printed nothing
-        # and exited 1 the first time the job got far enough to run it.
-        # Staying unpinned is a state this function already allows, and a
-        # hosted run is unaffected because its image sets the variable for
-        # every process in the sandbox.
+        # no work. Staying unpinned is a state this function already allows,
+        # and a hosted run is unaffected because its image sets the variable
+        # for every process in the sandbox.
         return False
     if os.environ.get(_REEXEC_MARK):
         # Already tried and the seed still did not take. Re-executing again
@@ -311,11 +335,12 @@ def _apply_limits(
         install(resource.RLIMIT_CORE, (0, 0))
     except (ValueError, OSError):
         pass
-    # A CPU limit catches a spin that the wall clock would also catch, but it
-    # arrives as a signal the parent can name precisely.
+    # A CPU limit catches a child that outlives the wall clock, and it arrives
+    # as a signal the parent can name precisely. See `_cpu_limit` for why it is
+    # larger than the wall clock.
     try:
         if timeout_seconds is not None:
-            lower(resource.RLIMIT_CPU, timeout_seconds, timeout_seconds + 5)
+            lower(resource.RLIMIT_CPU, *_cpu_limit(timeout_seconds))
     except (ValueError, OSError):
         pass
 
@@ -902,7 +927,7 @@ def _collect(pid, read_fd, timeout_seconds, memory_bytes, on_poll=None) -> Outco
                 "; no CPU limit was configured by this operation"
                 if timeout_seconds is None else
                 "; configured CPU limit: {} seconds soft, {} seconds hard".format(
-                    timeout_seconds, timeout_seconds + 5)
+                    *_cpu_limit(timeout_seconds))
             )
             outcome = replace(outcome, detail=outcome.detail + limits)
     return replace(outcome, alarm_fired=fired, timeout_seconds=timeout_seconds,

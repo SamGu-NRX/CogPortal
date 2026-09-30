@@ -16,16 +16,17 @@ class BenchmarkInstall(NamedTuple):
     source: str
 
 
-# The URL is the one in .gitmodules and the commit is the gitlink beside it,
-# restated here because the CLI is installed as a package and cannot read the
-# parent checkout. test_plugins.py reads both back out of the repository, so a
+# What to tell a student whose benchmark package is missing. The URL is the
+# one in .gitmodules and the commit is the gitlink beside it, restated here
+# because the CLI is installed as a package and cannot read the parent
+# checkout. test_plugins.py reads both back out of the repository, so a
 # submodule bump that misses this table breaks CI rather than a student's
-# install.
+# install. The portal's installer copy restates the same revisions.
 BENCHMARK_INSTALLS: Dict[str, BenchmarkInstall] = {
     "audio-identification": BenchmarkInstall(
         "cogworks-week1-audio-benchmark",
         "git+https://github.com/SamGu-NRX/cogworks-week1-audio-benchmark.git"
-        "@ad055874436e45b2d8ef0bdb48deedbf2a0a2a90",
+        "@4e516f39ffbeefe579e093260b2865eb354c17a7",
     ),
     "vision-recognition": BenchmarkInstall(
         "cogworks-week2-vision-benchmark",
@@ -94,13 +95,8 @@ def load_plugin(group: str, name: str, instantiate_classes: bool = True) -> Any:
             )
         # Two readers, two sentences. A benchmark that is simply not
         # installed is the ordinary case and the student's next step is one
-        # command, so say that and nothing else. `cogworks check` has always
-        # said it plainly ("Nothing was searched for, because X is not
-        # installed here"), and `cogworks run` answered the same situation
-        # with 'Entry-point group "cogworks.benchmarks.v1" has no
-        # "audio-identification" registration (available: none)', which names
-        # a Python packaging concept and no next step. Same cause, and the
-        # worse sentence was the one a student reaches after doing more work.
+        # command, so say that and nothing else rather than naming the
+        # entry-point group.
         #
         # The group and what is installed still matter when something IS
         # installed, because then the likely fault is a name or a version

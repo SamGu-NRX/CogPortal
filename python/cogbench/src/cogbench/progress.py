@@ -1,11 +1,9 @@
 """Showing a long search while it runs.
 
-Finding a team's code takes as long as it takes. One repository in the 2026
-corpus resolves in 35 attempts and another in 3962, and the slow one spends
-about ninety seconds enrolling two songs and asking for one back, over and
-over, until a pair of their functions answers correctly. A terminal that sits
-silent for ninety seconds looks broken, and a student who thinks it is broken
-kills it and never sees the answer.
+Finding a team's code takes as long as it takes: one repository in the 2026
+corpus resolves in 35 attempts and another in 3,962, about ninety seconds. A
+terminal that sits silent that long looks broken, and a student who thinks it
+is broken kills it and never sees the answer.
 
 So the search says what it is doing. Two rules keep that honest:
 
@@ -13,11 +11,9 @@ The total is counted, not guessed. Every number here comes from the search
 itself: the pairings it will try, the ones it has tried. Nothing is
 extrapolated from a benchmark run on someone else's laptop.
 
-The estimate says how it was arrived at. The search stops the moment a
-pairing works, so the attempts still to try are a ceiling and not a
-prediction, and the seconds come from dividing the time spent by the
-attempts made. It reads "at this rate" because the count is bounded and the
-rate is only an average.
+The estimate is an upper bound and says so. The search stops the moment a
+pairing works, which can happen on the next attempt or not at all, so "at
+most" is the only claim the number supports.
 
 Nothing here renders unless the output is a terminal. Piped to a file or run
 in CI, the spinner would be thousands of escape codes in a log, so it goes
@@ -28,7 +24,7 @@ from __future__ import annotations
 
 import sys
 import time
-from typing import IO, Optional
+from typing import IO, List, Optional
 
 __all__ = ["Progress", "TerminalProgress", "Silent"]
 
@@ -46,9 +42,7 @@ _WORTH_ESTIMATING_SECONDS = 3.0
 
 #: Attempts to see before extrapolating from them. The first pairing carries
 #: the cost of warming a student's imports and their first call into numba, so
-#: one sample said "2m 06s" for a search that took 23 seconds. Waiting for a
-#: few hundred costs a second of silence and stops the first number shown from
-#: being the wrong one by a factor of five.
+#: one sample said "2m 06s" for a search that took 23 seconds.
 _ENOUGH_TO_EXTRAPOLATE = 200
 
 
@@ -115,9 +109,9 @@ class TerminalProgress(Progress):
         self._erase()
         self._headline = headline
         self._started = self._clock()
-        # Far enough back that the first attempt always draws. Starting at the
-        # clock's own zero made the opening frame look like it had just been
-        # drawn, so a fast search finished having shown nothing at all.
+        # Far enough back that the first attempt always draws. At the
+        # clock's own zero the opening frame looks already drawn, so a fast
+        # search finishes having shown nothing.
         self._last_draw = float("-inf")
         if self.enabled:
             self._write("{}\n".format(headline))
@@ -169,8 +163,7 @@ class TerminalProgress(Progress):
             self._stream.write(text)
             self._stream.flush()
         except (ValueError, OSError):
-            # A closed or broken stream must not take the run with it. The
-            # report matters; the animation does not.
+            # A closed or broken stream must not take the run with it.
             self._live = False
 
 
