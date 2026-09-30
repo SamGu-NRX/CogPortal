@@ -213,7 +213,9 @@
   border-radius: var(--radius-control);
   background-color: var(--color-paper-raised);
   color: var(--color-ink);
-  font-size: 15px;
+  /* 16px, not the 15px body: iOS Safari zooms the page into any focused
+     field set smaller, and the zoom stays after the keyboard closes. */
+  font-size: 16px;
   transition: border-color 150ms ease;
   &::placeholder {
     color: var(--color-ink-faint);
