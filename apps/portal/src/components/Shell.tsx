@@ -1,6 +1,6 @@
 import { Link, NavLink, Outlet } from "react-router";
 import { nextStagePath } from "@/App";
-import { Concealed } from "@/components/RestoreGate";
+import { AccountSlot } from "@/components/RestoreGate";
 import { UserMenu } from "@/components/UserMenu";
 import { useSession } from "@/lib/queries";
 
@@ -55,7 +55,7 @@ export function Shell() {
             <TopNavLink to="/leaderboard">Leaderboard</TopNavLink>
           </nav>
           {/* The account's name is withheld with the page it belongs to. */}
-          <Concealed className="flex items-center gap-4 max-[359px]:order-2">
+          <AccountSlot className="max-[359px]:order-2">
             {session?.user ? (
               <UserMenu
                 user={session.user}
@@ -71,7 +71,7 @@ export function Shell() {
                 Sign in
               </Link>
             )}
-          </Concealed>
+          </AccountSlot>
         </div>
       </header>
 

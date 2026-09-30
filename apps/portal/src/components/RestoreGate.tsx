@@ -13,6 +13,7 @@ import { flushSync } from "react-dom";
 import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import type { Session } from "@cogworks/contracts/schema";
 import { sessionQuery } from "@/lib/queries";
+import { Button } from "./Button";
 import { LoadingMark, QueryError } from "./Feedback";
 
 /** Login and team are what every cached answer is scoped by. A session
@@ -43,9 +44,17 @@ function mutationsSettled(qc: QueryClient): Promise<void> {
 
 type Gate = { state: "open" } | { state: "closed" } | { state: "failed"; error: unknown };
 
-const GateContext = createContext<{ gate: Gate; retry: () => void }>({
+const GateContext = createContext<{
+  gate: Gate;
+  retry: () => void;
+  /** Whether a page-level Concealed is showing the gate's status. */
+  covered: boolean;
+  cover: () => () => void;
+}>({
   gate: { state: "open" },
   retry: () => {},
+  covered: false,
+  cover: () => () => {},
 });
 
 /**
@@ -62,6 +71,7 @@ export function RestoreGate({ children }: { children: ReactNode }) {
   const qc = useQueryClient();
   const [gate, setGate] = useState<Gate>({ state: "open" });
   const [tree, setTree] = useState(0);
+  const [covers, setCovers] = useState(0);
   const open = useRef(true);
   const paintedFor = useRef<Session | undefined>(undefined);
   const focused = useRef<Element | null>(null);
@@ -168,14 +178,21 @@ export function RestoreGate({ children }: { children: ReactNode }) {
     }
   }, [gate]);
 
+  const cover = useCallback(() => {
+    setCovers((n) => n + 1);
+    return () => setCovers((n) => n - 1);
+  }, []);
+
   const value = useMemo(
     () => ({
       gate,
       retry: () => {
         if (!running.current) void check();
       },
+      covered: covers > 0,
+      cover,
     }),
-    [gate, check],
+    [gate, check, covers, cover],
   );
 
   return (
@@ -207,8 +224,9 @@ export function Concealed({
   className?: string;
   status?: boolean;
 }) {
-  const { gate, retry } = useContext(GateContext);
+  const { gate, retry, cover } = useContext(GateContext);
   const closed = gate.state !== "open";
+  useEffect(() => (status ? cover() : undefined), [status, cover]);
   const content = (
     <div
       className={closed ? `${className} invisible` : className}
@@ -233,6 +251,53 @@ export function Concealed({
               <LoadingMark />
             )}
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The header's account controls, concealed with the page they belong to.
+ * When the session read fails on a page with no status panel of its own (a
+ * public page stays readable), the slot offers the retry instead of going
+ * blank. On a phone the account slot is too narrow for a sentence, so the
+ * retry takes its own row under the header. The button stays mounted through
+ * a retry, so keyboard focus is not dropped.
+ */
+export function AccountSlot({ children, className = "" }: { children: ReactNode; className?: string }) {
+  const { gate, retry, covered } = useContext(GateContext);
+  // Set by a click and cleared once the gate opens, so a later return's
+  // ordinary check does not show up here as a retry.
+  const [asked, setAsked] = useState(false);
+  if (asked && gate.state === "open") setAsked(false);
+  const checking = asked && gate.state === "closed";
+  const recovering = !covered && (gate.state === "failed" || checking);
+  return (
+    <div
+      className={`grid items-center justify-items-end *:col-start-1 *:row-start-1 ${
+        recovering ? "max-sm:order-last max-sm:w-full max-sm:justify-items-stretch" : ""
+      } ${className}`}
+    >
+      <Concealed className="flex items-center gap-4">{children}</Concealed>
+      {recovering && (
+        <div className="flex items-center justify-between gap-3 max-sm:border-t max-sm:border-rule-soft max-sm:py-1.5">
+          <p id="session-retry-note" role="status" className="text-[12.5px] text-ink-secondary">
+            {checking ? "Checking who's signed in…" : "Couldn't check who's signed in."}
+          </p>
+          <Button
+            variant="ghost"
+            className="aria-disabled:cursor-progress aria-disabled:text-ink-secondary"
+            aria-describedby="session-retry-note"
+            aria-disabled={checking || undefined}
+            onClick={() => {
+              if (checking) return;
+              setAsked(true);
+              retry();
+            }}
+          >
+            {checking ? "Checking" : "Try again"}
+          </Button>
         </div>
       )}
     </div>
