@@ -26,6 +26,11 @@ from typing import Any, Dict, Optional
 # The frozen Language 1 decoder emits only six from the same wire payload;
 # test_saved_contract_pairs.py proves that pair must refuse reuse before scoring.
 # Scorer-only changes do not change a sandbox contract.
+#
+# Clustering's additive scored/scenario_key fields do not change required
+# sandbox execution. Only the controller scorer reads them, from its retained
+# cases. test_saved_contract_pairs verifies old/current execution equivalence
+# on an expanded official fixture, including nonzero stability findings.
 SANDBOX_CONTRACTS = {
     "audio-identification": 1,
     "vision-recognition": 1,
@@ -37,6 +42,8 @@ SANDBOX_CONTRACTS = {
 # == (3, 8) for Audio and Language. Its image build pins 3.8.20, but that pin
 # does not establish incompatibility with another 3.8 patch. Keep the exact
 # observed version as provenance; Vision has no corresponding runtime guard.
+# Membership also selects the pinned venv in student_python; removing a track
+# changes both its interpreter and its compatibility check.
 _REQUIRED_PYTHON = {
     "audio-identification": "3.8",
     "language-search": "3.8",
@@ -182,6 +189,16 @@ def _validate_interpreter(benchmark_id: str, python_version: str) -> None:
         raise PreparedEnvironmentError(INCOMPATIBLE_PYTHON)
 
 
+def student_python(benchmark_id: str, py38_venv: str) -> str:
+    """Select the pinned venv for tracks requiring Python 3.8.
+
+    Callers supply cogbench's venv path so this module needs no cogbench import
+    when the sandbox runs its pristine compatibility probe.
+    """
+
+    return py38_venv if benchmark_id in _REQUIRED_PYTHON else "python"
+
+
 def validate_observation(job: Dict[str, Any], observation: Any) -> None:
     """Check the catalog requirement before any student preparation runs."""
     required = _requirement(job)
@@ -274,7 +291,7 @@ def _validate_sdk_capabilities(name: str, module: Any) -> None:
 
 
 def probe(benchmark_id: str) -> Dict[str, Any]:
-    """Import installed platform modules without importing the Modal app.
+    """Import platform modules and load the selected benchmark without Modal.
 
     No checkout fallback or sys.path insertion is allowed here: the paths must
     be those this sandbox's interpreter actually imports. The listed modules
@@ -307,6 +324,13 @@ def probe(benchmark_id: str) -> Dict[str, Any]:
         }
     except (ImportError, OSError, TypeError, AttributeError):
         raise PreparedEnvironmentError("Prepared environment platform imports could not be observed.") from None
+    # Registration and construction are required even for explicit adapters.
+    # Optional discovery loads track resources, including Week 3's GloVe, and
+    # must stay lazy. This probe runs before any student installation.
+    try:
+        importlib.import_module("cogbench.plugins").load_benchmark(benchmark_id)
+    except Exception:
+        raise PreparedEnvironmentError("Prepared environment could not load the selected benchmark.") from None
     if not _observation_shape(observation):
         raise PreparedEnvironmentError(INVALID_OBSERVATION)
     return observation
