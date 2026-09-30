@@ -443,7 +443,7 @@ export function registerAdminRoutes(app: Hono<AppEnv>): void {
         throw new ApiHttpError(
           403,
           "cannot_remove_creator",
-          "A team admin can't be removed, because they hold the team's settings.",
+          "A team admin can't be removed.",
         );
       }
       await db

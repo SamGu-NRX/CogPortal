@@ -151,7 +151,7 @@ An interrupted edit leaves the team exactly as it was. The page holds no draft b
 
 ## Edge cases
 
-- **There is no way to leave a team.** No control anywhere in the product lets a member remove themselves, and the creator cannot be removed at all ("A team admin can't be removed, because they hold the team's settings."). A student who joined the wrong team must ask the creator or an instructor. The unique index on membership puts a student on one team at a time, so until somebody lets them out they cannot join another.
+- **There is no way to leave a team.** No control anywhere in the product lets a member remove themselves, and the creator cannot be removed at all ("A team admin can't be removed."). A student who joined the wrong team must ask the creator or an instructor. The unique index on membership puts a student on one team at a time, so until somebody lets them out they cannot join another.
 - **A login in the stage rail is not always a portal account.** The rail names whoever the commit history names, so a git author with no linked GitHub user appears under their git name with no avatar. The initial-letter box is the honest rendering of that, and the code says so.
 - **Dates are drawn in UTC on purpose.** The finding sentences above the rail are formatted in UTC, so leaving the rail in the local zone would print the same instant as two different days on one screen.
 - **A whole week's work landing on one day** collapses every bar to the same point, so the rail special-cases a zero-width span rather than dividing by zero.

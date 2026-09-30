@@ -210,10 +210,9 @@ test("admin removal of a team's creator is refused, not performed", async () => 
   // Same refusal as the team page's own path. It must not send staff to
   // GitHub: the stored role is only re-read when the admin opens team
   // settings, and a creator who owns the fork cannot be demoted there at all.
-  assert.equal(
-    removed.body.error.message,
-    "A team admin can't be removed, because they hold the team's settings.",
-  );
+  // Nor may it promise the admin can manage the team: a creator with write
+  // access is stored as admin but refused settings (routes/team.ts).
+  assert.equal(removed.body.error.message, "A team admin can't be removed.");
   assert.equal(await h.roleOf("team_a", creatorId), "admin");
 });
 
