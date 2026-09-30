@@ -1,4 +1,4 @@
-import { ArrowUpRight01Icon } from "@hugeicons/core-free-icons";
+import { ArrowRight01Icon, ArrowUpRight01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { ReactNode } from "react";
 import { Link, Navigate } from "react-router";
@@ -130,9 +130,10 @@ export function Landing() {
             {!authed && (
               <Link
                 to="/signin"
-                className="u-pressable mt-3 inline-flex min-h-10 items-center font-mono text-[11.5px] tracking-[0.09em] text-detect-deep uppercase underline decoration-detect/40 underline-offset-4 hover:decoration-detect"
+                className="u-pressable mt-3 inline-flex min-h-10 items-center gap-1 font-mono text-[11.5px] tracking-[0.09em] text-detect-deep uppercase underline decoration-detect/40 underline-offset-4 hover:decoration-detect"
               >
-                Sign in →
+                Sign in
+                <HugeiconsIcon icon={ArrowRight01Icon} size={12} strokeWidth={1.8} aria-hidden="true" />
               </Link>
             )}
           </Step>
