@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import shutil
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -8,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "python" / "cogbench" / "src"))
 
 from cogbench.verdict import (  # noqa: E402
+    COULD_NOT_LOOK,
     NOT_READ,
     NOT_WIRED,
     NOTHING_HERE,
@@ -15,6 +18,8 @@ from cogbench.verdict import (  # noqa: E402
     WIRED_BUT_WRONG,
     Coverage,
     Observation,
+    Verdict,
+    could_not_look,
     describe,
     not_read,
     not_wired,
@@ -268,6 +273,190 @@ class ARefusalSaysWhatTheSearchDidRatherThanWhatExists(unittest.TestCase):
         joined = " ".join(verdict.notes)
         self.assertNotIn("your own function", joined)
         self.assertIn("passed its result to the next", joined)
+
+
+class AFileNobodyOpenedCannotBeJudgedEmpty(unittest.TestCase):
+    """NOT_WIRED says no chain of their functions does the task, and that is
+    only sayable about code this run read.
+
+    Through the real conversion, not a hand-built `Coverage`: `_coverage_of`
+    puts the rendered sentence in the middle slot, so a test that writes a
+    machine reason there exercises a shape production never makes. These go
+    `discover` -> `_coverage_of` -> `not_wired`.
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def _coverage(self, benchmark=""):
+        from cogbench.discover import discover
+        from cogbench.resolve import _coverage_of
+
+        return _coverage_of(discover(self.tmp), benchmark)
+
+    def _wired(self, coverage):
+        return not_wired("clustering", "graph", (), coverage=coverage)
+
+    def test_a_dependency_nothing_could_import_blocks_the_verdict(self):
+        (self.tmp / "theirs.py").write_text("import definitely_not_installed\n")
+
+        coverage = self._coverage()
+
+        # What production actually builds: the sentence, not the reason.
+        # `owner_of_skip` attributes every missing dependency to us since
+        # 640b9c6; `environment` is the older classification and is still
+        # covered by the stored record below.
+        self.assertEqual([owner for _n, _d, owner in coverage.skipped], ["ours"])
+        self.assertIn("not installed here", coverage.skipped[0][1])
+        self.assertEqual(coverage.unread, ("theirs",))
+        self.assertEqual(self._wired(coverage).status, COULD_NOT_LOOK)
+
+    def test_a_syntax_error_was_read_and_leaves_the_verdict_alone(self):
+        (self.tmp / "broken.py").write_text("def go(:\n")
+        (self.tmp / "fine.py").write_text("def go(x):\n    return x\n")
+
+        coverage = self._coverage()
+
+        self.assertEqual([owner for _n, _d, owner in coverage.skipped], ["theirs"])
+        self.assertEqual(coverage.unread, ())
+        self.assertTrue(coverage.read_enough_to_judge)
+        self.assertEqual(self._wired(coverage).status, NOT_WIRED)
+
+    def test_a_mixed_run_counts_only_the_files_nobody_opened(self):
+        (self.tmp / "gone.py").write_text("import definitely_not_installed\n")
+        (self.tmp / "broken.py").write_text("def go(:\n")
+        (self.tmp / "fine.py").write_text("def go(x):\n    return x\n")
+
+        coverage = self._coverage()
+        verdict = self._wired(coverage)
+
+        self.assertEqual(coverage.unread, ("gone",))
+        self.assertEqual(verdict.status, COULD_NOT_LOOK)
+        self.assertIn("could not read one of your files", verdict.headline)
+        # The file that was read is still reported, just not as unread.
+        self.assertIn("broken", [name for name, _d, _o in coverage.skipped])
+
+    def test_it_survives_the_verdict_round_trip(self):
+        (self.tmp / "gone.py").write_text("import definitely_not_installed\n")
+
+        verdict = self._wired(self._coverage())
+        again = Verdict.from_dict(verdict.to_dict())
+
+        self.assertEqual(again.status, COULD_NOT_LOOK)
+        self.assertEqual(again.coverage.unread, ("gone",))
+        self.assertFalse(again.to_dict()["coverage"]["readEnoughToJudge"])
+
+
+class TheOwnersThatMeanNobodyOpenedTheFile(unittest.TestCase):
+    """`ours` and `environment` are both import failures. `environment` is the
+    older classification for a dependency that did not import here."""
+
+    @staticmethod
+    def _wired(skipped):
+        return not_wired("clustering", "graph", (), coverage=Coverage(skipped=skipped))
+
+    def test_a_name_this_process_already_holds_blocks(self):
+        """`name_taken` is an `ours` skip with no missing package, which is
+        why the headline names no cause."""
+
+        verdict = self._wired((("json", "json is already imported here", "ours"),))
+
+        self.assertEqual(verdict.status, COULD_NOT_LOOK)
+        self.assertNotIn("package", verdict.headline)
+
+    def test_a_legacy_environment_record_is_treated_as_unread(self):
+        """A stored record from before this, whose middle field is the
+        sentence a reader saw."""
+
+        stored = {
+            "read": ["main"],
+            "skipped": [
+                {
+                    "module": "whispers",
+                    "reason": "imports cv2, which is not installed here",
+                    "owner": "environment",
+                }
+            ],
+            "readEnoughToJudge": True,
+        }
+
+        coverage = Coverage.from_dict(stored)
+
+        self.assertEqual(coverage.unread, ("whispers",))
+        self.assertFalse(coverage.read_enough_to_judge)
+        self.assertEqual(self._wired(coverage.skipped).status, COULD_NOT_LOOK)
+
+    def test_a_module_that_raised_was_read(self):
+        verdict = self._wired((("boom", "raised ValueError on import", "theirs"),))
+
+        self.assertEqual(verdict.status, NOT_WIRED)
+
+
+class TheHeadlinePromisesNothingAboutTheGradedRun(unittest.TestCase):
+    """It used to say the graded run had those packages. A local import
+    failure does not establish what the hosted environment can import."""
+
+    def _looked(self, owner="environment"):
+        return could_not_look(
+            Coverage(skipped=(("whispers", "imports cv2, which is not installed here", owner),))
+        )
+
+    def test_it_names_no_cause_and_promises_no_install(self):
+        headline = self._looked().headline
+
+        for invented in ("graded run has", "will not skip", "hosted", "package"):
+            self.assertNotIn(invented, headline)
+
+    def test_it_does_not_blame_the_repository(self):
+        headline = self._looked("theirs").headline
+
+        for blame in ("your fault", "problem with your", "you did not"):
+            self.assertNotIn(blame, headline)
+
+    def test_it_says_what_was_lost(self):
+        self.assertIn("could not finish looking", self._looked().headline)
+
+    def test_each_skip_keeps_its_own_sentence(self):
+        """The headline names no cause, so the coverage has to carry them."""
+
+        coverage = Coverage(skipped=(
+            ("json", "json is already imported here", "ours"),
+            ("whispers", "imports cv2, which is not installed here", "environment"),
+        ))
+
+        record = coverage.to_dict()
+
+        self.assertEqual(
+            [item["reason"] for item in record["skipped"]],
+            ["json is already imported here", "imports cv2, which is not installed here"],
+        )
+        self.assertFalse(record["readEnoughToJudge"])
+
+
+class AScoredRunKeepsItsPartialCoverage(unittest.TestCase):
+    """Scoring found a pipeline, so nothing here retracts it. Coverage is only
+    attached where a caller attaches it."""
+
+    def test_a_scored_verdict_carries_no_coverage_by_default(self):
+        scored = Verdict(SCORED, "Your code is wired up and ready to score.")
+
+        self.assertEqual(scored.coverage, Coverage())
+        self.assertEqual(scored.status, SCORED)
+
+    def test_coverage_attached_to_a_scored_verdict_is_reported_not_retracted(self):
+        coverage = Coverage(read=("main",), skipped=(
+            ("whispers", "imports cv2, which is not installed here", "environment"),
+        ))
+        scored = Verdict(SCORED, "Your code is wired up and ready to score.",
+                         coverage=coverage)
+
+        # The unread file is still named; the score still stands.
+        self.assertEqual(scored.status, SCORED)
+        self.assertEqual(scored.coverage.unread, ("whispers",))
+        self.assertEqual(
+            scored.to_dict()["coverage"]["skipped"][0]["module"], "whispers"
+        )
 
 
 if __name__ == "__main__":
