@@ -163,6 +163,10 @@ async function harness(t: test.TestContext, teams: Teams = "shared", path = "/se
   for (const [key, value] of Object.entries(globals)) {
     Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
   }
+  // A different account gets a fresh document. The browser drops this one
+  // when that navigation commits; here the page simply stays as it was.
+  let reloads = 0;
+  Object.defineProperty(window.location, "reload", { configurable: true, value: () => { reloads += 1; } });
   let visibility: "visible" | "hidden" = "visible";
   Object.defineProperty(window.document, "visibilityState", { configurable: true, get: () => visibility });
 
@@ -272,7 +276,20 @@ async function harness(t: test.TestContext, teams: Teams = "shared", path = "/se
     assert.ok(exposed().includes("Account menu for alice"));
   }
 
-  return { window, server, client, container, flush, exposed, watchExposed, operableButtons, assertConcealment, leave, comeBack };
+  /** Reloading for another account, with nothing of alice's reachable while
+   *  the navigation is on its way. */
+  const assertReplacedForAnotherAccount = () => {
+    assert.equal(reloads, 1, "the switch did not replace the document exactly once");
+    assert.ok(!exposed().includes(tokenFor("alice")));
+    assert.ok(!exposed().includes("Account menu for alice"));
+    assert.deepEqual(operableButtons().filter((label) => label !== "Checking"), [], "a button was still operable");
+    assertConcealment();
+  };
+
+  return {
+    window, server, client, container, flush, exposed, watchExposed, operableButtons, assertConcealment, leave, comeBack,
+    reloads: () => reloads, assertReplacedForAnotherAccount,
+  };
 }
 
 for (const kind of ["bfcache", "visibility"] as const) {
@@ -296,15 +313,14 @@ for (const kind of ["bfcache", "visibility"] as const) {
     assert.ok(h.container.querySelector('[role="status"]'), "no loading mark while waiting");
     h.assertConcealment();
 
+    assert.equal(h.reloads(), 0);
+
     h.server.releaseSession("bob");
     await h.flush();
-    assert.ok(h.exposed().includes(tokenFor("bob")));
-    assert.ok(h.exposed().includes("Account menu for bob"));
-    assert.ok(!h.container.textContent?.includes(tokenFor("alice")), "alice's tree survived the switch");
-    assert.equal(h.container.querySelector("[inert]"), null);
+    h.assertReplacedForAnotherAccount();
   });
 
-  test(`${kind}: a failed session read shows the error, and retrying reaches bob`, async (t) => {
+  test(`${kind}: a failed session read shows the error, and a retry that finds bob replaces the page`, async (t) => {
     const h = await harness(t);
     h.leave(kind);
     h.server.signInDirectly("bob");
@@ -320,9 +336,7 @@ for (const kind of ["bfcache", "visibility"] as const) {
     const retry = [...h.container.querySelectorAll("button")].find((button) => button.textContent === "Try again");
     await act(async () => retry!.click());
     await h.flush();
-    assert.ok(h.exposed().includes(tokenFor("bob")));
-    assert.ok(!h.container.textContent?.includes(tokenFor("alice")));
-    assert.ok(!h.exposed().includes("Try again"));
+    h.assertReplacedForAnotherAccount();
   });
 
   test(`${kind}: alice's setup answer that lands after the switch never renders`, async (t) => {
@@ -333,18 +347,13 @@ for (const kind of ["bfcache", "visibility"] as const) {
     await h.flush();
 
     h.leave(kind);
+    const sawAlice = h.watchExposed(tokenFor("alice"));
     h.server.signInDirectly("bob");
     await h.comeBack(kind);
-    h.server.releaseSetupState("bob");
-    await h.flush();
-    assert.ok(h.exposed().includes(tokenFor("bob")));
-
-    const sawAlice = h.watchExposed(tokenFor("alice"));
     h.server.releaseSetupState("alice");
     await h.flush();
-    assert.equal(sawAlice(), false, "alice's late answer rendered for bob");
-    assert.ok(!h.container.textContent?.includes(tokenFor("alice")));
-    assert.ok(h.exposed().includes(tokenFor("bob")));
+    assert.equal(sawAlice(), false, "alice's late answer was exposed");
+    h.assertReplacedForAnotherAccount();
   });
 
   test(`${kind}: the same account gets the same mounted page back`, async (t) => {
@@ -360,22 +369,18 @@ for (const kind of ["bfcache", "visibility"] as const) {
     assert.equal(h.container.querySelector("h1"), heading);
     assert.ok(h.exposed().includes(tokenFor("alice")));
     assert.equal(h.container.querySelector("[inert]"), null);
+    assert.equal(h.reloads(), 0, "an unchanged account reloaded the page");
   });
 
   test(`${kind}: bob on another team never sees alice's team`, async (t) => {
-    // The team, connections and dashboard answers are not keyed by account,
-    // so only discarding the cache and remounting keeps them from bob.
     const h = await harness(t, "own");
     assert.ok(h.exposed().includes("Team of alice"));
-    const heading = h.container.querySelector("h1");
     h.leave(kind);
     const sawAlice = h.watchExposed("Team of alice");
     h.server.signInDirectly("bob");
     await h.comeBack(kind);
-    assert.ok(h.exposed().includes("Team of bob"));
     assert.equal(sawAlice(), false, "bob was shown alice's cached team");
-    assert.ok(!h.container.textContent?.includes("Team of alice"));
-    assert.equal(heading?.isConnected, false, "alice's page stayed mounted for bob");
+    h.assertReplacedForAnotherAccount();
   });
 
   test(`${kind}: a check overtaken by another hide never opens the gate`, async (t) => {
@@ -393,17 +398,16 @@ for (const kind of ["bfcache", "visibility"] as const) {
     h.server.releaseSession("alice");
     await h.flush();
     assert.ok(!h.exposed().includes(tokenFor("alice")));
+    assert.equal(h.reloads(), 0);
     h.server.releaseSession("bob");
     await h.flush();
-    assert.ok(h.exposed().includes(tokenFor("bob")));
-    assert.ok(!h.container.textContent?.includes(tokenFor("alice")));
+    h.assertReplacedForAnotherAccount();
   });
 }
 
 test("a public page keeps its content and offers a retry when the session read fails", async (t) => {
   const h = await harness(t, "shared", "/public");
   h.leave("visibility");
-  h.server.signInDirectly("bob");
   h.server.session("fail");
   await h.comeBack("visibility");
 
@@ -432,29 +436,39 @@ test("a public page keeps its content and offers a retry when the session read f
   await act(async () => retry.click());
   assert.equal(h.server.sessionRequests.length, before + 1, "a click while checking sent another read");
 
-  h.server.releaseSession("bob");
+  h.server.releaseSession("alice");
   await h.flush();
-  assert.ok(h.exposed().includes("Account menu for bob"));
-  assert.ok(!h.container.textContent?.includes("Account menu for alice"));
+  assert.ok(h.exposed().includes("Account menu for alice"));
   assert.ok(!h.exposed().includes("Try again"));
   assert.ok(h.exposed().includes(PUBLIC_TEXT));
+  assert.equal(h.reloads(), 0);
 
-  // A retry that confirms the same account keeps the mounted tree, and the
-  // next return checks as usual, with no retry in it unless the read fails.
-  h.leave("visibility");
-  h.server.session("fail");
-  await h.comeBack("visibility");
-  h.server.session("answer");
-  const again = [...h.container.querySelectorAll("button")].find((button) => button.textContent === "Try again")!;
-  await act(async () => again.click());
-  await h.flush();
-  assert.ok(h.exposed().includes("Account menu for bob"));
+  // The next return checks as usual, with no retry in it unless the read fails.
   h.leave("visibility");
   h.server.session("hold");
   await h.comeBack("visibility");
   assert.ok(!h.exposed().includes("Checking"), "an ordinary return showed as a retry");
-  h.server.releaseSession("bob");
+  h.server.releaseSession("alice");
   await h.flush();
+});
+
+test("once a reload is asked for, later returns neither check again nor reveal the page", async (t) => {
+  const h = await harness(t);
+  h.leave("visibility");
+  h.server.signInDirectly("bob");
+  await h.comeBack("visibility");
+  h.assertReplacedForAnotherAccount();
+
+  // The navigation has not committed yet. Another hide and return as bob,
+  // then alice signing back in, must leave it exactly as it is.
+  const before = h.server.sessionRequests.length;
+  h.leave("visibility");
+  await h.comeBack("visibility");
+  h.server.signInDirectly("alice");
+  h.leave("bfcache");
+  await h.comeBack("bfcache");
+  assert.equal(h.server.sessionRequests.length, before, "a later return read the session again");
+  h.assertReplacedForAnotherAccount();
 });
 
 test("a return while the browser is offline fails with a retry instead of waiting", async (t) => {
@@ -468,7 +482,7 @@ test("a return while the browser is offline fails with a retry instead of waitin
   assert.ok(h.exposed().includes(PUBLIC_TEXT));
 });
 
-test("a first read the gate retried and lost offers one retry, and it opens the gate", async (t) => {
+test("a first read the gate retried and lost offers one retry, and it replaces the page", async (t) => {
   const h = await harness(t, "shared", "/setup", true);
   h.leave("visibility");
   h.server.signInDirectly("bob");
@@ -482,8 +496,8 @@ test("a first read the gate retried and lost offers one retry, and it opens the 
     .find((button) => button.textContent === "Try again" && !button.closest("[inert]"))!;
   await act(async () => retry.click());
   await h.flush();
-  assert.ok(h.exposed().includes(tokenFor("bob")));
-  assert.equal(h.container.querySelector("[inert]"), null, "the page retry left the gate closed");
+  // Nothing was painted for anyone, so the answer cannot be matched to it.
+  assert.equal(h.reloads(), 1, "the page retry left the gate closed");
 });
 
 test("an account menu left open is closed when the page is concealed", async (t) => {
@@ -513,33 +527,16 @@ test("a session read sent as alice before the switch is not taken as the answer"
   // Alice's read answers late; the gate asked again as bob and ignores it.
   h.server.releaseSession("alice");
   await h.flush();
-  assert.ok(h.exposed().includes(tokenFor("bob")));
-  assert.ok(!h.container.textContent?.includes(tokenFor("alice")));
+  h.assertReplacedForAnotherAccount();
 });
 
-test("a mutation alice sent before the switch cannot write into bob's cache", async (t) => {
+test("a mutation alice sent that never answers does not hold the switch", async (t) => {
   const h = await harness(t);
-  // Stands in for any mutation whose onSuccess writes a shared entry, as
-  // useUpdateTeam writes ["team"]; its response arrives after the switch.
-  let answer!: (value: string) => void;
-  const late = h.client.getMutationCache().build(h.client, {
-    mutationFn: () => new Promise<string>((resolve) => { answer = resolve; }),
-    onSuccess: (team: string) => { h.client.setQueryData(["team-written-by-mutation"], team); },
-  });
-  let settled = false;
-  void late.execute(undefined).finally(() => { settled = true; });
+  h.client.getMutationCache().build(h.client, { mutationFn: () => new Promise<never>(() => {}) }).execute(undefined);
   h.leave("bfcache");
   h.server.signInDirectly("bob");
   await h.comeBack("bfcache");
-  // The gate knows it is bob, but waits for alice's write before clearing.
-  assert.ok(!h.exposed().includes(tokenFor("bob")), "bob's page opened while alice's write was pending");
-  assert.ok(!h.exposed().includes(tokenFor("alice")));
-
-  await act(async () => answer("alice's team"));
-  await h.flush();
-  assert.ok(settled);
-  assert.equal(h.client.getQueryData(["team-written-by-mutation"]), undefined, "alice's late write survived into bob's cache");
-  assert.ok(h.exposed().includes(tokenFor("bob")));
+  h.assertReplacedForAnotherAccount();
 });
 
 test("a same-account restore from the back/forward cache rereads what it shows", async (t) => {

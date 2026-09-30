@@ -1,6 +1,5 @@
 import {
   createContext,
-  Fragment,
   type ReactNode,
   useCallback,
   useContext,
@@ -10,7 +9,7 @@ import {
   useState,
 } from "react";
 import { flushSync } from "react-dom";
-import { type QueryClient, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import type { Session } from "@cogworks/contracts/schema";
 import { sessionQuery } from "@/lib/queries";
 import { Button } from "./Button";
@@ -24,22 +23,6 @@ export function sameAccount(before: Session | undefined, after: Session): boolea
     (before.user?.login ?? null) === (after.user?.login ?? null) &&
     (before.team?.id ?? null) === (after.team?.id ?? null)
   );
-}
-
-/** Resolves once no mutation is pending. A mutation sent before the switch
- *  still runs its onSuccess, which can write the previous account's answer
- *  into a shared cache entry, so the cache is cleared only after that. */
-function mutationsSettled(qc: QueryClient): Promise<void> {
-  const cache = qc.getMutationCache();
-  const pending = () => cache.getAll().some((mutation) => mutation.state.status === "pending");
-  if (!pending()) return Promise.resolve();
-  return new Promise((resolve) => {
-    const unsubscribe = cache.subscribe(() => {
-      if (pending()) return;
-      unsubscribe();
-      resolve();
-    });
-  });
 }
 
 type Gate = { state: "open" } | { state: "closed" } | { state: "failed"; error: unknown };
@@ -65,12 +48,11 @@ const GateContext = createContext<{
  * can sign in as someone else. The painted tree and the query cache still
  * belong to the first account, and the setup page's commands carry tokens
  * signed for it. The same account gets the same mounted tree back; a
- * different one gets an empty cache and a fresh tree.
+ * different one gets a fresh document.
  */
 export function RestoreGate({ children }: { children: ReactNode }) {
   const qc = useQueryClient();
   const [gate, setGate] = useState<Gate>({ state: "open" });
-  const [tree, setTree] = useState(0);
   const [covers, setCovers] = useState(0);
   const open = useRef(true);
   const paintedFor = useRef<Session | undefined>(undefined);
@@ -83,8 +65,11 @@ export function RestoreGate({ children }: { children: ReactNode }) {
   // Set by a back/forward-cache restore, whose cached answers may be of any
   // age; a tab that was only hidden keeps its own freshness rules.
   const restored = useRef(false);
+  // Set once a reload is requested; nothing reopens this document after that.
+  const replacing = useRef(false);
 
   const check = useCallback(async () => {
+    if (replacing.current) return;
     const mine = ++attempt.current;
     running.current = true;
     setGate((current) => (current.state === "closed" ? current : { state: "closed" }));
@@ -104,15 +89,18 @@ export function RestoreGate({ children }: { children: ReactNode }) {
       return;
     }
     if (mine !== attempt.current) return;
-    const notSession = { predicate: (query: { queryKey: readonly unknown[] }) => query.queryKey[0] !== "session" };
     if (!sameAccount(paintedFor.current, session)) {
-      await mutationsSettled(qc);
-      if (mine !== attempt.current) return;
-      // Removing a query also drops a response still on the wire for it.
-      qc.removeQueries(notSession);
-      setTree((n) => n + 1);
-    } else if (restored.current) {
-      void qc.invalidateQueries(notSession);
+      // Clearing the cache in place would leave the old account's pending
+      // requests, their callbacks and their timers alive; a new document ends
+      // them. Until it commits, a later hide, return or retry must not check
+      // again: if the first account signed back in, that check would reveal
+      // this page.
+      replacing.current = true;
+      window.location.reload();
+      return;
+    }
+    if (restored.current) {
+      void qc.invalidateQueries({ predicate: (query) => query.queryKey[0] !== "session" });
     }
     restored.current = false;
     running.current = false;
@@ -121,6 +109,7 @@ export function RestoreGate({ children }: { children: ReactNode }) {
   }, [qc]);
 
   const close = useCallback(() => {
+    if (replacing.current) return;
     attempt.current += 1;
     running.current = false;
     if (!open.current) return;
@@ -166,8 +155,7 @@ export function RestoreGate({ children }: { children: ReactNode }) {
     };
   }, [close, reopen]);
 
-  // Closing blurs whatever was focused inside the hidden tree. A remounted
-  // tree has no such element, which isConnected catches.
+  // Closing blurs whatever was focused inside the hidden tree.
   useEffect(() => {
     if (gate.state !== "open") return;
     const element = focused.current;
@@ -200,7 +188,7 @@ export function RestoreGate({ children }: { children: ReactNode }) {
 
   return (
     <GateContext.Provider value={value}>
-      <Fragment key={tree}>{children}</Fragment>
+      {children}
     </GateContext.Provider>
   );
 }
