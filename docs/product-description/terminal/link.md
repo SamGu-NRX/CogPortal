@@ -8,6 +8,15 @@ It is reached by typing `cogworks link` in any directory, though what it does at
 
 ## The simple case
 
+The first run is the one that needs `--portal`. `_portal` falls back to the saved
+`activePortal`, and a machine that has never linked has none, so a bare `cogworks link`
+ends at "No CogPortal is selected. Copy `cogworks link --portal ...` from the setup page."
+(`python/cogbench/src/cogbench/cli.py:129-134`). Two pages hand over the complete line and
+both read it from `linkCommand` (`apps/portal/src/lib/setup-progress.ts:85`): the setup
+rail, and the Connections device panel while no device is linked
+(`apps/portal/src/routes/ConnectionsPage.tsx:254`). The CLI's own sentence still names only
+the setup page.
+
 A student types `cogworks link` and reads three lines before anything is decided:
 
 ```
