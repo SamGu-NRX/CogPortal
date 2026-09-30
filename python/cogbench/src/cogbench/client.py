@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import time
 import urllib.error
@@ -156,38 +155,43 @@ def update_setup_checks(
     )
 
 
+#: How long one socket operation of a weight upload may block. urllib applies
+#: it to each connect, send and read rather than to the whole request, so it
+#: stops a stalled upload without cutting off a large one that is still moving.
+#: Longer than the 15 seconds JSON requests get because a send carries a
+#: chunk of the file; no measurement chose 60.
+UPLOAD_TIMEOUT_SECONDS = 60
+
+
 def upload_weight(
     portal: str,
     token: str,
     report_id: str,
     rel_path: str,
     weight_path: Path,
-    expected_sha256: Optional[str] = None,
+    expected_sha256: str,
+    size: int,
 ) -> str:
-    """Upload one repository-relative file without retrying it."""
+    """Upload one retained input under the digest its report already published.
+
+    The digest and the length come from the capture receipt, not from this
+    file: the portal checks the stream against the digest the report named, so
+    a retained copy that no longer matches is refused there as well as here.
+    """
 
     # Workers caps request bodies at 100 MB on Free and Pro plans, and this
     # account's plan is not established. The largest 2026 corpus weight is
     # 411 KB; Week 3's separate 200 MiB discovery probe is unchanged.
     max_weight_bytes = 100 * 1024 * 1024
-    file_size = weight_path.stat().st_size
-    if file_size > max_weight_bytes:
+    if size > max_weight_bytes:
         raise PortalError("Weight files may not exceed 100 MiB: {}".format(rel_path))
-
-    if expected_sha256 is None:
-        digest = hashlib.sha256()
-        with weight_path.open("rb") as stream:
-            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-                digest.update(chunk)
-        expected_sha256 = digest.hexdigest()
-    # R2 checks the stream against the report's digest, including changes after POST.
 
     encoded_path = quote(rel_path, safe="/")
     headers = {
         "Accept": "application/json",
         "User-Agent": USER_AGENT,
         "Authorization": "Bearer {}".format(token),
-        "Content-Length": str(file_size),
+        "Content-Length": str(size),
         "X-Cogworks-Weight-SHA256": expected_sha256,
     }
 
@@ -203,7 +207,7 @@ def upload_weight(
                 headers=headers,
                 method="PUT",
             )
-            with urllib.request.urlopen(request) as response:
+            with urllib.request.urlopen(request, timeout=UPLOAD_TIMEOUT_SECONDS) as response:
                 payload = json.loads(response.read().decode("utf-8"))
                 return str(payload["destination"])
     except urllib.error.HTTPError as error:
