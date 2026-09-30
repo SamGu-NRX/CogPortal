@@ -92,7 +92,7 @@ export function PhaseRail({
                 }`}
               >
                 {PHASE_LABELS[phase]}
-                <span className="sr-only"> — {srState[state]}</span>
+                <span className="sr-only">, {srState[state]}</span>
               </span>
               {timing && (
                 <span className="u-tnum mt-0.5 block font-mono text-[11px] text-ink-faint">

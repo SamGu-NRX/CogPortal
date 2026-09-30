@@ -3,6 +3,7 @@ import {
   RUNNER_PROTOCOL_VERSION,
   RunJobV1Schema,
   type RunJobV1,
+  type WeightFile,
 } from "@cogworks/contracts/protocol";
 import type { Env } from "../env";
 import { getDb } from "../db/client";
@@ -10,6 +11,8 @@ import type { BenchmarkRow, RunRow, TeamRow } from "../db/schema";
 import { runs } from "../db/schema";
 import { ApiHttpError } from "../http/errors";
 import { newId } from "../util/id";
+import { getLatestTeamWeights } from "../services/local-reports";
+import { weightManifest } from "../services/weights";
 
 const DEFAULT_IMAGE_DIGEST = "cogworks-week2-cpu-v1:unpublished";
 
@@ -56,6 +59,7 @@ export function buildRunJob(
   run: RunRow,
   team: TeamRow,
   benchmark: BenchmarkRow,
+  weights: WeightFile[] = [],
 ): RunJobV1 {
   const fullName = `${encodeURIComponent(team.repoOwner)}/${encodeURIComponent(team.repoName)}`;
   return RunJobV1Schema.parse({
@@ -137,6 +141,7 @@ export function buildRunJob(
       url: `${origin(env)}/api/internal/v1/runner/events`,
       keyId: env.RUNNER_SIGNING_KEY_ID ?? "runner-v1",
     },
+    ...(run.preparedArtifactId ? {} : { weights }),
   });
 }
 
@@ -146,9 +151,8 @@ export function buildRunJob(
  * The queue gives retry with backoff and a dead-letter path, so it stays the
  * production shape. Without it -- `wrangler dev`, or a deployment before
  * Queues is enabled on the account -- this posts directly instead of
- * refusing. The direct path has no retry: a failed dispatch surfaces
- * immediately as a failed run rather than being retried for thirty seconds,
- * which is the honest trade for being able to run the real path at all.
+ * refusing. The direct path has no retry: definite rejections fail the run
+ * immediately; unknown acceptance waits for a callback or the stale-run reaper.
  */
 export async function enqueueRun(
   env: Env,
@@ -157,7 +161,14 @@ export async function enqueueRun(
   benchmark: BenchmarkRow,
 ): Promise<void> {
   assertModalConfigured(env);
-  const job = buildRunJob(env, run, team, benchmark);
+  let weights: WeightFile[] = [];
+  if (!run.preparedArtifactId) {
+    const report = await getLatestTeamWeights(env, run.teamId, team.repoFullName, run.sha);
+    weights = await weightManifest(
+      env.ARTIFACTS, team.repoFullName, run.sha, report.weightsUsed, report.weightsUploaded,
+    );
+  }
+  const job = buildRunJob(env, run, team, benchmark, weights);
   if (env.RUN_QUEUE) {
     await env.RUN_QUEUE.send(job, { contentType: "json" });
     return;
@@ -183,28 +194,65 @@ export async function hmacSignature(secret: string, timestamp: string, body: str
     .join("");
 }
 
+/**
+ * The provider did not acknowledge acceptance or refusal of the job.
+ *
+ * `submit_job` spawns the run before it replies (see the Modal runner), so a
+ * request that times out or fails in transit may well have started a run.
+ * An infrastructure response can also hide that acknowledgement.
+ */
+export class DispatchUnacknowledged extends Error {
+  constructor(cause: unknown) {
+    super("The Modal runner did not answer the dispatch request.");
+    this.name = "DispatchUnacknowledged";
+    this.cause = cause;
+  }
+}
+
 async function dispatchToModal(env: Env, job: RunJobV1): Promise<void> {
   assertModalConfigured(env);
   const body = JSON.stringify(job);
   const timestamp = Math.floor(Date.now() / 1_000).toString();
-  const response = await fetch(env.MODAL_RUNNER_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Cogworks-Timestamp": timestamp,
-      "X-Cogworks-Key-Id": env.RUNNER_SIGNING_KEY_ID ?? "runner-v1",
-      "X-Cogworks-Signature": `v1=${await hmacSignature(env.RUNNER_SIGNING_SECRET, timestamp, body)}`,
-    },
-    body,
-    signal: AbortSignal.timeout(15_000),
-  });
-  if (response.status !== 202) {
+  const signature = await hmacSignature(env.RUNNER_SIGNING_SECRET, timestamp, body);
+  const signal = AbortSignal.timeout(15_000);
+  let response: Response;
+  try {
+    response = await fetch(env.MODAL_RUNNER_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Cogworks-Timestamp": timestamp,
+        "X-Cogworks-Key-Id": env.RUNNER_SIGNING_KEY_ID ?? "runner-v1",
+        "X-Cogworks-Signature": `v1=${signature}`,
+      },
+      body,
+      signal,
+    });
+  } catch (error) {
+    throw new DispatchUnacknowledged(error);
+  }
+  // modal_app.py submit_job returns 400/401 before spawning, then 202.
+  // A 4xx is refusal; other unexpected statuses may come from a gateway
+  // that lost the 202 after the job started, so acceptance is unknown.
+  if (response.status >= 400 && response.status < 500) {
     throw new Error(`Modal runner rejected job with status ${response.status}.`);
   }
-  await getDb(env)
-    .update(runs)
-    .set({ dispatchAttempts: sql`${runs.dispatchAttempts} + 1` })
-    .where(eq(runs.id, job.runId));
+  if (response.status !== 202) {
+    throw new DispatchUnacknowledged(
+      new Error(`Modal dispatch returned unexpected status ${response.status}.`),
+    );
+  }
+  // Modal holds the job from here on. The attempt counter is bookkeeping; a
+  // failed write must not read as a failed dispatch, or the caller would
+  // release an official-attempt claim for a run that is actually executing.
+  try {
+    await getDb(env)
+      .update(runs)
+      .set({ dispatchAttempts: sql`${runs.dispatchAttempts} + 1` })
+      .where(eq(runs.id, job.runId));
+  } catch {
+    // Accepted; the counter is off by one and nothing else is wrong.
+  }
 }
 
 export async function handleRunQueue(batch: MessageBatch<RunJobV1>, env: Env): Promise<void> {

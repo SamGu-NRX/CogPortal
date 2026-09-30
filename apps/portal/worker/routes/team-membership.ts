@@ -66,7 +66,7 @@ function repoAccessRequired(adminLogin: string | null): ApiHttpError {
   return new ApiHttpError(
     403,
     "repo_access_required",
-    `Ask ${adminLogin ?? "the team creator"} to add you as a collaborator on GitHub — or to add you here from Team settings.`,
+    `Ask ${adminLogin ?? "a team admin"} to add you as a collaborator on GitHub, then accept the invitation GitHub emails you (github.com/notifications) and press Join again. They can also add you here from Team settings.`,
   );
 }
 
@@ -77,7 +77,8 @@ export function registerTeamMembershipRoutes(app: Hono<AppEnv>): void {
     const cohortTeams = await db
       .select()
       .from(teams)
-      .where(eq(teams.cohortId, auth.cohort.id))
+      // Archive rows are past-course demonstrations, so they have no team to join.
+      .where(and(eq(teams.cohortId, auth.cohort.id), eq(teams.provenance, "live")))
       .orderBy(asc(teams.name));
     const memberships = cohortTeams.length === 0
       ? []
@@ -108,6 +109,7 @@ export function registerTeamMembershipRoutes(app: Hono<AppEnv>): void {
         id: team.id,
         name: team.name,
         description: team.description,
+        provenance: team.provenance,
         repo: { fullName: team.repoFullName, url: team.repoUrl },
         members,
         adminLogin: members.find((member) => member.role === "admin")?.login ?? null,
@@ -135,6 +137,14 @@ export function registerTeamMembershipRoutes(app: Hono<AppEnv>): void {
       .where(and(eq(teams.id, body.teamId), eq(teams.cohortId, auth.cohort.id)))
       .limit(1);
     if (!team) throw new ApiHttpError(404, "not_found", "Team not found.");
+    // Direct requests must obey the same archive exclusion as the cohort list.
+    if (team.provenance === "archive") {
+      throw new ApiHttpError(
+        403,
+        "forbidden",
+        "This is a past-course demonstration with names replaced, so there's nothing to join. Choose a current team.",
+      );
+    }
 
     const [admin] = await db
       .select({ login: users.githubLogin })
@@ -223,7 +233,7 @@ export function registerTeamMembershipRoutes(app: Hono<AppEnv>): void {
       throw new ApiHttpError(
         404,
         "user_not_found",
-        "No CogPortal account with that GitHub login yet — they need to sign in once first.",
+        "No CogPortal account with that GitHub login yet. They need to sign in once first.",
       );
     }
     const githubLogin = user.githubLogin;
@@ -291,7 +301,7 @@ export function registerTeamMembershipRoutes(app: Hono<AppEnv>): void {
       throw new ApiHttpError(
         403,
         "cannot_remove_creator",
-        "The team creator cannot be removed.",
+        "A team admin cannot be removed here. Change their permission on GitHub instead.",
       );
     }
     await db

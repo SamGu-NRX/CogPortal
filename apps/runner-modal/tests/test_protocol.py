@@ -25,6 +25,29 @@ class ProtocolTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_job(self.job)
 
+    def test_prepared_job_may_omit_weights(self):
+        self.job["mode"] = "official"
+        self.job["preparedArtifactId"] = "snapshot_1"
+        self.job.pop("weights")
+        self.assertEqual(validate_job(self.job)["preparedArtifactId"], "snapshot_1")
+
+    def test_weight_digest_must_be_lowercase_sha256(self):
+        self.job["weights"][0]["sha256"] = "G" * 64
+        with self.assertRaisesRegex(ValueError, "digest"):
+            validate_job(self.job)
+
+    def test_weight_manifest_is_limited_to_eight_entries(self):
+        self.job["weights"] = [
+            {
+                "path": "models/{}.pkl".format(index),
+                "size": 1,
+                "sha256": "a" * 64,
+            }
+            for index in range(9)
+        ]
+        with self.assertRaisesRegex(ValueError, "at most 8"):
+            validate_job(self.job)
+
     def test_hmac_rejects_replay_and_accepts_current_message(self):
         body = canonical_json(self.job)
         supplied = "v1=" + signature("secret", "1000", body)

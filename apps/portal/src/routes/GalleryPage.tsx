@@ -1,7 +1,14 @@
+import { CopyBlock } from "@/components/CopyBlock";
+import { FailureCard } from "@/components/FailureCard";
+import { Step, StepRail } from "@/components/StepRail";
 import { Finding, FINDING_KICKER } from "@/components/Finding";
+import { ConnectGate } from "@/components/ConnectGate";
 import { Panel } from "@/components/Panel";
 import { PrimaryMetric, SupportingMetrics } from "@/components/MetricBlock";
 import { SweepTrace } from "@/components/SweepTrace";
+import { WiringTrace, type WiredStep } from "@/components/WiringTrace";
+import { setupCommandLines, stepState } from "@/lib/setup-progress";
+import type { GateOutcome, GatePhase, GateVariant } from "@/lib/activity-gate";
 import type { Metric, RunDetail as RunDetailType } from "@cogworks/contracts/schema";
 
 /**
@@ -163,18 +170,222 @@ const SWEEPS: { title: string; note: string; sweep: NonNullable<RunDetailType["s
   },
 ];
 
-// The first two rungs are the Week 3 reference submission's measured search MRR on
-// the test tier (verbatim, keywords); the last two are illustrative.
-const LANGUAGE_SWEEP: NonNullable<RunDetailType["sweep"]> = {
-  axis: "how far the query is from the caption",
-  metric: "search_mrr",
-  points: [
-    { x: 0, y: 0.6337 },
-    { x: 1, y: 0.558 },
-    { x: 2, y: 0.49 },
-    { x: 3, y: 0.46 },
-  ],
-};
+
+/**
+ * A wiring trace at the length the contract allows.
+ *
+ * The identifier field is capped at 200 characters, and this component used to
+ * put `truncate` on it, so the end of a long one was elided with no way to see
+ * it. Identifiers are the entire payload here: a team reads this to check we
+ * ran the function they think we ran, and the half that gets cut is the
+ * function name. There is no run in any fixture database with a name this long,
+ * so this is the only way to look at it.
+ */
+const LONG_WIRING: WiredStep[] = [
+  {
+    stage: "spectrogram",
+    function: "audio.processing.spectrogram_utilities.make_spectrogram_with_hann_window_and_overlap",
+    received: "an array of shape (132300,), 44100",
+    returned: "a tuple of 3, starting with an array of shape (2049, 63)",
+  },
+  {
+    stage: "peaks",
+    // 200 characters, at or near the 200 cap in
+    // packages/contracts/src/protocol.ts. Long, and a real shape: this is what
+    // a deeply namespaced repository looks like.
+    function:
+      "fingerprinting.peak_detection.local_maxima.find_peaks_by_iterative_neighbourho" +
+      "od_comparison_over_the_log_spectrogram_with_an_amplitude_floor_and_a_minimum_time_frequency_separation_between_accepted_in",
+    received: "an array of shape (2049, 63)",
+    returned: "an array of shape (355, 2)",
+  },
+  {
+    stage: "fanout",
+    function: "fingerprinting.make_fgp",
+    received: "an array of shape (355, 2)",
+    returned: "a list of 5158, starting ((221, 468, 1), 0)",
+  },
+];
+
+/** A floor whose parent is not in the list beside it. Week 3 publishes this
+ *  shape whenever the image side is unmeasured, and the run page also lifts
+ *  the primary metric out before rendering the rest, so a floor attached to
+ *  the primary arrives here with nothing to attach to. */
+const ORPHAN_FLOOR: Metric[] = [
+  metric({
+    key: "chance_mrr",
+    label: "Chance MRR",
+    value: 0.0102,
+    precision: 3,
+    primary: false,
+    role: "floor",
+    relatesTo: "retrieval_mrr",
+    help: "What ranking at random scores on this pool.",
+  }),
+];
+
+const PAIRED_FLOOR: Metric[] = [
+  metric({
+    key: "retrieval_mrr",
+    label: "Retrieval MRR",
+    value: 0.2586,
+    precision: 3,
+    primary: false,
+    role: "scored",
+    help: null,
+  }),
+  ...ORPHAN_FLOOR,
+];
+
+/** What week 3 publishes when the image side is unmeasured: a scored text
+ *  metric, its floor, and a floor whose parent is not here at all. */
+const WITHHELD: Metric[] = [
+  metric({
+    key: "text_mrr",
+    label: "Text MRR",
+    value: 0.7888,
+    precision: 3,
+    primary: false,
+    role: "scored",
+    help: null,
+  }),
+  metric({
+    key: "text_chance",
+    label: "Text chance MRR",
+    value: 0.04,
+    precision: 3,
+    primary: false,
+    role: "floor",
+    relatesTo: "text_mrr",
+    help: "What ranking at random scores on the caption pool.",
+  }),
+  metric({
+    key: "chance_mrr",
+    label: "Chance MRR",
+    value: 0.0102,
+    precision: 3,
+    primary: false,
+    role: "floor",
+    relatesTo: "retrieval_mrr",
+    help: "What ranking at random scores on the image pool.",
+  }),
+];
+
+const SETUP_BENCHMARK_ID = "audio-identification";
+
+const SETUP_LINES = setupCommandLines({
+  cloneUrl: "https://github.com/cogworks-demo/face-finder.git",
+  repoName: "face-finder",
+  benchmarkId: SETUP_BENCHMARK_ID,
+  benchmarkTitle: "Audio",
+  portalOrigin: "https://cogportal.example",
+  verified: () => true,
+  deviceLinked: true,
+});
+
+/** The same rail with nothing observed and everything checked off by hand,
+ *  which needs a signing secret and a terminal to reach for real. */
+const SETUP_LINES_SELF_CHECKED = setupCommandLines({
+  cloneUrl: "https://github.com/cogworks-demo/face-finder.git",
+  repoName: "face-finder",
+  benchmarkId: SETUP_BENCHMARK_ID,
+  benchmarkTitle: "Audio",
+  portalOrigin: "https://cogportal.example",
+  verified: () => false,
+  selfChecked: () => true,
+  deviceLinked: false,
+});
+
+/** The page's own rail, so a layout bug here is a layout bug there. */
+function SetupRailFixture({
+  unreadable = false,
+  lines = SETUP_LINES,
+}: {
+  unreadable?: boolean;
+  lines?: typeof SETUP_LINES;
+}) {
+  const outage = unreadable ? { "setup-state": true, devices: true } : {};
+  return (
+    <StepRail>
+      {lines.map((line, index) => (
+        <Step
+          key={line.id}
+          index={String(index + 1).padStart(2, "0")}
+          state={stepState(line, outage)}
+          title={line.id}
+          last={index === lines.length - 1}
+        >
+          <CopyBlock text={line.command} wrap />
+        </Step>
+      ))}
+    </StepRail>
+  );
+}
+
+const GATES: {
+  title: string;
+  caption: string;
+  variant: GateVariant;
+  phase: GatePhase;
+  outcome: GateOutcome | null;
+  error: string | null;
+  compact: boolean;
+}[] = [
+  {
+    title: "Link · first look",
+    caption: "The first launch, before the student has gone anywhere.",
+    variant: "link",
+    phase: "idle",
+    outcome: null,
+    error: null,
+    compact: false,
+  },
+  {
+    title: "Link · back from the browser",
+    caption: "After Discord reports it opened the link. The primary swaps rather than gaining a neighbour.",
+    variant: "link",
+    phase: "away",
+    outcome: null,
+    error: null,
+    compact: false,
+  },
+  {
+    title: "Link · checked, nothing moved",
+    caption: "The one outcome that owes a sentence, because the card is otherwise identical.",
+    variant: "link",
+    phase: "away",
+    outcome: "unchanged",
+    error: null,
+    compact: false,
+  },
+  {
+    title: "Link · the check itself failed",
+    caption: "Same slot, different sentence. It must not read as \u201cnot linked yet\u201d, which the portal did not observe.",
+    variant: "link",
+    phase: "away",
+    outcome: null,
+    error: "The live bench could not be reached.",
+    compact: false,
+  },
+  {
+    title: "Team · first look",
+    caption: "Second step, same mechanism. The destination stays /connect.",
+    variant: "team",
+    phase: "idle",
+    outcome: null,
+    error: null,
+    compact: false,
+  },
+  {
+    title: "Team · picture-in-picture, waiting",
+    caption: "Discord shrinks the Activity to a tile. Kicker and the reopen link go; the sentence and the action stay. The tile size here is a guess, so treat it as a floor rather than a measurement.",
+    variant: "team",
+    phase: "away",
+    outcome: null,
+    error: null,
+    compact: true,
+  },
+];
 
 export function GalleryPage() {
   return (
@@ -184,7 +395,62 @@ export function GalleryPage() {
         States that need a specific run to reach. Development only.
       </p>
 
-      <h2 className="mt-10 font-serif text-xl font-semibold text-ink">Finding</h2>
+      <section className="mt-10 space-y-3">
+        <h2 className="font-serif text-xl font-semibold text-ink">Failed execution with recorded findings</h2>
+        <p className="text-[13px] text-ink-faint">Saved failure details. Recovery actions belong to the current run console.</p>
+        <FailureCard
+          failure={{ category: "provider", phase: "evaluating", detail: "Runner stopped reporting before completion.", consumedAttempt: false }}
+          mode="official"
+          benchmarkId="audio-identification"
+          module="audio"
+        >
+          <p className="text-[13px] text-ink-secondary">Saved results</p>
+          <Finding sentence="The fingerprints were measured before execution stopped." />
+          <SupportingMetrics metrics={[metric()]} rolesRecorded={false} />
+        </FailureCard>
+
+        {/* The card above is a provider failure, which has no reproduction
+            command, so it never draws that block. This is the shape that
+            does: open "Show details" to read the highlighted command. */}
+        <h3 className="pt-4 font-serif text-lg font-semibold text-ink">…with a command to reproduce it</h3>
+        <FailureCard
+          failure={{ category: "output_invalid", phase: "evaluating", detail: "predictions[3].score was 1.4; expected a value in [0, 1].", consumedAttempt: false }}
+          mode="practice"
+          benchmarkId="audio-identification"
+          module="audio"
+        />
+      </section>
+
+      <h2 className="mt-10 font-serif text-xl font-semibold text-ink">Activity connect gate</h2>
+      <p className="mb-2 max-w-prose text-[13px] text-ink-faint">
+        Reaching these for real needs a Discord launch and an unlinked account. The buttons
+        are inert here.
+      </p>
+      <div className="grid gap-6 sm:grid-cols-2">
+        {GATES.map((example) => (
+          <section key={example.title}>
+            <div className="u-kicker">{example.title}</div>
+            <p className="mb-2 text-[13px] text-ink-faint">{example.caption}</p>
+            <div
+              className={`grid place-items-center overflow-hidden border border-rule bg-paper p-5 ${
+                example.compact ? "h-[220px] w-[300px]" : "h-[460px]"
+              }`}
+            >
+              <ConnectGate
+                variant={example.variant}
+                phase={example.phase}
+                outcome={example.outcome}
+                error={example.error}
+                compact={example.compact}
+                onOpen={() => undefined}
+                onCheck={() => undefined}
+              />
+            </div>
+          </section>
+        ))}
+      </div>
+
+      <h2 className="mt-12 font-serif text-xl font-semibold text-ink">Finding</h2>
       {CASES.map((example) => (
         <section key={example.title} className="mt-6">
           <div className="u-kicker">{example.title}</div>
@@ -207,18 +473,95 @@ export function GalleryPage() {
       ))}
 
       <h2 className="mt-12 font-serif text-xl font-semibold text-ink">
+        Supporting metrics, floors
+      </h2>
+      <p className="mb-2 mt-2 text-[13px] text-ink-faint">
+        Left: a floor beside the metric it is the scale of, drawn inside that
+        row. Right: the same floor with its parent withheld. It used to be
+        filtered out of the table with nowhere else to go, so the number
+        vanished. Neither draws a direction arrow.
+      </p>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Panel label="FLOOR WITH ITS PARENT">
+          <SupportingMetrics metrics={PAIRED_FLOOR} />
+        </Panel>
+        <Panel label="FLOOR WHOSE PARENT IS WITHHELD">
+          <SupportingMetrics metrics={ORPHAN_FLOOR} />
+        </Panel>
+      </div>
+
+      <h2 className="mt-12 font-serif text-xl font-semibold text-ink">
+        Results with no overall score
+      </h2>
+      <p className="mb-2 mt-2 text-[13px] text-ink-faint">
+        A benchmark can withhold the primary and still have measured plenty.
+        The page used to gate the whole results block on having one, so this
+        state showed a pipeline, a Promote button and a log and nothing else.
+        Left: what a withheld run has to say for itself. Right: the same
+        metrics in a run that recorded no roles at all, which is every result
+        stored before the portal kept them — the values stay, the direction
+        claims go, because a floor and a scored metric are indistinguishable
+        in that state.
+      </p>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Panel label="NO OVERALL SCORE">
+          <p className="max-w-prose text-[14px] leading-[1.6] text-ink">
+            This run has no overall score. Everything the scorer could measure
+            is below.
+          </p>
+          <div className="mt-4">
+            <SupportingMetrics metrics={WITHHELD} rolesRecorded />
+          </div>
+        </Panel>
+        <Panel label="NO ROLES RECORDED">
+          <SupportingMetrics metrics={WITHHELD} rolesRecorded={false} />
+        </Panel>
+      </div>
+
+      <h2 className="mt-12 font-serif text-xl font-semibold text-ink">
+        Setup rail, when the progress read fails
+      </h2>
+      <p className="mb-2 mt-2 text-[13px] text-ink-faint">
+        Both rails hold identical commands, all of them finished. On the left
+        CogPortal read its evidence. On the right that request failed, which
+        produces the same empty verified set as a student who has run nothing:
+        numbered boxes would report finished work as work nobody did, so each
+        step shows a dash and claims nothing.
+      </p>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Panel label="EVIDENCE READ">
+          <SetupRailFixture />
+        </Panel>
+        <Panel label="EVIDENCE UNREADABLE">
+          <SetupRailFixture unreadable />
+        </Panel>
+        <Panel label="CHECKED OFF, NOT OBSERVED">
+          <SetupRailFixture lines={SETUP_LINES_SELF_CHECKED} />
+        </Panel>
+      </div>
+
+      <h2 className="mt-12 font-serif text-xl font-semibold text-ink">Wiring trace</h2>
+      <p className="mb-2 mt-2 text-[13px] text-ink-faint">
+        The second identifier is 200 characters, the longest the contract
+        allows. It has to wrap inside the column, not be cut off at the edge.
+      </p>
+      <Panel className="mt-4">
+        <WiringTrace steps={LONG_WIRING} />
+      </Panel>
+
+      <h2 className="mt-12 font-serif text-xl font-semibold text-ink">
         A clean run, whose chart is the whole finding
       </h2>
       <p className="mt-1 max-w-prose text-[13px] text-ink-faint">
         Week 3 stopped repeating its chance baselines as notes, so a run that
         went well now arrives with no diagnostics at all. The curve is then the
         only thing in the panel, and it keeps the same introduction rather than
-        opening unlabelled. Only a successful weighted Language run reaches this
-        state, which is why it is here.
+        opening unlabelled. Reachable only from a successful weighted Language
+        run, which is why it is here.
       </p>
       <Panel className="mt-4">
         <div className="u-kicker mb-2">{FINDING_KICKER}</div>
-        <SweepTrace sweep={LANGUAGE_SWEEP} />
+        <SweepTrace sweep={SWEEPS[0].sweep} />
       </Panel>
 
       <h2 className="mt-12 font-serif text-xl font-semibold text-ink">
@@ -229,7 +572,33 @@ export function GalleryPage() {
       </Panel>
       <Panel label="RESULTS" className="mt-4">
         <div className="grid items-start gap-6 sm:grid-cols-2">
-          <PrimaryMetric metric={metric()} />
+          {/* With its floors, which is the shape Week 1 publishes: two of
+              them, both of the primary, each carrying its own explanation. */}
+          <PrimaryMetric
+            metric={metric()}
+            floors={[
+              metric({
+                key: "chance_top1",
+                label: "Chance",
+                value: 0.0333,
+                precision: 3,
+                primary: false,
+                role: "floor",
+                relatesTo: "identification_score",
+                help: "1/N for a catalog of N songs: what naming a song at random scores. The floor every other number on this page should be read against.",
+              }),
+              metric({
+                key: "trivial_baseline_top1",
+                label: "Trivial baseline",
+                value: 0.0812,
+                precision: 3,
+                primary: false,
+                role: "floor",
+                relatesTo: "identification_score",
+                help: "Whole-clip mean log spectrum, nearest neighbour. No peaks, no fingerprints, none of the capstone.",
+              }),
+            ]}
+          />
           <SupportingMetrics metrics={SUPPORTING} />
         </div>
         <p className="mt-4 border-t border-rule-soft pt-3 font-mono text-[11px] text-ink-faint">
