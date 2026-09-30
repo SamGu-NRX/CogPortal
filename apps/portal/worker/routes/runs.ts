@@ -89,6 +89,6 @@ export function registerRunRoutes(app: Hono<AppEnv>): void {
       .limit(1);
     if (!row) throw new ApiHttpError(404, "not_found", "Run not found.");
     const run = await syncRun(db, row);
-    return respond(c, RunDetailSchema, await serializeRunDetail(db, run, auth.team));
+    return respond(c, RunDetailSchema, await serializeRunDetail(db, run));
   });
 }

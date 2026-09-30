@@ -328,6 +328,16 @@ export const runs = sqliteTable("runs", {
   branch: text("branch").notNull(),
   sha: text("sha").notNull(),
   repositoryId: integer("repository_id"),
+  /**
+   * The repository this run actually ran from, by name, as it was at the
+   * time. Written once at creation and never updated: a run's source is
+   * evidence about that run, not a copy of team state that has to be kept in
+   * step with it.
+   *
+   * Null for a run created before this column, or before `repository_id`
+   * existed. That is reported as unknown; it is not filled in from the team.
+   */
+  repositoryFullName: text("repository_full_name"),
   parentRunId: text("parent_run_id"),
   attemptNumber: integer("attempt_number"),
   failureCategory: text("failure_category", {
