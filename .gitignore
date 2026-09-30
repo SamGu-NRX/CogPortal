@@ -52,7 +52,14 @@ build/
 
 # Deploy-only virtualenv (modal + fastapi), created by the runbook.
 .venv-deploy/
+.venv-week1/
+.venv-test/
 
 # Browser-driving screenshots from design passes. Regenerate rather than
 # review a binary diff.
 output/
+
+# Benchmark run output. Week 2 pins CelebA by revision and verifies every row by
+# hash (docs/decisions/0002-week2-vision-benchmark.md) precisely so the image
+# files never enter the repository; a local run wrote 24 of them here anyway.
+result/

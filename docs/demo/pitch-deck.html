@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Talking with Joel</title>
+<style>
+:root{
+  --paper:#FDFCFA;
+  --ink:#161616;
+  --muted:#686868;
+  --rule:#D8D4CC;
+  --amber:#E8A33D;
+  --wash:rgba(232,163,61,.22);
+  --serif:ui-serif, Georgia, "Times New Roman", serif;
+  --mono:ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+*{box-sizing:border-box;}
+html{background:#EDEAE4;}
+body{
+  margin:0;
+  padding:30px 0;
+  background:#EDEAE4;
+  color:var(--ink);
+  font-family:var(--serif);
+  -webkit-font-smoothing:antialiased;
+  text-rendering:geometricPrecision;
+}
+
+.slide{
+  position:relative;
+  width:1280px;
+  height:720px;
+  overflow:hidden;
+  background:var(--paper);
+  margin:0 auto 30px;
+  box-shadow:0 1px 2px rgba(0,0,0,.10), 0 20px 48px rgba(0,0,0,.10);
+}
+
+/* ---- shared chrome ---- */
+.foot{
+  position:absolute; left:92px; right:92px; bottom:44px;
+  border-top:1px solid var(--rule);
+  padding-top:15px;
+  display:flex; align-items:center; justify-content:space-between;
+}
+.folio{
+  font-family:var(--mono); font-size:12px; letter-spacing:.22em;
+  color:var(--muted);
+}
+.prog{display:flex; gap:9px;}
+.prog i{display:block; width:22px; height:2px; background:var(--rule);}
+.prog i.on{background:var(--amber);}
+
+.label{
+  font-family:var(--mono); font-size:12px; letter-spacing:.22em;
+  text-transform:uppercase; color:var(--muted);
+}
+
+/* ---- shared drawing family ---- */
+.mark{fill:none; stroke:var(--ink); stroke-width:2;
+      stroke-linecap:round; stroke-linejoin:round;}
+.mark .tick{stroke:var(--muted);}
+.mark .thin{stroke:var(--rule);}
+.mark .acc{stroke:var(--amber);}
+.mark .accfill{fill:var(--wash); stroke:var(--amber);}
+.mark .dot{fill:var(--ink); stroke:none;}
+.mark .accdot{fill:var(--amber); stroke:none;}
+
+/* ================= 1 ================= */
+#s1 .date{
+  position:absolute; left:92px; top:224px;
+  font-size:152px; line-height:1; letter-spacing:-.028em;
+}
+#s1 .clock{position:absolute; right:118px; top:194px; width:216px; text-align:center;}
+#s1 .clock svg{display:block; width:216px; height:216px;}
+#s1 .clock .label{margin-top:30px;}
+#s1 .tie{position:absolute; left:596px; top:302px; width:316px; height:1px; background:var(--rule);}
+
+/* ================= 2 ================= */
+#s2 .stage{position:absolute; inset:0;}
+#s2 .quote{
+  position:absolute; left:272px; top:210px; width:560px;
+  font-size:76px; line-height:1.18; letter-spacing:-.02em;
+}
+#s2 .aside{
+  position:absolute; left:140px; top:582px;
+  font-family:var(--mono); font-size:16px; letter-spacing:.01em;
+  color:var(--muted);
+}
+
+/* ================= 3 ================= */
+#s3 .cols{
+  position:absolute; left:92px; right:92px; top:220px;
+  display:grid; grid-template-columns:repeat(3,1fr); gap:70px;
+}
+#s3 .num{font-family:var(--mono); font-size:12px; letter-spacing:.22em; color:var(--muted);}
+#s3 .col svg{display:block; margin-top:42px; width:160px; height:88px;}
+#s3 .word{margin-top:50px; font-size:50px; letter-spacing:-.018em;}
+
+/* ================= 4 ================= */
+#s4 .stage{position:absolute; inset:0;}
+#s4 .leg{
+  position:absolute; left:312px; transform:translateY(-50%);
+  font-size:33px; letter-spacing:-.015em; white-space:nowrap;
+}
+
+/* ================= 5 ================= */
+#s5 .cup{position:absolute; left:128px; top:198px;}
+#s5 .cup svg{display:block; width:240px; height:240px;}
+#s5 .q{
+  position:absolute; left:470px; top:270px; right:92px;
+  font-size:82px; line-height:1.12; letter-spacing:-.025em;
+}
+
+/* ---- print ---- */
+@page{ size:1280px 720px; margin:0; }
+@media print{
+  html,body{background:#fff;}
+  body{padding:0; margin:0;}
+  .slide{
+    margin:0; box-shadow:none;
+    break-after:page; page-break-after:always;
+    -webkit-print-color-adjust:exact; print-color-adjust:exact;
+  }
+  .slide:last-of-type{break-after:auto; page-break-after:auto;}
+  *{animation:none !important; transition:none !important;}
+}
+</style>
+</head>
+<body>
+
+<!-- ============================================================ 1 -->
+<section class="slide" id="s1">
+  <div class="date">July 24</div>
+
+  <div class="clock">
+    <svg viewBox="0 0 216 216" class="mark" aria-hidden="true">
+      <!-- the hour that was given up -->
+      <path class="accfill" d="M 108 78 A 30 30 0 0 1 123 82 L 150 35.3 A 84 84 0 0 0 108 24 Z"/>
+      <!-- hour ticks -->
+      <path class="tick" d="M 108 30 L 108 36"/>
+      <path class="tick" d="M 147 40.5 L 144 45.7"/>
+      <path class="tick" d="M 175.5 69 L 170.4 72"/>
+      <path class="tick" d="M 186 108 L 180 108"/>
+      <path class="tick" d="M 175.5 147 L 170.4 144"/>
+      <path class="tick" d="M 147 175.5 L 144 170.4"/>
+      <path class="tick" d="M 108 186 L 108 180"/>
+      <path class="tick" d="M 69 175.5 L 72 170.4"/>
+      <path class="tick" d="M 40.5 147 L 45.7 144"/>
+      <path class="tick" d="M 30 108 L 36 108"/>
+      <path class="tick" d="M 40.5 69 L 45.7 72"/>
+      <path class="tick" d="M 69 40.5 L 72 45.7"/>
+      <circle cx="108" cy="108" r="84"/>
+    </svg>
+    <div class="label">a lunch break</div>
+  </div>
+
+  <div class="tie"></div>
+
+  <div class="foot">
+    <span class="folio">01</span>
+    <span class="prog"><i class="on"></i><i></i><i></i><i></i><i></i></span>
+  </div>
+</section>
+
+<!-- ============================================================ 2 -->
+<section class="slide" id="s2">
+  <svg class="stage mark" viewBox="0 0 1280 720" aria-hidden="true">
+    <!-- ceiling mounts -->
+    <path d="M 236 84 L 236 58"/>
+    <path d="M 760 84 L 760 58"/>
+    <!-- roller casing -->
+    <rect x="118" y="84" width="760" height="16" rx="8"/>
+    <!-- screen -->
+    <rect class="thin" x="140" y="100" width="716" height="420" fill="#FFFFFF"/>
+    <!-- weighted bottom rail -->
+    <rect x="140" y="520" width="716" height="11" rx="5.5"/>
+
+    <!-- the beam -->
+    <polygon points="1002,539 858,152 858,468 1002,551"
+             fill="rgba(232,163,61,.10)" stroke="none"/>
+    <path class="acc" d="M 1002 539 L 858 152" stroke-opacity=".38" stroke-width="1.5"/>
+    <path class="acc" d="M 1002 551 L 858 468" stroke-opacity=".38" stroke-width="1.5"/>
+
+    <!-- projector -->
+    <rect x="1022" y="516" width="134" height="58" rx="6"/>
+    <circle cx="1016" cy="545" r="14" fill="#FDFCFA"/>
+    <path d="M 1046 574 L 1046 582"/>
+    <path d="M 1132 574 L 1132 582"/>
+  </svg>
+
+  <div class="quote">See, the vibes<br>are not great.</div>
+  <div class="aside">Good job, team. Clap them up, y'all.</div>
+
+  <div class="foot">
+    <span class="folio">02</span>
+    <span class="prog"><i></i><i class="on"></i><i></i><i></i><i></i></span>
+  </div>
+</section>
+
+<!-- ============================================================ 3 -->
+<section class="slide" id="s3">
+  <div class="cols">
+
+    <div class="col">
+      <div class="num">1</div>
+      <!-- three different shapes, one measure -->
+      <svg viewBox="0 0 160 88" class="mark" aria-hidden="true">
+        <circle cx="26" cy="36" r="13"/>
+        <rect x="62" y="23" width="26" height="26" rx="3"/>
+        <rect x="108" y="27" width="40" height="22" rx="11"/>
+        <path d="M 26 49 L 26 68"/>
+        <path d="M 75 49 L 75 68"/>
+        <path d="M 128 49 L 128 68"/>
+        <path class="acc" d="M 6 68 L 154 68"/>
+        <path class="acc" d="M 6 62 L 6 74"/>
+        <path class="acc" d="M 154 62 L 154 74"/>
+      </svg>
+      <div class="word">Creativity.</div>
+    </div>
+
+    <div class="col">
+      <div class="num">2</div>
+      <!-- the merge, with the early answer partway up the ramp -->
+      <svg viewBox="0 0 160 88" class="mark" aria-hidden="true">
+        <path d="M 8 22 L 154 22"/>
+        <path d="M 12 72 C 54 72, 62 22, 108 22"/>
+        <circle cx="108" cy="22" r="6" fill="#FDFCFA"/>
+        <circle class="accdot" cx="46.7" cy="57.9" r="6"/>
+      </svg>
+      <div class="word">On-ramp.</div>
+    </div>
+
+    <div class="col">
+      <div class="num">3</div>
+      <!-- a history, and the commit that gets scored -->
+      <svg viewBox="0 0 160 88" class="mark" aria-hidden="true">
+        <path d="M 8 62 L 152 62"/>
+        <path d="M 44 62 C 54 62, 54 26, 64 26 L 98 26 C 108 26, 108 62, 118 62"/>
+        <circle cx="14" cy="62" r="6" fill="#FDFCFA"/>
+        <circle cx="44" cy="62" r="6" fill="#FDFCFA"/>
+        <circle cx="81" cy="26" r="6" fill="#FDFCFA"/>
+        <circle cx="118" cy="62" r="6" fill="#FDFCFA"/>
+        <circle class="accdot" cx="148" cy="62" r="6.5"/>
+      </svg>
+      <div class="word">Craft.</div>
+    </div>
+
+  </div>
+
+  <div class="foot">
+    <span class="folio">03</span>
+    <span class="prog"><i></i><i></i><i class="on"></i><i></i><i></i></span>
+  </div>
+</section>
+
+<!-- ============================================================ 4 -->
+<section class="slide" id="s4">
+  <svg class="stage" viewBox="0 0 1280 720" aria-hidden="true">
+    <defs>
+      <symbol id="unit" viewBox="0 0 96 118">
+        <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="15" cy="10" r="4.5" fill="currentColor" stroke="none"/>
+          <circle cx="37" cy="10" r="4.5" fill="currentColor" stroke="none"/>
+          <circle cx="59" cy="10" r="4.5" fill="currentColor" stroke="none"/>
+          <circle cx="81" cy="10" r="4.5" fill="currentColor" stroke="none"/>
+          <path d="M 15 16 L 15 24"/>
+          <path d="M 37 16 L 37 24"/>
+          <path d="M 59 16 L 59 24"/>
+          <path d="M 81 16 L 81 24"/>
+          <path d="M 15 24 L 81 24"/>
+          <path d="M 48 24 L 48 40"/>
+          <rect x="32" y="40" width="32" height="26" rx="3"/>
+          <path d="M 32 48 L 64 48"/>
+          <path d="M 48 66 L 48 76"/>
+          <rect x="24" y="76" width="48" height="30" rx="2.5"/>
+          <path d="M 48 106 L 48 112"/>
+          <path d="M 36 112 L 60 112"/>
+        </g>
+      </symbol>
+    </defs>
+
+    <!-- the legend: one course, drawn large -->
+    <use href="#unit" width="96" height="118"
+         transform="translate(92,238) scale(1.9)"
+         color="#161616" stroke-width="1.05"/>
+
+    <!-- leaders -->
+    <path d="M 268 257 L 296 257" stroke="#D8D4CC" stroke-width="1"/>
+    <path d="M 268 339 L 296 339" stroke="#D8D4CC" stroke-width="1"/>
+    <path d="M 268 411 L 296 411" stroke="#D8D4CC" stroke-width="1"/>
+
+    <!-- and the same course, everywhere else -->
+    <g stroke-width="2">
+      <use href="#unit" width="96" height="118" transform="translate(574,176) scale(.75)" color="#E8A33D"/>
+      <use href="#unit" width="96" height="118" transform="translate(682,176) scale(.75)" color="#161616" opacity=".94"/>
+      <use href="#unit" width="96" height="118" transform="translate(790,176) scale(.75)" color="#161616" opacity=".87"/>
+      <use href="#unit" width="96" height="118" transform="translate(898,176) scale(.75)" color="#161616" opacity=".80"/>
+      <use href="#unit" width="96" height="118" transform="translate(1006,176) scale(.75)" color="#161616" opacity=".72"/>
+      <use href="#unit" width="96" height="118" transform="translate(1114,176) scale(.75)" color="#161616" opacity=".64"/>
+      <use href="#unit" width="96" height="118" transform="translate(1222,176) scale(.75)" color="#161616" opacity=".55"/>
+
+      <use href="#unit" width="96" height="118" transform="translate(574,308) scale(.75)" color="#161616" opacity="1"/>
+      <use href="#unit" width="96" height="118" transform="translate(682,308) scale(.75)" color="#161616" opacity=".94"/>
+      <use href="#unit" width="96" height="118" transform="translate(790,308) scale(.75)" color="#161616" opacity=".87"/>
+      <use href="#unit" width="96" height="118" transform="translate(898,308) scale(.75)" color="#161616" opacity=".80"/>
+      <use href="#unit" width="96" height="118" transform="translate(1006,308) scale(.75)" color="#161616" opacity=".72"/>
+      <use href="#unit" width="96" height="118" transform="translate(1114,308) scale(.75)" color="#161616" opacity=".64"/>
+      <use href="#unit" width="96" height="118" transform="translate(1222,308) scale(.75)" color="#161616" opacity=".55"/>
+
+      <use href="#unit" width="96" height="118" transform="translate(574,440) scale(.75)" color="#161616" opacity="1"/>
+      <use href="#unit" width="96" height="118" transform="translate(682,440) scale(.75)" color="#161616" opacity=".94"/>
+      <use href="#unit" width="96" height="118" transform="translate(790,440) scale(.75)" color="#161616" opacity=".87"/>
+      <use href="#unit" width="96" height="118" transform="translate(898,440) scale(.75)" color="#161616" opacity=".80"/>
+      <use href="#unit" width="96" height="118" transform="translate(1006,440) scale(.75)" color="#161616" opacity=".72"/>
+      <use href="#unit" width="96" height="118" transform="translate(1114,440) scale(.75)" color="#161616" opacity=".64"/>
+      <use href="#unit" width="96" height="118" transform="translate(1222,440) scale(.75)" color="#161616" opacity=".55"/>
+    </g>
+  </svg>
+
+  <div class="leg" style="top:257px">Teams of four.</div>
+  <div class="leg" style="top:339px">One repo.</div>
+  <div class="leg" style="top:411px">A demo day.</div>
+
+  <div class="foot">
+    <span class="folio">04</span>
+    <span class="prog"><i></i><i></i><i></i><i class="on"></i><i></i></span>
+  </div>
+</section>
+
+<!-- ============================================================ 5 -->
+<section class="slide" id="s5">
+  <div class="cup">
+    <svg viewBox="0 0 200 200" class="mark" aria-hidden="true">
+      <circle class="thin" cx="100" cy="100" r="92"/>
+      <path d="M 160 82 C 182 84, 186 116, 160 118"/>
+      <circle cx="100" cy="100" r="64"/>
+      <circle class="accfill" cx="100" cy="100" r="54"/>
+    </svg>
+  </div>
+
+  <div class="q">Where does this fit?</div>
+
+  <div class="foot">
+    <span class="folio">05</span>
+    <span class="prog"><i></i><i></i><i></i><i></i><i class="on"></i></span>
+  </div>
+</section>
+
+</body>
+</html>
