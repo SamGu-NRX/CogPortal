@@ -32,16 +32,14 @@ export function LocalReportsTable({
   const scrollerRef = useRef<HTMLDivElement>(null);
   const overflows = useHorizontalOverflow(scrollerRef);
   const [focused, setFocused] = useState(false);
-  // Held while focused: a table that stops overflowing under the keyboard
-  // (a phone rotated to landscape) would otherwise drop focus to the page,
-  // and the next Tab would start again from the top.
+  // Kept while focused: removing the stop under focus (a phone rotated to
+  // landscape) sends the next Tab back to the top of the page.
   const stop = overflows || focused;
   return (
     <>
-      {/* Scrolls inside the panel, not the page, when a long title or large
-          text makes the row wider than a phone. Only then is it a tab stop
-          (so a keyboard can scroll it) and a region named by the caption, so
-          the stop announces what it holds; a table that fits takes neither. */}
+      {/* Scrolls inside the panel when a row is wider than a phone. Only
+          then is it a focusable region named by the caption, so a keyboard
+          can scroll it. */}
       <div
         ref={scrollerRef}
         className="overflow-x-auto"
@@ -116,9 +114,8 @@ export function LocalReportsTable({
 }
 
 /**
- * Whether the box is narrower than its content. Watches the table as well as
- * the box: a longer row or a late web font widens the table without resizing
- * the box.
+ * Whether the box is narrower than its content. Watches the table too: a
+ * longer row or a late web font widens it without resizing the box.
  */
 function useHorizontalOverflow(ref: RefObject<HTMLElement | null>): boolean {
   const [overflows, setOverflows] = useState(false);
