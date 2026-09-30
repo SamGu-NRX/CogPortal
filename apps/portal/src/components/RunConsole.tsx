@@ -331,6 +331,14 @@ export function RunConsole({
             <p className="mt-2 text-[12px] text-ink-secondary">Runs the same submission again.</p>
           </div>
         )}
+        {/* The slot Retry would occupy. The server only sends this when the
+            recorded inputs themselves cannot be sent again, so it is the only
+            case we can name; its absence says nothing about quota or access. */}
+        {failed && !retryOffered && snapshot.retryRefusal && (
+          <p className="mt-4 max-w-prose text-[12px] leading-relaxed text-ink-secondary">
+            {snapshot.retryRefusal}
+          </p>
+        )}
         {error && <p role="alert" className="mt-4 border-l-2 border-detect pl-3 text-[12px] text-detect-deep">{error}</p>}
         {snapshot.status === "running" && (
           <div className="mt-4 border-t border-rule-soft pt-3" role="status" aria-live="polite">
@@ -455,11 +463,13 @@ export function RunConsole({
             <dt className="text-ink-faint">Workspace</dt><dd>{snapshot.dirty ? "Uncommitted changes" : "Clean"}</dd>
           </dl>
           {/* The server refuses these for a run that is not about the connected
-              repository, so the buttons are gone. Saying why beats a panel that
-              quietly lost its controls. */}
-          {snapshot.sourceRefusal && (
+              repository, or whose saved environment can no longer be reused, so
+              the buttons are gone. Saying why beats a panel that quietly lost
+              its controls. One sentence: the source answer comes first on the
+              server, so it is the one that applies. */}
+          {(snapshot.sourceRefusal ?? snapshot.promotionRefusal) && (
             <p className="mt-4 max-w-prose text-[12px] leading-relaxed text-ink-secondary">
-              {snapshot.sourceRefusal}
+              {snapshot.sourceRefusal ?? snapshot.promotionRefusal}
             </p>
           )}
           <div className="mt-6 grid gap-2">
