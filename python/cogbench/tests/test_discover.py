@@ -2307,6 +2307,41 @@ class AFinderImportedNotebookKeepsItsRecord(_Fixture):
         self.assertTrue(record[0]["futureAnnotations"])
 
 
+class ANotebookReachedThroughIpynbFsKeepsTheRetryMode(_Fixture):
+    """In the CLI's private copy the working-directory retry runs in place,
+    so files a module makes at import time are still there when scoring
+    calls it. A notebook imported through `ipynb.fs.full` was retried in the
+    throwaway mirror instead, and the notebook pass reuses that module, so
+    what its class body wrote was gone before anything used it."""
+
+    def _read(self, private_copy):
+        (self.tmp / "seed.txt").write_text("seed")
+        (self.tmp / "nine.ipynb").write_text(_notebook(
+            "from pathlib import Path\n"
+            "class Resource:\n"
+            "    seed = Path('seed.txt').read_text()\n"
+            "    Path('artifact.txt').write_text(seed)\n"
+        ))
+        (self.tmp / "aaa_load.py").write_text("from ipynb.fs.full.nine import Resource\n")
+        found = discover(self.tmp, scratch=self.outside, private_copy=private_copy)
+        self.assertIs(
+            self._module(found, "aaa_load").Resource, self._module(found, "nine").Resource
+        )
+        return found
+
+    def test_the_private_copy_keeps_what_the_notebook_wrote(self):
+        found = self._read(private_copy=True)
+
+        entry = [item for item in found.modules if item.name == "nine"][0]
+        self.assertEqual(entry.cwd_hint, self.tmp)
+        self.assertEqual((self.tmp / "artifact.txt").read_text(), "seed")
+
+    def test_a_direct_sdk_reading_still_leaves_the_repository_alone(self):
+        self._read(private_copy=False)
+
+        self.assertFalse((self.tmp / "artifact.txt").exists())
+
+
 class AnInitializerCanReadItsOwnFile(_Fixture):
     """`Path(__file__).parent` in an `__init__.py`, to find a data file beside
     it, is ordinary. Giving the package its file only after the body had run
