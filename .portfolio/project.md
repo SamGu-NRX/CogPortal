@@ -6,12 +6,14 @@
 # - No em dashes and no middle dots.
 # - line: at most 120 characters, ending in a period. What someone does or gets,
 #   then one mechanism. No adjectives.
-# - The paragraph after this header: 50 to 80 words, first person. What it is, who
-#   used it, the hard part, one fact.
+# - The body opens with one paragraph of 50 to 80 words, first person: what it is,
+#   who used it, the hard part, one fact. The site uses it as the summary.
+# - The rest of the body is the full write-up, in plain Markdown (## and ###
+#   headings, lists, emphasis, inline code, https links), at most 1,500 words.
 title: CogPortal
 kind: project
 date: 2026-07
-line: Grades capstone projects on hidden tests, finding each team’s code by what it does, not what it’s named.
+line: Demo day, before demo day. Cog*Works teams benchmark their capstones on a laptop, then on hidden tests in a sandbox.
 award: MIT BWSI
 stack: [Python, React, Cloudflare Workers, Modal]
 links:
@@ -21,4 +23,28 @@ links:
     href: https://github.com/SamGu-NRX/CogPortal
 ---
 
-I built CogPortal from scratch as lead TA for MIT BWSI’s Cog*Works. A pip-installable CLI runs the course’s four benchmarks offline or in a network-blocked Modal sandbox, a React and Hono portal on Cloudflare Workers ranks every run on a live leaderboard, and a Discord bot posts the results. The hard part is discovery: it finds each team’s functions by code structure, not names, and scored all 15 teams.
+I built CogPortal from scratch as lead TA for Cog*Works, the pre-college machine learning course at MIT’s Beaver Works Summer Institute. Teams practice offline with a pip-installable CLI, then run their capstones against hidden test labels in a network-blocked Modal sandbox. A portal on Cloudflare Workers ranks every run on a live leaderboard, and a Discord bot posts the results. It scored all 15 team projects across the course’s three capstones.
+
+## Where it came from
+
+On July 24, an instructor gave up a lunch break to build a demo-day benchmark by hand. He pulled captions from COCO at three levels of difficulty, randomized which ones each team got so nobody could tune to them, and ran every team live on the projector. Half of it failed, and the room treated that as normal. It was a held-out evaluation done right, and it existed only because one person improvised it. CogPortal builds that hour into software.
+
+## Three levels of trust
+
+- Local practice. `cogworks check`, `test` and `run` work offline after install, on public data, with no account. The CLI never uploads source, paths, datasets or predictions, and any result you sync is marked self-reported.
+- Hosted practice. The same code runs in a Modal sandbox that gets inputs but no secrets and no network. The hidden labels stay with a trusted controller outside it.
+- Official evaluation. An official run has to reuse the exact artifact from a successful practice run at the same commit, and attempts are limited.
+
+The CLI covers the four benchmarks written for the course: song identification, face recognition, face clustering and caption-to-image search.
+
+## Finding code nobody labeled
+
+The runner asks for very little. It can find a team’s code through one `submission.py` at a known path, because when we checked all 13 real 2026 team repositories, none had Python packaging, and a tool that demands packaging from high schoolers fails on day one.
+
+I also wrote a discovery step for repositories without that file. It finds a team’s functions however they’re named, split or wrapped in classes, by searching the code’s structure and call relationships instead of hardcoded names. It reproduces two instructor-written adapters’ scores to four decimal places and clears the 13-repository corpus in 36 seconds, down from 272.
+
+## Rules the build enforces
+
+Two rules are tests, not guidelines. Every metric the portal reports needs an explanation in the course’s own vocabulary, and a benchmark that reports a number it can’t explain fails. And there are no per-person metrics in any form, because a seventeen-year-old reads any per-person number as a grade.
+
+Hosted execution still sits behind a configuration flag until the account that will own it has credentials. I’m now working with BWSI to extend CogPortal to the institute’s other courses, starting with a connector for the Edly LMS.
