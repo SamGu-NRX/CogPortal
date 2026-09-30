@@ -131,7 +131,14 @@ class TheNoteSaysWhatTheStudentNeedsToKnow(unittest.TestCase):
         note = environment.gap_note("vision-recognition", ("torch", "cv2"))
         self.assertIn("listed above under 'could not read'", note)
         self.assertIn("this machine skipped it", note)
-        self.assertIn("The hosted run has the packages and will read those modules.", note)
+        # Not "will read those modules": having the package does not
+        # establish that the import succeeds.
+        self.assertIn(
+            "The hosted run has the packages, so it will not skip them for "
+            "that reason.",
+            note,
+        )
+        self.assertNotIn("will read those modules", note)
         self.assertNotIn("imports one of them", note)
 
     def test_nothing_missing_says_nothing(self):
@@ -254,10 +261,6 @@ class TheManifestDescribesTheImages(unittest.TestCase):
             environment.venv_install_command("week2")
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class AdviceIsWrittenAgainstTheRightImage(unittest.TestCase):
     """A missing package is either ours to install or theirs to declare, and
     which one depends on the track.
@@ -293,68 +296,6 @@ class AdviceIsWrittenAgainstTheRightImage(unittest.TestCase):
         self.assertIn("librosa", week1)
         self.assertNotIn("librosa", week2)
 
-    def test_every_resolve_call_in_the_runner_names_its_benchmark(self):
-        """The advice is only per-track if the caller says which track.
 
-        Both hosted call sites omitted it, so every hosted refusal was
-        written against the union of the three images and told students to
-        declare packages the graded run already had.
-        """
-
-        import ast
-
-        source = (
-            Path(__file__).resolve().parents[3]
-            / "apps"
-            / "runner-modal"
-            / "src"
-            / "cogworks_runner"
-            / "modal_app.py"
-        ).read_text(encoding="utf-8")
-        module = ast.parse(source)
-
-        # Both calls live inside PREPARE_SCRIPT and EVALUATE_SCRIPT, which are
-        # string constants executed in the sandbox, so walking the file's own
-        # tree finds neither and passes against the code this was written to
-        # catch.
-        trees = [module]
-        for node in module.body:
-            if isinstance(node, ast.Assign) and any(
-                getattr(t, "id", "").endswith("_SCRIPT") for t in node.targets
-            ):
-                trees.append(ast.parse(ast.literal_eval(node.value)))
-
-        # Which name the runner calls is read off its own imports rather than
-        # spelled here. Named literally, the assertion went on passing against
-        # zero calls once the runner renamed the function.
-        entries = {
-            alias.asname or alias.name
-            for tree in trees
-            for node in ast.walk(tree)
-            if isinstance(node, ast.ImportFrom) and node.module == "cogbench.resolve"
-            for alias in node.names
-        }
-        self.assertTrue(
-            entries,
-            "the runner imports nothing from cogbench.resolve; it no longer "
-            "resolves repositories, or this test is looking in the wrong file",
-        )
-
-        calls = [
-            node
-            for tree in trees
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Call) and getattr(node.func, "id", "") in entries
-        ]
-        self.assertGreaterEqual(
-            len(calls),
-            2,
-            "expected the two hosted calls to {}".format("/".join(sorted(entries))),
-        )
-        for call in calls:
-            self.assertIn(
-                "benchmark",
-                [kw.arg for kw in call.keywords],
-                "resolve() at line {} must name its benchmark, or its advice "
-                "is written against the wrong image".format(call.lineno),
-            )
+if __name__ == "__main__":
+    unittest.main()

@@ -101,19 +101,37 @@ class DiscoverySpec:
 
     #: Side inputs that come from the REPOSITORY rather than the benchmark,
     #: read once the root is known: ``prepare(root, modules) -> dict`` is
-    #: merged into the extras pool before the search, with their loaded
-    #: modules alongside so a week can build one of their objects around a
-    #: file. Week 3's trained projection is the case: a file the team
-    #: committed, which `discovery()` cannot know when it runs, before any
-    #: repository is chosen. A hook that raises refuses the search with its
-    #: message.
-    prepare: Optional[Callable[[Path, Sequence[Any]], Mapping[str, Any]]] = None
+    #: merged into the extras pool before the search. Data and file
+    #: references only; a week that needs a loaded object declares
+    #: ``construct`` instead. Week 3's trained projection is the case. It is a
+    #: file the team committed, so `discovery()` cannot know it when it runs
+    #: (before any repository is chosen), and without it every repository read
+    #: as having no weights. A hook that raises refuses the search with its
+    #: message, because a week that could not read what it needs from a
+    #: repository has nothing honest to bind. A hook that also takes ``capture``
+    #: is offered it, and what it retains is what the run reports. What it
+    #: returns comes back on ``Submission.prepared``, so a week reads its own
+    #: answer about this repository off the run rather than keeping it.
+    prepare: Optional[Callable[..., Mapping[str, Any]]] = None
 
     #: Whether the binding the search selected consumed the input `prepare`
     #: retained, answered once on the resolved submission. Which bindings
     #: count is the week's question, so the week answers it; absent means
     #: unestablished, which is what a report says when it cannot tell.
     weights_consumed: Optional[Callable[[Any], bool]] = None
+
+    #: Models their own loader builds:
+    #: ``construct(root, namespace, inputs) -> ContextManager[Mapping[str, Any]]``,
+    #: yielding ``{name: model}``. None for a data-only week.
+    #:
+    #: ``prepare`` returns data and retained file references, which the
+    #: benchmark owns and reconstructs per run. A model is an object of their
+    #: class and is never copied: each `Project` that needs one enters this
+    #: block once and exits it when that reading is released.
+    #:
+    #: ``inputs`` is the same data pool that reading's stages are handed, so a
+    #: model and a step that take one resource take the same object.
+    construct: Optional[Callable[..., Any]] = None
 
     #: The right answer to that test, in the week's own words, for the
     #: headline of a chain that ran end to end and answered something else.
