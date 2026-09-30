@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import {
   type LocalReportInput,
   LocalReportSchema,
@@ -102,6 +102,33 @@ export async function listTeamLocalReports(
     .from(localReports)
     .innerJoin(users, eq(localReports.userId, users.id))
     .where(and(...predicates))
+    .orderBy(desc(localReports.syncedAt))
+    .limit(50);
+  return rows.map(parseReportRow);
+}
+
+/**
+ * Reports no dashboard track lists: those whose version is not its benchmark's
+ * highest active one, the version `listTeamLocalReports` pins a track to. That
+ * covers an inactive benchmark and a superseded version alike. The rule runs
+ * before the limit, so a busy active track can't push these out of the list.
+ */
+export async function listUntrackedLocalReports(env: Env, userId: string): Promise<LocalReport[]> {
+  const scope = await getUserTeamReportScope(env, userId);
+  if (!scope || scope.memberUserIds.length === 0) return [];
+  // `IS NOT` rather than `<>`: a benchmark with no active version has a null
+  // maximum, and `<>` against null would drop exactly the reports this is for.
+  const trackVersion = sql`(select max(${benchmarks.version}) from ${benchmarks}
+    where ${benchmarks.id} = ${localReports.benchmarkId} and ${benchmarks.active} = 1)`;
+  const rows = await getDb(env)
+    .select({ report: localReports, login: users.githubLogin, email: users.email, name: users.name })
+    .from(localReports)
+    .innerJoin(users, eq(localReports.userId, users.id))
+    .where(and(
+      inArray(localReports.userId, scope.memberUserIds),
+      eq(localReports.repositoryFullName, scope.repoFullName),
+      sql`${localReports.benchmarkVersion} is not ${trackVersion}`,
+    ))
     .orderBy(desc(localReports.syncedAt))
     .limit(50);
   return rows.map(parseReportRow);

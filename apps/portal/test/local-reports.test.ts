@@ -20,6 +20,7 @@ import {
   getLatestTeamWeights,
   getWeightUploadTarget,
   listTeamLocalReports,
+  listUntrackedLocalReports,
   getLocalReport,
   upsertLocalReport,
 } from "../worker/services/local-reports.ts";
@@ -197,6 +198,62 @@ test("the unscoped list returns an inactive benchmark's report to its team only"
 
   const theirs = await listTeamLocalReports(env, "user_2");
   assert.deepEqual(theirs.map((report) => report.reportId), ["report_other_team"]);
+});
+
+/* The dashboard's "Other benchmarks" group: every report whose version is not
+ * its benchmark's highest active one, and nothing a track already lists. */
+test("the untracked list holds superseded and inactive-benchmark reports, not current ones", async () => {
+  const { env, db } = await seededDb();
+  await db.insert(benchmarks).values([
+    benchmarkRow(1, false),
+    benchmarkRow(2, true),
+    { ...benchmarkRow(1, false), id: "test-inactive-benchmark" },
+  ]);
+  await db.insert(users).values({ id: "user_2", name: "Grace", email: "grace@example.com" });
+  await db.insert(teams).values({
+    id: "team_2", cohortId: "cohort_1", name: "Difference Engines", repoOwner: "other-org",
+    repoName: "other-repo", repoFullName: "other-org/other-repo",
+    repoUrl: "https://github.com/other-org/other-repo", defaultBranch: "main",
+  });
+  await db.insert(teamMembers).values({ teamId: "team_2", userId: "user_2", role: "admin" });
+  await db.insert(localReports).values([
+    reportRow("report_current", 2),
+    { ...reportRow("report_superseded", 1), syncedAt: 1_750_000_003_000 },
+    { ...reportRow("report_inactive", 1), benchmarkId: "test-inactive-benchmark", syncedAt: 1_750_000_004_000 },
+    { ...reportRow("report_uncatalogued", 3), benchmarkId: "retired-benchmark", syncedAt: 1_750_000_005_000 },
+    { ...reportRow("report_other_team", 1), userId: "user_2", repositoryFullName: "other-org/other-repo" },
+  ]);
+
+  assert.deepEqual(
+    (await listUntrackedLocalReports(env, "user_1")).map((report) => report.reportId),
+    ["report_uncatalogued", "report_inactive", "report_superseded"],
+  );
+  assert.deepEqual(
+    (await listTeamLocalReports(env, "user_1", BENCHMARK)).map((report) => report.reportId),
+    ["report_current"],
+  );
+});
+
+test("an inactive-benchmark report stays listed behind fifty newer on-track reports", async () => {
+  // The limit applies after the rule. Filtering an unscoped 50-row page on
+  // the client instead lost this report once a track had 50 newer ones.
+  const { env, db } = await seededDb();
+  await db.insert(benchmarks).values([
+    benchmarkRow(2, true),
+    { ...benchmarkRow(1, false), id: "test-inactive-benchmark" },
+  ]);
+  await db.insert(localReports).values([
+    { ...reportRow("report_inactive", 1), benchmarkId: "test-inactive-benchmark" },
+    ...Array.from({ length: 50 }, (_, index) => ({
+      ...reportRow(`report_current_${index}`, 2),
+      syncedAt: 1_750_000_010_000 + index,
+    })),
+  ]);
+
+  assert.deepEqual(
+    (await listUntrackedLocalReports(env, "user_1")).map((report) => report.reportId),
+    ["report_inactive"],
+  );
 });
 
 test("a benchmark id with no active version returns nothing rather than stale rows", async () => {

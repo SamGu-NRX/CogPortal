@@ -12,6 +12,7 @@ import { parseBody, respond } from "../http/respond";
 import {
   getWeightUploadTarget,
   listTeamLocalReports,
+  listUntrackedLocalReports,
   upsertLocalReport,
 } from "../services/local-reports";
 import { parseWeightDigest, uploadWeight, weightPathFromRoute } from "../services/weights";
@@ -58,7 +59,14 @@ export function registerLocalReportRoutes(app: Hono<AppEnv>): void {
 
   app.get("/v1/local-reports", async (c) => {
     const auth = await requireTeam(c);
-    const reports = await listTeamLocalReports(c.env, auth.user.id, c.req.query("benchmark"));
+    const benchmarkId = c.req.query("benchmark");
+    const untracked = c.req.query("untracked");
+    if (untracked !== undefined && (untracked !== "1" || benchmarkId !== undefined)) {
+      throw new ApiHttpError(400, "invalid_request", "Use untracked=1 on its own, without a benchmark.");
+    }
+    const reports = untracked
+      ? await listUntrackedLocalReports(c.env, auth.user.id)
+      : await listTeamLocalReports(c.env, auth.user.id, benchmarkId);
     return respond(c, LocalReportListSchema, reports);
   });
 }

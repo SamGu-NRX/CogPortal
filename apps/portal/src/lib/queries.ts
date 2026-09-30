@@ -103,12 +103,12 @@ export function useLocalReports(benchmarkId: string) {
   });
 }
 
-/** The unfiltered list. The dashboard reads it for reports that no track's
- *  benchmark-scoped list can reach, such as those for an inactive benchmark. */
-export function useTeamLocalReports() {
+/** Reports no track's benchmark-scoped list can reach, such as those for an
+ *  inactive benchmark. The server decides which those are. */
+export function useUntrackedLocalReports() {
   return useQuery({
-    queryKey: ["local-reports"],
-    queryFn: api.teamLocalReports,
+    queryKey: ["untracked-local-reports"],
+    queryFn: api.untrackedLocalReports,
     staleTime: 30_000,
   });
 }

@@ -31,7 +31,7 @@ import {
   useRepositories,
   useSession,
   useStartPractice,
-  useTeamLocalReports,
+  useUntrackedLocalReports,
 } from "@/lib/queries";
 import { QUEUED_WAIT_NOTE, STATUS_LABELS } from "@/lib/run-meta";
 import { useTrack } from "@/lib/track";
@@ -47,7 +47,7 @@ export function DashboardPage() {
   const dashboard = useDashboard(track.benchmarkId, !track.isPending);
   const repositories = useRepositories();
   const localReports = useLocalReports(track.benchmarkId);
-  const teamReports = useTeamLocalReports();
+  const untrackedReports = useUntrackedLocalReports();
   const catalog = useBenchmarks().data ?? [];
   const { data: session } = useSession();
 
@@ -85,18 +85,11 @@ export function DashboardPage() {
     .filter((part): part is string => Boolean(part))
     .join(" · ");
   const reports = localReports.data ?? [];
-  // A track's table lists its benchmark's highest active version, the one
-  // the benchmark-scoped query pins to. Any other (id, version) pair, from an
-  // inactive benchmark or a superseded version, has no track to switch to, so
-  // it would otherwise be accepted by sync and shown nowhere.
-  const trackVersion = new Map<string, number>();
-  for (const b of track.tracks) {
-    trackVersion.set(b.id, Math.max(trackVersion.get(b.id) ?? 0, b.version));
-  }
-  const untracked = (teamReports.data ?? []).filter(
-    (report) => trackVersion.get(report.benchmarkId) !== report.benchmarkVersion,
-  );
-  const reportsFailed = localReports.isError || teamReports.isError;
+  // Reports sync accepted for a benchmark version with no track to switch to
+  // (an inactive benchmark, a superseded version). Shown on every track so
+  // they are reachable somewhere.
+  const untracked = untrackedReports.data ?? [];
+  const reportsFailed = localReports.isError || untrackedReports.isError;
 
   return (
     <div className="anim-rise py-12">
@@ -361,58 +354,62 @@ function UntrackedReports({
         These versions aren't open for hosted runs, so they have no track;
         their synced reports show here on every one.
       </p>
-      <table className="mt-3 w-full text-left text-[13px]">
-        <caption className="sr-only">
-          Self-reported local CogBench results for benchmark versions without a track
-        </caption>
-        <thead className="border-b border-rule font-mono text-[10.5px] text-ink-faint">
-          <tr>
-            <th scope="col" className="pr-3 pb-2 font-medium">Benchmark</th>
-            <th scope="col" className="pr-3 pb-2 font-medium">Commit</th>
-            <th scope="col" className="pr-3 pb-2 font-medium">Result</th>
-            <th scope="col" className="pb-2 text-right font-medium">Synced</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-rule-soft">
-          {reports.slice(0, 5).map((report) => {
-            const primary = report.metrics.find((metric) => metric.primary);
-            // The exact version's row first; a version the catalog doesn't
-            // carry still belongs to a benchmark whose title we know.
-            const title = (
-              catalog.find(
-                (b) => b.id === report.benchmarkId && b.version === report.benchmarkVersion,
-              ) ?? catalog.find((b) => b.id === report.benchmarkId)
-            )?.title;
-            return (
-              <tr key={report.reportId} className="align-baseline">
-                <td className="py-2.5 pr-3 text-ink">
-                  {title ?? (
-                    <span className="font-mono [overflow-wrap:anywhere]">{report.benchmarkId}</span>
-                  )}{" "}
-                  <span className="font-mono text-[11.5px] whitespace-nowrap text-ink-faint">
-                    v{report.benchmarkVersion}
-                  </span>
-                </td>
-                <td className="py-2.5 pr-3 font-mono text-ink-secondary">
-                  {report.sha ? report.sha.slice(0, 7) : "not recorded"}
-                  {report.dirty && (
-                    <>
-                      {" "}
-                      <span className="whitespace-nowrap">· dirty</span>
-                    </>
-                  )}
-                </td>
-                <td className="u-tnum py-2.5 pr-3 text-ink">
-                  {primary ? formatMetricValue(primary) : "no primary metric"}
-                </td>
-                <td className="py-2.5 text-right whitespace-nowrap text-ink-faint">
-                  {formatTimeAgo(report.syncedAt)}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+      {/* Scrolls inside the panel, not the page, when a long title or large
+          text makes the row wider than a phone. */}
+      <div className="mt-3 overflow-x-auto">
+        <table className="w-full text-left text-[13px]">
+          <caption className="sr-only">
+            Self-reported local CogBench results for benchmark versions without a track
+          </caption>
+          <thead className="border-b border-rule font-mono text-[10.5px] text-ink-faint">
+            <tr>
+              <th scope="col" className="pr-3 pb-2 font-medium">Benchmark</th>
+              <th scope="col" className="pr-3 pb-2 font-medium">Commit</th>
+              <th scope="col" className="pr-3 pb-2 font-medium">Result</th>
+              <th scope="col" className="pb-2 text-right font-medium">Synced</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-rule-soft">
+            {reports.slice(0, 5).map((report) => {
+              const primary = report.metrics.find((metric) => metric.primary);
+              // The exact version's row first; a version the catalog doesn't
+              // carry still belongs to a benchmark whose title we know.
+              const title = (
+                catalog.find(
+                  (b) => b.id === report.benchmarkId && b.version === report.benchmarkVersion,
+                ) ?? catalog.find((b) => b.id === report.benchmarkId)
+              )?.title;
+              return (
+                <tr key={report.reportId} className="align-baseline">
+                  <td className="py-2.5 pr-3 text-ink">
+                    {title ?? (
+                      <span className="font-mono [overflow-wrap:anywhere]">{report.benchmarkId}</span>
+                    )}{" "}
+                    <span className="font-mono text-[11.5px] whitespace-nowrap text-ink-faint">
+                      v{report.benchmarkVersion}
+                    </span>
+                  </td>
+                  <td className="py-2.5 pr-3 font-mono text-ink-secondary">
+                    {report.sha ? report.sha.slice(0, 7) : "not recorded"}
+                    {report.dirty && (
+                      <>
+                        {" "}
+                        <span className="whitespace-nowrap">· dirty</span>
+                      </>
+                    )}
+                  </td>
+                  <td className="u-tnum py-2.5 pr-3 text-ink">
+                    {primary ? formatMetricValue(primary) : "no primary metric"}
+                  </td>
+                  <td className="py-2.5 text-right whitespace-nowrap text-ink-faint">
+                    {formatTimeAgo(report.syncedAt)}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
       {reports.length > 5 && (
         <p className="mt-2 font-mono text-[10.5px] text-ink-faint">
           showing the 5 newest of {reports.length} synced reports

@@ -21,8 +21,8 @@ import { DashboardPage } from "../src/routes/DashboardPage.tsx";
  * only lists its benchmark's active version. A report for an inactive
  * benchmark (audio-identification v1 is inactive on purpose, migration 0020)
  * or a superseded version was stored and then shown on no page. The dashboard
- * now reads the unfiltered list as well and gives those reports their own
- * group, without the author's name beside the number.
+ * now reads the server's untracked list as well and gives those reports their
+ * own group, without the author's name beside the number.
  */
 
 function benchmark(id: string, version: number, title: string, active: boolean): Benchmark {
@@ -89,11 +89,11 @@ function report(
   });
 }
 
-// On the selected track, so the scoped list and the unfiltered list both hold it.
+// On the selected track, so only the scoped list holds it.
 const ON_TRACK = report("report_on_track", "vision-recognition", 2, "a", 0.875, "ada-on-track");
-// Inactive benchmark: only the unfiltered list holds it.
+// Inactive benchmark: only the untracked list holds it.
 const INACTIVE = report("report_inactive", "audio-identification", 1, "b", 0.512, "grace-inactive");
-// Superseded version of the active benchmark: also only in the unfiltered list.
+// Superseded version of the active benchmark: also only in the untracked list.
 const SUPERSEDED = report("report_superseded", "vision-recognition", 1, "c", 0.64, "alan-superseded");
 
 const DASHBOARD = DashboardSchema.parse({
@@ -121,8 +121,8 @@ const DASHBOARD = DashboardSchema.parse({
 
 function render(seed: {
   scoped: LocalReport[];
-  team?: LocalReport[];
-  teamError?: boolean;
+  untracked?: LocalReport[];
+  untrackedError?: boolean;
 }): string {
   // retryOnMount off: otherwise a mounted query in the error state with no
   // data reports itself pending (it would refetch), and SSR never settles it.
@@ -133,11 +133,11 @@ function render(seed: {
   client.setQueryData(["dashboard", CURRENT.id], DASHBOARD);
   client.setQueryData(["repositories"], []);
   client.setQueryData(["local-reports", CURRENT.id], seed.scoped);
-  if (seed.team) client.setQueryData(["local-reports"], seed.team);
-  if (seed.teamError) {
+  if (seed.untracked) client.setQueryData(["untracked-local-reports"], seed.untracked);
+  if (seed.untrackedError) {
     client
       .getQueryCache()
-      .build(client, { queryKey: ["local-reports"] })
+      .build(client, { queryKey: ["untracked-local-reports"] })
       .setState({ status: "error", error: new Error("boom"), fetchStatus: "idle" });
   }
   return renderToStaticMarkup(
@@ -158,7 +158,7 @@ function untrackedGroup(html: string): string {
 }
 
 test("reports no track shows get their own group, labelled by benchmark and without an author", () => {
-  const html = render({ scoped: [ON_TRACK], team: [ON_TRACK, INACTIVE, SUPERSEDED] });
+  const html = render({ scoped: [ON_TRACK], untracked: [INACTIVE, SUPERSEDED] });
   const group = untrackedGroup(html);
 
   // Title and version come from the catalog row, result from the primary metric.
@@ -185,7 +185,7 @@ test("reports no track shows get their own group, labelled by benchmark and with
 });
 
 test("the panel appears for untracked reports alone, with no empty track table", () => {
-  const html = render({ scoped: [], team: [INACTIVE] });
+  const html = render({ scoped: [], untracked: [INACTIVE] });
 
   assert.match(html, /LOCAL REPORTS/);
   assert.match(untrackedGroup(html), /Song Identification/);
@@ -196,20 +196,20 @@ test("the panel appears for untracked reports alone, with no empty track table",
 
 test("an id the catalog doesn't carry falls back to the id itself", () => {
   const unknown = report("report_unknown", "retired-benchmark", 3, "d", 0.25, "someone");
-  const group = untrackedGroup(render({ scoped: [], team: [unknown] }));
+  const group = untrackedGroup(render({ scoped: [], untracked: [unknown] }));
 
   assert.match(group, /retired-benchmark<\/span> <span[^>]*>v3<\/span>/);
 });
 
-test("a failed unfiltered list shows the panel's error rather than a partial table", () => {
-  const html = render({ scoped: [ON_TRACK], teamError: true });
+test("a failed untracked list shows the panel's error rather than a partial table", () => {
+  const html = render({ scoped: [ON_TRACK], untrackedError: true });
 
   assert.match(html, /Synced local reports are temporarily unavailable/);
   assert.doesNotMatch(html, /untracked-reports-heading/);
 });
 
 test("nothing renders while there are no reports anywhere", () => {
-  const html = render({ scoped: [], team: [] });
+  const html = render({ scoped: [], untracked: [] });
 
   assert.doesNotMatch(html, /LOCAL REPORTS/);
 });
