@@ -14,7 +14,7 @@ import { runs } from "../db/schema";
 import { syncRun, syncTeamRuns } from "../execution/sync";
 import { ApiHttpError } from "../http/errors";
 import { parseBody, respond } from "../http/respond";
-import { serializeRunDetail, serializeRunSummary } from "../http/serializers";
+import { buildRunSummary, readPrimaryMetrics, serializeRunDetail } from "../http/serializers";
 import { actorFromAuth, promotePracticeRun, startPracticeRun } from "../services/run-actions";
 import { verifyRunnerSignature } from "./runner-events";
 import { readRecordedWeight, weightPathFromRoute } from "../services/weights";
@@ -51,7 +51,8 @@ export function registerRunRoutes(app: Hono<AppEnv>): void {
           : eq(runs.teamId, auth.team.id),
       )
       .orderBy(desc(runs.createdAt));
-    const summaries = await Promise.all(rows.map((run) => serializeRunSummary(db, run)));
+    const primaries = await readPrimaryMetrics(db, rows.map((run) => run.id));
+    const summaries = rows.map((run) => buildRunSummary(run, primaries.get(run.id) ?? null));
     return respond(c, z.array(RunSummarySchema), summaries);
   });
 
