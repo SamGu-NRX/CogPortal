@@ -460,13 +460,18 @@ test("classifyHistoryQuality never returns fetch_failed -- only buildProcessSign
 
 const MIGRATIONS = join(dirname(fileURLToPath(import.meta.url)), "..", "migrations");
 
-function freshBinding(): unknown {
+function freshBinding(failHistoryWrites = false): unknown {
   const sqlite = new DatabaseSync(":memory:");
   const files = readdirSync(MIGRATIONS)
     .filter((file) => file.endsWith(".sql"))
     .sort()
     .filter((file) => !/^(0002_seed|0016_backfill)/.test(file));
   for (const file of files) sqlite.exec(readFileSync(join(MIGRATIONS, file), "utf8"));
+
+  if (failHistoryWrites) {
+    sqlite.exec(`CREATE TRIGGER reject_history_cache BEFORE INSERT ON team_process_signals
+      BEGIN SELECT RAISE(ABORT, 'history cache write rejected'); END`);
+  }
 
   function prepare(query: string) {
     const statement = sqlite.prepare(query);
@@ -590,8 +595,8 @@ test("a run for another repository never speaks for the connected one", async ()
  * authorization header of every commit-list request, so a test can see
  * whether history was read again.
  */
-async function processRoute(github: (token: string | null, url: string) => Response) {
-  const binding = freshBinding();
+async function processRoute(github: (token: string | null, url: string) => Response, failHistoryWrites = false) {
+  const binding = freshBinding(failHistoryWrites);
   const db = drizzle(binding as never) as unknown as Database;
   const env = {
     DB: binding,
@@ -713,6 +718,23 @@ test("a run that scores after history was read is on the next visit, without ask
   const expired = await route.request();
   assert.equal(route.tokens.length, 2);
   assert.ok(expired.computedAt > before.computedAt);
+});
+
+test("a rejected history-cache write still returns fetched history and current runs", async (t) => {
+  const warning = t.mock.method(console, "warn", () => undefined);
+  const route = await processRoute(() => Response.json([]), true);
+  await scoredRun(route.db, "run_scored", T0);
+
+  const signals = await route.request();
+  assert.equal(signals.historyQuality, HISTORY_EMPTY);
+  assert.deepEqual(signals.historyWindow, { commits: 0, truncated: false });
+  assert.deepEqual(signals.firstLight, { firstScoredAt: T0, scoredRunCount: 1 });
+  assert.deepEqual(await route.db.select().from(teamProcessSignals), []);
+  assert.equal(warning.mock.callCount(), 1);
+  assert.match(String(warning.mock.calls[0].arguments[0]), /history cache/i);
+
+  await route.request();
+  assert.equal(route.tokens.length, 2, "the failed write leaves the next visit to fetch again");
 });
 
 test("a history too large to store is still read, and the page still answers", async () => {
