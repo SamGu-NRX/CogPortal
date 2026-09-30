@@ -144,8 +144,11 @@ function portal(teams: Teams) {
 
 type Return = "bfcache" | "visibility";
 
-async function harness(t: test.TestContext, teams: Teams = "shared") {
-  const window = new Window({ url: "https://portal.example/setup" });
+/** A page outside every route guard, like the landing page or the board. */
+const PUBLIC_TEXT = "Standings open when the track is calibrated.";
+
+async function harness(t: test.TestContext, teams: Teams = "shared", path = "/setup") {
+  const window = new Window({ url: `https://portal.example${path}` });
   const server = portal(teams);
   const globals = {
     window, document: window.document, navigator: window.navigator,
@@ -254,6 +257,7 @@ async function harness(t: test.TestContext, teams: Teams = "shared") {
                 path: "setup",
                 element: React.createElement(RequireStage, { stage: "team", children: React.createElement(SetupPage) }),
               }),
+              React.createElement(Route, { path: "public", element: React.createElement("p", null, PUBLIC_TEXT) }),
             ),
           ),
         ),
@@ -261,7 +265,7 @@ async function harness(t: test.TestContext, teams: Teams = "shared") {
     ),
   ));
   await flush();
-  assert.ok(exposed().includes(tokenFor("alice")), "alice's setup command never painted");
+  if (path === "/setup") assert.ok(exposed().includes(tokenFor("alice")), "alice's setup command never painted");
   assert.ok(exposed().includes("Account menu for alice"));
 
   return { server, client, container, flush, exposed, watchExposed, operableButtons, assertConcealment, leave, comeBack };
@@ -391,6 +395,63 @@ for (const kind of ["bfcache", "visibility"] as const) {
     assert.ok(!h.container.textContent?.includes(tokenFor("alice")));
   });
 }
+
+test("a public page keeps its content and offers a retry when the session read fails", async (t) => {
+  const h = await harness(t, "shared", "/public");
+  h.leave("visibility");
+  h.server.signInDirectly("bob");
+  h.server.session("fail");
+  await h.comeBack("visibility");
+
+  assert.ok(h.exposed().includes(PUBLIC_TEXT), "the public page was concealed");
+  assert.ok(!h.exposed().includes("Account menu for alice"));
+  assert.ok(h.exposed().includes("Couldn't check who's signed in."));
+  assert.deepEqual(h.operableButtons(), ["Try again"]);
+  h.assertConcealment();
+
+  // A retry that fails again keeps the same button, and focus with it.
+  const retry = [...h.container.querySelectorAll("button")].find((button) => button.textContent === "Try again")!;
+  retry.focus();
+  await act(async () => retry.click());
+  await h.flush();
+  assert.ok(retry.isConnected, "the retry was replaced");
+  assert.equal(retry.textContent, "Try again");
+  assert.equal(document.activeElement, retry, "the retry dropped keyboard focus");
+
+  // While a read is out the button says so, keeps focus, and sends no second read.
+  h.server.session("hold");
+  const before = h.server.sessionRequests.length;
+  await act(async () => retry.click());
+  assert.equal(retry.textContent, "Checking");
+  assert.equal(retry.getAttribute("aria-disabled"), "true");
+  assert.equal(document.activeElement, retry);
+  await act(async () => retry.click());
+  assert.equal(h.server.sessionRequests.length, before + 1, "a click while checking sent another read");
+
+  h.server.releaseSession("bob");
+  await h.flush();
+  assert.ok(h.exposed().includes("Account menu for bob"));
+  assert.ok(!h.container.textContent?.includes("Account menu for alice"));
+  assert.ok(!h.exposed().includes("Try again"));
+  assert.ok(h.exposed().includes(PUBLIC_TEXT));
+
+  // A retry that confirms the same account keeps the mounted tree, and the
+  // next return checks as usual, with no retry in it unless the read fails.
+  h.leave("visibility");
+  h.server.session("fail");
+  await h.comeBack("visibility");
+  h.server.session("answer");
+  const again = [...h.container.querySelectorAll("button")].find((button) => button.textContent === "Try again")!;
+  await act(async () => again.click());
+  await h.flush();
+  assert.ok(h.exposed().includes("Account menu for bob"));
+  h.leave("visibility");
+  h.server.session("hold");
+  await h.comeBack("visibility");
+  assert.ok(!h.exposed().includes("Checking"), "an ordinary return showed as a retry");
+  h.server.releaseSession("bob");
+  await h.flush();
+});
 
 test("a session read sent as alice before the switch is not taken as the answer", async (t) => {
   const h = await harness(t);
