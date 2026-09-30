@@ -8,8 +8,8 @@ import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { runSource } from "@cogworks/contracts/schema";
 import type { Database } from "../worker/db/client.ts";
-import { cohorts, leaderboardSelections, runs, teams } from "../worker/db/schema.ts";
-import { serializeRunDetail } from "../worker/http/serializers.ts";
+import { cohorts, leaderboardSelections, runMetrics, runs, teams } from "../worker/db/schema.ts";
+import { readPrimaryMetrics, serializeRunDetail } from "../worker/http/serializers.ts";
 
 /**
  * A finished run keeps naming the repository it actually ran from.
@@ -51,6 +51,11 @@ function freshDb(files: string[]): { db: Database; sqlite: DatabaseSync } {
         async run() {
           return { success: true, meta: statement.run(...bound) };
         },
+        execute() {
+          const results = statement.all(...bound);
+          const { changes } = sqlite.prepare("SELECT changes() AS changes").get()!;
+          return { success: true, results, meta: { changes } };
+        },
         async all() {
           return { success: true, results: statement.all(...bound) };
         },
@@ -62,6 +67,19 @@ function freshDb(files: string[]): { db: Database; sqlite: DatabaseSync } {
         },
       };
       return prepared;
+    },
+    // One implicit transaction, and one `results` per entry, the way D1 returns
+    // rows for a batched SELECT.
+    async batch(statements: { execute(): unknown }[]) {
+      sqlite.exec("BEGIN");
+      try {
+        const results = statements.map((statement) => statement.execute());
+        sqlite.exec("COMMIT");
+        return results;
+      } catch (error) {
+        sqlite.exec("ROLLBACK");
+        throw error;
+      }
     },
   };
   return { db: drizzle(binding as never) as unknown as Database, sqlite };
@@ -261,4 +279,34 @@ test("the run detail's refusal names no single action, because two panels share 
   assert.equal(detail.selected, true, "the team's published entry was withdrawn");
   assert.equal(detail.publishable, true);
   assert.equal(detail.status, "succeeded");
+});
+
+test("a run list longer than D1's parameter cap still reads every primary metric", async () => {
+  // D1 refuses a statement with more than 100 bound parameters, and the run
+  // list sends every run the team has. node:sqlite has no such cap, so the
+  // statements are counted rather than the failure reproduced.
+  const { db, sqlite } = freshDb(migrationFiles());
+  await seedTeamOnOldRepository(db);
+  await insertRun(db, "run_first");
+  await insertRun(db, "run_last");
+  for (const runId of ["run_first", "run_last"]) {
+    await db.insert(runMetrics).values({
+      runId, key: "accuracy", label: "Accuracy", value: 0.5, unit: null,
+      higherIsBetter: true, isPrimary: true, precision: 2,
+    });
+  }
+  const parameterCounts: number[] = [];
+  const prepare = sqlite.prepare.bind(sqlite);
+  sqlite.prepare = (query: string) => {
+    if (query.includes('"run_metrics"')) parameterCounts.push(query.split("?").length - 1);
+    return prepare(query);
+  };
+
+  const ids = ["run_first", ...Array.from({ length: 248 }, (_, i) => `run_missing_${i}`), "run_last"];
+  const primaries = await readPrimaryMetrics(db, ids);
+
+  assert.deepEqual([...primaries.keys()].sort(), ["run_first", "run_last"]);
+  assert.equal(parameterCounts.length, 3, "250 ids should take three statements");
+  assert.ok(parameterCounts.every((count) => count <= 100), `a statement bound ${Math.max(...parameterCounts)} parameters`);
+  assert.deepEqual(await readPrimaryMetrics(db, []), new Map());
 });

@@ -105,6 +105,11 @@ function freshDb(): Harness {
       run() {
         return { success: true, meta: statement.run(...bound) };
       },
+      execute() {
+        const results = statement.all(...bound);
+        const { changes } = sqlite.prepare("SELECT changes() AS changes").get()!;
+        return { success: true, results, meta: { changes } };
+      },
       async all() {
         return { success: true, results: statement.all(...bound) };
       },
@@ -121,13 +126,14 @@ function freshDb(): Harness {
   const binding = {
     prepare,
     // D1 commits a batch as one implicit transaction; mirror that so the
-    // admission rollback is exercised, not stubbed.
-    async batch(statements: Array<{ run(): unknown }>) {
+    // admission rollback is exercised, not stubbed. Each entry carries its own
+    // `results`, which is how D1 returns rows for a batched SELECT.
+    async batch(statements: Array<{ execute(): unknown }>) {
       sqlite.exec("BEGIN");
       try {
         // Execute without yielding, matching D1's serialized transaction writes.
         const results = [];
-        for (const statement of statements) results.push(statement.run());
+        for (const statement of statements) results.push(statement.execute());
         sqlite.exec("COMMIT");
         return results;
       } catch (error) {
@@ -595,6 +601,44 @@ test("a candidate whose saved environment cannot be reused loses Promote and say
   assert.match(html, /Previous result/);
   assert.doesNotMatch(html, /Candidate ready/);
   assert.doesNotMatch(html, /Promote to official/);
+});
+
+test("every run in the log carries its own primary metric, including the ones that have none", async () => {
+  // The dashboard reads one metric row set for the whole page and groups it by
+  // run id. A grouping that drifted would put one run's score on another's
+  // line, and a run that was never scored is where that shows up first.
+  const { db, binding } = freshDb();
+  await seedPromotion(db);
+  await db.update(benchmarks).set({ active: false }).where(and(eq(benchmarks.id, BENCHMARK_ID), ne(benchmarks.version, 1)));
+  await db.insert(runMetrics).values({ runId: PRACTICE_RUN_ID, key: "accuracy", label: "Accuracy",
+    value: 0.81, unit: null, higherIsBetter: true, isPrimary: true, precision: 2 });
+  const scored = ["run_scored_a", "run_scored_b"];
+  for (const [index, id] of [...scored, "run_unscored"].entries()) {
+    await db.insert(runs).values({
+      id, teamId: "team_test", benchmarkId: BENCHMARK_ID, benchmarkVersion: 1,
+      contractVersion: "cogworks.submissions.v1", mode: "practice", status: "succeeded",
+      branch: "main", sha: String(index).padStart(40, "b"), repositoryId: FIXTURE_REPO.repositoryId,
+      repositoryFullName: FIXTURE_REPO.fullName, createdAt: NOW - 10_000 * (index + 1),
+      finishedAt: NOW - 10_000 * (index + 1) + 500, provider: "modal",
+    });
+  }
+  for (const [index, id] of scored.entries()) {
+    await db.insert(runMetrics).values([
+      { runId: id, key: "accuracy", label: "Accuracy", value: 0.1 * (index + 1), unit: null,
+        higherIsBetter: true, isPrimary: true, precision: 2 },
+      { runId: id, key: "chance", label: "Chance", value: 0.05, unit: null,
+        higherIsBetter: true, isPrimary: false, precision: 2 },
+    ]);
+  }
+  const { app, cookie, runtime } = await authenticatedPromotion(db, binding);
+
+  const response = await app.fetch(new Request(`http://localhost:5173/dashboard?benchmark=${BENCHMARK_ID}`, { headers: { cookie } }), runtime);
+  assert.equal(response.status, 200);
+  const dashboard = DashboardSchema.parse(await response.json());
+  assert.deepEqual(
+    Object.fromEntries(dashboard.runs.map((run) => [run.id, run.primaryMetric?.value ?? null])),
+    { [PRACTICE_RUN_ID]: 0.81, run_scored_a: 0.1, run_scored_b: 0.2, run_unscored: null },
+  );
 });
 
 test("authenticated completion, promotion and signed dispatch preserve provisioning across a scorer change", async () => {
