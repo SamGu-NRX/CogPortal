@@ -397,7 +397,7 @@ export function RunConsole({
       <div className="grid md:grid-cols-[minmax(0,1fr)_15rem]">
         <div className="relative border-b border-rule md:border-r md:border-b-0">
           <div className="flex items-center justify-between border-b border-rule-soft px-4 py-3">
-            <span className="u-kicker">{failed ? "Run history" : terminal ? "Run summary" : "Safe event stream"}</span>
+            <span className="u-kicker">{terminal ? "Run summary" : "Safe event stream"}</span>
             {terminal && (failed || timelineEvents.length > 3) && (
               <button
                 type="button"

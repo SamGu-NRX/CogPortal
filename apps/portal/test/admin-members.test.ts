@@ -407,7 +407,7 @@ test("a team row gives its identity the whole width before it gives any to count
   // The data itself is untouched at every width.
   assert.match(html, /Cosine Similarity Club/);
   assert.match(html, /cogworks-demo\/cosine-similarity-club/);
-  assert.match(html, /3 practice runs · 1 official attempts/);
+  assert.match(html, /3 practice runs · 1 official attempt</);
 });
 
 test("staff with no assignments is not told the cohort is empty", () => {
