@@ -9,6 +9,7 @@ import {
   type RunSummary,
   type Team,
 } from "@cogworks/contracts/schema";
+import { runSourceRefusal } from "../services/run-source";
 import type { Database } from "../db/client";
 import { canPublishOfficialRun } from "../services/run-eligibility";
 import {
@@ -77,6 +78,7 @@ export async function serializeRunSummary(db: Database, row: RunRow): Promise<Ru
 
   return {
     id: row.id,
+    repo: runSource(row.repositoryFullName),
     mode: row.mode,
     status: row.status,
     benchmarkId: row.benchmarkId,
@@ -101,7 +103,11 @@ export async function serializeRunSummary(db: Database, row: RunRow): Promise<Ru
   };
 }
 
-export async function serializeRunDetail(db: Database, row: RunRow): Promise<RunDetail> {
+export async function serializeRunDetail(
+  db: Database,
+  row: RunRow,
+  team: { repoId: number | null; repoFullName: string },
+): Promise<RunDetail> {
   const [summary, phases, metrics, selection] = await Promise.all([
     serializeRunSummary(db, row),
     db.select().from(runPhases).where(eq(runPhases.runId, row.id)).orderBy(asc(runPhases.phase)),
@@ -124,11 +130,9 @@ export async function serializeRunDetail(db: Database, row: RunRow): Promise<Run
     ...summary,
     contractVersion: row.contractVersion,
     parentRunId: row.parentRunId,
-    // The run's own source, not the team's current one. These used to be the
-    // same expression, which meant a team that changed its repository rewrote
-    // what every earlier run claimed: the new repository's name above the old
-    // repository's commit (B-06).
-    repo: runSource(row.repositoryFullName),
+    // One sentence under both PROMOTE and PUBLISH, so it names no single
+    // action. Same phrase the console uses for the same shared refusal.
+    sourceRefusal: runSourceRefusal(team, row, "act on it"),
     phases: phases
       .sort((a, b) => (phaseOrder.get(a.phase) ?? 0) - (phaseOrder.get(b.phase) ?? 0))
       .map((phase) => ({

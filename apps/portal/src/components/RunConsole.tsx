@@ -352,10 +352,22 @@ export function RunConsole({
         <aside className="p-4 sm:p-5">
           <div className="u-kicker">Run reference</div>
           <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-[12px]">
+            <dt className="text-ink-faint">Repository</dt>
+            <dd className="min-w-0 truncate font-mono">
+              {snapshot.source ? snapshot.source.fullName : "not recorded"}
+            </dd>
             <dt className="text-ink-faint">Commit</dt><dd className="min-w-0 truncate font-mono">{snapshot.sha}</dd>
             <dt className="text-ink-faint">Branch</dt><dd className="min-w-0 truncate font-mono">{snapshot.branch ?? "detached"}</dd>
             <dt className="text-ink-faint">Workspace</dt><dd>{snapshot.dirty ? "Uncommitted changes" : "Clean"}</dd>
           </dl>
+          {/* The server refuses these for a run that is not about the connected
+              repository, so the buttons are gone. Saying why beats a panel that
+              quietly lost its controls. */}
+          {snapshot.sourceRefusal && (
+            <p className="mt-4 max-w-prose text-[12px] leading-relaxed text-ink-secondary">
+              {snapshot.sourceRefusal}
+            </p>
+          )}
           <div className="mt-6 grid gap-2">
             {snapshot.actions.filter((action) => ACTION_COPY[action]).map((action) => (
               <button
