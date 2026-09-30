@@ -248,8 +248,10 @@ in-place edit of a version teams have already published against.
 - **All three benchmarks are git submodules** pointing at their own GitHub
   repositories, so a change under `benchmarks/week{1,2,3}/` is committed
   there first, then the parent's pointer is bumped in a second commit. The
-  Modal images bake the submodule contents, so `git submodule update --init`
-  before deploying or the images carry whatever your tree happens to hold.
+  Modal images bake the submodule contents, so `git submodule sync --recursive
+  && git submodule update --init` before deploying, or the images carry
+  whatever your tree happens to hold. The sync is what picks up a submodule
+  whose URL moved, which Week 2's did.
 - Development-only `/__gallery` route holds the states that need a specific
   run to reach. Add a fixture there when a component has a state you cannot
   otherwise look at; it has already caught two layout bugs that typechecked.
