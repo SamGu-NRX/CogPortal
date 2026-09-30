@@ -75,8 +75,8 @@ for (const mode of ["practice", "official"] as const) {
     assert.match(container.textContent, /Your code raised an exception/);
     assert.match(container.textContent, /recorded\/source/);
     assert.match(container.textContent, /detached/);
-    assert.match(container.textContent, /RUN _123/);
-    assert.doesNotMatch(container.querySelector("h1")?.textContent ?? "", /RUN _123/);
+    assert.match(container.textContent, /Run #_123/);
+    assert.doesNotMatch(container.querySelector("h1")?.textContent ?? "", /Run #_123/);
     assert.doesNotMatch(container.textContent, /consumed|refund|Run practice again|Retry/);
     const detail = [...container.querySelectorAll("pre")].find((node) => node.textContent.includes("fixture exception"));
     assert.ok(detail?.closest('[aria-hidden="true"][inert]'));

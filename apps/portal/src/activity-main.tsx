@@ -8,12 +8,7 @@ import {
   type RunSurfaceSnapshot,
 } from "@cogworks/contracts/schema";
 
-import "@fontsource-variable/source-serif-4/index.css";
-import "@fontsource/ibm-plex-sans/400.css";
-import "@fontsource/ibm-plex-sans/500.css";
-import "@fontsource/ibm-plex-sans/600.css";
-import "@fontsource/ibm-plex-mono/400.css";
-import "@fontsource/ibm-plex-mono/500.css";
+import "./fonts";
 import "./styles/app.css";
 
 import { ConnectGate } from "@/components/ConnectGate";

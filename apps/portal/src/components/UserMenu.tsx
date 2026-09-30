@@ -4,8 +4,6 @@ import {
   DashboardSquare01Icon,
   LinkSquare01Icon,
   Logout02Icon,
-  Settings01Icon,
-  UserGroupIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
@@ -20,20 +18,23 @@ import { useLogout } from "@/lib/queries";
 type IconType = typeof DashboardSquare01Icon;
 
 /**
- * Header account menu. Origin-aware scale from the trigger (Emil tip #5),
- * 180ms ease-out in / 120ms out, no spring — and instant under reduced
- * motion. Full menu-button keyboard behavior.
+ * Header account menu: what belongs to the person rather than the team. The
+ * team's own pages are tabs in the header (components/Shell.tsx), so the menu
+ * only repeats a way forward for someone who has no team yet.
+ *
+ * Origin-aware scale from the trigger, 180ms ease-out in and 120ms out, no
+ * spring, instant under reduced motion. Full menu-button keyboard behavior.
  */
 export function UserMenu({
   user,
   hasTeam,
-  isStaff,
   nextPath,
+  teamName = null,
 }: {
   user: NonNullable<Session["user"]>;
   hasTeam: boolean;
-  isStaff: boolean;
   nextPath: string;
+  teamName?: string | null;
 }) {
   const [open, setOpen] = useState(false);
   // A concealed menu is inert, but its document key handler is not, so an
@@ -121,7 +122,7 @@ export function UserMenu({
   }, [open]);
 
   const itemClass =
-    "flex w-full items-center gap-2.5 px-3 py-2 text-left font-mono text-[12px] text-ink-secondary transition-colors duration-150 hover:bg-paper-sunken hover:text-ink focus-visible:bg-paper-sunken focus-visible:text-ink focus-visible:outline-none";
+    "flex min-h-10 w-full items-center gap-2.5 rounded-control px-2.5 text-left text-[14px] font-medium text-ink-secondary transition-colors duration-150 hover:bg-paper-sunken hover:text-ink focus-visible:bg-paper-sunken focus-visible:text-ink focus-visible:outline-none";
 
   const MenuLink = ({ to, icon, label }: { to: string; icon: IconType; label: string }) => (
     <Link role="menuitem" to={to} className={itemClass} tabIndex={-1}>
@@ -142,23 +143,23 @@ export function UserMenu({
         className="u-pressable flex min-h-11 items-center gap-2 px-1"
       >
         {user.avatarUrl ? (
-          <img src={user.avatarUrl} alt="" className="size-6 rounded-[2px]" />
+          <img src={user.avatarUrl} alt="" className="size-7 rounded-full ring-1 ring-rule" />
         ) : (
           <span
             aria-hidden="true"
-            className="flex size-6 items-center justify-center border border-rule bg-paper-sunken font-mono text-[10px] text-ink-secondary uppercase"
+            className="flex size-7 items-center justify-center rounded-full bg-ink text-[12px] font-bold text-paper-raised uppercase"
           >
             {user.login[0]}
           </span>
         )}
-        <span className="hidden items-center gap-1.5 font-mono text-[12px] text-ink sm:flex">
+        <span className="hidden items-center gap-1.5 text-[14px] font-semibold text-ink sm:flex">
           <span>{firstName(user.name, user.login)}</span>
           {user.isOwner ? (
             <span
               role="img"
               aria-label="CogPortal owner"
               title="CogPortal owner"
-              className="text-[#b7791f]"
+              className="text-ochre"
             >
               <HugeiconsIcon icon={CrownIcon} size={15} strokeWidth={1.9} aria-hidden="true" />
             </span>
@@ -190,20 +191,20 @@ export function UserMenu({
                 : { opacity: 0, scale: 0.98, transition: { duration: 0.12, ease: "easeOut" } }
             }
             transition={{ duration: 0.18, ease: EASE_OUT }}
-            className="absolute top-full right-0 z-50 mt-2 w-52 border border-rule bg-paper-raised py-1 shadow-[0_8px_24px_rgb(28_38_55/0.10)]"
+            className="absolute top-full right-0 z-50 mt-2 w-52 rounded-surface border border-rule bg-paper-raised p-1.5 shadow-[0_10px_30px_-6px_rgb(27_31_36/0.18),0_2px_6px_rgb(27_31_36/0.06)]"
           >
-            {hasTeam ? (
-              <>
-                <MenuLink to="/dashboard" icon={DashboardSquare01Icon} label="Dashboard" />
-                <MenuLink to="/setup" icon={Settings01Icon} label="Setup guide" />
-                <MenuLink to="/team" icon={UserGroupIcon} label="Team settings" />
-              </>
-            ) : (
+            {/* Who is signed in, said once in words, since the trigger only
+                shows an initial on a phone. Not a menu item. */}
+            <div className="px-2.5 pt-1.5 pb-2">
+              <p className="truncate text-[14px] font-semibold text-ink">{user.login}</p>
+              {teamName && <p className="truncate text-[13px] text-ink-secondary">{teamName}</p>}
+            </div>
+            <div role="separator" className="mb-1.5 border-t border-rule-soft" />
+            {!hasTeam && (
               <MenuLink to={nextPath} icon={DashboardSquare01Icon} label="Continue setup" />
             )}
             <MenuLink to="/connections" icon={LinkSquare01Icon} label="Connections" />
-            {isStaff && <MenuLink to="/admin" icon={UserGroupIcon} label="Admin" />}
-            <div role="separator" className="my-1 border-t border-rule-soft" />
+            <div role="separator" className="my-1.5 border-t border-rule-soft" />
             <button
               role="menuitem"
               type="button"

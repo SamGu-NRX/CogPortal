@@ -53,7 +53,7 @@ async function mount(t: TestContext, initialRight: number, initialViewport = 345
       React.createElement(MemoryRouter, { initialEntries: ["/dashboard"] },
         React.createElement(UserMenu, {
           user: { login: "menu-fixture", name: null, avatarUrl: null, platformRole: "student", isOwner: false, isTa: false },
-          hasTeam: true, isStaff: false, nextPath: "/dashboard",
+          hasTeam: true, nextPath: "/dashboard",
         }),
       ),
     ),
@@ -83,7 +83,7 @@ test("a wrapped left-edge trigger opens the account menu inside the viewport", a
   assert.equal(menu.style.transformOrigin, "54px top");
   assert.equal(menu.style.maxWidth, "313px");
   assert.deepEqual([...menu.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent),
-    ["Dashboard", "Setup guide", "Team settings", "Connections", "Sign out"]);
+    ["Connections", "Sign out"]);
 });
 
 test("a normal right-edge trigger keeps the existing right alignment at the same viewport width", async (t) => {

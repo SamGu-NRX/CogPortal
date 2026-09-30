@@ -8,16 +8,16 @@ const PAPER_THEME = {
   type: "light" as const,
   colors: {
     "editor.background": "#00000000",
-    "editor.foreground": "#1c2637",
+    "editor.foreground": "#1b1f24",
   },
   tokenColors: [
-    { scope: ["comment", "punctuation.definition.comment"], settings: { foreground: "#8b93a3", fontStyle: "italic" } },
-    { scope: ["string", "string.quoted", "punctuation.definition.string"], settings: { foreground: "#2e6b4f" } },
-    { scope: ["keyword", "storage.type", "storage.modifier", "keyword.operator.assignment"], settings: { foreground: "#c63d2f" } },
-    { scope: ["entity.name.function", "support.function", "meta.function-call.generic"], settings: { foreground: "#2b54c0" } },
-    { scope: ["constant.numeric", "constant.language"], settings: { foreground: "#a12e22" } },
-    { scope: ["entity.name.tag", "support.type.property-name", "entity.name.section", "keyword.key.toml", "variable.other"], settings: { foreground: "#2b54c0" } },
-    { scope: ["punctuation"], settings: { foreground: "#4b566b" } },
+    { scope: ["comment", "punctuation.definition.comment"], settings: { foreground: "#5f656d", fontStyle: "italic" } },
+    { scope: ["string", "string.quoted", "punctuation.definition.string"], settings: { foreground: "#2a6a4e" } },
+    { scope: ["keyword", "storage.type", "storage.modifier", "keyword.operator.assignment"], settings: { foreground: "#b5392b" } },
+    { scope: ["entity.name.function", "support.function", "meta.function-call.generic"], settings: { foreground: "#2e52bf" } },
+    { scope: ["constant.numeric", "constant.language"], settings: { foreground: "#a3311f" } },
+    { scope: ["entity.name.tag", "support.type.property-name", "entity.name.section", "keyword.key.toml", "variable.other"], settings: { foreground: "#2e52bf" } },
+    { scope: ["punctuation"], settings: { foreground: "#4a5058" } },
   ],
 };
 
