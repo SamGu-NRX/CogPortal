@@ -273,6 +273,11 @@ class Submission:
     _repository: Optional[Path] = None
     _hints: Tuple[str, ...] = ()
     _declared_root: Optional[str] = None
+    #: Whether `_repository` is the CLI's private execution copy. A reading
+    #: of it must use the same import retry the first reading used: the first
+    #: one leaves import-time files in the copy, and the mirror retry would
+    #: then refuse to overwrite them and skip the module.
+    _private_copy: bool = False
     #: The role this bound to, by name, and the benchmark's own inputs taken
     #: before any of their code ran. Both are what `_renewed` needs to put the
     #: binding back on a new reading: the name roots the scope a fit stage was
@@ -571,6 +576,7 @@ class Submission:
             declared_root=self._declared_root,
             resource_files=self._resource_files,
             observed=self._observed,
+            private_copy=self._private_copy,
         )
 
     def report(self) -> SubmissionReport:
@@ -1573,6 +1579,7 @@ def resolve(
 
         repository = Path(repository).resolve()
         project = project or ExecutionPaths(repository, repository)
+        private_copy = project.execution != project.original
 
         watcher.phase("Reading your repository")
         found = discover(
@@ -1580,7 +1587,7 @@ def resolve(
             hints=hints,
             declared_root=declared_root,
             resource_files=resource_files,
-            private_copy=project.execution != project.original,
+            private_copy=private_copy,
         )
         weights_used: Tuple[str, ...] = ()
         weights_captured: Optional[Tuple[Dict[str, Any], ...]] = ()
@@ -1713,6 +1720,7 @@ def resolve(
                 declared_root=declared_root,
                 resource_files=resource_files,
                 observed=observed,
+                private_copy=private_copy,
             )
 
         #: Everything the benchmark hands their code, taken now, before any of
@@ -1838,6 +1846,7 @@ def resolve(
         #: repository, and what the benchmark hands their code.
         again: Dict[str, Any] = {
             "_repository": repository,
+            "_private_copy": private_copy,
             "_hints": tuple(hints),
             "_declared_root": declared_root,
             "_observed": observed,
@@ -1893,7 +1902,7 @@ def resolve(
                     validation_found = discover(
                         repository, hints=hints, declared_root=declared_root,
                         resource_files=resource_files,
-                        private_copy=project.execution != project.original,
+                        private_copy=private_copy,
                     )
                     validation = _under_clock(lambda: _replay(
                         deepcopy(stored), validation_found, chain_role, arrangements,
