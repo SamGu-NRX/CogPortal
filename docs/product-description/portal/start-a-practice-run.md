@@ -147,7 +147,7 @@ Nothing else on the page is disabled while this happens. A student can switch tr
 
 On success the server answers `201` with `{ runId }`, and the mutation invalidates the dashboard query for that benchmark (`queries.ts:442-448`). The refetch is what swaps the panel; there is no local state change. For a team's first run the refetch does more than swap one panel: `d.runs.length` stops being zero, so the whole page changes shape from the single `FIRST RUN` panel to the three-column grid (`DashboardPage.tsx:72`, `:111-124`).
 
-**The dashboard does not navigate to the run it started.** The success handler invalidates and stops. The same mutation on the run page's retry button does navigate, and the comment there gives the reason it was added: "the old page kept its button, and pressing it again returned active_run_exists" (`apps/portal/src/routes/RunDetailPage.tsx:60-69`). The dashboard has the same hazard and not the same fix, though the vanishing panel covers most of it.
+**The dashboard does not navigate to the run it started.** The success handler invalidates and stops, so a second press before the refetch lands is refused with `active_run_exists`; the vanishing panel covers most of that window.
 
 On a dispatch failure the execution is marked failed. The team can read that record, but it uses no quota.
 
