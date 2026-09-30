@@ -313,12 +313,22 @@ export function useChangeTeamRepo() {
  * all. Undefined while the track loads, which keeps polling.
  */
 export function useSetupState(benchmarkId?: string) {
+  const { data: session } = useSession();
+  const login = session?.user?.login ?? null;
+  const teamId = session?.team?.id ?? null;
   return useQuery({
-    // The track is part of the key because the response is about it: its
-    // scoped evidence, and check-off commands signed for it. A shared entry
-    // would hand one track's commands to another.
-    queryKey: ["setup-state", benchmarkId ?? null],
+    // The key names everything the response is about. The evidence is read
+    // per account and team, and the check-off tokens are signed for one
+    // account, one team and one track, so an entry keyed on less hands one
+    // account's command to another. Keyed on the track alone, whoever signed
+    // in next in the same tab was shown the previous account's cached tokens,
+    // and a request that account sent before signing out landed as the new
+    // account's answer.
+    queryKey: ["setup-state", login, teamId, benchmarkId ?? null],
     queryFn: () => api.setupState(benchmarkId),
+    // Both consumers sit behind the team route guard, so this only holds the
+    // request while a sign-in or sign-out is settling.
+    enabled: login !== null && teamId !== null,
     staleTime: 3_000,
     refetchInterval: (query) => {
       const data = query.state.data;
