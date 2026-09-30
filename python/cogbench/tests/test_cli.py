@@ -133,7 +133,8 @@ class ReportFormattingTests(unittest.TestCase):
 
 class LinkConsentTests(unittest.TestCase):
     def test_link_names_what_sync_sends_before_asking_for_approval(self):
-        # The sentence is consent: `sync` uploads scores and weights, so it
+        # The sentence is consent: `sync` uploads a report and its weights and
+        # `run --live` sends the finished report, so it has to name both and
         # can't list scores among the things CogPortal never receives.
         stdout = io.StringIO()
         start = {
@@ -155,8 +156,8 @@ class LinkConsentTests(unittest.TestCase):
         text = stdout.getvalue()
         consent = text[: text.index("Open https://portal.example")]
         self.assertIn(
-            "A saved report's scores and notes, with any weights it used, go up only when "
-            "you run `cogworks sync`.",
+            "A report's scores and notes go up when you run `cogworks sync` or "
+            "`cogworks run --live`, and weights only with `cogworks sync`.",
             consent,
         )
         self.assertNotIn("never source, paths, logs, predictions, scores", consent)
