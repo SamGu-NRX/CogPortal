@@ -19,7 +19,6 @@ import {
   leaderboardSelections,
   localReports,
   localRunSessions,
-  officialAttempts,
   runMetrics,
   runPhases,
   runs,
@@ -33,6 +32,8 @@ import {
 import { syncRun } from "../execution/sync";
 import { serializeMetric } from "../http/serializers";
 import { ApiHttpError } from "../http/errors";
+import { canPublishOfficialRun } from "./run-eligibility";
+import { acceptedRunPredicate, readRunAccounting } from "./run-accounting";
 
 const MAX_SURFACE_EVENTS = 250;
 
@@ -207,7 +208,7 @@ async function teamBestMetric(
         eq(runs.teamId, teamId),
         eq(runs.benchmarkId, benchmarkId),
         eq(runs.benchmarkVersion, benchmarkVersion),
-        eq(runs.status, "succeeded"),
+        acceptedRunPredicate(),
         eq(runMetrics.isPrimary, true),
         // SQL `NULL != value` is unknown, so include legacy successful runs
         // that predate run surfaces as well as runs on a different surface.
@@ -287,7 +288,7 @@ export async function buildRunSurfaceSnapshot(
         )
         .limit(1)
     : [];
-  const published = selected.length > 0;
+  const published = selected.length > 0 && official !== null && canPublishOfficialRun(official);
   const stage = published ? "published" : official ? "official" : practice ? "hosted" : "local";
   const current: RunRow | typeof local = official ?? practice ?? local;
   if (!current) throw new ApiHttpError(404, "not_found", "Run surface has no run.");
@@ -321,22 +322,18 @@ export async function buildRunSurfaceSnapshot(
     if (status === "succeeded" && !local?.dirty) actions.splice(2, 0, "verify_hosted");
   } else if (stage === "hosted" && status !== "running") {
     actions.push("rerun_hosted");
-    if (status === "succeeded") actions.splice(2, 0, "promote_official");
-  } else if (stage === "official" && status === "succeeded") {
-    actions.push("publish_result");
+    if (status === "succeeded" && practice?.refundedAt === null) actions.splice(2, 0, "promote_official");
+  } else if (stage === "official" && official) {
+    if (canPublishOfficialRun(official)) actions.push("publish_result");
+    // Failed executions and historical refunds cannot be promoted again here.
+    if (status === "failed" || (status !== "running" && official.refundedAt !== null)) actions.push("rerun_hosted");
   }
 
-  const claims = await db
-    .select({ id: officialAttempts.id })
-    .from(officialAttempts)
-    .where(
-      and(
-        eq(officialAttempts.teamId, surface.teamId),
-        eq(officialAttempts.benchmarkId, surface.benchmarkId),
-        eq(officialAttempts.benchmarkVersion, surface.benchmarkVersion),
-      ),
-    );
-  const nextAttempt = claims.length < OFFICIAL_LIMIT ? claims.length + 1 : null;
+  const accounting = await readRunAccounting(db, {
+    teamId: surface.teamId, benchmarkId: surface.benchmarkId, benchmarkVersion: surface.benchmarkVersion,
+  });
+  const occupied = accounting.officialUsed + accounting.officialReserved;
+  const nextAttempt = occupied < OFFICIAL_LIMIT ? occupied + 1 : null;
 
   return RunSurfaceSnapshotSchema.parse({
     id: surface.id,
@@ -363,10 +360,27 @@ export async function buildRunSurfaceSnapshot(
     officialRunId: official?.id ?? null,
     published,
     nextOfficialAttempt: nextAttempt,
+    // The run that failed, if one did. A refusal explains itself; every other
+    // failure has a traceback and belongs in the log rather than in a chat
+    // message.
+    refusalHeadline: refusalHeadlineOf(official ?? practice),
     events,
     actions,
     simulated: env.EXECUTION_PROVIDER === "fixture",
   });
+}
+
+function refusalHeadlineOf(run: { refusalJson?: string | null } | null | undefined): string | null {
+  if (!run?.refusalJson) return null;
+  try {
+    const parsed = JSON.parse(run.refusalJson) as { headline?: unknown };
+    // Drift insurance between the independently capped refusal and snapshot schemas:
+    // preserve the sentence up to this boundary rather than reject the whole snapshot.
+    // Discord applies its own 300-character cap in discord-messages.ts.
+    return typeof parsed.headline === "string" && parsed.headline ? parsed.headline.slice(0, 600) : null;
+  } catch {
+    return null;
+  }
 }
 
 export async function appendRunStreamEvent(

@@ -20,6 +20,7 @@ import { useRunSurfaceStream } from "@/lib/run-surface-stream";
 import { clientEnv } from "./env.client";
 
 const CLIENT_ID = clientEnv.VITE_DISCORD_CLIENT_ID;
+const PORTAL_ORIGIN = clientEnv.VITE_PORTAL_ORIGIN;
 document.title = "Cog · Live bench";
 const embedded =
   window.location.hostname.endsWith(".discordsays.com") ||
@@ -29,6 +30,7 @@ const sdk = embedded ? new DiscordSDK(CLIENT_ID) : null;
 
 const SessionSchema = z.discriminatedUnion("linked", [
   z.object({ linked: z.literal(false), linkUrl: z.string().url() }),
+  z.object({ linked: z.literal("no_team"), portalUrl: z.string().url() }),
   z.object({
     linked: z.literal(true),
     githubLogin: z.string(),
@@ -166,7 +168,9 @@ function ActivityApp() {
         const nextSession = await jsonRequest("/activity/session", SessionSchema);
         if (!active) return;
         setSession(nextSession);
-        if (nextSession.linked) {
+        // Explicit: "no_team" is truthy, and a teamless session has no
+        // surfaces to fetch.
+        if (nextSession.linked === true) {
           const nextSurfaces = await jsonRequest(
             "/activity/run-surfaces",
             z.array(RunSurfaceSnapshotSchema),
@@ -201,7 +205,7 @@ function ActivityApp() {
           <div className="u-kicker">Discord Activity</div>
           <h1 className="mt-3 text-4xl">Open the live bench from Discord.</h1>
           <p className="mt-4 text-[14px] text-ink-secondary">Use <code>/cog</code> in your team channel, then choose <strong>Open live console</strong>. Your linked Discord identity decides which team surfaces you can see.</p>
-          <a className="mt-6 inline-flex min-h-11 items-center bg-ink px-5 text-[13px] font-medium text-paper-raised" href="https://cogportal-dev.sillion.app">Open Cog*Portal</a>
+          <a className="mt-6 inline-flex min-h-11 items-center bg-ink px-5 text-[13px] font-medium text-paper-raised" href={PORTAL_ORIGIN}>Open Cog*Portal</a>
         </section>
       </main>
     );
@@ -213,6 +217,23 @@ function ActivityApp() {
   if (startupError || !session) {
     return <main className="activity-safe grid min-h-dvh place-items-center p-5"><section className="max-w-md border-l-2 border-detect pl-5"><div className="u-kicker">Could not open</div><h1 className="mt-2 text-3xl">The bench is still here.</h1><p className="mt-3 text-[14px] text-ink-secondary">{startupError ?? "Close the Activity and open it again."}</p></section></main>;
   }
+  // Linked-without-a-team used to render the card below, which told a student
+  // who had already linked to link again. It is a different problem with a
+  // different fix, so it gets its own sentence and its own destination.
+  if (session.linked === "no_team") {
+    return (
+      <main className="activity-safe grid min-h-dvh place-items-center p-5">
+        <section className="w-full max-w-lg border border-rule bg-paper-raised p-7">
+          <div className="u-kicker">One step left</div>
+          <h1 className="mt-3 text-4xl">You are linked, but not on a team yet.</h1>
+          <p className="mt-4 text-[14px] text-ink-secondary">Connect your fork in the browser to join or start your team. Then close this Activity and open it again.</p>
+          <button type="button" className="mt-6 min-h-11 bg-ink px-5 text-[13px] font-medium text-paper-raised" onClick={() => {
+            if (sdk) void sdk.commands.openExternalLink({ url: session.portalUrl });
+          }}>Finish team setup ↗</button>
+        </section>
+      </main>
+    );
+  }
   if (!session.linked) {
     return (
       <main className="activity-safe grid min-h-dvh place-items-center p-5">
@@ -223,6 +244,10 @@ function ActivityApp() {
           <button type="button" className="mt-6 min-h-11 bg-ink px-5 text-[13px] font-medium text-paper-raised" onClick={() => {
             if (sdk) void sdk.commands.openExternalLink({ url: session.linkUrl });
           }}>Link Cog*Portal ↗</button>
+          {/* The Activity does not poll for link completion, so a student who
+              links in the browser returns to this same card and reads it as a
+              failure. Naming the recovery costs one line. */}
+          <p className="mt-4 text-[12px] text-ink-faint">After linking, close this Activity and open it again.</p>
         </section>
       </main>
     );
@@ -241,7 +266,7 @@ function ActivityApp() {
             busyAction={mutation}
             error={actionError}
             onOpenPortal={() => {
-              const url = `https://cogportal-dev.sillion.app/run-surfaces/${stream.snapshot!.id}`;
+              const url = `${PORTAL_ORIGIN}/run-surfaces/${stream.snapshot!.id}`;
               if (sdk) void sdk.commands.openExternalLink({ url });
             }}
             onAction={async (action) => {

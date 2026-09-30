@@ -9,12 +9,32 @@ from typing import Any, Dict, Optional
 from .models import LocalReport
 
 
+def workspace_dir(root: Path) -> Path:
+    """``<root>/.cogbench``, created ignoring itself.
+
+    Everything the tool writes into a checkout lives here, and a directory
+    git can see turns every local run into a dirty tree: measured on a fresh
+    clone of a 2026 repository, one `cogworks run` left `?? .cogbench/` in
+    `git status`, the report carried `dirty: true`, and hosted verification
+    refuses a dirty report. The course template ignores the directory, but a
+    repository that predates the template does not, so the directory carries
+    its own ignore file the way `.pytest_cache` and `.ruff_cache` do.
+    """
+
+    directory = root / ".cogbench"
+    directory.mkdir(parents=True, exist_ok=True)
+    ignore = directory / ".gitignore"
+    if not ignore.exists():
+        ignore.write_text("*\n", encoding="utf-8")
+    return directory
+
+
 def reports_dir(cwd: Path) -> Path:
     return cwd / ".cogbench" / "reports"
 
 
 def save_report(report: LocalReport, cwd: Path) -> Path:
-    directory = reports_dir(cwd)
+    directory = workspace_dir(cwd) / "reports"
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / "{}.json".format(report.report_id)
     path.write_text(report.to_json() + "\n", encoding="utf-8")
