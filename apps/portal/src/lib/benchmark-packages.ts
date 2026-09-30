@@ -30,15 +30,14 @@ export interface BenchmarkPackage {
  * reaches that through this page, which serves whichever pin its own deploy
  * carries, but `--portal` at an older deployment does.
  *
- * `40d31a2` is this release candidate's own commit. Its SDK is the SDK
- * reconciliation PR (#48) plus this page's benchmark revisions in its
- * "install it with" advice, so the CLI and this page name the same
- * benchmarks; #48 itself keeps the revisions its base can validate. It was
- * installed from this exact URL and its files checked byte for byte against
- * the commit. No combined live rehearsal has run on it.
+ * `6facb9a` is the beta branch's own commit, so the CLI a student installs
+ * here is the SDK this deploy was built with. The previous pin, `40d31a2`,
+ * predated the report's `command` field, the adapter-file line in `check`,
+ * and #12's interrupt and private-copy fixes. It was installed from this
+ * exact URL and its files compared with the commit before this pin moved.
  */
 export const COGBENCH_SOURCE =
-  "git+https://github.com/SamGu-NRX/CogPortal.git@40d31a2a9d653983dd69fa57034f12a196a4b216#subdirectory=python/cogbench";
+  "git+https://github.com/SamGu-NRX/CogPortal.git@6facb9af2468de3682abfb8cb6044ab27c2fceba#subdirectory=python/cogbench";
 
 const WEEK1_AUDIO: BenchmarkPackage = {
   distribution: "cogworks-week1-audio-benchmark",
