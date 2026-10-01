@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { FIXTURE_REPO } from "@cogworks/contracts/fixtures";
 import type { Database } from "../db/client";
 import { teamMembers, teams } from "../db/schema";
@@ -31,6 +31,12 @@ export function fixtureRepository(): ConnectRepository {
   };
 }
 
+/**
+ * Stores `permission`, the caller's GitHub permission, for creators and
+ * joiners alike. The local fixture repository has no collaborators to ask, so
+ * `fixture` makes its creator admin and leaves an existing membership as it
+ * is, which keeps a repeated development demo login from changing the role.
+ */
 export async function connectTeam(
   db: Database,
   cohortId: string,
@@ -38,6 +44,7 @@ export async function connectTeam(
   repository: ConnectRepository,
   permission: TeamRole,
   teamName: string | undefined,
+  { fixture = false }: { fixture?: boolean } = {},
 ): Promise<TeamRow> {
   let [team] = await db
     .select()
@@ -71,17 +78,15 @@ export async function connectTeam(
       .from(teams)
       .where(and(eq(teams.cohortId, cohortId), eq(teams.repoFullName, repository.fullName)))
       .limit(1);
-    membershipRole = team?.id === teamId ? "admin" : "write";
+    if (fixture && team?.id === teamId) membershipRole = "admin";
   }
   if (!team) throw new ApiHttpError(500, "provider_unconfigured", "Team could not be created.");
-  await db
+  const membership = db
     .insert(teamMembers)
-    .values({ teamId: team.id, userId, role: membershipRole })
-    .onConflictDoUpdate({
-      target: [teamMembers.teamId, teamMembers.userId],
-      set: {
-        role: sql`CASE WHEN ${teamMembers.role} = 'admin' THEN 'admin' ELSE ${membershipRole} END`,
-      },
-    });
+    .values({ teamId: team.id, userId, role: membershipRole });
+  const target = [teamMembers.teamId, teamMembers.userId];
+  await (fixture
+    ? membership.onConflictDoNothing({ target })
+    : membership.onConflictDoUpdate({ target, set: { role: membershipRole } }));
   return team;
 }

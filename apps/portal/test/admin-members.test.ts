@@ -219,12 +219,32 @@ test("admin removal of a team's creator is refused, not performed", async () => 
   assert.equal(removed.status, 403);
   assert.equal(removed.body.error.code, "cannot_remove_creator");
   // Same refusal as the team page's own path. It must not send staff to
-  // GitHub: the stored role is only re-read when the admin opens team
-  // settings, and a creator who owns the fork cannot be demoted there at all.
-  // Nor may it promise the admin can manage the team: a creator with write
-  // access is stored as admin but refused settings (routes/team.ts).
+  // GitHub: the stored role is only re-read on that member's own team read
+  // (routes/team.ts), and an owner of the fork cannot be demoted there at all.
   assert.equal(removed.body.error.message, "A team admin can't be removed.");
   assert.equal(await h.roleOf("team_a", creatorId), "admin");
+});
+
+test("an assigned TA can still rename a team whose members hold no admin role", async () => {
+  // A team started by a write collaborator has no admin in the portal until
+  // someone with admin on GitHub reads it. Its settings belong to that
+  // student; the staff edit stays available through the TA's assignment.
+  const h = harness();
+  await h.seedCohorts();
+  await h.seedTeam("team_a");
+  const ta = await h.signIn("tara", null);
+  await h.signIn("writer");
+  await h.db.insert(teamMembers).values({ teamId: "team_a", userId: await h.userId("writer"), role: "write" });
+  await h.db.insert(teamTas).values({ teamId: "team_a", userId: await h.userId("tara"), assignedAt: 1 });
+
+  const renamed = await h.call("PATCH", "/admin/teams/team_a", { cookie: ta, body: { name: "Renamed by staff" } });
+  assert.equal(renamed.status, 200);
+  const [team] = await h.db.select({ name: teams.name }).from(teams).where(eq(teams.id, "team_a"));
+  assert.equal(team?.name, "Renamed by staff");
+
+  await h.seedTeam("team_b");
+  const elsewhere = await h.call("PATCH", "/admin/teams/team_b", { cookie: ta, body: { name: "Not mine" } });
+  assert.equal(elsewhere.status, 403);
 });
 
 test("admin removal of an ordinary member still works", async () => {
