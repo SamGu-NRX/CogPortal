@@ -39,7 +39,6 @@ import {
   buildProcessSignals,
   classifyHistoryQuality,
   findingSentences,
-  HISTORY_FETCH_FAILED,
 } from "../services/process-signals";
 import type { RosterMember, RunRecord, WeekLabel } from "../services/process-signals";
 
@@ -226,21 +225,19 @@ const StoredCommitHistorySchema = z.object({
   repository: z.string(),
   branch: z.string(),
   checkedAt: z.number(),
-  result: z.discriminatedUnion("ok", [
-    z.object({
-      ok: z.literal(true),
-      commits: z.array(z.object({
-        sha: z.string(),
-        authorLogin: z.string(),
-        authoredAt: z.number(),
-        filesChanged: z.array(z.string()),
-        coAuthors: z.array(z.object({ name: z.string(), email: z.string() })),
-      }) satisfies z.ZodType<CommitRecord>),
-      truncated: z.boolean(),
-    }),
-    // Unauthorized is never stored; see `readCommitHistory`.
-    z.object({ ok: z.literal(false), reason: z.enum(["not_found", "rate_limited", "fetch_failed"]) }),
-  ]),
+  // Only successful reads; see `readCommitHistory`. A failure row written
+  // before that rule is a miss.
+  result: z.object({
+    ok: z.literal(true),
+    commits: z.array(z.object({
+      sha: z.string(),
+      authorLogin: z.string(),
+      authoredAt: z.number(),
+      filesChanged: z.array(z.string()),
+      coAuthors: z.array(z.object({ name: z.string(), email: z.string() })),
+    }) satisfies z.ZodType<CommitRecord>),
+    truncated: z.boolean(),
+  }),
 });
 
 async function readCommitHistory(
@@ -289,20 +286,19 @@ async function readCommitHistory(
       : { ok: false, reason: "fetch_failed" };
   }
 
-  // Storing a GitHub 401 would keep asking the student to sign in again
-  // after their new sign-in succeeds.
-  let storable: z.infer<typeof StoredCommitHistorySchema>["result"] | null = null;
-  if (result.ok) storable = result;
-  else if (result.reason !== "unauthorized") storable = { ok: false, reason: result.reason };
-  if (storable) {
+  // History is stored for the whole team, and any failure can belong to this
+  // caller alone: no token or a failed token lookup, an expired sign-in (401),
+  // their token's rate limit, or a private repository their token cannot see
+  // (404). Stored, it would hide a teammate's good read for thirty minutes.
+  if (result.ok) {
     const signalsJson = JSON.stringify({
       kind: "commit-history.v1",
       repository: team.repoFullName,
       branch: team.defaultBranch,
       checkedAt: now,
-      result: storable,
+      result,
     } satisfies z.infer<typeof StoredCommitHistorySchema>);
-    const historyQuality = storable.ok ? classifyHistoryQuality(storable.commits) : HISTORY_FETCH_FAILED;
+    const historyQuality = classifyHistoryQuality(result.commits);
     if (new TextEncoder().encode(signalsJson).byteLength <= MAX_STORED_HISTORY_BYTES) {
       try {
         await db
