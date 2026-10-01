@@ -458,3 +458,38 @@ for (const route of ["single", "batch"] as const) {
     assert.match(JSON.stringify(runSurfaceMessage(run.env, published)), /Bench clear/);
   });
 }
+
+/**
+ * A silent run has no tick, so the publication that follows an accepted
+ * result is the only thing that would move the console and Discord off "lost
+ * contact". If the hub's database read fails then, its alarm must retry.
+ */
+test("a result accepted while publication fails still reaches the console", async (t) => {
+  const logged = t.mock.method(console, "error", () => undefined);
+  const run = await liveRun();
+  await run.send(heartbeat(0));
+  await run.goSilent();
+  await run.hub.alarm();
+  assert.equal(run.hub.scheduledAlarm, null);
+
+  // Only the hub's snapshot read touches run_metrics, so the route accepts the
+  // result and its background publication meets the outage.
+  const database = run.env.DB;
+  let outage = true;
+  // SAFETY: prepare is the only D1 method these routes and the hub call.
+  run.env.DB = { prepare(query: string) {
+    if (outage && /"run_metrics"/.test(query)) throw new Error("Transient database failure");
+    return database.prepare(query);
+  } } as unknown as Env["DB"];
+  assert.equal((await run.send(completed(1))).duplicate, false);
+  assert.match(String(logged.mock.calls.at(-1)?.arguments[0]), /run_surface_publish_failed/);
+  assert.equal(run.hub.messages.at(-1)!.silentSince !== null, true, "nothing new was shown");
+  assert.notEqual(run.hub.scheduledAlarm, null, "the failed publication left a retry armed");
+
+  outage = false;
+  await run.hub.alarm();
+  const delivered = run.hub.messages.at(-1)!;
+  assert.equal(delivered.status, "succeeded");
+  assert.equal(delivered.silentSince, null);
+  assert.equal(run.hub.scheduledAlarm, null, "a finished run stops ticking");
+});

@@ -145,6 +145,7 @@ async function homeView(
     "rerun_hosted",
   ];
   const currentRunId = latestSurface ? runSurfaceCurrentRunId(latestSurface) : null;
+  const silent = latestSurface?.status === "running" && latestSurface.silentSince !== null;
   const nextAction = latestSurface
     ? priority.find((action) => latestSurface.actions.includes(action)
       && (action !== "retry" || currentRunId !== null))
@@ -157,7 +158,7 @@ async function homeView(
           publish_result: "Publish result",
           promote_official: "Promote to official",
           verify_hosted: "Verify hosted",
-          open_console: "Open live console",
+          open_console: silent ? "Open console" : "Open live console",
           run_again: "Run again",
           rerun_hosted: "Rerun hosted",
           open_portal: "Open Cog*Portal",
@@ -179,7 +180,7 @@ async function homeView(
     ? metaLine([
         `${fmt(surfaceMark(latestSurface))} **${latestSurface.benchmark.title}**`,
         latestSurface.stage,
-        latestSurface.status === "running" && latestSurface.silentSince !== null ? "lost contact" : null,
+        silent ? "lost contact" : null,
         latestSurface.primaryMetric ? `**${metricValue(latestSurface.primaryMetric)}**` : null,
       ])
     : `${fmt("cog_flask")} The bench is ready. No shared runs yet.`;

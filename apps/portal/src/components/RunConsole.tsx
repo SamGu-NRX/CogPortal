@@ -155,6 +155,8 @@ export function RunConsole({
 }) {
   const headingRef = useRef<HTMLHeadingElement>(null);
   const retryFocusedRef = useRef(false);
+  const runAgainFocusedRef = useRef(false);
+  const dialogOpenerRef = useRef<HTMLElement | null>(null);
   const retryInFlightRef = useRef(false);
   const logRef = useRef<HTMLUListElement>(null);
   const logFocusedRef = useRef(false);
@@ -180,6 +182,7 @@ export function RunConsole({
   const timelineEvents = collapseRepeatedRunEvents(currentEvents);
   const failed = snapshot.status === "failed";
   const retryOffered = snapshot.actions.includes("retry") && currentRunId !== null && Boolean(onAction);
+  const runAgainOffered = (failed || silent) && snapshot.stage === "local" && snapshot.actions.includes("run_again");
 
   const retry = async () => {
     if (!retryOffered || !onAction || !currentRunId || retryInFlightRef.current || busyAction) return;
@@ -197,6 +200,15 @@ export function RunConsole({
       retryFocusedRef.current = false;
     }
   }, [retryOffered]);
+
+  // A silent run that reports again takes its Run again button with it.
+  useLayoutEffect(() => {
+    if (!runAgainOffered && runAgainFocusedRef.current) {
+      headingRef.current?.focus();
+      runAgainFocusedRef.current = false;
+    }
+  }, [runAgainOffered]);
+
   const failureEvent = [...currentEvents].reverse().find((event) => event.code.startsWith("run.failed."));
   const failureReason = snapshot.refusalHeadline || (failureEvent ? EVENT_COPY[failureEvent.code] : null);
   // A failed run's folded summary ends at its failure and never says the run
@@ -271,9 +283,14 @@ export function RunConsole({
     setPendingAction(null);
     setShowCommand(false);
     dialogRef.current?.close();
+    // The button that opened the dialog may have gone while it was open.
+    const opener = dialogOpenerRef.current;
+    dialogOpenerRef.current = null;
+    if (opener) (opener.isConnected ? opener : headingRef.current)?.focus();
   };
 
   const ask = (action: RunSurfaceAction) => {
+    dialogOpenerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     if (action === "run_again") {
       setShowCommand(true);
       return;
@@ -313,7 +330,7 @@ export function RunConsole({
   return (
     <section
       className={`run-console mx-auto w-full overflow-hidden rounded-surface border border-rule bg-paper-raised shadow-[0_1px_0_rgb(27_31_36/0.04),0_18px_40px_-28px_rgb(27_31_36/0.3)] ${embedded ? "max-w-[72rem]" : "max-w-6xl"}`}
-      aria-label={`Live run for ${snapshot.benchmark.title}`}
+      aria-label={`${silent ? "Run" : "Live run"} for ${snapshot.benchmark.title}`}
       aria-busy={snapshot.status === "running" && !silent}
       data-compact={compact || undefined}
     >
@@ -368,11 +385,13 @@ export function RunConsole({
             If @{snapshot.actor.login}'s run is still going, its result will appear here when it finishes. If it was stopped, run it again.
           </p>
         )}
-        {(failed || silent) && snapshot.stage === "local" && snapshot.actions.includes("run_again") && (
+        {runAgainOffered && (
           <div className="mt-4">
             <button
               type="button"
               className={buttonClass(failed ? "primary" : "ghost")}
+              onFocus={() => { runAgainFocusedRef.current = true; }}
+              onBlur={() => { runAgainFocusedRef.current = false; }}
               onClick={() => ask("run_again")}
             >
               Run again

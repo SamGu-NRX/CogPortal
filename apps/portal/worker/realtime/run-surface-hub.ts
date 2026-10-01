@@ -94,12 +94,15 @@ export class RunSurfaceHub extends DurableObject<Env> {
   private async snapshot(surfaceId: string, publish: boolean): Promise<RunSurfaceSnapshot> {
     return this.serialize(async () => {
       await this.ctx.storage.put("surfaceId", surfaceId);
-      const snapshot = await this.readAndBroadcast(surfaceId);
-      if (publish || ticking(snapshot)) {
+      const armBy = async (next: number) => {
         const currentAlarm = await this.ctx.storage.getAlarm();
-        const next = Date.now() + (ticking(snapshot) ? 250 : 1);
         if (currentAlarm == null || next < currentAlarm) await this.ctx.storage.setAlarm(next);
-      }
+      };
+      // Armed before the read: a silent run has no tick, so if this read
+      // fails, the alarm's own retry is what delivers an accepted result.
+      if (publish) await armBy(Date.now() + 250);
+      const snapshot = await this.readAndBroadcast(surfaceId);
+      if (publish || ticking(snapshot)) await armBy(Date.now() + (ticking(snapshot) ? 250 : 1));
       return snapshot;
     });
   }
