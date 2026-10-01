@@ -749,6 +749,42 @@ class AStageComputedOnceAndHandedOn(unittest.TestCase):
         self.assertEqual([name for name, _ in binding.fits], ["idfs"])
         self.assertEqual(binding.fits[0][1].label, "theirs.compute_idfs")
 
+    def test_a_fit_stage_stops_at_the_first_function_that_produces_it(self):
+        """Only the first hit is used, so a later candidate is never called:
+        Week 3's IDF fit otherwise went on to call `train.prep_data` on all
+        414,113 captions."""
+
+        module = _written(
+            "theirs",
+            "CALLED = []\n"
+            "def compute_idfs(corpus):\n"
+            "    return {word: 1.0 for word in corpus}\n"
+            "def zz_also_idfs(corpus):\n"
+            "    CALLED.append(corpus)\n"
+            "    return {word: 2.0 for word in corpus}\n"
+            "def embed(texts, idfs):\n    return [idfs[t] for t in texts]\n",
+        )
+        role = Role(
+            "search",
+            (
+                Stage(
+                    "idfs",
+                    prefers=("idf",),
+                    fit=True,
+                    fixture=(["a", "b", "c"],),
+                    produces=lambda v: isinstance(v, dict),
+                ),
+                Stage("text", produces=lambda v: isinstance(v, list), extras=("idfs",)),
+            ),
+        )
+
+        binding, refusal = resolve_chain(role, [module], (["a"],))
+
+        self.assertIsNone(refusal)
+        self.assertEqual(binding.fits[0][1].label, "theirs.compute_idfs")
+        # The text stage after it may still try it on its own input.
+        self.assertNotIn(["a", "b", "c"], module.CALLED)
+
     def test_a_fit_stage_nothing_produces_refuses_and_names_itself(self):
         module = _written("theirs", "def embed(texts, idfs):\n    return [1]\n")
         role = Role(
@@ -3840,10 +3876,6 @@ def _token_lists(value):
     )
 
 
-def _strings(value):
-    return isinstance(value, list) and all(isinstance(row, str) for row in value)
-
-
 def _vectors(value):
     return isinstance(value, list) and all(
         isinstance(row, list) and len(row) == 2 for row in value
@@ -3864,9 +3896,9 @@ class AFunctionTooSlowForOneItemIsNotCalledAgain(unittest.TestCase):
         "    time.sleep(30)\n"
         "def tokenize(text):\n"
         "    return text.split()\n"
-        "def clean(text):\n"
-        "    return text.lower()\n"
         "def embed(tokens):\n"
+        "    if isinstance(tokens, str):\n"
+        "        raise TypeError('embed takes tokens')\n"
         "    return [float(len(tokens)), 1.0]\n"
     )
 
@@ -3876,16 +3908,24 @@ class AFunctionTooSlowForOneItemIsNotCalledAgain(unittest.TestCase):
         if signal.getitimer(signal.ITIMER_REAL)[0]:
             self.skipTest("the test runner already owns an alarm")
 
-    def _resolve(self, module, stages, fixture=(["a b", "c"],)):
+    def _resolve(self, module, stages):
+        # A new list each search, because one of their functions here
+        # rewrites the caption list in place.
         with patch("cogbench.pipeline.CALL_TIMEOUT_SECONDS", 1):
-            return resolve_chain(Role("search", tuple(stages)), [module], fixture)
+            return resolve_chain(Role("search", tuple(stages)), [module], (["a b", "c"],))
 
     def _two_stages(self, produces=_vectors):
-        # Both stages hand over one string per item, so the second stage's
-        # items are the same kind as the first's.
+        # Week 3's text branch: the tokens stage is fusible, so the text
+        # stage is also probed with the very caption list the tokens stage
+        # was given, before it is probed with the token lists.
         return (
-            Stage("clean", per_item=True, produces=_strings),
-            Stage("text", per_item=True, produces=produces),
+            Stage("tokens", per_item=True, produces=_token_lists, fusible=True),
+            Stage(
+                "text",
+                per_item=True,
+                produces=produces,
+                accepts=lambda value: isinstance(value, (list, tuple)) and bool(value),
+            ),
         )
 
     def test_the_first_stage_tries_it_and_the_next_stage_does_not(self):
@@ -3895,11 +3935,14 @@ class AFunctionTooSlowForOneItemIsNotCalledAgain(unittest.TestCase):
 
         self.assertIsNone(refusal)
         self.assertEqual(
-            [step.label for step in binding.steps], ["theirs.clean", "theirs.embed"]
+            [step.label for step in binding.steps], ["theirs.tokenize", "theirs.embed"]
         )
-        # The whole list and its first item, then the second stage's list.
-        # Its first item is a string again, which already ran out of time.
-        self.assertEqual(module.CALLS, [["a b", "c"], "a b", ["a b", "c"]])
+        # The captions and the first caption once, not again when the text
+        # stage is probed with the same list; then the token lists, which
+        # are new input, and their first item.
+        self.assertEqual(
+            module.CALLS, [["a b", "c"], "a b", [["a", "b"], ["c"]], ["a", "b"]]
+        )
 
     def test_a_refusal_names_it(self):
         module = _written("theirs", self.SOURCE)
@@ -3919,7 +3962,58 @@ class AFunctionTooSlowForOneItemIsNotCalledAgain(unittest.TestCase):
         self._resolve(module, self._two_stages())
         self._resolve(module, self._two_stages())
 
-        self.assertEqual(len(module.CALLS), 6)
+        self.assertEqual(len(module.CALLS), 8)
+
+    def test_the_same_call_with_no_arguments_runs_once(self):
+        """Week 3's course_data and text_embedder fits both take nothing, so
+        each makes the identical call `prepare_everything()`."""
+
+        module = _written("theirs", self.SOURCE)
+        nothing = (
+            Stage("data", fit=True, optional=True, fixture=(), produces=dict),
+            Stage("tools", fit=True, optional=True, fixture=(), produces=callable),
+        )
+
+        self._resolve(module, nothing + self._two_stages())
+
+        self.assertEqual(module.CALLS.count(0), 1)
+
+    def test_an_equal_input_in_a_new_object_is_still_called(self):
+        def slow(items):
+            calls.append(items)
+            time.sleep(30)
+
+        calls = []
+        candidate = Candidate("theirs.slow", slow, "theirs")
+        with patch("cogbench.pipeline.CALL_TIMEOUT_SECONDS", 1), pipeline._scratch_cwd():
+            pipeline._call(candidate, (["a b"],))
+            pipeline._call(candidate, (["a b"],))
+
+        self.assertEqual(len(calls), 2)
+
+    def test_an_item_replaced_in_place_is_new_input(self):
+        """A tokenizer that rewrites the caption list in place hands the text
+        stage token lists at the indices the caption strings had."""
+
+        module = _written(
+            "theirs",
+            "import time\n"
+            "def token_a_embed(tokens):\n"
+            "    if isinstance(tokens, str):\n"
+            "        time.sleep(30)\n"
+            "    return [float(len(tokens)), 1.0]\n"
+            "def token_z_process(captions):\n"
+            "    captions[:] = [text.split() for text in captions]\n"
+            "    return captions\n",
+        )
+
+        binding, refusal = self._resolve(module, self._two_stages())
+
+        self.assertIsNone(refusal)
+        self.assertEqual(
+            [step.label for step in binding.steps],
+            ["theirs.token_z_process", "theirs.token_a_embed"],
+        )
 
     def test_looking_up_a_timeout_never_hashes_or_compares_their_classes(self):
         class Refuses(type):
