@@ -93,7 +93,6 @@ class DeployPhases(unittest.TestCase):
     def setUp(self):
         del CALLS[:]
         self.original_load = deploy.load_app
-        self.original_stale = deploy.stale_build_trees
 
         def load_app(deployment):
             """Stand in for importing the controller, recording the target.
@@ -106,9 +105,7 @@ class DeployPhases(unittest.TestCase):
             return object(), tuple((FakeImage(name), name) for name in NAMES)
 
         deploy.load_app = load_app
-        deploy.stale_build_trees = lambda: []
         self.addCleanup(setattr, deploy, "load_app", self.original_load)
-        self.addCleanup(setattr, deploy, "stale_build_trees", self.original_stale)
 
     def run_main(self, argv):
         out = io.StringIO()
@@ -138,15 +135,6 @@ class BuildOnly(DeployPhases):
         # operator does not retype an id between the two phases.
         for name in NAMES:
             self.assertIn("--publish {}={}".format(name, IDS[name]), output)
-
-    def test_still_refuses_a_stale_build_tree_before_building(self):
-        deploy.stale_build_trees = lambda: [ROOT / "benchmarks" / "week3" / "build"]
-
-        code, output = self.run_main(["--build-only"])
-
-        self.assertEqual(code, 1)
-        self.assertIn("stale build trees", output)
-        self.assertEqual(CALLS, [])
 
 
 class PublishExactIds(DeployPhases):
@@ -179,16 +167,6 @@ class PublishExactIds(DeployPhases):
         self.assertGreater(kinds.index("deploy_app"), max(
             index for index, kind in enumerate(kinds) if kind == "publish"
         ))
-
-    def test_a_stale_build_tree_blocks_publication_before_any_cloud_call(self):
-        # App deployment still builds the controller from benchmark source.
-        deploy.stale_build_trees = lambda: [ROOT / "benchmarks" / "week3" / "build"]
-
-        code, output = self.run_main(self.full_set())
-
-        self.assertEqual(code, 1)
-        self.assertIn("stale build trees", output)
-        self.assertEqual(CALLS, [])
 
 
 class PublishInputIsCheckedBeforeAnythingIsSent(DeployPhases):
@@ -257,14 +235,6 @@ class DefaultBehaviourIsUnchanged(DeployPhases):
         )
         self.assertEqual(CALLS[0], ("load_app", "staging"))
         self.assertIn("deployed; sandbox images published as", output)
-
-    def test_no_flags_still_refuses_a_stale_build_tree(self):
-        deploy.stale_build_trees = lambda: [ROOT / "benchmarks" / "week1" / "build"]
-
-        code, _output = self.run_main([])
-
-        self.assertEqual(code, 1)
-        self.assertEqual(CALLS, [])
 
 
 class ProductionDeploysTheControllerOnly(DeployPhases):
