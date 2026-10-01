@@ -73,7 +73,7 @@ export function TeamPage() {
 
 /* ── Name and description ──────────────────────────────────────────────── */
 
-const titleClass = "text-[clamp(2rem,1.5rem+2vw,2.75rem)] text-ink";
+const titleClass = "text-[clamp(2rem,1.5rem+2vw,2.75rem)] text-ink wrap-anywhere";
 
 /** A quiet pencil control that sits on the line it edits. */
 function EditControl({
@@ -489,10 +489,16 @@ function ChangeRepository({ currentFullName }: { currentFullName: string }) {
   const repos = useRepositories(open);
   const change = useChangeTeamRepo();
   const toggle = useRef<HTMLButtonElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
   const returning = useRef(false);
+  const labelId = useId();
 
+  // The toggle unmounts as the panel opens, so without this focus falls to
+  // the page. From the panel, the next Tab reaches the first repository.
   useEffect(() => {
-    if (!open && returning.current) {
+    if (open) {
+      panel.current?.focus();
+    } else if (returning.current) {
       returning.current = false;
       toggle.current?.focus();
     }
@@ -519,8 +525,14 @@ function ChangeRepository({ currentFullName }: { currentFullName: string }) {
   }
 
   return (
-    <div className="anim-rise mt-4 rounded-surface border border-rule bg-paper-raised p-4 sm:p-5">
-      <p className="u-label mb-3">Pick the repository your next run starts from</p>
+    <div
+      ref={panel}
+      role="group"
+      aria-labelledby={labelId}
+      tabIndex={-1}
+      className="anim-rise mt-4 rounded-surface border border-rule bg-paper-raised p-4 sm:p-5"
+    >
+      <p id={labelId} className="u-label mb-3">Pick the repository your next run starts from</p>
       {repos.isPending ? (
         <LoadingMark label="Listing repositories" />
       ) : repos.isError ? (

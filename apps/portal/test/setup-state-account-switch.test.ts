@@ -90,7 +90,7 @@ function harness(t: test.TestContext) {
   const server = portal();
   const globals = {
     window, document: window.document, navigator: window.navigator,
-    HTMLElement: window.HTMLElement, React, IS_REACT_ACT_ENVIRONMENT: true,
+    HTMLElement: window.HTMLElement, ResizeObserver: window.ResizeObserver, React, IS_REACT_ACT_ENVIRONMENT: true,
     fetch: server.fetch,
   };
   const previous = new Map(Object.keys(globals).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
