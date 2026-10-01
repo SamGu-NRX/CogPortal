@@ -1,5 +1,5 @@
 import type { Context, Hono } from "hono";
-import { and, eq, exists, lt, ne, notInArray, sql } from "drizzle-orm";
+import { and, eq, exists, isNotNull, isNull, lt, ne, notInArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { PreparedEnvironmentV1Schema, RunEventV1Schema, RunJobV1Schema, type RunEventV1 } from "@cogworks/contracts/protocol";
 import type { RunPhase, RunStreamEventCode } from "@cogworks/contracts/schema";
@@ -247,6 +247,13 @@ async function applyEvent(env: AppEnv["Bindings"], event: RunEventV1): Promise<v
   } else {
     await db.batch([
       terminalNotice,
+      // Close what actually ran, at the failure's own time. A stage whose
+      // status never arrived has no start, and a failure doesn't invent one:
+      // run_cad957b208 failed in contract_check while its last report was
+      // installing, and was left with installing open on a terminal run.
+      db.update(runPhases).set({ endedAt: event.occurredAt }).where(and(
+        eq(runPhases.runId, run.id), isNotNull(runPhases.startedAt), isNull(runPhases.endedAt), activeExists,
+      )),
       db.update(runs).set({
         status: "failed",
         finishedAt: event.occurredAt,

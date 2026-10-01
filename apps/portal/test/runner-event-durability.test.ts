@@ -18,6 +18,7 @@ import { serializeRunDetail } from "../worker/http/serializers.ts";
 import { publishOfficialRun, type RunActor } from "../worker/services/run-actions.ts";
 import { readRunAccounting } from "../worker/services/run-accounting.ts";
 import { FIXTURE_REPO } from "@cogworks/contracts/fixtures";
+import { RUN_PHASES } from "@cogworks/contracts/schema";
 import { PreparedEnvironmentV1Schema, RunJobV1Schema, type PreparedEnvironmentV1 } from "@cogworks/contracts/protocol";
 
 /**
@@ -489,6 +490,76 @@ for (const mode of ["practice", "official"] as const) {
     assert.equal(failed.log, mode === "practice" ? failure.sanitizedLog : null);
   });
 }
+
+/** run_cad957b208's shape: Install was the last stage the runner reported,
+ *  then the failure named Contract check, whose status never arrived. */
+async function seedStartedInstall(harness: ReturnType<typeof freshHarness>) {
+  await seedRun(harness.db, { mode: "practice" });
+  await harness.db.update(runs).set({ status: "queued" }).where(eq(runs.id, "run_1"));
+  await harness.db.insert(runPhases).values(
+    RUN_PHASES.map((phase) => ({ runId: "run_1", phase, startedAt: phase === "queued" ? NOW : null, endedAt: null })),
+  );
+  const app = route();
+  for (const [sequence, status] of [[1, "preparing"], [2, "installing"]] as const) {
+    assert.equal((await post(app, harness.binding, {
+      protocolVersion: "1", eventId: `evt_status_${sequence}`, runId: "run_1",
+      sequence, occurredAt: NOW + sequence * 1_000, type: "status", status,
+    })).status, 200);
+  }
+  return app;
+}
+
+const phaseTimes = async (db: Database) => Object.fromEntries(
+  (await db.select().from(runPhases)).map((row) => [row.phase, [row.startedAt, row.endedAt]]),
+);
+
+test("a failure closes the stages that started, at its own time, and invents none", async () => {
+  const harness = freshHarness();
+  const app = await seedStartedInstall(harness);
+  const failure = { ...infrastructureFailureEvent(), sequence: 3, occurredAt: NOW + 5_000, failure: {
+    category: "adapter_missing", phase: "contract_check", detail: "No adapter found.", infrastructure: false,
+  } };
+  assert.equal((await post(app, harness.binding, failure)).status, 200);
+  const settled = await phaseTimes(harness.db);
+  assert.deepEqual(settled, {
+    queued: [NOW, NOW + 1_000],
+    preparing: [NOW + 1_000, NOW + 2_000],
+    installing: [NOW + 2_000, NOW + 5_000],
+    // Its status event never arrived, so it has no start to close.
+    contract_check: [null, null],
+    evaluating: [null, null],
+    scoring: [null, null],
+  });
+  // A replay, a status that arrives after the failure, and an earlier failure
+  // delivered late all leave the settled record alone.
+  assert.equal((await post(app, harness.binding, failure)).body.duplicate, true);
+  for (const late of [
+    { protocolVersion: "1", eventId: "evt_status_4", runId: "run_1", sequence: 4,
+      occurredAt: NOW + 6_000, type: "status", status: "contract_check" },
+    { ...failure, eventId: "evt_failed_early", sequence: 2, occurredAt: NOW + 9_000 },
+  ]) {
+    assert.equal((await post(app, harness.binding, late)).status, 200);
+    assert.deepEqual(await phaseTimes(harness.db), settled);
+  }
+});
+
+test("a failure read before the reaper settled the run closes nothing afterwards", async () => {
+  const harness = freshHarness();
+  const app = await seedStartedInstall(harness);
+  const barrier = harness.pauseAfterRead(/^select "id", "team_id", .* from "runs"/i);
+  const pending = post(app, harness.binding, { ...infrastructureFailureEvent(), sequence: 3 });
+  await barrier.reached;
+  let reaped: Awaited<ReturnType<typeof phaseTimes>>;
+  try {
+    await maintainPlatform(env(harness.binding), NOW + 3_600_001);
+    assert.equal((await counts(harness.db)).run.status, "failed");
+    reaped = await phaseTimes(harness.db);
+  } finally {
+    barrier.release();
+  }
+  assert.equal((await pending).status, 200);
+  assert.deepEqual(await phaseTimes(harness.db), reaped);
+});
 
 /** A failure that is ours, so the attempt goes back. */
 function infrastructureFailureEvent() {
