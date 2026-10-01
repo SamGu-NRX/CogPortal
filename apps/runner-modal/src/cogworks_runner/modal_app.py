@@ -1941,15 +1941,11 @@ def _evaluation_failure(
 ) -> RunnerFailure:
     """The failure for an evaluation process that exited nonzero, in every lane.
 
-    One function because each lane used to carry its own copy, and the Week 2
-    copy never checked the clock, so a vision run killed at its budget was
-    reported as an exception (B-11).
-
     Only two outcomes, and no platform-fault branch: see
     `_platform_owned_evaluation_failure`. A timeout is decided from elapsed
-    time alone. Anything else is `student_runtime`, the
-    category for "the evaluation raised", which the portal words without
-    claiming whose code it was, because nothing here can establish that.
+    time alone. Anything else is `student_runtime`, the category for "the
+    evaluation raised", which the portal words without claiming whose code it
+    was, because nothing here can establish that.
     """
 
     if _timed_out(job, started):
@@ -1963,10 +1959,17 @@ def _evaluation_failure(
         )
     log = None
     if job["mode"] == "practice":  # official runs never send a log, so never read one
+        # Written by the sandbox's own failure handler, and absent when the
+        # process was killed or exited before reaching it. The submission can
+        # replace it, and `read_bytes` downloads a whole file, so only a plain
+        # file no larger than the handler writes is read: its buffer keeps
+        # `maxOutputBytes` characters and a one-line marker, at most four
+        # bytes of UTF-8 each.
+        path = "/tmp/cog-student.log"
         try:
-            # Written by the sandbox's own failure handler; absent when the
-            # process was killed or exited before reaching it.
-            log = sandbox.filesystem.read_text("/tmp/cog-student.log")
+            info = sandbox.filesystem.stat(path)
+            if info.is_file() and info.size <= 4 * job["runtime"]["maxOutputBytes"] + 256:
+                log = sandbox.filesystem.read_bytes(path).decode("utf-8", "replace")
         except Exception:
             pass
     detail = _last_error_line(process.stderr.read().decode("utf-8", "replace"))

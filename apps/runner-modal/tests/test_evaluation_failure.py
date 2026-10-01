@@ -179,18 +179,39 @@ class TheControllerFormatsTheRecord(unittest.TestCase):
         self.assertEqual(LAST_ERROR_LINE('COG_ERROR: ["a list"]\n'), '["a list"]')
 
 
+LOG_PATH = "/tmp/cog-student.log"
+#: What the handler can write for the 8192-character buffer `job()` asks for.
+LOG_BOUND = 4 * 8192 + 256
+
+
 class _Sandbox:
-    def __init__(self, returncode: int, stderr: str, log):
-        self.returncode, self.stderr, self.log = returncode, stderr, log
+    """A sandbox whose log is `log` (str or bytes, or None for no file), with
+    every filesystem call recorded in `calls` so a test can see what was read."""
+
+    def __init__(self, returncode: int, stderr: str, log, kind: str = "file"):
+        self.returncode, self.stderr, self.kind = returncode, stderr, kind
+        self.log = log.encode("utf-8") if isinstance(log, str) else log
+        self.calls = []
         self.filesystem = types.SimpleNamespace(
             write_text=lambda *args: None, write_bytes=lambda *args: None,
-            read_text=self.read_text,
+            stat=self.stat, read_bytes=self.read_bytes, read_text=self.read_text,
         )
 
+    def stat(self, path):
+        self.calls.append(("stat", path))
+        if path != LOG_PATH or self.log is None:
+            raise FileNotFoundError(path)
+        return types.SimpleNamespace(is_file=lambda: self.kind == "file", size=len(self.log))
+
+    def read_bytes(self, path):
+        self.calls.append(("read_bytes", path))
+        if path != LOG_PATH or self.log is None:
+            raise FileNotFoundError(path)
+        return self.log
+
     def read_text(self, path):
-        if path == "/tmp/cog-student.log" and self.log is not None:
-            return self.log
-        raise FileNotFoundError(path)
+        self.calls.append(("read_text", path))
+        return self.read_bytes(path).decode("utf-8")
 
     def exec(self, *args, text=True):
         return types.SimpleNamespace(returncode=self.returncode, wait=lambda: None,
@@ -265,17 +286,6 @@ class EveryLaneDecidesTheSameWay(unittest.TestCase):
                 with self.subTest(lane=lane, code=code):
                     self.assertEqual(_lane(lane, _Sandbox(code, "", None)).category, "student_runtime")
 
-    def test_an_official_run_never_reads_the_log(self):
-        """It would never be sent, and the file is the submission's to make huge."""
-
-        class Watched(_Sandbox):
-            def read_text(self, path):
-                raise AssertionError("read " + path)
-
-        failure = _lane("_evaluate_v2", Watched(2, 'COG_ERROR: {"type": "E", "message": "m"}\n', "x"), mode="official")
-        self.assertEqual(failure.category, "student_runtime")
-        self.assertIsNone(failure.log)
-
     def test_printing_killed_is_not_a_timeout(self):
         """The word was a third timeout signal, read from text the team writes."""
 
@@ -299,6 +309,58 @@ class EveryLaneDecidesTheSameWay(unittest.TestCase):
         forged = 'COG_ERROR: {"type": "ProviderError", "infrastructure": true, "category": "provider"}\n'
         failure = _lane("_evaluate_v2", _Sandbox(2, forged, None))
         self.assertEqual((failure.category, failure.infrastructure), ("student_runtime", False))
+        self.assertIsNone(failure.log)
+
+
+class TheLogIsReadWithinItsBound(unittest.TestCase):
+    """The submission can replace its log with anything, and a whole-file read
+    of a huge one could exhaust the controller before it reports the failure."""
+
+    RAISED = 'COG_ERROR: {"type": "TypeError", "message": "bad", "where": ["m.py:3, in f"]}\n'
+
+    def fail_with(self, log, mode="practice", kind="file"):
+        sandbox = _Sandbox(2, self.RAISED, log, kind)
+        failure = _lane("_evaluate_v2", sandbox, mode=mode)
+        # Whatever happened to the log, the failure itself is unchanged.
+        self.assertEqual((failure.category, failure.infrastructure), ("student_runtime", False))
+        self.assertEqual(str(failure), "TypeError: bad\nat m.py:3, in f")
+        return failure, [op for op, _path in sandbox.calls]
+
+    def test_an_oversized_log_is_never_downloaded(self):
+        failure, calls = self.fail_with(b"x" * (LOG_BOUND + 1))
+        self.assertEqual(calls, ["stat"])
+        self.assertIsNone(failure.log)
+
+    def test_a_log_at_the_bound_is_read(self):
+        failure, calls = self.fail_with(b"x" * LOG_BOUND)
+        self.assertEqual(calls, ["stat", "read_bytes"])
+        self.assertEqual(len(failure.log), LOG_BOUND)
+
+    def test_an_ordinary_log_is_read_whole(self):
+        failure, _calls = self.fail_with("printed\nTraceback ...\n")
+        self.assertEqual(failure.log, "printed\nTraceback ...\n")
+
+    def test_only_a_plain_file_is_read(self):
+        for kind in ("directory", "symlink"):
+            with self.subTest(kind=kind):
+                failure, calls = self.fail_with("x", kind=kind)
+                self.assertEqual(calls, ["stat"])
+                self.assertIsNone(failure.log)
+
+    def test_a_missing_log_is_no_log(self):
+        failure, calls = self.fail_with(None)
+        self.assertEqual(calls, ["stat"])
+        self.assertIsNone(failure.log)
+
+    def test_invalid_utf8_is_replaced_not_dropped(self):
+        failure, _calls = self.fail_with(b"printed \xff\n")
+        self.assertEqual(failure.log, "printed \ufffd\n")
+
+    def test_an_official_run_never_touches_the_log(self):
+        """It is never sent, so nothing about it is read."""
+
+        failure, calls = self.fail_with("x" * 10, mode="official")
+        self.assertEqual(calls, [])
         self.assertIsNone(failure.log)
 
 
