@@ -8,6 +8,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Window } from "happy-dom";
 import type { Session } from "@cogworks/contracts/schema";
 import { nextStagePath, RequireStage, RequireStaff } from "../src/App.tsx";
+import { AdminPage } from "../src/routes/AdminPage.tsx";
 import { SignInPage } from "../src/routes/SignInPage.tsx";
 import { rememberConnectionReturn } from "../src/lib/pending-return.ts";
 
@@ -57,7 +58,7 @@ test("the default landing follows the role matrix", () => {
 /** Mounts the guarded routes the way App does, with stub pages that name
  *  themselves, and reports where navigation settled. `pendingReturn` is the
  *  connection link a signed-out visit saved before sign-in. */
-async function navigate(value: Session, entry: string, { pendingReturn = "" } = {}) {
+async function navigate(value: Session, entry: string, { pendingReturn = "", realAdmin = false } = {}) {
   const window = new Window({ url: `https://portal.example${entry}` });
   const globals = {
     window, document: window.document, navigator: window.navigator,
@@ -72,6 +73,9 @@ async function navigate(value: Session, entry: string, { pendingReturn = "" } = 
   // Seeded and never stale, so no guard reaches for the network.
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
   client.setQueryData(["session"], value);
+  client.setQueryData(["admin", "overview"], {
+    scope: "ta", cohort: { slug: "bwsi", name: "BWSI", joinCode: null, active: true }, teams: [], unassigned: [],
+  });
   const container = window.document.createElement("div");
   window.document.body.append(container);
   // SAFETY: Happy DOM implements the Element operations used by React DOM.
@@ -101,7 +105,9 @@ async function navigate(value: Session, entry: string, { pendingReturn = "" } = 
           React.createElement(Route, { path: "/setup", element: page("setup", "team") }),
           React.createElement(Route, {
             path: "/admin",
-            element: React.createElement(RequireStaff, null, React.createElement(Where, { page: "admin" })),
+            element: React.createElement(RequireStaff, null,
+              realAdmin ? React.createElement(React.Fragment, null, React.createElement(AdminPage), React.createElement(Where, { page: "admin" }))
+                : React.createElement(Where, { page: "admin" })),
           }),
           React.createElement(Route, { path: "/", element: page("front") }),
         ),
@@ -109,6 +115,8 @@ async function navigate(value: Session, entry: string, { pendingReturn = "" } = 
     ),
   ));
   const keptReturn = window.sessionStorage.getItem("cogportal.pendingReturn");
+  const text = container.textContent ?? "";
+  const links = [...container.querySelectorAll("a")].map((node) => [node.textContent, node.getAttribute("href")]);
   await act(async () => root.unmount());
   client.clear();
   await window.happyDOM.close();
@@ -116,7 +124,7 @@ async function navigate(value: Session, entry: string, { pendingReturn = "" } = 
     if (descriptor) Object.defineProperty(globalThis, key, descriptor);
     else Reflect.deleteProperty(globalThis, key);
   }
-  return { settled, keptReturn };
+  return { settled, keptReturn, text, links };
 }
 
 test("staff and TAs without a team enter the console from team pages and sign-in", async () => {
@@ -165,4 +173,21 @@ test("teamless staff are not left looping on an approval the server would refuse
   );
   assert.equal(settled, "admin /admin");
   assert.equal(keptReturn, null);
+});
+
+test("teamless staff who follow a device link learn on the console why it waits", async () => {
+  // The approval needs a team, so the guard sends them to the console. It
+  // used to say nothing there while `cogworks link` kept polling.
+  const { settled, text, links } = await navigate(
+    session("staff", { cohort: false }),
+    "/connections?user_code=ABCD-EFGH-IJKL&return_to=setup",
+    { realAdmin: true },
+  );
+  assert.equal(settled, "admin /admin");
+  assert.match(text, /Your device link is on hold/);
+  assert.match(text, /Ctrl\+C stops it/);
+  assert.ok(text.includes("cogworks link --portal https://portal.example"));
+  // Joining a team is offered, not required: the link goes to onboarding by
+  // name, and nothing is approved or changed on the way.
+  assert.deepEqual(links, [["join a team", "/connect"]]);
 });
