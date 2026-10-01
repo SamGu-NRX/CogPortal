@@ -1352,7 +1352,7 @@ _RAISED: List[Raised] = []
 #: Cleared with the scratch directory.
 #:
 #: Only the same call: the same function object handed the same argument
-#: objects, or item k of the same container in a per-item spread. A stage,
+#: objects. A stage,
 #: shape, branch pass or form that reaches it again repeats work that already
 #: ran out of time on exactly these inputs. Nothing wider is inferred from a
 #: timeout, because the input can be what made it slow: the IDF fit passes
@@ -1366,34 +1366,25 @@ _RAISED: List[Raised] = []
 #: Measured on a 2026 Language repository in the course environment:
 #: `train.prep_data`, which parses all of GloVe and embeds every COCO
 #: caption, ran out of the clock 13 times in one check, 132 of its 295
-#: seconds against a 300-second limit, and `train.train` twice. Six of those
+#: seconds against a 300-second limit, and `train.train` twice. Five of those
 #: fifteen were the same call made again.
 _TIMED_OUT: Dict[Tuple[Any, ...], Tuple[Any, ...]] = {}
 
 
 def _exact_call(
-    candidate: Candidate,
-    args: Sequence[Any],
-    keywords: Dict[str, Any],
-    spread: Optional[Tuple[Any, int, Any]],
+    candidate: Candidate, args: Sequence[Any], keywords: Dict[str, Any]
 ) -> Tuple[Any, ...]:
-    """This call, as the function and the identity of what it is handed.
+    """This call, as the function and the identity of each argument object.
 
-    ``spread`` is ``(container, index, item)`` for a per-item call. The item
-    is named by its container and index rather than by its own id, because
-    indexing an array makes a new row object every time. Only ids are hashed,
-    so a value or class of theirs is never hashed or compared.
+    Identity rather than position: a per-item spread over a list whose items
+    their code replaced in place hands over new objects at the same index,
+    and those are new input. Only ids are hashed, so a value or class of
+    theirs is never hashed or compared.
     """
 
-    named: List[Any] = []
-    for arg in args:
-        if spread is not None and arg is spread[2]:
-            named.append(("item", id(spread[0]), spread[1]))
-        else:
-            named.append(id(arg))
     return (
         id(candidate.call),
-        tuple(named),
+        tuple(id(arg) for arg in args),
         tuple(sorted((name, id(value)) for name, value in keywords.items())),
     )
 
@@ -1530,19 +1521,14 @@ def _their_root(modules: Sequence[Any]) -> Optional["Path"]:
 
 
 def _call(
-    candidate: Candidate,
-    positional: Sequence[Any],
-    index: Optional[int] = None,
-    *,
-    spread: Optional[Tuple[Any, int, Any]] = None,
+    candidate: Candidate, positional: Sequence[Any], index: Optional[int] = None
 ) -> Tuple[bool, Any]:
     """Call one candidate under a clock. Any failure is just a no.
 
     ``positional`` is what the chain carries: the value, or the arguments a
     fixture is made of. Everything else the call needs is on the candidate as
     a plan, and is filled in here so that this call and the one a scored run
-    makes later are produced by the same lines. ``spread`` names the item of
-    a per-item call (see `_exact_call`).
+    makes later are produced by the same lines.
 
     A no caused by their own code raising is written down first (see
     `_record_raise`); the search does not read it, and a refusal does.
@@ -1561,7 +1547,7 @@ def _call(
         return False, None
     exact = None
     if candidate.attribute is None and not candidate.self_only and _SCRATCH is not None:
-        exact = _exact_call(candidate, args, keywords, spread)
+        exact = _exact_call(candidate, args, keywords)
         if exact in _TIMED_OUT:
             return False, None
     own_clock = not hasattr(signal, "getitimer") or signal.getitimer(signal.ITIMER_REAL)[0] == 0
@@ -1571,7 +1557,7 @@ def _call(
         )
     except BaseException as error:  # noqa: BLE001 - student code raises anything
         if isinstance(error, _Timeout) and own_clock and exact is not None:
-            _TIMED_OUT.setdefault(exact, (candidate, args, keywords, spread))
+            _TIMED_OUT.setdefault(exact, (candidate, args, keywords))
         _record_raise(candidate, error)
         return False, None
     return True, result
@@ -2423,7 +2409,7 @@ def _mapped(candidate: Candidate, fixture: Sequence[Any]) -> Tuple[bool, Any]:
     for index, item in enumerate(items):
         # The index goes with the call: the only thing that differs between
         # items is which one's name the identity slot holds.
-        ok, value = _call(candidate, (item,) + rest, index, spread=(items, index, item))
+        ok, value = _call(candidate, (item,) + rest, index)
         if not ok or value is None:
             return False, None
         produced.append(value)

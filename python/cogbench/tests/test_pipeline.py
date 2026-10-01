@@ -3908,9 +3908,11 @@ class AFunctionTooSlowForOneItemIsNotCalledAgain(unittest.TestCase):
         if signal.getitimer(signal.ITIMER_REAL)[0]:
             self.skipTest("the test runner already owns an alarm")
 
-    def _resolve(self, module, stages, fixture=(["a b", "c"],)):
+    def _resolve(self, module, stages):
+        # A new list each search, because one of their functions here
+        # rewrites the caption list in place.
         with patch("cogbench.pipeline.CALL_TIMEOUT_SECONDS", 1):
-            return resolve_chain(Role("search", tuple(stages)), [module], fixture)
+            return resolve_chain(Role("search", tuple(stages)), [module], (["a b", "c"],))
 
     def _two_stages(self, produces=_vectors):
         # Week 3's text branch: the tokens stage is fusible, so the text
@@ -3988,6 +3990,30 @@ class AFunctionTooSlowForOneItemIsNotCalledAgain(unittest.TestCase):
             pipeline._call(candidate, (["a b"],))
 
         self.assertEqual(len(calls), 2)
+
+    def test_an_item_replaced_in_place_is_new_input(self):
+        """A tokenizer that rewrites the caption list in place hands the text
+        stage token lists at the indices the caption strings had."""
+
+        module = _written(
+            "theirs",
+            "import time\n"
+            "def token_a_embed(tokens):\n"
+            "    if isinstance(tokens, str):\n"
+            "        time.sleep(30)\n"
+            "    return [float(len(tokens)), 1.0]\n"
+            "def token_z_process(captions):\n"
+            "    captions[:] = [text.split() for text in captions]\n"
+            "    return captions\n",
+        )
+
+        binding, refusal = self._resolve(module, self._two_stages())
+
+        self.assertIsNone(refusal)
+        self.assertEqual(
+            [step.label for step in binding.steps],
+            ["theirs.token_z_process", "theirs.token_a_embed"],
+        )
 
     def test_looking_up_a_timeout_never_hashes_or_compares_their_classes(self):
         class Refuses(type):
