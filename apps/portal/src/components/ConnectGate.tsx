@@ -74,21 +74,23 @@ export function ConnectGate({
 
   return (
     <section
-      className={`w-full max-w-lg border border-rule bg-paper-raised ${compact ? "p-5" : "p-7"}`}
+      className={`w-full max-w-lg rounded-surface border border-rule bg-paper-raised ${compact ? "p-4" : "p-6 sm:p-7"}`}
     >
-      {!compact && <div className="u-kicker">{copy.kicker}</div>}
+      {!compact && <p className="u-label">{copy.kicker}</p>}
       {/* Keyed on the swap, so the new sentence rises once and repeat checks
           leave it alone. */}
       <div key={waiting ? "waiting" : "idle"} className="anim-rise">
-        <h1 className={compact ? "text-xl" : "mt-3 text-4xl"}>
+        <h1
+          className={`text-ink text-balance ${compact ? "text-[19px] leading-[1.25]" : "mt-2 text-[clamp(1.5rem,1.2rem+1.5vw,2rem)] leading-[1.2]"}`}
+        >
           {waiting ? copy.waitingTitle : copy.title}
         </h1>
         {!waiting && !compact && (
-          <p className="mt-4 text-[14px] text-ink-secondary">{copy.body}</p>
+          <p className="mt-3 text-[15px] leading-[1.55] text-ink-secondary">{copy.body}</p>
         )}
       </div>
       <Button
-        className="mt-6"
+        className={compact ? "mt-4 w-full" : "mt-6"}
         busy={phase === "checking"}
         onClick={waiting ? onCheck : onOpen}
       >
@@ -96,10 +98,10 @@ export function ConnectGate({
         {!waiting && <LeavesForBrowser />}
       </Button>
       {waiting && !compact && (
-        <p className="mt-4">
+        <p className="mt-3">
           <button
             type="button"
-            className="inline-flex items-center gap-1.5 text-[12px] text-ink-secondary underline underline-offset-2"
+            className="u-link inline-flex min-h-11 items-center gap-1.5 text-[14px]"
             onClick={onOpen}
           >
             {copy.reopen}
@@ -109,7 +111,10 @@ export function ConnectGate({
       )}
       {/* Present before it has anything to say, so a screen reader announces the
           result of a press rather than silently gaining a paragraph. */}
-      <p role="status" className="mt-4 text-[13px] text-ink-secondary empty:mt-0">
+      <p
+        role="status"
+        className={`empty:mt-0 ${error ? "text-detect-deep" : "text-ink-secondary"} ${compact ? "mt-3 text-[13px]" : "mt-4 text-[14px]"}`}
+      >
         {note}
       </p>
     </section>

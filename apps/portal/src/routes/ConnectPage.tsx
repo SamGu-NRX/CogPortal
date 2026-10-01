@@ -2,17 +2,22 @@ import {
   ArrowLeft01Icon,
   ArrowRight01Icon,
   ArrowUpRight01Icon,
+  Cancel01Icon,
+  Search01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useState } from "react";
-import { Navigate, useNavigate } from "react-router";
+import { useEffect, useId, useRef, useState } from "react";
+import { Navigate, useLocation, useNavigate, useSearchParams } from "react-router";
 import { motion, useReducedMotion } from "motion/react";
 import type { CohortTeam, GithubRepo } from "@cogworks/contracts/schema";
 import { CornerBrackets } from "@/components/Brackets";
-import { Button } from "@/components/Button";
+import { Button, buttonClass } from "@/components/Button";
 import { DroppedLinkNotice } from "@/components/DroppedLinkNotice";
 import { LoadingMark, QueryError } from "@/components/Feedback";
 import { GrantAccess } from "@/components/GrantAccess";
+import { MemberAvatar } from "@/components/MemberAvatar";
+import { Annotated } from "@/components/Note";
+import { OnboardingPath } from "@/components/OnboardingPath";
 import { RepoPicker } from "@/components/RepoPicker";
 import { Veil } from "@/components/Veil";
 import { ApiRequestError } from "@/lib/api";
@@ -29,16 +34,44 @@ const JOIN_TEAMS_VISIBLE = 5;
 
 type WizardStep = "choice" | "join" | "start";
 
+/** Router state SetupPage reads once to acknowledge the moment the team
+ *  became real. The shape is the hand-off contract with the setup lane. */
+export type SetupArrival = { arrivedFrom: "created" | "joined"; teamName: string };
+
+/** Marks a history entry this page pushed, so the on-page back link can pop
+ *  it instead of stacking a second copy of the choice screen. */
+type WizardEntry = { wizard: true };
+
+function isWizardEntry(state: unknown): state is WizardEntry {
+  return typeof state === "object" && state !== null && "wizard" in state;
+}
+
+function readStep(value: string | null): WizardStep | null {
+  return value === "join" || value === "start" ? value : null;
+}
+
 /**
  * A short wizard, one decision per screen. Most students join a team someone
  * else started; the first one in forks the template and creates it. The
  * repository is the team either way.
+ *
+ * The chosen path lives in the URL (?path=join|start), so a phone's back
+ * gesture returns to the choice instead of leaving the page, and a reload
+ * keeps the student where they were.
  */
 export function ConnectPage() {
   const { data: session } = useSession();
   const cohortTeams = useCohortTeams();
+  // Shared with StartPath (same query key). Read here as well because a
+  // repository the student can already see that belongs to a team is the
+  // best evidence of which team is theirs.
+  const repos = useRepositories();
   const reduceMotion = useReducedMotion();
-  const [chosen, setChosen] = useState<WizardStep | null>(null);
+  const [params, setParams] = useSearchParams();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const shownStep = useRef<WizardStep | null>(null);
   // Owned here, not in the path components: once a join/create succeeds the
   // refreshed session gains a team, and this guard would otherwise redirect
   // to /dashboard, unmounting the mutation's onSuccess before it can
@@ -48,108 +81,235 @@ export function ConnectPage() {
   const settingUp =
     join.isPending || join.isSuccess || connect.isPending || connect.isSuccess;
 
+  const teams = cohortTeams.data ?? [];
+  const hasTeams = teams.length > 0;
+  // No teams yet means there is nothing to join; skip the choice screen.
+  const step: WizardStep = hasTeams ? (readStep(params.get("path")) ?? "choice") : "start";
+  const loading = cohortTeams.isPending || repos.isPending;
+
+  // A step change replaces the whole screen, so focus follows it to the new
+  // heading; otherwise a keyboard user is left on a button that no longer
+  // exists. Not on first arrival, where the page's own load order is right.
+  useEffect(() => {
+    if (loading) return;
+    if (shownStep.current !== null && shownStep.current !== step) {
+      headingRef.current?.focus({ preventScroll: true });
+    }
+    shownStep.current = step;
+  }, [step, loading]);
+
   if (session?.team && !settingUp) return <Navigate to="/dashboard" replace />;
 
-  if (cohortTeams.isPending) {
+  if (loading) {
     return (
-      <div className="mx-auto w-full max-w-lg py-14">
+      <div className="page [--measure:31rem]">
+        <OnboardingPath current="team" className="max-w-[31rem]" />
         <LoadingMark label="Checking the cohort" />
       </div>
     );
   }
 
-  const teams = cohortTeams.data ?? [];
-  const hasTeams = teams.length > 0;
-  // No teams yet means there is nothing to join; skip the choice screen.
-  const step: WizardStep = hasTeams ? (chosen ?? "choice") : "start";
   // An errored teams query must not masquerade as "no teams yet"; that
   // would quietly funnel everyone into creating duplicates.
   const teamsUnknown = cohortTeams.isError;
+  const template = session?.auth.templateRepo ?? null;
+  const visibleRepos = new Set((repos.data ?? []).map((repo) => repo.fullName));
+  const likely = teams.filter((team) => visibleRepos.has(team.repo.fullName));
+
+  const choose = (next: "join" | "start") =>
+    setParams({ path: next }, { state: { wizard: true } satisfies WizardEntry });
+  const backToChoice = () => {
+    if (isWizardEntry(location.state)) navigate(-1);
+    else setParams({}, { replace: true });
+  };
+
+  // One join at a time: only the pressed row disables, so the rest of the
+  // list stays pressable and a second press has to be refused here.
+  const joinTeam = (team: CohortTeam) => {
+    if (join.isPending) return;
+    join.mutate(team.id, {
+      onSuccess: () =>
+        navigate("/setup", {
+          replace: true,
+          state: { arrivedFrom: "joined", teamName: team.name } satisfies SetupArrival,
+        }),
+    });
+  };
 
   const back =
     hasTeams && step !== "choice" ? (
       <button
         type="button"
-        onClick={() => setChosen("choice")}
-        className="u-pressable mb-4 inline-flex min-h-9 items-center gap-1 font-mono text-[11px] tracking-[0.09em] text-ink-secondary uppercase hover:text-ink"
+        onClick={backToChoice}
+        className="u-pressable -ml-2 mb-3 inline-flex min-h-11 items-center gap-1 rounded-control px-2 text-[14px] font-semibold text-ink-secondary hover:text-ink"
       >
-        <HugeiconsIcon
-          icon={ArrowLeft01Icon}
-          size={14}
-          strokeWidth={1.8}
-          aria-hidden="true"
-        />
-        Both options
+        <HugeiconsIcon icon={ArrowLeft01Icon} size={16} strokeWidth={1.8} aria-hidden="true" />
+        Back
       </button>
     ) : null;
 
+  const title = "text-[clamp(2rem,1.5rem+2vw,2.5rem)] text-ink outline-none";
+
   return (
-    <div className="mx-auto w-full max-w-lg py-14">
-      <DroppedLinkNotice />
+    <div className="page [--measure:31rem]">
+      <OnboardingPath current="team" className="max-w-[31rem]" />
+      {/* Outside the keyed step, so the notice survives moving between
+          steps; it is consumed on first render and would not come back. */}
+      <DroppedLinkNotice className="mt-8 max-w-[31rem]" />
       <motion.div
         key={step}
-        initial={reduceMotion ? false : { opacity: 0, y: 6 }}
-        animate={{ opacity: 1, y: 0 }}
+        className="mt-10"
+        initial={reduceMotion ? false : { opacity: 0, transform: "translateY(6px)" }}
+        animate={{ opacity: 1, transform: "translateY(0px)" }}
         transition={{ duration: 0.2, ease: EASE_OUT }}
       >
         {step === "choice" ? (
           <>
-            <h1 className="text-3xl">Set up your team</h1>
-            <div className="mt-7 space-y-3">
-              <ChoiceCard
-                onSelect={() => setChosen("join")}
-                label="Join a team"
-                hint={`Someone on your team went first. Find them among the cohort's ${teams.length} ${teams.length === 1 ? "team" : "teams"}.`}
-              />
-              <ChoiceCard
-                onSelect={() => setChosen("start")}
-                label="Start a team"
-                hint={
-                  session?.auth.templateRepo
-                    ? "Fork the course template and connect your fork. You'll be the team's creator."
-                    : "Connect a public repository you can push to. You'll be the team's creator."
-                }
-              />
-            </div>
+            <header className="max-w-[31rem]">
+              <h1 ref={headingRef} tabIndex={-1} className={title}>
+                Join or start your team
+              </h1>
+              <p className="mt-3 text-[16px] leading-[1.6] text-ink-secondary">
+                Usually one person starts the team and everyone else joins it.
+              </p>
+            </header>
+            <Annotated
+              className="mt-8 gap-y-4 max-lg:max-w-[31rem]"
+              note={
+                <>
+                  The repository is the team. Everyone who can push to it
+                  shares its practice runs and official attempts, so it should
+                  be the one you'll actually work in.
+                </>
+              }
+            >
+              {likely.length > 0 && (
+                <section aria-labelledby="likely-team" className="relative mb-9 rounded-surface bg-paper-raised p-5">
+                  <CornerBrackets size={12} thickness={1.5} />
+                  <h2 id="likely-team" className="u-label">
+                    {likely.length === 1
+                      ? "You can see this team's repository on GitHub, so it's probably yours"
+                      : "You can see these teams' repositories on GitHub"}
+                  </h2>
+                  <ul role="list" className="mt-1">
+                    {likely.map((team) => (
+                      <TeamRow
+                        key={team.id}
+                        team={team}
+                        join={join}
+                        onJoin={() => joinTeam(team)}
+                        primary
+                      />
+                    ))}
+                  </ul>
+                </section>
+              )}
+
+              {likely.length > 0 && (
+                <h2 className="u-label mb-3">Not the right team?</h2>
+              )}
+              <div className="space-y-3">
+                <ChoiceCard
+                  onSelect={() => choose("join")}
+                  label="Join a team someone already started"
+                  hint={`Find your teammates among the cohort's ${teams.length} ${teams.length === 1 ? "team" : "teams"}.`}
+                />
+                <ChoiceCard
+                  onSelect={() => choose("start")}
+                  label="Start a new team"
+                  hint={
+                    template
+                      ? "You're the first one. Connect your fork of the course template, and your teammates join after you."
+                      : "You're the first one. Connect a public repository you can push to, and your teammates join after you."
+                  }
+                />
+              </div>
+            </Annotated>
           </>
         ) : step === "join" ? (
           <>
-            {back}
-            <h1 className="text-3xl">Join your team</h1>
-            <div className="mt-7">
-              <JoinPath teams={teams} join={join} />
-            </div>
+            <header className="max-w-[31rem]">
+              {back}
+              <h1 ref={headingRef} tabIndex={-1} className={title}>
+                Join your team
+              </h1>
+            </header>
+            <Annotated
+              className="mt-6 gap-y-4 max-lg:max-w-[31rem]"
+              note={
+                <>
+                  Joining asks GitHub whether you can push to the team's
+                  repository. If you can't yet, whoever started the team can
+                  add you as a collaborator.
+                </>
+              }
+            >
+              <JoinPath
+                teams={teams}
+                join={join}
+                onJoin={joinTeam}
+                onStartInstead={() => setParams({ path: "start" }, { replace: true, state: location.state })}
+              />
+            </Annotated>
           </>
         ) : (
           <>
-            {back}
-            <h1 className="text-3xl">Start a team</h1>
-            <p className="mt-2 text-[14px] text-ink-secondary">
-              {session?.auth.templateRepo ? (
-                <>
-                  Fork{" "}
-                  <code className="text-[12.5px] text-ink">{session.auth.templateRepo}</code>
-                  , keep it public, connect it here.
-                </>
-              ) : (
-                "Connect a repository you can push to. It has to be public, because the benchmark reads it from GitHub."
-              )}
-            </p>
+            <header className="max-w-[31rem]">
+              {back}
+              <h1 ref={headingRef} tabIndex={-1} className={title}>
+                Start your team
+              </h1>
+              <p className="mt-3 text-[16px] leading-[1.6] text-ink-secondary">
+                {template ? (
+                  <>
+                    Fork{" "}
+                    <a
+                      href={`https://github.com/${template}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="u-link font-mono text-[14px] break-all"
+                    >
+                      {template}
+                      <span className="sr-only"> (opens GitHub)</span>
+                    </a>
+                    , then pick your fork below. Your teammates join it after you.
+                  </>
+                ) : (
+                  "Pick the repository your team will work in. Your teammates join it after you."
+                )}
+              </p>
+            </header>
             {teamsUnknown && (
-              <div className="mt-6">
+              <div className="mt-6 max-w-[31rem]">
                 <QueryError
                   error={cohortTeams.error}
                   retry={() => void cohortTeams.refetch()}
                 />
-                <p className="mt-2 text-[12.5px] text-ink-faint">
+                <p className="mt-2 text-[13.5px] text-ink-secondary">
                   We couldn't check the cohort's teams, so joining is hidden
                   until this loads. Starting a team still works.
                 </p>
               </div>
             )}
-            <div className="mt-7">
+            <Annotated
+              className="mt-8 gap-y-4 max-lg:max-w-[31rem]"
+              note={
+                template ? (
+                  <>
+                    Forking gives your team its own copy of the starter code.
+                    It has to stay public, because the benchmark reads it from
+                    GitHub.
+                  </>
+                ) : (
+                  <>
+                    It has to be public, because the benchmark reads it from
+                    GitHub.
+                  </>
+                )
+              }
+            >
               <StartPath connect={connect} />
-            </div>
+            </Annotated>
           </>
         )}
       </motion.div>
@@ -172,18 +332,18 @@ function ChoiceCard({
     <button
       type="button"
       onClick={onSelect}
-      className="group u-pressable relative flex w-full items-center gap-4 border border-rule bg-paper-raised px-5 py-4 text-left transition-colors duration-150 hover:border-ink-secondary focus-visible:border-ink"
+      className="group u-pressable relative flex w-full items-center gap-4 rounded-surface border border-rule bg-paper-raised px-5 py-4 text-left transition-[border-color] duration-150 hover:border-ink-secondary"
     >
-      <span className="opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100">
+      <span className="absolute inset-0 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100">
         <CornerBrackets size={9} thickness={2} inset={-1} />
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block font-serif text-[17px] font-semibold text-ink">{label}</span>
-        <span className="mt-0.5 block text-[13px] leading-snug text-ink-secondary">{hint}</span>
+        <span className="block font-serif text-[18px] font-semibold text-ink">{label}</span>
+        <span className="mt-1 block text-[14px] leading-[1.5] text-ink-secondary">{hint}</span>
       </span>
       <HugeiconsIcon
         icon={ArrowRight01Icon}
-        size={16}
+        size={18}
         strokeWidth={1.8}
         className="shrink-0 text-ink-faint transition-colors duration-150 group-hover:text-ink"
         aria-hidden="true"
@@ -194,150 +354,227 @@ function ChoiceCard({
 
 /* ── Join a team ──────────────────────────────────────────────────────── */
 
+function matches(team: CohortTeam, query: string): boolean {
+  const q = query.trim().toLowerCase().replace(/^@/, "");
+  if (!q) return true;
+  return [
+    team.name,
+    team.repo.fullName,
+    ...team.members.flatMap((member) => [member.login, member.name ?? ""]),
+  ].some((field) => field.toLowerCase().includes(q));
+}
+
 function JoinPath({
   teams,
   join,
+  onJoin,
+  onStartInstead,
 }: {
   teams: CohortTeam[];
   join: ReturnType<typeof useJoinTeam>;
+  onJoin: (team: CohortTeam) => void;
+  onStartInstead: () => void;
 }) {
   const { data: session } = useSession();
-  const navigate = useNavigate();
-  const [joiningId, setJoiningId] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const searchId = useId();
+  const searchRef = useRef<HTMLInputElement>(null);
+  const searchable = teams.length > JOIN_TEAMS_VISIBLE;
+  const filtering = query.trim().length > 0;
+  const found = teams.filter((team) => matches(team, query));
 
-  const attempt = (team: CohortTeam) => {
-    if (join.isPending) return;
-    setJoiningId(team.id);
-    join.mutate(team.id, {
-      onSuccess: () => navigate("/setup", { replace: true }),
-    });
-  };
-
-  const visible = teams.slice(0, JOIN_TEAMS_VISIBLE);
-  const folded = teams.slice(JOIN_TEAMS_VISIBLE);
-
-  const card = (team: CohortTeam) => (
-    <TeamCard
-      key={team.id}
-      team={team}
-      busy={join.isPending && joiningId === team.id}
-      error={!join.isPending && joiningId === team.id ? join.error : null}
-      onJoin={() => attempt(team)}
-    />
+  const row = (team: CohortTeam) => (
+    <TeamRow key={team.id} team={team} join={join} onJoin={() => onJoin(team)} />
   );
 
+  // While filtering every match shows: folding search results away would
+  // hide the answer to the question just asked.
+  const visible = filtering ? found : found.slice(0, JOIN_TEAMS_VISIBLE);
+  const folded = filtering ? [] : found.slice(JOIN_TEAMS_VISIBLE);
+
   return (
-    <div>
-      <div className="space-y-2">{visible.map(card)}</div>
-      {folded.length > 0 && (
-        <Veil
-          count={folded.length}
-          moreLabel={`See ${folded.length} more ${folded.length === 1 ? "team" : "teams"}`}
-          fewerLabel="Show fewer teams"
-          detail={
-            session?.cohort ? `Every team in ${session.cohort.name}` : "Every team in the cohort"
-          }
-          focusSelector="button"
-        >
-          {folded.map(card)}
-        </Veil>
+    <div className="mt-6">
+      {searchable && (
+        <div className="mb-5">
+          <label htmlFor={searchId} className="u-label block">
+            Find your team
+          </label>
+          <div className="relative mt-2">
+            <HugeiconsIcon
+              icon={Search01Icon}
+              size={16}
+              strokeWidth={1.8}
+              className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-ink-faint"
+              aria-hidden="true"
+            />
+            <input
+              ref={searchRef}
+              id={searchId}
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape" && query) {
+                  e.preventDefault();
+                  setQuery("");
+                }
+              }}
+              autoComplete="off"
+              autoCapitalize="none"
+              spellCheck={false}
+              aria-describedby={`${searchId}-count`}
+              className="u-field pr-11 pl-9 [&::-webkit-search-cancel-button]:appearance-none"
+              placeholder="Team name, teammate, or repository"
+            />
+            {/* Our own clear, because the native one is a blue glyph on
+                WebKit and missing on Firefox; Escape does the same. */}
+            {query && (
+              <button
+                type="button"
+                onClick={() => {
+                  setQuery("");
+                  searchRef.current?.focus();
+                }}
+                className="absolute top-0 right-0 flex size-11 items-center justify-center rounded-control text-ink-faint hover:text-ink"
+              >
+                <HugeiconsIcon icon={Cancel01Icon} size={16} strokeWidth={1.8} aria-hidden="true" />
+                <span className="sr-only">Clear the search</span>
+              </button>
+            )}
+          </div>
+          <p id={`${searchId}-count`} aria-live="polite" className="mt-2 text-[13px] text-ink-faint">
+            {filtering
+              ? `${found.length} of ${teams.length} ${teams.length === 1 ? "team" : "teams"} match`
+              : `${teams.length} teams in ${session?.cohort?.name ?? "the cohort"}`}
+          </p>
+        </div>
       )}
+
+      {found.length === 0 ? (
+        <div className="border-y border-rule-soft py-6">
+          <p className="text-[15px] text-ink">
+            No team matches <span className="font-mono text-[14px]">{query.trim()}</span>.
+          </p>
+          <p className="mt-1 text-[14px] text-ink-secondary">
+            Check the spelling with a teammate, or start the team if nobody has yet.
+          </p>
+        </div>
+      ) : (
+        <>
+          <ul role="list" className="border-t border-rule-soft">
+            {visible.map(row)}
+          </ul>
+          {folded.length > 0 && (
+            <Veil
+              count={folded.length}
+              moreLabel={`See ${folded.length} more ${folded.length === 1 ? "team" : "teams"}`}
+              fewerLabel="Show fewer teams"
+              detail={session?.cohort ? `Every team in ${session.cohort.name}` : "Every team in the cohort"}
+              focusSelector="button"
+            >
+              <ul role="list">{folded.map(row)}</ul>
+            </Veil>
+          )}
+        </>
+      )}
+
+      <p className="mt-6 text-[14px] text-ink-secondary">
+        Nobody on your team has started it yet?{" "}
+        <button type="button" onClick={onStartInstead} className="u-link font-semibold">
+          Start it yourself
+        </button>
+      </p>
     </div>
   );
 }
 
-function TeamCard({
+function joinErrorMessage(error: unknown): string | null {
+  if (error instanceof ApiRequestError) {
+    // A team deleted after the list loaded. The server's "Team not found."
+    // reads like the student mistyped something.
+    if (error.code === "not_found") {
+      return "This team was removed after the list loaded. Reload the page to see the current teams.";
+    }
+    return error.message;
+  }
+  return error ? "Joining failed. Try again." : null;
+}
+
+/**
+ * A team as a row: who is on it is what a student recognises, so the members
+ * are named in text rather than left to avatars and a count.
+ */
+function TeamRow({
   team,
-  busy,
-  error,
+  join,
   onJoin,
+  primary = false,
 }: {
   team: CohortTeam;
-  busy: boolean;
-  error: unknown;
+  join: ReturnType<typeof useJoinTeam>;
   onJoin: () => void;
+  primary?: boolean;
 }) {
-  const message =
-    error instanceof ApiRequestError
-      ? error.message
-      : error
-        ? "Joining failed. Try again."
-        : null;
+  // The mutation is shared by every row, so the row that asked is the one
+  // whose id the mutation carries. Only it shows the pulse and the refusal;
+  // every other row stays pressable, because the usual refusal (no push
+  // access yet) often means the student pressed the wrong team.
+  const mine = join.variables === team.id;
+  const busy = join.isPending && mine;
+  const message = !join.isPending && mine ? joinErrorMessage(join.error) : null;
 
   return (
-    <div className="border border-rule bg-paper-raised px-4 py-3.5">
-      <div className="flex items-baseline justify-between gap-3">
-        <h3 className="min-w-0 truncate font-serif text-[17px] font-semibold text-ink">
-          {team.name}
-        </h3>
-        <span className="shrink-0 font-mono text-[10.5px] tracking-[0.07em] text-ink-faint uppercase">
-          {team.members.length} {team.members.length === 1 ? "member" : "members"}
-        </span>
-      </div>
-      {team.description && (
-        <p className="mt-1 line-clamp-2 text-[13px] text-ink-secondary">{team.description}</p>
-      )}
-      <p className="mt-1 truncate font-mono text-[11px] text-ink-faint">{team.repo.fullName}</p>
-
-      <div className="mt-3 flex items-center justify-between gap-3">
-        <MemberStrip members={team.members} />
+    <li className={primary ? "pt-2" : "border-b border-rule-soft py-4"}>
+      <div className="flex items-center gap-4">
+        <div className="min-w-0 flex-1">
+          <h3 className="truncate font-serif text-[18px] font-semibold text-ink">{team.name}</h3>
+          <Members members={team.members} />
+          <p className="mt-1 truncate font-mono text-[12.5px] text-ink-faint">{team.repo.fullName}</p>
+        </div>
         <Button
           type="button"
-          variant="ghost"
+          variant={primary ? "primary" : "ghost"}
           busy={busy}
           onClick={onJoin}
-          className="shrink-0 !min-h-9 px-4 text-[12.5px]"
+          className="shrink-0"
+          aria-label={`Join ${team.name}`}
         >
           Join
         </Button>
       </div>
 
       {message && (
-        <p
-          role="alert"
-          className="mt-3 border-t border-rule-soft pt-2.5 text-[12.5px] leading-relaxed text-detect-deep"
-        >
+        <p role="alert" className="mt-3 rounded-control border-l-2 border-detect bg-detect-wash px-3 py-2 text-[14px] leading-[1.5] text-detect-deep">
           {message}
         </p>
       )}
-    </div>
+    </li>
   );
 }
 
-function MemberStrip({ members }: { members: CohortTeam["members"] }) {
-  const shown = members.slice(0, 5);
+function Members({ members }: { members: CohortTeam["members"] }) {
+  if (members.length === 0) {
+    return <p className="mt-1 text-[14px] text-ink-faint">Nobody has joined yet</p>;
+  }
+  const shown = members.slice(0, 3);
   const extra = members.length - shown.length;
   return (
-    <span className="flex min-w-0 items-center">
-      <span className="flex -space-x-1.5">
-        {shown.map((member) =>
-          member.avatarUrl ? (
-            <img
-              key={member.login}
-              src={member.avatarUrl}
-              alt=""
-              title={`@${member.login}`}
-              className="size-6 rounded-[2px] border border-paper-raised"
-            />
-          ) : (
-            <span
-              key={member.login}
-              aria-hidden="true"
-              title={`@${member.login}`}
-              className="flex size-6 items-center justify-center rounded-[2px] border border-paper-raised bg-paper-sunken font-mono text-[10px] text-ink-secondary uppercase"
-            >
-              {member.login[0]}
-            </span>
-          ),
-        )}
+    <p className="mt-1.5 flex min-w-0 items-center gap-2 text-[14px] text-ink-secondary">
+      <span className="flex shrink-0 -space-x-1">
+        {shown.map((member) => (
+          <MemberAvatar
+            key={member.login}
+            login={member.login}
+            avatarUrl={member.avatarUrl}
+            className="size-5 ring-2 ring-paper-raised"
+          />
+        ))}
       </span>
-      {extra > 0 && (
-        <span className="ml-2 font-mono text-[10.5px] text-ink-faint">+{extra}</span>
-      )}
-      <span className="sr-only">
-        Members: {members.map((member) => `@${member.login}`).join(", ")}
+      <span className="min-w-0 truncate">
+        {shown.map((member) => `@${member.login}`).join(", ")}
+        {extra > 0 && ` and ${extra} more`}
       </span>
-    </span>
+    </p>
   );
 }
 
@@ -347,21 +584,26 @@ function StartPath({ connect }: { connect: ReturnType<typeof useConnectRepo> }) 
   const repos = useRepositories();
   const navigate = useNavigate();
   const [selected, setSelected] = useState<GithubRepo | null>(null);
+  // What the student typed, if anything. The repository's own name is the
+  // suggestion and lives in the placeholder: prefilling it as a value made
+  // typing append to it ("Face FinderVideo QA Team").
   const [teamName, setTeamName] = useState("");
 
-  const pick = (repo: GithubRepo) => {
-    setSelected(repo);
-    if (!repo.claimedByTeam) setTeamName(defaultTeamName(repo.name));
-  };
+  const creating = Boolean(selected && !selected.claimedByTeam);
+  const suggestion = selected ? defaultTeamName(selected.name) : "";
+  const finalName = teamName.trim() || suggestion;
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selected || connect.isPending) return;
-    const creating = !selected.claimedByTeam;
-    if (creating && !teamName.trim()) return;
+    const claimedBy = selected.claimedByTeam;
+    if (!claimedBy && !finalName) return;
+    const arrival: SetupArrival = claimedBy
+      ? { arrivedFrom: "joined", teamName: claimedBy }
+      : { arrivedFrom: "created", teamName: finalName };
     connect.mutate(
-      { fullName: selected.fullName, teamName: creating ? teamName.trim() : undefined },
-      { onSuccess: () => navigate("/setup", { replace: true }) },
+      { fullName: selected.fullName, teamName: claimedBy ? undefined : finalName },
+      { onSuccess: () => navigate("/setup", { replace: true, state: arrival }) },
     );
   };
 
@@ -378,7 +620,7 @@ function StartPath({ connect }: { connect: ReturnType<typeof useConnectRepo> }) 
           <RepoPicker
             repos={repos.data}
             selected={selected}
-            onPick={pick}
+            onPick={setSelected}
             initialVisibleCount={6}
           />
           <GrantAccess hasRepos />
@@ -386,9 +628,9 @@ function StartPath({ connect }: { connect: ReturnType<typeof useConnectRepo> }) 
       )}
 
       {/* Second step appears only once a repo is chosen. */}
-      {selected && !selected.claimedByTeam && (
-        <div className="anim-rise mt-6">
-          <label htmlFor="team-name" className="u-kicker block">
+      {creating && (
+        <div className="anim-rise mt-7">
+          <label htmlFor="team-name" className="u-label block">
             Team name
           </label>
           <input
@@ -397,41 +639,45 @@ function StartPath({ connect }: { connect: ReturnType<typeof useConnectRepo> }) 
             onChange={(e) => setTeamName(e.target.value)}
             maxLength={60}
             autoComplete="off"
-            className="mt-2 h-11 w-full border border-rule bg-paper-sunken px-3 text-[15px] text-ink placeholder:text-ink-faint"
-            placeholder="Team name"
+            aria-describedby="team-name-help"
+            className="u-field mt-2"
+            placeholder={suggestion}
           />
-          <p className="mt-1.5 text-[12px] text-ink-faint">
-            Shown on the public leaderboard. You can rename it later.
+          <p id="team-name-help" className="mt-2 text-[13.5px] leading-[1.5] text-ink-secondary">
+            Shown on the public leaderboard. Leave it blank to use{" "}
+            <span className="font-semibold text-ink">{suggestion}</span>; you can rename it later.
           </p>
         </div>
       )}
 
       {connect.error && (
-        <p role="alert" className="mt-4 text-[13px] text-detect-deep">
+        <p role="alert" className="mt-4 rounded-control border-l-2 border-detect bg-detect-wash px-3 py-2 text-[14px] leading-[1.5] text-detect-deep">
           {connect.error instanceof ApiRequestError
             ? connect.error.message
             : "Connecting failed. Try again."}
         </p>
       )}
 
-      <Button
-        type="submit"
-        className="mt-6 w-full"
-        busy={connect.isPending}
-        disabled={!selected || (!selected.claimedByTeam && !teamName.trim())}
-      >
-        {!selected
-          ? "Select a repository"
-          : selected.claimedByTeam
-            ? `Join ${selected.claimedByTeam}`
-            : "Create team"}
-      </Button>
+      {repos.data && repos.data.length > 0 && (
+        <Button
+          type="submit"
+          className="mt-6 h-12 w-full"
+          busy={connect.isPending}
+          disabled={!selected}
+        >
+          {!selected
+            ? "Choose a repository above"
+            : selected.claimedByTeam
+              ? `Join ${selected.claimedByTeam}`
+              : `Create ${finalName}`}
+        </Button>
+      )}
     </form>
   );
 }
 
-/** Empty state as protocol, not apology: three short steps to a fork, with
- *  the fork itself one click away. */
+/** Nothing to pick yet: the three things that make a fork show up, with the
+ *  fork itself one press away. */
 function ForkSteps({
   refetching,
   onCheckAgain,
@@ -443,64 +689,65 @@ function ForkSteps({
   const template = session?.auth.templateRepo;
 
   return (
-    <div className="border border-rule bg-paper-raised">
-      <p className="border-b border-rule-soft px-5 py-3.5 text-[14px] text-ink">
-        No repositories are visible yet. Three short steps:
+    <div>
+      <p className="text-[15px] text-ink">
+        No repositories are visible to the portal yet. Three steps make yours show up.
       </p>
-      <ol className="divide-y divide-rule-soft">
-        <li className="flex flex-wrap items-center gap-4 px-5 py-3.5">
-          <span className="font-mono text-[11px] text-ink-faint">01</span>
-          <span className="flex-1 text-[13.5px] text-ink-secondary">
-            {template
-              ? `Fork ${template}. Keep it public.`
-              : "Use a public repository you already have, or create one."}
-          </span>
-          {template && (
-            <Button
-              type="button"
-              onClick={() =>
-                window.open(
-                  `https://github.com/${template}/fork`,
-                  "_blank",
-                  "noreferrer",
-                )
-              }
-              className="!min-h-9 shrink-0 px-4 text-[12.5px]"
-            >
-              Fork {template}
-              <HugeiconsIcon
-                icon={ArrowUpRight01Icon}
-                size={13}
-                strokeWidth={1.8}
-                aria-hidden="true"
-              />
-            </Button>
+      <ol role="list" className="mt-5 space-y-6">
+        <ForkStep n={1} title={template ? "Fork the course template" : "Pick a public repository"}>
+          {template ? (
+            <>
+              <p>Keep it public, under your account or your team's organization.</p>
+              <a
+                href={`https://github.com/${template}/fork`}
+                target="_blank"
+                rel="noreferrer"
+                className={buttonClass("primary", "mt-3")}
+              >
+                Fork {template}
+                <HugeiconsIcon icon={ArrowUpRight01Icon} size={14} strokeWidth={1.8} aria-hidden="true" />
+                <span className="sr-only"> (opens GitHub)</span>
+              </a>
+            </>
+          ) : (
+            <p>Use one your team already has, or create one on GitHub.</p>
           )}
-        </li>
-        <li className="flex items-baseline gap-4 px-5 py-3">
-          <span className="font-mono text-[11px] text-ink-faint">02</span>
-          <span className="text-[13.5px] text-ink-secondary">
-            Install the app on the account that owns the fork.
-            <GrantAccess hasRepos={false} />
-          </span>
-        </li>
-        <li className="flex flex-wrap items-center gap-4 px-5 py-3">
-          <span className="font-mono text-[11px] text-ink-faint">03</span>
-          <span className="flex-1 text-[13.5px] text-ink-secondary">
-            It shows up here.
-          </span>
+        </ForkStep>
+        <ForkStep n={2} title="Let the portal read it">
+          <p>Install the portal's GitHub app on the account that owns the repository. It can read code and never writes.</p>
+          <GrantAccess hasRepos={false} />
+        </ForkStep>
+        <ForkStep n={3} title="Check again">
+          <p>Your repository appears here once the app can see it.</p>
           <Button
             type="button"
             variant="ghost"
             busy={refetching}
             onClick={onCheckAgain}
-            className="!min-h-9 px-4 text-[12.5px]"
+            className="mt-3"
           >
             Check again
           </Button>
-        </li>
+        </ForkStep>
       </ol>
     </div>
+  );
+}
+
+function ForkStep({ n, title, children }: { n: number; title: string; children: React.ReactNode }) {
+  return (
+    <li className="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-x-2">
+      <span aria-hidden="true" className="u-tnum pt-px font-serif text-[16px] font-semibold text-ink-faint italic">
+        {n}.
+      </span>
+      <div>
+        <h3 className="text-[17px] text-ink">
+          <span className="sr-only">Step {n}: </span>
+          {title}
+        </h3>
+        <div className="mt-1 text-[14.5px] leading-[1.55] text-ink-secondary">{children}</div>
+      </div>
+    </li>
   );
 }
 

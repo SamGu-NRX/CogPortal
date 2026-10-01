@@ -152,7 +152,7 @@ test("a session outage on the sign-in page renders the error panel, not disabled
   assert.match(html, /REQUEST DID NOT ARRIVE/);
   assert.match(html, /Try again<\/button>/);
   assert.doesNotMatch(html, /isn't configured/);
-  assert.doesNotMatch(html, /Continue with GitHub/);
+  assert.doesNotMatch(html, /Sign in with GitHub/);
 });
 
 test("an unconfigured provider explains itself in visible text, not a hover title", () => {

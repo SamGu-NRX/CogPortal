@@ -14,25 +14,32 @@ import { deviceLinkCommand } from "@/lib/setup-progress";
  * URL, and the waiting CLI completed. Naming the loss is most of the fix,
  * because the recovery is reopening that link or running one command.
  */
-export function DroppedLinkNotice() {
+export function DroppedLinkNotice({ className = "" }: { className?: string }) {
   const [kind] = useState(takeDroppedDeviceLink);
   if (!kind) return null;
   return (
-    <p
+    <div
       role="status"
-      className="mb-6 border border-rule bg-paper-sunken px-4 py-3 text-[13px] text-ink-secondary"
+      className={`rounded-control border-l-2 border-ink bg-paper-raised px-4 py-3 text-[14px] leading-[1.55] text-ink-secondary ${className}`}
     >
       {kind === "device" ? (
         <>
-          A device was waiting for approval, but you need a team first. Finish
-          this step, then run <code className="font-mono text-[12px] [overflow-wrap:anywhere]">{deviceLinkCommand(window.location.origin)}</code> again.
+          <p className="font-semibold text-ink">Your device link is on hold</p>
+          <p className="mt-1">
+            It needs a team first. Finish getting started, then run{" "}
+            <code className="font-mono text-[13px] text-ink [overflow-wrap:anywhere]">{deviceLinkCommand(window.location.origin)}</code>{" "}
+            again.
+          </p>
         </>
       ) : (
         <>
-          A Discord link was waiting, but you need a team first. Finish this
-          step, then start the link again from Discord.
+          <p className="font-semibold text-ink">Your Discord link is on hold</p>
+          <p className="mt-1">
+            It needs a team first. Finish getting started, then start the link
+            again from Discord.
+          </p>
         </>
       )}
-    </p>
+    </div>
   );
 }
