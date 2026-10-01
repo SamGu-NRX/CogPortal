@@ -3,6 +3,7 @@ import { nextStagePath } from "@/App";
 import { AccountSlot, Concealed } from "@/components/RestoreGate";
 import { UserMenu } from "@/components/UserMenu";
 import { useSession } from "@/lib/queries";
+import { canOpenAdmin } from "@/lib/roles";
 
 export function Wordmark() {
   return (
@@ -40,8 +41,8 @@ function Tab({ to, children, also = [] }: { to: string; children: string; also?:
  * The frame every page sits in. A team member's own places are tabs in plain
  * view (their runs, the setup guide, the team), because a student looking for
  * the setup commands should not have to know they live behind an avatar. The
- * account menu keeps what belongs to the person: linked devices, the admin
- * console for staff, and signing out.
+ * account menu keeps what belongs to the person: linked devices and signing
+ * out.
  *
  * The team's name sits beside the wordmark as the answer to "whose portal is
  * this": the repository is the team, and everything here belongs to it.
@@ -49,7 +50,7 @@ function Tab({ to, children, also = [] }: { to: string; children: string; also?:
 export function Shell() {
   const { data: session } = useSession();
   const team = session?.team ?? null;
-  const isStaff = Boolean(session?.user && (session.user.platformRole === "staff" || session.user.isTa));
+  const isStaff = Boolean(session?.user && canOpenAdmin(session.user));
   // Staff run the console without a team, so "Get started" would send them
   // to create one they don't need.
   const onboarding = Boolean(session?.user && !team && !isStaff);

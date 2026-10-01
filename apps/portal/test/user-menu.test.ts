@@ -8,7 +8,14 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Window, type HTMLElement as HappyElement } from "happy-dom";
 import { UserMenu } from "../src/components/UserMenu.tsx";
 
-async function mount(t: TestContext, initialRight: number, initialViewport = 345) {
+type MenuAccount = { role: "student" | "staff" | "ta"; hasTeam: boolean; nextPath: string };
+
+async function mount(
+  t: TestContext,
+  initialRight: number,
+  initialViewport = 345,
+  account: MenuAccount = { role: "student", hasTeam: true, nextPath: "/dashboard" },
+) {
   const window = new Window({ url: "https://portal.example/dashboard" });
   const globals = {
     window, document: window.document, navigator: window.navigator,
@@ -52,8 +59,11 @@ async function mount(t: TestContext, initialRight: number, initialViewport = 345
     React.createElement(QueryClientProvider, { client: queryClient },
       React.createElement(MemoryRouter, { initialEntries: ["/dashboard"] },
         React.createElement(UserMenu, {
-          user: { login: "menu-fixture", name: null, avatarUrl: null, platformRole: "student", isOwner: false, isTa: false },
-          hasTeam: true, nextPath: "/dashboard",
+          user: {
+            login: "menu-fixture", name: null, avatarUrl: null, isOwner: false,
+            platformRole: account.role === "staff" ? "staff" : "student", isTa: account.role === "ta",
+          },
+          hasTeam: account.hasTeam, nextPath: account.nextPath,
         }),
       ),
     ),
@@ -125,4 +135,22 @@ test("arrow navigation and Escape still preserve the menu-button interaction", a
   const lastPosition = menu.style.right;
   await resize(325);
   assert.equal(menu.style.right, lastPosition, "a closed menu kept its resize listener");
+});
+
+test("the menu offers each role only the places it can use", async (t) => {
+  const cases: [string, MenuAccount, string[]][] = [
+    ["a student without a team", { role: "student", hasTeam: false, nextPath: "/connect" },
+      ["Continue setup", "Connections", "Sign out"]],
+    // B-48: Admin, already a header tab, is the way forward for staff without
+    // a team, and linking Discord or a device needs a team to act on.
+    ["staff without a team", { role: "staff", hasTeam: false, nextPath: "/admin" }, ["Sign out"]],
+    ["a TA without a team", { role: "ta", hasTeam: false, nextPath: "/admin" }, ["Sign out"]],
+    ["staff with a team", { role: "staff", hasTeam: true, nextPath: "/dashboard" }, ["Connections", "Sign out"]],
+  ];
+  for (const [name, account, expected] of cases) {
+    await t.test(name, async (st) => {
+      const { menu } = await mount(st, 325, 345, account);
+      assert.deepEqual([...menu.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent), expected);
+    });
+  }
 });
