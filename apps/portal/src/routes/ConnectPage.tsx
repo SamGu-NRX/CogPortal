@@ -650,7 +650,8 @@ function StartPath({ connect }: { connect: ReturnType<typeof useConnectRepo> }) 
           />
           <p id="team-name-help" className="mt-2 text-[13.5px] leading-[1.5] text-ink-secondary">
             Shown on the public leaderboard. Leave it blank to use{" "}
-            <span className="font-semibold text-ink">{suggestion}</span>; you can rename it later.
+            <span className="font-semibold text-ink">{suggestion}</span>; an admin on the GitHub
+            repository can rename it later.
           </p>
         </div>
       )}

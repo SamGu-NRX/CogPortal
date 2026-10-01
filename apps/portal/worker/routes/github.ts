@@ -168,7 +168,8 @@ export function registerGithubRoutes(app: Hono<AppEnv>): void {
     let repository: ConnectRepository;
     let permission: TeamRole;
 
-    if (body.fullName === FIXTURE_REPO.fullName && devAuthAvailable(c.env)) {
+    const fixture = body.fullName === FIXTURE_REPO.fullName && devAuthAvailable(c.env);
+    if (fixture) {
       repository = fixtureRepository();
       permission = "write";
     } else {
@@ -226,6 +227,7 @@ export function registerGithubRoutes(app: Hono<AppEnv>): void {
       repository,
       permission,
       body.teamName,
+      { fixture },
     );
     return respond(c, SessionSchema, await authToSession(c.env, await getAuth(c)));
   });

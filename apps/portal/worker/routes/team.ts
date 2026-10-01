@@ -30,6 +30,7 @@ import { RealGitHubClient } from "../github/client";
 import { fetchCommitHistory } from "../github/commits";
 import type { CommitRecord, FetchCommitsResult } from "../github/commits";
 import { teamRole } from "../github/permissions";
+import type { TeamRole } from "../github/permissions";
 import { fixtureRepository } from "../github/team";
 import type { ConnectRepository } from "../github/team";
 import { validateTemplateRepository } from "../github/template";
@@ -127,68 +128,92 @@ export async function getTeamDetail(
   };
 }
 
+/**
+ * The caller's role, re-read from GitHub and written back. The team read and
+ * every settings gate use it, so the controls and the gate agree.
+ *
+ * A stored role can be stale or never verified: a portal add stores "write"
+ * without asking GitHub, because it does not make anyone a collaborator.
+ * When GitHub can't be asked, the stored role stands, so the page renders
+ * through an outage and an admin confirmed earlier keeps settings; only a
+ * successful read writes "admin". The local fixture has no one to ask.
+ */
+export async function reconcileTeamRole(
+  c: Context<AppEnv>,
+  auth: AuthState & { team: TeamRow },
+): Promise<{
+  role: TeamRole;
+  checked: "github" | "unreachable" | "not_asked" | "repository_changed";
+}> {
+  const db = getDb(c.env);
+  const member = and(eq(teamMembers.teamId, auth.team.id), eq(teamMembers.userId, auth.user.id));
+  const [membership] = await db
+    .select({ role: teamMembers.role })
+    .from(teamMembers)
+    .where(member)
+    .limit(1);
+  if (!membership) throw new ApiHttpError(403, "no_team", "Connect a repository to continue.");
+  const stored = memberRole(membership.role);
+
+  const githubLogin = auth.user.githubLogin;
+  if (
+    (auth.team.repoFullName === FIXTURE_REPO.fullName && devAuthAvailable(c.env)) ||
+    !githubConfigured(c.env) ||
+    !githubLogin
+  ) {
+    return { role: stored, checked: "not_asked" };
+  }
+  const githubToken = await getGithubToken(authFor(c), auth.user.id, c.req.raw.headers);
+  if (!githubToken) return { role: stored, checked: "unreachable" };
+  let permission: string;
+  try {
+    permission = await new RealGitHubClient().getPermission(
+      auth.team.repoFullName,
+      githubLogin,
+      githubToken,
+    );
+  } catch {
+    return { role: stored, checked: "unreachable" };
+  }
+  // Read, triage or no access still leaves them on the team in the portal;
+  // "write" is the lowest role a membership row can hold.
+  const current = teamRole(permission) ?? "write";
+  // The answer is about the repository the team had when we asked. If a
+  // switch landed while GitHub was answering, it reset the roles for the new
+  // repository, and this answer must neither overwrite that nor pass the
+  // gate, even when it matches the role stored before the switch.
+  const [written] = await db
+    .update(teamMembers)
+    .set({ role: current })
+    .where(and(
+      member,
+      inArray(
+        teamMembers.teamId,
+        db
+          .select({ id: teams.id })
+          .from(teams)
+          .where(and(eq(teams.id, auth.team.id), eq(teams.repoFullName, auth.team.repoFullName))),
+      ),
+    ))
+    .returning({ role: teamMembers.role });
+  if (!written) return { role: "write", checked: "repository_changed" };
+  return { role: current, checked: "github" };
+}
+
 export async function requireTeamAdmin(
   c: Context<AppEnv>,
 ): Promise<AuthState & { team: TeamRow }> {
   const auth = await requireTeam(c);
-  const [membership] = await getDb(c.env)
-    .select({ role: teamMembers.role })
-    .from(teamMembers)
-    .where(
-      and(
-        eq(teamMembers.teamId, auth.team.id),
-        eq(teamMembers.userId, auth.user.id),
-      ),
-    )
-    .limit(1);
-  if (membership?.role !== "admin") {
-    throw new ApiHttpError(
-      403,
-      "forbidden",
-      "Only the team creator can change team settings.",
-    );
-  }
-  // The stored role was written when the team was created or joined and was
-  // never read from GitHub again, so a creator demoted or removed on GitHub
-  // kept renaming the team and managing members here indefinitely. Staff
-  // could not remove them either, because the removal route refuses the
-  // stale admin role. Re-reading the permission at the gate closes that. A GitHub
-  // outage keeps the stored role, since refusing every admin action during
-  // one would be the larger failure; the fixture team has no repository to
-  // ask.
-  if (
-    auth.team.repoFullName !== FIXTURE_REPO.fullName &&
-    githubConfigured(c.env) &&
-    auth.user.githubLogin
-  ) {
-    const githubToken = await getGithubToken(authFor(c), auth.user.id, c.req.raw.headers);
-    if (githubToken) {
-      let current: string | null = null;
-      try {
-        current = teamRole(
-          await new RealGitHubClient().getPermission(
-            auth.team.repoFullName,
-            auth.user.githubLogin,
-            githubToken,
-          ),
-        );
-      } catch {
-        return auth;
-      }
-      if (current !== "admin") {
-        await getDb(c.env)
-          .update(teamMembers)
-          .set({ role: current ?? "write" })
-          .where(and(eq(teamMembers.teamId, auth.team.id), eq(teamMembers.userId, auth.user.id)));
-        throw new ApiHttpError(
-          403,
-          "forbidden",
-          "Your GitHub permission on the team repository is no longer admin, so team settings are read-only for you.",
-        );
-      }
-    }
-  }
-  return auth;
+  const { role, checked } = await reconcileTeamRole(c, auth);
+  if (role === "admin") return auth;
+  const repository = auth.team.repoFullName;
+  const refusals: Record<typeof checked, string> = {
+    github: `Team settings follow admin on ${repository}, and GitHub doesn't list you as an admin there. Ask the repository's owner to make this change.`,
+    unreachable: `Team settings follow admin on ${repository}, and GitHub didn't answer when we checked yours. Try again in a moment; if it keeps happening, sign out and sign in with GitHub again.`,
+    repository_changed: "The team's repository changed while we checked your role. Reload the team page and try again.",
+    not_asked: "Only a team admin can change team settings.",
+  };
+  throw new ApiHttpError(403, "forbidden", refusals[checked]);
 }
 
 export function isUniqueConstraintError(error: unknown): boolean {
@@ -430,6 +455,7 @@ async function teamRoster(db: Database, teamId: string): Promise<RosterMember[]>
 export function registerTeamRoutes(app: Hono<AppEnv>): void {
   app.get("/team", async (c) => {
     const auth = await requireTeam(c);
+    await reconcileTeamRole(c, auth);
     const detail = await getTeamDetail(getDb(c.env), auth.team.id, auth.user.id);
     return respond(c, TeamDetailSchema, detail);
   });
@@ -545,14 +571,17 @@ export function registerTeamRoutes(app: Hono<AppEnv>): void {
           "Repositories must be public to run the benchmark.",
         );
       }
+      // Settings follow admin on the connected repository, so a move to one
+      // the actor only writes to locks the actor out of the team's settings
+      // and can leave nobody able to manage them.
       const permission = teamRole(
         await client.getPermission(body.fullName, githubLogin, githubToken),
       );
-      if (!permission) {
+      if (permission !== "admin") {
         throw new ApiHttpError(
           403,
           "forbidden",
-          "You need write access to run the benchmark for this repository.",
+          `Team settings follow admin on the connected repository, so moving the team to ${body.fullName} needs admin there too. Pick a repository you own or administer on GitHub.`,
         );
       }
       validateTemplateRepository(c.env, githubRepository);
@@ -587,23 +616,34 @@ export function registerTeamRoutes(app: Hono<AppEnv>): void {
       );
     }
 
+    // One batch, so no reader sees the new repository alongside the cached
+    // history or the stored roles that belonged to the previous one.
     try {
-      await db
-        .update(teams)
-        .set({
-          repoOwner: repository.owner,
-          repoName: repository.name,
-          repoFullName: repository.fullName,
-          repoUrl: repository.url,
-          defaultBranch: repository.defaultBranch,
-          repoId: repository.id,
-          templateSourceRepoId: repository.sourceRepositoryId,
-        })
-        .where(eq(teams.id, auth.team.id));
-      // The cached history is the repository that was connected a moment
-      // ago. Serving it for another thirty minutes shows the old repository's
-      // stages and commits under the new repository's name.
-      await db.delete(teamProcessSignals).where(eq(teamProcessSignals.teamId, auth.team.id));
+      await db.batch([
+        db
+          .update(teams)
+          .set({
+            repoOwner: repository.owner,
+            repoName: repository.name,
+            repoFullName: repository.fullName,
+            repoUrl: repository.url,
+            defaultBranch: repository.defaultBranch,
+            repoId: repository.id,
+            templateSourceRepoId: repository.sourceRepositoryId,
+          })
+          .where(eq(teams.id, auth.team.id)),
+        // The cached history is the repository that was connected a moment
+        // ago. Serving it for another thirty minutes shows the old
+        // repository's stages and commits under the new repository's name.
+        db.delete(teamProcessSignals).where(eq(teamProcessSignals.teamId, auth.team.id)),
+        // Stored roles were GitHub's answer about the previous repository.
+        // The actor was just checked against this one; everyone else holds
+        // "write" until their next team read asks GitHub about it.
+        db
+          .update(teamMembers)
+          .set({ role: sql`CASE WHEN ${teamMembers.userId} = ${auth.user.id} THEN 'admin' ELSE 'write' END` })
+          .where(eq(teamMembers.teamId, auth.team.id)),
+      ]);
     } catch (error) {
       if (isUniqueConstraintError(error)) {
         const [racingClaim] = await db
