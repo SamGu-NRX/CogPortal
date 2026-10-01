@@ -189,6 +189,7 @@ export function ConnectionsPage() {
             className="mt-5 max-w-sm"
             onSubmit={(event) => {
               event.preventDefault();
+              if (approveDevice.isPending) return;
               const onApproved = () => {
                 setDeviceApproved(true);
                 // Drop the code from the URL so a reload does not re-offer

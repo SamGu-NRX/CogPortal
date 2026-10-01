@@ -153,7 +153,7 @@ async function harness(t: test.TestContext, teams: Teams = "shared", path = "/se
   const server = portal(teams);
   const globals = {
     window, document: window.document, navigator: window.navigator,
-    HTMLElement: window.HTMLElement, Element: window.Element, SVGElement: window.SVGElement,
+    HTMLElement: window.HTMLElement, Element: window.Element, SVGElement: window.SVGElement, ResizeObserver: window.ResizeObserver,
     requestAnimationFrame: window.requestAnimationFrame.bind(window),
     cancelAnimationFrame: window.cancelAnimationFrame.bind(window),
     React, IS_REACT_ACT_ENVIRONMENT: true,
