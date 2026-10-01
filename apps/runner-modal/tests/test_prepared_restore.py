@@ -25,6 +25,10 @@ from cogworks_runner.prepared_environment import (
     PreparedEnvironmentError, bind_environment, probe,
     validate_observation, validate_prepared_environment,
 )
+from cogworks_runner.failure import RunnerFailure
+from cogworks_runner.prediction_validation import (
+    check_predictions, load_predictions, restore_v2_predictions,
+)
 from cogworks_runner.protocol import canonical_json, signature
 
 SOURCE = ROOT / "apps/runner-modal/src/cogworks_runner/modal_app.py"
@@ -62,6 +66,9 @@ def functions(*names, **globals_):
                  "PreparedEnvironmentError": PreparedEnvironmentError,
                  "bind_environment": bind_environment, "validate_observation": validate_observation,
                  "validate_prepared_environment": validate_prepared_environment,
+                 "RunnerFailure": RunnerFailure, "check_predictions": check_predictions,
+                 "load_predictions": load_predictions,
+                 "restore_v2_predictions": restore_v2_predictions,
                  "DETAIL_LIMIT": 240, "DIAGNOSTIC_LIMIT": 600,
                  **globals_}
     exec(compile(ast.Module(nodes, []), str(SOURCE), "exec"), namespace)
@@ -201,7 +208,7 @@ class PreparedRestore(unittest.TestCase):
             return Sandbox()
 
         space = functions(
-            "RunnerFailure", "_prepare",
+            "_prepare",
             modal=types.SimpleNamespace(Sandbox=types.SimpleNamespace(create=create)),
             app=object(), _sandbox_image=select_image, _student_python=lambda job: sys.executable,
             PREPARE_SCRIPT="student installation", StatusHeartbeat=lambda *args: contextlib.nullcontext(),
@@ -247,7 +254,7 @@ class PreparedRestore(unittest.TestCase):
         events = []
         forbidden = lambda *args, **kwargs: self.fail("reuse reached preparation or evaluation before compatibility")
         space = functions(
-            "RunnerFailure", "execute_job", "_failure_detail", "_fit", "_take_units", "_receiver_units",
+            "execute_job", "_failure_detail", "_fit", "_take_units", "_receiver_units",
             job_store=Store(), validate_job=lambda value: value,
             _outcome_key=lambda key: key + ":outcome", LiveReporter=Reporter,
             _prepare=forbidden, _load_benchmark=forbidden, _evaluate_v2=forbidden,
@@ -284,7 +291,7 @@ class PreparedRestore(unittest.TestCase):
         space.update(
             _load_benchmark=lambda value: benchmark, _v2_cases=lambda *args: [object()],
             _evaluate_v2=lambda job, snapshot, cases: (evaluated.append(snapshot) or [{"ok": True}], ""),
-            _check_predictions=lambda *args: None, _v2_metrics=lambda *args: ([], []),
+            check_predictions=lambda *args: None, _v2_metrics=lambda *args: ([], []),
             _sweep_wire=lambda *args: None, StatusHeartbeat=lambda *args: contextlib.nullcontext(),
             EVALUATE_SCRIPT="current script",
         )
@@ -308,7 +315,7 @@ class PreparedRestore(unittest.TestCase):
             raise RuntimeError("Image no longer exists")
 
         evaluator = functions(
-            "RunnerFailure", "_evaluate_v2", app=object(), EVALUATE_SCRIPT="script",
+            "_evaluate_v2", app=object(), EVALUATE_SCRIPT="script",
             modal=types.SimpleNamespace(Image=types.SimpleNamespace(from_id=lambda value: object()),
                                         Sandbox=types.SimpleNamespace(create=unavailable)),
         )
@@ -338,7 +345,7 @@ raise ValueError("my own bug")
             terminate=lambda: None,
         )
         space = functions(
-            "RunnerFailure", "_evaluate_v2", "_last_error_line", "_fit", "_take_units",
+            "_evaluate_v2", "_last_error_line", "_fit", "_take_units",
             "_receiver_units", app=object(), EVALUATE_SCRIPT="real script tested above",
             modal=types.SimpleNamespace(Image=types.SimpleNamespace(from_id=lambda value: object()),
                                         Sandbox=types.SimpleNamespace(create=lambda **kwargs: sandbox)),

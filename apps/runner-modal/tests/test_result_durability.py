@@ -52,7 +52,7 @@ SCORING_GLOBALS = (
     "_week1_cases",
     "_week3_cases",
     "_week1_manifest",
-    "_check_predictions",
+    "check_predictions",
     "_evaluate",
     "_evaluate_v2",
     "_evaluate_week1",

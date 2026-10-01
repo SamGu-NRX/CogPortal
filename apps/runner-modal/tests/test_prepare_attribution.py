@@ -115,7 +115,7 @@ class PrepareAttribution(unittest.TestCase):
             return Sandbox()
 
         space = functions(
-            "RunnerFailure", "_prepare", "_last_error_line", "_refusal_from",
+            "_prepare", "_last_error_line", "_refusal_from",
             "_fit", "_take_units", "_receiver_units",
             modal=types.SimpleNamespace(Sandbox=types.SimpleNamespace(create=create)),
             app=object(), _sandbox_image=lambda job: LazyImage(events),
