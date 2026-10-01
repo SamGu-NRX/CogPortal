@@ -47,23 +47,29 @@ export function Code({
 
   return (
     <div
-      className={`code-block group relative border border-rule bg-paper-sunken px-3.5 py-3 font-mono ${
+      className={`code-block group relative rounded-surface border border-rule bg-paper-sunken/70 px-4 py-3.5 font-mono ${
         wrap ? "is-wrapped" : ""
       }`}
     >
-      <CodeContent code={code} lang={lang} className="text-[12.5px] leading-[1.65] text-ink" />
+      <CodeContent code={code} lang={lang} className="text-[13px] leading-[1.65] text-ink" />
       {/* Keep the action's name stable; the status below announces its result. */}
       <button
         type="button"
         onClick={copy}
         title="Copy command"
-        className="u-pressable u-hit-44 absolute top-1.5 right-1.5 flex min-h-7 min-w-7 items-center justify-center border border-transparent bg-paper-sunken/90 transition-colors duration-150 hover:border-rule"
+        className="u-pressable u-hit-44 absolute top-2 right-2 flex min-h-7 min-w-7 items-center justify-center gap-1 rounded-control border border-transparent bg-paper-sunken px-1.5 text-ink-secondary transition-colors duration-150 hover:border-rule hover:bg-paper-raised hover:text-ink"
       >
+        {/* Seen, not heard: the status line below announces the result. */}
+        {copied && (
+          <span aria-hidden="true" className="anim-rise font-sans text-[12px] font-semibold text-verify-deep">
+            Copied
+          </span>
+        )}
         <HugeiconsIcon
           icon={copied ? Tick02Icon : Copy01Icon}
-          size={13}
+          size={15}
           strokeWidth={1.8}
-          className={copied ? "text-verify" : "text-ink-faint"}
+          className={copied ? "text-verify" : undefined}
           aria-hidden="true"
         />
         <span className="sr-only">Copy command</span>

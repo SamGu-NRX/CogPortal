@@ -1,7 +1,7 @@
 import { type ReactNode, useEffect, useState } from "react";
 import { Link } from "react-router";
 import { queryErrorState } from "@/lib/query-error-state";
-import { Button } from "./Button";
+import { Button, buttonClass } from "./Button";
 import { EmptyState } from "./EmptyState";
 import { Panel } from "./Panel";
 
@@ -42,9 +42,9 @@ export function LoadingMark({ label = "Loading" }: { label?: string }) {
   return (
     <div
       role="status"
-      className="flex items-center justify-center gap-2 py-16 font-mono text-[11px] tracking-[0.09em] text-ink-faint uppercase"
+      className="flex items-center justify-center gap-2.5 py-16 text-[14px] text-ink-secondary"
     >
-      <span aria-hidden="true" className="anim-live size-[7px] bg-detect" />
+      <span aria-hidden="true" className="anim-live size-2 rounded-full bg-ink-secondary" />
       <span>
         {label}
         {waited === null ? (
@@ -55,11 +55,10 @@ export function LoadingMark({ label = "Loading" }: { label?: string }) {
             {/* Hidden from assistive technology on purpose. This sits inside a
                 live region, so a counter that changes every second would be one
                 interruption per second; the label alone stays announced.
-                anim-rise carries its own prefers-reduced-motion rule
-                (styles/app.css:254), and inline-block is what lets its
-                transform apply to a span. The seconds keep their case because
-                "s" is the unit and "S" is a different one. */}
-            <span aria-hidden="true" className="anim-rise inline-block normal-case">
+                anim-rise carries its own prefers-reduced-motion rule in
+                styles/app.css, and inline-block is what lets its transform
+                apply to a span. */}
+            <span aria-hidden="true" className="anim-rise u-tnum inline-block font-mono text-[12.5px] text-ink-faint">
               · {waited} s
             </span>
           </>
@@ -70,8 +69,7 @@ export function LoadingMark({ label = "Loading" }: { label?: string }) {
 }
 
 /** The 404 escape hatch, in the shape NotFound.tsx already uses. */
-const ESCAPE_LINK =
-  "u-pressable inline-flex min-h-11 items-center border border-rule px-5 font-mono text-[11.5px] tracking-[0.09em] text-ink uppercase hover:border-ink-secondary";
+const ESCAPE_LINK = buttonClass("ghost");
 
 /**
  * Query-level failure. The state a student sees is chosen by what they can do
@@ -101,7 +99,7 @@ export function QueryError({
         className={
           state.presentation === "empty"
             ? ESCAPE_LINK
-            : "text-[13px] text-ink underline underline-offset-4"
+            : "u-link text-[14px]"
         }
       >
         {state.link.text}
@@ -116,7 +114,7 @@ export function QueryError({
       <div
         role={state.role}
         aria-live="polite"
-        className="border border-rule bg-paper-raised"
+        className="rounded-surface border border-rule bg-paper-raised"
       >
         <EmptyState message={state.message}>{wayOut}</EmptyState>
       </div>
@@ -136,11 +134,11 @@ export function QueryError({
         role={state.role}
         aria-live={state.role === "status" ? "polite" : undefined}
       >
-        <p className="max-w-prose text-[14px] text-ink">{state.message}</p>
+        <p className="max-w-prose text-[15px] text-ink">{state.message}</p>
         {state.nextStep && (
           // Not ink-faint, which fails AA on the alert wash (see app.css);
           // this is the line the reader acts on.
-          <p className="mt-2 max-w-prose text-[12.5px] text-ink-secondary">
+          <p className="mt-1.5 max-w-prose text-[14px] text-ink-secondary">
             {state.nextStep}
           </p>
         )}

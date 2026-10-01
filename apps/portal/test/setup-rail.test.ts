@@ -1,13 +1,16 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test, type TestContext } from "node:test";
 import * as React from "react";
+import { act } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
+import { Window, type HTMLElement as HappyElement } from "happy-dom";
 import type { SetupStep } from "@cogworks/contracts/schema";
 
 (globalThis as typeof globalThis & { React: typeof React }).React = React;
 
 import { StaticRouter } from "react-router";
-import { Step, StepRail } from "../src/components/StepRail.tsx";
+import { Step, StepRail, type StepState } from "../src/components/StepRail.tsx";
 import {
   BENCHMARK_PACKAGES,
   benchmarkEnvironment,
@@ -214,8 +217,9 @@ function railHtml(
 test("the rail ticks only the steps it has verified", () => {
   const html = railHtml({ verified: ["clone"] });
 
-  // anim-rise is the chip's entrance; one verified step means one chip.
-  assert.equal(html.match(/anim-rise/g)?.length, 1);
+  // The visible "seen" label belongs to a ticked step only; one verified
+  // step means one label.
+  assert.equal(html.match(/Seen by the portal/g)?.length, 1);
   assert.equal(html.match(/Verified\. /g)?.length, 1);
   assert.equal(html.match(/Not verified yet\. /g)?.length, lines().length - 1);
 });
@@ -296,4 +300,93 @@ test("one failed read does not blank the steps the other read answered", () => {
   });
   assert.equal(html.match(/Verified\. /g)?.length, 4, "the setup state's four steps were lost");
   assert.equal(html.match(/Progress unknown\. /g)?.length, 1, "only the link step is unknown");
+});
+
+/**
+ * A live row, so a state change arrives the way a poll delivers it: as a new
+ * prop on a row that is already on screen with someone's focus inside it.
+ */
+async function mountStep(t: TestContext, state: StepState) {
+  const window = new Window({ url: "https://portal.example/setup" });
+  const globals = {
+    window, document: window.document, navigator: window.navigator,
+    HTMLElement: window.HTMLElement, Element: window.Element, SVGElement: window.SVGElement,
+    requestAnimationFrame: window.requestAnimationFrame.bind(window),
+    cancelAnimationFrame: window.cancelAnimationFrame.bind(window),
+    IS_REACT_ACT_ENVIRONMENT: true,
+  };
+  const previous = new Map(Object.keys(globals).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+  for (const [key, value] of Object.entries(globals)) {
+    Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
+  }
+  const container = window.document.createElement("div");
+  window.document.body.append(container);
+  // SAFETY: Happy DOM implements the Element operations used by React DOM.
+  const root = createRoot(container as unknown as Element);
+  t.after(async () => {
+    await act(async () => root.unmount());
+    await window.happyDOM.close();
+    for (const [key, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else Reflect.deleteProperty(globalThis, key);
+    }
+  });
+  const render = (next: StepState) =>
+    act(async () =>
+      root.render(
+        React.createElement(
+          StepRail,
+          null,
+          React.createElement(
+            Step,
+            // Folded the way SetupPage folds a step ticked before it opened.
+            { index: "1", state: next, title: "Get the code", folded: true, last: true },
+            React.createElement("button", { type: "button" }, "Copy command"),
+          ),
+        ),
+      ),
+    );
+  await render(state);
+  const copy = () =>
+    [...container.querySelectorAll("button")].find((button) => button.textContent === "Copy command");
+  return { window, container, render, copy };
+}
+
+test("a folded step exposed by a failed read stays open, with focus, when the read recovers", async (t) => {
+  const { window, container, render, copy } = await mountStep(t, "verified");
+  assert.ok(!copy(), "a verified step mounted folded showed its command");
+
+  // The poll fails: the step can no longer claim it was seen, so its command
+  // shows, and the student starts copying it.
+  await render("unknown");
+  const button = copy();
+  assert.ok(button, "an unknown step hid the command it may still owe");
+  button.focus();
+
+  await render("verified");
+  // Compared as booleans: a failed equal on a Happy DOM node formats the
+  // whole window and stalls the run instead of failing it.
+  assert.ok(copy() === button, "recovered evidence folded the command away");
+  assert.ok(window.document.activeElement === button, "focus fell out of the step");
+  const disclosure = container.querySelector<HappyElement>("button[aria-expanded]");
+  assert.ok(disclosure);
+  assert.equal(disclosure.getAttribute("aria-expanded"), "true");
+
+  // It is still the student's to close.
+  await act(async () => disclosure.click());
+  assert.ok(!copy(), "the disclosure would not close again");
+});
+
+test("a failed read that removes a step's disclosure hands focus to its heading", async (t) => {
+  const { window, container, render } = await mountStep(t, "verified");
+  const disclosure = container.querySelector<HappyElement>("button[aria-expanded]");
+  assert.ok(disclosure);
+  disclosure.focus();
+
+  await render("unknown");
+  assert.ok(!container.querySelector("button[aria-expanded]"), "an unknown step kept its disclosure");
+  assert.ok(
+    window.document.activeElement === container.querySelector("h2"),
+    `focus went to ${window.document.activeElement?.tagName ?? "nothing"}, not the heading`,
+  );
 });

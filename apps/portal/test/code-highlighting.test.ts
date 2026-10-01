@@ -118,7 +118,7 @@ test("a shell command is highlighted, and the visible text is exactly the comman
   const colours = coloured(container);
   assert.ok(colours.length > 1, `expected theme colours, saw ${colours.length}`);
   // The theme's own ink, not a browser default or a Shiki fallback palette.
-  assert.ok(colours.some((style) => /#2e6b4f/i.test(style)), "the string colour is not the paper theme's");
+  assert.ok(colours.some((style) => /#2a6a4e/i.test(style)), "the string colour is not the paper theme's");
 });
 
 test("a machine too busy to keep time still highlights the whole line", async (t) => {
@@ -130,7 +130,7 @@ test("a machine too busy to keep time still highlights the whole line", async (t
   const { container } = await mount(t, React.createElement(Code, { code: LONG, lang: "bash" }), isHighlighted);
   const colours = coloured(container);
   assert.ok(colours.length > 1, `the line collapsed to ${colours.length} colour`);
-  assert.ok(colours.some((style) => /#2e6b4f/i.test(style)), "the quoted string lost its colour");
+  assert.ok(colours.some((style) => /#2a6a4e/i.test(style)), "the quoted string lost its colour");
 });
 
 test("the copied string is the command, not the markup around it", async (t) => {
@@ -157,7 +157,7 @@ test("CopyBlock keeps its own styling hooks and gains no second tab stop", async
   const box = container.querySelector("div[tabindex]");
   assert.ok(box, "the scrolling box lost its tab stop");
   assert.equal(box.getAttribute("tabindex"), "0");
-  assert.match(box.getAttribute("class") ?? "", /text-\[12\.5px\]/);
+  assert.match(box.getAttribute("class") ?? "", /text-\[13px\]/);
   // Class presence only, not computed layout: it pins the intended styling,
   // and the browser pass is what confirms the rendered metrics.
   assert.match(box.getAttribute("class") ?? "", /\[&_pre\]:m-0/, "Shiki's wrapper is not held to this block's styling");

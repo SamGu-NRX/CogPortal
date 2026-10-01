@@ -599,8 +599,8 @@ test("a candidate whose saved environment cannot be reused loses Promote and say
   // The whole sentence, not a fragment of it. React escapes the apostrophe in
   // "isn't", which is the only difference between the two.
   assert.ok(html.includes(dashboard.promotionRefusal.replaceAll("'", "&#x27;")));
-  assert.match(html, /Previous result/);
-  assert.doesNotMatch(html, /Candidate ready/);
+  assert.match(html, /Can&#x27;t be promoted/);
+  assert.doesNotMatch(html, /Ready to promote/);
   assert.doesNotMatch(html, /Promote to official/);
 });
 
@@ -639,7 +639,7 @@ for (const official of ["succeeded", "failed"] as const) {
 
     const html = renderDashboard(dashboard);
     assert.doesNotMatch(html, /Promote to official/);
-    assert.doesNotMatch(html, /Candidate ready/);
+    assert.doesNotMatch(html, /Ready to promote/);
     assert.ok(html.includes(`href="/runs/${officialId}"`));
     assert.match(html, /Official attempt #1/);
 
@@ -702,7 +702,7 @@ test("an unpromoted candidate still offers Promote with the next attempt number"
   assert.equal(dashboard.latestCandidate?.promotedTo, null);
   assert.equal(dashboard.promotionRefusal, null);
   const html = renderDashboard(dashboard);
-  assert.match(html, /Candidate ready/);
+  assert.match(html, /Ready to promote/);
   assert.match(html, /Promote to official/);
 });
 
@@ -1522,17 +1522,17 @@ test("dashboard API and rendered candidate agree with detail for unknown, change
     const html = renderDashboard(dashboard);
     if (repositoryId === FIXTURE_REPO.repositoryId) {
       assert.equal(dashboard.latestCandidate?.sourceRefusal, null, "a same-ID rename remains eligible");
-      assert.match(html, /Candidate ready/);
+      assert.match(html, /Ready to promote/);
       assert.match(html, /Promote to official/);
       assert.match(renderDashboard({ ...dashboard, quota: { ...dashboard.quota, officialUsed: dashboard.quota.officialLimit } }), /disabled=""[^>]*>Promote to official/);
     } else {
-      assert.match(html, /Previous result/);
+      assert.match(html, /Can&#x27;t be promoted/);
       assert.ok(detail.sourceRefusal);
       assert.ok(dashboard.latestCandidate?.sourceRefusal);
       assert.ok(html.includes(dashboard.latestCandidate.sourceRefusal));
       assert.match(dashboard.latestCandidate.sourceRefusal, /to promote it\.$/);
       assert.doesNotMatch(html, /Promote to official/);
-      assert.doesNotMatch(html, /Candidate ready/);
+      assert.doesNotMatch(html, /Ready to promote/);
     }
   }
   await db.update(runs).set({ mode: "official", attemptNumber: 1 }).where(eq(runs.id, PRACTICE_RUN_ID));
@@ -1545,7 +1545,7 @@ test("dashboard API and rendered candidate agree with detail for unknown, change
   const published = DashboardSchema.parse(await response.json());
   assert.equal(published.selection?.source?.fullName, "some-org/the-repository-it-ran-from");
   assert.equal(published.selection?.runId, PRACTICE_RUN_ID);
-  assert.match(renderDashboard(published), /PUBLISHED RESULT[\s\S]*some-org\/the-repository-it-ran-from/);
+  assert.match(renderDashboard(published), /On the leaderboard<\/dt>[\s\S]*some-org\/the-repository-it-ran-from/);
   // The published entry's own board, not the leaderboard's first module.
   assert.match(renderDashboard(published), /href="\/leaderboard\?benchmark=vision-recognition"/);
 
@@ -1555,10 +1555,11 @@ test("dashboard API and rendered candidate agree with detail for unknown, change
     runs: [], latestCandidate: null, selection: null,
     quota: { ...published.quota, practiceUsed: 0, officialUsed: 0 },
   });
-  assert.match(firstRun, /FIRST RUN/);
-  // Grid items must shrink so Code scrolls internally instead of widening the page.
-  assert.match(firstRun, /<div class="min-w-0"><h3 class="u-kicker">On your machine/);
-  assert.match(firstRun, /<div class="min-w-0"><h3 class="u-kicker">Here, from your pushed commit/);
+  assert.match(firstRun, /Run it for the first time/);
+  // The block holding Code must be able to shrink, so Code scrolls inside it
+  // instead of widening the page on a phone.
+  assert.match(firstRun, /<div class="[^"]*\bmin-w-0\b[^"]*"><h3[^>]*>On your machine/);
+  assert.match(firstRun, /<h3[^>]*>Here, from your pushed commit/);
   assert.match(firstRun, /class="code-block /);
   assert.match(firstRun, /cogworks check --benchmark language-search\ncogworks run --benchmark language-search\ncogworks sync/);
   assert.match(firstRun, /<select[^>]*>[\s\S]*main/);

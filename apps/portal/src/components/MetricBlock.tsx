@@ -45,7 +45,7 @@ function directionLabel(metric: Metric): string {
  *   Week 1's `margin_separation` is reported, is absent from
  *   `lower_is_better`, and its own help says a high value is a usable
  *   confidence signal, so higher genuinely is better and this rule denies it
- *   an arrow. Nothing regressed — a reported metric never had one — but the
+ *   an arrow. Nothing regressed (a reported metric never had one), but the
  *   rule under-claims there, and the honest fix is for a benchmark to say
  *   "no direction" itself rather than for the portal to infer it from a
  *   producer's default. That needs a contract field and is not this change.
@@ -57,20 +57,49 @@ export function claimsDirection(metric: Metric, rolesRecorded: boolean): boolean
   return true;
 }
 
-/** Direction is always explicit — the portal never assumes higher-is-better. */
-function DirectionMark({ metric }: { metric: Metric }) {
+/**
+ * The change against the same metric in the team's previous comparable run.
+ *
+ * Printed in the metric's own precision and unit, and never colored: a green
+ * "+0.002" reads as praise, which is the judge's job and not the
+ * instrument's. Which way is better is already on the row.
+ * Null when there is nothing to compare, so no row claims a change it cannot
+ * show.
+ */
+function formatChange(metric: Metric, previous: Metric | undefined): string | null {
+  if (!previous) return null;
+  const magnitude = Math.abs(metric.value - previous.value).toFixed(metric.precision);
+  if (Number(magnitude) === 0) return "same";
+  const sign = metric.value > previous.value ? "+" : "−";
+  return `${sign}${magnitude}${metric.unit ? ` ${metric.unit}` : ""}`;
+}
+
+function Change({ text }: { text: string | null }) {
   return (
-    <span className="inline-flex items-center gap-1 font-mono text-[11px] text-ink-faint">
-      <DirectionArrow higherIsBetter={metric.higherIsBetter} size={11} />
-      {directionLabel(metric)}
+    <span className="u-tnum w-[7ch] shrink-0 text-right font-mono text-[12px] text-ink-faint">
+      {text && (
+        <>
+          <span className="sr-only">change since the previous run: </span>
+          {text}
+        </>
+      )}
     </span>
   );
 }
 
+/**
+ * The run's headline reading, at reading size rather than poster size.
+ *
+ * It sits under the finding and the trace, where a reading sits under the
+ * thing that explains it (docs/design/the-instrument-not-the-judge.md, item
+ * 5). It is still the first row of the readings, slightly larger, because it
+ * is the number the leaderboard shows and a team will look for it.
+ */
 export function PrimaryMetric({
   metric,
   floors = [],
   rolesRecorded = true,
+  previous,
 }: {
   metric: Metric;
   /**
@@ -86,33 +115,52 @@ export function PrimaryMetric({
   floors?: Metric[];
   /** Whether this run recorded any metric roles. See `claimsDirection`. */
   rolesRecorded?: boolean;
+  /** The same metric in the run this one is compared against. Null when
+   *  there is a comparison run without this metric; absent when there is no
+   *  comparison at all, which also drops the change slot. */
+  previous?: Metric | null;
 }) {
+  const change = formatChange(metric, previous ?? undefined);
   return (
-    <figure className="relative inline-block px-4 py-3">
-      <CornerBrackets size={12} thickness={1.5} inset={0} className="text-detect" />
-      <div className="u-kicker">{metric.label}</div>
-      <div className="u-tnum mt-1 font-serif text-5xl font-semibold text-ink">
-        {metric.value.toFixed(metric.precision)}
-        {metric.unit && (
-          <span className="ml-1 text-lg font-normal text-ink-secondary">{metric.unit}</span>
-        )}
-      </div>
-      {claimsDirection(metric, rolesRecorded) && (
-        <figcaption className="mt-1">
-          <DirectionMark metric={metric} />
+    <figure className="py-1">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
+        <figcaption className="min-w-0">
+          <span className="text-[15px] font-semibold text-ink">{metric.label}</span>
+          {claimsDirection(metric, rolesRecorded) && (
+            <span className="ml-2.5 inline-flex items-center gap-1 font-mono text-[12px] text-ink-faint">
+              <DirectionArrow higherIsBetter={metric.higherIsBetter} size={11} />
+              {directionLabel(metric)}
+            </span>
+          )}
         </figcaption>
-      )}
+        {/* ml-auto keeps the value on the right edge when a narrow screen
+            wraps it under the label, so the change column stays one column. */}
+        <div className="ml-auto flex items-baseline gap-2.5">
+          <span className="u-tnum font-mono text-[22px] leading-none font-medium text-ink">
+            {metric.value.toFixed(metric.precision)}
+            {metric.unit && (
+              <span className="ml-1 text-[14px] font-normal text-ink-secondary">{metric.unit}</span>
+            )}
+          </span>
+          {/* Same slot widths as a supporting row, so the change column runs
+              straight down the whole table. */}
+          {previous !== undefined && (
+            <>
+              <span aria-hidden="true" className="w-3 shrink-0" />
+              <Change text={change} />
+            </>
+          )}
+        </div>
+      </div>
       {floors.length > 0 && (
         /* Printed at the primary's precision, because the comparison is the
            reason they are here. No arrow on any of them: a floor is a property
            of the dataset, so there is no direction the submission controls. */
-        <dl className="mt-2 flex flex-wrap items-baseline gap-x-4 gap-y-1">
+        <dl className="mt-1.5 flex flex-wrap items-baseline gap-x-5 gap-y-1">
           {floors.map((floor) => (
             <div key={floor.key} className="flex items-baseline gap-1.5">
-              <dt className="font-mono text-[10px] tracking-[0.06em] text-ink-faint uppercase">
-                {floor.label}
-              </dt>
-              <dd className="u-tnum font-mono text-[11px] text-ink-secondary">
+              <dt className="text-[13px] text-ink-faint">{floor.label}</dt>
+              <dd className="u-tnum font-mono text-[12.5px] text-ink-secondary">
                 {formatMetricValue({ ...floor, precision: metric.precision })}
               </dd>
             </div>
@@ -126,15 +174,13 @@ export function PrimaryMetric({
           repository has hit twice before. Open rather than behind a
           disclosure, for the reason the primary's own help is open. */}
       {floors.some((floor) => floor.help) && (
-        <dl className="mt-3 max-w-[46ch] border-l border-rule-soft pl-3">
+        <dl className="mt-3 max-w-[60ch] space-y-1.5">
           {floors
             .filter((floor) => floor.help)
             .map((floor) => (
-              <div key={floor.key} className="mt-2 first:mt-0">
-                <dt className="font-mono text-[10px] tracking-[0.06em] text-ink-faint uppercase">
-                  {floor.label}
-                </dt>
-                <dd className="font-serif text-[12.5px] leading-[1.55] text-ink-secondary">
+              <div key={floor.key}>
+                <dt className="inline text-[13px] font-semibold text-ink-secondary">{floor.label}. </dt>
+                <dd className="inline font-serif text-[14px] leading-[1.55] text-ink-secondary">
                   {floor.help}
                 </dd>
               </div>
@@ -145,7 +191,7 @@ export function PrimaryMetric({
           explanation is never behind a disclosure. Set in the body serif at
           reading size: this is prose to be read, not a label to be scanned. */}
       {metric.help && (
-        <p className="mt-3 max-w-[46ch] border-l border-rule-soft pl-3 font-serif text-[13px] leading-[1.55] text-ink-secondary">
+        <p className="mt-2.5 max-w-[60ch] font-serif text-[14px] leading-[1.55] text-ink-secondary">
           {metric.help}
         </p>
       )}
@@ -164,12 +210,18 @@ export function PrimaryMetric({
  * row-sized hit target is easier to hit than a 16px glyph. The affordance is
  * a dotted underline on the label, the printer's convention for an annotated
  * term, which appears only on rows that actually carry an explanation.
+ *
+ * The right-hand cluster keeps fixed slots (value, direction, change) so the
+ * values stay one column even when a row carries a floor or a "not scored"
+ * tag and its neighbor does not.
  */
 function SupportingMetricRow({
   metric,
   floors = [],
   subordinate = false,
   rolesRecorded,
+  previous,
+  compared,
 }: {
   metric: Metric;
   /** Rendered as this metric's scale rather than as rows of their own. A
@@ -181,16 +233,19 @@ function SupportingMetricRow({
   subordinate?: boolean;
   /** Whether this run recorded any metric roles. See `claimsDirection`. */
   rolesRecorded: boolean;
+  previous?: Metric;
+  /** Whether the table has a change column at all. */
+  compared: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const panelId = useId();
   const explained = Boolean(metric.help);
+  // A floor is a fact about the dataset; a change in it is a change of
+  // benchmark data, not of the team's code, so it gets no change mark.
+  const change = metric.role === "floor" ? null : formatChange(metric, previous);
 
   const value = (
-    <dd className="flex items-baseline gap-2">
-      <span className="u-tnum font-mono text-[13px] font-medium text-ink">
-        {formatMetricValue(metric)}
-      </span>
+    <dd className="flex shrink-0 flex-wrap items-baseline justify-end gap-x-2.5 gap-y-0.5">
       {/* The scale the number sits on, not a reading of its own. A floor was
           its own row with an arrow saying "higher is better", which is advice
           to raise a number the submission does not control, and it left the
@@ -198,7 +253,7 @@ function SupportingMetricRow({
           "floor"; two need their own names, because "floor" cannot tell them
           apart. */}
       {floors.map((floor) => (
-        <span key={floor.key} className="u-tnum font-mono text-[11px] text-ink-faint">
+        <span key={floor.key} className="u-tnum font-mono text-[12px] text-ink-faint">
           {floors.length === 1 ? "floor" : floor.label.toLowerCase()}{" "}
           {formatMetricValue({ ...floor, precision: metric.precision })}
         </span>
@@ -206,42 +261,49 @@ function SupportingMetricRow({
       {/* Not scored and which way is better are separate facts, so they are
           separate marks rather than two branches of one choice. */}
       {metric.role === "reported" && (
-        <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint">
-          not scored
-        </span>
+        <span className="text-[12px] text-ink-faint italic">not scored</span>
       )}
-      {claimsDirection(metric, rolesRecorded) && (
-        <span className="inline-flex items-center text-ink-faint">
-          <DirectionArrow higherIsBetter={metric.higherIsBetter} size={10} />
-          <span className="sr-only">{directionLabel(metric)}</span>
+      <span className="flex items-baseline">
+        <span className="u-tnum font-mono text-[13.5px] font-medium text-ink">
+          {formatMetricValue(metric)}
         </span>
-      )}
+        <span className="ml-2 inline-flex w-3 shrink-0 items-center self-center text-ink-faint">
+          {claimsDirection(metric, rolesRecorded) && (
+            <>
+              <DirectionArrow higherIsBetter={metric.higherIsBetter} size={10} />
+              <span className="sr-only">{directionLabel(metric)}</span>
+            </>
+          )}
+        </span>
+        {compared && <span className="ml-2.5"><Change text={change} /></span>}
+      </span>
     </dd>
   );
 
   // Indented and quieter, so the eye reads it as belonging to the row above
   // rather than as another result.
-  const rowPadding = subordinate ? "py-1.5 pl-4" : "py-2";
+  const rowPadding = subordinate ? "py-1.5 pl-5" : "py-2.5";
+  const labelClass = subordinate ? "text-[13px] text-ink-faint" : "text-[14px] text-ink-secondary";
 
   if (!explained) {
     return (
       <div
-        className={`flex items-baseline justify-between gap-4 border-b border-rule-soft last:border-b-0 ${rowPadding}`}
+        className={`flex items-baseline justify-between gap-4 border-b border-rule-soft ${rowPadding}`}
       >
-        <dt className="text-[13px] text-ink-secondary">{metric.label}</dt>
+        <dt className={`min-w-0 ${labelClass}`}>{metric.label}</dt>
         {value}
       </div>
     );
   }
 
   return (
-    <div className="border-b border-rule-soft last:border-b-0">
+    <div className="border-b border-rule-soft">
       <button
         type="button"
         onClick={() => setOpen((wasOpen) => !wasOpen)}
         aria-expanded={open}
         aria-controls={panelId}
-        className={`group relative flex w-full items-baseline justify-between gap-4 text-left transition-colors duration-150 hover:bg-detect-wash/40 focus-visible:outline-none focus-visible:bg-detect-wash/40 ${rowPadding}`}
+        className={`group relative flex w-full items-baseline justify-between gap-4 text-left transition-colors duration-150 hover:bg-ink/[0.03] focus-visible:outline-offset-[-2px] ${rowPadding}`}
       >
         {/* The instrument's own motif: brackets mark where it is looking. They
             fade in on hover and stay while the note is open. */}
@@ -253,28 +315,21 @@ function SupportingMetricRow({
             open ? "opacity-100" : "opacity-0 group-hover:opacity-60"
           }`}
         />
-        <dt className="text-[13px] text-ink-secondary decoration-rule decoration-dotted underline-offset-[3px] group-hover:text-ink group-hover:underline">
+        {/* mr-auto, because the brackets' wrapper is an empty flex item too:
+            with justify-between alone the label floated to the middle. */}
+        <dt
+          className={`mr-auto min-w-0 underline decoration-rule-strong decoration-dotted underline-offset-[3px] group-hover:text-ink ${labelClass}`}
+        >
           {metric.label}
         </dt>
         {value}
       </button>
-      {/* 0fr -> 1fr animates to the content's natural height without measuring
-          it in JS, so a two-line note and a five-line note both open at the
-          same speed. */}
-      <div
-        id={panelId}
-        className="grid transition-[grid-template-rows] duration-200 ease-out-quart motion-reduce:transition-none"
-        style={{ gridTemplateRows: open ? "1fr" : "0fr" }}
-      >
-        <div className="overflow-hidden">
-          <p
-            className={`mb-2 max-w-[52ch] border-l border-detect/25 pl-3 font-serif text-[12.5px] leading-[1.55] text-ink-secondary transition-opacity duration-200 motion-reduce:transition-none ${
-              open ? "opacity-100 delay-75" : "opacity-0"
-            }`}
-          >
+      {/* Opens at once and fades in; `hidden` keeps the closed note out of
+          the accessibility tree and the tab order. */}
+      <div id={panelId} hidden={!open} className="anim-reveal">
+          <p className="mb-2.5 max-w-[56ch] border-l border-detect/30 pl-3 font-serif text-[14px] leading-[1.55] text-ink-secondary">
             {metric.help}
           </p>
-        </div>
       </div>
     </div>
   );
@@ -303,10 +358,14 @@ function SupportingMetricRow({
 export function SupportingMetrics({
   metrics,
   rolesRecorded = true,
+  previous = null,
 }: {
   metrics: Metric[];
   /** Whether this run recorded any metric roles. See `claimsDirection`. */
   rolesRecorded?: boolean;
+  /** Every metric of the run this one is compared against. Null for none,
+   *  which also drops the change column. */
+  previous?: Metric[] | null;
 }) {
   if (metrics.length === 0) return null;
 
@@ -353,29 +412,24 @@ export function SupportingMetrics({
   const rows = metrics.filter(
     (metric) => metric.role !== "plotted" && !absorbed.has(metric.key),
   );
-  // Diagnostics last, and separated, because they describe one component in
-  // more detail rather than answering "how did I do". A benchmark that
-  // declares no roles keeps its original order, since every metric sorts
-  // equally.
-  const ordered = [
-    ...rows.filter((metric) => metric.role !== "diagnostic"),
-    ...rows.filter((metric) => metric.role === "diagnostic"),
-  ];
-  const firstDiagnostic = ordered.findIndex((metric) => metric.role === "diagnostic");
+  // Diagnostics last, under their own label, because they describe one
+  // component in more detail rather than answering "how did I do". A
+  // benchmark that declares no roles keeps its original order, since every
+  // metric sorts equally.
+  const main = rows.filter((metric) => metric.role !== "diagnostic");
+  const diagnostics = rows.filter((metric) => metric.role === "diagnostic");
+  const before = previous ? new Map(previous.map((metric) => [metric.key, metric])) : null;
 
-  return (
+  const list = (group: Metric[]) => (
     <dl>
-      {ordered.map((metric, index) => (
-        <div
-          key={metric.key}
-          className={
-            index === firstDiagnostic && index > 0 ? "mt-3 border-t border-rule pt-1" : undefined
-          }
-        >
+      {group.map((metric) => (
+        <div key={metric.key}>
           <SupportingMetricRow
             metric={metric}
             floors={floors.get(metric.key)}
             rolesRecorded={rolesRecorded}
+            previous={before?.get(metric.key)}
+            compared={before !== null}
           />
           {(reported.get(metric.key) ?? []).map((probe) => (
             <SupportingMetricRow
@@ -383,10 +437,27 @@ export function SupportingMetrics({
               metric={probe}
               subordinate
               rolesRecorded={rolesRecorded}
+              previous={before?.get(probe.key)}
+              compared={before !== null}
             />
           ))}
         </div>
       ))}
     </dl>
+  );
+
+  return (
+    <div>
+      {main.length > 0 && list(main)}
+      {diagnostics.length > 0 && (
+        <div className={main.length > 0 ? "mt-6" : undefined}>
+          <p className="u-label">Diagnostics</p>
+          <p className="mt-0.5 mb-1 text-[13px] text-ink-faint">
+            These look at one part of the pipeline more closely.
+          </p>
+          {list(diagnostics)}
+        </div>
+      )}
+    </div>
   );
 }

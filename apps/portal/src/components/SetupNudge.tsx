@@ -1,6 +1,6 @@
 import { ArrowRight01Icon, Cancel01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Link } from "react-router";
 import {
   useConnections,
@@ -11,12 +11,23 @@ import {
 import {
   dismissSetup,
   isSetupDismissed,
+  nextSetupLine,
   setupCommandProgress,
   setupCommandsForTeam,
+  setupStepTitle,
+  stepState,
 } from "@/lib/setup-progress";
 import { useTrack } from "@/lib/track";
+import { StepCells } from "./StepRail";
+
+const FOCUSABLE =
+  "a[href], button:not([disabled]), select:not([disabled]), input:not([disabled]), " +
+  "textarea:not([disabled]), [tabindex]:not([tabindex='-1'])";
 
 /**
+ * One line on the Runs page saying how much of setup is left and which step
+ * is next, with a link straight to that step.
+ *
  * It counts the setup page's own command sheet rather than a second measure of
  * its own. The two used to disagree (this said "2 of 6 steps done" against the
  * page's "0 of 6 verified") because this counted milestones a student never
@@ -29,6 +40,7 @@ export function SetupNudge() {
   const setupState = useSetupState(track.benchmarkId);
   const connections = useConnections();
   const [hidden, setHidden] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
 
   if (hidden || !team.data || !session?.user) return null;
   const login = session.user.login;
@@ -54,49 +66,55 @@ export function SetupNudge() {
     portalOrigin: window.location.origin,
   });
   const { done, total } = setupCommandProgress(lines);
-  if (done >= total) return null;
+  const next = nextSetupLine(lines);
+  if (done >= total || !next) return null;
+  const teamId = team.data.id;
+
+  const dismiss = () => {
+    // The button is about to leave the page, and focus would fall back to the
+    // top of the document. Hand it to whatever comes next instead.
+    const here = root.current;
+    const following = here
+      ? [...document.querySelectorAll<HTMLElement>(FOCUSABLE)].find(
+          (element) =>
+            !here.contains(element) &&
+            Boolean(here.compareDocumentPosition(element) & Node.DOCUMENT_POSITION_FOLLOWING),
+        )
+      : undefined;
+    dismissSetup(teamId, login);
+    setHidden(true);
+    following?.focus();
+  };
 
   return (
-    <div className="anim-rise mt-6 flex flex-wrap items-center gap-x-5 gap-y-2 border border-rule bg-paper-raised px-4 py-3">
-      <span className="u-kicker">Getting set up</span>
-
-      <span aria-hidden="true" className="flex items-center gap-1">
-        {lines.map((line) => (
-          <span
-            key={line.id}
-            className={`size-2 transition-colors duration-150 ${
-              line.verified
-                ? "bg-verify"
-                : line.selfChecked
-                  ? "bg-ink"
-                  : "border border-rule bg-paper-sunken"
-            }`}
-          />
-        ))}
-      </span>
-
-      <span className="text-[13px] text-ink-secondary">
-        {done} of {total} done
-      </span>
-
-      <span className="ml-auto flex items-center gap-1">
+    <div
+      ref={root}
+      className="anim-rise mt-6 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-surface border border-rule bg-paper-raised py-1.5 pr-1.5 pl-4"
+    >
+      <StepCells states={lines.map((line) => stepState(line))} />
+      <p className="text-[14px] text-ink-secondary">
+        <span className="font-semibold text-ink">Setup</span>{" "}
+        <span className="u-tnum">
+          {done} of {total} done
+        </span>
+      </p>
+      <span className="ml-auto flex items-center">
         <Link
-          to="/setup"
-          className="u-pressable inline-flex min-h-9 items-center gap-1.5 px-2 font-mono text-[11px] tracking-[0.08em] text-ink-secondary uppercase hover:text-ink"
+          to={`/setup#step-${next.id}`}
+          className="u-pressable inline-flex min-h-11 items-center gap-1.5 rounded-control px-2.5 text-[14px] font-semibold text-ink underline decoration-rule-strong underline-offset-4 hover:decoration-ink"
         >
-          Continue
-          <HugeiconsIcon icon={ArrowRight01Icon} size={13} strokeWidth={1.8} aria-hidden="true" />
+          Next: {setupStepTitle(next.id, track.benchmark?.title ?? track.benchmarkId)}
+          <HugeiconsIcon icon={ArrowRight01Icon} size={15} strokeWidth={1.8} aria-hidden="true" />
         </Link>
         <button
           type="button"
-          aria-label="Dismiss the setup reminder"
-          onClick={() => {
-            dismissSetup(team.data.id, login);
-            setHidden(true);
-          }}
-          className="u-pressable flex min-h-9 min-w-9 items-center justify-center text-ink-faint transition-colors duration-150 hover:text-ink"
+          // It doesn't come back, so the name says where setup still lives.
+          aria-label="Hide this reminder for good (Setup stays in the tabs)"
+          title="Hide this reminder"
+          onClick={dismiss}
+          className="u-pressable flex size-11 items-center justify-center rounded-control text-ink-faint transition-colors duration-150 hover:bg-ink/[0.045] hover:text-ink"
         >
-          <HugeiconsIcon icon={Cancel01Icon} size={14} strokeWidth={1.8} aria-hidden="true" />
+          <HugeiconsIcon icon={Cancel01Icon} size={15} strokeWidth={1.8} aria-hidden="true" />
         </button>
       </span>
     </div>

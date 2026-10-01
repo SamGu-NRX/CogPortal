@@ -36,15 +36,12 @@ export function formatDateTime(epochMs: number): string {
 }
 
 export function runNumberLabel(id: string): string {
-  // Stable, human-scannable run tag from the id tail, e.g. "RUN 3F82".
-  return `RUN ${id.slice(-4).toUpperCase()}`;
+  // Stable, scannable tag from the id tail, e.g. "Run #3F82". The "#" marks it
+  // as an identifier: an all-letters tail otherwise reads as a word ("RUN
+  // DACE"). A page that can say more (mode, branch) leads with that instead.
+  return `Run #${id.slice(-4).toUpperCase()}`;
 }
 
-export function greeting(hour: number): string {
-  if (hour < 12) return "Good morning";
-  if (hour < 18) return "Good afternoon";
-  return "Good evening";
-}
 
 export function firstName(name: string | null, login: string): string {
   return name?.split(" ")[0] || login;

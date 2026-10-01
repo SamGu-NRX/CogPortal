@@ -1,25 +1,27 @@
 import { ArrowRight01Icon, ArrowUpRight01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { Link, Navigate } from "react-router";
 import { OFFICIAL_LIMIT, PRACTICE_LIMIT } from "@cogworks/contracts/schema";
+import { buttonClass } from "@/components/Button";
+import { CornerBrackets } from "@/components/Brackets";
 import { GitHubIcon } from "@/components/GitHubIcon";
 import { nextStagePath } from "@/App";
 import { useSession } from "@/lib/queries";
 import { pendingConnectionReturn } from "@/lib/pending-return";
 
 /**
- * It cannot carry the setup commands: those need a clone URL and a track, and
- * a signed-out page has neither, so a student who followed them literally
- * reached "cogworks: command not found". The commands live on /setup, which
- * knows both. What belongs here is the shape of the work, so that the first
- * command someone types is one they understand the reason for.
+ * The front page says what a run gives back before it says how to get one.
  *
- * This page briefly said only "sign in · connect · clone · check · run" over
- * an empty sheet of paper. Those five verbs are not an explanation, and once
- * the four steps below say the same thing in sentences, repeating them in mono
- * is a third vocabulary for one sequence. The steps are the version that
- * teaches, so they are the version that stayed.
+ * A signed-out visitor is usually a student who was just told to "sign in to
+ * the portal" and is deciding how much of their afternoon this will take. The
+ * page answers with the thing they'll actually receive: a sentence about what
+ * their pipeline did, with a curve and a number under it. That example is the
+ * argument of docs/design/the-instrument-not-the-judge.md made visible, so it
+ * leads, and it is labeled as an example because nothing on it was measured.
+ *
+ * It cannot carry the setup commands: those need a clone URL and a track, and
+ * a signed-out page has neither. They live on /setup, which knows both.
  */
 export function Landing() {
   const { data: session } = useSession();
@@ -29,113 +31,106 @@ export function Landing() {
   if (pendingReturn) return <Navigate to={pendingReturn} replace />;
 
   return (
-    <div className="anim-rise mx-auto w-full max-w-2xl py-14">
-      <h1 className="mt-3 text-4xl">
-        The Cog<span className="text-detect">*</span>Works benchmark.
-      </h1>
-      <p className="mt-3 max-w-[52ch] text-[15px] leading-[1.6] text-ink-secondary">
-        Run your capstone against the official evaluation of Cog*Works 2026. It
-        scores the code your team already wrote, on your machine as often as you
-        like and on ours from the commit you pushed.
-      </p>
+    <div className="page !max-w-[64rem]">
+      <section className="grid items-center gap-x-16 gap-y-12 lg:grid-cols-[minmax(0,1fr)_25rem]">
+        <div className="anim-rise">
+          <p className="u-eyebrow">CogWorks 2026 capstone benchmark</p>
+          <h1 className="mt-3 max-w-[16ch] text-[clamp(2.5rem,1.6rem+3.4vw,3.75rem)] text-ink">
+            See how your capstone holds up as the problem gets harder.
+          </h1>
+          <p className="mt-5 max-w-[50ch] text-[17px] leading-[1.6] text-ink-secondary">
+            We run the code your team already wrote, on your machine as often as
+            you like and on ours from the commit you pushed. Each run comes back
+            as a sentence about what your pipeline did, with the numbers
+            underneath.
+          </p>
 
-      <div className="mt-7 flex flex-wrap items-center gap-4">
-        {authed ? (
-          <Link
-            to={nextStagePath(session!)}
-            className="u-pressable inline-flex h-11 items-center bg-ink px-6 text-[13.5px] font-medium tracking-wide text-paper-raised transition-colors duration-150 hover:bg-ink/90"
-          >
-            {session!.team ? "Open Dashboard" : "Continue setup"}
-          </Link>
-        ) : (
-          <Link
-            to="/signin"
-            className="u-pressable inline-flex h-11 items-center gap-2.5 bg-ink px-6 text-[13.5px] font-medium tracking-wide text-paper-raised transition-colors duration-150 hover:bg-ink/90"
-          >
-            <GitHubIcon />
-            Sign in with GitHub
-          </Link>
-        )}
-        <Link
-          to="/leaderboard"
-          className="inline-flex min-h-11 items-center font-mono text-[11.5px] tracking-[0.09em] text-ink-secondary uppercase underline decoration-rule underline-offset-8 hover:text-ink"
-        >
-          Results
-        </Link>
-      </div>
+          <div className="mt-8 flex flex-wrap items-center gap-3">
+            {authed ? (
+              <Link to={nextStagePath(session!)} className={buttonClass("primary", "px-6")}>
+                {session!.team ? "Open your runs" : "Continue setting up"}
+                <HugeiconsIcon icon={ArrowRight01Icon} size={16} strokeWidth={2} aria-hidden="true" />
+              </Link>
+            ) : (
+              <Link to="/signin" className={buttonClass("primary", "px-6")}>
+                <GitHubIcon />
+                Sign in with GitHub
+              </Link>
+            )}
+            <Link to="/leaderboard" className={buttonClass("quiet")}>
+              See this year's results
+            </Link>
+          </div>
+        </div>
 
-      <section className="mt-16">
-        <h2 className="u-kicker">How it goes</h2>
-        {/* A real sequence, so it is numbered: each step needs the one above
-            it to have happened. The last two are both ways to run rather than
-            a ladder, and hosted practice does not wait on a local score. */}
-        <ol className="mt-2">
+        <Specimen />
+      </section>
+
+      <section aria-labelledby="how-it-goes" className="mt-24">
+        <h2 id="how-it-goes" className="text-[26px] text-ink">
+          How a capstone week goes
+        </h2>
+        {/* A real sequence, so it is numbered: each step needs the one before
+            it. The last two are two ways to run rather than a ladder, and a
+            hosted practice run does not wait on a local one. */}
+        <ol className="mt-8 grid gap-x-10 gap-y-9 sm:grid-cols-2 lg:grid-cols-4">
           <Step n={1} title="Bring a repository">
             <p>
-              Your team works in one GitHub repository, and every hosted attempt
-              runs from it rather than from somebody's laptop.
+              Your team works in one GitHub repository, and every hosted run
+              starts from it rather than from somebody's laptop.
             </p>
             {template ? (
               <p className="mt-2">
-                Fork the course template:{" "}
+                Fork{" "}
                 <a
                   href={`https://github.com/${template}`}
                   target="_blank"
                   rel="noreferrer"
-                  className="font-mono text-[13px] text-ink underline decoration-rule underline-offset-4 hover:decoration-ink"
+                  className="u-link font-mono text-[13px] break-all"
                 >
-                  github.com/{template}
+                  {template}
                   <HugeiconsIcon
                     icon={ArrowUpRight01Icon}
                     size={12}
                     strokeWidth={1.8}
-                    className="inline-block align-[-0.1em]"
+                    className="ml-0.5 inline-block align-[-0.1em]"
                     aria-hidden="true"
                   />
-                </a>
-                , or connect a repository your team already has.
+                  <span className="sr-only"> (opens GitHub)</span>
+                </a>{" "}
+                or bring one your team already has.
               </p>
             ) : (
               <p className="mt-2">
-                A repository your team already has is fine. If your instructor
-                shares a template, forking it is the easy start.
+                One your team already has is fine. If your instructor shares a
+                template, forking it is the easy start.
               </p>
             )}
           </Step>
 
           <Step n={2} title="Set up your machine">
             <p>
-              Clone the repository, activate your week's course environment,
-              and install the CogWorks tool. The setup page has the exact
-              commands for your track.
+              Clone it, activate your week's course environment, and install
+              the CogWorks tool. The setup page has the exact commands for your
+              track.
             </p>
           </Step>
 
-          <Step n={3} title="Practice on your own machine">
+          <Step n={3} title="Practice on your machine">
             <p>
-              <code className="font-mono text-[12.5px]">cogworks run</code> scores
-              your code locally, with the same checks and scorer a hosted run
-              uses, and there's no limit on local runs.
+              <code className="font-mono text-[13px] text-ink">cogworks run</code>{" "}
+              scores your code with the same checks and scorer a hosted run
+              uses, and local runs are unlimited.
             </p>
           </Step>
 
-          <Step n={4} title="Run it on our machines">
+          <Step n={4} title="Run it on ours">
             <p>
-              A hosted run repeats that scoring from the commit you pushed, so
-              the number belongs to code anyone can check out. Each benchmark
-              gives your team {PRACTICE_LIMIT} hosted practice runs and{" "}
+              A hosted run repeats that scoring from the commit you pushed.
+              Each benchmark gives your team {PRACTICE_LIMIT} practice runs and{" "}
               {OFFICIAL_LIMIT} official attempts, and you choose which official
-              result goes on the board.
+              result is shown.
             </p>
-            {!authed && (
-              <Link
-                to="/signin"
-                className="u-pressable mt-3 inline-flex min-h-10 items-center gap-1 font-mono text-[11.5px] tracking-[0.09em] text-detect-deep uppercase underline decoration-detect/40 underline-offset-4 hover:decoration-detect"
-              >
-                Sign in
-                <HugeiconsIcon icon={ArrowRight01Icon} size={12} strokeWidth={1.8} aria-hidden="true" />
-              </Link>
-            )}
           </Step>
         </ol>
       </section>
@@ -145,14 +140,122 @@ export function Landing() {
 
 function Step({ n, title, children }: { n: number; title: string; children: ReactNode }) {
   return (
-    <li className="grid grid-cols-[44px_1fr] gap-x-4 border-t border-rule-soft py-6 first:border-t-0">
-      <span className="u-tnum pt-0.5 font-serif text-xl font-semibold text-detect">
-        {String(n).padStart(2, "0")}
+    <li className="border-t border-rule-strong pt-4">
+      <span aria-hidden="true" className="u-tnum font-serif text-[15px] font-semibold text-ink-faint italic">
+        {n}.
       </span>
-      <div className="min-w-0 space-y-0 text-[14px] leading-[1.6] text-ink-secondary">
-        <h3 className="text-[15px] font-semibold text-ink">{title}</h3>
-        <div className="mt-2.5">{children}</div>
-      </div>
+      <h3 className="mt-1 text-[19px] text-ink">
+        <span className="sr-only">Step {n}: </span>
+        {title}
+      </h3>
+      <div className="mt-2 text-[14.5px] leading-[1.6] text-ink-secondary">{children}</div>
     </li>
+  );
+}
+
+/* ── The example run ───────────────────────────────────────────────────── */
+
+/**
+ * Week 1's "knee" from the gallery fixtures, with the sentence the Week 1
+ * scorer writes for that shape. Hand-drawn in the same grammar as
+ * components/SweepTrace.tsx: two rules, no grid, y pinned to 0..1.
+ */
+const EXAMPLE = {
+  sentence:
+    "Identification holds to a 20-song library, then falls off. The right song is still being found, so the vote is what gives way as the library grows.",
+  axis: "songs in the library",
+  points: [
+    { x: 5, y: 0.9 },
+    { x: 10, y: 0.88 },
+    { x: 20, y: 0.85 },
+    { x: 40, y: 0.42 },
+    { x: 80, y: 0.21 },
+  ],
+  knee: 2,
+};
+
+const W = 360;
+const H = 170;
+const PAD = { top: 16, right: 12, bottom: 26, left: 30 };
+
+function Specimen() {
+  const pts = EXAMPLE.points;
+  // Spaced by rank, not by value: the library doubles each step, and an even
+  // spacing is how the course draws a doubling sweep.
+  const px = (i: number) => PAD.left + (i / (pts.length - 1)) * (W - PAD.left - PAD.right);
+  const py = (y: number) => PAD.top + (1 - y) * (H - PAD.top - PAD.bottom);
+  const d = pts.map((p, i) => `${i ? "L" : "M"}${px(i).toFixed(1)},${py(p.y).toFixed(1)}`).join(" ");
+  const knee = pts[EXAMPLE.knee];
+
+  return (
+    <figure
+      className="anim-rise relative rounded-surface border border-rule bg-paper-raised p-6 shadow-[0_1px_0_rgb(27_31_36/0.04),0_18px_40px_-24px_rgb(27_31_36/0.25)]"
+      style={{ "--rise-delay": "80ms" } as CSSProperties}
+    >
+      <figcaption className="flex items-baseline justify-between gap-3">
+        <span className="u-label">What a run shows</span>
+        <span className="rounded-full border border-rule px-2 py-0.5 text-[12px] font-semibold text-ink-secondary">
+          Example
+        </span>
+      </figcaption>
+
+      <p className="mt-3 font-serif text-[19px] leading-[1.42] text-ink">{EXAMPLE.sentence}</p>
+
+      <div className="relative mt-5">
+        <svg
+          viewBox={`0 0 ${W} ${H}`}
+          className="w-full overflow-visible"
+          role="img"
+          aria-label="Example trace: identification score against songs in the library, 0.90 at 5 songs, 0.85 at 20, then 0.21 at 80."
+        >
+          <line x1={PAD.left} y1={PAD.top} x2={PAD.left} y2={H - PAD.bottom} className="stroke-rule-strong" strokeWidth="1" />
+          <line x1={PAD.left} y1={H - PAD.bottom} x2={W - PAD.right} y2={H - PAD.bottom} className="stroke-rule-strong" strokeWidth="1" />
+          {[0, 0.5, 1].map((t) => (
+            <text key={t} x={PAD.left - 7} y={py(t) + 3} textAnchor="end" className="fill-ink-faint font-mono" fontSize="9.5">
+              {t.toFixed(1)}
+            </text>
+          ))}
+          {pts.map((p, i) => (
+            <text key={`x${p.x}`} x={px(i)} y={H - PAD.bottom + 15} textAnchor="middle" className="fill-ink-faint font-mono" fontSize="9.5">
+              {p.x}
+            </text>
+          ))}
+          <path d={d} pathLength={1} fill="none" className="specimen-trace stroke-ink" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+          {pts.map((p, i) => (
+            <circle
+              key={p.x}
+              cx={px(i)}
+              cy={py(p.y)}
+              r="3"
+              className="specimen-point fill-paper-raised stroke-ink"
+              strokeWidth="1.5"
+              style={{ "--i": i } as CSSProperties}
+            />
+          ))}
+        </svg>
+        {/* The knee, marked with the detection bracket: "the instrument is
+            looking here". Positioned in percentages of the drawing so it
+            stays on the point at any width. */}
+        <span
+          aria-hidden="true"
+          className="specimen-knee absolute block size-[22px] -translate-x-1/2 -translate-y-1/2"
+          style={{ left: `${(px(EXAMPLE.knee) / W) * 100}%`, top: `${(py(knee.y) / H) * 100}%` }}
+        >
+          <CornerBrackets size={6} thickness={1.5} className="text-detect" />
+        </span>
+        <span
+          aria-hidden="true"
+          className="specimen-knee absolute u-note text-[13.5px] whitespace-nowrap text-detect-deep"
+          style={{ left: `calc(${(px(EXAMPLE.knee) / W) * 100}% + 16px)`, top: `calc(${(py(knee.y) / H) * 100}% - 30px)` }}
+        >
+          the knee
+        </span>
+      </div>
+
+      <p className="mt-2 flex justify-between font-mono text-[12px] text-ink-faint">
+        <span>{EXAMPLE.axis}</span>
+        <span>identification score</span>
+      </p>
+    </figure>
   );
 }

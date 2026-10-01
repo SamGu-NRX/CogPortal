@@ -28,9 +28,9 @@ export function StatusChip({
 
   return (
     <span
-      className={`inline-flex items-center gap-1.5 font-mono text-[11px] font-medium tracking-[0.09em] uppercase ${text} ${className}`}
+      className={`inline-flex items-center gap-1.5 text-[13px] font-semibold ${text} ${className}`}
     >
-      <span aria-hidden="true" className={`size-[7px] ${dot}`} />
+      <span aria-hidden="true" className={`size-2 rounded-[1.5px] ${dot}`} />
       {STATUS_LABELS[status]}
     </span>
   );

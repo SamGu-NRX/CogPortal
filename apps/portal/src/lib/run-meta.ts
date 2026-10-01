@@ -3,8 +3,31 @@
  * from handoff-plan §8: Queued → Prepare → Install → Contract check →
  * Evaluate → Score → Complete.
  */
-import type { RunPhase, RunStatus } from "@cogworks/contracts/schema";
+import type { RunPhase, RunStatus, RunSummary } from "@cogworks/contracts/schema";
 import { RUN_PHASES, isTerminal } from "@cogworks/contracts/schema";
+
+/**
+ * What a person calls a run: its kind and the branch it ran ("Practice run on
+ * main"). `runNumberLabel` stays beside it as the identifier, because two runs
+ * of one branch share a title.
+ *
+ * A run started from an exact commit (the CLI, the Discord activity) records
+ * the branch as the literal string "detached" (worker/services/run-actions.ts),
+ * which names no branch, so that title names the commit instead.
+ */
+export function runTitle(
+  run: Pick<RunSummary, "mode" | "attemptNumber" | "branch" | "shortSha">,
+): string {
+  const kind =
+    run.mode === "official"
+      ? run.attemptNumber
+        ? `Official attempt #${run.attemptNumber}`
+        : "Official attempt"
+      : "Practice run";
+  return run.branch === "detached"
+    ? `${kind} on commit ${run.shortSha}`
+    : `${kind} on ${run.branch}`;
+}
 
 export const PHASE_LABELS: Record<RunPhase, string> = {
   queued: "Queued",

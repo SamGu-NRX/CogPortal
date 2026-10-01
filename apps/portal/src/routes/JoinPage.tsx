@@ -2,8 +2,15 @@ import { useState } from "react";
 import { Navigate, useNavigate } from "react-router";
 import { Button } from "@/components/Button";
 import { DroppedLinkNotice } from "@/components/DroppedLinkNotice";
+import { Annotated } from "@/components/Note";
+import { OnboardingPath } from "@/components/OnboardingPath";
 import { ApiRequestError } from "@/lib/api";
 import { useJoinCohort, useSession } from "@/lib/queries";
+
+/** JoinCohortRequestSchema: 4 to 32 characters. The field stops at the
+ *  server's limit so an over-long paste is visibly cut rather than refused. */
+const CODE_MIN = 4;
+const CODE_MAX = 32;
 
 export function JoinPage() {
   const { data: session } = useSession();
@@ -15,10 +22,12 @@ export function JoinPage() {
     return <Navigate to={session.team ? "/dashboard" : "/connect"} replace />;
   }
 
+  const ready = code.trim().length >= CODE_MIN;
+
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (code.trim().length < 4 || join.isPending) return;
-    join.mutate(code.trim().toUpperCase(), {
+    if (!ready || join.isPending) return;
+    join.mutate(code.trim(), {
       onSuccess: () => navigate("/connect", { replace: true }),
     });
   };
@@ -33,45 +42,65 @@ export function JoinPage() {
         : null;
 
   return (
-    <div className="anim-rise flex flex-1 items-center justify-center py-10">
-      <div className="w-full max-w-sm">
-        <DroppedLinkNotice />
-        <h1 className="text-3xl">Join the cohort</h1>
-        <p className="mt-2 text-[14px] text-ink-secondary">
-          Enter the join code from your instructor. You do this once.
-        </p>
+    <div className="page anim-rise [--measure:27rem]">
+      <OnboardingPath current="cohort" className="max-w-[27rem]" />
 
-        <form onSubmit={submit} className="mt-7">
-          <label htmlFor="join-code" className="sr-only">
+      <DroppedLinkNotice className="mt-8 max-w-[27rem]" />
+      <header className="mt-10 max-w-[27rem]">
+        <h1 className="text-[clamp(2rem,1.5rem+2vw,2.5rem)] text-ink">Join the cohort</h1>
+        <p className="mt-3 text-[16px] leading-[1.6] text-ink-secondary">
+          A cohort is this summer's class. Your instructor's join code puts you
+          in it, so you'll see your classmates' teams and this year's
+          leaderboard.
+        </p>
+      </header>
+
+      <Annotated
+        className="mt-8 gap-y-4 max-lg:max-w-[27rem]"
+        note={
+          <>
+            You only do this once. Everyone in the class uses the same code, so
+            if you don't have it, a classmate or a TA does.
+          </>
+        }
+      >
+        <form onSubmit={submit}>
+          <label htmlFor="join-code" className="u-label block">
             Join code
           </label>
           <input
             id="join-code"
             value={code}
-            onChange={(e) => setCode(e.target.value)}
+            // Uppercased as typed, so what's on screen is exactly what's
+            // sent. The server compares uppercase too.
+            onChange={(e) => setCode(e.target.value.toUpperCase())}
             autoFocus
             autoComplete="off"
+            autoCapitalize="characters"
+            autoCorrect="off"
             spellCheck={false}
+            enterKeyHint="go"
+            maxLength={CODE_MAX}
             aria-invalid={errorMessage ? true : undefined}
             aria-describedby={errorMessage ? "join-error" : undefined}
-            className="h-13 w-full border border-rule bg-paper-sunken px-4 text-center font-mono text-xl tracking-[0.35em] text-ink uppercase placeholder:tracking-[0.2em] placeholder:text-ink-faint"
+            className="u-field mt-2 h-16 text-center indent-[0.3em] font-mono !text-[24px] tracking-[0.3em]"
             placeholder="········"
           />
           {errorMessage && (
-            <p id="join-error" role="alert" className="mt-3 text-[13px] text-detect-deep">
+            <p id="join-error" role="alert" className="mt-3 text-[14px] leading-[1.5] text-detect-deep">
               {errorMessage}
             </p>
           )}
           <Button
             type="submit"
-            className="mt-4 w-full"
+            className="mt-4 h-12 w-full"
             busy={join.isPending}
-            disabled={code.trim().length < 4}
+            disabled={!ready}
           >
-            Join
+            Join the cohort
           </Button>
         </form>
-      </div>
+      </Annotated>
     </div>
   );
 }

@@ -28,19 +28,23 @@ export function GrantAccess({ hasRepos }: { hasRepos: boolean }) {
       : "Grant repository access on GitHub";
 
   return (
-    <div className="mt-3 space-y-1">
+    <div className="mt-3">
       <a
         href={`https://github.com/apps/${session!.auth.appSlug}/installations/new`}
         target="_blank"
         rel="noreferrer"
-        className="inline-flex min-h-9 items-center gap-1.5 font-mono text-[11.5px] tracking-[0.07em] text-ink-secondary uppercase underline decoration-rule underline-offset-4 hover:text-ink hover:decoration-ink"
+        className="u-link inline-flex min-h-11 items-center gap-1.5 text-[14px] font-semibold"
       >
         {label}
-        <HugeiconsIcon icon={ArrowUpRight01Icon} size={13} strokeWidth={1.8} aria-hidden="true" />
+        <HugeiconsIcon icon={ArrowUpRight01Icon} size={14} strokeWidth={1.8} aria-hidden="true" />
+        <span className="sr-only"> (opens GitHub)</span>
       </a>
       {installed && (
-        <p className="font-mono text-[11px] text-ink-faint">
-          App installed for: {installationAccounts.map((installation) => installation.account).join(", ")}
+        <p className="text-[13px] text-ink-faint">
+          Installed for{" "}
+          <span className="font-mono text-[12.5px]">
+            {installationAccounts.map((installation) => installation.account).join(", ")}
+          </span>
         </p>
       )}
     </div>

@@ -1,48 +1,66 @@
 @import "tailwindcss";
 
 /**
- * Cog*Portal visual system (handoff-plan §8).
+ * Cog*Portal visual system.
  *
- * A scientific field notebook and evaluation instrument: warm paper with a
- * faint coordinate grid, deep ink, detector red as the vision accent, thin
- * rules, and instrument panels. Detection-box corner brackets are the single
- * geometric motif — focus, selection, and "the instrument is looking here".
+ * A course notebook with the instructor's notes in the margin. The page holds
+ * the work: commands, runs, findings. The margin holds the why, in italic
+ * serif, the way a TA pencils a reason beside a line (components/Note.tsx).
+ *
+ * Color is spent only where it carries meaning. Graphite ink does the work;
+ * detector red marks attention and consequence; verification green marks
+ * what the portal observed; the three track colors are index tabs that say
+ * which week a thing belongs to. Everything else is paper and pencil rules.
  */
 
 @theme {
-  /* ── Paper & ink ── */
-  --color-paper: #f7f3ea;
-  --color-paper-raised: #fdfbf5;
-  --color-paper-sunken: #efe9db;
-  --color-ink: #1c2637;
-  --color-ink-secondary: #4b566b;
-  /* Faint ink mostly sets small text, so it has to pass AA's 4.5:1. Its
-     tightest flat pair, verify-wash over paper, is 4.60:1; where the page
-     grid shows through a wash it falls near 4.2:1, so text on a wash uses
-     ink-secondary. */
-  --color-ink-faint: #5f6777;
-  --color-rule: rgb(28 38 55 / 0.16);
-  --color-rule-soft: rgb(28 38 55 / 0.08);
+  /* ── Paper & ink ──
+     Paper is a neutral bond rather than cream, so the track colors and the
+     two verdict colors read as signals instead of tints on a yellow page.
+     Contrast, measured flat (tools: holistic-ux contrast formula):
+       ink-faint on paper 5.31, on sunken 4.81, on either wash 4.70.
+     ink-faint therefore passes AA for small text everywhere it is used. */
+  --color-paper: #f5f3ee;
+  --color-paper-raised: #fcfbf8;
+  --color-paper-sunken: #ebe8e0;
+  --color-ink: #1b1f24;
+  --color-ink-secondary: #4a5058;
+  --color-ink-faint: #5f656d;
+  --color-rule: rgb(27 31 36 / 0.15);
+  --color-rule-soft: rgb(27 31 36 / 0.075);
+  --color-rule-strong: rgb(27 31 36 / 0.32);
 
-  /* ── Module accents ── */
-  --color-detect: #c63d2f; /* vision — detector red */
-  --color-detect-deep: #a12e22;
-  --color-detect-wash: rgb(198 61 47 / 0.07);
-  --color-ochre: #9a6d10; /* audio */
-  --color-cobalt: #2b54c0; /* language */
+  /* Highlighter, for text selection and the one "you are here" mark. */
+  --color-marker: #f1dd6f;
 
-  /* ── Verdicts ── */
-  --color-verify: #2e6b4f;
-  --color-verify-deep: #245741;
-  --color-verify-wash: rgb(46 107 79 / 0.08);
+  /* ── Attention & consequence ──
+     detect as text only on paper or raised (4.67 / 5.01); on a wash use
+     detect-deep (5.56 or better). */
+  --color-detect: #c43d2e;
+  --color-detect-deep: #a3311f;
+  --color-detect-wash: rgb(196 61 46 / 0.075);
+
+  /* ── Observed trust ── */
+  --color-verify: #2a6a4e;
+  --color-verify-deep: #215640;
+  --color-verify-wash: rgb(42 106 78 / 0.085);
+
+  /* ── Track index tabs ── audio, vision (detect), language. */
+  --color-ochre: #8a5a00;
+  --color-cobalt: #2e52bf;
 
   /* ── Type ── */
   --font-serif: "Source Serif 4 Variable", "Source Serif 4", Georgia, serif;
-  --font-sans: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
-  --font-mono: "IBM Plex Mono", "SF Mono", Menlo, monospace;
+  --font-sans: "Atkinson Hyperlegible Next Variable", "Atkinson Hyperlegible Next", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Atkinson Hyperlegible Mono Variable", "Atkinson Hyperlegible Mono", ui-monospace, "SF Mono", Menlo, monospace;
 
-  /* ── Motion (plan §8: restrained, no springs) ── */
+  /* ── Shape ── near-sharp, softened just enough to read as paper. */
+  --radius-control: 4px;
+  --radius-surface: 6px;
+
+  /* ── Motion ── restrained, no springs. Mirrored in lib/motion.ts. */
   --ease-out-quart: cubic-bezier(0.165, 0.84, 0.44, 1);
+  --ease-out-strong: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-in-out-cubic: cubic-bezier(0.645, 0.045, 0.355, 1);
 }
 
@@ -54,30 +72,36 @@
     --activity-safe-left: var(--discord-safe-area-inset-left, env(safe-area-inset-left, 0px));
   }
 
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
   body {
     background-color: var(--color-paper);
-    /* Nearly-invisible coordinate grid — texture, never decoration. */
-    background-image:
-      linear-gradient(to right, rgb(28 38 55 / 0.025) 1px, transparent 1px),
-      linear-gradient(to bottom, rgb(28 38 55 / 0.025) 1px, transparent 1px);
-    background-size: 48px 48px;
+    /* A dotted page, the kind a lab notebook uses: enough to feel like paper,
+       too faint to compete with a rule. */
+    background-image: radial-gradient(circle at 1px 1px, rgb(27 31 36 / 0.085) 1px, transparent 1.2px);
+    background-size: 24px 24px;
     color: var(--color-ink);
     font-family: var(--font-sans);
     font-size: 15px;
-    line-height: 1.55;
+    line-height: 1.6;
     -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
+    font-optical-sizing: auto;
   }
 
   ::selection {
-    background: var(--color-detect);
-    color: var(--color-paper-raised);
+    background: var(--color-marker);
+    color: var(--color-ink);
   }
 
   :focus-visible {
-    outline: 2px solid var(--color-detect);
-    outline-offset: 2px;
-    border-radius: 1px;
+    outline: 2px solid var(--color-ink);
+    outline-offset: 3px;
+    border-radius: 2px;
   }
 
   h1,
@@ -85,15 +109,33 @@
   h3 {
     font-family: var(--font-serif);
     font-weight: 600;
-    letter-spacing: -0.012em;
-    line-height: 1.12;
+    letter-spacing: -0.014em;
+    line-height: 1.15;
     text-wrap: balance;
+  }
+
+  h1 {
+    letter-spacing: -0.022em;
+    line-height: 1.06;
+  }
+
+  p {
+    text-wrap: pretty;
   }
 
   code,
   pre,
-  kbd {
+  kbd,
+  samp {
     font-family: var(--font-mono);
+  }
+
+  /* A native select or input inherits the page's type rather than the OS's. */
+  input,
+  select,
+  textarea,
+  button {
+    font: inherit;
   }
 }
 
@@ -104,13 +146,107 @@
   padding-left: max(1rem, var(--activity-safe-left));
 }
 
+/* The page's side gutters. index.html sets viewport-fit=cover, so on a
+   notched phone in landscape the gutter has to clear the safe area too. */
+@utility u-gutter {
+  padding-left: max(1.25rem, env(safe-area-inset-left));
+  padding-right: max(1.25rem, env(safe-area-inset-right));
+  @media (max-width: 359px) {
+    padding-left: max(0.75rem, env(safe-area-inset-left));
+    padding-right: max(0.75rem, env(safe-area-inset-right));
+  }
+}
+
+/* Instrument label: a short mono tag over data (a column head, a unit, a
+   version). Kept for data only; a section or a form field gets u-label,
+   which reads as a sentence instead of a stencil. */
 @utility u-kicker {
   font-family: var(--font-mono);
   font-size: 11px;
   font-weight: 500;
-  letter-spacing: 0.09em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--color-ink-secondary);
+}
+
+/* A label in sentence case: form fields, small section heads, list groups. */
+@utility u-label {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: 0.005em;
+  line-height: 1.35;
+  color: var(--color-ink-secondary);
+}
+
+/* The line over a page title that says where you are ("Vector Voyagers",
+   "Setup"). Sans, not mono: it names a place rather than a reading. */
+@utility u-eyebrow {
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--color-ink-secondary);
+}
+
+/* The margin voice. See components/Note.tsx. */
+@utility u-note {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: 15px;
+  line-height: 1.5;
+  font-weight: 420;
+  color: var(--color-ink-secondary);
+  text-wrap: pretty;
+}
+
+/* Inline link inside running text. */
+@utility u-link {
+  color: var(--color-ink);
+  text-decoration-line: underline;
+  text-decoration-color: var(--color-rule-strong);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  transition: text-decoration-color 150ms ease;
+  &:hover {
+    text-decoration-color: var(--color-ink);
+  }
+}
+
+/* A text field or select. White paper inside a pencil rule; the focus ring is
+   the page's own (base :focus-visible) so every control focuses alike. */
+@utility u-field {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  padding-inline: 12px;
+  border: 1px solid var(--color-rule-strong);
+  border-radius: var(--radius-control);
+  background-color: var(--color-paper-raised);
+  color: var(--color-ink);
+  /* 16px, not the 15px body: iOS Safari zooms the page into any focused
+     field set smaller, and the zoom stays after the keyboard closes. */
+  font-size: 16px;
+  transition: border-color 150ms ease;
+  &::placeholder {
+    color: var(--color-ink-faint);
+    opacity: 1;
+  }
+  &:hover {
+    border-color: var(--color-ink-secondary);
+  }
+  &:focus-visible {
+    border-color: var(--color-ink);
+    outline-offset: 1px;
+  }
+  &:disabled {
+    background-color: var(--color-paper-sunken);
+    color: var(--color-ink-faint);
+    cursor: not-allowed;
+  }
+  &[aria-invalid="true"] {
+    border-color: var(--color-detect);
+  }
 }
 
 @utility u-tnum {
@@ -129,8 +265,8 @@
 }
 
 @utility u-pressable {
-  transition: transform 120ms var(--ease-out-quart);
-  &:active {
+  transition: transform 140ms var(--ease-out-strong);
+  &:active:not(:disabled):not([aria-disabled="true"]) {
     transform: scale(0.97);
   }
 }
@@ -162,6 +298,60 @@
     scrollbar-gutter: stable;
   }
 
+  /* ── Page width ──
+     One measure for the working column across the app, and one for the
+     margin beside it. A page with no notes still keeps the working column
+     at reading width rather than stretching to the frame. */
+  .page {
+    --measure: 42rem;
+    --margin-w: 15rem;
+    --margin-gap: 3.5rem;
+    width: 100%;
+    max-width: calc(var(--measure) + var(--margin-w) + var(--margin-gap));
+    margin-inline: auto;
+    padding-block: clamp(2rem, 5vw, 3.5rem) 4rem;
+  }
+
+  .page-narrow {
+    --measure: 27rem;
+    max-width: 27rem;
+  }
+
+  /* ── Annotated row: the work, with its reason in the margin ──
+     DOM order is note first, so a screen reader and a phone both get the why
+     before the what (docs/design/voice.md, principle 2). From 1024px the
+     grid moves the note into the right margin, top-aligned with its work. */
+  .annotated {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 0.625rem;
+  }
+  .annotated > .annotated-note {
+    border-left: 1px solid var(--color-rule);
+    padding-left: 0.875rem;
+    max-width: 38rem;
+  }
+  @media (min-width: 1024px) {
+    .annotated {
+      grid-template-columns: minmax(0, var(--measure, 42rem)) var(--margin-w, 15rem);
+      column-gap: var(--margin-gap, 3.5rem);
+    }
+    .annotated > .annotated-note {
+      grid-column: 2;
+      grid-row: 1;
+      align-self: start;
+      /* Sits on the first line of the work beside it, not above it. */
+      margin-top: 0.15rem;
+    }
+    .annotated > .annotated-body {
+      grid-column: 1;
+      grid-row: 1;
+    }
+  }
+  .annotated > .annotated-body {
+    min-width: 0;
+  }
+
   /* Entrance used for page-load reveals and status swaps: opacity + 4px rise,
      200ms ease-out (plan §8: 180–220ms, opacity/transform only). */
   .anim-rise {
@@ -169,10 +359,14 @@
     animation-delay: var(--rise-delay, 0ms);
   }
 
-  /* One orchestrated landing moment: slower, staggered via --rise-delay. */
-  .anim-rise-slow {
-    animation: rise 480ms var(--ease-out-quart) both;
-    animation-delay: var(--rise-delay, 0ms);
+
+  /* A disclosure's content: layout changes at once (no animated height,
+     which relays out the page every frame), and the revealed content fades
+     in over 160ms so the change is seen. Closing is instant, so nothing that
+     is going away can still take focus. Opacity only, so it is kept under
+     reduced motion as a comprehension aid. */
+  .anim-reveal {
+    animation: reveal 160ms var(--ease-out-quart) both;
   }
 
   /* Live-run indicator — a restrained instrument "REC" pulse. The only
@@ -217,7 +411,7 @@
     margin: 0;
     padding: 0;
     background: transparent !important;
-    font-size: 12.5px;
+    font-size: 13px;
     line-height: 1.65;
     overflow-x: auto;
     /* The copy button floats over the top right corner, so the first line
@@ -231,6 +425,43 @@
     overflow-x: visible;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
+  }
+}
+
+/* The front page's example trace draws itself once, the way a plotter pen
+   lays down a reading: the line, then each point, then the knee it found.
+   Seen once per visit, so it may take longer than a control would; 900ms
+   ease-out keeps the pen fast at the start where the eye is. */
+.specimen-trace {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: specimen-draw 900ms var(--ease-out-strong) 250ms forwards;
+}
+.specimen-point {
+  opacity: 0;
+  animation: specimen-fade 200ms ease-out forwards;
+  animation-delay: calc(300ms + var(--i, 0) * 150ms);
+}
+.specimen-knee {
+  opacity: 0;
+  animation: specimen-fade 240ms ease-out 1100ms forwards;
+}
+
+@keyframes specimen-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes specimen-fade {
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes reveal {
+  from {
+    opacity: 0;
   }
 }
 
@@ -277,8 +508,14 @@
 
 /* Plan §8: disable all nonessential movement. */
 @media (prefers-reduced-motion: reduce) {
-  .anim-rise,
-  .anim-rise-slow {
+  .specimen-trace,
+  .specimen-point,
+  .specimen-knee {
+    animation: none;
+    opacity: 1;
+    stroke-dashoffset: 0;
+  }
+  .anim-rise {
     animation: none;
   }
   .anim-live {

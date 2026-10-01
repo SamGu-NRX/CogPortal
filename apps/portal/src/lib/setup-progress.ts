@@ -238,6 +238,28 @@ export function stepState(
   return line.selfChecked ? "checked" : "pending";
 }
 
+/** What each line is called. The setup page heads its step with this and the
+ *  dashboard nudge names the next step with it, so the two can't disagree. */
+export function setupStepTitle(id: SetupCommandId, benchmarkTitle: string): string {
+  switch (id) {
+    case "clone":
+      return "Get the code";
+    case "tool":
+      return "Install the CogWorks tool";
+    case "benchmark":
+      return `Install the ${benchmarkTitle} benchmark`;
+    case "link":
+      return "Link this device";
+    case "check":
+      return "Check that it finds your code";
+  }
+}
+
+/** The first line nobody has ticked, which is the one a student works on next. */
+export function nextSetupLine(lines: readonly SetupCommand[]): SetupCommand | undefined {
+  return lines.find((line) => !line.verified && !line.selfChecked);
+}
+
 /** Done is a ticked box, however it was ticked; verified is the subset
  *  CogPortal observed. The masthead counts the first, because that is what a
  *  student can literally count down the rail. */

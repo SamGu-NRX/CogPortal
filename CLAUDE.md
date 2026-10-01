@@ -53,14 +53,20 @@ Two rules that fall out of it and hold everywhere:
 
 ## The theme
 
-A scientific field notebook crossed with an evaluation instrument: warm
-paper (`--color-paper #f7f3ea`), deep ink, detector red for attention and
-consequence, verification green for observed trust, thin rules, near-sharp
-corners, Source Serif 4 headings, IBM Plex Sans body, IBM Plex Mono for
-anything that is data. The recurring geometric motif is the detection-box
-corner bracket. Tokens and conventions live in
-`apps/portal/src/styles/app.css`; compose with them, and new ideas are fine
-when they fit the same notebook.
+A course notebook with the instructor's notes in the margin. The page holds
+the work (commands, runs, findings); the margin holds the reason for it, in
+italic serif, the way a TA pencils a note beside a line (`Annotated` and
+`Note` in `components/Note.tsx`). Neutral bond paper (`--color-paper
+#f5f3ee`) with a faint dot grid, graphite ink, detector red for attention and
+consequence, verification green for observed trust, and the three track
+colors (ochre audio, red vision, cobalt language) as index tabs. Source Serif 4
+for headings and notes, Atkinson Hyperlegible Next for text, Atkinson
+Hyperlegible Mono only for data (commands, SHAs, versions, codes), chosen
+because it keeps l/I/1 and 0/O apart. Labels are sentence case (`u-label`);
+the uppercase mono `u-kicker` is for data column heads only. The recurring
+geometric motif is the detection-box corner bracket. Tokens, contrast notes
+and utilities live in `apps/portal/src/styles/app.css`; compose with them,
+and new ideas are fine when they fit the same notebook.
 
 Two rules that outrank any color:
 
@@ -176,7 +182,9 @@ the conventions: `Panel` (labeled instrument box), `Button`/`ConfirmButton`
 theme; use for a command a student is meant to read, whatever its line
 count, and pass `wrap` when the tail matters), `CopyBlock` (a one-line
 command to copy without reading, like a signed token),
-`Veil` (collapsible progressive disclosure), `CornerBrackets`,
+`Veil` (collapsible progressive disclosure), `PageHeader`/`Annotated`/`Note`
+(page title, margin notes), `buttonClass` (a link styled as a `Button`),
+`CornerBrackets`,
 `MemberPalette` (anchored search palette; copy its popover/keyboard
 patterns), `UserMenu` (canonical dropdown motion and focus behavior),
 `QuotaCells`, `EmptyState`, `Feedback`. Accidentally duplicating one of
@@ -297,14 +305,11 @@ in-place edit of a version teams have already published against.
   0.2.0 and `publish-testpypi.yml` has to be dispatched by hand to close the
   gap. The install command in `SetupPage` is deliberately unpinned so a
   student picks up that release without a code change here.
-- **TODO(media):** The GitHub org/fork walkthrough player is wired
-  (`WalkthroughVideo`, gated by `GITHUB_TEAM_VIDEO` in `ConnectPage.tsx`);
-  record the clip per `docs/runbooks/onboarding-media.md`, drop the four
-  exports into `apps/portal/public/media/onboarding/`, and flip the constant.
-- **TODO(design):** Give Landing, Leaderboard, and Connections a fresh
-  design pass. Dashboard has been decluttered, but not reconsidered. Run
-  Detail now leads with `Finding` and the sweep trace; the rest of it has
-  not been reconsidered around them.
+- **TODO(media):** There is no walkthrough player. The unused
+  `WalkthroughVideo` component was deleted in the September 30 redesign
+  because its clip was never recorded. Record it per
+  `docs/runbooks/onboarding-media.md` before adding a player to the Connect
+  page's "start a team" step.
 - **TODO(product):** The four process signals reach only the team's own Team
   page ("Where the work went", `ProcessPanel`). No staff or TA view reads them;
   `docs/design/the-instrument-not-the-judge.md` names the TA triage console as

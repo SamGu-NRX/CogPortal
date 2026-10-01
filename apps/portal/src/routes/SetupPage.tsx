@@ -1,20 +1,21 @@
-import { ArrowRight01Icon, ArrowUpRight01Icon } from "@hugeicons/core-free-icons";
+import { ArrowRight01Icon, ArrowUpRight01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import type { ReactNode } from "react";
-import { Link, useSearchParams } from "react-router";
+import { Fragment, useEffect, useState, type ReactNode } from "react";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
 import {
   isSelfCheckableStep,
   type SetupStep,
   type TeamDetail,
   type TeamMember,
 } from "@cogworks/contracts/schema";
-import { Button } from "@/components/Button";
+import { Button, buttonClass } from "@/components/Button";
 import { Code } from "@/components/Code";
 import { ConfirmButton } from "@/components/ConfirmButton";
 import { CopyBlock } from "@/components/CopyBlock";
 import { LoadingMark, QueryError } from "@/components/Feedback";
+import { Annotated, PageHeader } from "@/components/Note";
 import { Panel } from "@/components/Panel";
-import { Step, StepRail } from "@/components/StepRail";
+import { Step, StepCells, StepRail, type StepState } from "@/components/StepRail";
 import { TrackSwitcher } from "@/components/TrackSwitcher";
 import {
   useConnections,
@@ -27,15 +28,44 @@ import { benchmarkEnvironment } from "@/lib/benchmark-packages";
 import { useTrack } from "@/lib/track";
 import {
   clearSetupProgress,
+  nextSetupLine,
   setupCommandProgress,
   setupCommandsForTeam,
+  setupStepTitle,
   stepState,
   type SetupCommandId,
 } from "@/lib/setup-progress";
 
+/**
+ * How a student reached this page, when it was the step that made their team.
+ * ConnectPage sends it as router state after a team is created or joined.
+ */
+type Arrival = "created" | "joined";
+
+function readArrival(state: unknown): Arrival | null {
+  if (!state || typeof state !== "object" || !("arrivedFrom" in state)) return null;
+  const from = state.arrivedFrom;
+  return from === "created" || from === "joined" ? from : null;
+}
+
 export function SetupPage() {
   const team = useTeam();
   const { data: session } = useSession();
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  // The acknowledgement is for the moment the team came to exist, so it is
+  // read once and then taken out of history. Router state lives in
+  // history.state, which a reload keeps; left there, every refresh of this
+  // page would announce the team again.
+  const [arrival] = useState(() => readArrival(location.state));
+  useEffect(() => {
+    if (location.state == null) return;
+    navigate(
+      { pathname: location.pathname, search: location.search, hash: location.hash },
+      { replace: true, state: null },
+    );
+  }, [location, navigate]);
 
   if (team.isPending || !session?.user) return <LoadingMark label="Loading your team" />;
   if (team.isError) {
@@ -50,6 +80,7 @@ export function SetupPage() {
     <SetupGuide
       team={team.data}
       login={session.user.login}
+      arrival={arrival}
       devTools={session.auth.onboardingDevToolsEnabled && session.user.isOwner}
     />
   );
@@ -59,17 +90,19 @@ export function SetupPage() {
  * The setup guide: one page from "you have a team" to "the tool called your
  * code", as a numbered rail a student works down.
  *
- * Every tick is something CogPortal observed. A command reports through the
- * device you linked, so a box fills because evidence arrived, never because
- * the page was told to believe something.
+ * Every tick is something CogPortal was told by the student's own terminal. A
+ * command reports through the device you linked, so a box fills because
+ * evidence arrived, never because the page was told to believe something.
  */
 function SetupGuide({
   team,
   login,
+  arrival,
   devTools,
 }: {
   team: TeamDetail;
   login: string;
+  arrival: Arrival | null;
   devTools: boolean;
 }) {
   // The commands below have to name a real benchmark, and the entry points a
@@ -80,15 +113,28 @@ function SetupGuide({
   const setupState = useSetupState(track.benchmarkId);
   const resetSetup = useResetSetupState();
   const [searchParams, setSearchParams] = useSearchParams();
+  const location = useLocation();
   const requestedReplay = searchParams.get("replay");
   const replay =
     devTools && (requestedReplay === "creator" || requestedReplay === "member")
       ? requestedReplay
       : null;
 
+  const loading = track.isPending || setupState.isPending || connections.isPending;
+
+  // The dashboard nudge links to `#step-<id>`. The router doesn't scroll to a
+  // hash on a client-side navigation, so the page does it once the rail exists.
+  useEffect(() => {
+    if (loading || !location.hash.startsWith("#step-")) return;
+    const row = document.getElementById(location.hash.slice(1));
+    if (!row) return;
+    row.scrollIntoView({ block: "start" });
+    row.querySelector<HTMLElement>("h2")?.focus({ preventScroll: true });
+  }, [loading, location.hash]);
+
   // These reads decide both the commands and their verified state. Their
   // fallback values are not safe instructions for a student to copy.
-  if (track.isPending || setupState.isPending || connections.isPending) {
+  if (loading) {
     return <LoadingMark label="Loading your team" />;
   }
 
@@ -128,6 +174,7 @@ function SetupGuide({
   // The count and the rail read the same array, so the masthead can never
   // claim a number the steps do not show.
   const { done, verified, total } = setupCommandProgress(lines);
+  const states = lines.map((line) => stepState(line, unreadable));
   // Signed for the track above, so switching tracks fetches a fresh set and a
   // command copied for one benchmark cannot tick another's box.
   const tokens = replay ? undefined : setupState.data?.tokens;
@@ -135,87 +182,82 @@ function SetupGuide({
   // A checked-off step is the student's word, so the completion panel claims
   // (and colours as) verified only what the portal itself observed.
   const observed = verified === total;
+  const next = evidenceFailed ? undefined : nextSetupLine(lines);
   const benchmarkTitle = track.benchmark?.title ?? track.benchmarkId;
   const environment = benchmarkEnvironment(track.benchmarkId);
 
-  const pipRefusal = (
-    <>
-      If pip answers{" "}
-      <code className="font-mono text-[12px]">externally-managed-environment</code>,
-      you're not in the course environment; activate it and run the command
-      again.
-    </>
+  // Mono is the data face and has no italic of its own worth reading, so a
+  // command named inside an italic note stands upright.
+  const code = (text: string) => (
+    <code className="font-mono text-[0.88em] text-ink not-italic">{text}</code>
   );
 
   // What each command is for. A Record rather than a function, so a new
-  // SetupCommandId fails to compile until someone writes its line instead of
-  // rendering a bare command under nothing.
-  const said: Record<SetupCommandId, { title: string; body: ReactNode; note?: ReactNode }> = {
+  // SetupCommandId fails to compile until someone writes its reason instead
+  // of rendering a bare command under nothing. `note` is the why, set in the
+  // margin; `after` is anything a student needs at the moment they run it.
+  const said: Record<SetupCommandId, { note: ReactNode; after?: ReactNode }> = {
     clone: {
-      title: "Get the code",
-      body: (
-        <p>
-          Clone the team's repository. You all work in the same one, and every
-          hosted attempt runs from it rather than from somebody's laptop.
-        </p>
+      note: (
+        <>
+          You all work in this one repository, and every hosted run starts from
+          it rather than from somebody's laptop.
+        </>
       ),
     },
     tool: {
-      title: "Install the CogWorks tool",
-      body: (
+      note: (
+        <>
+          The {code("cogworks")} commands further down come from this package.
+          It's pinned to one commit, so everyone reading this page installs the
+          same tool.
+        </>
+      ),
+      after: (
         <p>
-          The <code className="font-mono text-[12px]">cogworks</code> commands
-          further down come from this package, so install it from your
-          repository's root:
+          If pip answers {code("externally-managed-environment")}, the course
+          environment isn't active; activate it and run this again.
         </p>
       ),
-      note: pipRefusal,
     },
     benchmark: {
-      title: `Install the ${benchmarkTitle} benchmark`,
-      body: (
-        <p>
-          The scorer for {benchmarkTitle}, its data and its checks live in their
-          own package. Changing the track above changes this line.
-        </p>
+      note: (
+        <>
+          The {benchmarkTitle} scorer, its data and its checks live in their own
+          package, so this line changes when you switch tracks.
+        </>
       ),
-      note: pipRefusal,
     },
     link: {
-      title: "Link this device",
-      body: (
-        <p>
-          Lets a command report back to your team.{" "}
-          <code className="font-mono text-[12px]">check</code> sends check
-          names, package versions and your repository.{" "}
-          <code className="font-mono text-[12px]">sync</code> uploads one saved
-          report; each weight file it used is uploaded with it or is already
-          in your commit. You can revoke this device from{" "}
-          <Link
-            to="/connections"
-            className="text-ink underline decoration-rule underline-offset-4 hover:decoration-ink"
-          >
+      note: (
+        <>
+          Linking lets {code("check")} and {code("sync")} report to your team.{" "}
+          {code("check")} sends check names, package versions and your
+          repository; {code("sync")} uploads one saved report you choose, with
+          any weight file it used that isn't already in your commit. You can
+          revoke the device from{" "}
+          <Link to="/connections" className="u-link">
             Connections
           </Link>
           .
-        </p>
+        </>
       ),
+      after: <p>It prints a short code and opens this portal so you can approve it.</p>,
     },
     check: {
-      title: "Prove the wiring",
-      body: (
-        <p>
-          <code className="font-mono text-[12px]">check</code> reads your
-          repository and says which of your own functions it wired up, and
-          reports what it found. If it doesn't tick, the reason is in your
-          terminal.
-        </p>
+      note: (
+        <>
+          {code("check")} reads your repository and reports which of your own
+          functions it wired up. It also confirms the steps above, so their
+          boxes tick together.
+        </>
       ),
+      after: <p>If the box doesn't tick, the reason is in your terminal.</p>,
     },
   };
 
   return (
-    <div className="anim-rise mx-auto w-full max-w-lg py-14">
+    <div className="page anim-rise">
       {devTools && (
         <DevRehearsal
           replay={replay}
@@ -235,49 +277,72 @@ function SetupGuide({
         />
       )}
 
-      <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2">
-        <div className="min-w-0">
-          <p className="u-kicker" aria-live="polite">
-            Setup ·{" "}
-            {evidenceFailed ? "progress unavailable" : `${done} of ${total} done`}
-            {replay ? ` · replaying ${replay}` : ""}
+      {arrival && <ArrivalNote arrival={arrival} team={team} login={login} />}
+
+      <PageHeader
+        eyebrow={
+          <span className="flex flex-wrap items-baseline gap-x-2.5">
+            <span>{team.name}</span>
+            <a
+              href={team.repo.url}
+              target="_blank"
+              rel="noreferrer"
+              className="u-link font-mono text-[12.5px] font-normal text-ink-secondary"
+            >
+              {team.repo.fullName}
+            </a>
+          </span>
+        }
+        title="Set up your machine"
+        lede={
+          <>
+            {total === 4 ? "Four" : "Five"} commands get a fresh terminal ready to
+            run {benchmarkTitle} against your team's code. Keep this page open
+            beside it, and the boxes tick themselves as your terminal reports
+            back.
+          </>
+        }
+        // Every command on this page names a benchmark, so the page has to
+        // show which one and let a student change it. Without this the
+        // default track silently decides what they're told to type.
+        actions={
+          <TrackSwitcher tracks={track.tracks} benchmark={track.benchmark} onSelect={track.select} />
+        }
+      />
+
+      <div className="mt-8 flex max-w-[42rem] flex-wrap items-center gap-x-4 gap-y-2 border-t border-rule pt-4">
+        {!evidenceFailed && <StepCells states={states} />}
+        <p aria-live="polite" className="text-[14px] text-ink">
+          {evidenceFailed ? (
+            "Progress unavailable"
+          ) : (
+            <>
+              <span className="font-semibold u-tnum">
+                {done} of {total} done
+              </span>
+              {done > 0 && <span className="text-ink-secondary">{whoTicked(verified, done - verified)}</span>}
+            </>
+          )}
+          {replay && <span className="text-detect-deep"> · replaying {replay}</span>}
+        </p>
+        {/* True while the evidence queries poll, which they do until every
+            line is ticked: the page really is waiting on the terminal. */}
+        {!complete && !evidenceFailed && !replay && (
+          <p className="flex items-center gap-2 text-[13px] text-ink-faint sm:ml-auto">
+            <span aria-hidden="true" className="anim-live size-1.5 rounded-full bg-verify" />
+            Watching for your terminal
           </p>
-          <h1 className="mt-1 truncate text-3xl">{team.name}</h1>
-        </div>
-        {/* Every command on this page names a benchmark, so the page has to
-            show which one and let a student change it. Without this the
-            default track silently decides what they're told to type. */}
-        <TrackSwitcher
-          tracks={track.tracks}
-          benchmark={track.benchmark}
-          onSelect={track.select}
-        />
-      </div>
-
-      <a
-        href={team.repo.url}
-        target="_blank"
-        rel="noreferrer"
-        className="mt-1.5 inline-block font-mono text-[12px] text-ink-secondary underline decoration-rule underline-offset-4 hover:text-ink hover:decoration-ink"
-      >
-        {team.repo.fullName}
-      </a>
-
-      <div className="mt-5 flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-rule-soft pt-4">
-        <MemberStrip members={team.members} />
-        <span className="font-mono text-[11.5px] text-ink-secondary">
-          {team.members.length} {team.members.length === 1 ? "member" : "members"}
-        </span>
-        <Link
-          to="/team"
-          className="u-pressable ml-auto inline-flex min-h-9 items-center font-mono text-[11px] tracking-[0.09em] text-ink-secondary uppercase underline decoration-rule underline-offset-4 hover:text-ink hover:decoration-ink"
-        >
-          Add
-        </Link>
+        )}
+        {complete && (
+          <Link to="/dashboard" className="u-link inline-flex items-center gap-1 text-[14px] font-semibold sm:ml-auto">
+            Go to Runs
+            <HugeiconsIcon icon={ArrowRight01Icon} size={15} strokeWidth={1.8} aria-hidden="true" />
+          </Link>
+        )}
       </div>
 
       {evidenceFailed && (
-        <div className="mt-6">
+        <div className="mt-6 max-w-[42rem]">
           {/* Not an empty rail and not a blocked page: the commands below are
               still correct. What failed is the read of what we have observed,
               which is why no step can claim a tick. */}
@@ -285,53 +350,63 @@ function SetupGuide({
         </div>
       )}
 
-      <div className="mt-9">
-        <StepRail>
-          {/* No check-off: the portal cannot watch a shell, so 00 never ticks and never counts. */}
-          {environment && (
-            <Step index="00" state="note" title="Start in the course environment">
-              <p>
-                Every command below runs inside the environment you built for
-                the{" "}
-                <a
-                  href={environment.prereqsUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-ink underline decoration-rule underline-offset-4 hover:decoration-ink"
-                >
+      {/* A precondition rather than a step: the portal can't watch a shell, so
+          it never ticks and never counts, and numbering it would put a sixth
+          item on a page that counts five. */}
+      {environment && (
+        <section className="mt-10">
+          <h2 className="u-label">Before you start</h2>
+          <Annotated
+            className="mt-1"
+            note={
+              <>
+                Every command below runs inside the environment you built for the{" "}
+                <a href={environment.prereqsUrl} target="_blank" rel="noreferrer" className="u-link">
                   {benchmarkTitle} prerequisites
                   <HugeiconsIcon
                     icon={ArrowUpRight01Icon}
                     size={12}
                     strokeWidth={1.8}
-                    className="inline-block align-[-0.1em]"
+                    className="ml-0.5 inline-block align-[-0.05em]"
                     aria-hidden="true"
                   />
                 </a>
-                , so activate it first:
-              </p>
-              <div className="mt-2.5">
-                <Code lang="bash" code={`conda activate ${environment.condaEnv}`} />
-              </div>
-            </Step>
-          )}
+                . The portal can't see your shell, so this one has no box.
+              </>
+            }
+          >
+            <p className="text-[14px] text-ink-secondary">
+              Open a terminal and switch to the course environment.
+            </p>
+            <div className="mt-3">
+              <Code lang="bash" code={`conda activate ${environment.condaEnv}`} />
+            </div>
+          </Annotated>
+        </section>
+      )}
+
+      <div className={environment ? "mt-10 border-t border-rule-soft pt-10" : "mt-10"}>
+        <StepRail>
           {lines.map((line, index) => {
-            const state = stepState(line, unreadable);
+            const state = states[index]!;
             return (
               <Step
-                key={line.id}
-                index={String(index + 1).padStart(2, "0")}
+                key={`${track.benchmarkId}:${line.id}`}
+                id={`step-${line.id}`}
+                index={String(index + 1)}
                 state={state}
-                title={said[line.id].title}
+                title={setupStepTitle(line.id, benchmarkTitle)}
+                note={said[line.id].note}
+                current={line.id === next?.id}
+                // Read once, when the row mounts: a step ticked before the page
+                // opened starts folded, and one that ticks while the student
+                // watches stays open, so a check landing never pulls the page
+                // up under the line they're reading.
+                folded={state === "verified" || state === "checked"}
                 last={index === lines.length - 1}
               >
-                {said[line.id].body}
-                <div className="mt-2.5">
-                  <Code lang="bash" code={line.command} wrap />
-                </div>
-                {said[line.id].note && (
-                  <p className="mt-2.5 text-[12px] text-ink-faint">{said[line.id].note}</p>
-                )}
+                <Code lang="bash" code={line.command} wrap />
+                {said[line.id].after}
                 <TerminalCheckoff step={line.step} state={state} tokens={tokens} />
               </Step>
             );
@@ -340,39 +415,114 @@ function SetupGuide({
       </div>
 
       {complete ? (
-        <Panel label="SETUP COMPLETE" tone={observed ? "good" : "default"} className="mt-8">
-          <p className="text-[14px] leading-[1.6] text-ink">
+        <Panel
+          label="Setup complete"
+          tone={observed ? "good" : "default"}
+          className="anim-rise mt-12 max-w-[42rem]"
+        >
+          <p className="text-[14.5px] leading-[1.6] text-ink">
             {observed
-              ? "Everything the portal can verify checks out."
-              : "Every step is ticked; the ones marked checked off are your own report rather than something the portal saw."}{" "}
-            Whether the code is any good is what runs are for, and there's no
-            limit on local ones.
+              ? "Everything the portal can verify checks out. Your terminal found the repository and called your code."
+              : "Every step is ticked; the ones marked checked off are your own report rather than something the portal saw."}
           </p>
-          <div className="mt-4">
-            <Code lang="bash" code={`cogworks run --benchmark ${track.benchmarkId}`} />
+          <p className="mt-3 text-[14px] leading-[1.6] text-ink-secondary">
+            Whether the code is any good is what runs are for. Local runs are
+            unlimited and score the same way, so start there:
+          </p>
+          <div className="mt-3">
+            <Code lang="bash" code={`cogworks run --benchmark ${track.benchmarkId}`} wrap />
           </div>
-          <Link
-            to="/dashboard"
-            className="u-pressable mt-4 inline-flex h-11 items-center gap-2 bg-ink px-6 text-[13.5px] font-medium tracking-wide text-paper-raised transition-colors duration-150 hover:bg-ink/90"
-          >
-            Open dashboard
-            <HugeiconsIcon icon={ArrowRight01Icon} size={15} strokeWidth={1.8} aria-hidden="true" />
+          <Link to="/dashboard" className={buttonClass("primary", "mt-5")}>
+            Go to Runs
+            <HugeiconsIcon icon={ArrowRight01Icon} size={16} strokeWidth={1.8} aria-hidden="true" />
           </Link>
         </Panel>
       ) : (
-        <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-rule-soft pt-5">
-          <p className="text-[12.5px] text-ink-faint">No rush. This page keeps your place.</p>
-          <Link
-            to="/dashboard"
-            className="u-pressable inline-flex min-h-9 items-center gap-1.5 font-mono text-[11.5px] tracking-[0.07em] text-ink-secondary uppercase hover:text-ink"
-          >
-            Open dashboard
-            <HugeiconsIcon icon={ArrowRight01Icon} size={14} strokeWidth={1.8} aria-hidden="true" />
-          </Link>
-        </div>
+        <p className="mt-12 max-w-[42rem] border-t border-rule-soft pt-5 text-[14px] leading-[1.6] text-ink-secondary">
+          No rush; the guide keeps your place. Hosted practice runs build from
+          your pushed commit and don't need any of this, so you can{" "}
+          <Link to="/dashboard" className="u-link">
+            start one from Runs
+          </Link>{" "}
+          whenever you like.
+        </p>
       )}
     </div>
   );
+}
+
+/** Who ticked the boxes counted as done, so the count never blurs what the
+ *  portal saw with what the student told it. */
+function whoTicked(seen: number, checked: number): string {
+  const both = (count: number) => (count === 1 ? "" : count === 2 ? "both " : "all ");
+  if (checked === 0) return `, ${both(seen)}seen by the portal`;
+  if (seen === 0) return `, ${both(checked)}checked off by you`;
+  return `: ${seen} seen by the portal, ${checked} checked off by you`;
+}
+
+/* ── Arrival ──────────────────────────────────────────────────────────── */
+
+/**
+ * The one time this page says something about the team itself: right after
+ * the student made it or joined it. It names who else is on it, because that
+ * is the first thing a student wonders, and points at step 1. It sits above
+ * the steps rather than in front of them, and it is gone on the next visit.
+ */
+function ArrivalNote({
+  arrival,
+  team,
+  login,
+}: {
+  arrival: Arrival;
+  team: TeamDetail;
+  login: string;
+}) {
+  const others = team.members.filter((member) => member.login !== login);
+  return (
+    <div
+      role="status"
+      className="anim-rise mb-10 flex max-w-[42rem] gap-3.5 rounded-r-surface border-l-2 border-verify bg-verify-wash px-5 py-4"
+    >
+      <HugeiconsIcon
+        icon={Tick02Icon}
+        size={18}
+        strokeWidth={2}
+        aria-hidden="true"
+        className="mt-1 shrink-0 text-verify"
+      />
+      <div>
+        <p className="font-serif text-[18px] leading-snug font-semibold text-ink">
+          {arrival === "created" ? `You've created ${team.name}` : `You're on ${team.name}`}
+        </p>
+        <p className="mt-1 text-[14px] leading-[1.6] text-ink-secondary">
+          {arrival === "created" && (
+            <>
+              You're its first member. Classmates join by picking it from the
+              team list once they've entered the cohort code, or you can add
+              them from the{" "}
+              <Link to="/team" className="u-link">
+                Team page
+              </Link>
+              .{" "}
+            </>
+          )}
+          {arrival === "joined" && others.length > 0 && (
+            <>You're working with {namesOf(others)}. </>
+          )}
+          Start with step 1 below, which clones the team's repository.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function namesOf(members: TeamMember[]): ReactNode {
+  return members.map((member, index) => (
+    <Fragment key={member.login}>
+      {index === 0 ? "" : index === members.length - 1 ? " and " : ", "}
+      <span className="font-mono text-[0.92em] text-ink">@{member.login}</span>
+    </Fragment>
+  ));
 }
 
 /* ── Terminal check-off ───────────────────────────────────────────────── */
@@ -383,8 +533,14 @@ function SetupGuide({
  * The three steps this appears under are the ones nothing reports until
  * `check` runs at the end, so without it a student clones and installs against
  * silent boxes. It marks this step and sends nothing else, and the box it
- * ticks says "done here" rather than "verified", because a command reaching us
- * is the student telling us they did it and not CogPortal watching them do it.
+ * ticks says "checked off by you" rather than "seen by the portal", because a
+ * command reaching us is the student telling us they did it and not CogPortal
+ * watching them do it.
+ *
+ * It is folded away because it is secondary and noisy: the step's own command
+ * is the thing to run, and this is for a student who wants the box now rather
+ * than at `check`. A native `details`, so the line stays in the document (find
+ * in page opens it) and needs no focus handling of its own.
  *
  * A python one-liner rather than curl: PowerShell aliases curl to something
  * with different arguments, and the course environment guarantees python
@@ -402,7 +558,7 @@ function TerminalCheckoff({
   tokens,
 }: {
   step: SetupStep | null;
-  state: "verified" | "checked" | "pending" | "unknown";
+  state: StepState;
   tokens: Record<string, string> | undefined;
 }) {
   if (!step || !isSelfCheckableStep(step) || state !== "pending") return null;
@@ -411,53 +567,35 @@ function TerminalCheckoff({
   const connection = window.location.protocol === "https:" ? "HTTPSConnection" : "HTTPConnection";
   const path = `/api/v1/setup/check-off?t=${token}`;
   return (
-    <div className="mt-2.5">
-      <p className="text-[12px] text-ink-faint">
-        Done here? Run this in the same terminal and the box ticks itself.
-      </p>
-      {/* Keep the signed token plain and on one scrollable line. */}
-      <CopyBlock
-        className="mt-1.5"
-        lang="text"
-        text={
-          `python -c "import http.client as h; c = h.${connection}('${window.location.host}'); ` +
-          `c.request('POST', '${path}'); print(c.getresponse().read().decode())"`
-        }
-      />
-    </div>
-  );
-}
-
-function MemberStrip({ members }: { members: TeamMember[] }) {
-  const shown = members.slice(0, 6);
-  const extra = members.length - shown.length;
-  return (
-    <span className="flex min-w-0 items-center">
-      <span className="flex -space-x-1.5">
-        {shown.map((member) =>
-          member.avatarUrl ? (
-            <img
-              key={member.login}
-              src={member.avatarUrl}
-              alt=""
-              title={`@${member.login}`}
-              className="size-6 rounded-[2px] border border-paper"
-            />
-          ) : (
-            <span
-              key={member.login}
-              aria-hidden="true"
-              title={`@${member.login}`}
-              className="flex size-6 items-center justify-center rounded-[2px] border border-paper bg-paper-sunken font-mono text-[10px] text-ink-secondary uppercase"
-            >
-              {member.login[0]}
-            </span>
-          ),
-        )}
-      </span>
-      {extra > 0 && <span className="ml-2 font-mono text-[10.5px] text-ink-faint">+{extra}</span>}
-      <span className="sr-only">{members.map((member) => `@${member.login}`).join(", ")}</span>
-    </span>
+    <details className="group">
+      <summary className="u-pressable inline-flex min-h-11 cursor-pointer list-none items-center gap-1.5 rounded-control text-[13.5px] font-semibold text-ink-secondary transition-colors duration-150 hover:text-ink [&::-webkit-details-marker]:hidden">
+        <HugeiconsIcon
+          icon={ArrowRight01Icon}
+          size={14}
+          strokeWidth={2}
+          aria-hidden="true"
+          className="transition-transform duration-150 group-open:rotate-90 motion-reduce:transition-none"
+        />
+        Tick this box from your terminal
+      </summary>
+      <div className="mt-1 mb-1 border-l border-rule pl-4">
+        <p className="text-[13.5px] leading-[1.6] text-ink-secondary">
+          Once the command above has worked, paste this into the same terminal.
+          It records that you did this one step and sends nothing else;{" "}
+          <code className="font-mono text-[0.92em] text-ink">check</code> confirms
+          it for itself at the end.
+        </p>
+        {/* Keep the signed token plain and on one scrollable line. */}
+        <CopyBlock
+          className="mt-2.5"
+          lang="text"
+          text={
+            `python -c "import http.client as h; c = h.${connection}('${window.location.host}'); ` +
+            `c.request('POST', '${path}'); print(c.getresponse().read().decode())"`
+          }
+        />
+      </div>
+    </details>
   );
 }
 
@@ -473,14 +611,14 @@ function DevRehearsal({
   onReset: () => void;
 }) {
   return (
-    <div className="mb-8 flex flex-wrap items-center gap-2 border border-detect/25 bg-detect-wash px-3 py-2.5">
-      <span className="mr-2 font-mono text-[10px] tracking-[0.09em] text-detect-deep uppercase">Dev rehearsal</span>
+    <div className="mb-8 flex max-w-[42rem] flex-wrap items-center gap-2 rounded-surface border border-detect/25 bg-detect-wash px-3 py-2.5">
+      <span className="u-label mr-2 text-detect-deep">Dev rehearsal</span>
       {([null, "creator", "member"] as const).map((mode) => (
         <Button
           key={mode ?? "live"}
           type="button"
           variant={replay === mode ? "primary" : "quiet"}
-          className="!min-h-8 px-3 !text-[11px]"
+          className="!min-h-8 px-3 !text-[12.5px]"
           onClick={() => onMode(mode)}
         >
           {mode ?? "Live state"}
@@ -489,10 +627,10 @@ function DevRehearsal({
       <span className="ml-auto">
         <ConfirmButton
           label="Reset guide"
-          confirmLabel="Confirm reset"
+          confirmLabel="Confirm, this clears your ticks"
           onConfirm={onReset}
           busy={busy}
-          className="!min-h-8 px-3 !text-[11px]"
+          className="!min-h-8 px-3 !text-[12.5px]"
         />
       </span>
     </div>
