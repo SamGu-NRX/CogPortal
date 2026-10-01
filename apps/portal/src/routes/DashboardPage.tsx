@@ -721,12 +721,14 @@ function FirstRun({
               student who came straight here has not set up. It names the
               prerequisite and links to it; it does not gate the hosted
               launcher above, which needs nothing local. */}
-          <p className="mt-1 mb-3 text-[14px] leading-[1.6] text-ink-secondary">
+          <p className="mt-1 mb-3 max-w-[56ch] text-[14px] leading-[1.6] text-ink-secondary">
             These need the CogWorks tool from{" "}
             <Link to="/setup" className="u-link">
               Setup
             </Link>{" "}
-            first. The commands already name this benchmark.
+            first. The commands already name this benchmark. If your code trains weights, a hosted run
+            fetches only the ones synced from its own commit, so run these on the commit you'll
+            evaluate, and again after each new one.
           </p>
           <Code
             lang="bash"
