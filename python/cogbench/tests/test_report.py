@@ -303,14 +303,15 @@ class CheckTests(unittest.TestCase):
                 submission=None,
                 submission_source=None,
                 search_unavailable=(
-                    "captions_train2014.json is not cached. Run `cogworks test` to fetch it."
+                    "captions_train2014.json is not cached. Run "
+                    "`python -m language_search_benchmark.fetch` to fetch the course files."
                 ),
             )
         )
         # `_wrapped` breaks the paragraph, so match on the unwrapped text.
         flat = " ".join(text.split())
         self.assertIn("could not describe its task just now", flat)
-        self.assertIn("cogworks test", flat)
+        self.assertIn("python -m language_search_benchmark.fetch", flat)
         self.assertNotIn("a submission must be declared", text)
         self.assertNotIn("benchmark_adapter.py", text)
 
