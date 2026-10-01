@@ -561,6 +561,78 @@ test("a failure read before the reaper settled the run closes nothing afterwards
   assert.deepEqual(await phaseTimes(harness.db), reaped);
 });
 
+const statusEvent = (sequence: number, status: string) => ({
+  protocolVersion: "1", eventId: `evt_status_${sequence}`, runId: "run_1",
+  sequence, occurredAt: NOW + sequence * 1_000, type: "status", status,
+});
+
+test("a status closes the stage that is open, not a skipped one it never started", async () => {
+  const harness = freshHarness();
+  const app = await seedStartedInstall(harness);
+  // Contract check's status never arrives; evaluating follows installing.
+  assert.equal((await post(app, harness.binding, statusEvent(3, "evaluating"))).status, 200);
+  const after = await phaseTimes(harness.db);
+  assert.deepEqual(after.installing, [NOW + 2_000, NOW + 3_000]);
+  assert.deepEqual(after.contract_check, [null, null]);
+  assert.deepEqual(after.evaluating, [NOW + 3_000, null]);
+  // Repeating the current stage, or a stale status, changes nothing.
+  for (const late of [statusEvent(4, "evaluating"), statusEvent(2, "scoring")]) {
+    assert.equal((await post(app, harness.binding, late)).status, 200);
+    assert.deepEqual(await phaseTimes(harness.db), after);
+  }
+});
+
+test("a completion closes the stage that is open even if scoring was never reported", async () => {
+  const harness = freshHarness();
+  const app = await seedStartedInstall(harness);
+  assert.equal((await post(app, harness.binding, statusEvent(3, "evaluating"))).status, 200);
+  assert.equal((await post(app, harness.binding, { ...completedEvent(), sequence: 4, occurredAt: NOW + 8_000 })).status, 200);
+  const after = await phaseTimes(harness.db);
+  assert.deepEqual(after.evaluating, [NOW + 3_000, NOW + 8_000]);
+  assert.deepEqual(after.scoring, [null, null]);
+});
+
+test("the stale reaper closes the stage that is open at its own settlement time", async () => {
+  const harness = freshHarness();
+  await seedStartedInstall(harness);
+  const reapedAt = NOW + 3_600_001;
+  await maintainPlatform(env(harness.binding), reapedAt);
+  assert.equal((await counts(harness.db)).run.status, "failed");
+  const settled = await phaseTimes(harness.db);
+  assert.deepEqual(settled, {
+    queued: [NOW, NOW + 1_000],
+    preparing: [NOW + 1_000, NOW + 2_000],
+    installing: [NOW + 2_000, reapedAt],
+    contract_check: [null, null],
+    evaluating: [null, null],
+    scoring: [null, null],
+  });
+  // A second sweep and a late callback find the run settled.
+  await maintainPlatform(env(harness.binding), reapedAt + 60_000);
+  assert.equal((await post(route(), harness.binding, statusEvent(3, "contract_check"))).status, 200);
+  assert.deepEqual(await phaseTimes(harness.db), settled);
+});
+
+test("a reaper that read the run before a callback settled it closes nothing", async () => {
+  const harness = freshHarness();
+  const app = await seedStartedInstall(harness);
+  const barrier = harness.pauseAfterRead(/^select "id", "team_id", "status" from "runs"/i);
+  const sweep = maintainPlatform(env(harness.binding), NOW + 3_600_001);
+  await barrier.reached;
+  let settled: Awaited<ReturnType<typeof phaseTimes>>;
+  try {
+    const failure = { ...infrastructureFailureEvent(), sequence: 3, occurredAt: NOW + 5_000 };
+    assert.equal((await post(app, harness.binding, failure)).status, 200);
+    settled = await phaseTimes(harness.db);
+    assert.deepEqual(settled.installing, [NOW + 2_000, NOW + 5_000]);
+  } finally {
+    barrier.release();
+  }
+  await sweep;
+  assert.deepEqual(await phaseTimes(harness.db), settled);
+  assert.equal((await counts(harness.db)).run.failureDetail, "the sandbox went away");
+});
+
 /** A failure that is ours, so the attempt goes back. */
 function infrastructureFailureEvent() {
   return {

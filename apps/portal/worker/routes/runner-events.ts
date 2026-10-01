@@ -1,8 +1,8 @@
 import type { Context, Hono } from "hono";
-import { and, eq, exists, isNotNull, isNull, lt, ne, notInArray, sql } from "drizzle-orm";
+import { and, eq, exists, lt, ne, notInArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { PreparedEnvironmentV1Schema, RunEventV1Schema, RunJobV1Schema, type RunEventV1 } from "@cogworks/contracts/protocol";
-import type { RunPhase, RunStreamEventCode } from "@cogworks/contracts/schema";
+import type { RunStreamEventCode } from "@cogworks/contracts/schema";
 import type { AppEnv } from "../env";
 import { getDb } from "../db/client";
 import {
@@ -19,6 +19,7 @@ import { respond } from "../http/respond";
 import { constantTimeTextEqual } from "../util/crypto";
 import { appendRunStreamEvent, runnerFailureCode } from "../services/run-surfaces";
 import { preparedEnvironmentMatchesRun } from "../services/run-eligibility";
+import { openPhases } from "../services/run-phases";
 
 const OkSchema = z.object({ ok: z.literal(true), duplicate: z.boolean() });
 const MAX_CLOCK_SKEW_SECONDS = 300;
@@ -49,19 +50,6 @@ export async function verifyRunnerSignature(
   if (!constantTimeTextEqual(expected, supplied.slice(3))) {
     throw new ApiHttpError(401, "unauthorized", "Runner signature is invalid.");
   }
-}
-
-function previousPhase(phase: RunPhase): RunPhase | null {
-  const order: RunPhase[] = [
-    "queued",
-    "preparing",
-    "installing",
-    "contract_check",
-    "evaluating",
-    "scoring",
-  ];
-  const index = order.indexOf(phase);
-  return index > 0 ? order[index - 1] : null;
 }
 
 async function applyEvent(env: AppEnv["Bindings"], event: RunEventV1): Promise<void> {
@@ -123,7 +111,6 @@ async function applyEvent(env: AppEnv["Bindings"], event: RunEventV1): Promise<v
 
   if (event.type === "status") {
     const phase = event.status;
-    const previous = previousPhase(phase);
     const eligible = and(
       eq(runs.id, run.id),
       notInArray(runs.status, ["succeeded", "failed", "cancelled"]),
@@ -135,14 +122,15 @@ async function applyEvent(env: AppEnv["Bindings"], event: RunEventV1): Promise<v
     // every write on persisted state in one D1 transaction, with the run update
     // last so all statements see the same status and sequence eligibility.
     await db.batch([
+      // The stage that was actually open, not the fixed one before this: a
+      // skipped status used to leave installing open and give an unstarted
+      // contract_check an end.
+      db.update(runPhases).set({ endedAt: event.occurredAt }).where(and(
+        openPhases(run.id), ne(runPhases.phase, phase), phaseChanged,
+      )),
       db.update(runPhases).set({ startedAt: event.occurredAt }).where(and(
         eq(runPhases.runId, run.id), eq(runPhases.phase, phase), phaseChanged,
       )),
-      ...(previous ? [
-        db.update(runPhases).set({ endedAt: event.occurredAt }).where(and(
-          eq(runPhases.runId, run.id), eq(runPhases.phase, previous), phaseChanged,
-        )),
-      ] : []),
       db.update(runs).set({ status: phase, lastEventSequence: event.sequence }).where(eligible),
     ]);
     return;
@@ -225,9 +213,8 @@ async function applyEvent(env: AppEnv["Bindings"], event: RunEventV1): Promise<v
         environmentDigest: event.environmentDigest,
         log: run.mode === "practice" ? event.sanitizedLog : null,
       }).where(acceptsEvidence),
-      db.update(runPhases).set({ endedAt: event.occurredAt }).where(and(
-        eq(runPhases.runId, run.id), eq(runPhases.phase, "scoring"), activeExists,
-      )),
+      // Normally scoring; whichever stage is open if its status was lost.
+      db.update(runPhases).set({ endedAt: event.occurredAt }).where(and(openPhases(run.id), activeExists)),
       db.update(runs).set({
         status: "succeeded",
         failureCategory: null,
@@ -247,13 +234,10 @@ async function applyEvent(env: AppEnv["Bindings"], event: RunEventV1): Promise<v
   } else {
     await db.batch([
       terminalNotice,
-      // Close what actually ran, at the failure's own time. A stage whose
-      // status never arrived has no start, and a failure doesn't invent one:
-      // run_cad957b208 failed in contract_check while its last report was
-      // installing, and was left with installing open on a terminal run.
-      db.update(runPhases).set({ endedAt: event.occurredAt }).where(and(
-        eq(runPhases.runId, run.id), isNotNull(runPhases.startedAt), isNull(runPhases.endedAt), activeExists,
-      )),
+      // At the failure's own time. run_cad957b208 failed in contract_check
+      // while its last report was installing, and was left with installing
+      // open on a terminal run.
+      db.update(runPhases).set({ endedAt: event.occurredAt }).where(and(openPhases(run.id), activeExists)),
       db.update(runs).set({
         status: "failed",
         finishedAt: event.occurredAt,
