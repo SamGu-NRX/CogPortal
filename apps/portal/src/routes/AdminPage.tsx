@@ -1,6 +1,6 @@
 import { ArrowDown01Icon, Copy01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { motion, useReducedMotion } from "motion/react";
 import { useEffect, useId, useRef, useState } from "react";
 import type { AdminTeamSummary } from "@cogworks/contracts/schema";
 import { CornerBrackets } from "@/components/Brackets";
@@ -262,24 +262,13 @@ function Enrollment({
               : "The old code no longer works. The new one will once you open enrollment."}
           </p>
         )}
-        {/* The wrapper stays mounted, so these flip the moment the fold
-            closes; the actions inside are still on screen for the exit
-            animation and must not take focus or be read out meanwhile. Only
-            the toggle closes the fold, and it takes focus back first. */}
+        {/* The wrapper stays mounted and goes inert the moment the fold
+            closes, so nothing inside can take focus or be read out even for
+            the frame before the actions unmount. Only the toggle closes the
+            fold, and it takes focus back first. */}
         <div ref={foldRef} id={foldId} inert={!changing} aria-hidden={!changing}>
-          <AnimatePresence initial={false}>
-            {changing && (
-              <motion.div
-                initial={reduce ? { opacity: 1, height: "auto" } : { height: 0, opacity: 0 }}
-                animate={{ height: "auto", opacity: 1 }}
-                exit={
-                  reduce
-                    ? { opacity: 0, transition: { duration: 0 } }
-                    : { height: 0, opacity: 0, transition: { duration: 0.16, ease: EASE_OUT } }
-                }
-                transition={{ duration: 0.22, ease: EASE_OUT }}
-                className="overflow-hidden"
-              >
+          {changing && (
+            <div className="anim-reveal">
                 <div className="space-y-4 px-2 pt-1 pb-5">
                   <EnrollmentAction
                     action={
@@ -323,9 +312,8 @@ function Enrollment({
                     </p>
                   )}
                 </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
+            </div>
+          )}
         </div>
       </div>
     </section>
@@ -520,19 +508,8 @@ function TeamRow({
       </button>
 
       <div id={detailsId}>
-        <AnimatePresence initial={false}>
-          {open && (
-            <motion.div
-              initial={reduce ? { opacity: 1, height: "auto" } : { height: 0, opacity: 0 }}
-              animate={{ height: "auto", opacity: 1 }}
-              exit={
-                reduce
-                  ? { opacity: 0, transition: { duration: 0 } }
-                  : { height: 0, opacity: 0, transition: { duration: 0.16, ease: EASE_OUT } }
-              }
-              transition={{ duration: 0.22, ease: EASE_OUT }}
-              className="overflow-hidden"
-            >
+        {open && (
+          <div className="anim-reveal">
               <div className="grid gap-x-8 gap-y-6 border-t border-rule-soft px-4 pt-4 pb-5 sm:grid-cols-2 sm:px-5">
                 <div className="min-w-0">
                   <h3 className="u-label">Members</h3>
@@ -554,8 +531,8 @@ function TeamRow({
                           ) : (
                             <RemoveButton
                               armedLabel="Confirm, they leave"
-                              name={`Remove ${m.login} from ${team.name}`}
-                              armedName={`Confirm removing ${m.login} from ${team.name}`}
+                              subject={`${m.login} from ${team.name}`}
+                              armedSubject={m.login}
                               busy={removeMember.isPending && removeMember.variables?.login === m.login}
                               disabled={removeMember.isPending}
                               onConfirm={() =>
@@ -598,8 +575,8 @@ function TeamRow({
                               label="Unassign"
                               busyLabel="Unassigning…"
                               armedLabel="Confirm unassign"
-                              name={`Remove ${ta.login} as TA for ${team.name}`}
-                              armedName={`Confirm removing ${ta.login} as TA for ${team.name}`}
+                              subject={`${ta.login} as TA for ${team.name}`}
+                              armedSubject={ta.login}
                               busy={removeTa.isPending && removeTa.variables?.login === ta.login}
                               disabled={removeTa.isPending}
                               onConfirm={() =>
@@ -643,9 +620,8 @@ function TeamRow({
                     : "Nothing published yet"}
                 </p>
               </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+          </div>
+        )}
       </div>
     </li>
   );
@@ -838,8 +814,8 @@ function StaffSection() {
                 </span>
                 <RemoveButton
                   armedLabel="Confirm, access ends"
-                  name={`Remove ${entry.login} from platform staff`}
-                  armedName={`Confirm removing ${entry.login} from platform staff`}
+                  subject={`${entry.login} from platform staff`}
+                  armedSubject={entry.login}
                   busy={remove.isPending && remove.variables === entry.login}
                   disabled={remove.isPending}
                   onConfirm={() => remove.mutate(entry.login)}

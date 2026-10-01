@@ -81,9 +81,24 @@ export function UserMenu({
         next?.focus();
       }
     };
+    // Tab out of the menu closes it, so its arrow keys stop answering for
+    // whatever control has focus next. Checked a frame later, because focus
+    // passes through the body while it moves between two items.
+    const root = rootRef.current;
+    let frame = 0;
+    const onFocusOut = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const focused = document.activeElement;
+        if (focused && focused !== document.body && !root?.contains(focused)) setOpen(false);
+      });
+    };
+    root?.addEventListener("focusout", onFocusOut);
     document.addEventListener("pointerdown", onPointerDown);
     document.addEventListener("keydown", onKeyDown);
     return () => {
+      cancelAnimationFrame(frame);
+      root?.removeEventListener("focusout", onFocusOut);
       document.removeEventListener("pointerdown", onPointerDown);
       document.removeEventListener("keydown", onKeyDown);
     };
@@ -122,7 +137,7 @@ export function UserMenu({
   }, [open]);
 
   const itemClass =
-    "flex min-h-10 w-full items-center gap-2.5 rounded-control px-2.5 text-left text-[14px] font-medium text-ink-secondary transition-colors duration-150 hover:bg-paper-sunken hover:text-ink focus-visible:bg-paper-sunken focus-visible:text-ink focus-visible:outline-none";
+    "flex min-h-10 w-full items-center gap-2.5 rounded-control px-2.5 text-left text-[14px] font-medium text-ink-secondary transition-colors duration-150 hover:bg-paper-sunken hover:text-ink focus-visible:bg-paper-sunken focus-visible:text-ink focus-visible:-outline-offset-2";
 
   const MenuLink = ({ to, icon, label }: { to: string; icon: IconType; label: string }) => (
     <Link role="menuitem" to={to} className={itemClass} tabIndex={-1}>

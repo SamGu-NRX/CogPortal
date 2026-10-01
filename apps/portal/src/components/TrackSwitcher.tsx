@@ -2,6 +2,7 @@ import { ArrowDown01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { moveTabFocus } from "@/lib/tablist";
 import type { Benchmark, Module } from "@cogworks/contracts/schema";
 import { EASE_OUT } from "@/lib/motion";
 import { MODULE_ACCENT } from "@/lib/track";
@@ -90,32 +91,13 @@ function TrackTabs({
 
   if (!benchmark || tracks.length <= 1) return null;
 
-  const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
-    const tabs = Array.from(
-      listRef.current?.querySelectorAll<HTMLElement>('[role="tab"]') ?? [],
-    );
-    if (tabs.length === 0) return;
-    event.preventDefault();
-    const index = tabs.indexOf(document.activeElement as HTMLElement);
-    const next =
-      event.key === "Home"
-        ? tabs[0]
-        : event.key === "End"
-          ? tabs[tabs.length - 1]
-          : event.key === "ArrowRight"
-            ? tabs[(index + 1) % tabs.length]
-            : tabs[(index - 1 + tabs.length) % tabs.length];
-    next?.focus();
-  };
-
   return (
     <div className="border-b border-rule">
       <div
         ref={listRef}
         role="tablist"
         aria-label="Benchmark track"
-        onKeyDown={onKeyDown}
+        onKeyDown={moveTabFocus}
         // Room above for the focus ring; sideways scroll on a phone with the
         // scrollbar hidden, as the header's own tab row does.
         className="-mb-px flex items-stretch gap-1 overflow-x-auto px-px pt-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
@@ -226,10 +208,25 @@ function TrackMenu({ tracks, benchmark, onSelect, trailing }: TrackSwitcherProps
         next?.focus();
       }
     };
+    // Tab out of the menu closes it, so its arrow keys stop answering for
+    // whatever control has focus next. Checked a frame later, because focus
+    // passes through the body while it moves between two items.
+    const root = rootRef.current;
+    let frame = 0;
+    const onFocusOut = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const focused = document.activeElement;
+        if (focused && focused !== document.body && !root?.contains(focused)) setOpen(false);
+      });
+    };
+    root?.addEventListener("focusout", onFocusOut);
     document.addEventListener("pointerdown", onPointerDown);
     document.addEventListener("keydown", onKeyDown);
     window.addEventListener("resize", updateMenuAlignment);
     return () => {
+      cancelAnimationFrame(frame);
+      root?.removeEventListener("focusout", onFocusOut);
       document.removeEventListener("pointerdown", onPointerDown);
       document.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("resize", updateMenuAlignment);
@@ -359,7 +356,7 @@ function TrackMenu({ tracks, benchmark, onSelect, trailing }: TrackSwitcherProps
                           setOpen(false);
                           triggerRef.current?.focus();
                         }}
-                        className={`relative flex min-h-11 w-full items-baseline justify-between gap-3 px-3 py-2 text-left transition-colors duration-150 focus-visible:outline-none ${
+                        className={`relative flex min-h-11 w-full items-baseline justify-between gap-3 px-3 py-2 text-left transition-colors duration-150 focus-visible:-outline-offset-2 ${
                           checked
                             ? "bg-paper-sunken/60 focus-visible:bg-paper-sunken"
                             : "hover:bg-paper-sunken focus-visible:bg-paper-sunken"

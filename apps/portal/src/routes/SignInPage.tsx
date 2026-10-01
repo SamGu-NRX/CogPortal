@@ -205,7 +205,7 @@ export function SignInPage() {
               icon={ArrowDown01Icon}
               size={16}
               strokeWidth={1.8}
-              className="shrink-0 text-ink-faint transition-transform duration-200 ease-out group-open:rotate-180"
+              className="shrink-0 text-ink-faint transition-transform duration-200 ease-out group-open:rotate-180 motion-reduce:transition-none"
               aria-hidden="true"
             />
           </summary>

@@ -146,6 +146,17 @@
   padding-left: max(1rem, var(--activity-safe-left));
 }
 
+/* The page's side gutters. index.html sets viewport-fit=cover, so on a
+   notched phone in landscape the gutter has to clear the safe area too. */
+@utility u-gutter {
+  padding-left: max(1.25rem, env(safe-area-inset-left));
+  padding-right: max(1.25rem, env(safe-area-inset-right));
+  @media (max-width: 359px) {
+    padding-left: max(0.75rem, env(safe-area-inset-left));
+    padding-right: max(0.75rem, env(safe-area-inset-right));
+  }
+}
+
 /* Instrument label: a short mono tag over data (a column head, a unit, a
    version). Kept for data only; a section or a form field gets u-label,
    which reads as a sentence instead of a stencil. */
@@ -348,10 +359,14 @@
     animation-delay: var(--rise-delay, 0ms);
   }
 
-  /* One orchestrated landing moment: slower, staggered via --rise-delay. */
-  .anim-rise-slow {
-    animation: rise 480ms var(--ease-out-quart) both;
-    animation-delay: var(--rise-delay, 0ms);
+
+  /* A disclosure's content: layout changes at once (no animated height,
+     which relays out the page every frame), and the revealed content fades
+     in over 160ms so the change is seen. Closing is instant, so nothing that
+     is going away can still take focus. Opacity only, so it is kept under
+     reduced motion as a comprehension aid. */
+  .anim-reveal {
+    animation: reveal 160ms var(--ease-out-quart) both;
   }
 
   /* Live-run indicator — a restrained instrument "REC" pulse. The only
@@ -444,6 +459,12 @@
   }
 }
 
+@keyframes reveal {
+  from {
+    opacity: 0;
+  }
+}
+
 @keyframes rise {
   from {
     opacity: 0;
@@ -494,8 +515,7 @@
     opacity: 1;
     stroke-dashoffset: 0;
   }
-  .anim-rise,
-  .anim-rise-slow {
+  .anim-rise {
     animation: none;
   }
   .anim-live {

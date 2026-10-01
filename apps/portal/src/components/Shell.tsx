@@ -78,8 +78,8 @@ export function Shell() {
         Skip to content
       </a>
 
-      <header className="sticky top-0 z-40 border-b border-rule bg-paper/88 backdrop-blur-[6px] supports-[not(backdrop-filter:blur(1px))]:bg-paper">
-        <div className="mx-auto flex min-h-16 w-full max-w-[70rem] flex-wrap items-center gap-x-6 px-5 max-[359px]:px-3">
+      <header className="sticky top-0 z-40 border-b border-rule pt-[env(safe-area-inset-top)] bg-paper/88 backdrop-blur-[6px] supports-[not(backdrop-filter:blur(1px))]:bg-paper">
+        <div className="u-gutter mx-auto flex min-h-16 w-full max-w-[70rem] flex-wrap items-center gap-x-6">
           <div className="flex min-w-0 flex-1 items-center gap-3 md:flex-none">
             <Wordmark />
             {team && (
@@ -115,7 +115,7 @@ export function Shell() {
             ) : (
               <Link
                 to="/signin"
-                className="u-pressable inline-flex min-h-10 items-center rounded-control bg-ink px-4 text-[14px] font-semibold text-paper-raised transition-colors duration-150 hover:bg-ink/85"
+                className="u-pressable inline-flex min-h-11 items-center rounded-control bg-ink px-4 text-[14px] font-semibold text-paper-raised transition-colors duration-150 hover:bg-ink/85"
               >
                 Sign in
               </Link>
@@ -127,17 +127,17 @@ export function Shell() {
             than wrap, so the header keeps one height on every page. */}
         <nav
           aria-label="Primary"
-          className="flex overflow-x-auto border-t border-rule-soft px-2 [scrollbar-width:none] md:hidden [&::-webkit-scrollbar]:hidden"
+          className="flex overflow-x-auto border-t border-rule-soft pr-[env(safe-area-inset-right)] pl-[max(0.5rem,env(safe-area-inset-left))] [scrollbar-width:none] md:hidden [&::-webkit-scrollbar]:hidden"
         >
           {tabs}
         </nav>
       </header>
 
-      <main id="main" className="mx-auto flex w-full max-w-[70rem] flex-1 flex-col px-5 max-[359px]:px-3">
+      <main id="main" className="u-gutter mx-auto flex w-full max-w-[70rem] flex-1 flex-col">
         <Outlet />
       </main>
 
-      <footer className="mx-auto w-full max-w-[70rem] px-5 pt-10 pb-8 max-[359px]:px-3">
+      <footer className="u-gutter mx-auto w-full max-w-[70rem] pt-10 pb-[max(2rem,env(safe-area-inset-bottom))]">
         <p className="border-t border-rule-soft pt-4 text-[13px] text-ink-faint">
           Cog*Portal runs the CogWorks capstone benchmarks for MIT Beaver Works Summer Institute.
         </p>

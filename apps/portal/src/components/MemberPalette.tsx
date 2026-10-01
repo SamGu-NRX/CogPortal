@@ -145,7 +145,9 @@ export function MemberPalette({
           onKeyDown={onKeyDown}
           onBlur={onBlur}
         >
-          <label className="flex items-center gap-2.5 border-b border-rule px-3.5">
+          {/* The field drops its own outline to sit flush in the palette, so the
+              row's bottom rule darkens and thickens to show where focus is. */}
+          <label className="flex items-center gap-2.5 border-b border-rule px-3.5 focus-within:border-ink focus-within:shadow-[inset_0_-1px_0_var(--color-ink)]">
             <HugeiconsIcon
               icon={Search01Icon}
               size={16}

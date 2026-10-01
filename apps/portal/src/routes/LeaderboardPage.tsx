@@ -1,8 +1,9 @@
 import { ArrowDown01Icon, ArrowUpRight01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { motion, useReducedMotion } from "motion/react";
 import { useId, useState } from "react";
 import { useLocation, useSearchParams } from "react-router";
+import { moveTabFocus } from "@/lib/tablist";
 import type { Benchmark, LeaderboardEntry, Module } from "@cogworks/contracts/schema";
 import { EmptyState } from "@/components/EmptyState";
 import { LoadingMark, QueryError } from "@/components/Feedback";
@@ -24,6 +25,9 @@ const TRACKS: Array<{ module: Module; label: string }> = COURSE_ORDER.map((modul
   module,
   label: MODULE_ACCENT[module].label,
 }));
+
+/** The one board both tab rows control. */
+const BOARD_PANEL_ID = "leaderboard-board";
 
 type VisionView = "overall" | "recognition" | "clustering";
 
@@ -70,7 +74,6 @@ export function LeaderboardPage() {
       module: next.module ?? module ?? TRACKS[0]!.module,
       visionView: next.visionView ?? visionView,
     });
-  const reduce = useReducedMotion();
 
   const forModule = (m: Module): Benchmark | undefined => {
     const list = benchmarks.data?.filter((b) => b.module === m) ?? [];
@@ -105,6 +108,7 @@ export function LeaderboardPage() {
       <div
         role="tablist"
         aria-label="Benchmark track"
+        onKeyDown={moveTabFocus}
         className="mt-8 flex gap-1 overflow-x-auto border-b border-rule lg:max-w-[42rem]"
       >
         {TRACKS.map((track) => {
@@ -116,8 +120,12 @@ export function LeaderboardPage() {
           return (
             <button
               key={track.module}
+              type="button"
               role="tab"
+              id={`track-tab-${track.module}`}
               aria-selected={active}
+              aria-controls={BOARD_PANEL_ID}
+              tabIndex={active ? 0 : -1}
               onClick={() => pick({ module: track.module })}
               className={`relative inline-flex min-h-11 shrink-0 items-baseline gap-2 px-3 pt-2.5 text-[15px] font-semibold transition-colors duration-150 ${
                 active ? "text-ink" : "text-ink-secondary hover:text-ink"
@@ -128,17 +136,11 @@ export function LeaderboardPage() {
                 <span className="text-[12px] font-normal text-ink-faint">in progress</span>
               )}
               {active && (
-                <motion.span
-                  layoutId="track-underline"
+                // The accent names the module. Underlining the Language tab
+                // in detector red would say "vision" while reading Language.
+                <span
                   aria-hidden="true"
-                  // The accent names the module. Underlining the Language tab
-                  // in detector red would say "vision" while reading Language.
                   className={`absolute inset-x-3 -bottom-px h-[2px] rounded-full ${MODULE_ACCENT[track.module].tick}`}
-                  transition={
-                    reduce
-                      ? { duration: 0 }
-                      : { type: "tween", duration: 0.2, ease: EASE_OUT }
-                  }
                 />
               )}
             </button>
@@ -150,6 +152,7 @@ export function LeaderboardPage() {
         <div
           role="tablist"
           aria-label="Vision leaderboard"
+          onKeyDown={moveTabFocus}
           className="mt-4 inline-flex max-w-full gap-0.5 overflow-x-auto rounded-surface border border-rule bg-paper-sunken p-[3px]"
         >
           {(
@@ -165,22 +168,19 @@ export function LeaderboardPage() {
                 key={value}
                 type="button"
                 role="tab"
+                id={`vision-tab-${value}`}
                 aria-selected={active}
+                aria-controls={BOARD_PANEL_ID}
+                tabIndex={active ? 0 : -1}
                 onClick={() => pick({ visionView: value })}
                 className={`relative inline-flex min-h-11 shrink-0 items-center rounded-control px-3.5 text-[14px] font-semibold transition-colors duration-150 ${
                   active ? "text-ink" : "text-ink-secondary hover:text-ink"
                 }`}
               >
                 {active && (
-                  <motion.span
-                    layoutId="vision-view-tab"
+                  <span
                     aria-hidden="true"
                     className="absolute inset-0 rounded-control border border-rule bg-paper-raised shadow-[0_1px_2px_rgb(27_31_36/0.08)]"
-                    transition={
-                      reduce
-                        ? { duration: 0 }
-                        : { type: "tween", duration: 0.2, ease: EASE_OUT }
-                    }
                   />
                 )}
                 <span className="relative">{label}</span>
@@ -194,6 +194,13 @@ export function LeaderboardPage() {
         className="mt-6"
         note="Entries follow the published score, without rank numbers. A few thousandths between two teams says less than what each one tried."
       >
+        <div
+          id={BOARD_PANEL_ID}
+          role="tabpanel"
+          aria-labelledby={
+            module === "vision" ? `vision-tab-${visionView}` : module ? `track-tab-${module}` : undefined
+          }
+        >
         {boardSummary && !benchmarks.isPending && (
           <p className="mb-4 max-w-[58ch] text-[14.5px] leading-[1.55] text-ink-secondary">
             {boardSummary}
@@ -217,6 +224,7 @@ export function LeaderboardPage() {
             title={benchmark.title}
           />
         )}
+        </div>
       </Annotated>
     </div>
   );
@@ -404,21 +412,9 @@ function EntryRow({ entry, index }: { entry: LeaderboardEntry; index: number }) 
       </div>
 
       <div id={detailsId}>
-        <AnimatePresence initial={false}>
-          {open && (
-            <motion.div
-              initial={reduce ? { opacity: 1, height: "auto" } : { height: 0, opacity: 0 }}
-              animate={{ height: "auto", opacity: 1 }}
-              exit={
-                reduce
-                  ? { opacity: 0, transition: { duration: 0 } }
-                  : { height: 0, opacity: 0, transition: { duration: 0.16, ease: EASE_OUT } }
-              }
-              transition={{ duration: 0.22, ease: EASE_OUT }}
-              className="overflow-hidden"
-            >
-              {/* padding lives on the inner element, not the animated wrapper */}
-              <dl className="mt-1 grid max-w-[36rem] gap-x-10 gap-y-1.5 rounded-surface border border-rule-soft bg-paper-raised px-4 py-3.5 sm:grid-cols-2">
+        {open && (
+          <div className="anim-reveal">
+                            <dl className="mt-1 grid max-w-[36rem] gap-x-10 gap-y-1.5 rounded-surface border border-rule-soft bg-paper-raised px-4 py-3.5 sm:grid-cols-2">
                 {entry.supportingMetrics.map((m) => (
                   <DetailRow key={m.key} label={m.label} value={formatMetricValue(m)} />
                 ))}
@@ -457,9 +453,8 @@ function EntryRow({ entry, index }: { entry: LeaderboardEntry; index: number }) 
                   <DetailRow label="Repository" value="not recorded" />
                 )}
               </dl>
-            </motion.div>
-          )}
-        </AnimatePresence>
+          </div>
+        )}
       </div>
     </motion.li>
   );

@@ -1,6 +1,6 @@
 import { ArrowDown01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { motion, useReducedMotion } from "motion/react";
 import { useId, useState } from "react";
 import type { ChurnEvent, StageActivity, TeamDetail, TeamProcessSignals } from "@cogworks/contracts/schema";
 import { formatTimeAgo } from "@/lib/format";
@@ -90,21 +90,8 @@ export function ProcessPanel({ members }: { members: TeamDetail["members"] }) {
         }
       >
         <div id={bodyId}>
-          <AnimatePresence initial={false}>
-            {open && (
-              <motion.div
-                initial={reduced ? { opacity: 1, height: "auto" } : { height: 0, opacity: 0 }}
-                animate={{ height: "auto", opacity: 1 }}
-                exit={
-                  reduced
-                    ? { opacity: 0, transition: { duration: 0 } }
-                    : { height: 0, opacity: 0, transition: { duration: 0.16, ease: EASE_OUT } }
-                }
-                transition={{ duration: 0.22, ease: EASE_OUT }}
-                className="overflow-hidden"
-              >
-                {/* Padding lives inside the animated wrapper, so the height
-                    it measures includes it. */}
+          {open && (
+            <div className="anim-reveal">
                 <div className="pt-1 pb-1">
                   {process.isError ? (
                     <QueryError error={process.error} retry={() => void process.refetch()} />
@@ -114,9 +101,8 @@ export function ProcessPanel({ members }: { members: TeamDetail["members"] }) {
                     <LoadingMark label="Reading commits and runs" />
                   )}
                 </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
+            </div>
+          )}
         </div>
       </Annotated>
     </section>

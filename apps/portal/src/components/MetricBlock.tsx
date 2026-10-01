@@ -324,23 +324,12 @@ function SupportingMetricRow({
         </dt>
         {value}
       </button>
-      {/* 0fr -> 1fr animates to the content's natural height without measuring
-          it in JS, so a two-line note and a five-line note both open at the
-          same speed. */}
-      <div
-        id={panelId}
-        className="grid transition-[grid-template-rows] duration-200 ease-out-quart motion-reduce:transition-none"
-        style={{ gridTemplateRows: open ? "1fr" : "0fr" }}
-      >
-        <div className="overflow-hidden" inert={!open} aria-hidden={!open}>
-          <p
-            className={`mb-2.5 max-w-[56ch] border-l border-detect/30 pl-3 font-serif text-[14px] leading-[1.55] text-ink-secondary transition-opacity duration-200 motion-reduce:transition-none ${
-              open ? "opacity-100 delay-75" : "opacity-0"
-            }`}
-          >
+      {/* Opens at once and fades in; `hidden` keeps the closed note out of
+          the accessibility tree and the tab order. */}
+      <div id={panelId} hidden={!open} className="anim-reveal">
+          <p className="mb-2.5 max-w-[56ch] border-l border-detect/30 pl-3 font-serif text-[14px] leading-[1.55] text-ink-secondary">
             {metric.help}
           </p>
-        </div>
       </div>
     </div>
   );

@@ -437,8 +437,8 @@ function RemoveMember({ login, onRemoved }: { login: string; onRemoved: () => vo
     <span className="flex shrink-0 flex-col items-end">
       <RemoveButton
         armedLabel="Confirm, they leave"
-        name={`Remove @${login} from the team`}
-        armedName={`Confirm removing @${login}`}
+        subject={`@${login} from the team`}
+        armedSubject={`@${login}`}
         busy={remove.isPending}
         onConfirm={() => remove.mutate(login, { onSuccess: onRemoved })}
       />

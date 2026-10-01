@@ -42,11 +42,6 @@ export function runNumberLabel(id: string): string {
   return `Run #${id.slice(-4).toUpperCase()}`;
 }
 
-export function greeting(hour: number): string {
-  if (hour < 12) return "Good morning";
-  if (hour < 18) return "Good afternoon";
-  return "Good evening";
-}
 
 export function firstName(name: string | null, login: string): string {
   return name?.split(" ")[0] || login;
