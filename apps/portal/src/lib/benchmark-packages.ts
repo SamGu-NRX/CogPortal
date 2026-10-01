@@ -30,15 +30,13 @@ export interface BenchmarkPackage {
  * reaches that through this page, which serves whichever pin its own deploy
  * carries, but `--portal` at an older deployment does.
  *
- * `148365c` is #58's head. It adds #58 to the previous pin, `b6bbffb`:
- * replaying a candidate binding keeps the identities the resolver inferred,
- * which a hosted Clustering run lost during the contract check. `b6bbffb`
- * already carried #53's per-item None handling. This branch's SDK differs from
- * `148365c` only in the Language install advice in `plugins.py`, which moves
- * with the `benchmarks/week3` submodule; scoring code is the same.
+ * `5c8efc6` is the beta commit that pinned Language `9e4dcff`. Its SDK is the
+ * one the hosted images bake: #58's resolver fix (replaying a candidate keeps
+ * the identities the resolver inferred) on top of #53, with install advice
+ * naming the same Language commit as `benchmarks/week3`.
  */
 export const COGBENCH_SOURCE =
-  "git+https://github.com/SamGu-NRX/CogPortal.git@148365ccd04d6233cfc5973469003bd616ba6dc6#subdirectory=python/cogbench";
+  "git+https://github.com/SamGu-NRX/CogPortal.git@5c8efc68a0d8e739cc007b5055ee7759ce10dc27#subdirectory=python/cogbench";
 
 const WEEK1_AUDIO: BenchmarkPackage = {
   distribution: "cogworks-week1-audio-benchmark",
