@@ -61,11 +61,8 @@ export interface SetupCommand {
    *  command so nothing has to map an id back to a step by hand. */
   step: SetupStep | null;
   command: string;
-  /** A second command the same step needs before `check` can search the
-   *  repository, run after `command`. Only the Language install line has
-   *  one, its data fetch. It rides this step rather than being a step of its
-   *  own because nothing reports it, and this step's box still means only
-   *  what its evidence says: the benchmark package is installed. */
+  /** Run after `command`: the package's data fetch, which reports no
+   *  evidence, so the step's box still means only what `step` records. */
   dataCommand?: string;
   /** True once CogPortal has observed what this command does, through a
    *  linked device reporting it. */
