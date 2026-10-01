@@ -32,7 +32,7 @@ def _units(text: str) -> int:
     return sum(2 if ord(character) > 0xFFFF else 1 for character in text)
 
 
-def _run_team(team_code: str, raiser: str = "") -> tuple:
+def _run_team(team_code: str, raiser: str = "", log_is_env: bool = False) -> tuple:
     """Run the real sandbox script against a repository holding `team_code`.
 
     `raiser` is extra source for the stubbed cogbench, so a test can make the
@@ -63,10 +63,12 @@ def _run_team(team_code: str, raiser: str = "") -> tuple:
         process = subprocess.run(
             [sys.executable, str(script), "language-search", "8192"],
             capture_output=True, text=True, cwd=str(tmp),
-            env={"PYTHONPATH": str(tmp), "PATH": "/usr/bin:/bin"}, timeout=120,
+            env={"PYTHONPATH": str(tmp), "PATH": "/usr/bin:/bin",
+                 **({"COG_LOG": str(tmp / "cog-student.log")} if log_is_env else {})},
+            timeout=120,
         )
-        self_log = tmp / "cog-student.log"
-        return process.stderr, self_log.read_text(encoding="utf-8") if self_log.is_file() else None
+        log_file = tmp / "cog-student.log"
+        return process.stderr, log_file.read_text(encoding="utf-8") if log_file.is_file() else None
 
 
 def _record(stderr: str) -> dict:
@@ -119,6 +121,18 @@ class TheSandboxSaysWhatRaisedAndWhere(unittest.TestCase):
         """)
         self.assertEqual(_record(stderr)["type"], "ValueError")
         self.assertIn("ValueError: bad shape", log)
+
+    def test_an_unwritable_log_does_not_replace_the_exception(self):
+        """A second traceback from the log write would end stderr instead."""
+
+        stderr, log = _run_team("""
+            import os
+            def predict(inputs):
+                os.mkdir(os.environ["COG_LOG"])
+                raise ValueError("bad shape")
+        """, log_is_env=True)
+        self.assertEqual(_record(stderr)["type"], "ValueError")
+        self.assertIsNone(log)
 
     def test_the_harness_own_frames_are_never_named(self):
         """A check the script itself raises has nowhere useful to point."""
@@ -246,8 +260,9 @@ class EveryLaneDecidesTheSameWay(unittest.TestCase):
     def test_a_malformed_record_stays_the_evaluation_failure(self):
         """A record that raised while being formatted became a provider fault."""
 
-        for record in ('{"where": 17}', '{"where": [1, null, {"a": 1}], "type": 3}', '[]', '"text"'):
-            with self.subTest(record=record):
+        nested = "[" * 1200 + "]" * 1200
+        for record in ('{"where": 17}', '{"where": [1, null, {"a": 1}], "type": 3}', '[]', '"text"', nested):
+            with self.subTest(record=record[:40]):
                 failure = _lane("_evaluate_v2", _Sandbox(2, "COG_ERROR: {}\n".format(record), None))
                 self.assertEqual((failure.category, failure.infrastructure), ("student_runtime", False))
                 self.assertLessEqual(_units(str(failure)), 240)

@@ -1054,7 +1054,12 @@ except Exception as error:
     # The log a successful run keeps, kept for a failed one too, with the
     # traceback last so the bounded buffer's tail holds it.
     buffer.write(traceback.format_exc())
-    pathlib.Path("/tmp/cog-student.log").write_bytes(buffer.value().encode("utf-8", "replace"))
+    try:
+        pathlib.Path("/tmp/cog-student.log").write_bytes(buffer.value().encode("utf-8", "replace"))
+    except OSError:
+        # Student code can make this path unwritable. The log is display only,
+        # and a second traceback here would end stderr and replace the record.
+        pass
     raise SystemExit(2)
 encoded = json.dumps(predictions).encode("utf-8")
 # 8 MiB was sized when the Week 3 sandbox ran six cases with one retrieval
@@ -2064,7 +2069,7 @@ def _last_error_line(value: str) -> str:
         marked = stripped[len("COG_ERROR:"):].strip()
         try:
             record = json.loads(marked)
-        except ValueError:
+        except (ValueError, RecursionError):  # deep nesting raises the latter
             record = None
         if not isinstance(record, dict):
             # Student code shares this pipe, so the last line can be anything.
