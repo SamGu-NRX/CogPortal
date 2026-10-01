@@ -20,7 +20,6 @@ import {
   useRevokeDevice,
   useUnlinkDiscord,
 } from "@/lib/queries";
-import { clearConnectionReturn } from "@/lib/pending-return";
 
 function fragmentToken(): string | null {
   const params = new URLSearchParams(window.location.hash.slice(1));
@@ -69,7 +68,6 @@ export function ConnectionsPage() {
   }
 
   const clearDiscordToken = () => {
-    clearConnectionReturn();
     window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
     setDiscordToken(null);
   };
@@ -192,7 +190,6 @@ export function ConnectionsPage() {
             onSubmit={(event) => {
               event.preventDefault();
               const onApproved = () => {
-                clearConnectionReturn();
                 setDeviceApproved(true);
                 // Drop the code from the URL so a reload does not re-offer
                 // the approval form for a code the server already consumed.

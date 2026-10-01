@@ -21,7 +21,7 @@ import { RunSurfacePage } from "@/routes/RunSurfacePage";
 import { SetupPage } from "@/routes/SetupPage";
 import { SignInPage } from "@/routes/SignInPage";
 import { TeamPage } from "@/routes/TeamPage";
-import { rememberConnectionReturn, rememberDroppedDeviceLink } from "@/lib/pending-return";
+import { clearPendingReturn, rememberDroppedDeviceLink, rememberReturn } from "@/lib/pending-return";
 import { canOpenAdmin } from "@/lib/roles";
 
 const queryClient = new QueryClient({
@@ -69,17 +69,19 @@ export function RequireStage({
     return <LoadingMark />;
   }
 
+  const here = `${location.pathname}${location.search}${location.hash}`;
   if (!session.user) {
-    if (location.pathname === "/connections") {
-      rememberConnectionReturn(`${location.pathname}${location.search}${location.hash}`);
-    }
+    rememberReturn(here);
     return <Navigate to="/signin" replace />;
   }
+  // Signed in, so sign-in has already used the saved link or never will.
+  clearPendingReturn();
   const owed = (stage !== "user" && !session.cohort) || (stage === "team" && !session.team);
   if (owed) {
-    if (location.pathname === "/connections") {
-      rememberDroppedDeviceLink(`${location.pathname}${location.search}${location.hash}`);
-    }
+    // A dropped device or Discord link is named on the next page
+    // (DroppedLinkNotice). A dropped run link is not: a run belongs to a
+    // team, and whoever has none yet has no run of their own to see.
+    rememberDroppedDeviceLink(here);
     // A team page sends whoever lacks a team to their own next stage: the
     // onboarding step a student owes, or the console for staff. /connect is
     // itself onboarding, asked for by name, so it only ever owes a cohort.

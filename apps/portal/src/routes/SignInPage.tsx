@@ -11,7 +11,7 @@ import { Annotated } from "@/components/Note";
 import { OnboardingPath } from "@/components/OnboardingPath";
 import { ApiRequestError } from "@/lib/api";
 import { useDevLogin, useSession } from "@/lib/queries";
-import { pendingConnectionReturn } from "@/lib/pending-return";
+import { pendingReturn } from "@/lib/pending-return";
 
 /**
  * Better Auth redirects here with a machine code and nothing else
@@ -76,7 +76,7 @@ export function SignInPage() {
   const [devToggled, setDevToggled] = useState<boolean | null>(null);
 
   if (session?.user) {
-    return <Navigate to={pendingConnectionReturn() ?? nextStagePath(session)} replace />;
+    return <Navigate to={pendingReturn() ?? nextStagePath(session)} replace />;
   }
 
   // Without this branch an outage read as "sign-in isn't configured": no
@@ -105,7 +105,7 @@ export function SignInPage() {
   // rather than leaving a disabled button as the whole page.
   const devOpen = devToggled ?? !auth?.githubConfigured;
   const afterSignIn = (s: Session) =>
-    navigate(pendingConnectionReturn() ?? nextStagePath(s), { replace: true });
+    navigate(pendingReturn() ?? nextStagePath(s), { replace: true });
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();

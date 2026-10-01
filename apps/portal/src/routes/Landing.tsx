@@ -8,7 +8,7 @@ import { CornerBrackets } from "@/components/Brackets";
 import { GitHubIcon } from "@/components/GitHubIcon";
 import { nextStagePath } from "@/App";
 import { useSession } from "@/lib/queries";
-import { pendingConnectionReturn } from "@/lib/pending-return";
+import { pendingReturn } from "@/lib/pending-return";
 
 /**
  * The front page says what a run gives back before it says how to get one.
@@ -26,8 +26,8 @@ import { pendingConnectionReturn } from "@/lib/pending-return";
 export function Landing() {
   const { data: session } = useSession();
   const template = session?.auth.templateRepo ?? null;
-  const pendingReturn = session?.user ? pendingConnectionReturn() : null;
-  if (pendingReturn) return <Navigate to={pendingReturn} replace />;
+  const saved = session?.user ? pendingReturn() : null;
+  if (saved) return <Navigate to={saved} replace />;
   const next = session?.user ? nextStagePath(session) : null;
 
   return (
