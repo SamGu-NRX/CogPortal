@@ -62,10 +62,6 @@ function readStep(value: string | null): WizardStep | null {
 export function ConnectPage() {
   const { data: session } = useSession();
   const cohortTeams = useCohortTeams();
-  // Shared with StartPath (same query key). Read here as well because a
-  // repository the student can already see that belongs to a team is the
-  // best evidence of which team is theirs.
-  const repos = useRepositories();
   const reduceMotion = useReducedMotion();
   const [params, setParams] = useSearchParams();
   const location = useLocation();
@@ -80,12 +76,19 @@ export function ConnectPage() {
   const connect = useConnectRepo();
   const settingUp =
     join.isPending || join.isSuccess || connect.isPending || connect.isSuccess;
+  // Shared with StartPath (same query key). Read here as well because a
+  // repository the student can already see that belongs to a team is the
+  // best evidence of which team is theirs. It only suggests, so nothing here
+  // waits for it, and it switches off once a join starts: the mutations
+  // refetch every active query before navigating, and a stalled GitHub
+  // listing must not hold a successful join on this page.
+  const repos = useRepositories(!settingUp);
 
   const teams = cohortTeams.data ?? [];
   const hasTeams = teams.length > 0;
   // No teams yet means there is nothing to join; skip the choice screen.
   const step: WizardStep = hasTeams ? (readStep(params.get("path")) ?? "choice") : "start";
-  const loading = cohortTeams.isPending || repos.isPending;
+  const loading = cohortTeams.isPending;
 
   // A step change replaces the whole screen, so focus follows it to the new
   // heading; otherwise a keyboard user is left on a button that no longer
@@ -183,8 +186,10 @@ export function ConnectPage() {
                 </>
               }
             >
+              {/* Can land after the choices when GitHub is slower than the
+                  cohort list; the rise makes the late arrival legible. */}
               {likely.length > 0 && (
-                <section aria-labelledby="likely-team" className="relative mb-9 rounded-surface bg-paper-raised p-5">
+                <section aria-labelledby="likely-team" className="anim-rise relative mb-9 rounded-surface bg-paper-raised p-5">
                   <CornerBrackets size={12} thickness={1.5} />
                   <h2 id="likely-team" className="u-label">
                     {likely.length === 1

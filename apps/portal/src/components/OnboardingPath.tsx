@@ -1,6 +1,6 @@
 import { Tick02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { motion } from "motion/react";
+import { motion, useReducedMotion } from "motion/react";
 import { EASE_OUT_STRONG } from "@/lib/motion";
 
 /**
@@ -30,6 +30,7 @@ export function OnboardingPath({
   className?: string;
 }) {
   const at = STEPS.findIndex((step) => step.id === current);
+  const reduceMotion = useReducedMotion();
 
   return (
     // An ordered list rather than a nav: nothing here is a link. Preflight
@@ -47,13 +48,15 @@ export function OnboardingPath({
             >
               {/* The rule is the progress: ink up to and including where you
                   are. Only the current one draws in, once, so arriving on a
-                  step is the one thing that moves. MotionConfig's
-                  reducedMotion="user" drops the transform. */}
+                  step is the one thing that moves. Reduced motion is
+                  checked here rather than left to MotionConfig, which only
+                  skips named transform keys like scaleX and still animates
+                  a raw transform string. */}
               <span aria-hidden="true" className="relative block h-[2px] overflow-hidden rounded-full bg-rule">
                 {(done || here) && (
                   <motion.span
                     className="absolute inset-0 origin-left bg-ink"
-                    initial={here ? { transform: "scaleX(0)" } : false}
+                    initial={here && !reduceMotion ? { transform: "scaleX(0)" } : false}
                     animate={{ transform: "scaleX(1)" }}
                     transition={{ duration: 0.26, ease: EASE_OUT_STRONG, delay: 0.08 }}
                   />
