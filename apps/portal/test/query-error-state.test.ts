@@ -42,7 +42,7 @@ test("a missing record is an absence, not a fault", () => {
     new ApiRequestError("not_found", "Run surface not found.", 404),
   );
 
-  // NotFound.tsx already renders a 404 as an EmptyState. An API 404 that
+  // NotFound.tsx already renders a 404 as a calm absence. An API 404 that
   // rendered as an alert panel made the same situation look like two.
   assert.equal(state.presentation, "empty");
   assert.equal(state.tone, "default");

@@ -1,6 +1,6 @@
 import { ArrowDown01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { motion, useReducedMotion } from "motion/react";
 import { useId, useState } from "react";
 import type { ChurnEvent, StageActivity, TeamDetail, TeamProcessSignals } from "@cogworks/contracts/schema";
 import { formatTimeAgo } from "@/lib/format";
@@ -8,6 +8,7 @@ import { EASE_OUT } from "@/lib/motion";
 import { useTeamProcess } from "@/lib/queries";
 import { LoadingMark, QueryError } from "./Feedback";
 import { MemberAvatar } from "./MemberAvatar";
+import { Annotated } from "./Note";
 import { ShaChip } from "./ShaChip";
 
 /**
@@ -19,29 +20,25 @@ import { ShaChip } from "./ShaChip";
  * The constraint that shapes every decision below: no per-person totals, no
  * percentages, no badges, no ordering of members, anywhere. A stage says who
  * touched it, never how much. Anything that could be read as a grade by a
- * seventeen-year-old is not drawn, whatever caveat sits beside it.
+ * seventeen-year-old is not drawn, whatever caveat sits beside it. The margin
+ * note says this to the students too, because a list of names beside stages
+ * is exactly where a reader goes looking for a scoreboard.
  *
- * The title and the sentence under it stay outside the collapsing region, so a
- * closed panel still says what it reads and why; and there is no detector red
- * anywhere in here. Red in this system means a detection or a failure, and
- * nothing this panel reports is either, so the whole thing is drawn in rule,
- * paper, and ink, with one hairline accent reserved for the only finding that
- * asks a team to go and look at something.
+ * It is drawn as a page of the team's notebook: the findings written out,
+ * then the pipeline's stages on one time axis with the day the pipeline first
+ * scored end to end ruled across them. There is no detector red anywhere in
+ * here. Red in this system means a detection or a failure, and nothing this
+ * panel reports is either, so it is drawn in rule, paper, and ink, with one
+ * hairline accent reserved for the only finding that asks a team to go and
+ * look at something.
  */
 export function ProcessPanel({ members }: { members: TeamDetail["members"] }) {
   const process = useTeamProcess();
   const [open, setOpen] = useState(readStoredOpen);
   const reduced = useReducedMotion();
   const bodyId = useId();
-  const descriptionId = useId();
-
-  if (process.isError) {
-    return (
-      <div className="mt-4">
-        <QueryError error={process.error} retry={() => void process.refetch()} />
-      </div>
-    );
-  }
+  const noteId = useId();
+  const titleId = useId();
 
   const toggle = () => {
     setOpen((wasOpen) => {
@@ -50,65 +47,64 @@ export function ProcessPanel({ members }: { members: TeamDetail["members"] }) {
     });
   };
 
-  // Panel's own chrome, rebuilt here because a Panel header cannot be a
-  // button and this one has to be: the whole header row is the hit target.
   return (
-    <section className="relative mt-4 border border-rule bg-paper-raised">
-      <header className={open ? "border-b border-rule-soft" : undefined}>
-        <button
-          type="button"
-          onClick={toggle}
-          aria-expanded={open}
-          aria-controls={bodyId}
-          aria-describedby={descriptionId}
-          className="group flex min-h-10 w-full items-center justify-between gap-3 px-4 pt-2.5 pb-1 text-left"
-        >
-          <h2 className="u-kicker group-hover:text-ink">Where the work went</h2>
-          <motion.span
-            aria-hidden="true"
-            animate={{ rotate: open ? 180 : 0 }}
-            transition={reduced ? { duration: 0 } : { duration: 0.18, ease: EASE_OUT }}
-            className="shrink-0 text-ink-faint group-hover:text-ink"
+    <section aria-labelledby={titleId} className="mt-12 sm:mt-14">
+      <div className="border-t border-rule pt-5 lg:max-w-[42rem]">
+        {/* The heading is the toggle, so the whole title row is the hit
+            target and a screen reader hears "Where the work went, expanded"
+            in one breath. The note is its description rather than part of
+            its name, and stays on the page when the section is closed, so a
+            closed section still says what it reads and why. */}
+        <h2 id={titleId} className="text-[1.375rem] text-ink">
+          <button
+            type="button"
+            onClick={toggle}
+            aria-expanded={open}
+            aria-controls={bodyId}
+            aria-describedby={noteId}
+            className="group -mx-2 flex min-h-11 w-[calc(100%+1rem)] items-center justify-between gap-3 rounded-control px-2 text-left"
           >
-            <HugeiconsIcon icon={ArrowDown01Icon} size={15} strokeWidth={1.8} />
-          </motion.span>
-        </button>
-        {/* Outside the button, so a screen reader announces it as the
-            control's description rather than as part of its name. */}
-        <p
-          id={descriptionId}
-          className="max-w-[64ch] px-4 pb-2.5 font-serif text-[13px] leading-[1.55] text-ink-secondary"
-        >
-          We read your recent commits and your runs, so you can see which parts of the pipeline your
-          team has been working in and when your pipeline first scored end to end.
-        </p>
-      </header>
-
-      <div id={bodyId}>
-        <AnimatePresence initial={false}>
-          {open && (
-            <motion.div
-              initial={reduced ? { opacity: 1, height: "auto" } : { height: 0, opacity: 0 }}
-              animate={{ height: "auto", opacity: 1 }}
-              exit={
-                reduced
-                  ? { opacity: 0, transition: { duration: 0 } }
-                  : { height: 0, opacity: 0, transition: { duration: 0.16, ease: EASE_OUT } }
-              }
-              transition={{ duration: 0.22, ease: EASE_OUT }}
-              className="overflow-hidden"
-            >
-              <div className="px-4 pt-3.5 pb-4">
-                {process.data ? (
-                  <Signals signals={process.data} members={members} />
-                ) : (
-                  <LoadingMark label="Reading commits and runs" />
-                )}
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+            <span>Where the work went</span>
+            <span className="flex items-center gap-1.5 font-sans text-[13.5px] font-semibold tracking-normal text-ink-secondary group-hover:text-ink">
+              {open ? "Hide" : "Show"}
+              <motion.span
+                aria-hidden="true"
+                animate={{ rotate: open ? 180 : 0 }}
+                transition={reduced ? { duration: 0 } : { duration: 0.18, ease: EASE_OUT }}
+                className="inline-flex"
+              >
+                <HugeiconsIcon icon={ArrowDown01Icon} size={16} strokeWidth={1.8} />
+              </motion.span>
+            </span>
+          </button>
+        </h2>
       </div>
+
+      <Annotated
+        className="mt-2"
+        note={
+          <span id={noteId}>
+            We read your recent commits and your runs. A stage shows who has worked on it, never
+            how much, so nothing here counts anything per person.
+          </span>
+        }
+      >
+        <div id={bodyId}>
+          {open && (
+            <div className="anim-reveal">
+                <div className="pt-1 pb-1">
+                  {process.isError ? (
+                    <QueryError error={process.error} retry={() => void process.refetch()} />
+                  ) : process.data ? (
+                    <Signals signals={process.data} members={members} />
+                  ) : (
+                    <LoadingMark label="Reading commits and runs" />
+                  )}
+                </div>
+            </div>
+          )}
+        </div>
+      </Annotated>
     </section>
   );
 }
@@ -118,7 +114,7 @@ const OPEN_KEY = "cogportal.process-panel.open";
 /**
  * Open until the reader closes it, then closed for the rest of the session.
  *
- * Open is the default because a closed panel titled with three words is the
+ * Open is the default because a closed section titled with four words is the
  * thing nobody ever opens, and this is the only place a team can see any of
  * this. Closing is remembered because a reader who has decided they don't
  * want it should not have to decide again on every navigation. Session, not
@@ -149,6 +145,7 @@ function Signals({
   signals: TeamProcessSignals;
   members: TeamDetail["members"];
 }) {
+  const commits = signals.historyWindow?.commits ?? 0;
   return (
     <div>
       <Findings sentences={signals.findingSentences} />
@@ -165,10 +162,12 @@ function Signals({
           firstScoredAt={signals.firstLight.firstScoredAt}
         />
       )}
-      <p className="mt-5 border-t border-rule-soft pt-2 font-mono text-[10.5px] text-ink-faint">
+      {/* "from your 0 commits" was what an empty history printed; with
+          nothing read, the time is the whole statement. */}
+      <p className="mt-6 font-mono text-[12px] text-ink-faint">
         History checked {formatTimeAgo(signals.computedAt)}
-        {signals.historyWindow
-          ? `, from your ${signals.historyWindow.truncated ? "most recent " : ""}${signals.historyWindow.commits} commit${signals.historyWindow.commits === 1 ? "" : "s"}`
+        {commits > 0
+          ? `, from your ${signals.historyWindow?.truncated ? "most recent " : ""}${commits} commit${commits === 1 ? "" : "s"}`
           : ""}
         .
       </p>
@@ -177,31 +176,33 @@ function Signals({
 }
 
 /**
- * Four at most (`MAX_FINDING_SENTENCES` in `process-signals.ts`), so this can
- * be a plain list with no lead sentence set apart from the rest. The first
- * line carries slightly more weight because it is always the frame the others
- * are read against: either the state of the history, or the first run that
- * scored. The marker is a hairline rather than a bullet, which is the rule
- * this design system already uses to mean "an entry in an instrument".
+ * Four at most (`MAX_FINDING_SENTENCES` in `process-signals.ts`). The first is
+ * written larger, in the serif a notebook entry would be, because it is always
+ * the frame the others are read against: either the state of the history, or
+ * the first run that scored. The rest are the smaller entries under it, each
+ * marked with a hairline rather than a bullet, the rule this design system
+ * already uses to mean "an entry in an instrument".
  */
 function Findings({ sentences }: { sentences: string[] }) {
   if (sentences.length === 0) return null;
+  const [lead, ...rest] = sentences;
 
   return (
-    <ul>
-      {sentences.map((sentence, index) => (
-        <li key={`${index}:${sentence}`} className="flex gap-3 pb-2 last:pb-0">
-          <span aria-hidden="true" className="mt-[0.62em] h-px w-3 shrink-0 bg-ink-faint" />
-          <span
-            className={`max-w-[64ch] leading-[1.5] ${
-              index === 0 ? "text-[13.5px] text-ink" : "text-[13px] text-ink-secondary"
-            }`}
-          >
-            {sentence}
-          </span>
-        </li>
-      ))}
-    </ul>
+    <div>
+      <p className="max-w-[60ch] font-serif text-[19px] leading-[1.45] text-ink">{lead}</p>
+      {rest.length > 0 && (
+        <ul className="mt-3 space-y-2">
+          {rest.map((sentence, index) => (
+            <li key={`${index}:${sentence}`} className="flex gap-3">
+              <span aria-hidden="true" className="mt-[0.75em] h-px w-3 shrink-0 bg-ink-faint" />
+              <span className="max-w-[62ch] text-[15px] leading-[1.55] text-ink-secondary">
+                {sentence}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
@@ -221,18 +222,18 @@ function Stages({
   const reason = stages.find(([, activity]) => activity.unavailableReason)?.[1].unavailableReason;
 
   return (
-    <section className="mt-5 border-t border-rule-soft pt-3">
-      <h3 className="u-kicker">Stages of the pipeline</h3>
+    <section className="mt-7">
+      <h3 className="u-label">Stages of the pipeline</h3>
       {/* No stages beats an unreadable history: with no scored run there is no
           stage map at all, so there is nothing for a history reason to be
           about. The findings above still carry that reason. */}
       {stages.length === 0 ? (
-        <p className="mt-2 max-w-prose text-[13px] text-ink-secondary">
+        <p className="mt-1.5 max-w-prose text-[14.5px] text-ink-secondary">
           Stages appear here after a run scores. The run is what tells the portal which week's
           pipeline to read your files against.
         </p>
       ) : reason ? (
-        <p className="mt-2 max-w-prose text-[13px] text-ink-secondary">
+        <p className="mt-1.5 max-w-prose text-[14.5px] text-ink-secondary">
           Stages aren't shown here because {reason}.
         </p>
       ) : (
@@ -241,17 +242,30 @@ function Stages({
           ownership={signals.ownershipBreadth}
           members={members}
           windowed={signals.historyWindow?.truncated === true}
+          firstScoredAt={signals.firstLight.firstScoredAt}
         />
       )}
     </section>
   );
 }
 
+/**
+ * The stages on one time axis, with the first end-to-end run ruled across
+ * them.
+ *
+ * The axis spans the stage-file commits and the first scored run, which is
+ * all the signals give it. It cannot mark where the commits that were read
+ * begin: the oldest stage-file touch is not the oldest commit read (a README
+ * commit can come before it), and `historyWindow` carries no timestamp. So
+ * the run is always drawn, and when older commits were left unread the line
+ * under the bars says a stage may have started before its bar does.
+ */
 function StageRail({
   stages,
   ownership,
   members,
   windowed,
+  firstScoredAt,
 }: {
   stages: [string, StageActivity][];
   ownership: Record<string, string[]>;
@@ -259,6 +273,7 @@ function StageRail({
   /** Older commits exist and were not read, so an absence here is an absence
    *  in what was read rather than in the project. */
   windowed: boolean;
+  firstScoredAt: number | null;
 }) {
   const reduced = useReducedMotion();
 
@@ -271,58 +286,65 @@ function StageRail({
   );
   if (times.length === 0) {
     return (
-      <p className="mt-2 max-w-prose text-[13px] text-ink-secondary">
+      <p className="mt-1.5 max-w-prose text-[14.5px] text-ink-secondary">
         {windowed
           ? "None of the commits we read touched a stage file."
           : "No commit has touched a stage file yet."}
       </p>
     );
   }
+  if (firstScoredAt !== null) times.push(firstScoredAt);
   const start = Math.min(...times);
   const end = Math.max(...times);
   // A whole week's work can land on one day, and then every bar would be at
   // the same point with a zero-width span to divide by.
   const width = end - start || 1;
   const at = (epochMs: number) => ((epochMs - start) / width) * 100;
+  const light = firstScoredAt !== null ? at(firstScoredAt) : null;
 
   return (
-    <>
+    <div className="mt-3">
       {/* Stage-map order, which is pipeline order, so reading down the rail
-          is reading along the pipeline. */}
-      <ul className="mt-1">
-        {stages.map(([stage, activity], index) => {
-          const owners = ownership[stage] ?? [];
-          const span =
-            activity.firstTouchAt !== null && activity.lastTouchAt !== null
-              ? { from: activity.firstTouchAt, to: activity.lastTouchAt }
-              : null;
-          // The two states worth a second look, said in words next to the
-          // stage name so the column reads down as "here, here, and nowhere
-          // else". Not a count, not a badge, not a comparison between people:
-          // "one person" is the stage's bus factor, the same reading
-          // `distinctAuthorCount` is allowed to be.
-          // "yet" and "so far" both mean "in the whole history", which is not
-          // what was read when older commits were left unrequested. Over a
-          // window the same two states are true of the window and nothing
-          // else, so the words say which.
-          const flag =
-            owners.length === 0
-              ? windowed
-                ? "no commits in these"
-                : "no commits yet"
-              : owners.length === 1
-                ? windowed
-                  ? "one person in these"
-                  : "only one person so far"
+          is reading along the pipeline. The label column is a CSS variable so
+          the first-light rule can be placed over the track column alone. */}
+      <div className="relative [--gap:0rem] [--label:0rem] sm:[--gap:1rem] sm:[--label:7.5rem]">
+        <ul>
+          {stages.map(([stage, activity], index) => {
+            const owners = ownership[stage] ?? [];
+            const span =
+              activity.firstTouchAt !== null && activity.lastTouchAt !== null
+                ? { from: activity.firstTouchAt, to: activity.lastTouchAt }
                 : null;
-          // Asymmetric padding on purpose: a bar has to read as belonging to
-          // the label above it, not to the one below.
-          return (
-            <li key={stage} className="pt-2 pb-4">
-              <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-                <span className="flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5">
+            // The two states worth a second look, said in words next to the
+            // stage name so the column reads down as "here, here, and nowhere
+            // else". Not a count, not a badge, not a comparison between people:
+            // "one person" is the stage's bus factor, the same reading
+            // `distinctAuthorCount` is allowed to be.
+            // "yet" and "so far" both mean "in the whole history", which is not
+            // what was read when older commits were left unrequested. Over a
+            // window the same two states are true of the window and nothing
+            // else, so the words say which.
+            const flag =
+              owners.length === 0
+                ? windowed
+                  ? "none in the commits we read"
+                  : "no commits yet"
+                : owners.length === 1
+                  ? windowed
+                    ? "one person in the commits we read"
+                    : "only one person so far"
+                  : null;
+            return (
+              <li
+                key={stage}
+                className="grid grid-cols-1 gap-x-4 border-b border-rule-soft py-3 first:pt-1 last:border-b-0 sm:grid-cols-[var(--label)_minmax(0,1fr)]"
+              >
+                {/* Labels and names sit on paper above the first-light rule,
+                    so on a phone, where the rule crosses them, it passes
+                    behind the words instead of through them. */}
+                <span className="relative z-[1] flex items-baseline gap-2 justify-self-start bg-paper pr-1 sm:block">
                   <span
-                    className={`font-mono text-[11.5px] tracking-[0.07em] uppercase ${
+                    className={`font-mono text-[13px] ${
                       owners.length === 0 ? "text-ink-secondary" : "text-ink"
                     }`}
                   >
@@ -333,58 +355,84 @@ function StageRail({
                       </span>
                     )}
                   </span>
-                  {flag && <span className="text-[12px] text-ink-secondary">{flag}</span>}
+                  {flag && (
+                    <span className="block text-[12.5px] leading-snug text-ink-faint">{flag}</span>
+                  )}
                 </span>
-                {owners.length > 0 && (
-                  <span className="flex flex-wrap items-center justify-end gap-x-2.5 gap-y-1">
-                    {owners.map((login) => (
-                      <span key={login} className="flex items-center gap-1.5">
-                        <MemberAvatar
-                          login={login}
-                          avatarUrl={avatarFor(members, login)}
-                          className="size-5"
-                        />
-                        <span className="font-mono text-[11.5px] text-ink-secondary">{login}</span>
-                      </span>
-                    ))}
+                <span className="mt-1.5 block min-w-0 sm:mt-0">
+                  {/* A dashed track for a stage with nothing on it, so the gap
+                      reads as "nothing recorded" rather than as a bar of zero
+                      length that might just be too small to see. */}
+                  <span
+                    aria-hidden="true"
+                    className={`relative mt-[7px] block h-1 w-full rounded-full ${
+                      span ? "bg-rule-soft" : "border-t border-dashed border-rule-strong bg-transparent"
+                    }`}
+                  >
+                    {span && (
+                      <motion.span
+                        className="absolute inset-y-0 block min-w-1 origin-left rounded-full bg-ink"
+                        style={{ left: `${at(span.from)}%`, width: `${at(span.to) - at(span.from)}%` }}
+                        initial={reduced ? false : { transform: "scaleX(0)" }}
+                        animate={{ transform: "scaleX(1)" }}
+                        transition={{ duration: 0.26, ease: EASE_OUT, delay: index * 0.04 }}
+                      />
+                    )}
                   </span>
-                )}
-              </div>
-              {/* A dashed track for a stage with nothing on it, so the gap
-                  reads as "nothing recorded" rather than as a bar of zero
-                  length that might just be too small to see. */}
-              <span
-                aria-hidden="true"
-                className={`relative mt-1.5 block h-[3px] w-full ${
-                  span ? "bg-rule-soft" : "border-t border-dashed border-rule"
-                }`}
-              >
-                {span && (
-                  <motion.span
-                    className="absolute inset-y-0 block min-w-[3px] origin-left bg-ink"
-                    style={{ left: `${at(span.from)}%`, width: `${at(span.to) - at(span.from)}%` }}
-                    initial={reduced ? false : { scaleX: 0 }}
-                    animate={{ scaleX: 1 }}
-                    transition={{ duration: 0.26, ease: EASE_OUT, delay: index * 0.04 }}
-                  />
-                )}
-              </span>
-            </li>
-          );
-        })}
-      </ul>
-      <div className="mt-1 flex items-baseline justify-between gap-3 font-mono text-[10.5px] text-ink-faint">
-        <span className="u-tnum">{day(start)}</span>
-        {/* Two bare dates are a mystery; on a phone there is no room to
-            explain them, and the bars are still readable as a shared span. */}
-        <span className="hidden sm:inline">
-          {windowed
-            ? "each bar spans the commits we read for that stage"
-            : "each bar runs from that stage's first commit to its most recent"}
-        </span>
-        <span className="u-tnum">{day(end)}</span>
+                  {owners.length > 0 && (
+                    <span className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+                      {owners.map((login) => (
+                        <span key={login} className="relative z-[1] flex items-center gap-1.5 bg-paper pr-1">
+                          <MemberAvatar login={login} avatarUrl={avatarFor(members, login)} size={20} />
+                          <span className="font-mono text-[12.5px] text-ink-secondary">{login}</span>
+                        </span>
+                      ))}
+                    </span>
+                  )}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+
+        {light !== null && (
+          // The one point on the page that matters most: from here on the
+          // pipeline worked end to end. A pencil rule across the tracks,
+          // placed over the track column only.
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute top-0 bottom-0 border-l border-dashed border-ink/55"
+            style={{
+              left: `calc(var(--label) + var(--gap) + (100% - var(--label) - var(--gap)) * ${light / 100})`,
+            }}
+          />
+        )}
       </div>
-    </>
+
+      <div className="mt-2 grid grid-cols-1 gap-x-4 sm:grid-cols-[7.5rem_minmax(0,1fr)]">
+        <span aria-hidden="true" className="hidden sm:block" />
+        <div className="flex items-baseline justify-between gap-3 border-t border-rule pt-1.5 font-mono text-[12px] text-ink-faint">
+          <span className="u-tnum">{day(start)}</span>
+          <span className="u-tnum">{day(end)}</span>
+        </div>
+      </div>
+
+      {firstScoredAt !== null && (
+        <p className="mt-3 flex items-center gap-2.5 text-[13.5px] text-ink-secondary sm:pl-[calc(7.5rem+1rem)]">
+          <span aria-hidden="true" className="inline-block h-4 border-l border-dashed border-ink/55" />
+          <span>
+            <span className="u-note text-[14.5px]">First scored end to end</span>{" "}
+            <span className="u-tnum font-mono text-[12.5px] text-ink-faint">{day(firstScoredAt)}</span>
+          </span>
+        </p>
+      )}
+      {/* Two bare dates are a mystery; one line says how to read the bars. */}
+      <p className="mt-2 text-[13px] text-ink-faint sm:pl-[calc(7.5rem+1rem)]">
+        {windowed
+          ? "Each bar spans the commits we read for that stage. Older commits weren't read, so a stage may have started earlier."
+          : "Each bar runs from a stage's first commit to its most recent."}
+      </p>
+    </div>
   );
 }
 
@@ -419,43 +467,42 @@ function ContractFiles({
   if (events.length === 0) return null;
 
   return (
-    <section className="mt-5 border-t border-rule-soft pt-3">
+    <section className="mt-7">
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-        <h3 className="u-kicker">Adapter files changed</h3>
-        <span className="u-tnum font-mono text-[10.5px] text-ink-faint">
+        <h3 className="u-label">Adapter files changed</h3>
+        <span className="u-tnum font-mono text-[12px] text-ink-faint">
           since your first scored run, {day(firstScoredAt)}
         </span>
       </div>
-      {(
-        <>
-          <ul className="mt-2.5 border-l border-detect/45 pl-3">
-            {events.slice(0, MAX_CHURN_ROWS).map((event) => (
-              <li key={event.sha} className="border-b border-rule-soft pb-2.5 last:border-b-0 last:pb-0 [&+li]:pt-2.5">
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                  <ShaChip sha={event.sha} shortSha={event.sha.slice(0, 7)} />
-                  <span className="u-tnum font-mono text-[11.5px] text-ink-faint">
-                    {day(event.authoredAt)}
-                  </span>
-                </div>
-                <ul className="mt-1.5">
-                  {event.files.map((path) => (
-                    <li
-                      key={path}
-                      className="font-mono text-[11.5px] leading-[1.6] break-all text-ink-secondary"
-                    >
-                      {path}
-                    </li>
-                  ))}
-                </ul>
-              </li>
-            ))}
-          </ul>
-          {events.length > MAX_CHURN_ROWS && (
-            <p className="mt-2 text-[12px] text-ink-faint">
-              {events.length - MAX_CHURN_ROWS} more since then.
-            </p>
-          )}
-        </>
+      <ul className="mt-2.5 border-l border-detect/45 pl-3.5">
+        {events.slice(0, MAX_CHURN_ROWS).map((event) => (
+          <li
+            key={event.sha}
+            className="border-b border-rule-soft pb-2.5 last:border-b-0 last:pb-0 [&+li]:pt-2.5"
+          >
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <ShaChip sha={event.sha} shortSha={event.sha.slice(0, 7)} />
+              <span className="u-tnum font-mono text-[12.5px] text-ink-faint">
+                {day(event.authoredAt)}
+              </span>
+            </div>
+            <ul className="mt-1.5">
+              {event.files.map((path) => (
+                <li
+                  key={path}
+                  className="font-mono text-[12.5px] leading-[1.6] break-all text-ink-secondary"
+                >
+                  {path}
+                </li>
+              ))}
+            </ul>
+          </li>
+        ))}
+      </ul>
+      {events.length > MAX_CHURN_ROWS && (
+        <p className="mt-2 text-[13px] text-ink-faint">
+          {events.length - MAX_CHURN_ROWS} more since then.
+        </p>
       )}
     </section>
   );
@@ -477,7 +524,7 @@ function day(epochMs: number): string {
 /**
  * A login here is whoever the commit history names, which is not always a
  * portal account: a git author with no linked GitHub user arrives under
- * their git name. Those people have no avatar, and the initial-letter box
+ * their git name. Those people have no avatar, and the initial-letter circle
  * is the honest rendering.
  */
 function avatarFor(members: TeamDetail["members"], login: string): string | null {

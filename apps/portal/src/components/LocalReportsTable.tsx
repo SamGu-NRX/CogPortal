@@ -49,15 +49,15 @@ export function LocalReportsTable({
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
       >
-        <table className="w-full text-left text-[13px]">
+        <table className="w-full text-left text-[14px]">
           <caption id={captionId} className="sr-only">{caption}</caption>
-          <thead className="border-b border-rule font-mono text-[10.5px] text-ink-faint">
+          <thead className="border-b border-rule">
             <tr>
-              {catalog && <th scope="col" className="pr-3 pb-2 font-medium">Benchmark</th>}
-              <th scope="col" className="pr-3 pb-2 font-medium">Commit</th>
-              <th scope="col" className="pr-3 pb-2 font-medium">Command</th>
-              <th scope="col" className="pr-3 pb-2 font-medium">Result</th>
-              <th scope="col" className="pb-2 text-right font-medium">Synced</th>
+              {catalog && <th scope="col" className="u-kicker pr-3 pb-2">Benchmark</th>}
+              <th scope="col" className="u-kicker pr-3 pb-2">Commit</th>
+              <th scope="col" className="u-kicker pr-3 pb-2">Command</th>
+              <th scope="col" className="u-kicker pr-3 pb-2">Result</th>
+              <th scope="col" className="u-kicker pb-2 text-right">Synced</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-rule-soft">
@@ -70,7 +70,7 @@ export function LocalReportsTable({
                       <BenchmarkName report={report} catalog={catalog} />
                     </td>
                   )}
-                  <td className="py-2.5 pr-3 font-mono text-ink-secondary">
+                  <td className="py-2.5 pr-3 text-[13px] font-mono text-ink-secondary">
                     {report.sha ? report.sha.slice(0, 7) : "not recorded"}
                     {report.dirty && (
                       <>
@@ -79,7 +79,7 @@ export function LocalReportsTable({
                       </>
                     )}
                   </td>
-                  <td className={`py-2.5 pr-3 font-mono ${report.command ? "text-ink-secondary" : "text-ink-faint"}`}>
+                  <td className={`py-2.5 pr-3 text-[13px] font-mono ${report.command ? "text-ink-secondary" : "text-ink-faint"}`}>
                     {report.command ?? "not recorded"}
                   </td>
                   {/* A smoke-test number covers only the small cases, so it
@@ -98,15 +98,15 @@ export function LocalReportsTable({
         </table>
       </div>
       {shown.some((report) => report.command === "test") && (
-        <p className="mt-3 text-[12.5px] text-ink-secondary">
-          A <code className="font-mono text-[12px]">test</code> row scored only the small
+        <p className="mt-3 text-[13.5px] text-ink-secondary">
+          A <code className="font-mono text-[13px]">test</code> row scored only the small
           smoke-test cases;{" "}
-          <code className="font-mono text-[12px]">cogworks run</code> scores the practice set.
+          <code className="font-mono text-[13px]">cogworks run</code> scores the practice set.
         </p>
       )}
       {reports.length > SHOWN && (
-        <p className="mt-2 font-mono text-[10.5px] text-ink-faint">
-          showing the {SHOWN} newest of {reports.length} synced reports
+        <p className="mt-2 text-[13px] text-ink-faint">
+          Showing the {SHOWN} newest of {reports.length} synced reports.
         </p>
       )}
     </>
@@ -142,7 +142,7 @@ function BenchmarkName({ report, catalog }: { report: LocalReport; catalog: Benc
   return (
     <>
       {title ?? <span className="font-mono [overflow-wrap:anywhere]">{report.benchmarkId}</span>}{" "}
-      <span className="font-mono text-[11.5px] whitespace-nowrap text-ink-faint">
+      <span className="font-mono text-[12.5px] whitespace-nowrap text-ink-faint">
         v{report.benchmarkVersion}
       </span>
     </>

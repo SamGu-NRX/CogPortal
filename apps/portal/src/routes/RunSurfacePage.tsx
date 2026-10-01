@@ -1,5 +1,8 @@
 import { useState } from "react";
+import { ArrowLeft01Icon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import { Link, useNavigate, useParams } from "react-router";
+import { buttonClass } from "@/components/Button";
 import { RunConsole } from "@/components/RunConsole";
 import { LoadingMark, QueryError } from "@/components/Feedback";
 import { ApiRequestError } from "@/lib/api";
@@ -22,13 +25,10 @@ export function RunSurfacePage() {
   // here often. The dashboard is a nearer destination than the front page.
   if (query.isError) {
     return (
-      <div className="px-3 py-6 sm:px-6 sm:py-10">
+      <div className="py-14">
         <QueryError error={query.error} retry={() => void query.refetch()}>
-          <Link
-            to="/dashboard"
-            className="u-pressable inline-flex min-h-11 items-center border border-rule px-5 font-mono text-[11.5px] tracking-[0.09em] text-ink uppercase hover:border-ink-secondary"
-          >
-            Back to dashboard
+          <Link to="/dashboard" className={buttonClass("ghost")}>
+            Back to your runs
           </Link>
         </QueryError>
       </div>
@@ -37,7 +37,16 @@ export function RunSurfacePage() {
   if (query.isPending || !stream.snapshot) return <LoadingMark label="Opening live bench" />;
 
   return (
-    <div className="px-3 py-6 sm:px-6 sm:py-10">
+    <div className="page !pt-6 sm:!pt-8">
+      {/* A link from Discord lands here with nothing else on the page
+          pointing anywhere, so the way back to the team's runs is named. */}
+      <Link
+        to="/dashboard"
+        className="u-pressable -ml-1 mb-2 inline-flex min-h-11 items-center gap-1 px-1 text-[14px] font-semibold text-ink-secondary hover:text-ink"
+      >
+        <HugeiconsIcon icon={ArrowLeft01Icon} size={15} strokeWidth={2} aria-hidden="true" />
+        Runs
+      </Link>
       <RunConsole
         snapshot={stream.snapshot}
         streamState={stream.state}

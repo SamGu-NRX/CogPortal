@@ -40,7 +40,9 @@ export function ShaChip({ sha, shortSha }: { sha: string; shortSha: string }) {
         onClick={copy}
         title={sha}
         aria-label={`Copy full commit SHA ${sha}`}
-        className="u-pressable inline-flex min-h-7 items-center gap-1.5 border border-rule bg-paper-sunken px-2 font-mono text-[12px] text-ink-secondary transition-colors duration-150 hover:border-ink-secondary hover:text-ink"
+        // 28px drawn, 44px to a thumb (u-hit-44), so the chip stays the size
+        // of the text it sits in.
+        className="u-pressable u-hit-44 relative inline-flex min-h-7 items-center gap-1.5 rounded-control border border-rule bg-paper-sunken px-2 font-mono text-[12.5px] text-ink-secondary transition-colors duration-150 hover:border-ink-secondary hover:text-ink"
       >
         <span className="u-tnum">{shortSha}</span>
         <HugeiconsIcon

@@ -100,7 +100,7 @@ test("an eligible official result still offers Publish and a selected result lin
   assert.match(eligible, /Publish to leaderboard/);
   assert.doesNotMatch(eligible, /ATTEMPT REFUNDED/);
   const selected = renderOfficialDetail(true, true);
-  assert.match(selected, /PUBLISHED/);
+  assert.match(selected, />Published</);
   assert.match(selected, /See it on the leaderboard/);
   // The leaderboard opens on the first course module unless told otherwise.
   assert.match(selected, /href="\/leaderboard\?benchmark=vision-recognition"/);
