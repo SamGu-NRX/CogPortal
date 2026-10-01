@@ -339,6 +339,11 @@ export const RunDetailSchema = RunSummarySchema.extend({
   /** Official runs: currently published on the leaderboard. */
   selected: z.boolean(),
   publishable: z.boolean(),
+  /** Why a publishable run would still be refused by Publish: it used an
+   *  older scorer, or didn't report the measure the leaderboard ranks. The
+   *  same sentence the server answers Publish with, so the page can say it
+   *  before the student confirms. */
+  publicationRefusal: z.string().max(600).nullable().default(null),
 });
 export type RunDetail = z.infer<typeof RunDetailSchema>;
 

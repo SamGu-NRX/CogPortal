@@ -2238,10 +2238,12 @@ test("a result without the ranked measure stays readable everywhere and is never
   assert.deepEqual([snapshot.primaryMetric?.key, snapshot.primaryMetric?.value], ["top1", 0.99]);
   assert.deepEqual([snapshot.teamBest?.key, snapshot.teamBest?.value], ["accuracy", 0.6]);
 
+  let refused = "";
   await assert.rejects(publishOfficialRun(runtime, actor, officialId), (error: unknown) => {
     assert.ok(error instanceof ApiHttpError);
     assert.equal(error.code, "not_selectable");
     assert.match(error.message, reason);
+    refused = error.message;
     return true;
   });
   assert.deepEqual(await db.select().from(leaderboardSelections), selections);
@@ -2257,6 +2259,8 @@ test("a result without the ranked measure stays readable everywhere and is never
   const detail = RunDetailSchema.parse(await read(`/runs/${officialId}`));
   assert.deepEqual([detail.selected, detail.publishable], [false, true]);
   assert.deepEqual(detail.metrics.map((metric) => metric.key), ["top1"]);
+  // The run page states Publish's answer before anyone presses it.
+  assert.equal(detail.publicationRefusal, refused);
 
   // Once it reports the ranked measure, every surface agrees it is published,
   // and they show that measure even though the run's primary flag is elsewhere.
@@ -2266,11 +2270,13 @@ test("a result without the ranked measure stays readable everywhere and is never
   assert.deepEqual([published.stage, published.published, published.publicationRefusal], ["published", true, null]);
   const selected = DashboardSchema.parse(await read(`/dashboard?benchmark=${BENCHMARK_ID}`)).selection;
   assert.deepEqual([selected?.runId, selected?.primaryMetric.key, selected?.primaryMetric.value], [officialId, "accuracy", 0.5]);
-  assert.equal(RunDetailSchema.parse(await read(`/runs/${officialId}`)).selected, true);
+  const rankable = RunDetailSchema.parse(await read(`/runs/${officialId}`));
+  assert.deepEqual([rankable.selected, rankable.publicationRefusal], [true, null]);
   // Under an older scorer the same run has no comparable team best, and it
   // stops being published.
   await db.update(runs).set({ scorerVersion: "0" }).where(eq(runs.id, officialId));
   const older = await buildRunSurfaceSnapshot(runtime, SURFACE_ID);
   assert.deepEqual([older.teamBest, older.published], [null, false]);
   assert.match(older.publicationRefusal ?? "", /different scoring rules/);
+  assert.equal(RunDetailSchema.parse(await read(`/runs/${officialId}`)).publicationRefusal, older.publicationRefusal);
 });

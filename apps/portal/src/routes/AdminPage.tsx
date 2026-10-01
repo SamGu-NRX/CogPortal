@@ -6,6 +6,7 @@ import type { AdminTeamSummary } from "@cogworks/contracts/schema";
 import { CornerBrackets } from "@/components/Brackets";
 import { Button } from "@/components/Button";
 import { ConfirmButton } from "@/components/ConfirmButton";
+import { DroppedLinkNotice } from "@/components/DroppedLinkNotice";
 import { LoadingMark, QueryError } from "@/components/Feedback";
 import { MemberAvatar } from "@/components/MemberAvatar";
 import { PageHeader } from "@/components/Note";
@@ -55,6 +56,9 @@ export function AdminPage() {
 
   return (
     <div className="page anim-rise">
+      {/* Staff without a team land here from a device or Discord link the
+          portal couldn't approve; this says so before the console does. */}
+      <DroppedLinkNotice teamOptional className="mb-8 max-w-[34rem]" />
       <PageHeader
         eyebrow={isOwner ? "Instructor console" : "TA workspace"}
         title={cohort.name}

@@ -24,7 +24,7 @@ function run(overrides: Partial<RunDetail> = {}): RunDetail {
     attemptNumber: null, primaryMetric: null,
     failure: { category: "student_runtime", phase: "evaluating", consumedAttempt: true, detail: "RuntimeError: fixture exception" },
     phases: [], metrics: [], diagnostics: [], sweep: null, wiring: [], refusal: null,
-    weightsSupplied: [], log: "practice traceback", selected: false, publishable: false,
+    weightsSupplied: [], log: "practice traceback", selected: false, publishable: false, publicationRefusal: null,
     ...overrides,
   };
 }
@@ -550,6 +550,32 @@ test("an official run from a repository the team left offers no publication", as
   assert.equal([...container.querySelectorAll("button")]
     .some((node) => node.textContent.includes("Publish to leaderboard")), false);
   assert.doesNotMatch(container.textContent, /switch to another successful official run/);
+});
+
+test("a result the board can't rank says why where Publish would be, and keeps its findings", async (t) => {
+  // The server refuses this publication (rankingRefusal); offering a confirm
+  // that can only fail cost the student a click to learn that.
+  const unranked =
+    'The leaderboard ranks teams by "overall", and this run didn\'t report it, so it can\'t be published. What it did report stays readable here.';
+  const { container } = await mount(t, page(t, official({
+    publicationRefusal: unranked,
+    diagnostics: ["Text search found the right caption for most queries; images were not measured."],
+  })));
+  assert.ok(container.textContent.includes(unranked));
+  assert.equal([...container.querySelectorAll("button")]
+    .some((node) => node.textContent.includes("Publish to leaderboard")), false);
+  const finding = [...container.querySelectorAll("p")]
+    .find((node) => node.textContent.includes("images were not measured"));
+  assert.ok(finding);
+  assert.equal(finding.closest('[aria-hidden="true"]'), null);
+});
+
+test("the repository answer outranks the ranking one, as it does on the server", async (t) => {
+  const { container } = await mount(t, page(t, official({
+    sourceRefusal: LEFT_REPOSITORY, publicationRefusal: "The leaderboard ranks teams by \"overall\".",
+  })));
+  assert.match(container.textContent, /no longer connected to/);
+  assert.doesNotMatch(container.textContent, /ranks teams by/);
 });
 
 test("the same run still offers publication while its repository matches", async (t) => {

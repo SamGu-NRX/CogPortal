@@ -177,6 +177,10 @@ export async function serializeRunDetail(
       .where(and(eq(benchmarks.id, row.benchmarkId), eq(benchmarks.version, row.benchmarkVersion))).limit(1),
   ]);
   const summary = buildRunSummary(row, metrics.find((metric) => metric.isPrimary) ?? null);
+  // The check Publish runs after the run's state and source, from the same
+  // catalog row and metrics.
+  const rankingAnswer = rankingRefusal(row, benchmark, metrics);
+  const publishable = canPublishOfficialRun(row);
   const phaseOrder = new Map(RUN_PHASES.map((phase, index) => [phase, index]));
   let promotionRefusal: string | null = null;
   let promotedTo: RunDetail["promotedTo"] = null;
@@ -229,10 +233,11 @@ export async function serializeRunDetail(
     log: row.mode === "practice" ? row.log : null,
     // A stored selection the board leaves out (an older scorer, or no reading
     // for the measure it ranks) is not this team's public entry.
-    selected: selection[0]?.runId === row.id && rankingRefusal(row, benchmark, metrics) === null,
-    // Still a fact about the run's own state. Publish answers a run without
-    // the ranked measure with the specific reason rather than hiding.
-    publishable: canPublishOfficialRun(row),
+    selected: selection[0]?.runId === row.id && rankingAnswer === null,
+    // Still a fact about the run's own state, so a run the board can't rank
+    // keeps its Publish panel and says why there instead of losing it.
+    publishable,
+    publicationRefusal: publishable ? rankingAnswer : null,
   };
 }
 
