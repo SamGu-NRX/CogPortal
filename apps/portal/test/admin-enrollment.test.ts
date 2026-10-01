@@ -26,6 +26,8 @@ async function mount(t: TestContext, active: boolean) {
     window,
     document: window.document,
     navigator: window.navigator,
+    // AdminPage reads a held device link from it; Node 24, which CI runs, has none.
+    sessionStorage: window.sessionStorage,
     HTMLElement: window.HTMLElement,
     React,
     IS_REACT_ACT_ENVIRONMENT: true,
