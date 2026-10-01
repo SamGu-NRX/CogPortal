@@ -145,6 +145,7 @@ async function homeView(
     "rerun_hosted",
   ];
   const currentRunId = latestSurface ? runSurfaceCurrentRunId(latestSurface) : null;
+  const silent = latestSurface?.status === "running" && latestSurface.silentSince !== null;
   const nextAction = latestSurface
     ? priority.find((action) => latestSurface.actions.includes(action)
       && (action !== "retry" || currentRunId !== null))
@@ -157,7 +158,7 @@ async function homeView(
           publish_result: "Publish result",
           promote_official: "Promote to official",
           verify_hosted: "Verify hosted",
-          open_console: "Open live console",
+          open_console: silent ? "Open console" : "Open live console",
           run_again: "Run again",
           rerun_hosted: "Rerun hosted",
           open_portal: "Open Cog*Portal",
@@ -177,8 +178,9 @@ async function homeView(
   const fmt = emojiFormatter(interaction.application_id);
   const latestLine = latestSurface
     ? metaLine([
-        `${fmt(surfaceMark(latestSurface.status))} **${latestSurface.benchmark.title}**`,
+        `${fmt(surfaceMark(latestSurface))} **${latestSurface.benchmark.title}**`,
         latestSurface.stage,
+        silent ? "lost contact" : null,
         latestSurface.primaryMetric ? `**${metricValue(latestSurface.primaryMetric)}**` : null,
       ])
     : `${fmt("cog_flask")} The bench is ready. No shared runs yet.`;
@@ -223,10 +225,11 @@ async function homeView(
   );
 }
 
-function surfaceMark(status: RunSurfaceSnapshot["status"]): EmojiName {
+function surfaceMark({ status, silentSince }: RunSurfaceSnapshot): EmojiName {
   if (status === "succeeded") return "cog_done";
   if (status === "failed" || status === "cancelled") return "cog_fail";
-  return "cog_active";
+  // Still running as far as the portal knows, but nothing has been heard.
+  return silentSince === null ? "cog_active" : "cog_pend";
 }
 
 async function connectView(

@@ -7,6 +7,13 @@ import { readRunSurfaceSnapshot } from "../services/run-surfaces";
 
 const TICK_MS = 2_000;
 
+/** Whether ticking can show anything new. A silent local run changes only
+ *  when its CLI reports again, and that report publishes and restarts the
+ *  tick, so polling it would rewrite the same Discord message forever. */
+function ticking(snapshot: RunSurfaceSnapshot): boolean {
+  return snapshot.status === "running" && snapshot.silentSince === null;
+}
+
 export class RunSurfaceHub extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -87,12 +94,15 @@ export class RunSurfaceHub extends DurableObject<Env> {
   private async snapshot(surfaceId: string, publish: boolean): Promise<RunSurfaceSnapshot> {
     return this.serialize(async () => {
       await this.ctx.storage.put("surfaceId", surfaceId);
-      const snapshot = await this.readAndBroadcast(surfaceId);
-      if (publish || snapshot.status === "running") {
+      const armBy = async (next: number) => {
         const currentAlarm = await this.ctx.storage.getAlarm();
-        const next = Date.now() + (snapshot.status === "running" ? 250 : 1);
         if (currentAlarm == null || next < currentAlarm) await this.ctx.storage.setAlarm(next);
-      }
+      };
+      // Armed before the read: a silent run has no tick, so if this read
+      // fails, the alarm's own retry is what delivers an accepted result.
+      if (publish) await armBy(Date.now() + 250);
+      const snapshot = await this.readAndBroadcast(surfaceId);
+      if (publish || ticking(snapshot)) await armBy(Date.now() + (ticking(snapshot) ? 250 : 1));
       return snapshot;
     });
   }
@@ -121,7 +131,7 @@ export class RunSurfaceHub extends DurableObject<Env> {
         const [client, server] = Object.values(pair);
         this.ctx.acceptWebSocket(server);
         server.send(JSON.stringify(snapshot));
-        if (snapshot.status === "running" && await this.ctx.storage.getAlarm() == null) {
+        if (ticking(snapshot) && await this.ctx.storage.getAlarm() == null) {
           await this.ctx.storage.setAlarm(Date.now() + TICK_MS);
         }
         return new Response(null, { status: 101, webSocket: client });
@@ -175,7 +185,7 @@ export class RunSurfaceHub extends DurableObject<Env> {
       await this.ctx.storage.setAlarm(Date.now() + TICK_MS);
       return;
     }
-    if (snapshot.status === "running") await this.ctx.storage.setAlarm(Date.now() + TICK_MS);
+    if (ticking(snapshot)) await this.ctx.storage.setAlarm(Date.now() + TICK_MS);
   }
 
   webSocketMessage(socket: WebSocket, message: string | ArrayBuffer): void {

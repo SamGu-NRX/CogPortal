@@ -8,7 +8,12 @@ import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { Hono } from "hono";
 import { FIXTURE_REPO } from "@cogworks/contracts/fixtures";
-import { StartLocalRunResponseSchema, type StartLocalRunRequest } from "@cogworks/contracts/schema";
+import {
+  LocalReportInputSchema,
+  StartLocalRunResponseSchema,
+  type LocalRunEvent,
+  type StartLocalRunRequest,
+} from "@cogworks/contracts/schema";
 import type { Database } from "../worker/db/client.ts";
 import {
   benchmarks,
@@ -22,6 +27,7 @@ import {
 import type { AppEnv, Env } from "../worker/env.ts";
 import { handleError } from "../worker/http/errors.ts";
 import { registerLocalRunRoutes } from "../worker/routes/local-runs.ts";
+import { runSurfaceMessage } from "../worker/services/discord-messages.ts";
 import { buildRunSurfaceSnapshot } from "../worker/services/run-surfaces.ts";
 import { sha256Hex } from "../worker/util/crypto.ts";
 import { runSurfaceHubs } from "./fixtures/run-surface-hub.ts";
@@ -323,3 +329,167 @@ for (const [name, over, expected] of [
     assert.equal((await db.select().from(localRunSessions)).length, 1);
   });
 }
+
+/**
+ * A started live run on the real routes and hub, with helpers to send events
+ * the way the CLI does: one at a time while running, and its final event in a
+ * batch with the history before it.
+ */
+async function liveRun() {
+  const { db, binding } = freshDb();
+  await seed(db);
+  const env = runtime(binding);
+  const hubs = runSurfaceHubs(env);
+  env.RUN_SURFACES = hubs.namespace;
+  const surfaceId = `surface_${SESSION.slice(-20)}`;
+  assert.equal((await start(env)).status, 201);
+  const post = async (path: string, body: unknown) => {
+    const pending: Promise<unknown>[] = [];
+    const response = await app().fetch(new Request(`http://localhost/v1/local-runs/${SESSION}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${DEVICE_TOKEN}` },
+      body: JSON.stringify(body),
+    }), env, { waitUntil: (promise: Promise<unknown>) => pending.push(promise), passThroughOnException() {} } as never);
+    await Promise.all(pending);
+    assert.equal(response.status, 200);
+    return (await response.json()) as { duplicate: boolean };
+  };
+  return {
+    db, env, surfaceId,
+    hub: hubs.get(surfaceId),
+    send: (event: LocalRunEvent) => post("/events", event),
+    sendBatch: (events: LocalRunEvent[]) => post("/events/batch", { events }),
+    /** The run started four minutes ago and its CLI went quiet a minute in. */
+    async goSilent() {
+      const lastHeard = Date.now() - 3 * 60_000;
+      await db.update(localRunSessions)
+        .set({ createdAt: lastHeard - 60_000, updatedAt: lastHeard })
+        .where(eq(localRunSessions.id, SESSION));
+      return lastHeard;
+    },
+  };
+}
+
+function heartbeat(sequence: number): LocalRunEvent {
+  return {
+    type: "progress", phase: "evaluating", eventId: `localevent_${sequence}_heartbeat`,
+    sequence, occurredAt: Date.now(),
+  };
+}
+
+function completed(sequence: number): LocalRunEvent {
+  const report = LocalReportInputSchema.parse({
+    reportId: "report_late_result", benchmarkId: BENCHMARK_ID, benchmarkVersion: 1,
+    contractVersion: "cogworks.submissions.v1", sdkVersion: "0.2.0", pluginVersion: "1",
+    repositoryId: FIXTURE_REPO.repositoryId, repositoryFullName: FIXTURE_REPO.fullName, sha: SHA,
+    dirty: false, startedAt: NOW, finishedAt: NOW + 1_000,
+    metrics: [{
+      key: "accuracy", label: "Accuracy", value: 0.82, unit: null,
+      higherIsBetter: true, primary: true, precision: 3,
+    }],
+    diagnostics: [], weightsUsed: [],
+  });
+  return { type: "completed", eventId: `localevent_${sequence}_completed`, sequence, occurredAt: Date.now(), report };
+}
+
+/**
+ * A killed `cogworks run --live` sends nothing more, so the session stays
+ * running. The portal may say it lost contact, and must not call that a
+ * failure: a laptop that slept can wake, keep going and report its result.
+ */
+test("a silent live run reads as lost contact and recovers when it reports again", async () => {
+  const run = await liveRun();
+  await run.send(heartbeat(0));
+  assert.notEqual(run.hub.scheduledAlarm, null, "a live run ticks");
+
+  const lastHeard = await run.goSilent();
+  await run.hub.alarm();
+  const silent = run.hub.messages.at(-1)!;
+  assert.equal(run.hub.scheduledAlarm, null, "nothing new can appear until the CLI reports again");
+  const message = JSON.stringify(runSurfaceMessage(run.env, silent));
+  assert.doesNotMatch(message, /Watch live/);
+  assert.match(message, /Lost contact during evaluation/);
+  assert.match(message, new RegExp(`<t:${Math.floor(lastHeard / 1000)}:R>`));
+  assert.doesNotMatch(message, /Stopped/);
+  assert.equal(silent.status, "running", "silence is not a failed run");
+  assert.equal(silent.silentSince, lastHeard);
+  assert.equal(silent.elapsedMs, 60_000, "the clock stops at the last word");
+  assert.equal(silent.actions.includes("run_again"), true, "its owner has a way forward");
+
+  // The laptop wakes and the same run reports again.
+  assert.equal((await run.send(heartbeat(1))).duplicate, false);
+  const resumed = run.hub.messages.at(-1)!;
+  assert.equal(resumed.silentSince, null);
+  assert.equal(resumed.actions.includes("run_again"), false);
+  assert.notEqual(run.hub.scheduledAlarm, null, "the live tick resumes");
+
+  assert.equal((await run.send(completed(2))).duplicate, false);
+  const finished = await buildRunSurfaceSnapshot(run.env, run.surfaceId);
+  assert.equal(finished.status, "succeeded");
+  assert.equal(finished.primaryMetric?.value, 0.82);
+});
+
+/**
+ * The CLI sends its final event twice: alone, and in a batch with the history
+ * before it (cli.py `_LiveRun._finish`). Either may be the one that lands, and
+ * neither may be refused because the portal had stopped hearing from the run.
+ */
+for (const route of ["single", "batch"] as const) {
+  test(`a result sent straight from silence scores through the ${route} route`, async () => {
+    const run = await liveRun();
+    await run.send(heartbeat(0));
+    await run.goSilent();
+    await run.hub.alarm();
+    assert.notEqual(run.hub.messages.at(-1)!.silentSince, null);
+
+    const response = route === "single"
+      ? await run.send(completed(1))
+      : await run.sendBatch([heartbeat(0), completed(1)]);
+    assert.equal(response.duplicate, false);
+
+    const [session] = await run.db.select().from(localRunSessions).where(eq(localRunSessions.id, SESSION));
+    assert.equal(session.status, "succeeded");
+    assert.equal(session.reportId, "report_late_result");
+    const published = run.hub.messages.at(-1)!;
+    assert.equal(published.status, "succeeded");
+    assert.equal(published.silentSince, null);
+    assert.equal(published.primaryMetric?.value, 0.82);
+    assert.equal(published.actions.includes("verify_hosted"), true);
+    assert.match(JSON.stringify(runSurfaceMessage(run.env, published)), /Bench clear/);
+  });
+}
+
+/**
+ * A silent run has no tick, so the publication that follows an accepted
+ * result is the only thing that would move the console and Discord off "lost
+ * contact". If the hub's database read fails then, its alarm must retry.
+ */
+test("a result accepted while publication fails still reaches the console", async (t) => {
+  const logged = t.mock.method(console, "error", () => undefined);
+  const run = await liveRun();
+  await run.send(heartbeat(0));
+  await run.goSilent();
+  await run.hub.alarm();
+  assert.equal(run.hub.scheduledAlarm, null);
+
+  // Only the hub's snapshot read touches run_metrics, so the route accepts the
+  // result and its background publication meets the outage.
+  const database = run.env.DB;
+  let outage = true;
+  // SAFETY: prepare is the only D1 method these routes and the hub call.
+  run.env.DB = { prepare(query: string) {
+    if (outage && /"run_metrics"/.test(query)) throw new Error("Transient database failure");
+    return database.prepare(query);
+  } } as unknown as Env["DB"];
+  assert.equal((await run.send(completed(1))).duplicate, false);
+  assert.match(String(logged.mock.calls.at(-1)?.arguments[0]), /run_surface_publish_failed/);
+  assert.equal(run.hub.messages.at(-1)!.silentSince !== null, true, "nothing new was shown");
+  assert.notEqual(run.hub.scheduledAlarm, null, "the failed publication left a retry armed");
+
+  outage = false;
+  await run.hub.alarm();
+  const delivered = run.hub.messages.at(-1)!;
+  assert.equal(delivered.status, "succeeded");
+  assert.equal(delivered.silentSince, null);
+  assert.equal(run.hub.scheduledAlarm, null, "a finished run stops ticking");
+});
