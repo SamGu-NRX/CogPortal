@@ -14,6 +14,9 @@ export interface BenchmarkPackage {
   distribution: string;
   /** `git+https://…@<commit>` direct reference. */
   source: string;
+  /** The package's command for public data its `check` reads but pip does
+   *  not install, when there is such data. */
+  dataCommand?: string;
 }
 
 /**
@@ -22,21 +25,16 @@ export interface BenchmarkPackage {
  * a reviewed CLI lands. The install line forces the reinstall because the
  * version does not change between pins.
  *
- * This pin and the portal deploy are coupled in both directions and have to
- * move together. A CLI that predates `checkedBenchmarkId` leaves a student who
- * ran every command on this page short of complete, with nothing on the page
- * to do about it; and because the evidence request is `.strict()`, a current
- * CLI pointed at a portal that predates the field is refused outright. Nobody
- * reaches that through this page, which serves whichever pin its own deploy
- * carries, but `--portal` at an older deployment does.
+ * This pin moves with the portal deploy. The setup evidence request is
+ * `.strict()`, so a CLI and a portal that disagree about its fields (such as
+ * `checkedBenchmarkId`) under-report or refuse each other's evidence.
  *
- * `5c8efc6` is the beta commit that pinned Language `9e4dcff`. Its SDK is the
- * one the hosted images bake: #58's resolver fix (replaying a candidate keeps
- * the identities the resolver inferred) on top of #53, with install advice
- * naming the same Language commit as `benchmarks/week3`.
+ * Pin a commit whose CLI install advice names the same benchmark commits as
+ * this file, so a student told to install a missing benchmark gets the one
+ * this page describes.
  */
 export const COGBENCH_SOURCE =
-  "git+https://github.com/SamGu-NRX/CogPortal.git@5c8efc68a0d8e739cc007b5055ee7759ce10dc27#subdirectory=python/cogbench";
+  "git+https://github.com/SamGu-NRX/CogPortal.git@7e135c9b13b57b9d284709f6b65df171af15f6c9#subdirectory=python/cogbench";
 
 const WEEK1_AUDIO: BenchmarkPackage = {
   distribution: "cogworks-week1-audio-benchmark",
@@ -52,19 +50,13 @@ const WEEK2_VISION: BenchmarkPackage = {
     "git+https://github.com/SamGu-NRX/cogworks-week2-vision-benchmark.git@a3dd948d0c108fabf070b4f159acdecd4d6c3897",
 };
 
-// f5f7347 builds a team's database before calling an image encoder that is
-// one of its methods. The SDK no longer lends a run the object discovery
-// built, so 6dc63fe, which called the encoder first, failed CI run 35766833651.
-// 9e4dcff (#6) adds a finding that leads a clean run with search against
-// retrieval; it changes no metric, dataset, contract or scorer. No staging
-// image has run it yet.
-// 6dc63fe is the revision verified on staging (run_28df471772), where earlier
-// revisions had left a trained image projection unbound locally while a
-// hosted run scored it.
+// Language's check reads the course captions before it searches a repository
+// and never downloads them, so a fresh machine needs the fetch first.
 const WEEK3_LANGUAGE: BenchmarkPackage = {
   distribution: "cogworks-week3-language-benchmark",
   source:
-    "git+https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git@9e4dcff9a5abe85817f9a208e75aaa392970b649",
+    "git+https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git@13a164eab8107fdf320ec53b2f39ed095188375e",
+  dataCommand: "python -m language_search_benchmark.fetch",
 };
 
 export const BENCHMARK_PACKAGES: Readonly<Record<string, BenchmarkPackage>> = {

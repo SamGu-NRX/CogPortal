@@ -61,6 +61,9 @@ export interface SetupCommand {
    *  command so nothing has to map an id back to a step by hand. */
   step: SetupStep | null;
   command: string;
+  /** Run after `command`: the package's data fetch, which reports no
+   *  evidence, so the step's box still means only what `step` records. */
+  dataCommand?: string;
   /** True once CogPortal has observed what this command does, through a
    *  linked device reporting it. */
   verified: boolean;
@@ -139,6 +142,7 @@ export function setupCommandLines(input: {
       step: "project",
       // Resolve dependencies before replacing the same-version benchmark.
       command: `python -m pip install "${pkg.distribution} @ ${pkg.source}" && python -m pip install --force-reinstall --no-deps "${pkg.distribution} @ ${pkg.source}"`,
+      dataCommand: pkg.dataCommand,
       verified: input.verified("project"),
       selfChecked: input.selfChecked?.("project") ?? false,
       benchmarkScoped: isBenchmarkScopedStep("project"),

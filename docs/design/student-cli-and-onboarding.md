@@ -162,6 +162,7 @@ author's package without explicit authority.
 | `cogworks test` | Only explicit public cache acquisition when needed | Public benchmark assets requested by the benchmark package |
 | `cogworks run` | Only explicit public cache acquisition when needed | Public benchmark assets requested by the benchmark package |
 | `cogworks report` | No | Nothing |
+| `python -m language_search_benchmark.fetch` | Yes, for files not already cached | The three pinned public Language course files, checked by size and sha256 |
 | Any of the first three with `--update-setup` | One setup POST after local success | Coarse evidence listed above |
 | `cogworks link` | Yes | Device authorization request and token polling |
 | `cogworks status` | Yes | Device authentication/status request |

@@ -223,8 +223,8 @@ function SetupGuide({
     benchmark: {
       note: (
         <>
-          The {benchmarkTitle} scorer, its data and its checks live in their own
-          package, so this line changes when you switch tracks.
+          The {benchmarkTitle} scorer and its checks live in their own package,
+          so this line changes when you switch tracks.
         </>
       ),
     },
@@ -296,7 +296,7 @@ function SetupGuide({
         title="Set up your machine"
         lede={
           <>
-            {total === 4 ? "Four" : "Five"} commands get a fresh terminal ready to
+            {total === 4 ? "Four" : "Five"} steps get a fresh terminal ready to
             run {benchmarkTitle} against your team's code. Keep this page open
             beside it, and the boxes tick themselves as your terminal reports
             back.
@@ -406,6 +406,16 @@ function SetupGuide({
                 last={index === lines.length - 1}
               >
                 <Code lang="bash" code={line.command} wrap />
+                {line.dataCommand && (
+                  <>
+                    <p>
+                      pip doesn't install the course files this scorer reads, so
+                      fetch them once. It's nearly 1 GB and can take a while;
+                      copies {code("cogworks-data")} already downloaded are reused.
+                    </p>
+                    <Code lang="bash" code={line.dataCommand} wrap />
+                  </>
+                )}
                 {said[line.id].after}
                 <TerminalCheckoff step={line.step} state={state} tokens={tokens} />
               </Step>
@@ -580,7 +590,7 @@ function TerminalCheckoff({
       </summary>
       <div className="mt-1 mb-1 border-l border-rule pl-4">
         <p className="text-[13.5px] leading-[1.6] text-ink-secondary">
-          Once the command above has worked, paste this into the same terminal.
+          Once this step has worked, paste this into the same terminal.
           It records that you did this one step and sends nothing else;{" "}
           <code className="font-mono text-[0.92em] text-ink">check</code> confirms
           it for itself at the end.
