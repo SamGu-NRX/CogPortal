@@ -161,19 +161,21 @@ class TheControllerFormatsTheRecord(unittest.TestCase):
 
 
 class _Sandbox:
-    """A sandbox whose evaluation exited with `returncode`, holding a log file
-    of `log_bytes` bytes. Every filesystem read is recorded in `reads`, so a
-    test can show the failure path never downloads it."""
+    """A sandbox whose evaluation exited with `returncode`, reporting a log
+    file of `log_bytes` bytes without holding one. Every filesystem read is
+    recorded in `reads` and refused, so a test can show the failure path
+    never downloads it."""
 
     def __init__(self, returncode: int, stderr: str, log_bytes: int = 0):
         self.returncode, self.stderr = returncode, stderr
         self.reads = []
-        log = b"x" * log_bytes
 
         def read(name):
             def recorded(path, *args):
                 self.reads.append((name, path))
-                return log if name != "stat" else types.SimpleNamespace(is_file=lambda: True, size=len(log))
+                if name == "stat":
+                    return types.SimpleNamespace(is_file=lambda: True, size=log_bytes)
+                raise AssertionError("downloaded {}".format(path))
             return recorded
 
         self.filesystem = types.SimpleNamespace(
