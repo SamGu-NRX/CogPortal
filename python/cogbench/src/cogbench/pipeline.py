@@ -1345,6 +1345,49 @@ _THEIR_ROOT: Optional["Path"] = None
 #: alive until the search ends.
 _RAISED: List[Raised] = []
 
+#: Every call of a plain function or class that ran out of its own
+#: `CALL_TIMEOUT_SECONDS` clock during this search, by `_exact_call`. `_call`
+#: does not make the same call again. The value holds the callable and every
+#: argument the key names, so no id in a key is reused while the search runs.
+#: Cleared with the scratch directory.
+#:
+#: Only the same call: the same function object handed the same argument
+#: objects. A stage,
+#: shape, branch pass or form that reaches it again repeats work that already
+#: ran out of time on exactly these inputs. Nothing wider is inferred from a
+#: timeout, because the input can be what made it slow: the IDF fit passes
+#: all 414,113 COCO captions and the text branch then 75; a caption string
+#: and a token list can take different paths through one embedder; a default
+#: can load everything. Left out are methods, whose cost depends on the object
+#: they run on; `self_only` calls, which include folder readers dry-called
+#: before the benchmark writes their folder; and a timeout from a clock some
+#: caller set, which says nothing about this call.
+#:
+#: Measured on a 2026 Language repository in the course environment:
+#: `train.prep_data`, which parses all of GloVe and embeds every COCO
+#: caption, ran out of the clock 13 times in one check, 132 of its 295
+#: seconds against a 300-second limit, and `train.train` twice. Five of those
+#: fifteen were the same call made again.
+_TIMED_OUT: Dict[Tuple[Any, ...], Tuple[Any, ...]] = {}
+
+
+def _exact_call(
+    candidate: Candidate, args: Sequence[Any], keywords: Dict[str, Any]
+) -> Tuple[Any, ...]:
+    """This call, as the function and the identity of each argument object.
+
+    Identity rather than position: a per-item spread over a list whose items
+    their code replaced in place hands over new objects at the same index,
+    and those are new input. Only ids are hashed, so a value or class of
+    theirs is never hashed or compared.
+    """
+
+    return (
+        id(candidate.call),
+        tuple(id(arg) for arg in args),
+        tuple(sorted((name, id(value)) for name, value in keywords.items())),
+    )
+
 
 def _record_raise(candidate: Candidate, error: BaseException) -> None:
     """Write down a failure that came out of their code, and only that.
@@ -1502,11 +1545,19 @@ def _call(
         inspect.signature(candidate.call).bind(*args, **keywords)
     except (TypeError, ValueError):
         return False, None
+    exact = None
+    if candidate.attribute is None and not candidate.self_only and _SCRATCH is not None:
+        exact = _exact_call(candidate, args, keywords)
+        if exact in _TIMED_OUT:
+            return False, None
+    own_clock = not hasattr(signal, "getitimer") or signal.getitimer(signal.ITIMER_REAL)[0] == 0
     try:
         result = _under_clock(
             lambda: _publish(candidate, _rebound(candidate, positional)(*args, **keywords))
         )
     except BaseException as error:  # noqa: BLE001 - student code raises anything
+        if isinstance(error, _Timeout) and own_clock and exact is not None:
+            _TIMED_OUT.setdefault(exact, (candidate, args, keywords))
         _record_raise(candidate, error)
         return False, None
     return True, result
@@ -1597,6 +1648,7 @@ def probe_sources(
     extras: Optional[Dict[str, Any]] = None,
     identities: Sequence[Any] = (),
     skip_forms: FrozenSet[int] = frozenset(),
+    first: bool = False,
 ) -> List[Tuple[Candidate, Any]]:
     """Which candidates accept the benchmark's own input and return something.
 
@@ -1606,7 +1658,8 @@ def probe_sources(
 
     ``extras`` is the pool of side inputs a stage may declare (see
     ``Stage.extras``); ``identities`` names the items the benchmark is passing
-    (see ``Stage.identity``).
+    (see ``Stage.identity``). ``first`` stops at the first candidate that
+    is accepted, for a caller that only ever uses that one.
     """
 
     accepted: List[Tuple[Candidate, Any]] = []
@@ -1639,6 +1692,8 @@ def probe_sources(
         # only one element of it is this stage's output.
         if stage.produces is None or _safe_produces(stage, value):
             accepted.append((replace(bound, form=which), value))
+            if first:
+                break
     return accepted
 
 
@@ -2963,6 +3018,7 @@ def _resolve_branches(
             (),
             missing,
             "nothing produced the {} the later steps need".format(missing),
+            notes=_folders_we_could_not_fill() + _too_slow_to_probe(),
         )
 
     def _attempt(
@@ -3349,8 +3405,13 @@ def _fit(
     their own table back is not a substitution.
     """
 
+    # Only the first hit is used, so the candidates after it are not called.
+    # Calling them was speculative work with nothing to gain: on the Week 3
+    # course trace the IDF fit went on from `compute_idfs` to 13 more calls
+    # and 10.8 seconds, 10.2 of them a `train.prep_data` timeout on all
+    # 414,113 captions.
     hits = probe_sources(
-        stage, candidates, stage.fixture, extras=pool, identities=identities
+        stage, candidates, stage.fixture, extras=pool, identities=identities, first=True
     )
     if hits:
         candidate, value = hits[0]
@@ -3496,6 +3557,7 @@ def _scratch_cwd():
             _DRY_CALLS.clear()
             _COULD_NOT_FILL.clear()
             _RAISED.clear()
+            _TIMED_OUT.clear()
             os.chdir(previous)
 
 
@@ -3528,6 +3590,22 @@ def _folders_we_could_not_fill() -> Tuple[str, ...]:
         "reads one relative to the working directory, can be handed "
         "them.".format(label, note)
         for label, note in sorted(_COULD_NOT_FILL.items())
+    )
+
+
+def _too_slow_to_probe() -> Tuple[str, ...]:
+    """The functions `_call` stopped calling, for the refusal.
+
+    A function skipped after one timeout can no longer bind, so a refusal
+    that left it out would read as though the search had tried everything.
+    """
+
+    return tuple(
+        "{} was still running after {} seconds, so the check didn't make that "
+        "same call again. If the benchmark should use it, it has to answer "
+        "within that time, without loading the full dataset or training "
+        "first.".format(label, CALL_TIMEOUT_SECONDS)
+        for label in sorted({held[0].label for held in _TIMED_OUT.values()})
     )
 
 
@@ -3580,6 +3658,7 @@ def _resolve_chain(
             (),
             missing,
             "nothing produced the {} the later steps need".format(missing),
+            notes=_folders_we_could_not_fill() + _too_slow_to_probe(),
         )
     stages = tuple(stage for stage in role.stages if not stage.fit)
     if not stages:
@@ -3654,7 +3733,7 @@ def _resolve_chain(
             "nothing accepted the {} the benchmark passes".format(
                 "arguments" if first.arity > 1 else "input"
             ),
-            notes=_folders_we_could_not_fill(),
+            notes=_folders_we_could_not_fill() + _too_slow_to_probe(),
             errors=_raised_in_this_search(),
         )
 
@@ -3866,7 +3945,7 @@ def _resolve_chain(
                     furthest[-1] if furthest else "the last step"
                 ),
                 last_returned=last_returned,
-                notes=_folders_we_could_not_fill(),
+                notes=_folders_we_could_not_fill() + _too_slow_to_probe(),
                 errors=_raised_in_this_search(),
             )
         frontier = nxt

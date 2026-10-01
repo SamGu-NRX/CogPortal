@@ -640,11 +640,14 @@ class Submission:
             record["fits"] = [[name, step.label] for name, step in self.fits]
         if self.missing:
             # Sorted so two runs of the same repository write the same
-            # bytes.
-            record["missing"] = {
-                name: {"stage": refusal.stage, "detail": refusal.detail}
-                for name, refusal in sorted(self.missing.items())
-            }
+            # bytes. Notes go in when there are any, because a ready report
+            # has no other place to say what the search could not try.
+            record["missing"] = {}
+            for name, refusal in sorted(self.missing.items()):
+                entry: Dict[str, object] = {"stage": refusal.stage, "detail": refusal.detail}
+                if refusal.notes:
+                    entry["notes"] = list(refusal.notes)
+                record["missing"][name] = entry
         if self._factory is not None:
             record["factory"] = self._factory.label
         if self._readers:

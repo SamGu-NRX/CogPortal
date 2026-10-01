@@ -34,7 +34,7 @@ export interface BenchmarkPackage {
  * this page describes.
  */
 export const COGBENCH_SOURCE =
-  "git+https://github.com/SamGu-NRX/CogPortal.git@7e135c9b13b57b9d284709f6b65df171af15f6c9#subdirectory=python/cogbench";
+  "git+https://github.com/SamGu-NRX/CogPortal.git@71e4767cf3858229ddbdfe4adfeca6da1e250d32#subdirectory=python/cogbench";
 
 const WEEK1_AUDIO: BenchmarkPackage = {
   distribution: "cogworks-week1-audio-benchmark",
@@ -55,7 +55,7 @@ const WEEK2_VISION: BenchmarkPackage = {
 const WEEK3_LANGUAGE: BenchmarkPackage = {
   distribution: "cogworks-week3-language-benchmark",
   source:
-    "git+https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git@13a164eab8107fdf320ec53b2f39ed095188375e",
+    "git+https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git@4b1755433110b387b8a37021ef173300636d3b8c",
   dataCommand: "python -m language_search_benchmark.fetch",
 };
 
