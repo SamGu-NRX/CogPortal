@@ -67,6 +67,8 @@ export function runSurfaceHubs(env: Env) {
         finally { assert.deepEqual(gateRejections, [], "fetch must not reject a gate callback"); }
       },
       async alarm() {
+        // Cloudflare consumes an alarm when it fires; the hub must set the next.
+        alarm = null;
         try { await hub.alarm(); }
         finally { assert.deepEqual(gateRejections, [], "alarm must not reject a gate callback"); }
       },

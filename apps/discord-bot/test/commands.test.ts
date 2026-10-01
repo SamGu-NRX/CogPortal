@@ -82,6 +82,7 @@ function surfaceSnapshot(): RunSurfaceSnapshot {
     createdAt: 1_750_000_000_000,
     updatedAt: 1_750_000_010_000,
     finishedAt: 1_750_000_010_000,
+    silentSince: null,
     elapsedMs: 10_000,
     progress: null,
     primaryMetric: null,

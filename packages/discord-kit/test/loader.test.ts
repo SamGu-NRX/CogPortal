@@ -46,6 +46,7 @@ function snapshot(overrides: Partial<RunSurfaceSnapshot> = {}): RunSurfaceSnapsh
     createdAt: 1_750_000_000_000,
     updatedAt: 1_750_000_008_000,
     finishedAt: null,
+    silentSince: null,
     elapsedMs: 8_000,
     progress: { current: 18, total: 40, unit: "cases" },
     primaryMetric: null,

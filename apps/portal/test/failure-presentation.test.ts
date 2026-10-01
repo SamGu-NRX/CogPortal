@@ -337,6 +337,49 @@ for (const mode of ["practice", "official"] as const) {
   }
 }
 
+/** A silent local run, and the same run once its CLI reports again. */
+function silentLocalSnapshots() {
+  const live = RunSurfaceSnapshotSchema.parse({
+    ...retrySnapshot(), stage: "local", status: "running", phase: "evaluating", finishedAt: null,
+    localRunId: "localrun_quiet", practiceRunId: null, officialRunId: null,
+    executionHistory: [], events: [], actions: ["open_console", "open_portal"],
+  });
+  const silent = { ...live, silentSince: 5000, actions: [...live.actions, "run_again" as const] };
+  return { silent, live: { ...live, snapshotRevision: 2 } };
+}
+
+for (const compact of [false, true]) {
+  test(`a silent run that reports again returns Run again focus to the heading with compact=${compact}`, async (t) => {
+    const { silent, live } = silentLocalSnapshots();
+    const element = (value: typeof silent) => React.createElement(RunConsole, { snapshot: value, streamState: "live", compact });
+    const { container, root, window } = await mount(t, element(silent));
+    const again = [...container.querySelectorAll("button")].find((button) => button.textContent === "Run again");
+    assert.ok(again);
+    again.focus();
+    await act(async () => root.render(element(live)));
+    assert.equal(again.isConnected, false);
+    assert.equal(window.document.activeElement, container.querySelector("h1"));
+  });
+
+  test(`the Run again dialog survives the run reporting again and closes onto the heading with compact=${compact}`, async (t) => {
+    const { silent, live } = silentLocalSnapshots();
+    const element = (value: typeof silent) => React.createElement(RunConsole, { snapshot: value, streamState: "live", compact });
+    const { container, root, window } = await mount(t, element(silent));
+    const again = [...container.querySelectorAll("button")].find((button) => button.textContent === "Run again");
+    assert.ok(again);
+    again.focus();
+    await act(async () => again.click());
+    await act(async () => root.render(element(live)));
+    const dialog = container.querySelector("dialog");
+    assert.ok(dialog?.open, "the command stays open while it is being read");
+    assert.ok(dialog.contains(window.document.activeElement));
+    const close = [...dialog.querySelectorAll("button")].find((button) => button.textContent === "Close");
+    assert.ok(close);
+    await act(async () => close.click());
+    assert.equal(window.document.activeElement, container.querySelector("h1"));
+  });
+}
+
 test("server refusal keeps recovery absent and physical details link only to recorded consoles", async (t) => {
   const snapshot = { ...retrySnapshot(), actions: [], sourceRefusal: "The recorded repository is no longer connected." };
   const { container } = await mount(t, React.createElement(RunConsole, { snapshot, streamState: "closed", onAction: async () => { throw new Error("must not run"); } }));

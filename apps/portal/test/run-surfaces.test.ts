@@ -170,6 +170,7 @@ function snapshot(status: RunSurfaceSnapshot["status"] = "running"): RunSurfaceS
     createdAt: started,
     updatedAt: started + 8_000,
     finishedAt: status === "running" ? null : started + 8_000,
+    silentSince: null,
     elapsedMs: 8_000,
     progress: { current: 18, total: 40, unit: "cases" },
     primaryMetric: status === "succeeded" ? {
