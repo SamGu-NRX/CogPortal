@@ -26,6 +26,17 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AdminPage } from "../src/routes/AdminPage.tsx";
 
 (globalThis as typeof globalThis & { React: typeof React }).React = React;
+// AdminPage reads a held device link from sessionStorage, which Node 24 (what
+// CI runs) doesn't provide. Empty, so these renders hold none.
+const emptyStorage = new Map<string, string>();
+Object.defineProperty(globalThis, "sessionStorage", {
+  configurable: true,
+  value: {
+    getItem: (key: string) => emptyStorage.get(key) ?? null,
+    setItem: (key: string, value: string) => { emptyStorage.set(key, value); },
+    removeItem: (key: string) => { emptyStorage.delete(key); },
+  },
+});
 
 /**
  * The admin console's member routes used to enforce less than the student

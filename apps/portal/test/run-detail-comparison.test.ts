@@ -37,7 +37,7 @@ function succeeded(over: Partial<RunDetail>): RunDetail {
     attemptNumber: null, primaryMetric: PRIMARY, failure: null,
     phases: [], metrics: [PRIMARY, TEXT_MRR], diagnostics: ["Text search holds up; images trail it."],
     sweep: null, wiring: [], refusal: null, weightsSupplied: [], log: null,
-    selected: false, publishable: false,
+    selected: false, publishable: false, publicationRefusal: null,
     ...over,
   };
 }

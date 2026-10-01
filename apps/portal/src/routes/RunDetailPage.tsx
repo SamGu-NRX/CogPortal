@@ -829,10 +829,15 @@ function PublishSection({ run }: { run: RunDetail }) {
             </Link>
           </span>
         </p>
-      ) : run.sourceRefusal ? (
-        // `publishable` stays a fact about the run, so an existing public
-        // entry survives a repository change. Only a new one is refused.
-        <p className="max-w-[60ch] text-[14.5px] leading-[1.55] text-ink-secondary">{run.sourceRefusal}</p>
+      ) : (run.sourceRefusal ?? run.publicationRefusal) ? (
+        // `publishable` stays a fact about the run, so the panel stays and
+        // says what Publish would answer, in the server's order: the source
+        // first, then whether the board can rank this run. A confirm that can
+        // only be refused would cost a click to learn this. The team's
+        // existing public entry is untouched either way.
+        <p className="max-w-[60ch] text-[14.5px] leading-[1.55] text-ink-secondary">
+          {run.sourceRefusal ?? run.publicationRefusal}
+        </p>
       ) : (
         <>
           <p className="max-w-[60ch] text-[14.5px] leading-[1.55] text-ink-secondary">

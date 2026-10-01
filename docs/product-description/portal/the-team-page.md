@@ -55,7 +55,7 @@ At the moment a save request is sent. Each control commits separately:
 - **Rename** and **description** both go to `PATCH /api/team`. The name is capped at 60 characters, the description at 280. At least one field must be present.
 - **Add member** posts to `/api/team/members` with a GitHub login.
 - **Remove** deletes `/api/team/members/{login}`.
-- **Change repository** posts to `/api/team/repository`.
+- **Change repository** posts to `/api/team/repository`. On success the browser drops what it had cached about the previous repository (the Runs payload, run pages, run consoles, local reports), so a page opened next waits for the new answer rather than showing the old repository as connected.
 
 Only the last of these is guarded by a confirmation, because it is the only one that changes what the team is measured against.
 

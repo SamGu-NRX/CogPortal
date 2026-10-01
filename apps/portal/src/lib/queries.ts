@@ -256,7 +256,15 @@ export function useChangeTeamRepo() {
     onSuccess: (team) => {
       qc.setQueryData(["team"], team);
       void qc.invalidateQueries({ queryKey: ["session"] });
-      void qc.invalidateQueries({ queryKey: ["dashboard"] });
+      // These answer relative to the connected repository: which one it is,
+      // whether a run may still be promoted or published, which local reports
+      // belong to it. Invalidating kept the old answer on screen until the
+      // refetch landed, so Runs opened right after a save showed the previous
+      // repository as connected and offered a promotion the server now
+      // refuses. Resetting drops them, so the next read waits for the new one.
+      for (const key of ["dashboard", "run", "run-surface", "local-reports", "untracked-local-reports"]) {
+        void qc.resetQueries({ queryKey: [key] });
+      }
       void qc.invalidateQueries({ queryKey: ["repositories"] });
       void qc.invalidateQueries({ queryKey: ["leaderboard"] });
       // The signals describe a repository's history, so they belong to the
