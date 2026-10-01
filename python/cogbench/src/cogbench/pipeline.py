@@ -39,7 +39,7 @@ from dataclasses import dataclass, field, replace
 from importlib.machinery import FileFinder
 from pathlib import Path
 from typing import (
-    Any, Callable, Dict, FrozenSet, List, Mapping, Optional, Sequence, Tuple,
+    Any, Callable, Dict, FrozenSet, List, Mapping, Optional, Sequence, Set, Tuple,
 )
 
 from .raised import Raised, message_of, where_it_raised
@@ -1345,6 +1345,24 @@ _THEIR_ROOT: Optional["Path"] = None
 #: alive until the search ends.
 _RAISED: List[Raised] = []
 
+#: The plain functions and classes this search called with no arguments that
+#: ran out of `CALL_TIMEOUT_SECONDS`, by label. `_call` does not call one
+#: again. Cleared with the scratch directory.
+#:
+#: With nothing passed, the time was the function's own work, and another
+#: shape, form, branch pass or per-item spread repeats it for the same no.
+#: A timeout on a call that did pass something stays a single no, because
+#: an input can be what made it slow: Week 3's IDF fit passes all 414,113
+#: COCO captions, and the text branch then passes 75. Methods are left out
+#: because their cost depends on the object they run on.
+#:
+#: Measured on a 2026 Language repository in the course environment:
+#: `train.prep_data`, which parses all of GloVe and embeds every COCO
+#: caption, ran out of the clock 13 times in one check and took 132 of its
+#: 295 seconds, against a 300-second limit. Its first timeout was a call
+#: with no arguments.
+_TIMED_OUT: Set[str] = set()
+
 
 def _record_raise(candidate: Candidate, error: BaseException) -> None:
     """Write down a failure that came out of their code, and only that.
@@ -1491,6 +1509,8 @@ def _call(
     `_record_raise`); the search does not read it, and a refusal does.
     """
 
+    if candidate.label in _TIMED_OUT:
+        return False, None
     if candidate.self_only:
         args, keywords = (), {}
     else:
@@ -1507,6 +1527,14 @@ def _call(
             lambda: _publish(candidate, _rebound(candidate, positional)(*args, **keywords))
         )
     except BaseException as error:  # noqa: BLE001 - student code raises anything
+        if (
+            isinstance(error, _Timeout)
+            and _SCRATCH is not None
+            and not args
+            and not keywords
+            and candidate.attribute is None
+        ):
+            _TIMED_OUT.add(candidate.label)
         _record_raise(candidate, error)
         return False, None
     return True, result
@@ -3496,6 +3524,7 @@ def _scratch_cwd():
             _DRY_CALLS.clear()
             _COULD_NOT_FILL.clear()
             _RAISED.clear()
+            _TIMED_OUT.clear()
             os.chdir(previous)
 
 
@@ -3528,6 +3557,22 @@ def _folders_we_could_not_fill() -> Tuple[str, ...]:
         "reads one relative to the working directory, can be handed "
         "them.".format(label, note)
         for label, note in sorted(_COULD_NOT_FILL.items())
+    )
+
+
+def _too_slow_to_probe() -> Tuple[str, ...]:
+    """The functions `_call` stopped calling, for the refusal.
+
+    A function skipped after one timeout can no longer bind, so a refusal
+    that left it out would read as though the search had tried everything.
+    """
+
+    return tuple(
+        "{} was still running after {} seconds when the check called it with "
+        "no arguments, so the check didn't call it again. If the benchmark "
+        "should use it, it has to answer within that time, without loading "
+        "the full dataset or training first.".format(label, CALL_TIMEOUT_SECONDS)
+        for label in sorted(_TIMED_OUT)
     )
 
 
@@ -3654,7 +3699,7 @@ def _resolve_chain(
             "nothing accepted the {} the benchmark passes".format(
                 "arguments" if first.arity > 1 else "input"
             ),
-            notes=_folders_we_could_not_fill(),
+            notes=_folders_we_could_not_fill() + _too_slow_to_probe(),
             errors=_raised_in_this_search(),
         )
 
@@ -3866,7 +3911,7 @@ def _resolve_chain(
                     furthest[-1] if furthest else "the last step"
                 ),
                 last_returned=last_returned,
-                notes=_folders_we_could_not_fill(),
+                notes=_folders_we_could_not_fill() + _too_slow_to_probe(),
                 errors=_raised_in_this_search(),
             )
         frontier = nxt

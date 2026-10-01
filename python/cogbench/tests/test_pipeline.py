@@ -3834,6 +3834,100 @@ class ClockOwnershipTests(unittest.TestCase):
                 self.assertIs(signal.getsignal(signal.SIGALRM), self.previous_handler)
 
 
+class AFunctionThatRanOutOfTheClockIsNotCalledAgain(unittest.TestCase):
+    """A Week 3 repository's `train.prep_data()` loads all of GloVe and every
+    COCO caption, whatever it is passed. Every fit stage, shape and branch
+    pass called it again, each call ran to the ten-second clock, and the
+    check stopped at its five-minute limit with no report."""
+
+    SOURCE = (
+        "import time\n"
+        "CALLS = []\n"
+        "def prepare_everything(seed=0):\n"
+        "    CALLS.append(seed)\n"
+        "    time.sleep(30)\n"
+        "def embed(texts):\n"
+        "    return [[float(len(text)), 1.0] for text in texts]\n"
+    )
+
+    def setUp(self):
+        if not hasattr(signal, "SIGALRM") or not hasattr(signal, "getitimer"):
+            self.skipTest("the per-call clock requires POSIX interval timers")
+        if signal.getitimer(signal.ITIMER_REAL)[0]:
+            self.skipTest("the test runner already owns an alarm")
+
+    def _role(self, produces, fits=None):
+        # Two side inputs that take nothing, as Week 3's course_data and
+        # text_embedder do, then a per-item first stage.
+        fits = fits if fits is not None else (
+            Stage("data", fit=True, optional=True, fixture=(), produces=dict),
+            Stage("tools", fit=True, optional=True, fixture=(), produces=callable),
+        )
+        return Role("search", tuple(fits) + (Stage("text", per_item=True, produces=produces),))
+
+    def _resolve(self, module, produces, fits=None):
+        with patch("cogbench.pipeline.CALL_TIMEOUT_SECONDS", 1):
+            started = time.monotonic()
+            found = resolve_chain(self._role(produces, fits), [module], (["a", "bb"],))
+        return found, time.monotonic() - started
+
+    def test_it_runs_once_and_the_rest_of_the_repository_still_binds(self):
+        module = _written("theirs", self.SOURCE)
+
+        (binding, refusal), elapsed = self._resolve(
+            module, lambda value: isinstance(value, list) and len(value) == 2
+        )
+
+        self.assertIsNone(refusal)
+        self.assertEqual([step.label for step in binding.steps], ["theirs.embed"])
+        self.assertEqual(module.CALLS, [0])
+        self.assertLess(elapsed, 3)
+
+    def test_a_refusal_names_it(self):
+        module = _written("theirs", self.SOURCE)
+
+        (binding, refusal), _ = self._resolve(module, lambda value: False)
+
+        self.assertIsNone(binding)
+        self.assertEqual(module.CALLS, [0])
+        self.assertTrue(
+            any(note.startswith("theirs.prepare_everything was still running")
+                for note in refusal.notes),
+            refusal.notes,
+        )
+
+    def test_the_next_search_calls_it_again(self):
+        module = _written("theirs", self.SOURCE)
+
+        self._resolve(module, lambda value: False)
+        self._resolve(module, lambda value: False)
+
+        self.assertEqual(module.CALLS, [0, 0])
+
+    def test_a_timeout_on_a_large_input_still_lets_it_bind_on_a_small_one(self):
+        """Week 3's IDF fit passes the whole caption corpus. A function too
+        slow for that is still the right one for the 75 captions after it."""
+
+        module = _written(
+            "theirs",
+            "import time\n"
+            "def embed(texts):\n"
+            "    if len(texts) > 2:\n"
+            "        time.sleep(30)\n"
+            "    return [[float(len(text)), 1.0] for text in texts]\n",
+        )
+        corpus = Stage(
+            "idfs", fit=True, optional=True, fixture=(["x"] * 10,), produces=dict
+        )
+
+        (binding, refusal), _ = self._resolve(
+            module, lambda value: isinstance(value, list) and len(value) == 2, fits=(corpus,)
+        )
+
+        self.assertIsNone(refusal)
+        self.assertEqual([step.label for step in binding.steps], ["theirs.embed"])
+
+
 def _keep(items):
     return list(items)
 
