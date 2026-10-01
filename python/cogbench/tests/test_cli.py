@@ -65,6 +65,41 @@ class CliContractTests(unittest.TestCase):
         self.assertNotIn("checkedBenchmarkId", without)
         self.assertEqual(with_benchmark["checkedBenchmarkId"], "audio-identification")
 
+    def test_failed_check_says_setup_was_not_updated_and_keeps_its_status(self):
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with patch("cogbench.cli._check", return_value=2):
+            with patch("cogbench.cli._update_setup") as update:
+                with redirect_stdout(stdout), redirect_stderr(stderr):
+                    result = main(
+                        ["check", "--benchmark", "vision-recognition", "--json", "--update-setup"]
+                    )
+        self.assertEqual(result, 2)
+        update.assert_not_called()
+        # stdout belongs to `--json`; the explanation goes to stderr.
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertTrue(stderr.getvalue().startswith("setup: not updated"))
+
+    def test_updated_setup_leaves_json_stdout_to_the_check(self):
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with patch("cogbench.cli._check", return_value=0), \
+                patch("cogbench.cli._portal", return_value="https://portal.example"), \
+                patch("cogbench.cli.token_for", return_value="token"), \
+                patch("cogbench.cli._setup_payload", return_value={}), \
+                patch("cogbench.cli.update_setup_checks", return_value={"accepted": ["wiring"]}), \
+                redirect_stdout(stdout), redirect_stderr(stderr):
+            result = main(
+                ["check", "--benchmark", "vision-recognition", "--json", "--update-setup"]
+            )
+        self.assertEqual(result, 0)
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertIn("wiring", stderr.getvalue())
+
+    def test_failed_check_without_the_flag_says_nothing_about_setup(self):
+        stderr = io.StringIO()
+        with patch("cogbench.cli._check", return_value=2), redirect_stderr(stderr):
+            self.assertEqual(main(["check", "--benchmark", "vision-recognition"]), 2)
+        self.assertEqual(stderr.getvalue(), "")
+
     def test_flagged_local_success_returns_two_when_portal_update_fails(self):
         stderr = io.StringIO()
         with patch("cogbench.cli._check", return_value=0):
@@ -129,6 +164,42 @@ class ReportFormattingTests(unittest.TestCase):
         self.assertIn("Identification score: 0.5375", text)
         self.assertIn("Median identify time: 0.025 s", text)
         self.assertIn("Latency: 12.3 ms", text)
+
+    def test_a_floor_is_marked_and_a_measured_score_is_not(self):
+        def metric(key, label, value, role, relates_to=None):
+            return Metric(key, label, value, None, True, False, 3, role=role, relates_to=relates_to)
+
+        report = LocalReport(
+            report_id="local_test",
+            benchmark_id="language-search",
+            benchmark_version=1,
+            contract_version="cogworks.submissions.v2",
+            sdk_version="0.2.0",
+            plugin_version="0.2.0",
+            repository=RepositoryState(None, None, None, False),
+            started_at=1,
+            finished_at=2,
+            metrics=[
+                metric("text_mrr", "Text MRR", 0.412, "scored"),
+                metric("text_chance", "Text chance MRR", 0.010, "floor", "text_mrr"),
+                # Week 3 withholds retrieval_mrr when the image side is
+                # unmeasured and still sends its floor.
+                metric("chance_mrr", "Chance MRR", 0.002, "floor", "retrieval_mrr"),
+                Metric("legacy", "Legacy", 0.5, None, True, False, 3),
+            ],
+            diagnostics=[],
+            output_digest="digest",
+        )
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            _print_report(report)
+        rows = {line.split(":")[0]: line for line in stdout.getvalue().splitlines()}
+
+        self.assertNotIn("floor", rows["Text MRR"])
+        self.assertNotIn("floor", rows["Legacy"])
+        self.assertIn("floor for Text MRR", rows["Text chance MRR"])
+        self.assertIn("floor", rows["Chance MRR"])
+        self.assertNotIn("floor for", rows["Chance MRR"])
 
 
 class LinkConsentTests(unittest.TestCase):
