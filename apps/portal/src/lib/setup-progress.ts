@@ -61,6 +61,11 @@ export interface SetupCommand {
    *  command so nothing has to map an id back to a step by hand. */
   step: SetupStep | null;
   command: string;
+  /** A second command the same step needs before `check` can pass, run after
+   *  `command`. Only the Language install line has one, its data fetch. It
+   *  rides this step rather than being a step of its own because nothing
+   *  reports it: a passing `check` is what shows the data was there. */
+  dataCommand?: string;
   /** True once CogPortal has observed what this command does, through a
    *  linked device reporting it. */
   verified: boolean;
@@ -139,6 +144,7 @@ export function setupCommandLines(input: {
       step: "project",
       // Resolve dependencies before replacing the same-version benchmark.
       command: `python -m pip install "${pkg.distribution} @ ${pkg.source}" && python -m pip install --force-reinstall --no-deps "${pkg.distribution} @ ${pkg.source}"`,
+      dataCommand: pkg.dataCommand,
       verified: input.verified("project"),
       selfChecked: input.selfChecked?.("project") ?? false,
       benchmarkScoped: isBenchmarkScopedStep("project"),

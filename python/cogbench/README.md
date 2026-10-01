@@ -130,7 +130,10 @@ note: 21% of queries had the right song somewhere in the list but not near the t
 ```
 
 The first `test` or `run` of a week can download that week's public data and
-model files, so expect it to be slower than the ones after it.
+model files, so expect it to be slower than the ones after it. Language is the
+exception: its `check` reads the course files before it searches a repository,
+and nothing here downloads them for it, so run
+`python -m language_search_benchmark.fetch` once first (about 935 MB).
 
 Commit before you run. A report records the commit it ran on, and it says
 "(dirty)" when the working tree had uncommitted changes, which means nobody

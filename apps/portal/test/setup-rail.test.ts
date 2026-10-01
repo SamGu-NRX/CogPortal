@@ -99,6 +99,31 @@ test("the check that claims to update this page carries the flag that does it", 
   assert.match(check, /--update-setup/);
 });
 
+test("Language fetches its course data before check, as a step of its own command", () => {
+  // Measured on a fresh Python 3.8 install: `cogworks check` for Language
+  // exits 2 before it reads the repository, because the captions are not
+  // cached and check never downloads. pip does not install them, so the
+  // install step has to say how to fetch them, with the package's own command.
+  const sheet = lines({ benchmarkId: "language-search", benchmarkTitle: "Language" });
+  const install = sheet.find((line) => line.id === "benchmark");
+  assert.equal(install?.dataCommand, "python -m language_search_benchmark.fetch");
+  assert.equal(install?.dataCommand, benchmarkPackage("language-search")?.dataCommand);
+  // A separate block, not chained onto the install or the check: neither of
+  // those should start a download of nearly a gigabyte when re-run.
+  assert.equal(sheet.filter((line) => line.command.includes("fetch")).length, 0);
+  assert.equal(sheet.length, 5);
+  assert.equal(
+    sheet.at(-1)?.command,
+    "cogworks check --benchmark language-search --update-setup",
+  );
+
+  // Every other track's check reads nothing its install left out.
+  for (const id of ["audio-identification", "vision-recognition", "vision-clustering"]) {
+    const other = lines({ benchmarkId: id }).find((line) => line.id === "benchmark");
+    assert.equal(other?.dataCommand, undefined, id);
+  }
+});
+
 test("every benchmark package is pinned to a commit rather than a branch", () => {
   // A branch reference makes two runs of the same pasted command install
   // different code, which is invisible until a score moves.

@@ -14,6 +14,11 @@ export interface BenchmarkPackage {
   distribution: string;
   /** `git+https://…@<commit>` direct reference. */
   source: string;
+  /** The package's own command for public data its `check` reads but pip does
+   *  not install. Only Language has one: its check opens the captions before
+   *  it searches a repository and refuses to download them itself, so a fresh
+   *  machine stops there without it. */
+  dataCommand?: string;
 }
 
 /**
@@ -56,15 +61,18 @@ const WEEK2_VISION: BenchmarkPackage = {
 // one of its methods. The SDK no longer lends a run the object discovery
 // built, so 6dc63fe, which called the encoder first, failed CI run 35766833651.
 // 9e4dcff (#6) adds a finding that leads a clean run with search against
-// retrieval; it changes no metric, dataset, contract or scorer. No staging
-// image has run it yet.
+// retrieval; it changes no metric, dataset, contract or scorer. 7e3c3fa adds
+// `python -m language_search_benchmark.fetch` and names it where a cold
+// check used to send students to `cogworks test`; it changes no scoring
+// either. No staging image has run either revision yet.
 // 6dc63fe is the revision verified on staging (run_28df471772), where earlier
 // revisions had left a trained image projection unbound locally while a
 // hosted run scored it.
 const WEEK3_LANGUAGE: BenchmarkPackage = {
   distribution: "cogworks-week3-language-benchmark",
   source:
-    "git+https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git@9e4dcff9a5abe85817f9a208e75aaa392970b649",
+    "git+https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git@7e3c3fa362b118524863d3d2ce854583c69a0aac",
+  dataCommand: "python -m language_search_benchmark.fetch",
 };
 
 export const BENCHMARK_PACKAGES: Readonly<Record<string, BenchmarkPackage>> = {
