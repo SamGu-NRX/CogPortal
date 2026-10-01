@@ -152,9 +152,14 @@ function bestComparison(snapshot: RunSurfaceSnapshot): string | null {
   // Self-reported local metrics never qualify as observed comparisons.
   const observed = snapshot.stage !== "local";
   if (!best) return null;
-  if (snapshot.status !== "succeeded" || !observed || !current) {
-    return `-# team best so far ${metricValue(best)}`;
-  }
+  // The team best is on the measure the board ranks. This run's headline can
+  // be another one (a partial Language run reports text MRR), and then the
+  // line names its measure instead of reading as a comparison.
+  const comparable = current?.key === best.key && current.higherIsBetter === best.higherIsBetter;
+  const soFar = current && !comparable
+    ? `-# team best ${best.label.toLowerCase()} so far ${metricValue(best)}`
+    : `-# team best so far ${metricValue(best)}`;
+  if (snapshot.status !== "succeeded" || !observed || !current || !comparable) return soFar;
   const improved = best.higherIsBetter ? current.value > best.value : current.value < best.value;
   return improved
     ? `-# a new team best, past ${metricValue(best)}`

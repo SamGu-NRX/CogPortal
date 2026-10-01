@@ -347,6 +347,24 @@ test("running shows the team best for context and local success never claims a d
   assert.doesNotMatch(message, /new team best/);
 });
 
+test("a run that leads with another measure is not compared with the team best", () => {
+  // A partial Language run has no overall and leads with text MRR; the team
+  // best is on overall, the measure the board ranks.
+  const value = snapshot("succeeded");
+  value.stage = "hosted";
+  value.practiceRunId = "run_hosted_123";
+  value.primaryMetric = { key: "text_mrr", label: "Text MRR", value: 0.95, unit: null, higherIsBetter: true, primary: true, precision: 3 };
+  value.metrics = [value.primaryMetric];
+  value.teamBest = { key: "overall", label: "Overall", value: 0.4, unit: null, higherIsBetter: true, primary: true, precision: 3 };
+  const message = rendered(value);
+  assert.match(message, /team best overall so far 0\.400/);
+  assert.doesNotMatch(message, /new team best|team best stays/);
+
+  // Same key, conflicting direction: also no verdict.
+  value.primaryMetric = { ...value.teamBest, value: 0.5, higherIsBetter: false };
+  assert.doesNotMatch(rendered(value), /new team best|team best stays/);
+});
+
 test("hosted running resets the loader instead of inheriting local progress", () => {
   const hosted = snapshot();
   hosted.stage = "hosted";

@@ -17,7 +17,7 @@ import {
   teams,
 } from "../db/schema";
 import { ApiHttpError } from "../http/errors";
-import { canPublishOfficialRun } from "./run-eligibility";
+import { canPublishOfficialRun, rankingRefusal } from "./run-eligibility";
 import { serializeBenchmark, serializeMetric } from "../http/serializers";
 import {
   hasSharedBenchmarkSource,
@@ -73,10 +73,12 @@ export async function getLeaderboardReadModel(
 
   const entries: LeaderboardEntry[] = [];
   for (const row of selected) {
-    if (!canPublishOfficialRun(row.run)) continue;
     const runMetricsForRow = metricsByRun.get(row.run.id) ?? [];
-    const primary = runMetricsForRow.find((metric) => metric.isPrimary);
-    if (!primary || row.run.finishedAt === null) continue;
+    // The catalog's measure, not the run's own primary flag.
+    const ranked = runMetricsForRow.find((metric) => metric.key === benchmark.primaryMetricKey);
+    if (!ranked || rankingRefusal(row.run, benchmark, runMetricsForRow) !== null || row.run.finishedAt === null) {
+      continue;
+    }
     entries.push({
       rank: 0,
       teamName: row.team.name,
@@ -97,19 +99,28 @@ export async function getLeaderboardReadModel(
           : (runSource(row.run.repositoryFullName)?.url ?? null),
       sha: row.team.provenance === "archive" ? "" : row.run.sha,
       shortSha: row.team.provenance === "archive" ? "" : row.run.sha.slice(0, 7),
-      primaryMetric: serializeMetric(primary),
+      primaryMetric: { ...serializeMetric(ranked), primary: true },
       supportingMetrics: runMetricsForRow
-        .filter((metric) => !metric.isPrimary)
-        .map(serializeMetric),
+        .filter((metric) => metric !== ranked)
+        .map((metric) => ({ ...serializeMetric(metric), primary: false })),
       completedAt: row.run.finishedAt,
       isYou: teamId === row.team.id,
     });
   }
-  entries.sort((left, right) => {
-    const direction = left.primaryMetric.higherIsBetter ? -1 : 1;
-    const scoreOrder = direction * (left.primaryMetric.value - right.primaryMetric.value);
-    return scoreOrder !== 0 ? scoreOrder : left.completedAt - right.completedAt;
-  });
+  // One key under one scorer should carry one direction. Two means the
+  // scorer's direction changed without a new scorer version, and any order
+  // picked here would be a guess presented as a ranking.
+  const directions = new Set(entries.map((entry) => entry.primaryMetric.higherIsBetter));
+  if (directions.size > 1) {
+    throw new Error(
+      `Leaderboard ${benchmark.id}@${benchmark.version}: "${benchmark.primaryMetricKey}" under scorer ` +
+      `${benchmark.scorerVersion} is stored as both higher-is-better and lower-is-better; bump the scorer version.`,
+    );
+  }
+  const direction = entries[0]?.primaryMetric.higherIsBetter === false ? 1 : -1;
+  entries.sort((left, right) =>
+    direction * (left.primaryMetric.value - right.primaryMetric.value) ||
+    left.completedAt - right.completedAt);
   entries.forEach((entry, index) => {
     entry.rank = index + 1;
   });
@@ -140,7 +151,7 @@ export async function getFamilyLeaderboardReadModel(
     )
     .orderBy(asc(benchmarkFamilyComponents.sortOrder));
   const selected = await db
-    .select({ selection: leaderboardSelections, run: runs, team: teams })
+    .select({ selection: leaderboardSelections, run: runs, team: teams, benchmark: benchmarks })
     .from(leaderboardSelections)
     .innerJoin(runs, eq(leaderboardSelections.runId, runs.id))
     .innerJoin(teams, eq(leaderboardSelections.teamId, teams.id))
@@ -152,18 +163,18 @@ export async function getFamilyLeaderboardReadModel(
         eq(runs.scorerVersion, benchmarks.scorerVersion),
       ),
     );
-  const relevant = selected.filter((row) =>
+  const candidates = selected.filter((row) =>
     canPublishOfficialRun(row.run) && components.some(
       (component) =>
         component.benchmarkId === row.run.benchmarkId &&
         component.benchmarkVersion === row.run.benchmarkVersion,
     ),
   );
-  const metrics = relevant.length
+  const metrics = candidates.length
     ? await db
         .select()
         .from(runMetrics)
-        .where(inArray(runMetrics.runId, relevant.map((row) => row.run.id)))
+        .where(inArray(runMetrics.runId, candidates.map((row) => row.run.id)))
     : [];
   const metricsByRun = new Map<string, typeof metrics>();
   for (const metric of metrics) {
@@ -171,6 +182,10 @@ export async function getFamilyLeaderboardReadModel(
     values.push(metric);
     metricsByRun.set(metric.runId, values);
   }
+  // A selection its own board leaves out (no reading for the catalog's ranked
+  // measure) isn't published, so it can't count toward the family either.
+  const relevant = candidates.filter((row) =>
+    rankingRefusal(row.run, row.benchmark, metricsByRun.get(row.run.id) ?? []) === null);
 
   const requiredTracks = new Set(
     components.map((component) => `${component.benchmarkId}@${component.benchmarkVersion}`),

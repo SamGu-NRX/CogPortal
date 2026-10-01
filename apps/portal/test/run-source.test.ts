@@ -261,7 +261,13 @@ test("the run detail's refusal names no single action, because two panels share 
   // result, under PUBLISH. "promote it" was wrong in the second place.
   const { db } = freshDb(migrationFiles());
   await seedTeamOnOldRepository(db);
-  await insertRun(db, "run_official", { mode: "official", status: "succeeded", attemptNumber: 1 });
+  await insertRun(db, "run_official", {
+    mode: "official", status: "succeeded", attemptNumber: 1, scorerVersion: "identification-v1",
+  });
+  await db.insert(runMetrics).values({
+    runId: "run_official", key: "identification_score", label: "Identification score",
+    value: 0.5, unit: null, higherIsBetter: true, isPrimary: true, precision: 3,
+  });
   // Already the team's public entry before the repository moved.
   await db.insert(leaderboardSelections).values({
     teamId: "team_1", benchmarkId: "audio-identification", benchmarkVersion: 1,

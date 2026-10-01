@@ -297,8 +297,9 @@ function completedEvent() {
       benchmarkVersion: 1,
       metrics: [
         {
-          key: "overall",
-          label: "Overall",
+          // The audio catalog's ranked measure, so a published result stands.
+          key: "identification_score",
+          label: "Identification score",
           value: 0.5375,
           unit: null,
           higherIsBetter: true,

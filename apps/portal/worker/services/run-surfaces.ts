@@ -29,6 +29,7 @@ import {
   runSurfaces,
   teams,
   users,
+  type BenchmarkRow,
   type RunRow,
   type RunSurfaceRow,
 } from "../db/schema";
@@ -36,7 +37,13 @@ import { syncRun } from "../execution/sync";
 import { validateRetryInputs } from "../execution/runner";
 import { serializeMetric } from "../http/serializers";
 import { ApiHttpError } from "../http/errors";
-import { canPublishOfficialRun, currentSurfaceRun, fixtureRetryRefusal, savedEnvironmentEligibility } from "./run-eligibility";
+import {
+  canPublishOfficialRun,
+  currentSurfaceRun,
+  fixtureRetryRefusal,
+  rankingRefusal,
+  savedEnvironmentEligibility,
+} from "./run-eligibility";
 import { acceptedRunPredicate, readRunAccounting } from "./run-accounting";
 
 const MAX_SURFACE_EVENTS = 250;
@@ -205,12 +212,16 @@ async function metricsForLocal(env: Env, reportId: string | null): Promise<Metri
   }
 }
 
-/** Best hosted or official primary metric, excluding this surface. */
+/**
+ * The team's best hosted or official reading on the measure the board ranks,
+ * under the current scorer, excluding this surface. A run's own primary flag
+ * would mix measures: a partial Language run flags text MRR, and its 0.4 is
+ * not better or worse than another run's overall.
+ */
 async function teamBestMetric(
   env: Env,
   teamId: string,
-  benchmarkId: string,
-  benchmarkVersion: number,
+  benchmark: Pick<BenchmarkRow, "id" | "version" | "scorerVersion" | "primaryMetricKey">,
   excludeSurfaceId: string,
 ): Promise<Metric | null> {
   const rows = await getDb(env)
@@ -220,18 +231,25 @@ async function teamBestMetric(
     .where(
       and(
         eq(runs.teamId, teamId),
-        eq(runs.benchmarkId, benchmarkId),
-        eq(runs.benchmarkVersion, benchmarkVersion),
+        eq(runs.benchmarkId, benchmark.id),
+        eq(runs.benchmarkVersion, benchmark.version),
+        eq(runs.scorerVersion, benchmark.scorerVersion),
         acceptedRunPredicate(),
-        eq(runMetrics.isPrimary, true),
+        eq(runMetrics.key, benchmark.primaryMetricKey),
         // SQL `NULL != value` is unknown, so include legacy successful runs
         // that predate run surfaces as well as runs on a different surface.
         or(isNull(runs.surfaceId), ne(runs.surfaceId, excludeSurfaceId)),
       ),
     );
+  const metrics = rows.map((row) => ({ ...serializeMetric(row.metric), primary: true }));
+  // Same key and scorer with two directions has no "best"; say nothing
+  // rather than pick one. The leaderboard refuses the same state loudly.
+  if (new Set(metrics.map((metric) => metric.higherIsBetter)).size > 1) {
+    console.error(`Team best for ${benchmark.id}@${benchmark.version}: "${benchmark.primaryMetricKey}" has conflicting directions.`);
+    return null;
+  }
   let best: Metric | null = null;
-  for (const row of rows) {
-    const metric = serializeMetric(row.metric);
+  for (const metric of metrics) {
     if (!best || (metric.higherIsBetter ? metric.value > best.value : metric.value < best.value)) {
       best = metric;
     }
@@ -304,7 +322,15 @@ export async function readRunSurfaceSnapshot(
         )
         .limit(1)
     : [];
-  const published = selected.length > 0 && official !== null && canPublishOfficialRun(official);
+  const metrics = official
+    ? await metricsForRun(env, official.id)
+    : practice
+      ? await metricsForRun(env, practice.id)
+      : await metricsForLocal(env, local?.reportId ?? null);
+  // Set for a run the board leaves out, so a stored selection of it is not
+  // called published and Publish is not offered for it.
+  const publicationRefusal = official ? rankingRefusal(official, benchmark, metrics) : null;
+  const published = selected.length > 0 && official !== null && publicationRefusal === null;
   const stage = published ? "published" : official ? "official" : practice ? "hosted" : "local";
   const current: RunRow | typeof local = official ?? practice ?? local;
   if (!current) throw new ApiHttpError(404, "not_found", "Run surface has no run.");
@@ -324,19 +350,13 @@ export async function readRunSurfaceSnapshot(
   const databasePhase = stage === "local" ? local?.phase ?? current.status : current.status;
   const phase = status === "running" ? currentEvents.at(-1)?.phase ?? databasePhase : databasePhase;
   const latestProgress = [...currentEvents].reverse().find((event) => event.progress)?.progress ?? null;
-  const metrics = official
-    ? await metricsForRun(env, official.id)
-    : practice
-      ? await metricsForRun(env, practice.id)
-      : await metricsForLocal(env, local?.reportId ?? null);
   const primaryMetric = metrics.find((item) => item.primary) ?? null;
-  const teamBest = await teamBestMetric(
-    env,
-    surface.teamId,
-    surface.benchmarkId,
-    surface.benchmarkVersion,
-    surface.id,
-  );
+  // The best is under the current scorer, so a run scored by an older one
+  // has nothing comparable to sit against.
+  const scoredRun = official ?? practice;
+  const teamBest = scoredRun && scoredRun.scorerVersion !== benchmark.scorerVersion
+    ? null
+    : await teamBestMetric(env, surface.teamId, benchmark, surface.id);
 
   // What this surface's work ran from, and whether that still is the team's
   // repository. The server refuses these actions either way; offering a
@@ -375,7 +395,7 @@ export async function readRunSurfaceSnapshot(
       }
     }
   } else if (stage === "official" && official && !hostedRefusal) {
-    if (canPublishOfficialRun(official)) actions.push("publish_result");
+    if (publicationRefusal === null) actions.push("publish_result");
     // Failed executions and historical refunds cannot be promoted again here.
     if (status === "failed" || (status !== "running" && official.refundedAt !== null)) actions.push("rerun_hosted");
   }
@@ -455,6 +475,10 @@ export async function readRunSurfaceSnapshot(
     // message.
     refusalHeadline: refusalHeadlineOf(official ?? practice),
     promotionRefusal,
+    // Only where Publish would otherwise be: an official run that finished
+    // and could be published but for what the board ranks.
+    publicationRefusal: stage === "official" && official && canPublishOfficialRun(official) && !hostedRefusal
+      ? publicationRefusal : null,
     retryRefusal,
     events,
     actions,

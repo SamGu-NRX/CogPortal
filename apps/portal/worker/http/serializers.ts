@@ -15,6 +15,7 @@ import {
   canPublishOfficialRun,
   existingPromotion,
   NO_CONSOLE_PROMOTION_REFUSAL,
+  rankingRefusal,
   savedEnvironmentEligibility,
 } from "../services/run-eligibility";
 import {
@@ -155,10 +156,10 @@ export async function serializeRunDetail(
   row: RunRow,
   team: { repoId: number | null; repoFullName: string },
 ): Promise<RunDetail> {
-  // Independent reads, so they travel as one D1 round trip rather than three.
+  // Independent reads, so they travel as one D1 round trip rather than four.
   // The summary's primary metric comes out of the metrics this already reads,
-  // the way the leaderboard picks its primary, so it costs no fourth statement.
-  const [phases, metrics, selection] = await db.batch([
+  // so it costs no fifth statement.
+  const [phases, metrics, selection, [benchmark]] = await db.batch([
     db.select().from(runPhases).where(eq(runPhases.runId, row.id)).orderBy(asc(runPhases.phase)),
     db.select().from(runMetrics).where(eq(runMetrics.runId, row.id)).orderBy(asc(runMetrics.key)),
     db
@@ -172,6 +173,8 @@ export async function serializeRunDetail(
         ),
       )
       .limit(1),
+    db.select().from(benchmarks)
+      .where(and(eq(benchmarks.id, row.benchmarkId), eq(benchmarks.version, row.benchmarkVersion))).limit(1),
   ]);
   const summary = buildRunSummary(row, metrics.find((metric) => metric.isPrimary) ?? null);
   const phaseOrder = new Map(RUN_PHASES.map((phase, index) => [phase, index]));
@@ -189,8 +192,6 @@ export async function serializeRunDetail(
     promotionRefusal = promoted.refusal;
     promotedTo = promoted.promotedTo;
   } else if (promotable && row.provider === "modal") {
-    const [benchmark] = await db.select().from(benchmarks)
-      .where(and(eq(benchmarks.id, row.benchmarkId), eq(benchmarks.version, row.benchmarkVersion))).limit(1);
     const eligibility = savedEnvironmentEligibility(row,
       benchmark ?? { id: row.benchmarkId, sandboxContract: null }, team);
     if (!eligibility.eligible) promotionRefusal = eligibility.reason;
@@ -226,7 +227,11 @@ export async function serializeRunDetail(
     refusal: parseRefusal(row.refusalJson),
     weightsSupplied: parseWeightsSupplied(row.weightsSuppliedJson),
     log: row.mode === "practice" ? row.log : null,
-    selected: selection[0]?.runId === row.id,
+    // A stored selection the board leaves out (an older scorer, or no reading
+    // for the measure it ranks) is not this team's public entry.
+    selected: selection[0]?.runId === row.id && rankingRefusal(row, benchmark, metrics) === null,
+    // Still a fact about the run's own state. Publish answers a run without
+    // the ranked measure with the specific reason rather than hiding.
     publishable: canPublishOfficialRun(row),
   };
 }

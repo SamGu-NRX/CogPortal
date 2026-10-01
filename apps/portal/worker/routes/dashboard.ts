@@ -7,6 +7,7 @@ import { getDb } from "../db/client";
 import {
   benchmarks,
   leaderboardSelections,
+  runMetrics,
   runs,
   type RunRow,
 } from "../db/schema";
@@ -23,9 +24,9 @@ import { respond } from "../http/respond";
 import { runSourceRefusal } from "../services/run-source";
 import { readRunAccounting } from "../services/run-accounting";
 import {
-  canPublishOfficialRun,
   existingPromotion,
   NO_CONSOLE_PROMOTION_REFUSAL,
+  rankingRefusal,
   savedEnvironmentEligibility,
 } from "../services/run-eligibility";
 
@@ -88,14 +89,13 @@ export function registerDashboardRoutes(app: Hono<AppEnv>): void {
       : promoted?.refusal ?? (promotionEligibility?.eligible === false ? promotionEligibility.reason : null);
 
     // One statement for every primary metric this response needs: the run
-    // log's rows, the two runs named above it, and the published selection.
-    // Read per run, this grew with a team's history.
+    // log's rows and the two runs named above it. Read per run, this grew
+    // with a team's history.
     const page = allRuns.slice(0, 50);
     const primaries = await readPrimaryMetrics(db, [...new Set([
       ...page.map((run) => run.id),
       ...(active ? [active.id] : []),
       ...(candidate ? [candidate.id] : []),
-      ...(selectionRow ? [selectionRow.runId] : []),
     ])]);
     const summarize = (run: RunRow) => buildRunSummary(run, primaries.get(run.id) ?? null);
 
@@ -106,13 +106,20 @@ export function registerDashboardRoutes(app: Hono<AppEnv>): void {
         .from(runs)
         .where(eq(runs.id, selectionRow.runId))
         .limit(1);
-      const primary = primaries.get(selectionRow.runId);
-      if (selectedRun && primary && canPublishOfficialRun(selectedRun)) {
+      // The measure the board ranks, which a partial run's own primary flag
+      // may not be. A selection the board leaves out is not shown as the
+      // team's published result; the row itself stays stored.
+      const [ranked] = await db
+        .select()
+        .from(runMetrics)
+        .where(and(eq(runMetrics.runId, selectionRow.runId), eq(runMetrics.key, benchmark.primaryMetricKey)))
+        .limit(1);
+      if (selectedRun && ranked && rankingRefusal(selectedRun, benchmark, [ranked]) === null) {
         selection = {
           runId: selectedRun.id,
           source: runSource(selectedRun.repositoryFullName),
           selectedAt: selectionRow.selectedAt,
-          primaryMetric: serializeMetric(primary),
+          primaryMetric: { ...serializeMetric(ranked), primary: true },
           shortSha: selectedRun.sha.slice(0, 7),
           attemptNumber: selectedRun.attemptNumber,
         };
