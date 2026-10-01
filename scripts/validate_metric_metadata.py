@@ -4,6 +4,11 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+# SweepSchema (packages/contracts/src/protocol.ts) and the stored run's sweep
+# (packages/contracts/src/schema.ts) cap both strings at this length. A longer one
+# fails the completed event, so the run cannot finish.
+SWEEP_TEXT_LIMIT = 60
+
 
 def validate_metric_metadata(benchmark) -> None:
     name = benchmark.benchmark_id
@@ -11,7 +16,7 @@ def validate_metric_metadata(benchmark) -> None:
     if not isinstance(labels, Mapping) or not labels:
         raise ValueError("{}: metric_labels must be a nonempty mapping".format(name))
     for key, label in labels.items():
-        if not isinstance(key, str) or not key or not isinstance(label, str) or not label:
+        if not isinstance(key, str) or not key.strip() or not isinstance(label, str) or not label.strip():
             raise ValueError("{}: metric_labels needs nonempty string keys and labels".format(name))
 
     for field in ("primary_metric", "sweep_metric"):
@@ -25,6 +30,18 @@ def validate_metric_metadata(benchmark) -> None:
                     name, field, declared, ", ".join(sorted(labels))
                 )
             )
+
+    # The runner draws a sweep only for a plugin that declares both keys.
+    if getattr(benchmark, "sweep_x_key", None) and getattr(benchmark, "sweep_y_key", None):
+        sweep_text = {
+            "sweep metric": getattr(benchmark, "sweep_metric", None) or benchmark.primary_metric,
+            "sweep_axis_label": getattr(benchmark, "sweep_axis_label", "difficulty"),
+        }
+        for field, text in sweep_text.items():
+            if not isinstance(text, str) or not 1 <= len(text) <= SWEEP_TEXT_LIMIT:
+                raise ValueError(
+                    "{}: {} {!r} must be 1 to {} characters".format(name, field, text, SWEEP_TEXT_LIMIT)
+                )
 
     help_text = getattr(benchmark, "metric_help", {})
     if not isinstance(help_text, Mapping):

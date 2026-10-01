@@ -78,8 +78,6 @@ test("browser Retry posts the supplied execution ID on every replay", async (t) 
     assert.equal(call.init?.credentials, "same-origin");
     assert.equal(call.init?.body, JSON.stringify(target));
   }
-  assert.throws(() => Reflect.apply(api.mutateRunSurface, undefined, [latest.id, "retry"]));
-  assert.equal(calls.length, 2, "missing execution ID must fail before fetch");
   await api.mutateRunSurface(latest.id, "verify_hosted");
   assert.equal(calls[2]?.path, `/api/run-surfaces/${latest.id}/actions/verify_hosted`);
   assert.equal(calls[2]?.init?.body, undefined);

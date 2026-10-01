@@ -356,12 +356,14 @@ than no check:
 
 ```sh
 RUNNER_SIGNING_SECRET="$(jq -r .RUNNER_SIGNING_SECRET ~/.cogworks/secrets/cogworks-runner-production-signing.json)" \
+RUNNER_SIGNING_KEY_ID="$(jq -r .RUNNER_SIGNING_KEY_ID ~/.cogworks/secrets/cogworks-runner-production-signing.json)" \
   .venv-test/bin/python apps/runner-modal/tools/verify_dispatch.py \
   --url https://samgu-nrx--cogworks-runner-production-submit-job.modal.run
 ```
 
-The value comes from the protected file step 1 wrote for production's secret,
-so it is never typed and never lands in shell history.
+Both values come from the protected file step 1 wrote for production's secret,
+so the secret is never typed or kept in shell history, and a key id bumped in
+section 6 reaches the probe instead of the tool's `runner-v1` default.
 
 It sends refusable requests plus one correctly signed job naming a SHA of forty
 zeros, which is well-formed and does not exist, so an accepted job dies fetching

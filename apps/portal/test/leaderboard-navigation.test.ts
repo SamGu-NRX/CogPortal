@@ -108,6 +108,9 @@ async function mount(t: TestContext, path: string) {
     navigate: async (to: string) => {
       await act(async () => router.navigate(to));
     },
+    back: async () => {
+      await act(async () => router.navigate(-1));
+    },
     refetchCatalog: async () => {
       let refetch: Promise<void> = Promise.resolve();
       await act(async () => {
@@ -164,4 +167,17 @@ test("an unknown benchmark falls back to the default rather than an empty page",
   const page = await mount(t, "/leaderboard?benchmark=retired-benchmark");
   await page.answerCatalog();
   assert.deepEqual(page.selected("Benchmark track"), ["Audio"]);
+});
+
+test("Back resets a manual tab to the benchmark requested by the returning link", async (t) => {
+  const page = await mount(t, "/leaderboard?benchmark=vision-recognition");
+  await page.answerCatalog();
+  await page.click("Vision leaderboard", "Clustering");
+  assert.deepEqual(page.selected("Vision leaderboard"), ["Clustering"]);
+
+  await page.navigate("/leaderboard?benchmark=audio-identification");
+  assert.deepEqual(page.selected("Benchmark track"), ["Audio"]);
+  await page.back();
+  assert.deepEqual(page.selected("Benchmark track"), ["Vision"]);
+  assert.deepEqual(page.selected("Vision leaderboard"), ["Recognition"]);
 });

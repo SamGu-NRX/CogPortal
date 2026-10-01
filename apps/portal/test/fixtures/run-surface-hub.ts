@@ -40,7 +40,6 @@ export function runSurfaceHubs(env: Env) {
         async getAlarm() { return alarm; },
         async setAlarm(value: number) { alarm = value; },
         async deleteAlarm() { alarm = null; },
-        async deleteAll() { values.clear(); },
       },
       setWebSocketAutoResponse() {},
       acceptWebSocket(socket: { send(payload: string): void; close(): void }) { sockets.push(socket); },

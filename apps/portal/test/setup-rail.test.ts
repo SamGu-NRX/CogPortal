@@ -50,6 +50,7 @@ function commandFor(fragment: string): string {
   assert.ok(found, `no command containing ${fragment}`);
   return found.command;
 }
+
 test("the tool is installed from a commit, like every other package here", () => {
   // Neither TestPyPI nor main serves a usable tool: both hold cogbench 0.1.0,
   // and main is 112 commits back with no resolve.py, so `check` there cannot
@@ -68,7 +69,7 @@ test("the tool is installed from a commit, like every other package here", () =>
   assert.doesNotMatch(tool, /CogPortal\.git@main/);
   assert.doesNotMatch(tool, /test\.pypi\.org/);
   // Restate the accepted release pin so a typo or unreviewed move fails CI.
-  assert.match(tool, /@40d31a2a9d653983dd69fa57034f12a196a4b216#/);
+  assert.match(tool, /@b6bbffbcc97a82f52f832cdeaa9da9df938b0c9a#/);
   // --force-reinstall, not just --upgrade. The version stays 0.2.0 across
   // pins, so pip treats an equal version as already satisfied: measured, an
   // --upgrade between two pins exited zero and left the older commit
@@ -148,6 +149,7 @@ test("the clone command names the team's own repository", () => {
     "git clone https://github.com/demo-org/rooks-nest.git && cd rooks-nest",
   );
 });
+
 test("a gutter cell fills only for a step the portal has observed", () => {
   const none = lines();
   assert.equal(none.filter((line) => line.verified).length, 0);
