@@ -1,4 +1,4 @@
-import { and, eq, inArray, lt, or, sql } from "drizzle-orm";
+import { and, eq, exists, inArray, lt, or, sql } from "drizzle-orm";
 import type { RunPhase } from "@cogworks/contracts/schema";
 import type { Env } from "../env";
 import { getDb } from "../db/client";
@@ -7,8 +7,10 @@ import {
   accountLinkTokens,
   deviceAuthorizations,
   outboxEvents,
+  runPhases,
   runs,
 } from "../db/schema";
+import { openPhases } from "../services/run-phases";
 
 const ACTIVE_PHASES: RunPhase[] = [
   "queued",
@@ -78,6 +80,11 @@ export async function maintainPlatform(env: Env, now = Date.now()): Promise<void
         attempts: sql<number>`0`.as("attempts"),
         nextAttemptAt: sql<number>`${now}`.as("nextAttemptAt"),
       }).from(runs).where(eligible)).onConflictDoNothing(),
+      // Settled now, so the stage that was open ends now; a run that went
+      // silent (run_dcf733e51f, preempted) otherwise keeps it open for good.
+      db.update(runPhases).set({ endedAt: now }).where(and(
+        openPhases(run.id), exists(db.select({ id: runs.id }).from(runs).where(eligible)),
+      )),
       db.update(runs).set({
         status: "failed",
         finishedAt: now,
