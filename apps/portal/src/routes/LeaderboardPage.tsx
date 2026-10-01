@@ -1,11 +1,12 @@
 import { ArrowDown01Icon, ArrowUpRight01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useLocation, useSearchParams } from "react-router";
 import type { Benchmark, LeaderboardEntry, Module } from "@cogworks/contracts/schema";
 import { EmptyState } from "@/components/EmptyState";
 import { LoadingMark, QueryError } from "@/components/Feedback";
+import { Annotated, PageHeader } from "@/components/Note";
 import { formatDateTime, formatMetricValue } from "@/lib/format";
 import { useAccountRevealed } from "@/components/RestoreGate";
 import { EASE_OUT } from "@/lib/motion";
@@ -24,9 +25,6 @@ const TRACKS: Array<{ module: Module; label: string }> = COURSE_ORDER.map((modul
   label: MODULE_ACCENT[module].label,
 }));
 
-/** Row grid shared by the header and every entry. */
-const ROW_GRID = "grid grid-cols-[3rem_minmax(0,1fr)_auto_2rem] items-baseline gap-x-4";
-
 type VisionView = "overall" | "recognition" | "clustering";
 
 function visionViewOf(benchmarkId: string): VisionView {
@@ -35,6 +33,17 @@ function visionViewOf(benchmarkId: string): VisionView {
   return "overall";
 }
 
+/**
+ * The cohort's published results, one entry per team.
+ *
+ * `docs/design/the-instrument-not-the-judge.md` asks for a gallery of what
+ * each team's run shows rather than a ranking, so there is no rank column and
+ * no medal for first: each entry leads with the team and its own line about
+ * its approach, and the number is a footnote under it. The entries still
+ * arrive in the order the read model sorts them (by the primary metric), and
+ * this page keeps that order rather than re-sorting on the client; the margin
+ * note says so instead of hiding it.
+ */
 export function LeaderboardPage() {
   const benchmarks = useBenchmarks();
   const [searchParams] = useSearchParams();
@@ -79,14 +88,25 @@ export function LeaderboardPage() {
           : recognition
       : module ? forModule(module) : undefined;
 
+  const boardSummary =
+    module === "vision" && visionView === "overall"
+      ? "Recognition and Clustering together, both from one commit."
+      : benchmark?.summary;
+
   return (
-    <div className="anim-rise mx-auto w-full max-w-3xl py-12">
-      <h1 className="text-3xl">
-        {module === "vision" ? "Vision" : (benchmark?.title ?? "Leaderboard")}
-      </h1>
+    <div className="page anim-rise">
+      <PageHeader
+        eyebrow="Published results"
+        title={module === "vision" ? "Vision" : (benchmark?.title ?? "Leaderboard")}
+        lede="Each team chooses one official run to show the cohort. Read an entry for what the team tried; its numbers sit underneath."
+      />
 
       {/* ── Track switcher ── */}
-      <div role="tablist" aria-label="Benchmark track" className="mt-6 flex gap-6 border-b border-rule">
+      <div
+        role="tablist"
+        aria-label="Benchmark track"
+        className="mt-8 flex gap-1 overflow-x-auto border-b border-rule lg:max-w-[42rem]"
+      >
         {TRACKS.map((track) => {
           const active = module === track.module;
           const available =
@@ -99,15 +119,13 @@ export function LeaderboardPage() {
               role="tab"
               aria-selected={active}
               onClick={() => pick({ module: track.module })}
-              className={`u-pressable relative inline-flex min-h-11 items-center gap-2 px-1 font-mono text-[11.5px] font-medium tracking-[0.09em] uppercase transition-colors duration-150 ${
+              className={`relative inline-flex min-h-11 shrink-0 items-baseline gap-2 px-3 pt-2.5 text-[15px] font-semibold transition-colors duration-150 ${
                 active ? "text-ink" : "text-ink-secondary hover:text-ink"
               }`}
             >
               {track.label}
               {!available && (
-                <span className="text-[9.5px] tracking-[0.08em] text-ink-faint normal-case">
-                  in progress
-                </span>
+                <span className="text-[12px] font-normal text-ink-faint">in progress</span>
               )}
               {active && (
                 <motion.span
@@ -115,7 +133,7 @@ export function LeaderboardPage() {
                   aria-hidden="true"
                   // The accent names the module. Underlining the Language tab
                   // in detector red would say "vision" while reading Language.
-                  className={`absolute inset-x-1 -bottom-px h-0.5 ${MODULE_ACCENT[track.module].tick}`}
+                  className={`absolute inset-x-3 -bottom-px h-[2px] rounded-full ${MODULE_ACCENT[track.module].tick}`}
                   transition={
                     reduce
                       ? { duration: 0 }
@@ -132,7 +150,7 @@ export function LeaderboardPage() {
         <div
           role="tablist"
           aria-label="Vision leaderboard"
-          className="mt-4 flex gap-5"
+          className="mt-4 inline-flex max-w-full gap-0.5 overflow-x-auto rounded-surface border border-rule bg-paper-sunken p-[3px]"
         >
           {(
             [
@@ -149,16 +167,15 @@ export function LeaderboardPage() {
                 role="tab"
                 aria-selected={active}
                 onClick={() => pick({ visionView: value })}
-                className={`u-pressable relative inline-flex min-h-11 items-center px-1 font-mono text-[11px] font-medium tracking-[0.08em] uppercase transition-colors duration-150 ${
+                className={`relative inline-flex min-h-11 shrink-0 items-center rounded-control px-3.5 text-[14px] font-semibold transition-colors duration-150 ${
                   active ? "text-ink" : "text-ink-secondary hover:text-ink"
                 }`}
               >
-                {label}
                 {active && (
                   <motion.span
-                    layoutId="vision-view-underline"
+                    layoutId="vision-view-tab"
                     aria-hidden="true"
-                    className="absolute inset-x-1 bottom-1 h-px bg-detect"
+                    className="absolute inset-0 rounded-control border border-rule bg-paper-raised shadow-[0_1px_2px_rgb(27_31_36/0.08)]"
                     transition={
                       reduce
                         ? { duration: 0 }
@@ -166,13 +183,22 @@ export function LeaderboardPage() {
                     }
                   />
                 )}
+                <span className="relative">{label}</span>
               </button>
             );
           })}
         </div>
       )}
 
-      <div className="mt-6">
+      <Annotated
+        className="mt-6"
+        note="Entries follow the published score, without rank numbers. A few thousandths between two teams says less than what each one tried."
+      >
+        {boardSummary && !benchmarks.isPending && (
+          <p className="mb-4 max-w-[58ch] text-[14.5px] leading-[1.55] text-ink-secondary">
+            {boardSummary}
+          </p>
+        )}
         {benchmarks.isPending ? (
           <LoadingMark />
         ) : benchmarks.isError ? (
@@ -180,11 +206,9 @@ export function LeaderboardPage() {
         ) : module === "vision" && visionView === "overall" ? (
           <OverallStandings />
         ) : !benchmark ? (
-          <div className="border border-rule bg-paper-raised">
-            <EmptyState
-              message={`${TRACKS.find((t) => t.module === module)?.label} is in progress. Standings open when the track is calibrated.`}
-            />
-          </div>
+          <Empty
+            message={`${TRACKS.find((t) => t.module === module)?.label} is in progress. Standings open when the track is calibrated.`}
+          />
         ) : (
           <Standings
             key={benchmark.id}
@@ -193,7 +217,15 @@ export function LeaderboardPage() {
             title={benchmark.title}
           />
         )}
-      </div>
+      </Annotated>
+    </div>
+  );
+}
+
+function Empty({ message }: { message: string }) {
+  return (
+    <div className="rounded-surface border border-rule bg-paper-raised">
+      <EmptyState message={message} />
     </div>
   );
 }
@@ -225,12 +257,12 @@ function Standings({
   return (
     <>
       {!active && entries.length > 0 && (
-        <p className="mb-4 px-4 text-[12.5px] leading-relaxed text-ink-secondary">
-          {title} isn't calibrated for this cohort yet, so nothing new is being scored on
-          it. What the archive holds is below.
+        <p className="mb-4 max-w-[58ch] text-[14.5px] leading-[1.55] text-ink-secondary">
+          {title} isn't calibrated for this cohort yet, so nothing new is being scored on it.
+          What the archive holds is below.
         </p>
       )}
-      <StandingsTable
+      <Gallery
         entries={entries}
         footer={`${benchmark.id} / v${benchmark.version}. One selected official result per team.`}
         empty={
@@ -250,7 +282,7 @@ function OverallStandings() {
     return <QueryError error={board.error} retry={() => void board.refetch()} />;
   }
   return (
-    <StandingsTable
+    <Gallery
       entries={board.data.entries}
       footer="vision-overall / v1. All three components must come from selected official runs at the same repository and commit."
       // "No results published yet" was true of Overall and told the reader
@@ -260,7 +292,7 @@ function OverallStandings() {
   );
 }
 
-function StandingsTable({
+function Gallery({
   entries,
   footer,
   empty = "No official results are published yet. Check again after teams publish their results.",
@@ -269,30 +301,17 @@ function StandingsTable({
   footer: string;
   empty?: string;
 }) {
-  const primaryLabel = entries[0]?.primaryMetric.label ?? "Score";
   const hasArchiveRows = entries.some((entry) => entry.provenance === "archive");
 
-  if (entries.length === 0) {
-    return (
-      <div className="border border-rule bg-paper-raised">
-        <EmptyState message={empty} />
-      </div>
-    );
-  }
+  if (entries.length === 0) return <Empty message={empty} />;
 
   return (
     <>
-      {/* Header row (labels only — the rows carry the semantics) */}
-      <div className={`${ROW_GRID} border-b border-rule px-4 py-2.5`} aria-hidden="true">
-        <span className="u-kicker">Rank</span>
-        <span className="u-kicker">Team</span>
-        <span className="u-kicker text-right">{primaryLabel}</span>
-        <span />
-      </div>
-
-      <ol aria-label="Standings">
+      <ol aria-label="Published results" className="border-t border-rule">
         {entries.map((entry, index) => (
           <EntryRow
+            // An open entry follows its team across a refetch that reorders
+            // the list, so the key is the team's result, not its position.
             key={`${entry.teamName}:${entry.sha}:${entry.completedAt}`}
             entry={entry}
             index={index}
@@ -301,24 +320,29 @@ function StandingsTable({
       </ol>
 
       {hasArchiveRows && (
-        <p className="mt-5 px-4 text-[12.5px] leading-relaxed text-ink-secondary">
-          Archive rows are 2026 teams scored after the course from their repositories as
-          they left them, with names replaced.
+        <p className="mt-5 max-w-[58ch] text-[13.5px] leading-[1.55] text-ink-secondary">
+          Archive entries are 2026 teams scored after the course from their repositories as they
+          left them, with names replaced.
         </p>
       )}
 
-      <p
-        className={`${hasArchiveRows ? "mt-3" : "mt-6"} px-4 font-mono text-[11px] text-ink-faint`}
-      >
+      <p className={`${hasArchiveRows ? "mt-3" : "mt-5"} font-mono text-[12px] text-ink-faint`}>
         {footer}
       </p>
     </>
   );
 }
 
+/**
+ * One team's published result, written like an entry in a specimen book: who,
+ * then what they tried in their own words, then the reading in small mono
+ * type. The rest of the numbers, the commit, and the repository unfold under
+ * it on request, because they are what a curious reader checks second.
+ */
 function EntryRow({ entry, index }: { entry: LeaderboardEntry; index: number }) {
   const [open, setOpen] = useState(false);
   const reduce = useReducedMotion();
+  const detailsId = useId();
   // The board is public, but "you" names the account on screen, which a
   // returning tab has not confirmed yet.
   const revealed = useAccountRevealed();
@@ -326,114 +350,117 @@ function EntryRow({ entry, index }: { entry: LeaderboardEntry; index: number }) 
 
   return (
     <motion.li
-      initial={reduce ? false : { opacity: 0, y: 4 }}
-      animate={{ opacity: 1, y: 0 }}
+      initial={reduce ? false : { opacity: 0, transform: "translateY(4px)" }}
+      animate={{ opacity: 1, transform: "translateY(0px)" }}
       transition={{
         duration: 0.2,
         ease: EASE_OUT,
         delay: reduce ? 0 : Math.min(index, 8) * 0.035,
       }}
-      className={`border-b border-rule-soft ${isYou ? "bg-detect-wash" : ""}`}
+      className="border-b border-rule-soft py-5"
     >
-      <button
-        type="button"
-        aria-expanded={open}
-        aria-controls={`entry-${entry.rank}`}
-        onClick={() => setOpen((v) => !v)}
-        className={`${ROW_GRID} w-full px-4 py-3.5 text-left transition-colors duration-150 hover:bg-paper-sunken/50`}
-      >
-        <span
-          className={`u-tnum font-serif text-lg font-semibold ${
-            entry.rank === 1 ? "text-detect" : "text-ink"
-          }`}
-        >
-          {String(entry.rank).padStart(2, "0")}
-        </span>
-        <span className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
-          <span className="truncate text-[14.5px] font-medium text-ink" title={entry.teamName}>
-            {entry.teamName}
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <h3 className="min-w-0 text-[1.25rem] break-words text-ink">{entry.teamName}</h3>
+        {isYou && (
+          // The one highlighter mark on the page: "you are here".
+          <span className="rounded-[2px] bg-marker px-1.5 text-[12.5px] font-semibold text-ink">
+            Your team
           </span>
-          {entry.provenance === "archive" && (
-            <span className="u-kicker leading-tight">2026 cohort, anonymized</span>
-          )}
-          {isYou && (
-            <span className="shrink-0 bg-detect px-1 py-px font-mono text-[9.5px] font-medium tracking-[0.09em] text-paper-raised">
-              YOU
-            </span>
-          )}
-        </span>
-        <span className="u-tnum text-right font-mono text-[15px] font-medium text-ink">
-          {formatMetricValue(entry.primaryMetric)}
-        </span>
-        <motion.span
-          aria-hidden="true"
-          animate={{ rotate: open ? 180 : 0 }}
-          transition={reduce ? { duration: 0 } : { duration: 0.15, ease: "easeOut" }}
-          className="justify-self-end self-center text-ink-faint"
-        >
-          <HugeiconsIcon icon={ArrowDown01Icon} size={14} strokeWidth={1.8} />
-        </motion.span>
-      </button>
-
-      <AnimatePresence initial={false}>
-        {open && (
-          <motion.div
-            id={`entry-${entry.rank}`}
-            initial={reduce ? { opacity: 1, height: "auto" } : { height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={
-              reduce
-                ? { opacity: 0, transition: { duration: 0 } }
-                : { height: 0, opacity: 0, transition: { duration: 0.16, ease: "easeOut" } }
-            }
-            transition={{ duration: 0.22, ease: EASE_OUT }}
-            className="overflow-hidden"
-          >
-            {/* padding lives on the inner element, not the animated wrapper */}
-            <dl className="grid gap-x-8 gap-y-1.5 px-4 pt-1 pb-4 sm:grid-cols-2 sm:pl-[4.75rem]">
-              {entry.teamDescription && (
-                <div className="sm:col-span-2">
-                  <p className="max-w-prose text-[13px] text-ink-secondary">
-                    {entry.teamDescription}
-                  </p>
-                </div>
-              )}
-              {entry.supportingMetrics.map((m) => (
-                <DetailRow key={m.key} label={m.label} value={formatMetricValue(m)} />
-              ))}
-              {entry.sha && (
-                <DetailRow label="Commit" value={entry.shortSha} title={entry.sha} />
-              )}
-              <DetailRow label="Completed" value={formatDateTime(entry.completedAt)} />
-              {entry.repoUrl && (
-                <div className="flex items-baseline justify-between gap-3 sm:col-span-2 sm:justify-start sm:gap-8">
-                  <dt className="u-kicker">Repository</dt>
-                  <dd>
-                    <a
-                      href={entry.repoUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-1 font-mono text-[12px] text-ink underline decoration-rule underline-offset-4 hover:decoration-ink"
-                    >
-                      {entry.repoUrl.replace("https://github.com/", "")}
-                      <HugeiconsIcon icon={ArrowUpRight01Icon} size={12} strokeWidth={1.8} aria-hidden="true" />
-                    </a>
-                  </dd>
-                </div>
-              )}
-              {/* An archive row withholds its repository on purpose. A live row
-                  without one is a run from before the source was recorded, and
-                  saying so beats leaving a commit with nothing to belong to. */}
-              {!entry.repoUrl && entry.provenance !== "archive" && (
-                <div className="flex items-baseline justify-between gap-3 sm:col-span-2 sm:justify-start sm:gap-8">
-                  <dt className="u-kicker">Repository</dt>
-                  <dd className="font-mono text-[12px] text-ink-secondary">not recorded</dd>
-                </div>
-              )}
-            </dl>
-          </motion.div>
         )}
-      </AnimatePresence>
+        {entry.provenance === "archive" && (
+          <span className="text-[13px] text-ink-faint">2026 cohort, anonymized</span>
+        )}
+      </div>
+      {entry.teamDescription && (
+        <p className="mt-1.5 max-w-[60ch] text-[15px] leading-[1.55] text-ink-secondary">
+          {entry.teamDescription}
+        </p>
+      )}
+
+      <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-1">
+        <span className="u-tnum font-mono text-[13px]">
+          <span className="text-ink-faint">{entry.primaryMetric.label}</span>{" "}
+          <span className="font-medium text-ink">{formatMetricValue(entry.primaryMetric)}</span>
+          <span className="text-ink-faint"> · {shortDate(entry.completedAt)}</span>
+        </span>
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-controls={detailsId}
+          onClick={() => setOpen((v) => !v)}
+          className="u-pressable -ml-2 inline-flex min-h-11 items-center gap-1 rounded-control px-2 text-[13.5px] font-semibold text-ink-secondary transition-colors duration-150 hover:bg-ink/[0.045] hover:text-ink"
+        >
+          {open ? "Hide details" : "Details"}
+          <span className="sr-only"> for {entry.teamName}</span>
+          <motion.span
+            aria-hidden="true"
+            animate={{ rotate: open ? 180 : 0 }}
+            transition={reduce ? { duration: 0 } : { duration: 0.15, ease: EASE_OUT }}
+            className="inline-flex"
+          >
+            <HugeiconsIcon icon={ArrowDown01Icon} size={14} strokeWidth={1.8} />
+          </motion.span>
+        </button>
+      </div>
+
+      <div id={detailsId}>
+        <AnimatePresence initial={false}>
+          {open && (
+            <motion.div
+              initial={reduce ? { opacity: 1, height: "auto" } : { height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={
+                reduce
+                  ? { opacity: 0, transition: { duration: 0 } }
+                  : { height: 0, opacity: 0, transition: { duration: 0.16, ease: EASE_OUT } }
+              }
+              transition={{ duration: 0.22, ease: EASE_OUT }}
+              className="overflow-hidden"
+            >
+              {/* padding lives on the inner element, not the animated wrapper */}
+              <dl className="mt-1 grid max-w-[36rem] gap-x-10 gap-y-1.5 rounded-surface border border-rule-soft bg-paper-raised px-4 py-3.5 sm:grid-cols-2">
+                {entry.supportingMetrics.map((m) => (
+                  <DetailRow key={m.key} label={m.label} value={formatMetricValue(m)} />
+                ))}
+                {entry.sha && (
+                  <DetailRow label="Commit" value={entry.shortSha} title={entry.sha} />
+                )}
+                <DetailRow label="Completed" value={formatDateTime(entry.completedAt)} />
+                {entry.repoUrl && (
+                  <div className="flex items-baseline justify-between gap-3 sm:col-span-2">
+                    <dt className="text-[13.5px] text-ink-secondary">Repository</dt>
+                    <dd className="min-w-0">
+                      <a
+                        href={entry.repoUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex max-w-full items-center gap-1 font-mono text-[13px] text-ink underline decoration-rule-strong underline-offset-4 hover:decoration-ink"
+                      >
+                        <span className="truncate">
+                          {entry.repoUrl.replace("https://github.com/", "")}
+                        </span>
+                        <HugeiconsIcon
+                          icon={ArrowUpRight01Icon}
+                          size={12}
+                          strokeWidth={1.8}
+                          className="shrink-0"
+                          aria-hidden="true"
+                        />
+                      </a>
+                    </dd>
+                  </div>
+                )}
+                {/* An archive row withholds its repository on purpose. A live row
+                    without one is a run from before the source was recorded, and
+                    saying so beats leaving a commit with nothing to belong to. */}
+                {!entry.repoUrl && entry.provenance !== "archive" && (
+                  <DetailRow label="Repository" value="not recorded" />
+                )}
+              </dl>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
     </motion.li>
   );
 }
@@ -449,10 +476,14 @@ function DetailRow({
 }) {
   return (
     <div className="flex items-baseline justify-between gap-3">
-      <dt className="u-kicker">{label}</dt>
-      <dd className="u-tnum font-mono text-[12.5px] text-ink" title={title}>
+      <dt className="text-[13.5px] text-ink-secondary">{label}</dt>
+      <dd className="u-tnum font-mono text-[13px] text-ink" title={title}>
         {value}
       </dd>
     </div>
   );
+}
+
+function shortDate(epochMs: number): string {
+  return new Date(epochMs).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }

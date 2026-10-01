@@ -1,0 +1,76 @@
+import { useEffect, useRef, useState } from "react";
+
+/**
+ * Taking a person off a list, as a text control that arms before it acts.
+ *
+ * ConfirmButton does the same two steps for the page's big decisions; this is
+ * its size for a row in a roster, where a filled 44px button per person would
+ * outweigh the names it sits beside. The first press changes the words to the
+ * consequence ("Confirm, they leave the team") and the second carries it out.
+ * Arming lapses after four seconds, so a click someone walked away from cannot
+ * fire later.
+ *
+ * The control stays the same element through every state, so keyboard focus
+ * never jumps while it arms or works. What happens to focus after the person's
+ * row disappears is the caller's job (`onDone`).
+ */
+export function RemoveButton({
+  label = "Remove",
+  armedLabel,
+  busyLabel = "Removing…",
+  name,
+  armedName,
+  onConfirm,
+  busy = false,
+  disabled = false,
+}: {
+  label?: string;
+  /** The consequence, said in the label itself. */
+  armedLabel: string;
+  busyLabel?: string;
+  /** Accessible name while idle, naming the person: "Remove @ada from the team". */
+  name: string;
+  /** Accessible name while armed: "Confirm removing @ada". */
+  armedName: string;
+  onConfirm: () => void;
+  busy?: boolean;
+  disabled?: boolean;
+}) {
+  const [armed, setArmed] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current);
+    },
+    [],
+  );
+
+  const click = () => {
+    if (!armed) {
+      setArmed(true);
+      timer.current = setTimeout(() => setArmed(false), 4000);
+      return;
+    }
+    if (timer.current) clearTimeout(timer.current);
+    setArmed(false);
+    onConfirm();
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={click}
+      disabled={disabled || busy}
+      aria-label={armed ? armedName : name}
+      aria-live="polite"
+      className={`u-pressable inline-flex min-h-11 shrink-0 items-center rounded-control px-2 text-[13.5px] font-semibold transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-55 ${
+        armed
+          ? "bg-detect-wash text-detect-deep"
+          : "text-ink-secondary hover:bg-ink/[0.045] hover:text-ink"
+      }`}
+    >
+      {busy ? busyLabel : armed ? armedLabel : label}
+    </button>
+  );
+}
