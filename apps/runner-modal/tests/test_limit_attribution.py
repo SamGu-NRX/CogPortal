@@ -239,9 +239,9 @@ class TheBlindSpot(unittest.TestCase):
         """
 
         job = {"runtime": {"timeoutSeconds": 900}}
-        self.assertTrue(TIMED_OUT(job, time.time() - 900, -1, ""))
-        self.assertTrue(TIMED_OUT(job, time.time() - 880, 1, ""))
-        self.assertTrue(TIMED_OUT(job, time.time() - 5, -9, ""))
+        self.assertTrue(TIMED_OUT(job, time.time() - 900, -1))
+        self.assertTrue(TIMED_OUT(job, time.time() - 880, 1))
+        self.assertTrue(TIMED_OUT(job, time.time() - 5, -9))
 
     def test_the_timeout_signal_check_does_not_cover_minus_one_early(self):
         """The exact edge, recorded rather than asserted to be correct.
@@ -255,7 +255,7 @@ class TheBlindSpot(unittest.TestCase):
         """
 
         job = {"runtime": {"timeoutSeconds": 900}}
-        self.assertFalse(TIMED_OUT(job, time.time() - 10, -1, ""))
+        self.assertFalse(TIMED_OUT(job, time.time() - 10, -1))
 
     def test_the_substring_classifier_is_still_the_only_memory_detection(self):
         """A guard, so a real fix removes this test rather than passing beside it.

@@ -38,7 +38,7 @@ Then `PROMOTE`, which belongs to [`promote-to-the-leaderboard.md`](promote-to-th
 
 A failed run replaces the middle of that page with one panel, and everything below the pipeline changes accordingly. There are no metrics, no finding, no promote block, and often no log. Which panel it is depends on whether the run carries a refusal, and the two are alternatives rather than a stack (`RunDetailPage.tsx:174-196`).
 
-**A failure with a traceback** gets the full `FailureCard`: an alert-toned panel labelled `FAILED DURING EVALUATE`, reading top to bottom as one argument. `E-RUNTIME` in a mono chip in the corner. "Your code raised an exception" in serif. Then the explanation: "Evaluation started, but your submission raised an unhandled exception while processing benchmark inputs." Then the runner's own detail in a monospaced block, wrapped rather than truncated. Then `What to do`: "Reproduce with the local practice runner; the traceback excerpt is in the log below. Fix, verify locally, then run practice again before promoting." Then `Reproduce locally` and a copyable `cogworks run --benchmark audio-identification`.
+**A failure with a traceback** gets the full `FailureCard`: an alert-toned panel labelled `FAILED DURING EVALUATE`, reading top to bottom as one argument. `E-RUNTIME` in a mono chip in the corner. "The evaluation stopped on an exception" in serif. Then the explanation: "Your code and the benchmark's run in one process, so the runner can't say whose line raised it. Where it was raised is below." Then the runner's own detail in a monospaced block, wrapped rather than truncated: the exception's class and message, then `at <file>:<line>, in <function>`, and the team's own calling line when the raise was elsewhere. When the run's console would accept a Retry, the card offers it beside the reproduce command, with what it costs. Then `What to do`: "Reproduce with the local practice runner; the traceback excerpt is in the log below. Fix, verify locally, then run practice again before promoting." Then `Reproduce locally` and a copyable `cogworks run --benchmark audio-identification`.
 
 **A failure that is a refusal** gets the `RefusalCard` instead, and the failure card collapses into one line inside it. The card is set like a compiler diagnostic. Its heading is `refused at database`, rendered uppercase, and to its right, in the same baseline row, the collapsed failure: `E-ADAPTER · practice`. Under the heading, the refusal's headline as one plain line. Then a label column nine characters wide with one row per observation the payload actually carries:
 
@@ -218,7 +218,7 @@ The copy comes from a fixed catalog of twelve categories, sharpened per module w
 | `model_cache` | `E-MODEL` | Model cache is not ready |
 | `adapter_missing` | `E-ADAPTER` | Nothing here could be scored |
 | `contract_invalid` | `E-CONTRACT` | Adapter does not satisfy the contract |
-| `student_runtime` | `E-RUNTIME` | Your code raised an exception |
+| `student_runtime` | `E-RUNTIME` | The evaluation stopped on an exception |
 | `timeout` | `E-TIMEOUT` | Evaluation exceeded the time limit |
 | `memory_limit` | `E-MEMORY` | Memory limit exceeded |
 | `output_invalid` | `E-OUTPUT` | Predictions did not match the schema |

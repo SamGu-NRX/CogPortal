@@ -10,11 +10,22 @@ export interface FailureCopy {
   explanation: string;
   action: string;
   reproCommand: string | null;
-  /** Is re-running the same commit meaningful? (plan: retry only when so) */
-  retryable: boolean;
+  /**
+   * What can change the outcome, which decides the run page's next step.
+   *
+   * - "fix": only a new commit can. The runner observed the cause in what the
+   *   submission did (its install, contract, output, time or memory), so the
+   *   card leads with the local reproduction and offers no Retry.
+   * - "retry": the cause was on our side, so the same commit can pass.
+   * - "either": the evaluation raised, and the runner cannot say whose line
+   *   raised it, because team code and benchmark code share one process and
+   *   team code can forge anything that process reports. The card shows where
+   *   it was raised and offers both.
+   */
+  remedy: "fix" | "retry" | "either";
 }
 
-/** Copy can differ per module; codes and retryability are platform facts. */
+/** Copy can differ per module; codes and remedies are platform facts. */
 type FailureOverride = Partial<Pick<FailureCopy, "title" | "explanation" | "action">>;
 
 export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
@@ -26,7 +37,7 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
     action:
       "Confirm the repository is public and the recorded commit is still available.",
     reproCommand: "git clone <your repository url>",
-    retryable: true,
+    remedy: "retry",
   },
   dependency_install: {
     code: "E-INSTALL",
@@ -36,7 +47,7 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
     action:
       "Reproduce locally with the command below, then pin versions that install cleanly under the course constraints and push a new commit.",
     reproCommand: "python -m pip install --constraint constraints.txt .",
-    retryable: false,
+    remedy: "fix",
   },
   data_download: {
     code: "E-DATA",
@@ -46,7 +57,7 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
     action:
       "For a local run, reconnect and run the check below so CogBench can rebuild its cache. For an official run, staff repair the private evaluation volume.",
     reproCommand: "cogworks check --benchmark {benchmark}",
-    retryable: true,
+    remedy: "retry",
   },
   model_cache: {
     code: "E-MODEL",
@@ -56,7 +67,7 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
     action:
       "Run the check below once you're back online so CogBench can refetch it. Official-image failures are repaired by staff.",
     reproCommand: "cogworks check --benchmark {benchmark}",
-    retryable: true,
+    remedy: "retry",
   },
   adapter_missing: {
     code: "E-ADAPTER",
@@ -72,7 +83,7 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
     action:
       "Run the check below. It says how far your code was followed and what the next step was given, in your own function names.",
     reproCommand: "cogworks check --benchmark {benchmark}",
-    retryable: false,
+    remedy: "fix",
   },
   contract_invalid: {
     code: "E-CONTRACT",
@@ -82,17 +93,20 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
     action:
       "Run the local contract check to see exactly which method failed, fix it, and push a new commit.",
     reproCommand: "cogworks test --benchmark {benchmark}",
-    retryable: false,
+    remedy: "fix",
   },
+  // The category is named for the old claim. It now means only that the
+  // evaluation raised: the platform's own replay ran in the same process when
+  // B-44 failed, and this title told that team the crash was theirs.
   student_runtime: {
     code: "E-RUNTIME",
-    title: "Your code raised an exception",
+    title: "The evaluation stopped on an exception",
     explanation:
-      "Evaluation started, but your submission raised an unhandled exception while processing benchmark inputs.",
+      "Your code and the benchmark's run in one process, so the runner can't say whose line raised it. Where it was raised is below.",
     action:
-      "Reproduce with the local runner and use the recorded details to find the exception.",
+      "If it names a file in your repository, reproduce it with the command below. If it names the benchmark's code, running the same commit again is worth a try.",
     reproCommand: "cogworks run --benchmark {benchmark}",
-    retryable: false,
+    remedy: "either",
   },
   timeout: {
     code: "E-TIMEOUT",
@@ -102,7 +116,7 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
     action:
       "Profile a single case locally, then batch the work your adapter repeats and stop re-loading model weights on every call.",
     reproCommand: "cogworks run --benchmark {benchmark}",
-    retryable: false,
+    remedy: "fix",
   },
   memory_limit: {
     code: "E-MEMORY",
@@ -112,7 +126,7 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
     action:
       "Work through the inputs in batches instead of holding them all at once, and release large intermediate arrays.",
     reproCommand: null,
-    retryable: false,
+    remedy: "fix",
   },
   output_invalid: {
     code: "E-OUTPUT",
@@ -122,7 +136,7 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
     action:
       "Validate your output locally with the schema check and correct the prediction shape.",
     reproCommand: "cogworks test --benchmark {benchmark}",
-    retryable: false,
+    remedy: "fix",
   },
   scorer: {
     code: "E-SCORER",
@@ -132,7 +146,7 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
     action:
       "If scoring keeps failing, share the run's details with course staff.",
     reproCommand: null,
-    retryable: true,
+    remedy: "retry",
   },
   provider: {
     code: "E-PROVIDER",
@@ -142,7 +156,7 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
     action:
       "If the run keeps failing, share its details with course staff.",
     reproCommand: null,
-    retryable: true,
+    remedy: "retry",
   },
 };
 

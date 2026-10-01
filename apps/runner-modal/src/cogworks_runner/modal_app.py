@@ -101,6 +101,9 @@ DIAGNOSTIC_LIMIT = 600
 #: put a remainder.
 DETAIL_LIMIT = 240
 
+#: `protocol.ts` caps `sanitizedLog` here, on completed and failed events.
+LOG_LIMIT = 8 * 1024
+
 def _receiver_units(text: str) -> int:
     """What `z.string().max(n)` counts: UTF-16 code units, not code points.
 
@@ -758,6 +761,7 @@ import collections
 import contextlib
 import io
 import json
+import traceback
 import pathlib
 import sys
 from cogbench.plugins import load_benchmark, load_submission
@@ -1015,8 +1019,42 @@ try:
         if len(predictions) != len(inputs):
             raise RuntimeError("Submission returned the wrong number of predictions.")
 except Exception as error:
+    # What raised and where, for the run page. The message alone read
+    # "'NoneType' object is not subscriptable", with no class and no file,
+    # when the line that raised was the benchmark's own replay (B-44), so the
+    # team could not tell it was not theirs. Display only: student code can
+    # forge any of this, which is why the controller never reads it to decide
+    # whose fault the failure was.
+    def _where(frame):
+        path = pathlib.Path(frame.filename)
+        if repo_root is not None and repo_root in path.parents:
+            shown = path.relative_to(repo_root).as_posix()
+        elif "site-packages" in path.parts:
+            last = max(i for i, part in enumerate(path.parts) if part == "site-packages")
+            shown = "/".join(path.parts[last + 1:])
+        else:
+            shown = path.name
+        return "{}:{}, in {}".format(shown, frame.lineno, frame.name)
+
+    # This script's own frames name nothing a reader can open.
+    frames = [frame for frame in traceback.extract_tb(error.__traceback__) if frame.filename != __file__]
+    where = [_where(frames[-1])] if frames else []
+    if repo_root is not None:
+        theirs = [frame for frame in frames if repo_root in pathlib.Path(frame.filename).parents]
+        if theirs and theirs[-1] is not frames[-1]:
+            where.append(_where(theirs[-1]))
+    # The record goes out before the log is written, so nothing about the log
+    # can lose it.
     marker = "COG_ERROR" if owner == "student" else "COG_PLATFORM_ERROR"
-    sys.stderr.write("{}: {}\n".format(marker, str(error)[:500]))
+    sys.stderr.write("{}: {}\n".format(marker, json.dumps({
+        "type": type(error).__name__,
+        "message": str(error)[:500],
+        "where": where,
+    })))
+    # The log a successful run keeps, kept for a failed one too, with the
+    # traceback last so the bounded buffer's tail holds it.
+    buffer.write(traceback.format_exc())
+    pathlib.Path("/tmp/cog-student.log").write_bytes(buffer.value().encode("utf-8", "replace"))
     raise SystemExit(2)
 encoded = json.dumps(predictions).encode("utf-8")
 # 8 MiB was sized when the Week 3 sandbox ran six cases with one retrieval
@@ -1035,7 +1073,9 @@ encoded = json.dumps(predictions).encode("utf-8")
 if len(encoded) > 64 * 1024 * 1024:
     raise RuntimeError("Submission predictions exceed the 64 MiB result limit.")
 pathlib.Path("/tmp/cog-predictions.json").write_bytes(encoded)
-pathlib.Path("/tmp/cog-student.log").write_text(buffer.value(), encoding="utf-8")
+# "replace": printed output can hold a lone surrogate, which strict UTF-8
+# refuses, and Python 3.8's write_text takes no `errors`.
+pathlib.Path("/tmp/cog-student.log").write_bytes(buffer.value().encode("utf-8", "replace"))
 """
 
 
@@ -1658,6 +1698,7 @@ def _evaluate(job: Dict[str, Any], snapshot_id: str, inputs: List[Any]) -> Tuple
         )
         sandbox.filesystem.write_text(json.dumps(inputs), "/tmp/cog-inputs.json")
         sandbox.filesystem.write_text(EVALUATE_SCRIPT, "/tmp/cog-evaluate.py")
+        started = time.time()
         process = sandbox.exec(
             "python",
             "/tmp/cog-evaluate.py",
@@ -1668,16 +1709,12 @@ def _evaluate(job: Dict[str, Any], snapshot_id: str, inputs: List[Any]) -> Tuple
         )
         process.wait()
         if process.returncode != 0:
-            detail = process.stderr.read().decode("utf-8", "replace")[-240:]
-            normalized = detail.lower()
-            category = "output_invalid" if "prediction" in normalized else "student_runtime"
-            raise RunnerFailure(category, "evaluating", detail or "Evaluation failed.", False)
+            raise _evaluation_failure(job, sandbox, process, started)
         predictions = load_predictions(
             sandbox.filesystem.read_text("/tmp/cog-predictions.json")
         )
         _collect_wiring(sandbox)
-        log = sandbox.filesystem.read_text("/tmp/cog-student.log")
-        return list(predictions), log[: job["runtime"]["maxOutputBytes"]]
+        return list(predictions), sandbox.filesystem.read_text("/tmp/cog-student.log")
     except RunnerFailure:
         raise
     except Exception as error:
@@ -1720,6 +1757,7 @@ def _evaluate_v2(
         )
         sandbox.filesystem.write_bytes(payload, "/tmp/cog-v2-payload.zip")
         sandbox.filesystem.write_text(EVALUATE_SCRIPT, "/tmp/cog-evaluate.py")
+        started = time.time()
         process = sandbox.exec(
             "python",
             "/tmp/cog-evaluate.py",
@@ -1730,17 +1768,7 @@ def _evaluate_v2(
         )
         process.wait()
         if process.returncode != 0:
-            stderr_text = process.stderr.read().decode("utf-8", "replace")
-            detail = _last_error_line(stderr_text)
-            # No platform-fault branch here, deliberately. See
-            # _platform_owned_evaluation_failure below: anything this process
-            # writes after it imports student code is student speech, and the
-            # conditions a marker used to report are already verified by the
-            # controller before the sandbox starts.
-            # Not "contract_invalid" derived from the message text either: the
-            # contract check already ran during prepare, so a failure here is
-            # the submission's.
-            raise RunnerFailure("student_runtime", "evaluating", detail, False)
+            raise _evaluation_failure(job, sandbox, process, started)
         predictions = load_predictions(
             sandbox.filesystem.read_text("/tmp/cog-predictions.json")
         )
@@ -1753,7 +1781,7 @@ def _evaluate_v2(
         # wrote is only ever visible inside this call, so that is where it is
         # checked. See `restore_v2_predictions` for what the coercion costs.
         predictions = restore_v2_predictions(list(predictions), plans)
-        return predictions, log[: job["runtime"]["maxOutputBytes"]]
+        return predictions, log
     except RunnerFailure:
         raise
     except Exception as error:
@@ -1807,32 +1835,14 @@ def _evaluate_week3(
         )
         process.wait()
         if process.returncode != 0:
-            stderr_text = process.stderr.read().decode("utf-8", "replace")
-            detail = _last_error_line(stderr_text)
-            # No platform-fault branch. _week3_cases already decoded and
-            # validated the same artifacts in this process, before the sandbox
-            # ran. See _platform_owned_evaluation_failure.
-            # Not "contract_invalid" derived from the message text either: the
-            # contract check already ran during prepare, so a failure here is
-            # the submission's.
-            if _timed_out(job, started, process.returncode, stderr_text):
-                raise RunnerFailure(
-                    "timeout",
-                    "evaluating",
-                    "Evaluation ran past its {} second budget and was stopped. "
-                    "Every song has to be enrolled and every query answered inside "
-                    "that window; a database that is re-read or rewritten once per "
-                    "song or per query grows with the catalog and will not "
-                    "fit.".format(job["runtime"]["timeoutSeconds"]),
-                    False,
-                )
-            raise RunnerFailure("student_runtime", "evaluating", detail, False)
+            # _week3_cases already decoded and validated the same artifacts
+            # in this process, before the sandbox ran.
+            raise _evaluation_failure(job, sandbox, process, started)
         predictions = load_predictions(
             sandbox.filesystem.read_text("/tmp/cog-predictions.json")
         )
         _collect_wiring(sandbox)
-        log = sandbox.filesystem.read_text("/tmp/cog-student.log")
-        return list(predictions), log[: job["runtime"]["maxOutputBytes"]]
+        return list(predictions), sandbox.filesystem.read_text("/tmp/cog-student.log")
     except RunnerFailure:
         raise
     except Exception as error:
@@ -1889,31 +1899,22 @@ def _evaluate_week1(
         )
         process.wait()
         if process.returncode != 0:
-            stderr_text = process.stderr.read().decode("utf-8", "replace")
-            detail = _last_error_line(stderr_text)
-            # No platform-fault branch. _week1_cases renders the same corpus
-            # from the same seeds in this process and verifies it against the
-            # same pinned digests, before the sandbox starts, so a corpus
-            # fault is caught there by a party the submission cannot reach.
-            # See _platform_owned_evaluation_failure.
-            if _timed_out(job, started, process.returncode, stderr_text):
-                raise RunnerFailure(
-                    "timeout",
-                    "evaluating",
-                    "Evaluation ran past its {} second budget and was stopped. "
-                    "Every song has to be enrolled and every query answered inside "
-                    "that window; a database that is re-read or rewritten once per "
-                    "song or per query grows with the catalog and will not "
-                    "fit.".format(job["runtime"]["timeoutSeconds"]),
-                    False,
-                )
-            raise RunnerFailure("student_runtime", "evaluating", detail, False)
+            # _week1_cases renders the same corpus from the same seeds in this
+            # process and verifies it against the same pinned digests, before
+            # the sandbox starts, so a corpus fault is caught there by a party
+            # the submission cannot reach.
+            raise _evaluation_failure(
+                job, sandbox, process, started,
+                # Measured on carti4ce/week1_capstone; see `_timed_out`.
+                "Every song has to be enrolled and every query answered inside "
+                "that window; a database that is re-read or rewritten once per "
+                "song or per query grows with the catalog and will not fit.",
+            )
         predictions = load_predictions(
             sandbox.filesystem.read_text("/tmp/cog-predictions.json")
         )
         _collect_wiring(sandbox)
-        log = sandbox.filesystem.read_text("/tmp/cog-student.log")
-        return list(predictions), log[: job["runtime"]["maxOutputBytes"]]
+        return list(predictions), sandbox.filesystem.read_text("/tmp/cog-student.log")
     except RunnerFailure:
         raise
     except Exception as error:
@@ -1928,6 +1929,41 @@ def _evaluate_week1(
     finally:
         if sandbox is not None:
             sandbox.terminate()
+
+
+def _evaluation_failure(
+    job: Dict[str, Any], sandbox: Any, process: Any, started: float, timeout_advice: str = ""
+) -> RunnerFailure:
+    """The failure for an evaluation process that exited nonzero, in every lane.
+
+    One function because each lane used to carry its own copy, and the Week 2
+    copy never checked the clock, so a vision run killed at its budget was
+    reported as an exception (B-11).
+
+    Only two outcomes, and no platform-fault branch: see
+    `_platform_owned_evaluation_failure`. A timeout is decided from elapsed
+    time and the return code. Anything else is `student_runtime`, the
+    category for "the evaluation raised", which the portal words without
+    claiming whose code it was, because nothing here can establish that.
+    """
+
+    if _timed_out(job, started, process.returncode):
+        return RunnerFailure(
+            "timeout",
+            "evaluating",
+            "Evaluation ran past its {} second budget and was stopped. {}".format(
+                job["runtime"]["timeoutSeconds"], timeout_advice
+            ).strip(),
+            False,
+        )
+    try:
+        # Written by the sandbox's own failure handler; absent when the
+        # process was killed or exited before reaching it.
+        log = sandbox.filesystem.read_text("/tmp/cog-student.log")
+    except Exception:
+        log = None
+    detail = _last_error_line(process.stderr.read().decode("utf-8", "replace"))
+    return RunnerFailure("student_runtime", "evaluating", detail, False, log=log)
 
 
 def _platform_owned_evaluation_failure() -> None:
@@ -1976,7 +2012,7 @@ def _platform_owned_evaluation_failure() -> None:
     """
 
 
-def _timed_out(job: Dict[str, Any], started: float, returncode: int, stderr_text: str) -> bool:
+def _timed_out(job: Dict[str, Any], started: float, returncode: int) -> bool:
     """Whether the sandbox killed the process for exceeding its wall clock.
 
     Modal enforces the sandbox timeout by killing the process, and a killed
@@ -1998,19 +2034,19 @@ def _timed_out(job: Dict[str, Any], started: float, returncode: int, stderr_text
     budget = float(job["runtime"]["timeoutSeconds"])
     if time.time() - started >= budget * 0.95:
         return True
-    if returncode in (-9, 137, -15, 143):
-        return True
-    # Last resort only: this reads student-influenced text, so it is checked
-    # after the two signals a submission cannot forge.
-    return "killed" in stderr_text.lower()[-200:]
+    # No stderr check. A third rung read "killed" near the end of stderr,
+    # which the submission writes, and once every lane shared this check a
+    # fast `raise RuntimeError("killed")` was reported as a timeout.
+    return returncode in (-9, 137, -15, 143)
 
 
 def _last_error_line(value: str) -> str:
     """The one sentence worth showing, out of a sandbox's stderr.
 
     Two shapes arrive here. The evaluate script marks its own failures with
-    `COG_ERROR:`, having already decided what a student should read. The
-    prepare script does not: it raises, and Python prints a traceback.
+    `COG_ERROR:` and a JSON record of the exception's class, message and
+    where it was raised. The prepare script does not: it raises, and Python
+    prints a traceback.
 
     For a traceback, the message is the final line that is not indented and
     not a `File "..."` frame -- `RuntimeError: No adapter found in ...`. Taking
@@ -2025,7 +2061,33 @@ def _last_error_line(value: str) -> str:
 
     stripped = lines[-1].strip()
     if stripped.startswith("COG_ERROR:"):
-        return _fit(stripped[len("COG_ERROR:"):].strip(), DETAIL_LIMIT)
+        marked = stripped[len("COG_ERROR:"):].strip()
+        try:
+            record = json.loads(marked)
+        except ValueError:
+            record = None
+        if not isinstance(record, dict):
+            # Student code shares this pipe, so the last line can be anything.
+            return _fit(marked, DETAIL_LIMIT)
+        # Student code can write this line, so any shape can arrive. A
+        # malformed one must not raise: the lane's handler would then report
+        # the platform as the cause.
+        places = record.get("where")
+        where = [p for p in places if isinstance(p, str) and p][:2] if isinstance(places, list) else []
+        located = "\n".join(
+            _fit(("at " if index == 0 else "called from ") + place, 100)
+            for index, place in enumerate(where)
+        )
+        # The class stays here, unlike in a prepare traceback below: this one
+        # was raised while evaluating, and `TypeError` against `KeyError` is
+        # half of what the reader needs.
+        kind, message = str(record.get("type") or ""), str(record.get("message") or "")
+        said = "{}: {}".format(kind, message) if kind and message else kind or message
+        if not located:
+            return _fit(said, DETAIL_LIMIT)
+        # The place is budgeted first: a long message is cut before the line
+        # that says which file to open.
+        return _fit(said, DETAIL_LIMIT - _receiver_units(located) - 1) + "\n" + located
 
     # Walk back to the last unindented line: Python puts `Type: message`
     # there, and every traceback frame above it is indented.
@@ -2039,6 +2101,25 @@ def _last_error_line(value: str) -> str:
             if text and not text.startswith("Traceback"):
                 return _fit(text, DETAIL_LIMIT)
     return "The student process exited before producing a valid result."
+
+
+def _wire_log(job: Dict[str, Any], log: Optional[str]) -> Optional[str]:
+    """A practice run's log as the event carries it; official runs send none.
+
+    Bounded in the receiver's units. A slice by code points let an astral
+    character count twice against `protocol.ts`'s cap, which answers 400 and
+    loses the whole terminal event rather than the end of the log.
+    """
+
+    if job["mode"] != "practice" or log is None:
+        return None
+    if _receiver_units(log) <= LOG_LIMIT:
+        return log
+    # Head and tail, as the sandbox's buffer keeps them: a failed run's
+    # traceback is at the end, and a prefix alone dropped it.
+    marker = "\n[log shortened to fit]\n"
+    half = (LOG_LIMIT - len(marker)) // 2
+    return _take_units(log, half)[0] + marker + _take_units(log[::-1], half)[0][::-1]
 
 
 def _primary_for_run(benchmark) -> str:
@@ -2318,6 +2399,7 @@ def execute_job(job_value: Dict[str, Any]) -> None:
             category = "provider"
             failure_phase = phase
             infrastructure = True
+        log = error.log if isinstance(error, RunnerFailure) else None
         failed = reporter.build(
             "failed",
             failure={
@@ -2327,6 +2409,7 @@ def execute_job(job_value: Dict[str, Any]) -> None:
                 "infrastructure": infrastructure,
                 **({"refusal": refusal} if refusal else {}),
             },
+            sanitizedLog=_wire_log(job, log),
         )
         print("run failed: {}".format(detail), file=sys.stderr)
         _finish(job, {"status": "failed", "event": failed, "delivered": False}, "failed")
@@ -2354,7 +2437,7 @@ def execute_job(job_value: Dict[str, Any]) -> None:
         preparedArtifactId=snapshot_id,
         preparedEnvironment=prepared_environment,
         environmentDigest=environment_digest,
-        sanitizedLog=student_log if job["mode"] == "practice" else None,
+        sanitizedLog=_wire_log(job, student_log),
     )
     _finish(job, {"status": "completed", "event": completed, "delivered": False}, "completed")
 

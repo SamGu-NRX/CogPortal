@@ -180,35 +180,23 @@ class TimeoutAttribution(unittest.TestCase):
     def test_elapsed_at_the_budget_is_a_timeout(self):
         job = self._job(900)
         started = time.time() - 999
-        self.assertTrue(TIMED_OUT(job, started, 1, ""))
+        self.assertTrue(TIMED_OUT(job, started, 1))
 
     def test_sigkill_is_a_timeout_even_slightly_early(self):
         job = self._job(900)
         started = time.time() - 500
-        self.assertTrue(TIMED_OUT(job, started, -9, ""))
-        self.assertTrue(TIMED_OUT(job, started, 137, ""))
+        self.assertTrue(TIMED_OUT(job, started, -9))
+        self.assertTrue(TIMED_OUT(job, started, 137))
 
     def test_a_fast_crash_is_not_a_timeout(self):
         """The case this must never swallow: a real student exception."""
 
         job = self._job(900)
         started = time.time() - 12
-        self.assertFalse(
-            TIMED_OUT(job, started, 1, "ValueError: bad shape\n")
-        )
+        self.assertFalse(TIMED_OUT(job, started, 1))
 
-    def test_a_submission_cannot_claim_a_timeout_by_printing_one(self):
-        """`killed` in stderr is checked last and only near the end.
-
-        A team that raises RuntimeError("killed") early must still be charged
-        for a crash, or the word becomes a way to relabel a bug.
-        """
-
-        job = self._job(900)
-        started = time.time() - 5
-        self.assertFalse(
-            TIMED_OUT(job, started, 1, "RuntimeError: killed\n" + "x" * 400)
-        )
+    # A submission printing "killed" can no longer claim a timeout: stderr is
+    # not an input. test_evaluation_failure drives that through every lane.
 
 
 def _last_error_line_function():
@@ -223,7 +211,7 @@ def _last_error_line_function():
     ]
     if len(nodes) != len(wanted):
         raise AssertionError("expected {} in modal_app".format(", ".join(wanted)))
-    namespace = {"DETAIL_LIMIT": 240}
+    namespace = {"DETAIL_LIMIT": 240, "json": __import__("json")}
     exec(compile(ast.Module(nodes, []), "<modal_app>", "exec"), namespace)
     return namespace["_last_error_line"]
 

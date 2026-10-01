@@ -254,6 +254,7 @@ async function applyEvent(env: AppEnv["Bindings"], event: RunEventV1): Promise<v
         failurePhase: event.failure.phase,
         failureDetail: event.failure.detail,
         refusalJson: event.failure.refusal ? JSON.stringify(event.failure.refusal) : null,
+        log: run.mode === "practice" ? event.sanitizedLog ?? null : null,
         failureConsumedAttempt: false,
         lastEventSequence: event.sequence,
       }).where(active),

@@ -474,6 +474,22 @@ test("contract-check provider failure settles only its execution and a late comp
   assert.equal(accounting.activeRuns, 0);
 });
 
+for (const mode of ["practice", "official"] as const) {
+  test(`a failed ${mode} evaluation keeps its log only when a practice run would`, async () => {
+    const { db, binding } = freshHarness();
+    await seedRun(db, { mode });
+    const failure = { ...infrastructureFailureEvent(), sanitizedLog: "predicting 3 inputs\nTraceback ...\n", failure: {
+      category: "student_runtime", phase: "evaluating", infrastructure: false,
+      detail: "TypeError: 'NoneType' object is not subscriptable\nat cogbench/pipeline.py:834, in replay",
+    } };
+    assert.equal((await post(route(), binding, failure)).status, 200);
+    const [failed] = await db.select().from(runs);
+    assert.equal(failed.status, "failed");
+    assert.equal(failed.failureDetail, failure.failure.detail);
+    assert.equal(failed.log, mode === "practice" ? failure.sanitizedLog : null);
+  });
+}
+
 /** A failure that is ours, so the attempt goes back. */
 function infrastructureFailureEvent() {
   return {

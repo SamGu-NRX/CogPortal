@@ -280,6 +280,13 @@
               }
             }
           }
+        },
+        "sanitizedLog": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 8192
         }
       }
     }

@@ -396,7 +396,7 @@ function LeadRun({
             </p>
           )}
           {run.failure?.detail && (
-            <p className="mt-2 font-mono text-[13px] break-words text-detect-deep">{run.failure.detail}</p>
+            <p className="mt-2 font-mono text-[13px] break-words whitespace-pre-line text-detect-deep">{run.failure.detail}</p>
           )}
           {summary?.detail && (
             <p className="mt-2 max-w-[58ch] text-[14px] leading-[1.6] text-ink-secondary">{summary.detail}</p>

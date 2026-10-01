@@ -92,13 +92,11 @@ export const FIXTURE_SCENARIOS: FixtureScenario[] = [
       kind: "failed",
       category: "student_runtime",
       phase: "evaluating",
-      detail:
-        "TypeError: 'NoneType' object is not subscriptable (recognize() at faces.py:87, case 041).",
+      // The runner's shape: class and message, then where it was raised.
+      detail: "TypeError: 'NoneType' object is not subscriptable\nat faces.py:87, in recognize",
       detailByBenchmark: {
-        "language-search":
-          "KeyError: 'zamboni' (embed_text() at search.py:52, caption 041 has an out-of-vocabulary word).",
-        "vision-clustering":
-          "TypeError: 'NoneType' object is not subscriptable (cluster() at faces.py:87, scenario 04).",
+        "language-search": "KeyError: 'zamboni'\nat search.py:52, in embed_text",
+        "vision-clustering": "TypeError: 'NoneType' object is not subscriptable\nat faces.py:87, in cluster",
       },
     },
   },
