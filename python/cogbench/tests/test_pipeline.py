@@ -1082,6 +1082,48 @@ class OnePartOfEachItemsResult(unittest.TestCase):
 
         self.assertIsNone(candidate.element)
 
+    # Bagel's `file_descriptors` returns None for a photo its detector finds
+    # no face in. Hosted run run_f5fc5babe5 failed in Evaluate with "'NoneType'
+    # object is not subscriptable" after the step bound on element 2.
+    _NO_FACE = (
+        "def describe(one):\n"
+        "    if one == 0:\n"
+        "        return None\n"
+        "    if one < 0:\n"
+        "        return ('box',)\n"
+        "    return ('box', 0.9, [float(one)])\n"
+    )
+
+    def _bound_on_element_2(self):
+        stage = Stage(
+            "d",
+            produces=lambda v: isinstance(v, list) and isinstance(v[0], list),
+            per_item=True,
+        )
+        module = _written("theirs", self._NO_FACE)
+        (candidate, _value), = probe_sources(stage, callables_in([module]), ([1, 2],))
+        self.assertEqual(candidate.element, 2)
+        return candidate
+
+    def test_an_item_that_answered_none_stays_none_beside_real_parts(self):
+        # None is their "no face here", and the benchmark's describe reader
+        # interprets it; projecting it would raise before that reader runs.
+        candidate = self._bound_on_element_2()
+
+        self.assertEqual(candidate.bound([1, 0, 2]), [[1.0], None, [2.0]])
+
+    def test_a_tuple_without_the_bound_part_still_raises(self):
+        candidate = self._bound_on_element_2()
+
+        with self.assertRaises(IndexError):
+            candidate.bound([1, -1])
+
+    def test_a_function_that_answers_none_for_every_item_does_not_bind(self):
+        module = _written("theirs", self._NO_FACE)
+        stage = Stage("d", produces=lambda v: isinstance(v, list), per_item=True)
+
+        self.assertEqual(probe_sources(stage, callables_in([module]), ([0, 0],)), [])
+
 
 class TheItemsOwnName(unittest.TestCase):
     """P6. Week 2's Bagel writes `Whispers(vectors, names, threshold)`, where
