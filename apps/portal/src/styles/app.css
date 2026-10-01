@@ -75,6 +75,9 @@
   html {
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
+    /* Shell sets the sticky header's measured height; the extra 0.75rem
+       clears the focus ring's 3px offset with room to spare. */
+    scroll-padding-top: calc(var(--shell-header-height, 0px) + 0.75rem);
   }
 
   body {

@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes } from "react";
+import type { ButtonHTMLAttributes, MouseEvent } from "react";
 
 type Variant = "primary" | "official" | "ghost" | "quiet";
 
@@ -7,9 +7,9 @@ type Variant = "primary" | "official" | "ghost" | "quiet";
 export function buttonClass(variant: Variant = "primary", className = "") {
   const variants: Record<Variant, string> = {
     primary:
-      "bg-ink text-paper-raised hover:bg-ink/85 disabled:not-data-busy:bg-ink/35 aria-disabled:bg-ink/35",
+      "bg-ink text-paper-raised hover:bg-ink/85 disabled:not-data-busy:bg-ink/35 aria-disabled:not-data-busy:bg-ink/35",
     official:
-      "bg-detect text-paper-raised hover:bg-detect-deep disabled:not-data-busy:bg-detect/40 aria-disabled:bg-detect/40",
+      "bg-detect text-paper-raised hover:bg-detect-deep disabled:not-data-busy:bg-detect/40 aria-disabled:not-data-busy:bg-detect/40",
     ghost:
       "border border-rule-strong bg-paper-raised text-ink hover:border-ink disabled:not-data-busy:border-rule disabled:not-data-busy:text-ink-faint",
     quiet:
@@ -25,24 +25,36 @@ export function buttonClass(variant: Variant = "primary", className = "") {
  *
  * `busy` keeps the button's color and label and adds a pulse, so a pending
  * action still says what it is doing. A grey, empty button reads as broken.
+ * It is aria-disabled rather than disabled because the browser blurs a
+ * focused button the moment it becomes disabled, dropping a keyboard user
+ * at the top of the page. Clicks are swallowed instead, which also cancels
+ * a form submit, so a second Enter or Space can't send the action twice.
  */
 export function Button({
   variant = "primary",
   busy = false,
   className = "",
   children,
-  disabled,
+  onClick,
   ...rest
 }: ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: Variant;
   busy?: boolean;
 }) {
+  const click = (event: MouseEvent<HTMLButtonElement>) => {
+    if (busy) {
+      event.preventDefault();
+      return;
+    }
+    onClick?.(event);
+  };
   return (
     <button
       {...rest}
-      disabled={disabled || busy}
+      onClick={click}
+      aria-disabled={busy || rest["aria-disabled"] || undefined}
       aria-busy={busy || undefined}
-      className={`${buttonClass(variant, className)} ${busy ? "disabled:cursor-progress" : ""}`}
+      className={`${buttonClass(variant, className)} ${busy ? "cursor-progress" : ""}`}
       data-busy={busy || undefined}
     >
       {busy && (

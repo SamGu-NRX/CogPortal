@@ -1,4 +1,5 @@
-import { Link, NavLink, Outlet, useLocation } from "react-router";
+import { useLayoutEffect, useRef } from "react";
+import { Link, NavLink, Outlet, useLocation, useNavigationType } from "react-router";
 import { nextStagePath } from "@/App";
 import { AccountSlot, Concealed } from "@/components/RestoreGate";
 import { UserMenu } from "@/components/UserMenu";
@@ -37,6 +38,43 @@ function Tab({ to, children, also = [] }: { to: string; children: string; also?:
   );
 }
 
+/** BrowserRouter keeps the previous page's offset, so without this a link
+ *  near the foot of one page opens the next at its foot. Back and Forward
+ *  keep the browser's restored offset, and a same-page URL change (a wizard
+ *  step, a consumed query param) stays put. This renders ahead of the page,
+ *  so a page that scrolls to its own target, as Setup does for `#step-…`,
+ *  still wins. */
+export function ScrollToTopOnNavigate() {
+  const { pathname } = useLocation();
+  const navigationType = useNavigationType();
+  useLayoutEffect(() => {
+    if (navigationType !== "POP") window.scrollTo(0, 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only a new pathname is a new page
+  }, [pathname]);
+  return null;
+}
+
+/** Publishes the sticky header's real height (two rows below md, more when a
+ *  long login wraps it) for `scroll-padding-top`, so a control focused near
+ *  the top scrolls clear of the header instead of under it. */
+function useHeaderOffset() {
+  const header = useRef<HTMLElement>(null);
+  useLayoutEffect(() => {
+    const element = header.current;
+    if (!element) return;
+    const root = document.documentElement;
+    const publish = () => root.style.setProperty("--shell-header-height", `${element.offsetHeight}px`);
+    publish();
+    const observer = new ResizeObserver(publish);
+    observer.observe(element, { box: "border-box" });
+    return () => {
+      observer.disconnect();
+      root.style.removeProperty("--shell-header-height");
+    };
+  }, []);
+  return header;
+}
+
 /**
  * The frame every page sits in. A team member's own places are tabs in plain
  * view (their runs, the setup guide, the team), because a student looking for
@@ -54,6 +92,7 @@ export function Shell() {
   // Staff run the console without a team, so "Get started" would send them
   // to create one they don't need.
   const onboarding = Boolean(session?.user && !team && !isStaff);
+  const header = useHeaderOffset();
 
   const tabs = (
     <>
@@ -72,6 +111,7 @@ export function Shell() {
 
   return (
     <div className="flex min-h-dvh flex-col">
+      <ScrollToTopOnNavigate />
       <a
         href="#main"
         className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:rounded-control focus:bg-ink focus:px-3 focus:py-2 focus:text-paper-raised"
@@ -79,7 +119,7 @@ export function Shell() {
         Skip to content
       </a>
 
-      <header className="sticky top-0 z-40 border-b border-rule pt-[env(safe-area-inset-top)] bg-paper/88 backdrop-blur-[6px] supports-[not(backdrop-filter:blur(1px))]:bg-paper">
+      <header ref={header} className="sticky top-0 z-40 border-b border-rule pt-[env(safe-area-inset-top)] bg-paper/88 backdrop-blur-[6px] supports-[not(backdrop-filter:blur(1px))]:bg-paper">
         <div className="u-gutter mx-auto flex min-h-16 w-full max-w-[70rem] flex-wrap items-center gap-x-6">
           <div className="flex min-w-0 flex-1 items-center gap-3 md:flex-none">
             <Wordmark />
