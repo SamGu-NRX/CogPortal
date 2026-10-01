@@ -546,15 +546,15 @@ export function RunConsole({
             <dt className="text-ink-faint">Workspace</dt><dd>{snapshot.dirty ? "Uncommitted changes" : "Clean"}</dd>
           </dl>
           {/* The server refuses these for a run that is not about the connected
-              repository, or whose saved environment can no longer be reused, so
-              the buttons are gone. Saying why beats a panel that quietly lost
-              its controls. One sentence: the source answer comes first on the
-              server, so it is the one that applies. */}
-          {(snapshot.sourceRefusal ?? snapshot.promotionRefusal) && (
-            <p className="mt-4 max-w-prose text-[13px] leading-relaxed text-ink-secondary">
-              {snapshot.sourceRefusal ?? snapshot.promotionRefusal}
-            </p>
-          )}
+              repository, whose saved environment can no longer be reused, or
+              that can't stand on the current leaderboard, so the buttons are
+              gone. Saying why beats a panel that quietly lost its controls.
+              One sentence: the source answer comes first on the server, so it
+              is the one that applies. Kept mounted as a polite status region,
+              so a reason that arrives with a live snapshot is announced. */}
+          <p role="status" className="max-w-prose text-[13px] leading-relaxed text-ink-secondary [&:not(:empty)]:mt-4">
+            {snapshot.sourceRefusal ?? snapshot.promotionRefusal ?? snapshot.publicationRefusal}
+          </p>
           <div className="mt-6 grid gap-2">
             {/* A failed or silent local run offers Run again in the header. */}
             {snapshot.actions.filter((action) => !failed && !silent && ACTION_COPY[action]).map((action) => (

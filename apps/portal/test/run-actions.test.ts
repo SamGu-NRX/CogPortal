@@ -437,6 +437,9 @@ async function seedOfficial(
       consumed: true,
       claimedAt: NOW + 1_000,
     });
+    // A scored official run carries the measure its leaderboard ranks.
+    await db.insert(runMetrics).values({ runId, key: "accuracy", label: "Accuracy",
+      value: 0.8, unit: null, higherIsBetter: true, isPrimary: true, precision: 2 });
   }
   return runId;
 }
@@ -1452,6 +1455,8 @@ test("a hosted console pairs its current stage's source and commit without borro
   assert.ok(legacyHosted.actions.includes("promote_official"));
   assert.ok(legacyHosted.actions.includes("rerun_hosted"));
   await db.update(runs).set({ mode: "official" }).where(eq(runs.id, PRACTICE_RUN_ID));
+  await db.insert(runMetrics).values({ runId: PRACTICE_RUN_ID, key: "accuracy", label: "Accuracy",
+    value: 0.8, unit: null, higherIsBetter: true, isPrimary: true, precision: 2 });
   const legacyOfficial = await buildRunSurfaceSnapshot(env(binding, "modal"), SURFACE_ID);
   assert.equal(legacyOfficial.stage, "official");
   assert.equal(legacyOfficial.sourceRefusal, null);
@@ -1927,6 +1932,8 @@ test("publishing notifies every official console in scope, including the previou
   for (const [id, version] of [[otherSurface, 1], [thirdSurface, 1], [excludedSurface, 2]] as const) {
     await db.insert(runSurfaces).values({ ...surface, id, benchmarkVersion: version });
     await db.insert(runs).values({ ...first, id: `run_${id}`, surfaceId: id, benchmarkVersion: version, attemptNumber: null });
+    await db.insert(runMetrics).values({ runId: `run_${id}`, key: "accuracy", label: "Accuracy",
+      value: 0.8, unit: null, higherIsBetter: true, isPrimary: true, precision: 2 });
   }
   const runtime = env(binding, "modal");
   const hubs = runSurfaceHubs(runtime);
@@ -2192,4 +2199,78 @@ test("a truncated payload is the same cache miss", async (t) => {
   assert.equal(warned.length, 1);
   assert.equal(warned[0].reason, "malformed_json");
   assert.deepEqual(warned[0].fields, []);
+});
+
+test("a result without the ranked measure stays readable everywhere and is never called published", async () => {
+  // The catalog ranks "accuracy". This official run reported only a partial
+  // reading and flagged it primary, the way a Language run without overall
+  // flags text MRR. A selection of it was stored before publication checked.
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  // The migrated catalog carries newer versions; the dashboard reads the newest active one.
+  await db.update(benchmarks).set({ active: false }).where(and(eq(benchmarks.id, BENCHMARK_ID), ne(benchmarks.version, 1)));
+  const officialId = await seedOfficial(db, "succeeded");
+  await db.delete(runMetrics).where(eq(runMetrics.runId, officialId));
+  await db.insert(runMetrics).values({ runId: officialId, key: "top1", label: "Top-1", value: 0.99,
+    unit: null, higherIsBetter: true, isPrimary: true, precision: 2 });
+  await db.insert(leaderboardSelections).values({
+    teamId: "team_test", benchmarkId: BENCHMARK_ID, benchmarkVersion: 1, runId: officialId, selectedAt: NOW,
+  });
+  // The team best compares like with like: the ranked measure, current scorer.
+  const [official] = await db.select().from(runs).where(eq(runs.id, officialId));
+  for (const [id, key, value, scorerVersion] of [
+    ["run_best", "accuracy", 0.6, "1"],
+    ["run_other_measure", "top1", 0.97, "1"],
+    ["run_old_scorer", "accuracy", 0.95, "0"],
+  ] as const) {
+    await db.insert(runs).values({ ...official, id, surfaceId: null, attemptNumber: null, scorerVersion });
+    await db.insert(runMetrics).values({ runId: id, key, label: key, value,
+      unit: null, higherIsBetter: true, isPrimary: true, precision: 2 });
+  }
+  const selections = await db.select().from(leaderboardSelections);
+  const { app, runtime, cookie } = await authenticatedPromotion(db, binding);
+  const reason = /ranks teams by "accuracy", and this run didn't report it/;
+
+  const snapshot = await buildRunSurfaceSnapshot(runtime, SURFACE_ID);
+  assert.deepEqual([snapshot.stage, snapshot.published], ["official", false]);
+  assert.ok(!snapshot.actions.includes("publish_result"));
+  assert.match(snapshot.publicationRefusal ?? "", reason);
+  assert.deepEqual([snapshot.primaryMetric?.key, snapshot.primaryMetric?.value], ["top1", 0.99]);
+  assert.deepEqual([snapshot.teamBest?.key, snapshot.teamBest?.value], ["accuracy", 0.6]);
+
+  await assert.rejects(publishOfficialRun(runtime, actor, officialId), (error: unknown) => {
+    assert.ok(error instanceof ApiHttpError);
+    assert.equal(error.code, "not_selectable");
+    assert.match(error.message, reason);
+    return true;
+  });
+  assert.deepEqual(await db.select().from(leaderboardSelections), selections);
+
+  const read = async (path: string) => {
+    const response = await app.fetch(new Request(`http://localhost:5173${path}`, { headers: { cookie } }), runtime);
+    assert.equal(response.status, 200);
+    return response.json();
+  };
+  const dashboard = DashboardSchema.parse(await read(`/dashboard?benchmark=${BENCHMARK_ID}`));
+  assert.equal(dashboard.selection, null);
+  assert.equal(dashboard.runs.find((run) => run.id === officialId)?.primaryMetric?.key, "top1");
+  const detail = RunDetailSchema.parse(await read(`/runs/${officialId}`));
+  assert.deepEqual([detail.selected, detail.publishable], [false, true]);
+  assert.deepEqual(detail.metrics.map((metric) => metric.key), ["top1"]);
+
+  // Once it reports the ranked measure, every surface agrees it is published,
+  // and they show that measure even though the run's primary flag is elsewhere.
+  await db.insert(runMetrics).values({ runId: officialId, key: "accuracy", label: "Accuracy", value: 0.5,
+    unit: null, higherIsBetter: true, isPrimary: false, precision: 2 });
+  const published = await buildRunSurfaceSnapshot(runtime, SURFACE_ID);
+  assert.deepEqual([published.stage, published.published, published.publicationRefusal], ["published", true, null]);
+  const selected = DashboardSchema.parse(await read(`/dashboard?benchmark=${BENCHMARK_ID}`)).selection;
+  assert.deepEqual([selected?.runId, selected?.primaryMetric.key, selected?.primaryMetric.value], [officialId, "accuracy", 0.5]);
+  assert.equal(RunDetailSchema.parse(await read(`/runs/${officialId}`)).selected, true);
+  // Under an older scorer the same run has no comparable team best, and it
+  // stops being published.
+  await db.update(runs).set({ scorerVersion: "0" }).where(eq(runs.id, officialId));
+  const older = await buildRunSurfaceSnapshot(runtime, SURFACE_ID);
+  assert.deepEqual([older.teamBest, older.published], [null, false]);
+  assert.match(older.publicationRefusal ?? "", /different scoring rules/);
 });

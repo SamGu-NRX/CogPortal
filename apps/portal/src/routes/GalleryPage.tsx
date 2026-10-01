@@ -7,9 +7,16 @@ import { Panel } from "@/components/Panel";
 import { PrimaryMetric, SupportingMetrics } from "@/components/MetricBlock";
 import { SweepTrace } from "@/components/SweepTrace";
 import { WiringTrace, type WiredStep } from "@/components/WiringTrace";
+import { RunList } from "@/components/RunList";
+import { RunConsole } from "@/components/RunConsole";
 import { setupCommandLines, stepState } from "@/lib/setup-progress";
 import type { GateOutcome, GatePhase, GateVariant } from "@/lib/activity-gate";
-import type { Metric, RunDetail as RunDetailType } from "@cogworks/contracts/schema";
+import {
+  RunSurfaceSnapshotSchema,
+  RunSummarySchema,
+  type Metric,
+  type RunDetail as RunDetailType,
+} from "@cogworks/contracts/schema";
 
 /**
  * Every state of the surfaces that are hard to reach, on one page.
@@ -400,6 +407,41 @@ const LANGUAGE_SWEEP: NonNullable<RunDetailType["sweep"]> = {
   ],
 };
 
+/* A Language history where one run had no overall. Its producer flags text
+ * MRR as primary instead, so the log and the console must name the measure
+ * rather than borrow another run's. */
+const PARTIAL_MRR: Metric = metric({ key: "text_mrr", label: "Text MRR", value: 0.951, precision: 3, help: null });
+const OVERALL: Metric = metric({ key: "overall", label: "Overall", value: 0.443, precision: 3, help: null });
+const GALLERY_NOW = 1_790_000_000_000;
+
+const MIXED_HISTORY = [
+  { id: "run_00000000a3", mode: "official", attemptNumber: 2, primaryMetric: PARTIAL_MRR, failure: null },
+  { id: "run_00000000a2", mode: "official", attemptNumber: 1, primaryMetric: OVERALL, failure: null },
+  { id: "run_00000000a1", mode: "practice", attemptNumber: null, primaryMetric: { ...OVERALL, value: 0.391 }, failure: null },
+].map((run, index) => RunSummarySchema.parse({
+  ...run,
+  repo: { owner: "demo", name: "repo", fullName: "demo/repo", url: "https://github.com/demo/repo" },
+  status: "succeeded", benchmarkId: "language-search", benchmarkVersion: 1, branch: "main",
+  sha: String(index).repeat(40), shortSha: String(index).repeat(7),
+  createdAt: GALLERY_NOW - (index + 1) * 3_600_000, finishedAt: GALLERY_NOW - index * 3_600_000,
+}));
+
+const UNRANKED_OFFICIAL = RunSurfaceSnapshotSchema.parse({
+  id: `surface_${"c".repeat(20)}`,
+  team: { id: "team_gallery", name: "Analytical Engines" },
+  benchmark: { id: "language-search", version: 1, title: "Semantic Image Search" },
+  actor: { login: "ada", name: "Ada" },
+  sha: "c".repeat(40), shortSha: "ccccccc", branch: "main",
+  source: { owner: "demo", name: "repo", fullName: "demo/repo", url: "https://github.com/demo/repo" },
+  sourceRefusal: null, dirty: false, stage: "official", status: "succeeded", phase: "succeeded",
+  createdAt: GALLERY_NOW - 600_000, updatedAt: GALLERY_NOW, finishedAt: GALLERY_NOW, silentSince: null,
+  elapsedMs: 600_000, progress: null, primaryMetric: PARTIAL_MRR, metrics: [PARTIAL_MRR],
+  teamBest: OVERALL, localRunId: null, practiceRunId: "run_00000000b1", officialRunId: "run_00000000b2",
+  executionGeneration: 2, executionHistory: [], published: false, nextOfficialAttempt: 3,
+  publicationRefusal: 'The leaderboard ranks teams by "overall", and this run didn\'t report it, so it can\'t be published. What it did report stays readable here.',
+  events: [], actions: ["open_console", "open_portal"], simulated: true, snapshotRevision: 1,
+});
+
 export function GalleryPage() {
   return (
     <div className="mx-auto w-full max-w-4xl py-10">
@@ -433,6 +475,18 @@ export function GalleryPage() {
           module="audio"
         />
       </section>
+
+      <h2 className="mt-10 font-serif text-xl font-semibold text-ink">A result without the ranked measure</h2>
+      <p className="mb-4 max-w-prose text-[13px] text-ink-faint">
+        The newest attempt reported text MRR and no overall. The log names each row's
+        measure, and its console says why Publish is missing.
+      </p>
+      <Panel label="RUN LOG">
+        <RunList runs={MIXED_HISTORY} connectedFullName="demo/repo" publishedRunId="run_00000000a2" />
+      </Panel>
+      <div className="mt-4">
+        <RunConsole snapshot={UNRANKED_OFFICIAL} streamState="live" onAction={() => undefined} />
+      </div>
 
       <h2 className="mt-10 font-serif text-xl font-semibold text-ink">Activity connect gate</h2>
       <p className="mb-2 max-w-prose text-[13px] text-ink-faint">

@@ -129,6 +129,29 @@ test("each history row opens its run, keeps the tag, and marks only the publishe
   assert.match(html, /<span class="sr-only">Overall <\/span>0\.443/);
 });
 
+test("a history that mixes measures names each row's own, never the first row's", () => {
+  // A partial Language run leads with text MRR. Labeling the column "Overall"
+  // from the first row would call its 0.950 an overall.
+  const runs = [
+    run({ id: "run_0000000001" }),
+    run({ id: "run_0000000002", primaryMetric: {
+      key: "text_mrr", label: "Text MRR", value: 0.95, unit: null, higherIsBetter: true, primary: true, precision: 3,
+    } }),
+  ];
+  const list = (items: RunSummary[]) => renderToStaticMarkup(
+    React.createElement(StaticRouter, { location: "/dashboard" }, React.createElement(RunList, { runs: items })),
+  );
+  const mixed = list(runs);
+  assert.match(mixed, /<span class="u-kicker text-right">Reading<\/span>/);
+  assert.match(mixed, /<span class="sr-only">Overall <\/span>0\.443<span aria-hidden="true"[^>]*>Overall<\/span>/);
+  assert.match(mixed, /<span class="sr-only">Text MRR <\/span>0\.950<span aria-hidden="true"[^>]*>Text MRR<\/span>/);
+
+  // One measure throughout: the column head says it once and rows stay bare.
+  const uniform = list([runs[0]]);
+  assert.match(uniform, /<span class="u-kicker text-right">Overall<\/span>/);
+  assert.doesNotMatch(uniform, /aria-hidden="true"[^>]*>Overall</);
+});
+
 test("a failed practice run says what failed and that it cost nothing", () => {
   const failed = run({
     id: "run_00000000f1",
