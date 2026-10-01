@@ -113,7 +113,7 @@ export function ConnectionsPage() {
                   <dt className="u-label text-ink">Does as you</dt>
                   <dd className="mt-0.5 text-ink-secondary sm:mt-0">
                     Starts and retries hosted runs, spends official attempts and publishes
-                    results.
+                    results to the public leaderboard.
                   </dd>
                 </div>
               </dl>
@@ -250,7 +250,7 @@ export function ConnectionsPage() {
 
         <Connection
           title="Discord"
-          grants="Cog can start and retry hosted runs, spend official attempts and publish as you."
+          grants="Cog can start and retry hosted runs, spend official attempts and publish to the public leaderboard as you."
         >
           {discord ? (
             <>
