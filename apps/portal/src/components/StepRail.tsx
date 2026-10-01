@@ -1,7 +1,7 @@
 import { ArrowDown01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useReducedMotion } from "motion/react";
-import { useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { EASE_OUT_STRONG } from "@/lib/motion";
 import { Annotated } from "./Note";
 
@@ -73,10 +73,24 @@ export function Step({
   children: ReactNode;
   last?: boolean;
 }) {
-  const [open, setOpen] = useState(!folded);
-  const bodyId = useId();
   const done = isDone(state);
-  const showBody = open || !done;
+  const [open, setOpen] = useState(!folded || !done);
+  // A row that is not ticked shows its command, and from then on only the
+  // student closes it. Without this, a folded row whose evidence read failed
+  // (unknown) would fold itself again when the read recovered, and take the
+  // command someone was copying, and their keyboard focus, with it.
+  if (!done && !open) setOpen(true);
+  const bodyId = useId();
+  const heading = useRef<HTMLHeadingElement>(null);
+  const toggleHadFocus = useRef(false);
+  // React runs a ref's cleanup before it removes the node, so whether the
+  // disclosure held focus is still readable here; the layout effect below acts
+  // on it once the row has re-rendered. Stable, so it runs only on removal.
+  const toggle = useCallback((node: HTMLButtonElement) => {
+    return () => {
+      toggleHadFocus.current = node.ownerDocument.activeElement === node;
+    };
+  }, []);
   const mark = useRef<HTMLSpanElement>(null);
   const tick = useRef<SVGPathElement>(null);
   const label = useRef<HTMLSpanElement>(null);
@@ -116,6 +130,15 @@ export function Step({
     );
   }, [state, done, reduceMotion]);
 
+  // The disclosure exists only on a ticked row, so a failed read removes it
+  // under whoever had it focused. Focus moves to the step's own heading
+  // instead of falling to the document.
+  useLayoutEffect(() => {
+    if (!toggleHadFocus.current) return;
+    toggleHadFocus.current = false;
+    heading.current?.focus();
+  }, [done]);
+
   // Observed reads heavier than self-reported, not lighter. A filled mark is
   // the portal's stamp; an outline is the student's own pen.
   const tone =
@@ -133,7 +156,7 @@ export function Step({
     <li
       id={id}
       aria-current={current ? "step" : undefined}
-      className={`relative flex scroll-mt-28 gap-4 ${last ? "" : showBody ? "pb-10" : "pb-6"}`}
+      className={`relative flex scroll-mt-28 gap-4 ${last ? "" : open ? "pb-10" : "pb-6"}`}
     >
       <span
         ref={mark}
@@ -170,6 +193,7 @@ export function Step({
               in words. */}
           <span className="sr-only">{SPOKEN[state]}</span>
           <h2
+            ref={heading}
             className="min-w-0 flex-1 font-serif text-[18px] leading-snug font-semibold text-ink"
             tabIndex={-1}
           >
@@ -178,6 +202,7 @@ export function Step({
               // accordion heading is, so the target is the row and not a
               // small link at its end.
               <button
+                ref={toggle}
                 type="button"
                 aria-expanded={open}
                 aria-controls={bodyId}
@@ -223,7 +248,7 @@ export function Step({
           </h2>
         </div>
 
-        {showBody && (
+        {open && (
           <div id={bodyId} className="mt-2">
             <Annotated note={note}>
               <div
