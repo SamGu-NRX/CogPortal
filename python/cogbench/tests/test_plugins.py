@@ -112,7 +112,7 @@ class PluginDiscoveryTests(unittest.TestCase):
             "language-search": (
                 'python -m pip install "cogworks-week3-language-benchmark @ '
                 'git+https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git'
-                '@13a164eab8107fdf320ec53b2f39ed095188375e"'
+                '@4b1755433110b387b8a37021ef173300636d3b8c"'
             ),
         }
         self.assertEqual(
