@@ -334,6 +334,11 @@ export const RunEventV1Schema = z.discriminatedUnion("type", [
        */
       refusal: RefusalSchema.optional(),
     }),
+    /** A practice run's output before it failed, under the completed event's
+     *  cap and practice-only rule. The current runner never sends it: the
+     *  file is the submission's to replace, and Modal's supported filesystem
+     *  API only transfers whole files. */
+    sanitizedLog: z.string().max(8 * 1024).nullable().optional(),
   }),
 ]);
 export type RunEventV1 = z.infer<typeof RunEventV1Schema>;

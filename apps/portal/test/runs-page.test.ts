@@ -139,7 +139,7 @@ test("a failed practice run says what failed and that it cost nothing", () => {
   });
   const html = render(dashboard([failed]));
   assert.match(html, /Latest run[\s\S]*Practice run on null-descriptor/);
-  assert.match(html, /Your code raised an exception\./);
+  assert.match(html, /The evaluation stopped on an exception\./);
   assert.match(html, /ValueError in embed_text/);
   assert.match(html, /Stopped at Evaluate [^.]*\. Failed runs don&#x27;t use your hosted budget\./);
   assert.match(html, /See what went wrong/);

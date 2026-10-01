@@ -308,7 +308,9 @@ export function fixtureLog(
     lines.push(`scorer summary: ${primary.key}=${primary.value.toFixed(4)}`);
     lines.push("run completed successfully");
   } else {
-    lines.push(...failureExcerpt(branch, benchmarkId), outcome.detail);
+    // A traceback ends on the exception line; where it was raised is the
+    // frame above, which the excerpt already prints.
+    lines.push(...failureExcerpt(branch, benchmarkId), outcome.detail.split("\n")[0]!);
   }
 
   const encoded = new TextEncoder().encode(lines.join("\n"));

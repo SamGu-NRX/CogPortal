@@ -1,18 +1,19 @@
-import type { ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ArrowLeft01Icon, ArrowRight01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { skipToken, useQuery } from "@tanstack/react-query";
-import { Link, useNavigate, useParams } from "react-router";
+import { Link, useLocation, useNavigate, useParams } from "react-router";
 import { api, ApiRequestError } from "@/lib/api";
 import {
   OFFICIAL_LIMIT,
   isTerminal,
+  runSurfaceCurrentRunId,
   type PromotedTo,
   type RunDetail,
   type RunSummary,
 } from "@cogworks/contracts/schema";
 import { resolveFailureCopy } from "@cogworks/contracts/failures";
-import { buttonClass } from "@/components/Button";
+import { Button, buttonClass } from "@/components/Button";
 import { ConfirmButton } from "@/components/ConfirmButton";
 import { FailureCard } from "@/components/FailureCard";
 import { LoadingMark, QueryError } from "@/components/Feedback";
@@ -31,8 +32,10 @@ import {
   DEFAULT_BENCHMARK,
   useBenchmarks,
   useDashboard,
+  useMutateRunSurface,
   usePromote,
   useRun,
+  useRunSurface,
   useSelectResult,
   useSession,
 } from "@/lib/queries";
@@ -73,6 +76,17 @@ export function RunDetailPage() {
       ? previousComparable(runQuery.data, dashboard.data?.runs)
       : null;
   const previousDetail = usePreviousRunDetail(previous?.id ?? null);
+  // Retry and Promote start a new run and bring the student here; the
+  // control they pressed is gone, so focus moves to the run they started.
+  const location = useLocation();
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const loadedId = runQuery.data?.id;
+  // SAFETY: react-router types `state` as `any`; this page is only navigated
+  // to with state by FOCUS_NEW_RUN below, and any other state lacks the key.
+  const focusHeading = (location.state as RunPageState | null)?.focusHeading === true;
+  useEffect(() => {
+    if (loadedId && focusHeading) headingRef.current?.focus();
+  }, [loadedId, location.key, focusHeading]);
 
   if (runQuery.isPending) return <LoadingMark label="Reading run record" />;
   if (runQuery.isError) {
@@ -93,11 +107,10 @@ export function RunDetailPage() {
   const failureCopy = run.failure
     ? resolveFailureCopy(run.failure.category, { benchmarkId: run.benchmarkId, module: runModule })
     : null;
-  // A failure on the platform's side is one the run's console can try again,
-  // so for those the console link is the failure card's next step rather
-  // than a link up in the corner. See FailureCard.
-  const consoleIsNextStep =
-    failed && !run.refusal && Boolean(failureCopy?.retryable) && Boolean(run.surfaceId);
+  // Retry belongs on the failure it answers, not a page away on the console.
+  // A refusal says what to change in the code, so it is never offered there.
+  const retrySurfaceId =
+    failed && !run.refusal && failureCopy && failureCopy.remedy !== "fix" ? run.surfaceId : null;
   const duration =
     run.finishedAt != null ? formatDurationMs(run.finishedAt - run.createdAt) : null;
   const practiceLog = run.mode === "practice" ? run.log : null;
@@ -113,7 +126,7 @@ export function RunDetailPage() {
           <HugeiconsIcon icon={ArrowLeft01Icon} size={15} strokeWidth={2} aria-hidden="true" />
           Runs
         </Link>
-        {consoleHref && !consoleIsNextStep && (
+        {consoleHref && (
           <Link
             to={consoleHref}
             className="u-link inline-flex min-h-11 items-center text-[14px]"
@@ -134,7 +147,11 @@ export function RunDetailPage() {
             the finding is what the page is for, so it gets the largest type.
             A branch name can be one long unbroken word, which without
             `anywhere` widens the page past a phone's screen. */}
-        <h1 className="mt-2 text-[clamp(1.55rem,1.35rem+0.9vw,1.75rem)] [overflow-wrap:anywhere] text-ink">
+        <h1
+          ref={headingRef}
+          tabIndex={-1}
+          className="mt-2 text-[clamp(1.55rem,1.35rem+0.9vw,1.75rem)] [overflow-wrap:anywhere] text-ink"
+        >
           {runTitle(run)}
         </h1>
         {/* Each item leads with its separator; the row starts one separator left
@@ -204,14 +221,7 @@ export function RunDetailPage() {
             benchmarkId={run.benchmarkId}
             module={runModule}
             refusal={run.refusal}
-            next={
-              consoleIsNextStep && consoleHref ? (
-                <Link to={consoleHref} className={buttonClass("primary")}>
-                  Open current run
-                  <HugeiconsIcon icon={ArrowRight01Icon} size={16} strokeWidth={2} aria-hidden="true" />
-                </Link>
-              ) : undefined
-            }
+            next={retrySurfaceId ? <RetryControl run={run} surfaceId={retrySurfaceId} /> : undefined}
           >
             {/* What the execution recorded before it stopped. It belongs to
                 this failed execution and is never presented as a result, so
@@ -289,6 +299,10 @@ export function RunDetailPage() {
     </div>
   );
 }
+
+/** Navigation state for a page reached by starting a run from another one. */
+type RunPageState = { focusHeading?: boolean };
+const FOCUS_NEW_RUN = { state: { focusHeading: true } } satisfies { state: RunPageState };
 
 /* ── Pieces ─────────────────────────────────────────────────────────────── */
 
@@ -593,6 +607,109 @@ function Results({
   );
 }
 
+/**
+ * Retry for a failed run, on the failure it answers. Whether it is offered is
+ * the run surface's own answer: the server lists "retry" only when it would
+ * start one (capacity, provider, recorded inputs, source), and only for the
+ * surface's current execution, so a failure that was already retried is not
+ * offered a second start the server would refuse.
+ */
+function RetryControl({ run, surfaceId }: { run: RunDetail; surfaceId: string }) {
+  const surface = useRunSurface(surfaceId);
+  const retry = useMutateRunSurface();
+  const navigate = useNavigate();
+  const [error, setError] = useState<string | null>(null);
+  // A second press before the busy state renders would send a second request.
+  const inFlight = useRef(false);
+  const snapshot = surface.data;
+  if (!snapshot) {
+    if (surface.isError) {
+      return (
+        <p className="flex flex-wrap items-center gap-x-3 text-[13.5px] text-ink-secondary">
+          Couldn't check whether this run can be retried.
+          <button type="button" className="u-link min-h-11" onClick={() => void surface.refetch()}>
+            Check again
+          </button>
+        </p>
+      );
+    }
+    // Holds the button's row while eligibility loads, so it doesn't push the
+    // page down when it arrives.
+    return <div aria-hidden="true" className="min-h-11" />;
+  }
+
+  // Already retried: say where that went rather than leave this page a dead end.
+  const successor = snapshot.executionHistory.find((entry) => entry.retryOfRunId === run.id);
+  if (successor) {
+    return (
+      <p className="text-[14px] text-ink-secondary">
+        Retried as{" "}
+        <Link to={`/runs/${encodeURIComponent(successor.id)}`} className="u-link">
+          {runNumberLabel(successor.id)}
+        </Link>
+        .
+      </p>
+    );
+  }
+  if (!snapshot.actions.includes("retry") || runSurfaceCurrentRunId(snapshot) !== run.id) {
+    // The one refusal the server can name; its absence says nothing about
+    // quota or access, so nothing is said then.
+    return snapshot.retryRefusal ? (
+      <p className="max-w-[60ch] text-[13.5px] leading-[1.55] text-ink-secondary">
+        {snapshot.retryRefusal}
+      </p>
+    ) : null;
+  }
+
+  const start = async () => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setError(null);
+    try {
+      const next = await retry.mutateAsync({ surfaceId, action: "retry", runId: run.id });
+      // Retry starts a separate run; this failure stays in the history.
+      const started = runSurfaceCurrentRunId(next);
+      if (started && started !== run.id) navigate(`/runs/${encodeURIComponent(started)}`, FOCUS_NEW_RUN);
+    } catch (caught) {
+      setError(caught instanceof ApiRequestError ? caught.message : "Retry couldn't be started. Try again in a moment.");
+    } finally {
+      inFlight.current = false;
+    }
+  };
+  const sha = <span className="font-mono text-[13px] text-ink">{run.shortSha}</span>;
+
+  return (
+    <div>
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+        {run.mode === "official" ? (
+          <ConfirmButton
+            label="Retry"
+            confirmLabel="Confirm, uses an attempt if it finishes"
+            onConfirm={() => void start()}
+            busy={retry.isPending}
+          />
+        ) : (
+          <Button busy={retry.isPending} onClick={() => void start()}>
+            Retry
+          </Button>
+        )}
+        <p className="max-w-[44ch] text-[13.5px] leading-[1.5] text-ink-secondary">
+          {run.mode === "official" ? (
+            <>Runs {sha} again on the hidden inputs. It uses an official attempt only if it finishes.</>
+          ) : (
+            <>Runs {sha} again. It counts as a practice run only if it finishes.</>
+          )}
+        </p>
+      </div>
+      {error && (
+        <p role="alert" className="mt-3 border-l-2 border-detect pl-3 text-[13.5px] text-detect-deep">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function PromoteSection({
   run,
   quota,
@@ -648,7 +765,7 @@ function PromoteSection({
               onConfirm={() =>
                 promote.mutate(run.id, {
                   // Promotion creates a separate official run to watch.
-                  onSuccess: ({ runId: started }) => navigate(`/runs/${started}`),
+                  onSuccess: ({ runId: started }) => navigate(`/runs/${started}`, FOCUS_NEW_RUN),
                 })
               }
               busy={promote.isPending}

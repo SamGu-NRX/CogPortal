@@ -276,7 +276,7 @@ class ControllerAttribution(unittest.TestCase):
         for lane in ("_evaluate", "_evaluate_v2", "_evaluate_week3", "_evaluate_week1"):
             with self.subTest(lane=lane), encoders[0], encoders[1], encoders[2]:
                 space = functions(
-                    lane, "_last_error_line", "_timed_out", "_fit",
+                    lane, "_evaluation_failure", "_last_error_line", "_timed_out", "_fit",
                     "_take_units", "_receiver_units", app=object(), modal=modal,
                     EVALUATE_SCRIPT="real script run above",
                     WEEK1_STUDENT_PYTHON="python", WEEK3_STUDENT_PYTHON="python",
