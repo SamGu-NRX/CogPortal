@@ -30,15 +30,15 @@ export interface BenchmarkPackage {
  * reaches that through this page, which serves whichever pin its own deploy
  * carries, but `--portal` at an older deployment does.
  *
- * `b6bbffb` is the beta branch's own commit, so the CLI a student installs
- * here is the SDK the hosted images bake. It carries #53, which keeps a
- * per-item None (a photo with no face) when a step reads one tuple element;
- * the previous pin, `6facb9a`, raised on it locally just as hosted runs did.
- * It was installed from this exact URL and its files compared with the
- * commit before this pin moved.
+ * `148365c` is #58's head. It adds #58 to the previous pin, `b6bbffb`:
+ * replaying a candidate binding keeps the identities the resolver inferred,
+ * which a hosted Clustering run lost during the contract check. `b6bbffb`
+ * already carried #53's per-item None handling. This branch's SDK differs from
+ * `148365c` only in the Language install advice in `plugins.py`, which moves
+ * with the `benchmarks/week3` submodule; scoring code is the same.
  */
 export const COGBENCH_SOURCE =
-  "git+https://github.com/SamGu-NRX/CogPortal.git@b6bbffbcc97a82f52f832cdeaa9da9df938b0c9a#subdirectory=python/cogbench";
+  "git+https://github.com/SamGu-NRX/CogPortal.git@148365ccd04d6233cfc5973469003bd616ba6dc6#subdirectory=python/cogbench";
 
 const WEEK1_AUDIO: BenchmarkPackage = {
   distribution: "cogworks-week1-audio-benchmark",
@@ -57,14 +57,16 @@ const WEEK2_VISION: BenchmarkPackage = {
 // f5f7347 builds a team's database before calling an image encoder that is
 // one of its methods. The SDK no longer lends a run the object discovery
 // built, so 6dc63fe, which called the encoder first, failed CI run 35766833651.
-// No staging image has run it or its test-only follow-ups up to 94c7e64 yet.
+// 9e4dcff (#6) adds a finding that leads a clean run with search against
+// retrieval; it changes no metric, dataset, contract or scorer. No staging
+// image has run it yet.
 // 6dc63fe is the revision verified on staging (run_28df471772), where earlier
 // revisions had left a trained image projection unbound locally while a
 // hosted run scored it.
 const WEEK3_LANGUAGE: BenchmarkPackage = {
   distribution: "cogworks-week3-language-benchmark",
   source:
-    "git+https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git@94c7e64f7e3bf5193be1805b4258f017d044a088",
+    "git+https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git@9e4dcff9a5abe85817f9a208e75aaa392970b649",
 };
 
 export const BENCHMARK_PACKAGES: Readonly<Record<string, BenchmarkPackage>> = {

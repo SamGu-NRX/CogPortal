@@ -7,7 +7,7 @@ const sources = [
   ["audio-identification", "cogworks-week1-audio-benchmark", "4e516f39ffbeefe579e093260b2865eb354c17a7"],
   ["vision-recognition", "cogworks-week2-vision-benchmark", "a3dd948d0c108fabf070b4f159acdecd4d6c3897"],
   ["vision-clustering", "cogworks-week2-vision-benchmark", "a3dd948d0c108fabf070b4f159acdecd4d6c3897"],
-  ["language-search", "cogworks-week3-language-benchmark", "94c7e64f7e3bf5193be1805b4258f017d044a088"],
+  ["language-search", "cogworks-week3-language-benchmark", "9e4dcff9a5abe85817f9a208e75aaa392970b649"],
 ] as const;
 
 function commands(benchmarkId: string) {
@@ -37,7 +37,7 @@ for (const [track, distribution, revision] of sources) {
 test("benchmark correction preserves the accepted SDK pin", () => {
   assert.equal(
     commands("language-search").find((line) => line.id === "tool")?.command,
-    'python -m pip install --upgrade --force-reinstall "cogworks-benchmark @ git+https://github.com/SamGu-NRX/CogPortal.git@b6bbffbcc97a82f52f832cdeaa9da9df938b0c9a#subdirectory=python/cogbench"',
+    'python -m pip install --upgrade --force-reinstall "cogworks-benchmark @ git+https://github.com/SamGu-NRX/CogPortal.git@148365ccd04d6233cfc5973469003bd616ba6dc6#subdirectory=python/cogbench"',
   );
 });
 
