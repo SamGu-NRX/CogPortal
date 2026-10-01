@@ -85,9 +85,12 @@ for (const mode of ["practice", "official"] as const) {
     const evidence = [...container.querySelectorAll("pre")].find((node) => node.textContent === detail);
     assert.ok(evidence);
     assert.equal(evidence.closest('[aria-hidden="true"]'), null);
-    const explanation = [...container.querySelectorAll("p")].find((node) => node.textContent.includes("can't say whose line raised it"));
+    const explanation = [...container.querySelectorAll("p")].find((node) => node.textContent === "The error below shows what was raised and where.");
     assert.equal(explanation?.closest('[aria-hidden="true"]'), null);
-    assert.match(container.textContent, /If it names a file in your repository/);
+    assert.match(container.textContent, /If it points to a file in your repository/);
+    // A repeat can't fix a deterministic bug in the benchmark, so the copy
+    // doesn't suggest one would.
+    assert.doesNotMatch(container.textContent, /worth a try|one process/);
     assert.ok([...container.querySelectorAll("button")].every((node) => node.textContent !== "Show details"));
     // No surface recorded, so nothing can be retried from here.
     assert.doesNotMatch(container.textContent, /consumed|refund|Run practice again|Retry/);

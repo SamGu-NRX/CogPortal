@@ -26,8 +26,8 @@ import { Veil } from "./Veil";
  *   staff waits in the details rather than being the first thing a student is
  *   told to do.
  * - "either": the evaluation raised and nobody can say whose line it was. The
- *   explanation says so, the detail (class, message, where) is open, and both
- *   the reproduction and `next` are offered.
+ *   detail (class, message, where) is open, and both the reproduction and
+ *   `next` are offered.
  *
  * A refusal replaces the title and detail with the refusal itself, which says
  * the same thing in the team's own function names.

@@ -96,15 +96,18 @@ export const FAILURE_CATALOG: Record<FailureCategory, FailureCopy> = {
     remedy: "fix",
   },
   // The category is named for the old claim. It now means only that the
-  // evaluation raised: the platform's own replay ran in the same process when
-  // B-44 failed, and this title told that team the crash was theirs.
+  // evaluation raised. Team and benchmark code share the sandbox process, and
+  // team code can forge any frame, so the runner can't say whose line it was:
+  // the platform's own replay raised in B-44, and this title once told that
+  // team the crash was theirs. The copy stays neutral and lets the detail's
+  // file and line speak; it never promises a repeat fixes a benchmark bug.
   student_runtime: {
     code: "E-RUNTIME",
     title: "The evaluation stopped on an exception",
     explanation:
-      "Your code and the benchmark's run in one process, so the runner can't say whose line raised it. Where it was raised is below.",
+      "The error below shows what was raised and where.",
     action:
-      "If it names a file in your repository, reproduce it with the command below. If it names the benchmark's code, running the same commit again is worth a try.",
+      "If it points to a file in your repository, reproduce it with the command below. If it points elsewhere, share the run with course staff and retry once they've fixed it.",
     reproCommand: "cogworks run --benchmark {benchmark}",
     remedy: "either",
   },
