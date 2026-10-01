@@ -126,5 +126,5 @@ test("a setup finished with check-offs does not claim the portal verified it", a
   const { text, verificationGreen } = await renderComplete(t, ["clone", "environment"]);
   assert.doesNotMatch(text, /verify checks out/);
   assert.ok(!verificationGreen, "self-reported steps were coloured as verified");
-  assert.match(text, /checked off are your own report rather than something the portal saw/);
+  assert.match(text, /checked off by you weren't seen by the portal/);
 });

@@ -250,7 +250,9 @@ export function Step({
 
         {open && (
           <div id={bodyId} className="mt-2">
-            <Annotated note={note}>
+            {/* Without a note the work keeps the measure it has beside one,
+                so steps with and without a note share a right edge. */}
+            <Annotated note={note} className={note ? undefined : "max-w-[var(--measure,42rem)]"}>
               <div
                 className={`space-y-3 text-[14px] leading-[1.6] ${
                   done ? "text-ink-faint" : "text-ink-secondary"
