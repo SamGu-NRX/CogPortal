@@ -1,21 +1,66 @@
 const STORAGE_KEY = "cogportal.pendingReturn";
 
-export function rememberConnectionReturn(value: string): void {
-  if (value.startsWith("/connections#discord=") || value.startsWith("/connections?user_code=")) {
-    sessionStorage.setItem(STORAGE_KEY, value);
+/**
+ * The pages a signed-out visitor can be sent to by a link from outside the
+ * portal: a device code from `cogworks link`, a Discord link request, and a
+ * run or its live console from Discord or the Activity. Anything else is
+ * refused, so the stored value can never name another origin (`//host`), a
+ * page the sign-in step has no reason to restore, or a path segment like `..`.
+ * Run and surface ids are `prefix_hex` (worker/util/id.ts); the optional
+ * trailing slash is one the router also matches.
+ */
+const RETURNABLE = [
+  /^\/connections\?user_code=/,
+  /^\/connections#discord=/,
+  /^\/runs\/[A-Za-z0-9_-]{1,128}\/?$/,
+  /^\/run-surfaces\/[A-Za-z0-9_-]{1,128}\/?$/,
+];
+
+function returnable(value: string): boolean {
+  return RETURNABLE.some((pattern) => pattern.test(value));
+}
+
+/**
+ * Session storage throws when the browser denies it (some privacy settings
+ * and embedded contexts do), on the property read itself. The stage guard
+ * touches it on every visit, so a refusal must cost the return, not the page.
+ */
+function attempt<T>(run: (store: Storage) => T, fallback: T): T {
+  try {
+    return run(sessionStorage);
+  } catch {
+    return fallback;
   }
 }
 
-export function pendingConnectionReturn(): string | null {
-  const value = sessionStorage.getItem(STORAGE_KEY);
-  if (!value) return null;
-  return value.startsWith("/connections#discord=") || value.startsWith("/connections?user_code=")
-    ? value
-    : null;
+/**
+ * Saved by the stage guard when it sends a signed-out visitor to /signin. The
+ * latest guarded page they asked for is their intent, so a page that is not
+ * returnable replaces an older saved link instead of leaving it to win later.
+ */
+export function rememberReturn(value: string): void {
+  attempt((store) => {
+    if (returnable(value)) store.setItem(STORAGE_KEY, value);
+    else store.removeItem(STORAGE_KEY);
+  }, undefined);
 }
 
-export function clearConnectionReturn(): void {
-  sessionStorage.removeItem(STORAGE_KEY);
+/** Read by /signin and / once someone is signed in. */
+export function pendingReturn(): string | null {
+  const value = attempt((store) => store.getItem(STORAGE_KEY), null);
+  return value && returnable(value) ? value : null;
+}
+
+/**
+ * The return exists only to carry a link across sign-in. The stage guard
+ * calls this for every signed-in visit, so it is gone by the time the page it
+ * named renders, or as soon as the guard sends the visitor to a step they
+ * still owe. Keeping it until an approval succeeded made an abandoned or
+ * expired code redirect `/` and /signin back to the dead form for the rest of
+ * the tab.
+ */
+export function clearPendingReturn(): void {
+  attempt((store) => store.removeItem(STORAGE_KEY), undefined);
 }
 
 const DROPPED_KEY = "cogportal.droppedDeviceLink";
@@ -31,11 +76,6 @@ const DROPPED_KEY = "cogportal.droppedDeviceLink";
 export function rememberDroppedDeviceLink(path: string): void {
   if (path.startsWith("/connections?user_code=") || path.startsWith("/connections#discord=")) {
     sessionStorage.setItem(DROPPED_KEY, path.includes("user_code=") ? "device" : "discord");
-    // The return that sign-in saved for this same link. Dropping the link
-    // and keeping its return sent a student who had since made a team back
-    // to an approval page they had already left, from `/` and `/signin`, with
-    // no way to clear it.
-    sessionStorage.removeItem(STORAGE_KEY);
   }
 }
 
