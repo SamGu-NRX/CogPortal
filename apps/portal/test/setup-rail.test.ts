@@ -212,8 +212,9 @@ function railHtml(
 test("the rail ticks only the steps it has verified", () => {
   const html = railHtml({ verified: ["clone"] });
 
-  // anim-rise is the chip's entrance; one verified step means one chip.
-  assert.equal(html.match(/anim-rise/g)?.length, 1);
+  // The visible "seen" label belongs to a ticked step only; one verified
+  // step means one label.
+  assert.equal(html.match(/Seen by the portal/g)?.length, 1);
   assert.equal(html.match(/Verified\. /g)?.length, 1);
   assert.equal(html.match(/Not verified yet\. /g)?.length, lines().length - 1);
 });
