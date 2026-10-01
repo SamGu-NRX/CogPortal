@@ -18,8 +18,9 @@ The portal has three staff roles, and they are not a ladder.
 | Staff | A login an owner adds under **PLATFORM STAFF**. | Reach the console. Staff who aren't also assigned to teams see an empty TA workspace. |
 | TA | An owner assigns them to one or more teams. | Add and remove members on those teams. |
 
-An owner sees the heading **Admin**. Everyone else sees **TA workspace**, with
-only their assigned teams and no join code.
+An owner sees **Instructor console** above the cohort title. Everyone else sees
+**TA workspace**, with only their assigned teams and no join code. **Admin** is
+the account-menu link to the console.
 
 Being staff doesn't open a team's run pages or its Team page. Those carry the
 team's unpublished practice results and its process notes, so the portal
@@ -28,9 +29,10 @@ member open it.
 
 ## Open a cohort
 
-1. Sign in with a login listed in `PLATFORM_OWNER_LOGINS`, then open
-   **Admin** from the account menu or go to `/admin`. The portal first offers
-   to join the cohort; an owner doesn't need to.
+1. Sign in with a login listed in `PLATFORM_OWNER_LOGINS`. Owners, staff, and
+   TAs without a team go straight to `/admin`; they don't need to enroll.
+   Staff with a team land on their own dashboard. Open **Admin** from the
+   account menu or go to `/admin` to reach the console.
 2. Under **COHORT**, rotate the join code if the current one has been shared
    anywhere you don't control. **Rotate join code** asks you to confirm, and
    the old code stops working at once. There is no undo, so do it before you
@@ -40,26 +42,28 @@ member open it.
    signed in.
 4. If **COHORT** reads "enrollment closed", select **Open enrollment**. Then
    give students the code.
-5. Once everyone is in, select **Close enrollment**. A student who tries the
-   code afterwards sees "That code doesn't match.", the same message as a
-   typo, so for a late student reopen enrollment rather than resending the
-   code.
+5. Once everyone is in, select **Close enrollment**. A student who enters the
+   correct code afterwards sees "That code is right, but enrollment is closed.
+   Ask your instructor to open it." For a late student, reopen enrollment.
 
 ## Check which benchmarks are open
 
 Students can start hosted runs only for active benchmarks. Synced local
 reports for an inactive benchmark or version still show on the dashboard,
 under **Other benchmarks**. Semantic image search and both Week 2
-vision tracks are active. Week 1 song identification is inactive on purpose:
-its calibration showed that the shipped query grid does not separate a tuned
-pipeline from a crippled one, so a hosted number would mislead
+vision tracks are active. The Week 1 song identification migration seeds it
+inactive because the shipped query grid does not separate a tuned pipeline from
+a crippled one
 ([`0020_week1_audio.sql`](../../apps/portal/migrations/0020_week1_audio.sql)).
-Students can still run it locally with the CLI, and the student guide gives
-them its install line because the Setup page leaves inactive tracks out.
+An environment can explicitly activate it for an owner-approved rehearsal, as
+described in [the platform runbook](../runbooks/platform.md). Check that
+environment's active tracks before class. Students can still run an inactive
+track locally with the CLI; the Setup page leaves inactive tracks out.
 
-The admin console has no switch for this. Turning Week 1 on is the course
-owner's decision, and it needs a new benchmark version whose grid does rank
-pipelines.
+The admin console has no activation switch. Activation is the course owner's
+decision. For a general course release, use a new benchmark version whose query
+grid demonstrates that it ranks pipelines; rehearsal activation does not
+establish that.
 
 ## Keep teams moving
 
@@ -71,8 +75,8 @@ score and to manage it:
 - Assign a TA by GitHub login. The TA must have signed in to the portal once.
 - Add a member by GitHub login. They must have signed in and joined the
   cohort, and must not be on another team.
-- Remove a member. Removal takes one click with no confirmation, and the
-  team's creator can't be removed.
+- Remove a member, then confirm with **Confirm, they leave**. The team's
+  creator can't be removed.
 - Place a student from **UNASSIGNED STUDENTS** with **Assign to team…**.
 
 Adding someone in the portal does not give them push access to the
