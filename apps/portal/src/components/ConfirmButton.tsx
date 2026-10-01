@@ -54,6 +54,9 @@ export function ConfirmButton({
       [{ transform: "scaleX(1)" }, { transform: "scaleX(0)" }],
       { duration: ARMED_MS, easing: "linear", fill: "forwards" },
     );
+    // Cancelling rejects `finished`. Browsers mark that promise handled;
+    // happy-dom does not, and the test runner fails on the stray rejection.
+    animation.finished.catch(() => {});
     return () => animation.cancel();
   }, [armed, reduceMotion]);
 

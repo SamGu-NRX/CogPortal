@@ -1,4 +1,4 @@
-import { Link, NavLink, Outlet } from "react-router";
+import { Link, NavLink, Outlet, useLocation } from "react-router";
 import { nextStagePath } from "@/App";
 import { AccountSlot, Concealed } from "@/components/RestoreGate";
 import { UserMenu } from "@/components/UserMenu";
@@ -15,18 +15,21 @@ export function Wordmark() {
   );
 }
 
-function Tab({ to, children, end }: { to: string; children: string; end?: boolean }) {
+function Tab({ to, children, also = [] }: { to: string; children: string; also?: string[] }) {
+  const { pathname } = useLocation();
+  // A run's own page belongs to Runs, so the tab stays lit while reading one.
+  const within = also.some((prefix) => pathname.startsWith(prefix));
   return (
     <NavLink
       to={to}
-      end={end}
-      className={({ isActive }) =>
-        `relative inline-flex min-h-11 shrink-0 items-center px-3 text-[14.5px] font-semibold transition-colors duration-150 after:absolute after:inset-x-3 after:bottom-0 after:h-[2px] after:rounded-full after:transition-colors after:duration-150 ${
+      className={({ isActive: exact }) => {
+        const isActive = exact || within;
+        return `relative inline-flex min-h-11 shrink-0 items-center px-3 text-[14.5px] font-semibold transition-colors duration-150 after:absolute after:inset-x-3 after:bottom-0 after:h-[2px] after:rounded-full after:transition-colors after:duration-150 ${
           isActive
             ? "text-ink after:bg-ink"
             : "text-ink-secondary after:bg-transparent hover:text-ink"
-        }`
-      }
+        }`;
+      }}
     >
       {children}
     </NavLink>
@@ -55,7 +58,7 @@ export function Shell() {
     <>
       {team && (
         <>
-          <Tab to="/dashboard">Runs</Tab>
+          <Tab to="/dashboard" also={["/runs/", "/run-surfaces/"]}>Runs</Tab>
           <Tab to="/setup">Setup</Tab>
           <Tab to="/team">Team</Tab>
         </>
