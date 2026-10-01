@@ -310,7 +310,7 @@ class TheFailedEventCarriesTheLog(unittest.TestCase):
             raise space["RunnerFailure"]("student_runtime", "evaluating", "TypeError: bad", False, log=log)
 
         space = functions(
-            "execute_job", "_failure_detail", "_fit", "_take_units", "_receiver_units", "_wire_log",
+            "execute_job", "_run_claimed", "_failure_detail", "_fit", "_take_units", "_receiver_units", "_wire_log",
             job_store=Store(), validate_job=lambda value: value,
             _outcome_key=lambda key: key + ":outcome", LiveReporter=Reporter,
             _prepare=prepare, _finish=lambda job, outcome, status: events.append(outcome["event"]),

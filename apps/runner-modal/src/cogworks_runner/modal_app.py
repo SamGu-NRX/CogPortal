@@ -1265,12 +1265,27 @@ class LiveReporter:
         self.job = job
         self.started_at = int(time.time() * 1000)
         self.sequence = 0
+        #: Held only while a number is handed out. A terminal event takes its
+        #: number here without waiting behind a post that is retrying, which
+        #: can take longer than the grace Modal gives an interrupted attempt.
         self.lock = threading.Lock()
+        #: Held across each send, so status events still land in order.
+        self.sending = threading.Lock()
+        #: The phase this run last reported, which an interrupted run fails in.
+        self.phase = "queued"
+        #: Set once a terminal event holds a sequence number. The portal
+        #: ignores any event numbered at or below the last one it applied, so
+        #: a heartbeat sent after the terminal was numbered, and landing first,
+        #: would make the terminal look stale and leave the run open.
+        self.finished = False
 
     def event(self, event_type: str, **fields: Any) -> None:
-        with self.lock:
-            sequence = self.sequence
-            self.sequence += 1
+        with self.sending:
+            with self.lock:
+                if self.finished:
+                    return
+                sequence = self.sequence
+                self.sequence += 1
             _post_event(self.job, _event(self.job, sequence, event_type, **fields))
 
     def build(self, event_type: str, **fields: Any) -> Dict[str, Any]:
@@ -1281,6 +1296,7 @@ class LiveReporter:
         """
 
         with self.lock:
+            self.finished = True
             sequence = self.sequence
             self.sequence += 1
             return _event(self.job, sequence, event_type, **fields)
@@ -1291,6 +1307,7 @@ class LiveReporter:
         current: int | None = None,
         total: int | None = None,
     ) -> None:
+        self.phase = status
         fields: Dict[str, Any] = {
             "status": status,
             "elapsedMs": max(0, int(time.time() * 1000) - self.started_at),
@@ -2304,18 +2321,89 @@ def execute_job(job_value: Dict[str, Any]) -> None:
     # that one operation: reading the key and then writing it let two
     # invocations both see nothing and both do the work.
     #
-    # A claimed job with no outcome beside it is one of two things, and this
-    # cannot tell them apart: a job another invocation is running right now,
-    # or one whose attempt died between the claim and the terminal write.
-    # Standing down is right for the first and gives up on the second, which
-    # is then left to the portal's stale sweep. Telling them apart needs an
-    # owner on the claim that a later attempt can recognise as its own dead
-    # self; `modal.current_function_call_id` looks like the way in, and
-    # whether it survives a retry is not something this repository can
-    # establish without running on Modal.
-    if not job_store.put(job["jobId"], "running", skip_if_exists=True):
-        return
+    # A claim with no outcome beside it belongs to an attempt that is either
+    # still running or died without settling, and this attempt cannot tell
+    # which, so it stands down. An owner id on the claim would not separate
+    # them: Modal's client notes that an expired lease can redeliver an
+    # attempt that is still running, under the same input id
+    # (modal/_runtime/container_io_manager.py, "Skipping duplicate delivery"),
+    # and the function call id is the same for both. Settling is the holder's
+    # job instead. Preemption and cancellation interrupt it, and
+    # `_settle_interrupted` reports the run before the container goes. A
+    # controller killed with no interrupt, or before its outcome is stored,
+    # still leaves a claim for the portal's stale sweep.
+    #
+    # The claim is taken inside the handler's reach, so an interrupt landing
+    # just after it is settled too. One landing during the claim's own call
+    # cannot be: whether the write happened is unknown, and the claim may be
+    # another invocation's.
     reporter = LiveReporter(job)
+    claimed = False
+    try:
+        claimed = job_store.put(job["jobId"], "running", skip_if_exists=True)
+        if not claimed:
+            return
+        _run_claimed(job, reporter)
+    except (KeyboardInterrupt, modal.exception.InputCancellation) as stop:
+        if not claimed:
+            raise
+        try:
+            _settle_interrupted(job, reporter)
+        except Exception as error:
+            # If the outcome was stored, a preempted input restarts and
+            # replays it, and a cancelled one waits for the portal to dispatch
+            # the job again. If storing it failed, the claim is left for the
+            # stale sweep.
+            print("interrupted run not settled: {}".format(error), file=sys.stderr)
+        # Modal's interrupt, not ours to replace: it decides whether the input
+        # restarts.
+        raise stop
+
+
+#: What an interrupted run reports. A preemption or a cancelled call stops the
+#: runner, not the team's code, so the run is the platform's failure and says
+#: nothing about whether their code would have finished.
+INTERRUPTED_DETAIL = "The runner was stopped before this run finished, so there's no result. Running it again starts fresh."
+
+
+def _settle_interrupted(job: Dict[str, Any], reporter: "LiveReporter") -> None:
+    """Report the job of an attempt that Modal is stopping.
+
+    Modal preempts a controller by interrupting it, which raises
+    KeyboardInterrupt in this function's thread, and restarts the input in a
+    new container (https://modal.com/docs/guide/preemption). The interrupt
+    escaped `except Exception`, the claim stayed with no outcome, and the
+    restarted attempt found the claim and stood down. Nothing was left to
+    finish the run, and the team waited on the stale sweep.
+
+    The interrupted attempt is the one party that knows for certain it is not
+    finishing, and it still holds the claim and the reporter, so it settles
+    here: the next sequence number from its own reporter, the phase it last
+    reported, and the usual store-then-send through `_finish`. The restarted
+    attempt then finds the outcome and replays it if this send did not land.
+    No sandbox starts and nothing is scored twice.
+
+    An outcome already stored wins. An interrupt during a completed run's
+    delivery must resend that result, not replace it with a failure.
+    """
+
+    outcome = job_store.get(_outcome_key(job["jobId"]))
+    if outcome is None:
+        failed = reporter.build(
+            "failed",
+            failure={
+                "category": "provider",
+                "phase": reporter.phase,
+                "detail": INTERRUPTED_DETAIL,
+                "infrastructure": True,
+            },
+        )
+        print("run interrupted during {}".format(reporter.phase), file=sys.stderr)
+        outcome = {"status": "failed", "event": failed, "delivered": False}
+    _finish(job, outcome, outcome["status"])
+
+
+def _run_claimed(job: Dict[str, Any], reporter: "LiveReporter") -> None:
     phase = "queued"
     try:
         prepared_this_run = job["preparedArtifactId"] is None

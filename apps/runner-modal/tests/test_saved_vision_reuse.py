@@ -36,7 +36,7 @@ def controller_space(base):
     ]
     assert len(script) == 1, "EVALUATE_SCRIPT is no longer one module-level assignment"
     space = functions(
-        "execute_job", "_load_benchmark", "_evaluate_v2", "_evaluation_failure", "_timed_out",
+        "execute_job", "_run_claimed", "_load_benchmark", "_evaluate_v2", "_evaluation_failure", "_timed_out",
         "_wire_log", "_collect_wiring", "_last_error_line", "_v2_metrics", "_primary_for_run",
         "_sweep_wire", "_diagnostic_lines", **base,
     )
