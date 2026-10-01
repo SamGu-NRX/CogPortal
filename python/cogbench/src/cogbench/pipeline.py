@@ -831,7 +831,14 @@ def _invoke(candidate: Candidate, positional: Sequence[Any]) -> Any:
             # Each item was changed where it sat; the items go forward.
             return items
         if candidate.element is not None:
-            return [row[candidate.element] for row in produced]
+            # None is their whole answer for that item (week 2's describe
+            # step finding no face), so it goes forward for the benchmark to
+            # interpret. Any other answer is still indexed and a tuple without
+            # the bound part raises. Binding still refuses None (`_mapped`).
+            return [
+                None if row is None else row[candidate.element]
+                for row in produced
+            ]
         return produced
     args, keywords = _arguments(candidate, positional)
     return _carried(
