@@ -7,7 +7,7 @@ import { Button } from "@/components/Button";
 import { ConfirmButton } from "@/components/ConfirmButton";
 import { CopyBlock } from "@/components/CopyBlock";
 import { LoadingMark, QueryError } from "@/components/Feedback";
-import { Annotated, PageHeader } from "@/components/Note";
+import { PageHeader } from "@/components/Note";
 import { Panel } from "@/components/Panel";
 import { ApiRequestError } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
@@ -76,23 +76,11 @@ export function ConnectionsPage() {
 
   return (
     <div className="page anim-rise">
-      <PageHeader
-        eyebrow="Your account"
-        title="Connections"
-        lede="GitHub is who you are here. Discord and the CogWorks tool connect to that account without ever receiving your GitHub token, and only Discord can act on your team's hosted runs."
-      />
+      <PageHeader eyebrow="Your account" title="Connections" />
 
       {discordToken && (
         <Panel
           label={preview.isSuccess ? `Connect ${preview.data.username} to Cog?` : "Discord request"}
-          description={
-            preview.isSuccess ? (
-              <>
-                Once linked, this Discord account can work on your team's runs as you, in{" "}
-                <code className="font-mono text-[0.92em] text-ink">/cog</code> and the Activity.
-              </>
-            ) : undefined
-          }
           className="mt-10 max-w-[42rem]"
         >
           {preview.isPending ? (
@@ -122,8 +110,8 @@ export function ConnectionsPage() {
                 <div className="sm:grid sm:grid-cols-[9.5rem_minmax(0,1fr)] sm:gap-x-6">
                   <dt className="u-label text-ink">Does as you</dt>
                   <dd className="mt-0.5 text-ink-secondary sm:mt-0">
-                    Starts and retries hosted runs, spends official attempts and publishes a result
-                    to the leaderboard.
+                    Starts and retries hosted runs, spends official attempts and publishes
+                    results to the public leaderboard.
                   </dd>
                 </div>
               </dl>
@@ -161,10 +149,9 @@ export function ConnectionsPage() {
       {linkedDiscord && (
         <Panel label="Discord connected" tone="good" className="anim-rise mt-10 max-w-[42rem]">
           <p className="text-[14px] leading-[1.6] text-ink-secondary">
-            Cog is now connected to <strong className="font-semibold text-ink">{linkedDiscord}</strong>.
-            Discord is still showing what it knew before you linked, so choose{" "}
-            <strong className="font-semibold text-ink">Check the link</strong> in the Activity, or run{" "}
-            <strong className="font-semibold text-ink">/cog</strong> again.
+            Cog is connected to <strong className="font-semibold text-ink">{linkedDiscord}</strong>.
+            To refresh Discord, choose <strong className="font-semibold text-ink">Check the link</strong>{" "}
+            in the Activity or run <strong className="font-semibold text-ink">/cog</strong> again.
           </p>
         </Panel>
       )}
@@ -172,12 +159,10 @@ export function ConnectionsPage() {
       {userCode && !deviceApproved && (
         <Panel
           label="Approve this device"
-          description="It reports from this machine: check results, the local reports you sync, and runs you share live. It gets no access to your repository and can't start a hosted run or publish a result."
+          description="It sends check results, synced local reports and runs you share live. It can't touch your repository, start a hosted run or publish a result."
           className="mt-10 max-w-[42rem]"
         >
-          <p className="text-[14px] text-ink-secondary">
-            Check that your terminal shows the same code before you approve it.
-          </p>
+          <p className="text-[14px] text-ink-secondary">Approve only if your terminal shows this code.</p>
           {/* The code is what ties this page to one terminal, so it is shown
               big enough to compare at a glance, inside the bracket the portal
               uses for "look here". */}
@@ -218,9 +203,6 @@ export function ConnectionsPage() {
               maxLength={80}
               className="u-field mt-1.5"
             />
-            <p className="mt-1.5 text-[13px] text-ink-faint">
-              So you can tell your machines apart in the list below.
-            </p>
             <Button type="submit" className="mt-4" busy={approveDevice.isPending} disabled={!deviceName.trim()}>
               Approve device
             </Button>
@@ -249,7 +231,7 @@ export function ConnectionsPage() {
       <div className="mt-12">
         <Connection
           title="GitHub"
-          note="You sign in with GitHub, and it's how your team's repository knows who you are."
+          grants="Discord and the CogWorks tool never receive your GitHub token."
         >
           {github ? (
             <Row
@@ -265,7 +247,7 @@ export function ConnectionsPage() {
 
         <Connection
           title="Discord"
-          note="Cog, the course bot, shows you your team's status and synced reports in private. It can also start and retry hosted runs, spend official attempts and publish a result as you."
+          grants="Cog can start and retry hosted runs, spend official attempts and publish to the public leaderboard as you."
         >
           {discord ? (
             <>
@@ -290,9 +272,8 @@ export function ConnectionsPage() {
             </>
           ) : (
             <p className="text-[14px] leading-[1.6] text-ink-secondary">
-              Not linked. In the course server, run{" "}
-              <code className="font-mono text-[0.92em] text-ink">/cog</code> and Cog will send you a
-              private link that brings you back here.
+              Not linked. Run <code className="font-mono text-[0.92em] text-ink">/cog</code> in the
+              course server to get a link.
             </p>
           )}
         </Connection>
@@ -300,32 +281,23 @@ export function ConnectionsPage() {
         <Connection
           title="CogWorks tool"
           last
-          note={
-            <>
-              A linked device reports from your machine:{" "}
-              <code className="font-mono text-[0.88em] text-ink not-italic">check</code> results, the local
-              reports you sync, and runs you share with{" "}
-              <code className="font-mono text-[0.88em] text-ink not-italic">--live</code>. It can't touch your
-              repository or start a hosted run.
-            </>
-          }
+          grants="A linked device sends check results, synced local reports and runs you share live. It can't touch your repository or start a hosted run."
         >
           {cliDevices.length === 0 ? (
             <>
               <p className="text-[14px] leading-[1.6] text-ink-secondary">
-                No devices linked yet. Run this from your project folder, then approve the code it
-                prints.
+                No devices linked. Run this in your project folder:
               </p>
               {/* The complete command, not the bare verb. A fresh CLI has no saved
                   portal and refuses `cogworks link` outright, which used to send a
                   first-time student to Setup to find the rest of it. */}
               <CopyBlock className="mt-3" text={deviceLinkCommand(window.location.origin)} wrap />
               <p className="mt-3 text-[14px] text-ink-secondary">
-                Don't have the tool yet?{" "}
+                Don't have the tool yet? Install it from{" "}
                 <Link to="/setup" className="u-link">
                   Setup
-                </Link>{" "}
-                has the whole sequence.
+                </Link>
+                .
               </p>
             </>
           ) : (
@@ -364,26 +336,26 @@ export function ConnectionsPage() {
   );
 }
 
-/** One kind of connection: a title, what it is for in the margin, and its
+/** One kind of connection: a title, what it can and can't do, and its
  *  current state. Separated by rules rather than boxed, because the three are
- *  one list of the same thing. */
+ *  one list of the same thing. The permission line sits under the title so
+ *  it is read before the control that grants or revokes it. */
 function Connection({
   title,
-  note,
+  grants,
   last = false,
   children,
 }: {
   title: string;
-  note: ReactNode;
+  grants: string;
   last?: boolean;
   children: ReactNode;
 }) {
   return (
-    <section className={`border-t border-rule pt-6 ${last ? "" : "pb-10"}`}>
+    <section className={`max-w-[42rem] border-t border-rule pt-6 ${last ? "" : "pb-10"}`}>
       <h2 className="text-[21px] text-ink">{title}</h2>
-      <Annotated note={note} className="mt-3">
-        {children}
-      </Annotated>
+      <p className="mt-1 text-[13.5px] leading-[1.5] text-ink-faint">{grants}</p>
+      <div className="mt-4">{children}</div>
     </section>
   );
 }

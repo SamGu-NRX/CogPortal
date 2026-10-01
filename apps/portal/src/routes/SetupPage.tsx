@@ -13,7 +13,7 @@ import { Code } from "@/components/Code";
 import { ConfirmButton } from "@/components/ConfirmButton";
 import { CopyBlock } from "@/components/CopyBlock";
 import { LoadingMark, QueryError } from "@/components/Feedback";
-import { Annotated, PageHeader } from "@/components/Note";
+import { PageHeader } from "@/components/Note";
 import { Panel } from "@/components/Panel";
 import { Step, StepCells, StepRail, type StepState } from "@/components/StepRail";
 import { TrackSwitcher } from "@/components/TrackSwitcher";
@@ -192,66 +192,36 @@ function SetupGuide({
     <code className="font-mono text-[0.88em] text-ink not-italic">{text}</code>
   );
 
-  // What each command is for. A Record rather than a function, so a new
-  // SetupCommandId fails to compile until someone writes its reason instead
-  // of rendering a bare command under nothing. `note` is the why, set in the
-  // margin; `after` is anything a student needs at the moment they run it.
-  const said: Record<SetupCommandId, { note: ReactNode; after?: ReactNode }> = {
-    clone: {
-      note: (
-        <>
-          You all work in this one repository, and every hosted run starts from
-          it rather than from somebody's laptop.
-        </>
-      ),
-    },
+  // What a student needs beside each command. A Record rather than a
+  // function, so a new SetupCommandId fails to compile until someone decides
+  // what it needs. `note` sits in the margin and is kept for consent (what a
+  // linked device sends); `after` is what a student needs at the moment they
+  // run the command.
+  const said: Record<SetupCommandId, { note?: ReactNode; after?: ReactNode }> = {
+    clone: {},
     tool: {
-      note: (
-        <>
-          The {code("cogworks")} commands further down come from this package.
-          It's pinned to one commit, so everyone reading this page installs the
-          same tool.
-        </>
-      ),
       after: (
         <p>
-          If pip answers {code("externally-managed-environment")}, the course
-          environment isn't active; activate it and run this again.
+          If pip says {code("externally-managed-environment")}, activate the course
+          environment and run it again.
         </p>
       ),
     },
-    benchmark: {
-      note: (
-        <>
-          The {benchmarkTitle} scorer and its checks live in their own package,
-          so this line changes when you switch tracks.
-        </>
-      ),
-    },
+    benchmark: {},
     link: {
       note: (
         <>
-          Linking lets {code("check")} and {code("sync")} report to your team.{" "}
           {code("check")} sends check names, package versions and your
-          repository; {code("sync")} uploads one saved report you choose, with
-          any weight file it used that isn't already in your commit. You can
-          revoke the device from{" "}
+          repository; {code("sync")} uploads one report you choose, with any
+          weight file it used that isn't in your commit. Revoke a device from{" "}
           <Link to="/connections" className="u-link">
             Connections
           </Link>
           .
         </>
       ),
-      after: <p>It prints a short code and opens this portal so you can approve it.</p>,
     },
     check: {
-      note: (
-        <>
-          {code("check")} reads your repository and reports which of your own
-          functions it wired up. It also confirms the steps above, so their
-          boxes tick together.
-        </>
-      ),
       after: <p>If the box doesn't tick, the reason is in your terminal.</p>,
     },
   };
@@ -294,14 +264,6 @@ function SetupGuide({
           </span>
         }
         title="Set up your machine"
-        lede={
-          <>
-            {total === 4 ? "Four" : "Five"} steps get a fresh terminal ready to
-            run {benchmarkTitle} against your team's code. Keep this page open
-            beside it, and the boxes tick themselves as your terminal reports
-            back.
-          </>
-        }
         // Every command on this page names a benchmark, so the page has to
         // show which one and let a student change it. Without this the
         // default track silently decides what they're told to type.
@@ -356,32 +318,24 @@ function SetupGuide({
       {environment && (
         <section className="mt-10">
           <h2 className="u-label">Before you start</h2>
-          <Annotated
-            className="mt-1"
-            note={
-              <>
-                Every command below runs inside the environment you built for the{" "}
-                <a href={environment.prereqsUrl} target="_blank" rel="noreferrer" className="u-link">
-                  {benchmarkTitle} prerequisites
-                  <HugeiconsIcon
-                    icon={ArrowUpRight01Icon}
-                    size={12}
-                    strokeWidth={1.8}
-                    className="ml-0.5 inline-block align-[-0.05em]"
-                    aria-hidden="true"
-                  />
-                </a>
-                . The portal can't see your shell, so this one has no box.
-              </>
-            }
-          >
-            <p className="text-[14px] text-ink-secondary">
-              Open a terminal and switch to the course environment.
-            </p>
-            <div className="mt-3">
-              <Code lang="bash" code={`conda activate ${environment.condaEnv}`} />
-            </div>
-          </Annotated>
+          <p className="mt-1 text-[14px] text-ink-secondary">
+            Every command below runs in the environment from the{" "}
+            <a href={environment.prereqsUrl} target="_blank" rel="noreferrer" className="u-link">
+              {benchmarkTitle} prerequisites
+              <HugeiconsIcon
+                icon={ArrowUpRight01Icon}
+                size={12}
+                strokeWidth={1.8}
+                className="ml-0.5 inline-block align-[-0.05em]"
+                aria-hidden="true"
+              />
+              <span className="sr-only"> (opens the course site)</span>
+            </a>
+            .
+          </p>
+          <div className="mt-3 max-w-[42rem]">
+            <Code lang="bash" code={`conda activate ${environment.condaEnv}`} />
+          </div>
         </section>
       )}
 
@@ -409,9 +363,8 @@ function SetupGuide({
                 {line.dataCommand && (
                   <>
                     <p>
-                      pip doesn't install the course files this scorer reads, so
-                      fetch them once. It's nearly 1 GB and can take a while;
-                      copies {code("cogworks-data")} already downloaded are reused.
+                      Then fetch the course data once. It's nearly 1 GB; a{" "}
+                      {code("cogworks-data")} copy you already have is reused.
                     </p>
                     <Code lang="bash" code={line.dataCommand} wrap />
                   </>
@@ -432,12 +385,8 @@ function SetupGuide({
         >
           <p className="text-[14.5px] leading-[1.6] text-ink">
             {observed
-              ? "Everything the portal can verify checks out. Your terminal found the repository and called your code."
-              : "Every step is ticked; the ones marked checked off are your own report rather than something the portal saw."}
-          </p>
-          <p className="mt-3 text-[14px] leading-[1.6] text-ink-secondary">
-            Whether the code is any good is what runs are for. Local runs are
-            unlimited and score the same way, so start there:
+              ? "Everything the portal can verify checks out. Next, a local run:"
+              : "Every step is ticked; the ones checked off by you weren't seen by the portal. Next, a local run:"}
           </p>
           <div className="mt-3">
             <Code lang="bash" code={`cogworks run --benchmark ${track.benchmarkId}`} wrap />
@@ -449,12 +398,10 @@ function SetupGuide({
         </Panel>
       ) : (
         <p className="mt-12 max-w-[42rem] border-t border-rule-soft pt-5 text-[14px] leading-[1.6] text-ink-secondary">
-          No rush; the guide keeps your place. Hosted practice runs build from
-          your pushed commit and don't need any of this, so you can{" "}
+          Hosted practice runs don't need any of this.{" "}
           <Link to="/dashboard" className="u-link">
-            start one from Runs
-          </Link>{" "}
-          whenever you like.
+            Start one from Runs
+          </Link>
         </p>
       )}
     </div>
@@ -504,23 +451,22 @@ function ArrivalNote({
         <p className="font-serif text-[18px] leading-snug font-semibold text-ink">
           {arrival === "created" ? `You've created ${team.name}` : `You're on ${team.name}`}
         </p>
-        <p className="mt-1 text-[14px] leading-[1.6] text-ink-secondary">
-          {arrival === "created" && (
-            <>
-              You're its first member. Classmates join by picking it from the
-              team list once they've entered the cohort code, or you can add
-              them from the{" "}
-              <Link to="/team" className="u-link">
-                Team page
-              </Link>
-              .{" "}
-            </>
-          )}
-          {arrival === "joined" && others.length > 0 && (
-            <>You're working with {namesOf(others)}. </>
-          )}
-          Start with step 1 below, which clones the team's repository.
-        </p>
+        {(arrival === "created" || others.length > 0) && (
+          <p className="mt-1 text-[14px] leading-[1.6] text-ink-secondary">
+            {arrival === "created" && (
+              <>
+                Classmates join from the team list, or add them from the{" "}
+                <Link to="/team" className="u-link">
+                  Team page
+                </Link>
+                .
+              </>
+            )}
+            {arrival === "joined" && others.length > 0 && (
+              <>You're working with {namesOf(others)}.</>
+            )}
+          </p>
+        )}
       </div>
     </div>
   );
@@ -590,10 +536,8 @@ function TerminalCheckoff({
       </summary>
       <div className="mt-1 mb-1 border-l border-rule pl-4">
         <p className="text-[13.5px] leading-[1.6] text-ink-secondary">
-          Once this step has worked, paste this into the same terminal.
-          It records that you did this one step and sends nothing else;{" "}
-          <code className="font-mono text-[0.92em] text-ink">check</code> confirms
-          it for itself at the end.
+          Once this step works, paste this into the same terminal. It marks this
+          one step and sends nothing else.
         </p>
         {/* Keep the signed token plain and on one scrollable line. */}
         <CopyBlock

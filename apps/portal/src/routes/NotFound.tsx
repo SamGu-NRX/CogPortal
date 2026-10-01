@@ -33,8 +33,7 @@ export function NotFound() {
         There's nothing at this address.
       </h1>
       <p className="mt-3 text-[16px] leading-[1.6] text-ink-secondary">
-        The link may be out of date, or a character went missing when it was
-        copied. This is the address we looked up:
+        The link may be out of date. This is the address we looked up:
       </p>
 
       {/* The detection bracket around what the portal looked for and didn't

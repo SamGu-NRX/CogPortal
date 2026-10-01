@@ -14,12 +14,11 @@ import { Code } from "@/components/Code";
 import { ConfirmButton } from "@/components/ConfirmButton";
 import { LoadingMark, QueryError } from "@/components/Feedback";
 import { LocalReportsTable } from "@/components/LocalReportsTable";
-import { Annotated, PageHeader } from "@/components/Note";
+import { PageHeader } from "@/components/Note";
 import { PhaseRail } from "@/components/PhaseRail";
 import { QuotaCells } from "@/components/QuotaCells";
 import { RunList } from "@/components/RunList";
 import { SetupNudge } from "@/components/SetupNudge";
-import { ShaChip } from "@/components/ShaChip";
 import { SimulatedChip } from "@/components/SimulatedChip";
 import { StatusChip } from "@/components/StatusChip";
 import { TrackSwitcher, trackTabId } from "@/components/TrackSwitcher";
@@ -228,28 +227,27 @@ function Bench({ d, finishedHere }: { d: Dashboard; finishedHere: string | null 
           )}
 
           {candidateApart && (
-            <Annotated note={PROMOTE_NOTE}>
+            <div className="max-w-[var(--measure,42rem)]">
               <Promotion d={d} candidate={candidateApart} />
-            </Annotated>
+            </div>
           )}
 
           <section aria-labelledby="launch-heading">
             <h2 id="launch-heading" className="text-[22px]">
               Start a practice run
             </h2>
-            <Annotated note={HOSTED_NOTE} className="mt-4">
+            <div className="mt-4 max-w-[var(--measure,42rem)]">
               {active ? (
-                <p className="max-w-[56ch] text-[15px] leading-[1.6] text-ink-secondary">
-                  Runs go one at a time on each benchmark, so the next one can
-                  start once this one finishes.
+                <p className="text-[15px] leading-[1.6] text-ink-secondary">
+                  Runs go one at a time on each benchmark.
                 </p>
               ) : (
                 <Launcher d={d} branches={branches} branchesFailed={repositories.isError} />
               )}
-            </Annotated>
+            </div>
           </section>
 
-          <section aria-labelledby="history-heading">
+          <section aria-labelledby="history-heading" className="max-w-[var(--measure,42rem)]">
             <div className="flex items-baseline justify-between gap-4">
               <h2 id="history-heading" className="text-[22px]">
                 Run history
@@ -284,22 +282,20 @@ function Bench({ d, finishedHere }: { d: Dashboard; finishedHere: string | null 
               Self-reported, not promotable
             </span>
           </div>
-          <Annotated note={LOCAL_REPORTS_NOTE} className="mt-4">
-            <div>
-              {reportsFailed ? (
-                <p role="status" className="text-[14px] text-ink-secondary">
-                  Synced local reports are temporarily unavailable. Hosted and official results are unaffected.
-                </p>
-              ) : (
-                reports.length > 0 && (
-                  <LocalReportsTable reports={reports} caption="Self-reported local CogBench results" />
-                )
-              )}
-              {!reportsFailed && untracked.length > 0 && (
-                <UntrackedReports reports={untracked} catalog={catalog} separated={reports.length > 0} />
-              )}
-            </div>
-          </Annotated>
+          <div className="mt-4 max-w-[var(--measure,42rem)]">
+            {reportsFailed ? (
+              <p role="status" className="text-[14px] text-ink-secondary">
+                Couldn't load synced local reports. Reload the page to try again.
+              </p>
+            ) : (
+              reports.length > 0 && (
+                <LocalReportsTable reports={reports} caption="Self-reported local CogBench results" />
+              )
+            )}
+            {!reportsFailed && untracked.length > 0 && (
+              <UntrackedReports reports={untracked} catalog={catalog} separated={reports.length > 0} />
+            )}
+          </div>
         </section>
       )}
 
@@ -307,21 +303,6 @@ function Bench({ d, finishedHere }: { d: Dashboard; finishedHere: string | null 
     </div>
   );
 }
-
-const HOSTED_NOTE =
-  "A hosted run scores the commit your branch points to, on our machine with the network off. " +
-  "Local runs score the same way with no limit, so that's usually where the iteration happens.";
-
-const PROMOTE_NOTE =
-  "There's no undo once an official attempt starts, so it's worth reading what the practice run found first.";
-
-const LOCAL_REPORTS_NOTE = (
-  <>
-    These come from <code className="font-mono text-[13.5px] not-italic">cogworks sync</code> on your
-    own machines. We show them as they arrived and can't check them, so they stay off the
-    leaderboard.
-  </>
-);
 
 /* ── Lead: the live run, or the latest one ─────────────────────────────── */
 
@@ -380,9 +361,7 @@ function LeadRun({
           {run.status === "queued" && (
             <p className="mt-5 max-w-[58ch] text-[14px] leading-[1.6] text-ink-secondary">{QUEUED_WAIT_NOTE}</p>
           )}
-          <p className="mt-5 text-[13px] text-ink-faint">
-            This card checks back every two seconds, so there's no need to reload.
-          </p>
+          <p className="mt-5 font-mono text-[12px] text-ink-faint">Updates every 2 s.</p>
         </>
       ) : (
         <div className="mt-4">
@@ -515,10 +494,10 @@ function Promotion({
   const sentence = refusal
     ? refusal
     : promotedTo
-      ? "A run is promoted once, so the next official attempt starts from a new practice run."
+      ? "The next official attempt needs a new practice run."
       : officialLeft <= 0
         ? `All ${d.quota.officialLimit} official attempts on this version are used.`
-        : `Promoting scores this same commit once against the hidden set, with its logs kept back. It would use official attempt ${nextAttempt} of ${d.quota.officialLimit}.`;
+        : "Scores this commit once on the hidden set, with logs kept back.";
 
   const body = (
     <>
@@ -614,7 +593,7 @@ function Launcher({
       <div className="space-y-3">
         <p className="max-w-[56ch] text-[15px] leading-[1.6] text-ink">
           All {d.quota.practiceLimit} hosted practice runs on this version are used. Local runs
-          score the same way and have no limit:
+          have no limit:
         </p>
         <Code lang="bash" code={`cogworks run --benchmark ${d.benchmark.id}`} wrap />
       </div>
@@ -656,8 +635,8 @@ function Launcher({
       </p>
       {branchesFailed && (
         <p className="mt-2 text-[14px] text-ink-secondary">
-          We couldn't load the branch list from GitHub, so only {fallback} is offered. Reload the
-          page to try again.
+          Couldn't load branches from GitHub, so only {fallback} is offered. Reload the page to
+          try again.
         </p>
       )}
       {startError && (
@@ -682,16 +661,8 @@ function FirstRun({
   branches: string[];
   branchesFailed: boolean;
 }) {
-  const officialLeft = d.quota.officialLimit - d.quota.officialUsed;
   return (
-    <Annotated
-      note={
-        // A team that has never run has no history to read the two kinds of
-        // run off, and the difference decides which one to use today.
-        "Both kinds of run score your code the same way. Local runs have no limit, so that's " +
-        "usually where the iteration happens."
-      }
-    >
+    <div className="max-w-[var(--measure,42rem)]">
       <section
         aria-labelledby="first-run-heading"
         className="anim-rise rounded-surface border border-rule bg-paper-raised px-5 pt-5 pb-6 sm:px-6"
@@ -699,17 +670,9 @@ function FirstRun({
         <h2 id="first-run-heading" className="text-[clamp(1.375rem,1.2rem+0.8vw,1.75rem)]">
           Run it for the first time
         </h2>
-        <p className="mt-2 max-w-[56ch] text-[15px] leading-[1.6] text-ink-secondary">
-          Nothing has run on {d.benchmark.title} yet. There are two ways to start, and you can use both.
-        </p>
 
-        <div className="mt-6">
-          <h3 className="font-sans text-[16px] font-bold tracking-normal text-ink">Here, from your pushed commit</h3>
-          <p className="mt-1 mb-4 max-w-[56ch] text-[14px] leading-[1.6] text-ink-secondary">
-            A hosted run scores the commit your branch points to on GitHub. One that succeeds can
-            be promoted to one of your {officialLeft} official{" "}
-            {officialLeft === 1 ? "attempt" : "attempts"}, which score the hidden set.
-          </p>
+        <div className="mt-5">
+          <h3 className="mb-3 font-sans text-[16px] font-bold tracking-normal text-ink">Here, from your pushed commit</h3>
           <Launcher d={d} branches={branches} branchesFailed={branchesFailed} />
         </div>
 
@@ -725,10 +688,9 @@ function FirstRun({
             These need the CogWorks tool from{" "}
             <Link to="/setup" className="u-link">
               Setup
-            </Link>{" "}
-            first. The commands already name this benchmark. If your code trains weights, a hosted run
-            fetches only the ones synced from its own commit, so run these on the commit you'll
-            evaluate, and again after each new one.
+            </Link>
+            . If your code trains weights, run these on the commit you'll evaluate; a hosted run
+            uses only weights synced from its own commit.
           </p>
           <Code
             lang="bash"
@@ -741,7 +703,7 @@ function FirstRun({
           />
         </div>
       </section>
-    </Annotated>
+    </div>
   );
 }
 
@@ -769,11 +731,8 @@ function UntrackedReports({
       className={separated ? "mt-6 border-t border-rule-soft pt-5" : undefined}
     >
       <h3 id="untracked-reports-heading" className="font-sans text-[15px] font-bold tracking-normal text-ink">
-        Other benchmarks
+        Benchmarks not open for hosted runs
       </h3>
-      <p className="mt-1 max-w-[62ch] text-[14px] leading-[1.55] text-ink-secondary">
-        Reports from benchmarks or versions that are not open for hosted runs.
-      </p>
       <div className="mt-3">
         <LocalReportsTable
           reports={reports}
@@ -796,13 +755,10 @@ function Reference({ d, firstRun }: { d: Dashboard; firstRun: boolean }) {
   const repo = d.team.repo;
   const selection = d.selection;
   return (
-    <section aria-labelledby="reference-heading" className="border-t border-rule pt-6">
-      <h2 id="reference-heading" className="u-label">
-        For reference
-      </h2>
+    <section aria-label="For reference" className="border-t border-rule pt-6">
       {/* Two columns even on a phone, so the two budgets sit side by side;
           the longer facts take the full width there. */}
-      <dl className="mt-4 grid grid-cols-2 gap-x-8 gap-y-6 lg:grid-cols-3 lg:gap-x-10">
+      <dl className="grid grid-cols-2 gap-x-8 gap-y-6 lg:grid-cols-4 lg:gap-x-10">
         <Fact term="Repository" wide>
           {repo ? (
             <a
@@ -822,19 +778,6 @@ function Reference({ d, firstRun }: { d: Dashboard; firstRun: boolean }) {
             {d.benchmark.runtimeVersion} · CPU · network off while scoring
           </span>
         </Fact>
-        {!firstRun && repo && (
-          <Fact term="Last tested commit" wide>
-            {d.lastResolvedSha ? (
-              <ShaChip sha={d.lastResolvedSha} shortSha={d.lastResolvedSha.slice(0, 7)} />
-            ) : (
-              // A team can have runs that belong to a repository it has since
-              // left, or runs from before the source was recorded. Neither is
-              // "nothing yet", and this can only speak for the repository
-              // named beside it.
-              <span className="text-[14px] text-ink-secondary">None recorded for this repository</span>
-            )}
-          </Fact>
-        )}
         {!firstRun && (
           <>
             <Fact term="Hosted practice">

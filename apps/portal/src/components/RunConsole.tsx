@@ -305,7 +305,7 @@ export function RunConsole({
     ? `Use ${snapshot.nextOfficialAttempt === null ? "an official attempt" : `official attempt ${snapshot.nextOfficialAttempt} of ${OFFICIAL_LIMIT}`} for ${snapshot.benchmark.title} at ${snapshot.shortSha}?`
     : pendingAction === "publish_result"
       ? `Publish ${snapshot.shortSha} to the public leaderboard?`
-      : "Start a new hosted lifecycle at this exact commit? The current result stays unchanged.";
+      : "Start a new hosted run at this commit? The current result stays as it is.";
   const progressRatio = snapshot.progress
     ? Math.min(1, snapshot.progress.current / snapshot.progress.total)
     : null;
@@ -382,7 +382,7 @@ export function RunConsole({
         )}
         {silent && (
           <p className="mt-5 max-w-[60ch] border-t border-rule-soft pt-3.5 text-[14px] leading-[1.55] text-ink-secondary" role="status" aria-live="polite">
-            If @{snapshot.actor.login}'s run is still going, its result will appear here when it finishes. If it was stopped, run it again.
+            If @{snapshot.actor.login}'s run is still going, its result will appear here. If it stopped, run it again.
           </p>
         )}
         {runAgainOffered && (
@@ -576,8 +576,7 @@ export function RunConsole({
                 explains the missing button was the one thing not said. */}
             {snapshot.dirty && snapshot.stage === "local" && snapshot.status === "succeeded" && (
               <p className="text-[13px] leading-relaxed text-ink-secondary">
-                Hosted verification needs a commit. Commit and push this work,
-                then run it again.
+                A hosted run needs a commit. Commit and push, then run it again.
               </p>
             )}
             {onOpenPortal && (

@@ -22,11 +22,13 @@ export function Annotated({
   children: ReactNode;
   className?: string;
 }) {
-  if (!note) return <div className={className}>{children}</div>;
+  // One tree whether or not there is a note: the note slot holds its place,
+  // so a note that arrives late (RunDetailPage's comparison line) adds a
+  // sibling instead of remounting the work, which would drop focus inside it.
   return (
-    <div className={`annotated ${className}`}>
-      <div className="annotated-note u-note">{note}</div>
-      <div className="annotated-body">{children}</div>
+    <div className={`${note ? "annotated " : ""}${className}`}>
+      {note ? <div className="annotated-note u-note">{note}</div> : null}
+      <div className={note ? "annotated-body" : undefined}>{children}</div>
     </div>
   );
 }

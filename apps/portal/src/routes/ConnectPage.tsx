@@ -16,7 +16,6 @@ import { DroppedLinkNotice } from "@/components/DroppedLinkNotice";
 import { LoadingMark, QueryError } from "@/components/Feedback";
 import { GrantAccess } from "@/components/GrantAccess";
 import { MemberAvatar } from "@/components/MemberAvatar";
-import { Annotated } from "@/components/Note";
 import { OnboardingPath } from "@/components/OnboardingPath";
 import { RepoPicker } from "@/components/RepoPicker";
 import { Veil } from "@/components/Veil";
@@ -172,29 +171,15 @@ export function ConnectPage() {
               <h1 ref={headingRef} tabIndex={-1} className={title}>
                 Join or start your team
               </h1>
-              <p className="mt-3 text-[16px] leading-[1.6] text-ink-secondary">
-                Usually one person starts the team and everyone else joins it.
-              </p>
             </header>
-            <Annotated
-              className="mt-8 gap-y-4 max-lg:max-w-[31rem]"
-              note={
-                <>
-                  The repository is the team. Everyone who can push to it
-                  shares its practice runs and official attempts, so it should
-                  be the one you'll actually work in.
-                </>
-              }
-            >
+            <div className="mt-8 max-w-[31rem]">
               {/* Can land after the choices when GitHub is slower than the
                   cohort list; the rise makes the late arrival legible. */}
               {likely.length > 0 && (
                 <section aria-labelledby="likely-team" className="anim-rise relative mb-9 rounded-surface bg-paper-raised p-5">
                   <CornerBrackets size={12} thickness={1.5} />
                   <h2 id="likely-team" className="u-label">
-                    {likely.length === 1
-                      ? "You can see this team's repository on GitHub, so it's probably yours"
-                      : "You can see these teams' repositories on GitHub"}
+                    {likely.length === 1 ? "Probably your team" : "Teams whose repository you can see"}
                   </h2>
                   <ul role="list" className="mt-1">
                     {likely.map((team) => (
@@ -217,19 +202,18 @@ export function ConnectPage() {
                 <ChoiceCard
                   onSelect={() => choose("join")}
                   label="Join a team someone already started"
-                  hint={`Find your teammates among the cohort's ${teams.length} ${teams.length === 1 ? "team" : "teams"}.`}
                 />
                 <ChoiceCard
                   onSelect={() => choose("start")}
                   label="Start a new team"
                   hint={
                     template
-                      ? "You're the first one. Connect your fork of the course template, and your teammates join after you."
-                      : "You're the first one. Connect a public repository you can push to, and your teammates join after you."
+                      ? "Connect your fork of the course template."
+                      : "Connect a public repository you can push to."
                   }
                 />
               </div>
-            </Annotated>
+            </div>
           </>
         ) : step === "join" ? (
           <>
@@ -239,23 +223,14 @@ export function ConnectPage() {
                 Join your team
               </h1>
             </header>
-            <Annotated
-              className="mt-6 gap-y-4 max-lg:max-w-[31rem]"
-              note={
-                <>
-                  Joining asks GitHub whether you can push to the team's
-                  repository. If you can't yet, whoever started the team can
-                  add you as a collaborator.
-                </>
-              }
-            >
+            <div className="mt-6 max-w-[31rem]">
               <JoinPath
                 teams={teams}
                 join={join}
                 onJoin={joinTeam}
                 onStartInstead={() => setParams({ path: "start" }, { replace: true, state: location.state })}
               />
-            </Annotated>
+            </div>
           </>
         ) : (
           <>
@@ -276,11 +251,11 @@ export function ConnectPage() {
                     >
                       {template}
                       <span className="sr-only"> (opens GitHub)</span>
-                    </a>
-                    , then pick your fork below. Your teammates join it after you.
+                    </a>{" "}
+                    (keep it public), then pick your fork below.
                   </>
                 ) : (
-                  "Pick the repository your team will work in. Your teammates join it after you."
+                  "Pick the public repository your team will work in."
                 )}
               </p>
             </header>
@@ -291,30 +266,13 @@ export function ConnectPage() {
                   retry={() => void cohortTeams.refetch()}
                 />
                 <p className="mt-2 text-[13.5px] text-ink-secondary">
-                  We couldn't check the cohort's teams, so joining is hidden
-                  until this loads. Starting a team still works.
+                  Joining is hidden until the team list loads. Starting a team still works.
                 </p>
               </div>
             )}
-            <Annotated
-              className="mt-8 gap-y-4 max-lg:max-w-[31rem]"
-              note={
-                template ? (
-                  <>
-                    Forking gives your team its own copy of the starter code.
-                    It has to stay public, because the benchmark reads it from
-                    GitHub.
-                  </>
-                ) : (
-                  <>
-                    It has to be public, because the benchmark reads it from
-                    GitHub.
-                  </>
-                )
-              }
-            >
+            <div className="mt-8 max-w-[31rem]">
               <StartPath connect={connect} />
-            </Annotated>
+            </div>
           </>
         )}
       </motion.div>
@@ -331,7 +289,7 @@ function ChoiceCard({
 }: {
   onSelect: () => void;
   label: string;
-  hint: string;
+  hint?: string;
 }) {
   return (
     <button
@@ -344,7 +302,7 @@ function ChoiceCard({
       </span>
       <span className="min-w-0 flex-1">
         <span className="block font-serif text-[18px] font-semibold text-ink">{label}</span>
-        <span className="mt-1 block text-[14px] leading-[1.5] text-ink-secondary">{hint}</span>
+        {hint && <span className="mt-1 block text-[14px] leading-[1.5] text-ink-secondary">{hint}</span>}
       </span>
       <HugeiconsIcon
         icon={ArrowRight01Icon}
@@ -459,9 +417,6 @@ function JoinPath({
         <div className="border-y border-rule-soft py-6">
           <p className="text-[15px] text-ink">
             No team matches <span className="font-mono text-[14px]">{query.trim()}</span>.
-          </p>
-          <p className="mt-1 text-[14px] text-ink-secondary">
-            Check the spelling with a teammate, or start the team if nobody has yet.
           </p>
         </div>
       ) : (
@@ -697,7 +652,7 @@ function ForkSteps({
   return (
     <div>
       <p className="text-[15px] text-ink">
-        No repositories are visible to the portal yet. Three steps make yours show up.
+        No repositories are visible to the portal yet.
       </p>
       <ol role="list" className="mt-5 space-y-6">
         <ForkStep n={1} title={template ? "Fork the course template" : "Pick a public repository"}>

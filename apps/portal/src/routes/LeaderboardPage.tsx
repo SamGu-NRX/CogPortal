@@ -7,7 +7,7 @@ import { moveTabFocus } from "@/lib/tablist";
 import type { Benchmark, LeaderboardEntry, Module } from "@cogworks/contracts/schema";
 import { EmptyState } from "@/components/EmptyState";
 import { LoadingMark, QueryError } from "@/components/Feedback";
-import { Annotated, PageHeader } from "@/components/Note";
+import { PageHeader } from "@/components/Note";
 import { formatDateTime, formatMetricValue } from "@/lib/format";
 import { useAccountRevealed } from "@/components/RestoreGate";
 import { EASE_OUT } from "@/lib/motion";
@@ -45,8 +45,7 @@ function visionViewOf(benchmarkId: string): VisionView {
  * no medal for first: each entry leads with the team and its own line about
  * its approach, and the number is a footnote under it. The entries still
  * arrive in the order the read model sorts them (by the primary metric), and
- * this page keeps that order rather than re-sorting on the client; the margin
- * note says so instead of hiding it.
+ * this page keeps that order rather than re-sorting on the client.
  */
 export function LeaderboardPage() {
   const benchmarks = useBenchmarks();
@@ -99,17 +98,11 @@ export function LeaderboardPage() {
           : recognition
       : module ? forModule(module) : undefined;
 
-  const boardSummary =
-    module === "vision" && visionView === "overall"
-      ? "Recognition and Clustering together, both from one commit."
-      : benchmark?.summary;
-
   return (
     <div className="page anim-rise">
       <PageHeader
         eyebrow="Published results"
         title={module === "vision" ? "Vision" : (benchmark?.title ?? "Leaderboard")}
-        lede="Each team chooses one official run to show the cohort. Read an entry for what the team tried; its numbers sit underneath."
       />
 
       {/* ── Track switcher ── */}
@@ -198,22 +191,14 @@ export function LeaderboardPage() {
         </div>
       )}
 
-      <Annotated
-        className="mt-6"
-        note="Entries follow the published score, without rank numbers. A few thousandths between two teams says less than what each one tried."
+      <div
+        id={BOARD_PANEL_ID}
+        role="tabpanel"
+        aria-labelledby={
+          module === "vision" ? `vision-tab-${visionView}` : module ? `track-tab-${module}` : undefined
+        }
+        className="mt-6 lg:max-w-[42rem]"
       >
-        <div
-          id={BOARD_PANEL_ID}
-          role="tabpanel"
-          aria-labelledby={
-            module === "vision" ? `vision-tab-${visionView}` : module ? `track-tab-${module}` : undefined
-          }
-        >
-        {boardSummary && !benchmarks.isPending && (
-          <p className="mb-4 max-w-[58ch] text-[14.5px] leading-[1.55] text-ink-secondary">
-            {boardSummary}
-          </p>
-        )}
         {benchmarks.isPending ? (
           <LoadingMark />
         ) : benchmarks.isError ? (
@@ -221,9 +206,7 @@ export function LeaderboardPage() {
         ) : module === "vision" && visionView === "overall" ? (
           <OverallStandings />
         ) : !benchmark ? (
-          <Empty
-            message={`${TRACKS.find((t) => t.module === module)?.label} is in progress. Standings open when the track is calibrated.`}
-          />
+          <Empty message={IN_PROGRESS} />
         ) : (
           <Standings
             key={benchmark.id}
@@ -232,11 +215,13 @@ export function LeaderboardPage() {
             title={benchmark.title}
           />
         )}
-        </div>
-      </Annotated>
+      </div>
     </div>
   );
 }
+
+/** The tab already says "in progress" and the title names the track. */
+const IN_PROGRESS = "Standings open when the track is calibrated.";
 
 function Empty({ message }: { message: string }) {
   return (
@@ -274,18 +259,13 @@ function Standings({
     <>
       {!active && entries.length > 0 && (
         <p className="mb-4 max-w-[58ch] text-[14.5px] leading-[1.55] text-ink-secondary">
-          {title} isn't calibrated for this cohort yet, so nothing new is being scored on it.
-          What the archive holds is below.
+          {title} isn't calibrated for this cohort yet, so these are archive results.
         </p>
       )}
       <Gallery
         entries={entries}
         footer={`${benchmark.id} / v${benchmark.version}. One selected official result per team.`}
-        empty={
-          active
-            ? undefined
-            : `${title} is in progress. Standings open when the track is calibrated.`
-        }
+        empty={active ? undefined : IN_PROGRESS}
       />
     </>
   );
@@ -303,7 +283,7 @@ function OverallStandings() {
       footer="vision-overall / v1. All three components must come from selected official runs at the same repository and commit."
       // "No results published yet" was true of Overall and told the reader
       // nothing, because Clustering had standings the whole time.
-      empty="Overall needs a Recognition result and a Clustering result from the same commit, and no team has published both yet. Recognition and Clustering have their own standings in the tabs above."
+      empty="Overall needs a Recognition and a Clustering result from the same commit. No team has published both yet."
     />
   );
 }
@@ -311,7 +291,7 @@ function OverallStandings() {
 function Gallery({
   entries,
   footer,
-  empty = "No official results are published yet. Check again after teams publish their results.",
+  empty = "No results published yet.",
 }: {
   entries: LeaderboardEntry[];
   footer: string;
@@ -337,8 +317,8 @@ function Gallery({
 
       {hasArchiveRows && (
         <p className="mt-5 max-w-[58ch] text-[13.5px] leading-[1.55] text-ink-secondary">
-          Archive entries are 2026 teams scored after the course from their repositories as they
-          left them, with names replaced.
+          Archive entries are 2026 teams, scored after the course from their repositories as they
+          left them.
         </p>
       )}
 

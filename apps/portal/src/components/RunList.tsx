@@ -74,7 +74,7 @@ export function RunList({
           count={runs.length - SHOWN}
           peek={56}
           moreLabel={`Show ${runs.length - SHOWN} earlier ${runs.length - SHOWN === 1 ? "run" : "runs"}`}
-          fewerLabel="Fold the earlier runs away"
+          fewerLabel="Hide earlier runs"
           focusSelector="a"
         >
           <ul className="divide-y divide-rule-soft">{runs.slice(SHOWN).map(row)}</ul>

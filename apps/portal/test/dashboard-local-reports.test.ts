@@ -167,7 +167,7 @@ test("reports no track shows get their own group, labelled by benchmark and with
   assert.match(group, /bbbbbbb <span class="whitespace-nowrap">· dirty<\/span>/);
   assert.match(group, /Face Recognition <span[^>]*>v1<\/span>/);
   assert.match(group, /0\.640/);
-  assert.match(group, /Reports from benchmarks or versions that are not open for hosted runs\./);
+  assert.match(group, /<h3 id="untracked-reports-heading"[^>]*>Benchmarks not open for hosted runs<\/h3>/);
 
   // No author in any form: not the login, not the display name.
   for (const author of [INACTIVE.author, SUPERSEDED.author, ON_TRACK.author]) {
@@ -204,7 +204,7 @@ test("an id the catalog doesn't carry falls back to the id itself", () => {
 test("a failed untracked list shows the panel's error rather than a partial table", () => {
   const html = render({ scoped: [ON_TRACK], untrackedError: true });
 
-  assert.match(html, /Synced local reports are temporarily unavailable/);
+  assert.match(html, /Couldn&#x27;t load synced local reports/);
   assert.doesNotMatch(html, /untracked-reports-heading/);
 });
 
