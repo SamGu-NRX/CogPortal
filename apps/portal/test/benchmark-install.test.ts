@@ -37,7 +37,7 @@ for (const [track, distribution, revision] of sources) {
 test("benchmark correction preserves the accepted SDK pin", () => {
   assert.equal(
     commands("language-search").find((line) => line.id === "tool")?.command,
-    'python -m pip install --upgrade --force-reinstall "cogworks-benchmark @ git+https://github.com/SamGu-NRX/CogPortal.git@71e4767cf3858229ddbdfe4adfeca6da1e250d32#subdirectory=python/cogbench"',
+    'python -m pip install --upgrade --force-reinstall "cogworks-benchmark @ git+https://github.com/SamGu-NRX/CogPortal.git@064400e9cf65874b87fe888fc6fd14a564095c5e#subdirectory=python/cogbench"',
   );
 });
 
