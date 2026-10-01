@@ -334,16 +334,15 @@ have recorded. Common ones:
 ## 7. Deploy, and fix the image digest
 
 ```sh
-rm -rf benchmarks/week1/build benchmarks/week2/build benchmarks/week3/build
 python apps/runner-modal/tools/deploy.py
 ```
 
 **Why this and not `modal deploy`:** `_prepare` creates its sandbox from inside a
 Modal container, where the repository the image definitions read does not exist.
 This script builds and publishes the images from the machine that does have the
-repository, then deploys. `deploy.py` refuses to run if a stale `build/` tree
-exists, because setuptools reuses it and silently ships month-old source; the
-comment on `stale_build_trees` in `tools/deploy.py` records that this cost a deploy cycle to find.
+repository, then deploys. A local `build/` tree never reaches an image:
+`add_source_dir` in `modal_app.py` leaves it out of every source copy, because
+setuptools would otherwise install it in place of the source.
 
 **Cost:** image build minutes on the first run. `Image.build` returns the cache
 when nothing changed.

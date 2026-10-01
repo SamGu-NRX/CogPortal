@@ -120,28 +120,6 @@ def parse_publish(values: Sequence[str]) -> Dict[str, str]:
     return published
 
 
-def stale_build_trees() -> list:
-    """Benchmark directories holding a `build/` from a previous local build.
-
-    The images install each benchmark with `pip install /opt/weekN`, which
-    builds from source, and setuptools reuses whatever is already in `build/`
-    rather than recopying. A month-old tree there silently shadows the real
-    module inside the sandbox: locally every test passes, hosted runs fail on
-    a keyword the current source added. Measured once, on Week 3, and it cost
-    a deploy cycle to find.
-
-    They are gitignored, so a fresh clone never has them and this only ever
-    fires on a developer machine that once ran `python -m build`.
-    """
-
-    return [
-        path
-        for week in ("week1", "week2", "week3")
-        for path in [Path(__file__).resolve().parents[3] / "benchmarks" / week / "build"]
-        if path.is_dir()
-    ]
-
-
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
@@ -197,14 +175,6 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 published = parse_publish(arguments.publish)
     except DeploymentError as error:
         parser.error(str(error))
-
-    # Every path below deploys the controller, which installs benchmark source.
-    stale = stale_build_trees()
-    if stale:
-        print("Refusing to deploy: stale build trees would shadow the real source.")
-        for path in stale:
-            print("  rm -rf {}".format(path))
-        return 1
 
     app, sandbox_images = load_app(deployment)
 

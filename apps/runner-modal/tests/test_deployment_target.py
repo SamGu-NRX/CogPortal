@@ -127,12 +127,17 @@ def _import_controller(environ):
 def _layers(image):
     """An image's builder calls, comparable across two separate imports.
 
-    `run_function` carries a function object, and a fresh import produces a
-    different one, so compare by name rather than by identity.
+    `run_function` and `add_local_dir`'s `ignore` carry function objects, and a
+    fresh import produces different ones, so compare by name rather than by
+    identity.
     """
 
     return [
-        (name, tuple(getattr(a, "__name__", repr(a)) for a in args), repr(kwargs))
+        (
+            name,
+            tuple(getattr(a, "__name__", repr(a)) for a in args),
+            repr({key: getattr(value, "__name__", value) for key, value in kwargs.items()}),
+        )
         for name, args, kwargs in image.history
     ]
 
