@@ -1347,12 +1347,20 @@ _RAISED: List[Raised] = []
 
 #: Each plain function or class that ran out of its own `CALL_TIMEOUT_SECONDS`
 #: clock on a single item during this search, with the way it was called (see
-#: `_timeout_key`). `_call` does not make that call again on any input.
-#: Cleared with the scratch directory.
+#: `_timeout_key`) and the kinds of argument it was given (see `_kinds`), or
+#: None for any argument. `_call` does not make that call again on arguments
+#: of those kinds. Cleared with the scratch directory.
 #:
 #: One item, as `_mapped` passes it, is the smallest piece of a stage's input,
 #: so a function that cannot answer it in time is doing work of its own, and
 #: every later stage, form and branch pass repeats that work for the same no.
+#: The kinds stay in the key because a function can be slow on one type and
+#: quick on another: Week 3's text stage is probed with whole captions and,
+#: after tokenizing, with token lists, and an embedder that times out on a
+#: caption string still binds on the tokens. Once the same function has also
+#: timed out with no arguments at all (`_SLOW_WITH_NOTHING`), its cost has
+#: been shown not to come from its input, and the call is skipped for any.
+#:
 #: Any other timeout stays a single no. A whole batch can be what made a call
 #: slow: Week 3's IDF fit passes all 414,113 COCO captions and the text branch
 #: then passes 75. So can a call with no arguments, whose defaults may load
@@ -1366,9 +1374,14 @@ _RAISED: List[Raised] = []
 #: Measured on a 2026 Language repository in the course environment:
 #: `train.prep_data`, which parses all of GloVe and embeds every COCO
 #: caption, ran out of the clock 13 times in one check, 132 of its 295
-#: seconds against a 300-second limit. Eight of those timeouts came after
-#: its first single-item timeout.
+#: seconds against a 300-second limit. Its first timeout had no arguments,
+#: and eight came after its first single-item timeout.
 _TIMED_OUT: Dict[Tuple[Any, ...], Candidate] = {}
+
+#: The plain functions and classes, by `id`, that ran out of their own clock
+#: on a call given no arguments in this search. Held so the id is not reused.
+#: Not a reason to skip anything alone; see `_TIMED_OUT`.
+_SLOW_WITH_NOTHING: Dict[int, Candidate] = {}
 
 
 def _timeout_key(candidate: Candidate) -> Tuple[Any, ...]:
@@ -1386,6 +1399,20 @@ def _timeout_key(candidate: Candidate) -> Tuple[Any, ...]:
         candidate.keywords,
         candidate.keyword_plan,
         repr(candidate.tuning),
+    )
+
+
+def _kinds(positional: Sequence[Any]) -> Tuple[Tuple[type, Optional[type]], ...]:
+    """Each argument's type, and for a list or tuple its first element's.
+
+    The element is what separates the captions the text stage starts from
+    and the token lists it gets after tokenizing. Only built-in sequences
+    are indexed, so a value of theirs is never asked for an element.
+    """
+
+    return tuple(
+        (type(value), type(value[0]) if type(value) in (list, tuple) and value else None)
+        for value in positional
     )
 
 
@@ -1534,8 +1561,10 @@ def _call(
     `_record_raise`); the search does not read it, and a refusal does.
     """
 
-    if candidate.attribute is None and _timeout_key(candidate) in _TIMED_OUT:
-        return False, None
+    if candidate.attribute is None and _TIMED_OUT:
+        key = _timeout_key(candidate)
+        if (key, None) in _TIMED_OUT or (key, _kinds(positional)) in _TIMED_OUT:
+            return False, None
     if candidate.self_only:
         args, keywords = (), {}
     else:
@@ -1557,10 +1586,13 @@ def _call(
             isinstance(error, _Timeout)
             and own_clock
             and _SCRATCH is not None
-            and index is not None
             and candidate.attribute is None
         ):
-            _TIMED_OUT.setdefault(_timeout_key(candidate), candidate)
+            if not args and not keywords:
+                _SLOW_WITH_NOTHING.setdefault(id(candidate.call), candidate)
+            elif index is not None:
+                kinds = None if id(candidate.call) in _SLOW_WITH_NOTHING else _kinds(positional)
+                _TIMED_OUT.setdefault((_timeout_key(candidate), kinds), candidate)
         _record_raise(candidate, error)
         return False, None
     return True, result
@@ -3552,6 +3584,7 @@ def _scratch_cwd():
             _COULD_NOT_FILL.clear()
             _RAISED.clear()
             _TIMED_OUT.clear()
+            _SLOW_WITH_NOTHING.clear()
             os.chdir(previous)
 
 
@@ -3596,7 +3629,7 @@ def _too_slow_to_probe() -> Tuple[str, ...]:
 
     return tuple(
         "{} was still running after {} seconds when the check passed it a "
-        "single item, so the check didn't call it again. If the benchmark "
+        "single item, so the check didn't call it that way again. If the benchmark "
         "should use it, it has to answer within that time, without loading "
         "the full dataset or training first.".format(label, CALL_TIMEOUT_SECONDS)
         for label in sorted({candidate.label for candidate in _TIMED_OUT.values()})

@@ -3875,7 +3875,11 @@ class AFunctionTooSlowForOneItemIsNotCalledAgain(unittest.TestCase):
             return resolve_chain(Role("search", tuple(stages)), [module], fixture)
 
     def _two_stages(self, produces=_vectors):
+        # A side input that takes nothing comes first, as Week 3's
+        # course_data does, so the slow function is also seen timing out
+        # with no arguments before it times out on an item.
         return (
+            Stage("data", fit=True, optional=True, fixture=(), produces=dict),
             Stage("tokens", per_item=True, produces=_token_lists),
             Stage("text", per_item=True, produces=produces),
         )
@@ -3889,9 +3893,9 @@ class AFunctionTooSlowForOneItemIsNotCalledAgain(unittest.TestCase):
         self.assertEqual(
             [step.label for step in binding.steps], ["theirs.tokenize", "theirs.embed"]
         )
-        # The whole list, then its first item. The second stage would have
-        # paid for both again.
-        self.assertEqual(module.CALLS, [["a b", "c"], "a b"])
+        # Nothing, the whole list, then its first item. The second stage
+        # would have paid for its own list and item again.
+        self.assertEqual(module.CALLS, [0, ["a b", "c"], "a b"])
 
     def test_a_refusal_names_it(self):
         module = _written("theirs", self.SOURCE)
@@ -3911,7 +3915,41 @@ class AFunctionTooSlowForOneItemIsNotCalledAgain(unittest.TestCase):
         self._resolve(module, self._two_stages())
         self._resolve(module, self._two_stages())
 
-        self.assertEqual(len(module.CALLS), 4)
+        self.assertEqual(len(module.CALLS), 6)
+
+    def test_a_kind_of_input_it_timed_out_on_does_not_stop_another(self):
+        """Week 3's text stage is probed with whole captions, because the
+        tokens stage is fusible, and later with the token lists the tokens
+        stage made. An embedder too slow for a caption string still binds on
+        the tokens, as it did before any timeout was remembered."""
+
+        module = _written(
+            "theirs",
+            "import time\n"
+            "def caption_processor(text):\n"
+            "    return text.split()\n"
+            "def embed_text(tokens):\n"
+            "    if isinstance(tokens, str):\n"
+            "        time.sleep(30)\n"
+            "    return [float(len(tokens)), 1.0]\n",
+        )
+        stages = (
+            Stage("tokens", per_item=True, produces=_token_lists, fusible=True),
+            Stage(
+                "text",
+                per_item=True,
+                produces=_vectors,
+                accepts=lambda value: isinstance(value, (list, tuple)) and bool(value),
+            ),
+        )
+
+        binding, refusal = self._resolve(module, stages)
+
+        self.assertIsNone(refusal)
+        self.assertEqual(
+            [step.label for step in binding.steps],
+            ["theirs.caption_processor", "theirs.embed_text"],
+        )
 
     def test_a_timeout_with_no_arguments_still_lets_it_bind_on_input(self):
         """A default can load everything when the argument it stands in for
