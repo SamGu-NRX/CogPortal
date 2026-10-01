@@ -179,7 +179,7 @@ async function homeView(
     ? metaLine([
         `${fmt(surfaceMark(latestSurface))} **${latestSurface.benchmark.title}**`,
         latestSurface.stage,
-        latestSurface.silentSince !== null ? "lost contact" : null,
+        latestSurface.status === "running" && latestSurface.silentSince !== null ? "lost contact" : null,
         latestSurface.primaryMetric ? `**${metricValue(latestSurface.primaryMetric)}**` : null,
       ])
     : `${fmt("cog_flask")} The bench is ready. No shared runs yet.`;

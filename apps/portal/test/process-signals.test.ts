@@ -709,6 +709,26 @@ test("one token's rate limit is not stored as the team's history", async () => {
   assert.deepEqual(route.tokens, ["Bearer exhausted-token", "Bearer current-token"]);
 });
 
+test("a failure row stored before this rule is read past, not served", async () => {
+  // The previous Worker stored rate limits and fetch failures; one written just
+  // before a deploy would otherwise keep answering for up to thirty minutes.
+  const route = await processRoute(() => Response.json([]));
+  await route.db.insert(teamProcessSignals).values({
+    teamId: "team_test",
+    computedAt: 0,
+    historyQuality: HISTORY_FETCH_FAILED,
+    signalsJson: JSON.stringify({
+      kind: "commit-history.v1", repository: "course/project", branch: "main",
+      checkedAt: Date.now(), result: { ok: false, reason: "rate_limited" },
+    }),
+  });
+  const signals = await route.request();
+  assert.equal(signals.historyQuality, HISTORY_EMPTY);
+  assert.deepEqual(route.tokens, ["Bearer current-token"]);
+  const [row] = await route.db.select().from(teamProcessSignals);
+  assert.equal(row.historyQuality, HISTORY_EMPTY, "the good read replaces it");
+});
+
 async function scoredRun(db: Database, id: string, finishedAt: number) {
   await db.insert(runs).values({
     id, teamId: "team_test", repositoryId: 111,

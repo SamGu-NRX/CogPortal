@@ -360,7 +360,8 @@ export async function readRunSurfaceSnapshot(
   const promotionRefusal = stage === "hosted" && status === "succeeded" && promotionEligibility?.eligible === false
     ? promotionEligibility.reason : null;
   const actions: RunSurfaceAction[] = ["open_console", "open_portal"];
-  if (stage === "local" && status !== "running") {
+  // A silent run may never report again, so the way forward is offered now.
+  if (stage === "local" && (status !== "running" || silentSince !== null)) {
     actions.push("run_again");
     if (status === "succeeded" && !local?.dirty && !localRefusal) {
       actions.splice(2, 0, "verify_hosted");

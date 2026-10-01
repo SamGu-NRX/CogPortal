@@ -331,61 +331,53 @@ for (const [name, over, expected] of [
 }
 
 /**
- * A killed `cogworks run --live` sends nothing more, so the session stays
- * running. The portal may say it lost contact, and must not call that a
- * failure: a laptop that slept can wake, keep going and report its result.
+ * A started live run on the real routes and hub, with helpers to send events
+ * the way the CLI does: one at a time while running, and its final event in a
+ * batch with the history before it.
  */
-test("a silent live run reads as lost contact and still takes its late result", async () => {
+async function liveRun() {
   const { db, binding } = freshDb();
   await seed(db);
   const env = runtime(binding);
   const hubs = runSurfaceHubs(env);
   env.RUN_SURFACES = hubs.namespace;
   const surfaceId = `surface_${SESSION.slice(-20)}`;
-  const hub = hubs.get(surfaceId);
   assert.equal((await start(env)).status, 201);
-
-  const send = async (event: LocalRunEvent) => {
+  const post = async (path: string, body: unknown) => {
     const pending: Promise<unknown>[] = [];
-    const response = await app().fetch(new Request(`http://localhost/v1/local-runs/${SESSION}/events`, {
+    const response = await app().fetch(new Request(`http://localhost/v1/local-runs/${SESSION}${path}`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${DEVICE_TOKEN}` },
-      body: JSON.stringify(event),
+      body: JSON.stringify(body),
     }), env, { waitUntil: (promise: Promise<unknown>) => pending.push(promise), passThroughOnException() {} } as never);
     await Promise.all(pending);
     assert.equal(response.status, 200);
     return (await response.json()) as { duplicate: boolean };
   };
-  const heartbeat = (sequence: number): LocalRunEvent => ({
+  return {
+    db, env, surfaceId,
+    hub: hubs.get(surfaceId),
+    send: (event: LocalRunEvent) => post("/events", event),
+    sendBatch: (events: LocalRunEvent[]) => post("/events/batch", { events }),
+    /** The run started four minutes ago and its CLI went quiet a minute in. */
+    async goSilent() {
+      const lastHeard = Date.now() - 3 * 60_000;
+      await db.update(localRunSessions)
+        .set({ createdAt: lastHeard - 60_000, updatedAt: lastHeard })
+        .where(eq(localRunSessions.id, SESSION));
+      return lastHeard;
+    },
+  };
+}
+
+function heartbeat(sequence: number): LocalRunEvent {
+  return {
     type: "progress", phase: "evaluating", eventId: `localevent_${sequence}_heartbeat`,
     sequence, occurredAt: Date.now(),
-  });
+  };
+}
 
-  await send(heartbeat(0));
-  assert.notEqual(hub.scheduledAlarm, null, "a live run ticks");
-
-  // The run started four minutes ago and the CLI was killed a minute in.
-  const lastHeard = Date.now() - 3 * 60_000;
-  await db.update(localRunSessions)
-    .set({ createdAt: lastHeard - 60_000, updatedAt: lastHeard })
-    .where(eq(localRunSessions.id, SESSION));
-  await hub.alarm();
-  const silent = hub.messages.at(-1)!;
-  assert.equal(hub.scheduledAlarm, null, "nothing new can appear until the CLI reports again");
-  const message = JSON.stringify(runSurfaceMessage(env, silent));
-  assert.doesNotMatch(message, /Watch live/);
-  assert.match(message, /Lost contact during evaluation/);
-  assert.match(message, new RegExp(`<t:${Math.floor(lastHeard / 1000)}:R>`));
-  assert.doesNotMatch(message, /Stopped/);
-  assert.equal(silent.status, "running", "silence is not a failed run");
-  assert.equal(silent.silentSince, lastHeard);
-  assert.equal(silent.elapsedMs, 60_000, "the clock stops at the last word");
-
-  // The laptop wakes and the same run reports again.
-  assert.equal((await send(heartbeat(1))).duplicate, false);
-  assert.equal(hub.messages.at(-1)!.silentSince, null);
-  assert.notEqual(hub.scheduledAlarm, null, "the live tick resumes");
-
+function completed(sequence: number): LocalRunEvent {
   const report = LocalReportInputSchema.parse({
     reportId: "report_late_result", benchmarkId: BENCHMARK_ID, benchmarkVersion: 1,
     contractVersion: "cogworks.submissions.v1", sdkVersion: "0.2.0", pluginVersion: "1",
@@ -397,11 +389,72 @@ test("a silent live run reads as lost contact and still takes its late result", 
     }],
     diagnostics: [], weightsUsed: [],
   });
-  assert.equal((await send({
-    type: "completed", eventId: "localevent_2_completed", sequence: 2, occurredAt: Date.now(), report,
-  })).duplicate, false);
-  const finished = await buildRunSurfaceSnapshot(env, surfaceId);
+  return { type: "completed", eventId: `localevent_${sequence}_completed`, sequence, occurredAt: Date.now(), report };
+}
+
+/**
+ * A killed `cogworks run --live` sends nothing more, so the session stays
+ * running. The portal may say it lost contact, and must not call that a
+ * failure: a laptop that slept can wake, keep going and report its result.
+ */
+test("a silent live run reads as lost contact and recovers when it reports again", async () => {
+  const run = await liveRun();
+  await run.send(heartbeat(0));
+  assert.notEqual(run.hub.scheduledAlarm, null, "a live run ticks");
+
+  const lastHeard = await run.goSilent();
+  await run.hub.alarm();
+  const silent = run.hub.messages.at(-1)!;
+  assert.equal(run.hub.scheduledAlarm, null, "nothing new can appear until the CLI reports again");
+  const message = JSON.stringify(runSurfaceMessage(run.env, silent));
+  assert.doesNotMatch(message, /Watch live/);
+  assert.match(message, /Lost contact during evaluation/);
+  assert.match(message, new RegExp(`<t:${Math.floor(lastHeard / 1000)}:R>`));
+  assert.doesNotMatch(message, /Stopped/);
+  assert.equal(silent.status, "running", "silence is not a failed run");
+  assert.equal(silent.silentSince, lastHeard);
+  assert.equal(silent.elapsedMs, 60_000, "the clock stops at the last word");
+  assert.equal(silent.actions.includes("run_again"), true, "its owner has a way forward");
+
+  // The laptop wakes and the same run reports again.
+  assert.equal((await run.send(heartbeat(1))).duplicate, false);
+  const resumed = run.hub.messages.at(-1)!;
+  assert.equal(resumed.silentSince, null);
+  assert.equal(resumed.actions.includes("run_again"), false);
+  assert.notEqual(run.hub.scheduledAlarm, null, "the live tick resumes");
+
+  assert.equal((await run.send(completed(2))).duplicate, false);
+  const finished = await buildRunSurfaceSnapshot(run.env, run.surfaceId);
   assert.equal(finished.status, "succeeded");
-  assert.equal(finished.silentSince, null);
   assert.equal(finished.primaryMetric?.value, 0.82);
 });
+
+/**
+ * The CLI sends its final event twice: alone, and in a batch with the history
+ * before it (cli.py `_LiveRun._finish`). Either may be the one that lands, and
+ * neither may be refused because the portal had stopped hearing from the run.
+ */
+for (const route of ["single", "batch"] as const) {
+  test(`a result sent straight from silence scores through the ${route} route`, async () => {
+    const run = await liveRun();
+    await run.send(heartbeat(0));
+    await run.goSilent();
+    await run.hub.alarm();
+    assert.notEqual(run.hub.messages.at(-1)!.silentSince, null);
+
+    const response = route === "single"
+      ? await run.send(completed(1))
+      : await run.sendBatch([heartbeat(0), completed(1)]);
+    assert.equal(response.duplicate, false);
+
+    const [session] = await run.db.select().from(localRunSessions).where(eq(localRunSessions.id, SESSION));
+    assert.equal(session.status, "succeeded");
+    assert.equal(session.reportId, "report_late_result");
+    const published = run.hub.messages.at(-1)!;
+    assert.equal(published.status, "succeeded");
+    assert.equal(published.silentSince, null);
+    assert.equal(published.primaryMetric?.value, 0.82);
+    assert.equal(published.actions.includes("verify_hosted"), true);
+    assert.match(JSON.stringify(runSurfaceMessage(run.env, published)), /Bench clear/);
+  });
+}
