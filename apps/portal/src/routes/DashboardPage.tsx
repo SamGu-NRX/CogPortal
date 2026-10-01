@@ -726,9 +726,9 @@ function FirstRun({
             <Link to="/setup" className="u-link">
               Setup
             </Link>{" "}
-            first. The commands already name this benchmark. A hosted run fetches only the trained
-            weights synced from its own commit, so run these on the commit you'll evaluate, and again
-            after each new one.
+            first. The commands already name this benchmark. If your code trains weights, a hosted run
+            fetches only the ones synced from its own commit, so run these on the commit you'll
+            evaluate, and again after each new one.
           </p>
           <Code
             lang="bash"
