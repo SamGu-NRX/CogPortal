@@ -8,7 +8,12 @@ import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { Hono } from "hono";
 import { FIXTURE_REPO } from "@cogworks/contracts/fixtures";
-import { StartLocalRunResponseSchema, type StartLocalRunRequest } from "@cogworks/contracts/schema";
+import {
+  LocalReportInputSchema,
+  StartLocalRunResponseSchema,
+  type LocalRunEvent,
+  type StartLocalRunRequest,
+} from "@cogworks/contracts/schema";
 import type { Database } from "../worker/db/client.ts";
 import {
   benchmarks,
@@ -22,6 +27,7 @@ import {
 import type { AppEnv, Env } from "../worker/env.ts";
 import { handleError } from "../worker/http/errors.ts";
 import { registerLocalRunRoutes } from "../worker/routes/local-runs.ts";
+import { runSurfaceMessage } from "../worker/services/discord-messages.ts";
 import { buildRunSurfaceSnapshot } from "../worker/services/run-surfaces.ts";
 import { sha256Hex } from "../worker/util/crypto.ts";
 import { runSurfaceHubs } from "./fixtures/run-surface-hub.ts";
@@ -323,3 +329,79 @@ for (const [name, over, expected] of [
     assert.equal((await db.select().from(localRunSessions)).length, 1);
   });
 }
+
+/**
+ * A killed `cogworks run --live` sends nothing more, so the session stays
+ * running. The portal may say it lost contact, and must not call that a
+ * failure: a laptop that slept can wake, keep going and report its result.
+ */
+test("a silent live run reads as lost contact and still takes its late result", async () => {
+  const { db, binding } = freshDb();
+  await seed(db);
+  const env = runtime(binding);
+  const hubs = runSurfaceHubs(env);
+  env.RUN_SURFACES = hubs.namespace;
+  const surfaceId = `surface_${SESSION.slice(-20)}`;
+  const hub = hubs.get(surfaceId);
+  assert.equal((await start(env)).status, 201);
+
+  const send = async (event: LocalRunEvent) => {
+    const pending: Promise<unknown>[] = [];
+    const response = await app().fetch(new Request(`http://localhost/v1/local-runs/${SESSION}/events`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${DEVICE_TOKEN}` },
+      body: JSON.stringify(event),
+    }), env, { waitUntil: (promise: Promise<unknown>) => pending.push(promise), passThroughOnException() {} } as never);
+    await Promise.all(pending);
+    assert.equal(response.status, 200);
+    return (await response.json()) as { duplicate: boolean };
+  };
+  const heartbeat = (sequence: number): LocalRunEvent => ({
+    type: "progress", phase: "evaluating", eventId: `localevent_${sequence}_heartbeat`,
+    sequence, occurredAt: Date.now(),
+  });
+
+  await send(heartbeat(0));
+  assert.notEqual(hub.scheduledAlarm, null, "a live run ticks");
+
+  // The run started four minutes ago and the CLI was killed a minute in.
+  const lastHeard = Date.now() - 3 * 60_000;
+  await db.update(localRunSessions)
+    .set({ createdAt: lastHeard - 60_000, updatedAt: lastHeard })
+    .where(eq(localRunSessions.id, SESSION));
+  await hub.alarm();
+  const silent = hub.messages.at(-1)!;
+  assert.equal(hub.scheduledAlarm, null, "nothing new can appear until the CLI reports again");
+  const message = JSON.stringify(runSurfaceMessage(env, silent));
+  assert.doesNotMatch(message, /Watch live/);
+  assert.match(message, /Lost contact during evaluation/);
+  assert.match(message, new RegExp(`<t:${Math.floor(lastHeard / 1000)}:R>`));
+  assert.doesNotMatch(message, /Stopped/);
+  assert.equal(silent.status, "running", "silence is not a failed run");
+  assert.equal(silent.silentSince, lastHeard);
+  assert.equal(silent.elapsedMs, 60_000, "the clock stops at the last word");
+
+  // The laptop wakes and the same run reports again.
+  assert.equal((await send(heartbeat(1))).duplicate, false);
+  assert.equal(hub.messages.at(-1)!.silentSince, null);
+  assert.notEqual(hub.scheduledAlarm, null, "the live tick resumes");
+
+  const report = LocalReportInputSchema.parse({
+    reportId: "report_late_result", benchmarkId: BENCHMARK_ID, benchmarkVersion: 1,
+    contractVersion: "cogworks.submissions.v1", sdkVersion: "0.2.0", pluginVersion: "1",
+    repositoryId: FIXTURE_REPO.repositoryId, repositoryFullName: FIXTURE_REPO.fullName, sha: SHA,
+    dirty: false, startedAt: NOW, finishedAt: NOW + 1_000,
+    metrics: [{
+      key: "accuracy", label: "Accuracy", value: 0.82, unit: null,
+      higherIsBetter: true, primary: true, precision: 3,
+    }],
+    diagnostics: [], weightsUsed: [],
+  });
+  assert.equal((await send({
+    type: "completed", eventId: "localevent_2_completed", sequence: 2, occurredAt: Date.now(), report,
+  })).duplicate, false);
+  const finished = await buildRunSurfaceSnapshot(env, surfaceId);
+  assert.equal(finished.status, "succeeded");
+  assert.equal(finished.silentSince, null);
+  assert.equal(finished.primaryMetric?.value, 0.82);
+});

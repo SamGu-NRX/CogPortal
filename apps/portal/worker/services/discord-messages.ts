@@ -179,7 +179,7 @@ export function runSurfaceMessage(env: Env, snapshot: RunSurfaceSnapshot) {
   const children: DiscordContainerChild[] = [];
   let accent = ACCENT_INK;
 
-  if (snapshot.status === "running") {
+  if (snapshot.status === "running" && snapshot.silentSince === null) {
     const bestLine = snapshot.teamBest ? `-# team best so far ${metricValue(snapshot.teamBest)}` : null;
     const head = [
       `### ${snapshot.benchmark.title}`,
@@ -198,7 +198,10 @@ export function runSurfaceMessage(env: Env, snapshot: RunSurfaceSnapshot) {
   } else {
     const score = snapshot.primaryMetric ? `${META_SEP}**${metricValue(snapshot.primaryMetric)}**` : "";
     const lines: string[] = [];
-    if (snapshot.status === "succeeded" && snapshot.published) {
+    if (snapshot.silentSince !== null) {
+      const lastPhase = effectivePhase(snapshot, events);
+      lines.push(`### Lost contact${lastPhase ? ` during ${phaseNoun(lastPhase)}` : ""}`);
+    } else if (snapshot.status === "succeeded" && snapshot.published) {
       accent = ACCENT_VERIFY;
       lines.push(`### ${fmt("cog_star")} Published${score}`);
     } else if (snapshot.status === "succeeded") {
@@ -213,6 +216,10 @@ export function runSurfaceMessage(env: Env, snapshot: RunSurfaceSnapshot) {
       lines.push(`### Cancelled${stopped ? ` during ${phaseNoun(stopped)}` : ""}`);
     }
     lines.push(surfaceMeta(snapshot, snapshot.benchmark.title));
+    if (snapshot.silentSince !== null) {
+      const heard = Math.floor(snapshot.silentSince / 1000);
+      lines.push(`-# last heard from the terminal <t:${heard}:R>; if the run is still going, its result will appear here`);
+    }
     if (snapshot.status === "succeeded") {
       const comparison = bestComparison(snapshot);
       if (comparison) lines.push(comparison);
