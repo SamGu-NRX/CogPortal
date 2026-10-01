@@ -694,6 +694,21 @@ test("a failed token lookup is not stored as the team's history", async () => {
   assert.deepEqual(route.tokens, ["Bearer current-token"]);
 });
 
+test("one token's rate limit is not stored as the team's history", async () => {
+  // GitHub limits each token separately, so a teammate's token can still read.
+  const route = await processRoute((token) =>
+    token === "Bearer exhausted-token" ? new Response(null, { status: 429 }) : Response.json([]));
+  await route.storeToken("exhausted-token");
+  const limited = await route.request();
+  assert.equal(limited.historyQuality, HISTORY_FETCH_FAILED);
+  assert.deepEqual(await route.db.select().from(teamProcessSignals), []);
+
+  await route.storeToken("current-token");
+  const recovered = await route.request();
+  assert.equal(recovered.historyQuality, HISTORY_EMPTY);
+  assert.deepEqual(route.tokens, ["Bearer exhausted-token", "Bearer current-token"]);
+});
+
 async function scoredRun(db: Database, id: string, finishedAt: number) {
   await db.insert(runs).values({
     id, teamId: "team_test", repositoryId: 111,
