@@ -23,6 +23,7 @@ import os
 import sys
 import threading
 import time
+import types
 import unittest
 import urllib.error
 import urllib.request
@@ -94,7 +95,12 @@ class FakeDict(dict):
         return True
 
 
-def _execute_job(store: dict) -> tuple:
+class InputCancellation(BaseException):
+    """What Modal raises in a sync function whose call is cancelled. A
+    BaseException there too, so it also escapes `except Exception`."""
+
+
+def _execute_job(store: dict, prepare=None) -> tuple:
     """The shipped `execute_job`, with its scoring dependencies replaced.
 
     `modal_app` imports modal and fastapi at module scope, so the function is
@@ -105,11 +111,16 @@ def _execute_job(store: dict) -> tuple:
     text = MODAL_APP.read_text(encoding="utf-8")
     module = ast.parse(text)
     wanted = ("_outcome_key", "_finish", "_deliver_terminal", "_event", "_failure_detail",
-              "_fit", "_take_units", "_receiver_units", "_wire_log", "LiveReporter", "execute_job")
+              "_fit", "_take_units", "_receiver_units", "_wire_log", "LiveReporter", "execute_job",
+              "_run_claimed", "_settle_interrupted", "INTERRUPTED_DETAIL")
     nodes = []
     for node in module.body:
-        if isinstance(node, (ast.FunctionDef, ast.ClassDef)) and node.name in wanted:
-            if node.name == "execute_job":
+        if isinstance(node, ast.Assign):
+            name = getattr(node.targets[0], "id", None)
+        else:
+            name = getattr(node, "name", None)
+        if name in wanted:
+            if name == "execute_job":
                 node.decorator_list = []
             nodes.append(node)
     assert len(nodes) == len(wanted), "modal_app no longer defines the durability pieces"
@@ -137,7 +148,9 @@ def _execute_job(store: dict) -> tuple:
         "validate_job": lambda job: job,
         "RunnerFailure": type("RunnerFailure", (Exception,), {}),
         "_WIRING": None,
-        "modal": None,
+        "modal": types.SimpleNamespace(
+            exception=types.SimpleNamespace(InputCancellation=InputCancellation)
+        ),
         "app": None,
         "controller_image": None,
         "runner_secret": None,
@@ -148,6 +161,8 @@ def _execute_job(store: dict) -> tuple:
     }
     for name in SCORING_GLOBALS:
         namespace[name] = sentinel(name)
+    if prepare is not None:
+        namespace["_prepare"] = prepare
     exec(compile(ast.Module(nodes, []), "<modal_app>", "exec"), namespace)
     return namespace, calls
 
@@ -291,6 +306,213 @@ class AFinishedJobIsNeverScoredAgain(unittest.TestCase):
 
             self.assertEqual(portal.requests, [])
         self.assertEqual(scored, [], "the second invocation stood down")
+
+
+def _events(portal) -> list:
+    return [__import__("json").loads(request["body"]) for request in portal.requests]
+
+
+def _interrupted_in(phases, stop):
+    """A preparation that reports `phases`, then is stopped the way Modal stops
+    a sync function: the exception is raised in the thread running it."""
+
+    calls = []
+
+    def prepare(job, reporter):
+        calls.append(job["jobId"])
+        for phase in phases:
+            reporter.status(phase)
+        raise stop
+
+    return prepare, calls
+
+
+class AnInterruptedRunReportsItself(unittest.TestCase):
+    """Modal preempts a controller by interrupting it and restarting the input
+    (https://modal.com/docs/guide/preemption). The interrupt is not an
+    Exception, so it used to leave the claim with no outcome, and the restarted
+    attempt found the claim and stood down: the run sat in its last phase until
+    the stale sweep (run_dcf733e51f, 2026-10-01). The interrupted attempt owns
+    the claim and its reporter, so it is the one that reports."""
+
+    def setUp(self):
+        os.environ["RUNNER_SIGNING_SECRET"] = SECRET
+        self.store = FakeDict()
+
+    def test_a_preempted_run_fails_in_the_phase_it_reached_and_is_not_run_again(self):
+        prepare, prepared = _interrupted_in(["preparing", "installing"], KeyboardInterrupt())
+        with RecordingPortal([]) as portal:
+            space, scored = _execute_job(self.store, prepare)
+            job = durable_job(portal.url)
+
+            # The interrupt still propagates; it is Modal's, not ours to keep.
+            with self.assertRaises(KeyboardInterrupt):
+                space["execute_job"](job)
+            # The restarted attempt, on the same input.
+            space["execute_job"](job)
+            events = _events(portal)
+
+        self.assertEqual([event["type"] for event in events], ["status", "status", "failed"])
+        failed = events[-1]
+        self.assertEqual(failed["failure"], {
+            "category": "provider",
+            "phase": "installing",
+            "detail": space["INTERRUPTED_DETAIL"],
+            "infrastructure": True,
+        })
+        # The portal drops any event numbered at or below the last it applied.
+        self.assertGreater(failed["sequence"], max(event["sequence"] for event in events[:-1]))
+        self.assertEqual(self.store[job["jobId"]], "failed")
+        self.assertTrue(self.store[space["_outcome_key"](job["jobId"])]["delivered"])
+        self.assertEqual(prepared, [job["jobId"]], "the restart prepared nothing")
+        self.assertEqual(scored, [], "and scored nothing")
+
+    def test_a_failure_the_interrupted_attempt_could_not_send_is_replayed_unchanged(self):
+        prepare, prepared = _interrupted_in(["preparing"], KeyboardInterrupt())
+        # One status lands; the failure's three sends do not.
+        with RecordingPortal([200, 503, 503, 503]) as portal:
+            space, scored = _execute_job(self.store, prepare)
+            job = durable_job(portal.url)
+            key = space["_outcome_key"](job["jobId"])
+
+            # Modal's interrupt still propagates, so a preempted input restarts.
+            with self.assertRaises(KeyboardInterrupt):
+                space["execute_job"](job)
+            self.assertFalse(self.store[key]["delivered"], "stored before it was sent")
+
+            space["execute_job"](job)
+            bodies = [request["body"] for request in portal.requests]
+
+        self.assertEqual(len(bodies), 5, "one status, three failed sends, one replay")
+        self.assertEqual(len(set(bodies[1:])), 1, "the replay is the same event")
+        self.assertTrue(self.store[key]["delivered"])
+        self.assertEqual(prepared, [job["jobId"]])
+        self.assertEqual(scored, [])
+
+    def test_a_cancelled_call_reports_like_a_preempted_one(self):
+        prepare, _ = _interrupted_in([], InputCancellation())
+        with RecordingPortal([]) as portal:
+            space, _ = _execute_job(self.store, prepare)
+            job = durable_job(portal.url)
+
+            with self.assertRaises(InputCancellation):
+                space["execute_job"](job)
+            events = _events(portal)
+
+        self.assertEqual([event["type"] for event in events], ["failed"])
+        self.assertEqual(events[0]["failure"]["phase"], "queued", "nothing was reported yet")
+
+    def test_an_interrupt_after_a_result_was_stored_resends_that_result(self):
+        """Interrupted while delivering a completed run: the result exists, and
+        replacing it with a failure would discard the team's real number."""
+
+        with RecordingPortal([]) as portal:
+            space, _ = _execute_job(self.store)
+            job = durable_job(portal.url)
+            _store_outcome(space, self.store, job)
+
+            space["_settle_interrupted"](job, space["LiveReporter"](job))
+            events = _events(portal)
+
+        self.assertEqual([event["type"] for event in events], ["completed"])
+        self.assertEqual(self.store[job["jobId"]], "completed")
+
+    def test_a_duplicate_delivery_stands_down_while_the_owner_runs(self):
+        """Two deliveries of one job at once. The second must not run, report
+        or settle anything; the owner's interruption is the only terminal."""
+
+        entered = threading.Event()
+        release = threading.Event()
+        prepared = []
+
+        def prepare(job, reporter):
+            prepared.append(job["jobId"])
+            reporter.status("preparing")
+            entered.set()
+            release.wait(5)
+            raise KeyboardInterrupt()
+
+        with RecordingPortal([]) as portal:
+            space, scored = _execute_job(self.store, prepare)
+            job = durable_job(portal.url)
+            raised = []
+
+            def owner():
+                try:
+                    space["execute_job"](job)
+                except BaseException as error:  # noqa: B902 - the interrupt is the point
+                    raised.append(error)
+
+            thread = threading.Thread(target=owner)
+            thread.start()
+            self.assertTrue(entered.wait(5))
+            space["execute_job"](job)
+            sent_while_owner_ran = len(portal.requests)
+            release.set()
+            thread.join(5)
+            events = _events(portal)
+
+        self.assertEqual(sent_while_owner_ran, 1, "the duplicate sent nothing")
+        self.assertEqual(prepared, [job["jobId"]], "and prepared nothing")
+        self.assertEqual(scored, [])
+        self.assertEqual([type(error) for error in raised], [KeyboardInterrupt])
+        self.assertEqual([event["type"] for event in events], ["status", "failed"])
+
+    def test_settling_does_not_wait_behind_a_heartbeat_that_is_still_sending(self):
+        """A heartbeat retrying its post can outlast the grace Modal gives an
+        interrupted attempt. If the failure waited for it, the attempt would
+        die with nothing stored and the restart would stand down again."""
+
+        in_flight = threading.Event()
+        release = threading.Event()
+
+        with RecordingPortal([]) as portal:
+            space, _ = _execute_job(self.store)
+            job = durable_job(portal.url)
+            send = space["_post_event"]
+
+            def slow_status(job, event):
+                if event["type"] == "status":
+                    in_flight.set()
+                    release.wait(10)
+                send(job, event)
+
+            space["_post_event"] = slow_status
+            reporter = space["LiveReporter"](job)
+            heartbeat = threading.Thread(target=reporter.status, args=("installing",))
+            heartbeat.start()
+            self.assertTrue(in_flight.wait(5))
+
+            settle = threading.Thread(target=space["_settle_interrupted"], args=(job, reporter))
+            settle.start()
+            settle.join(2)
+            settled_in_time = not settle.is_alive()
+            release.set()
+            heartbeat.join(5)
+            settle.join(5)
+            events = _events(portal)
+
+        self.assertTrue(settled_in_time, "the failure waited for the heartbeat's post")
+        outcome = self.store[space["_outcome_key"](job["jobId"])]
+        self.assertTrue(outcome["delivered"])
+        status = next(event for event in events if event["type"] == "status")
+        self.assertGreater(outcome["event"]["sequence"], status["sequence"])
+
+    def test_nothing_is_sent_after_the_terminal_event_is_numbered(self):
+        """A heartbeat numbered after the terminal and landing first would make
+        the portal drop the terminal as stale and leave the run open."""
+
+        with RecordingPortal([]) as portal:
+            space, _ = _execute_job(self.store)
+            job = durable_job(portal.url)
+            reporter = space["LiveReporter"](job)
+            reporter.status("evaluating", 0, 2)
+            terminal = reporter.build("failed", failure={})
+            reporter.status("evaluating", 1, 2)
+            events = _events(portal)
+
+        self.assertEqual(len(events), 1, "the late heartbeat was not sent")
+        self.assertGreater(terminal["sequence"], events[0]["sequence"])
 
 
 class TheRetryPolicyIsBoundedAndDeclared(unittest.TestCase):
