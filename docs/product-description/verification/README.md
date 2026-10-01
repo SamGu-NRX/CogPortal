@@ -13,7 +13,7 @@ The feature documents were written from the code and the tests. This directory i
 
 Each file has one table per document. Each row is an item with a stable ID (`STATUS-04`, `RUNPAGE-12`), a priority, what it needs, the claim with a link to the document section, the setup, numbered steps, the expected result, and a Result column for the tester. Items that cannot be checked by hand are listed under each document as "Not checkable by hand".
 
-Priorities: **P1** is an established fact, a claim many documents depend on, or a suspected bug. **P2** is an ordinary claim. **P3** is a number, a colour, or a timing.
+Priorities: **P1** is an established fact, a claim many documents depend on, or a suspected bug. **P2** is an ordinary claim. **P3** is a number, a color, or a timing.
 
 ## How to run a pass
 
@@ -22,23 +22,12 @@ Priorities: **P1** is an established fact, a claim many documents depend on, or 
    - The terminal: `.venv-test/bin/python -m cogbench` from inside a checkout of a test team repository, or install the CLI into that virtualenv and use `cogworks` directly. Point it at the dev portal with `--portal http://localhost:PORT`, which is allowed precisely because the host is loopback.
    - Discord: the course guild, with the bot deployed against the same portal. There is no way to exercise `/cog` without a guild; every item that needs one is marked `discord` in its Needs column.
    - The sandbox: a hosted practice run started from the dev portal. Most sandbox claims are only observable through the run page, which is why they are checklisted here rather than under `portal/`.
-2. **Confirm the commit.** Every document says `Verified against Cog*Portal commit f74e087`. Run `git rev-parse --short HEAD`. If it differs, the documents describe a different build and some failures will be drift rather than defects. Four documents also cite uncommitted work; see the next section.
+2. **Confirm the build.** Every document says ``Read against Cog*Portal commit `2ff32fa` ``. Run `git rev-parse --short HEAD` on the portal you are testing, and for hosted work record the deployed Worker's commit too. Hosted beta (`4984730`) is a different build: record its results as beta, never as the candidate. Record which CLI is installed as well (see `terminal.md`); the setup page pins one that is older than the tree.
 3. **Keep the documents open beside the product.** Read the linked section before each item. The item is a summary; the section is the claim.
 4. **Work through P1 first across all four files, then P2, then P3.**
 5. **Record `pass`, `fail`, or `blocked`** in the Result column, with a note for anything other than a clean pass. A fail is something the document says that the product does not do. A blocked item could not be run: no guild, no second account, a prior failure in the way.
 6. **File every fail in [`bug-triage.md`](../bug-triage.md).** If the entry exists, add a Status line quoting the item ID. If not, add an entry with the item ID under "Raised by". A fail is not automatically a product defect; sometimes the document is wrong and the fix is to the document. The Status line says which.
 7. **Promote a document to `verified`** in the [coverage table](../README.md#coverage) only when every P1 and P2 item for it has passed or been filed.
-
-## Re-read these four before testing them
-
-Four areas were being edited while the documents were drafted, and each affected document carries an "In flight" note naming the exact files. Read the source again before running their items; a failure there is more likely to be drift than a defect.
-
-| Document | Files to re-read |
-| --- | --- |
-| [`portal/the-team-page.md`](../portal/the-team-page.md) | `apps/portal/src/routes/TeamPage.tsx`, `apps/portal/src/components/ProcessPanel.tsx`, `MemberAvatar.tsx`, `apps/portal/worker/services/process-signals.ts`, `apps/portal/worker/routes/team.ts`, `apps/portal/worker/github/commits.ts` |
-| [`terminal/sync.md`](../terminal/sync.md) | `python/cogbench/src/cogbench/cli.py`, `client.py`, `apps/portal/worker/routes/local-reports.ts`, `packages/contracts/src/schema.ts` |
-| [`sandbox/prepare.md`](../sandbox/prepare.md) | `apps/runner-modal/src/cogworks_runner/modal_app.py`, `apps/runner-modal/tests/test_prepare_rungs.py`, `test_archive_safety.py` |
-| [`sandbox/scoring-and-refusals.md`](../sandbox/scoring-and-refusals.md) | `benchmarks/week3/language_search_benchmark/plugins.py`, `roles.py` |
 
 ## What the tester needs, by value in the Needs column
 
@@ -65,33 +54,30 @@ It does not settle everything, and the checklist marks the difference. These ite
 
 ## Results so far
 
-The drafting pass ran nothing, and **all 244 Result columns still read
-`not run`**. No row has moved. What was stale here was the reason given: the
-old wording implied no evidence existed anywhere, and that is no longer true.
+The tables were re-read against `2ff32fa` on 2026-10-01 and carry 401 items. A Result moved only where an existing artifact exercised the whole claim on a named build; reading code moved nothing.
 
-Dated evidence now exists from three separate passes, each against a **named
-earlier revision**, not against the current candidate:
+| File | Items | pass (candidate) | fail | retired | not run, partial or beta only |
+| --- | --- | --- | --- | --- | --- |
+| `portal.md` | 166 | 29 | 2 | 2 | 133 |
+| `terminal.md` | 86 | 0 | 0 | 1 | 85 |
+| `discord.md` | 45 | 0 | 0 | 0 | 45 |
+| `sandbox.md` | 104 | 6 | 0 | 1 | 97 |
 
-- a browser/baseline pass at `c2af396`,
-- a restoration pass at `37b1972`,
-- role, lifecycle and device passes at `49f6a98`, plus a frozen process
-  diagnosis of the same source.
+Nearly every `pass` is a **local fixture** observation: a screenshot or clip of the redesign on seeded data, labeled Simulated. It shows that a screen renders a state, not that the state is reached by real execution. The `fail` rows cite their artifact. Rows marked `on beta only` were exercised by the two hosted Recognition runs on beta (`4984730` lineage) and stay `not run` for the candidate.
 
-An evidence handoff maps that evidence to these tables ID by ID and states the
-limit on each one. It currently lives outside this repository, in the
-verification worktree that produced it, which means this instruction is only
-followable on the machine that has it — copying it in is the obvious next
-step and has not been done. What it says, and what matters here: several IDs
-have a partial observation that does **not** close the item, and a static read
-of a settled run is not evidence of a live transition.
+No document is `verified`, because each still has P1 or P2 items that need one of the gaps below.
 
-Two rules follow, and they are the reason this section is not a pass list:
+## Evidence gaps
 
-1. Evidence against an earlier revision is evidence about that revision. It
-   does not close a row for the current candidate.
-2. A partial observation stays `not run` until the whole claim was exercised.
-   Attach the observation and its limit in the note instead.
+These are the observations that block `verified`, with what each needs. The release owner schedules them after the combined UI acceptance; none needs work in this directory first.
 
-That is deliberate rather than incomplete. The source was being edited by other people throughout the drafting pass, so a browser observation taken during it would have described a build that no longer exists by the time anyone reads this. A separate pass runs the checklists after today's changes land.
-
-Sentences in the documents that were read from code and not observed are marked **unverified** in place, and the things the code could not settle at all are in each document's "Open questions and verification" section. No document is marked `verified` in the coverage table, and none should be until a pass fills these tables in.
+| Gap | What it unblocks | Needs | Command or procedure |
+| --- | --- | --- | --- |
+| Fresh hosted Language execution | `SCORE-*` withheld and finding rows, `CROSS-14`/`-15`, `BOARD-10`, B-50, B-68 | A Modal-backed portal at the combined build, a Language repository with and one without a trained `(512, D)` projection | Start a hosted practice run of each, then promote and publish the withheld one and open the Language board and the team channel. |
+| Hosted Audio and Clustering | Every benchmark kind other than Recognition | Same, with an Audio and a Clustering repository | One hosted practice run each; read the finding line and readings. |
+| Recognition on the candidate | B-44 and B-45 on the combined build | A Modal image built from the combined tree after `git submodule sync --recursive && git submodule update --init` | Hosted practice run of `SamGu-NRX/week2_capstone@29f9cf94` on `vision-recognition` v2. Before #53 is ported, expect E-RUNTIME "'NoneType' object is not subscriptable". |
+| Current CLI setup, link, run and sync | Every `terminal.md` row, `SETUP-*` CLI rows, B-02, B-16, B-47, B-59 | A fresh course conda env and a test team | Run the setup page's tool line, then `cogworks link --portal <origin>`, `cogworks status`, `cogworks check --benchmark <id> --update-setup`, `cogworks run --benchmark <id>`, `cogworks sync`. Record `direct_url.json` first. |
+| Live session after a lost heartbeat | B-13 (repair active in Opus thread `58cdb791`) | A linked device and a bound channel | `cogworks run --benchmark <id> --live`, then close the terminal window mid-run; watch the bubble and the console for an hour. |
+| Instructor write operations | `ADMIN-*` mutations, B-53, B-65, B-66 | An owner account, a second staff login, a TA assignment | Add staff, assign a TA, rotate the code, close enrollment, assign a student, remove a member; read each result as owner and as the TA. |
+| Discord and the Activity | Every `discord.md` row, B-49, B-54 to B-58, B-64 | The course guild with the bot registered against the combined portal, a bindable channel, two linked members | Link from `/cog`, bind a channel, start a hosted run from the browser, promote from `/cog`, open the Activity. |
+| Physical phone | The 390 px claims, which were emulated | An iPhone and an Android phone | Walk sign-in to the Runs page and a failed run page. |

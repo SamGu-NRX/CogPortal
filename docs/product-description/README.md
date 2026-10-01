@@ -66,7 +66,7 @@ For each document:
 4. Try anything ambiguous against the running platform. Tests settle what happens; the running platform settles how it feels, what is visible while work is in progress, and what the timing is like.
 5. Record the commit read against.
 
-This pass did step 3 and not step 4. See [Scope decisions](#scope-decisions).
+Every document is drafted from code (step 3). Step 4 has been done only where a dated artifact exists, and each document says which; see [Scope decisions](#scope-decisions).
 
 ### Verification
 
@@ -85,12 +85,13 @@ Progress is tracked in the [coverage table](#coverage) below.
 
 ### Scope decisions
 
-- **2026-09-11, recovery correction.** Changed recovery paragraphs cite local source `a0e8eac` in `/Users/samgu/Programming Projects/CogPortal-pr1-review`. Other behavior retains its earlier references. Failed executions use no quota; completed evaluations count. Same-view browser Retry is still being integrated, and no verification status is promoted by this source-only correction.
-
+- **2026-10-01, current behavior.** Every document was re-read against Cog\*Portal `2ff32fa` (branch `docs/product-review-20261001`, the redesigned notebook UI) and now cites it in its footer, replacing the mixed `f74e087`, `5a74e74` and `a0e8eac` references. Hosted beta is a different build: `4984730` in the adjacent `CogPortal-beta-20260930` worktree. It forked from this line at `8052b12`, before the redesign, and carries 31 commits the candidate lacks (among them #46, #53 and `26aa861`). The candidate carries 17 that beta lacks. A sole beta owner will combine them. Where beta behaves differently, the document says so in a bullet that begins "Hosted beta (`4984730`) differs:". Beta evidence is never written up as the candidate's.
+- **Evidence levels.** Three kinds of observation exist, and every claim that rests on one names it. *Local fixture*: the paired screenshots in `/tmp/cogshots/matched/pairs/` and the QA clips in `CogPortal-qa-video-20260930/outputs/beta-qa/` (at `8052b12` and `05f9827`), and the native Sol pass at `2ff32fa` under `beta-qa/final-2ff32fa/`. Fixture runs are labeled Simulated and prove UI states, not execution. *Hosted beta*: practice runs `run_f5fc5babe5` (failed in Evaluate before beta's `468655c`) and `run_f93ba19397` (its Retry, succeeded at 0.925 with persisted D1 proof), both Recognition on `SamGu-NRX/week2_capstone@29f9cf94`. They prove that one hosted path only. *Sol's reliability pass*: the two live-session and history-cache findings now owned by Opus thread `58cdb791` (B-13, B-14). Anything else is read from code.
+- **Evidence gaps that block `verified`.** No fresh Language (or Audio, or Clustering) hosted execution; no current CLI setup, link, run or sync against either portal; no instructor write operation; no Discord guild or Activity session; no physical phone. The release owner schedules these after the combined UI is accepted. The commands each one needs are in [`verification/README.md`](verification/README.md#evidence-gaps).
+- **Unimplemented and gated work is not audited.** Run cancellation (the `cancelled` status has copy but no producer), the TA triage console, leaving a team, the walkthrough video, `cogworks.toml` bindings, fork enforcement (off until `GITHUB_TEMPLATE_REPO_ID` is set), refunds, and the Cloudflare Workflow orchestrator. Each is described only where a student or instructor can still meet a control, string or error for it.
 - **Four flows, one document set.** The skill this repo was built from would normally give each surface its own repo, because the unit of interaction differs per surface. That was overridden deliberately: a student crosses all four surfaces in one afternoon, and the interesting inconsistencies are exactly the ones that live between them. The cost is that the five phases of an *ask* are named generically enough to cover a page arrival, a shell invocation, a slash command, and a sandbox stage. Where a surface's own words are clearer, the document says both.
-- **No browser verification in this pass.** The documents were drafted from code and tests only. Anything the skill's process would settle by running the product is written from what the code says will happen and marked **unverified**. A separate pass drives the browser after today's changes land.
-- **2026-09-10, the first-use restoration.** `portal/setup.md` was corrected where it had drifted: the tool is installed from a pinned commit with `--force-reinstall` rather than from a branch with `--upgrade`, the page carries titles and reasons again rather than five bare commands, and completion shows a panel. `SETUP-02`, `-05`, `-06` and `-07` were rewritten because the behaviour they described no longer exists, and `SETUP-08` to `-14`, `SIGNIN-06` to `-09` and `START-07` to `-08` were added for the restored guidance. Every one of them is `not run`. The implementer drove the local pages while building them, which is not a verification pass and did not move any Result: reading code and clicking your own work are the two things the Result column is not allowed to record.
-- **Source files were changing while this was written.** Four areas were being edited by other agents during the drafting pass. Each affected document carries an "In flight" note naming the files, so the verifier re-reads the source rather than trusting the prose. They are: the team page process-signals panel and co-author credit; `cogworks sync` uploading the weights a local run used and the hosted run fetching them; the removal of instructor adapters; and a Week 3 refusal sentence about withheld image scores.
+- **Drafting is not verification.** Reading code and clicking your own build are not results. A Result column moves only on an artifact that exercised the whole claim on a named build.
+- **2026-09-10, the first-use restoration.** `portal/setup.md` was corrected where it had drifted: the tool is installed from a pinned commit with `--force-reinstall` rather than from a branch with `--upgrade`, the page carries titles and reasons again rather than five bare commands, and completion shows a panel. `SETUP-02`, `-05`, `-06` and `-07` were rewritten because the behavior they described no longer exists, and `SETUP-08` to `-14`, `SIGNIN-06` to `-09` and `START-07` to `-08` were added for the restored guidance. Every one of them is `not run`. The implementer drove the local pages while building them, which is not a verification pass and did not move any Result: reading code and clicking your own work are the two things the Result column is not allowed to record.
 - **Instructor and operator surfaces are described only where a student meets them.** The runbooks under `docs/runbooks/` and the Modal deploy path are out of scope. `portal/admin.md` covers the admin page because an instructor is a real user of it, but the operator tooling behind it is not described.
 - **Benchmark internals are out of scope.** How Week 3 computes `text_mrr` is the benchmark's business. What the student sees (which numbers appear, which are withheld and why, which are floors rather than scores) is in scope and is described in [`cross-cutting/what-the-benchmark-supplied.md`](cross-cutting/what-the-benchmark-supplied.md).
 - **Interaction shape.** The unit of interaction is an *ask* and its phases are asking / answered without work / the work begins / while it works / how it ends. The interrupt list and the order of cross-cutting concerns are fixed as written in the document template above.
@@ -160,7 +161,7 @@ cross-cutting/
 
 ## Coverage
 
-Status is one of `not started`, `drafted`, or `verified`. No document is `verified`: this pass did not run the product. Documents whose source was being edited during drafting are marked `drafted (in flight)`.
+Status is one of `not started`, `drafted`, or `verified`. Every document is `drafted` against `2ff32fa`. None is `verified`: no document has every P1 and P2 item passed or filed, and the evidence gaps above block most of them.
 
 | Document | Status |
 | --- | --- |
@@ -185,20 +186,20 @@ Status is one of `not started`, `drafted`, or `verified`. No document is `verifi
 | portal/the-run-page.md | drafted |
 | portal/promote-to-the-leaderboard.md | drafted |
 | portal/the-leaderboard.md | drafted |
-| portal/the-team-page.md | drafted (in flight) |
+| portal/the-team-page.md | drafted |
 | portal/admin.md | drafted |
 | terminal/status.md | drafted |
 | terminal/check.md | drafted |
 | terminal/run.md | drafted |
 | terminal/report.md | drafted |
 | terminal/link.md | drafted |
-| terminal/sync.md | drafted (in flight) |
+| terminal/sync.md | drafted |
 | discord/commands.md | drafted |
 | discord/the-activity.md | drafted |
 | discord/channel-messages.md | drafted |
-| sandbox/prepare.md | drafted (in flight) |
+| sandbox/prepare.md | drafted |
 | sandbox/discovery.md | drafted |
-| sandbox/scoring-and-refusals.md | drafted (in flight) |
+| sandbox/scoring-and-refusals.md | drafted |
 | sandbox/timeouts-and-limits.md | drafted |
 | cross-cutting/credit-and-quota.md | drafted |
 | cross-cutting/refusals-and-disclosure.md | drafted |
@@ -207,7 +208,7 @@ Status is one of `not started`, `drafted`, or `verified`. No document is `verifi
 
 ## Reference
 
-The source of truth is Cog\*Portal at `/Users/samgu/BWSI/2026/CogPortal`, branch `fix/product-description-triage`, commit `f74e087`. The relevant locations:
+The source of truth is Cog\*Portal at `/Users/samgu/Programming Projects/CogPortal-product-review-20261001`, commit `2ff32fa`. Its benchmark submodules are not checked out there; the beta worktree has them at the same pinned commits (`4e516f39`, `a3dd948d`, `94c7e64f`), and the documents cite those. The relevant locations:
 
 - `apps/portal/src/routes/`: the browser surface, one file per route.
 - `apps/portal/src/components/`: the run page's pieces (metrics, the refusal card, the wiring trace, diagnostics).

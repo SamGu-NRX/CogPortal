@@ -2,202 +2,194 @@
 
 ## Summary
 
-The activity is the portal's live run console running inside Discord. It is the same React component the browser uses, served from a separate entry point, sized to whatever pane Discord gives it, and told who the student is by their Discord account rather than by a portal session (`apps/portal/src/bootstrap.ts`, `apps/portal/src/activity-main.tsx`).
+The activity is the portal's run console running inside Discord. It is the same `RunConsole` component the browser's run surface page uses, loaded from a separate entry point, sized to the pane Discord gives it, and told who the student is by their Discord account rather than by a portal session (`apps/portal/src/bootstrap.ts`, `apps/portal/src/activity-main.tsx`).
 
-There are exactly two ways in. The `launch` Entry Point command, which Discord answers with callback type 12 and no channel post (`apps/discord-bot/src/index.ts:97`). And any button whose custom id matches `cog:surface:*:open_console`, which the bot intercepts before its command handler and answers the same way (`apps/discord-bot/src/index.ts:104`). The second is the one students actually use: it is the "Watch live" accessory on a running run bubble, and "Open live console" when the home card offers it.
+There are two ways in: the `launch` Entry Point command, answered with callback type 12 and no channel post (`apps/discord-bot/src/index.ts:97`), and any button whose custom id ends `:open_console` under `cog:surface:`, which the bot intercepts and answers the same way (`index.ts:104`). That button is "Watch live" on a running run bubble, and "Open live console" on the `/cog` home card when nothing outranks it.
 
-Identity is a Discord user id in a signed cookie and nothing else. The activity never asks for a portal password, never redirects to GitHub, and never sees a portal session. What it can show is decided by whether that Discord id is linked to a portal account and whether that account is on a team.
+Identity is a Discord user id in a signed cookie. The activity never sees a portal session. What it shows depends on whether that Discord id is linked to a portal account and whether the account is on a team.
+
+No guild run of this build exists. The connect cards and the console are observed only as local fixtures in the browser, listed in Open questions.
 
 ## The simple case
 
-A student presses "Watch live" on the run bubble in their team channel. Discord opens the activity in a pane beside the chat. For a moment they read a status line:
+A student presses "Watch live" on the run bubble in their team channel. Discord opens the activity and, for a moment, it reads "Opening the bench…" (`activity-main.tsx:274`).
 
-> "Opening the bench…" (`apps/portal/src/activity-main.tsx:215`)
+Then the console appears under a header naming Cog\*Works and "{team} · live bench", with a select of recent runs labelled "{benchmark} · {short sha}" (`activity-main.tsx:88`, `:100`). The console leads with a status ("On the bench · evaluating", "Bench clear", "Run failed", or "Stopped before completion") and, on the right, a connection word: "Live", "Reconnecting…" or "Snapshot" while running, "Complete", "Stopped" or "Cancelled" once not (`apps/portal/src/components/RunConsole.tsx:85`, `:93`). Under the benchmark title sit the team, the runner's login, the short commit and elapsed time; then the current step with a progress bar; a four-cell lifecycle row (Local, Hosted, Official, Published); the event list headed "Live events"; and a side panel headed "Run reference" with the actions.
 
-Then the console appears: a header naming the benchmark, the team, the runner's GitHub login, the commit, and elapsed time; a status kicker and a connection word; a four-cell lifecycle strip reading Local, Hosted, Official, Published; a scrolling event list under the heading "Safe event stream"; and a small action rail headed "Run reference". The events keep arriving while they watch.
-
-The two words at the top of the header are the ones a student actually reads. The kicker is "On the bench · evaluating" while a run is live, then "Bench clear", "Stopped during evaluation", or "Stopped before completion" (`apps/portal/src/components/RunConsole.tsx:76`). The word on the right is about the connection rather than the run: "Live", "Reconnecting…", or "Snapshot" while running, and "Complete", "Stopped", or "Cancelled" once it is not (`RunConsole.tsx:84`). An empty list reads "Waiting for the first structured event."
-
-What that console shows and how it behaves is owned by [`../portal/watching-a-run.md`](../portal/watching-a-run.md); this document covers how the student gets there, what identity it runs under, and what happens when it cannot open.
+What the console shows is owned by [`../portal/watching-a-run.md`](../portal/watching-a-run.md). This document covers how the student gets there, under what identity, and what happens when it cannot open.
 
 ## The ask, event by event
 
 ```mermaid
 stateDiagram-v2
-    [*] --> outside : opened anywhere but Discord
+    [*] --> outside : opened outside Discord
     [*] --> opening : Discord launched the activity
-    opening --> failed : authorize, token, or session request threw
-    opening --> unlinked : session says linked false
-    opening --> teamless : session says no_team
-    opening --> ready : session says linked true
-    ready --> console : a surface exists and the stream connected
-    ready --> empty : the team has no shared runs
+    opening --> failed : authorize, token or session request threw
+    opening --> link_gate : session says linked false
+    opening --> team_gate : session says no_team
+    opening --> console : linked, at least one surface
+    opening --> empty : linked, no surfaces
+    link_gate --> waiting : the browser link opened
+    team_gate --> waiting : the browser link opened
+    waiting --> console : Check finds a team
+    waiting --> team_gate : Check finds a link but no team
+    waiting --> waiting : Check finds nothing new
+    waiting --> failed : session expired
     console --> [*]
     empty --> [*]
-    unlinked --> [*]
-    teamless --> [*]
     failed --> [*]
     outside --> [*]
 ```
 
 ### Asking
 
-The two entry points differ in reach. `open_console` rides on a button the platform itself put on a message, so it only exists where a run bubble or a home card exists, which is inside the course guild. The `launch` Entry Point is registered globally with user installation and every context allowed, so it can be invoked in a direct message or another server, where the guild check answers "Cog is only enabled inside the CogWorks course server." and the activity never opens (`apps/discord-bot/src/index.ts:98`). Both are answered with callback type 12 and no message, which is why neither leaves anything in the channel.
+`open_console` rides on a button the platform put on a message, so it exists only in the course guild. `launch` is registered globally with user installation and every context (`apps/discord-bot/scripts/command-payloads.mjs:28`), so it can be invoked in a direct message or another server, where the guild check answers "Cog is only enabled inside the CogWorks course server." and nothing opens (`index.ts:98`).
 
-Before anything runs, the page decides whether it is embedded at all. It is embedded when the hostname ends in `.discordsays.com` or the query string carries `frame_id` (`activity-main.tsx:25`). Embedded, every API call is prefixed `/.proxy/api` so it goes through Discord's proxy; not embedded, `/api`.
+The bundle runs the activity when the hostname is the activity hostname or ends in `.discordsays.com`, or the query string has `frame_id` (`bootstrap.ts:4`). Inside, it counts as embedded when the hostname ends in `.discordsays.com` or `frame_id` is present (`activity-main.tsx:34`). Embedded, API calls go to `/.proxy/api` through Discord's proxy; otherwise `/api`.
 
-Not embedded, the whole flow is skipped and one card renders:
+Not embedded, one card renders and nothing else runs:
 
 > "Discord Activity
 > ### Open the live bench from Discord.
-> Use `/cog` in your team channel, then choose **Open live console**. Your linked Discord identity decides which team surfaces you can see." (`activity-main.tsx:205`)
+> Use `/cog` in your team channel, then choose **Open live console**. Your linked Discord identity decides which team surfaces you can see." (`activity-main.tsx:264`)
 
 with one link, "Open Cog\*Portal".
 
 ### How identity is established
 
-Three requests and two cookies, all before the first run surface is fetched.
+Three requests and two cookies, before any run data.
 
-1. `GET /activity/oauth/state` mints 24 random bytes as 48 hex characters and stores them in a signed cookie named `cog_activity_oauth_state` with a ten-minute lifetime (`activity.ts:117`, `apps/portal/worker/util/id.ts:1`).
-2. The Discord SDK is asked to authorize with `response_type: "code"`, that state, `scope: ["identify"]`, and `prompt: "none"` (`activity-main.tsx:152`).
-3. `POST /activity/oauth/token` compares the returned state against the cookie, exchanges the code with Discord, reads `users/@me`, and writes a second signed cookie named `cog_activity_session` holding `{discordUserId}.{expiresAt}` with a one-hour lifetime. The state cookie is deleted (`activity.ts:124`).
+1. `GET /activity/oauth/state` mints 24 random bytes as hex and stores them in the signed cookie `cog_activity_oauth_state` for ten minutes (`apps/portal/worker/routes/activity.ts:163`).
+2. The Discord SDK authorizes with `response_type: "code"`, that state, `prompt: "none"` and `scope: ["identify"]` (`activity-main.tsx:222`).
+3. `POST /activity/oauth/token` compares the state against the cookie, exchanges the code, reads `users/@me`, and writes `cog_activity_session` holding `{discordUserId}.{expiresAt}` for one hour, deleting the state cookie (`activity.ts:170`). The SDK is then authenticated with the returned access token (`activity-main.tsx:237`).
 
-Over HTTPS both cookies are `httpOnly`, `Secure`, `SameSite=None`, `Partitioned`, and `Priority=High`, which is what a cookie has to be to survive inside a third-party iframe in a modern browser. Over plain HTTP, which only happens in local development, they fall back to `SameSite=Lax` and no `Secure` flag (`activity.ts:56`).
+Over HTTPS both cookies are `httpOnly`, `Secure`, `SameSite=None`, `Partitioned` and `Priority=High`; over plain HTTP, which is local development only, `SameSite=Lax` and not `Secure` (`activity.ts:102`, `apps/portal/test/activity-auth.test.ts:11`). Requests go to `/.proxy/api` with `credentials: "same-origin"` (`activity-main.tsx:47`).
 
-Every later request reads that session cookie, splits it, and rejects an expired or malformed value with "The Cog Activity session expired. Open it again." A missing cookie gets "Open the Cog Activity again." (`activity.ts:82`). Both are 401s, and both land in the startup-error card.
+A refused exchange gets one of three sentences, chosen by Discord's `error` field (`activity.ts:74`):
 
-Two details make the handshake work inside an iframe that is not on the portal's own origin. Every request goes to `/.proxy/api`, which is Discord's proxy for an embedded application, so the browser treats the call as same-origin with the activity's own host and sends the cookie under `credentials: "same-origin"` (`activity-main.tsx:28`, `:50`). And the cookies are partitioned, so the browser files them under the embedding context rather than refusing them outright.
+- `invalid_grant`: "Discord would not accept that authorization. Close the Activity and open it again, and tell an instructor if it keeps happening."
+- An error naming the portal's own credentials or request: "Discord turned down this Activity's sign-in, and reopening won't change that. Tell an instructor; the fix is on our side."
+- Anything else, rate limits and edge failures included: "Discord did not answer this sign-in. Open the Activity again, and tell an instructor if it keeps happening."
 
-> Technical note: the connect card in chat promises the link "works once and expires in **10 minutes**" (`apps/discord-bot/src/commands.ts:247`). Ten minutes is the life of the link token and of the state cookie. The activity session that the same handshake produces lasts an hour. Nothing tells the student that, so an activity left open goes quiet after an hour with a sentence about a session they were never told they had.
+A state mismatch reads "The Discord Activity authorization state expired." (`activity.ts:175`); a failed `users/@me` reads "Discord identity could not be loaded." (`:203`). Later requests reject a missing session cookie with "Open the Cog Activity again." and an expired or malformed one with "The Cog Activity session expired. Open it again." (`activity.ts:131`, `:134`), both 401.
 
 ### Answered without work
 
-Embedded, four screens end the ask before any run data is fetched, and none of them writes anything.
+Embedded, these screens end the ask before any run is fetched. None writes anything except the gate cards, which mint a link token.
 
-**Loading.** A single status line, "Opening the bench…", with a live-marked square beside it (`activity-main.tsx:215`).
+**Loading.** "Opening the bench…" with a live-marked square (`activity-main.tsx:274`).
 
-**Startup error.** Anything thrown during the identity handshake lands here:
+**Startup error.** Anything thrown during the handshake:
 
 > "Could not open
 > ### The bench is still here.
-> {the error's own sentence}" (`activity-main.tsx:218`)
+> {the error's own sentence}" (`activity-main.tsx:277`)
 
-The fallback when there is no sentence is "Close the Activity and open it again." The activity puts the portal's real message on screen rather than replacing it, which is the opposite of what the bot does with the same errors (`activity-main.tsx:54`, and see [`commands.md`](commands.md#open-questions-and-verification)).
+The fallback is "Close the Activity and open it again." A rejection from the SDK's `authorize` call arrives with the SDK's own message.
 
-**Not linked.**
+**Not linked** (`apps/portal/src/components/ConnectGate.tsx:24`):
 
 > "One connection
 > ### Link Cog\*Portal to see your team's bench.
-> Discord is attached to your existing GitHub-first portal account. No repository access or Discord login is stored on your laptop." (`activity-main.tsx:241`)
+> Cog\*Portal knows you by your GitHub sign-in, which lives in your browser, so the link happens there."
 
-One button, "Link Cog\*Portal ↗", which opens the link URL through Discord's external-link command rather than navigating the pane. Under it, in small text:
+One button, "Link Cog\*Portal ↗", opening the link through Discord's external-link command (`activity-main.tsx:143`). The session route creates that link with each read (`activity.ts:227`).
 
-> "After linking, close this Activity and open it again." (`activity-main.tsx:250`)
+**Linked, no team** (`ConnectGate.tsx:34`): "One step left / ### You're linked, but not on a team yet. / Connect your fork in the browser to join or start your team." with "Finish team setup ↗" to `/connect` (`activity.ts:232`). The wire distinguishes the two as `false`, `"no_team"` and `true` (`activity.ts:27`).
 
-The comment above that line says why it is there: the activity does not poll for link completion, so a student who links in the browser comes back to the same card and reads it as a failure (`activity-main.tsx:247`).
+**Coming back.** Once Discord reports the link opened, the card swaps its title to "Once you've linked it in the browser, check here." (or "Once you're on a team, check here.") and its button to "Check the link" (or "Check for your team"), with "Open the link again ↗" beneath (`ConnectGate.tsx:29`, `:39`, `apps/portal/src/lib/activity-gate.ts:48`). A check re-reads the session without relaunching. Linked with a team, the console replaces the card. Linked without a team, the team card replaces the link card. Unchanged, it says "Discord isn't linked to a portal account yet. Finish in the browser, then check again." or "You're linked, but we don't see a team for you yet. Finish in the browser, then check again." (`ConnectGate.tsx:32`, `:42`). An expired session sends the student to the startup card (`activity-main.tsx:167`).
 
-**Linked, no team.**
-
-> "One step left
-> ### You are linked, but not on a team yet.
-> Connect your fork in the browser to join or start your team. Then close this Activity and open it again." (`activity-main.tsx:227`)
-
-One button, "Finish team setup ↗", pointing at `/connect`. This screen exists because the state used to render the not-linked card above, which told a student who had already linked to link again. The comment names that as the reason (`activity-main.tsx:220`), and the wire schema carries the distinction as a three-way union rather than a boolean: `false`, `"no_team"`, or `true` (`apps/portal/worker/routes/activity.ts:27`).
+> Technical note: a student who backs out of Discord's leave prompt gets `opened: false` and the card stays put; an older client that reports nothing is treated as having gone (`activity-gate.ts:48`, `apps/portal/test/activity-gate.test.ts:24`).
 
 ### The work begins
 
-Opening the activity commits nothing. The one durable thing the handshake writes is a session cookie, and it expires on its own.
+Opening the activity commits nothing beyond a session cookie that expires on its own and, for an unlinked student, a link token per session read.
 
-Work begins in the same place it does in chat: the second press of a confirmation. The action rail offers verify hosted, promote to official, publish result, and rerun hosted; each opens a modal dialog with a sentence, and only "Confirm" calls the portal (`apps/portal/src/components/RunConsole.tsx:196`, `:401`). The four sentences are quoted in [`../portal/watching-a-run.md`](../portal/watching-a-run.md).
+Work begins at the console's confirmation. Verify hosted, promote, publish and rerun each open a dialog, and only its named button calls the portal: "Run it hosted", "Use attempt {n} of {limit}" or "Use an official attempt", "Publish", "Start a new run" (`RunConsole.tsx:287`). Retry has no dialog; its button calls the portal directly and reads "Retrying…" while it does (`RunConsole.tsx:361`). The sentences are quoted in [`../portal/watching-a-run.md`](../portal/watching-a-run.md).
 
 ### While it works
 
-The console holds one WebSocket to the run surface, opened through the same proxy prefix (`activity-main.tsx:197`). On close it reconnects with backoff of 1, 2, 4, then 8 seconds, capped there, and the header word changes between "Live", "Reconnecting…", and "Snapshot" to say which (`apps/portal/src/lib/run-surface-stream.ts:54`, `RunConsole.tsx:84`). A frame that does not parse is dropped rather than shown, because the next authoritative snapshot supersedes it.
+The console holds one WebSocket to the selected surface through the proxy prefix (`activity-main.tsx:256`). On close it reconnects after 1, 2, 4, then 8 seconds, capped (`apps/portal/src/lib/run-surface-stream.ts:61`). A frame that does not parse is dropped.
 
-The event list follows the bottom while the student is at the bottom, and stops following the moment they scroll up. Events that arrive after that are counted into a control reading "3 new events", which scrolls back down and clears the count when pressed (`RunConsole.tsx:334`). The scroll itself respects `prefers-reduced-motion` (`RunConsole.tsx:172`).
+The event list follows the bottom while the student is there and stops following when they scroll up; later events are counted into "{n} new events", which scrolls down when pressed. Smooth scrolling is skipped under reduced motion (`RunConsole.tsx:230`, `:479`).
 
-While a mutation is in flight its button reads "Working…" and every button in the rail is disabled (`RunConsole.tsx:364`).
+While a mutation runs its button reads "Working…" and every action button is disabled (`RunConsole.tsx:523`, `:530`).
 
-The activity also subscribes to Discord's layout-mode events. In picture-in-picture or grid layout the console switches to a compact form that drops the event list and the entire action rail, leaving the header and the lifecycle strip (`activity-main.tsx:199`, `RunConsole.tsx:302`).
+The activity follows Discord's layout mode. In picture-in-picture or grid it renders compact (`activity-main.tsx:258`): the header select, the event list and the side panel go, which removes verify, promote, publish, rerun and "Open Cog\*Portal" (`RunConsole.tsx:436`). The status, failure reason, "See why it failed", Retry, the lifecycle row and the run history stay. The connect cards in compact keep only the title, the button and the status line (`ConnectGate.tsx:79`, `:100`).
 
 ### How it ends
 
-A team with at least one shared run gets the console. A team with none gets:
+A team with surfaces gets the console on the most recently updated one; the select holds the ten most recent (`activity.ts:253`). A team with none gets:
 
 > "Bench ready
 > ### No shared runs yet.
-> Start with `cogworks run --live`. Cog will keep one message and this console current for the team." (`activity-main.tsx:292`)
+> Start with `cogworks run --live`. Cog will keep one message and this console current for the team." (`activity-main.tsx:340`)
 
-A successful action replaces the console's snapshot with the one the portal returned and selects it, so a verify press moves the lifecycle strip from Local to Hosted without the student doing anything else (`activity-main.tsx:281`).
+A successful action puts the returned snapshot at the head of the list and selects it (`activity-main.tsx:325`). A failed one leaves the console and shows the portal's sentence in an alert under the header (`RunConsole.tsx:385`); the fallback is "That action could not be completed." (`activity-main.tsx:332`).
 
-A failed action does not replace the console. Its message appears as an alert beside the rail and the console stays live (`RunConsole.tsx:377`). The fallback when the failure carries no sentence is "That action could not be completed." (`activity-main.tsx:284`).
+A failed hosted run shows "See why it failed", which opens `/runs/<id>` in the browser (`RunConsole.tsx:341`, `activity-main.tsx:313`). A failed local run has no run page and offers "Run again", which shows the `cogworks run --benchmark <id> --live` command (`RunConsole.tsx:350`, `:585`).
 
-A failed run adds one line under the rail: "The useful detail is still in the runner's terminal." (`RunConsole.tsx:379`). That is the activity's version of the same refusal to guess that the run bubble makes with "-# the useful detail is in your terminal".
-
-The one way out of the pane is "Open Cog\*Portal ↗", which opens the run surface in a real browser through Discord's external-link command rather than navigating the iframe (`activity-main.tsx:268`).
-
-Nothing is written back to Discord by the activity. The team's channel message is updated by the portal on its own schedule; see [`channel-messages.md`](channel-messages.md).
+"Open Cog\*Portal" opens `/run-surfaces/<id>` in the browser through Discord's external-link command (`activity-main.tsx:309`). The activity posts nothing to Discord; the bubble is updated by the portal ([`channel-messages.md`](channel-messages.md)).
 
 ## Modifiers
 
 | Modifier | Set before the ask | Changed while it works |
 | --- | --- | --- |
-| Who you are | The Discord account id decides everything: unlinked gives the link card, linked without a team gives the team-setup card, linked with a team gives the console. Role matters for actions but not for viewing: any member's session can read the team's surfaces, while a mutation resolves the actor separately and requires write access to the repository (`activity.ts:205`, `apps/portal/worker/services/run-actions.ts:68`). There is no instructor view. | No effect. The session cookie is minted once and read on every request; a link completed in the browser is not noticed until the activity is closed and reopened. |
-| Where your team and repository stand | No team gives the team-setup card and no surfaces are fetched at all, which the code marks with an explicit comment because `"no_team"` is truthy (`activity-main.tsx:171`). A team with no shared run gives the bench-ready card. A team with runs gets the ten most recently updated, newest first (`activity.ts:190`). | No effect within one open. New surfaces do not appear in the picker until the activity is reopened, though a mutation prepends its result to the list. |
-| Which week's benchmark | Not chosen here. The picker lists recent surfaces by benchmark title and short commit, across every benchmark the team has run (`activity-main.tsx:95`). In compact layout the picker is hidden entirely. | No effect. Selecting a different surface closes the current stream and opens another. |
-| Practice or leaderboard | The lifecycle strip is the whole distinction, drawn as Local, Hosted, Official, Published with a mark on each. The actions offered move a run along it. | No effect. Each action re-checks the portal's own preconditions, so a run that is no longer promotable is refused with the portal's sentence shown verbatim. |
-| Flags, options, and where you are typing | Whether the page is embedded decides the API prefix and whether the SDK is constructed at all. Discord's layout mode decides whether the event list and the action rail exist. The client id and portal origin are compiled into the bundle at build time (`apps/portal/src/env.client.ts`). | Layout mode is the one thing that does change live: Discord emits an update and the console re-renders compact or full. |
+| Who you are | The Discord account id decides the screen: unlinked gives the link card, linked without a team the team card, linked with a team the console. Any member can read the team's surfaces; a mutation re-resolves the actor and needs admin, maintain or write plus a live GitHub sign-in on the portal account (`activity.ts:272`, `apps/portal/worker/services/run-actions.ts:78`, `:125`). There is no instructor view. | Linking or joining in the browser is noticed when the student presses the check button. Without a press nothing changes. |
+| Where your team and repository stand | No team gives the team card and no surfaces are fetched. No surfaces gives the bench-ready card. | New surfaces do not join the select until reopening, except one a mutation returned. |
+| Which week's benchmark | Not chosen here. The select spans every benchmark the team has run. Hidden in compact. | Choosing another surface closes the stream and opens another. |
+| Practice or leaderboard | The lifecycle row carries it. Each stage is read from its own run, so a run started in the browser shows Local as "–" (not run) through publication (`packages/contracts/src/schema.ts:796`, `RunConsole.tsx:82`). | Each action re-checks the portal's preconditions and a refusal is shown verbatim. |
+| Flags, options, and where you are typing | Embedded or not decides the API prefix and whether the SDK exists. Layout mode decides compact. The client id, portal origin and activity hostname are compiled into the bundle (`apps/portal/src/env.client.ts`). | Layout mode changes live when Discord emits an update. |
 
 ## Cancel and interrupt
 
 | Event | Before the work begins | While it works |
 | --- | --- | --- |
-| You stop it yourself | Closing the activity mid-handshake aborts it; the effect flags itself inactive and no state is set (`activity-main.tsx:188`). Any cookie already written stays and is harmless. On a confirmation dialog, Escape and a click on the backdrop both close it without calling the portal (`RunConsole.tsx:390`). | Closing the activity after "Confirm" does not stop the request. The mutation completes on the portal, and the result reaches the team through the run bubble rather than through this pane. |
-| You do something else mid-way | Selecting another surface tears down the WebSocket and opens a new one. Nothing else in the activity holds state worth losing. | The action rail is disabled while any mutation runs, so a second action cannot start from this pane. A second action from chat or the browser can. |
-| A teammate acts at the same time | The surface list is a snapshot of the moment it was fetched. A teammate starting a run after that is invisible until reopening. | A teammate's run reaches this pane only if it is the selected surface, in which case the stream carries it. A teammate promoting the same run first makes this pane's action fail with the portal's own sentence in the alert. |
-| The network or the portal fails | Any failure in the handshake becomes the startup-error card, showing the portal's message when there is one. | A dropped socket reconnects with backoff to 8 seconds while the header reads "Reconnecting…". A failed action shows its message in an alert and leaves the console live. A 401 from an expired session does not force a re-handshake; it surfaces as a failed action. |
-| The page or the process goes away | Nothing is written yet. | The run is on the portal and outlives the pane. Reopening the activity re-runs the handshake, refetches the ten most recent surfaces, and reconnects. Nothing about the pane is persisted, so the previously selected surface is not restored. |
-| The thing being measured changes | Not applicable. The activity measures nothing; it displays a surface, and a surface is about one commit. | A branch that moves does not affect the open surface. A run reaching a terminal state changes the header word to "Complete", "Stopped", or "Cancelled" and collapses the event list to its last three entries with a "Show all" control. |
-| The platform refuses or credit runs out | An exhausted quota is not visible before an action is attempted. The rail offers whatever actions the snapshot lists. | The refusal arrives as the portal wrote it, for example "The official-attempt quota is exhausted." (`apps/portal/worker/services/run-actions.ts:357`), and is shown in the alert beside the rail. Nothing is spent. |
+| You stop it yourself | Closing the activity mid-handshake marks the effect inactive and sets nothing (`activity-main.tsx:247`). A cookie already written stays. In a confirmation, Escape, "Close" and a backdrop click close it without calling the portal (`RunConsole.tsx:576`). | Closing after the confirm does not stop the request. The result reaches the team through the run bubble. |
+| You do something else mid-way | Choosing another surface tears down the WebSocket and opens another. | Action buttons are disabled while a mutation runs. A second action from chat or the browser can still start. |
+| A teammate acts at the same time | The select is a snapshot from opening. | A teammate's change to the selected surface arrives through the stream. A teammate acting first makes this pane's action fail with the portal's sentence. |
+| The network or the portal fails | A handshake failure becomes the startup card with the portal's or Discord's sentence. A failed check keeps the card and shows the error in its status line (`activity-main.tsx:169`). | A dropped socket reconnects with backoff while the header reads "Reconnecting…". A failed action shows its message and leaves the console live. |
+| The page or the process goes away | Nothing is written yet. | The run outlives the pane. Reopening repeats the handshake, refetches the ten surfaces and selects the newest; the previous selection is not restored. |
+| The thing being measured changes | Not applicable. A surface is about one commit. | A run reaching a terminal state changes the status word and folds the event list to its last three entries with a "Show all {n}" control, or "Show details" for a failure (`RunConsole.tsx:202`). |
+| The platform refuses or credit runs out | An exhausted quota is not visible until an action is attempted. Retry is not offered without capacity. | The refusal arrives as written, for example "The official-attempt quota is exhausted." (`run-actions.ts:421`), in the alert. Nothing is spent. |
 
 ## Interactions with other systems
 
-**Who may do this.** Anyone whose Discord account is linked to a portal account on a team can open the activity and read that team's surfaces. Acting on one additionally requires admin, maintain, or write on the team repository. A student cannot reach another team's surface: every route compares the surface's team against the session's team and answers "Run surface not found." otherwise (`activity.ts:210`, `:226`).
+**Who may do this.** Anyone whose Discord account is linked to a portal account on a team. A surface from another team answers "Run surface not found." on every route (`activity.ts:267`, `:284`).
 
-**The team owns it.** Every surface belongs to a team, and the pane shows the team name in its header. The one personal detail is the runner's GitHub login on the run being watched.
+**The team owns it.** Every surface belongs to the team, and the header names it. The runner's login is the one personal detail.
 
-**Credit.** The activity spends nothing to open. Its promote action spends one official attempt, and its confirmation names which one: "Use official attempt 2 of 3 for Face Recognition at bbbbbbb?" (`RunConsole.tsx:208`). That "of 3" is written into the string rather than read from `OFFICIAL_LIMIT` (`packages/contracts/src/schema.ts:1177`).
+**Credit.** Opening spends nothing. Verify says "This uses one of the team's shared practice runs." (`RunConsole.tsx:272`); promote names the attempt from `OFFICIAL_LIMIT` (`:274`). Neither says a failed execution uses none. See [credit and quota](../cross-cutting/credit-and-quota.md).
 
-**What the portal claims.** The lifecycle strip is the claim: a run at `local` is self-reported, and one at `hosted` or beyond was observed. See [`../foundations/what-the-portal-claims.md`](../foundations/what-the-portal-claims.md).
+**What the portal claims.** The lifecycle row is the claim: Local is self-reported, the rest observed. See [`../foundations/what-the-portal-claims.md`](../foundations/what-the-portal-claims.md).
 
-**What the benchmark supplied.** Not shown here, and not carried on the run-surface contract at all.
+**What the benchmark supplied.** Not on the run-surface contract.
 
-**Live updates and reconnection.** One WebSocket per selected surface, with the backoff above, and the header word naming the state. See [`../cross-cutting/live-updates.md`](../cross-cutting/live-updates.md).
+**Live updates and reconnection.** One WebSocket per selected surface with the backoff above. See [`../cross-cutting/live-updates.md`](../cross-cutting/live-updates.md).
 
-**Discord.** The activity is launched from the two places named in the summary and never posts anything. Its counterpart in the channel is the run bubble; see [`channel-messages.md`](channel-messages.md).
+**Discord.** Launched from the bubble's "Watch live", the home card's "Open live console", or `launch`. The link card hands off to the portal's Connections page, which afterwards tells the student to "choose **Check the link** in the Activity, or run **/cog** again" (`apps/portal/src/routes/ConnectionsPage.tsx:147`).
 
-**Configuration.** The worker needs a Discord client id, a client secret, and an activity session secret, and answers 501 "Discord Activity authentication is not configured." without all three (`activity.ts:45`). The bundle needs a client id, a portal origin, and an activity hostname, all inlined at build time (`apps/portal/src/env.client.ts`).
+**Configuration.** The worker needs a Discord client id, client secret and activity session secret, and answers 501 "Discord Activity authentication is not configured." without them (`activity.ts:93`).
 
 ## Edge cases
 
-- **`prompt: "none"` means no consent screen ever appears.** A student who has never authorized the application gets a rejection from Discord instead of a prompt. That rejection is thrown from the handshake, so it lands in the startup-error card, which offers no way to authorize and no retry (`activity-main.tsx:156`).
-- **The session route hardcodes a display name.** When the Discord id is not linked, the route creates a link token and passes the literal `"Discord user"` as the username stored on it (`activity.ts:171`). The real username was fetched during the token exchange (`activity.ts:145`) and returned to the browser, but only the id goes into the session cookie, so the session route has nothing else to pass. The chat path passes a real identity string instead: `Ada (@student)` (`apps/discord-bot/src/commands.ts:91`). A student who links from the activity therefore ends up recorded under a placeholder.
-- **Compact layout removes every action.** In picture-in-picture or grid mode the console renders only the header and the lifecycle strip. There is nothing on screen that says the actions exist elsewhere.
-- **The surface picker is not live.** It is populated once, at open. A mutation prepends its own result, so the list can hold a run that the initial fetch did not.
-- **A cancelled run reads as pending on the strip.** The lifecycle mark for a cancelled stage is drawn as a failure by the console (`RunConsole.tsx:71`) and as pending by the Discord rail (`packages/discord-kit/src/rails.ts:26`). The same run is described two ways depending on which surface is looking.
-- **The stream route requires an upgrade header.** A plain GET answers 426 with "Expected a WebSocket upgrade." (`activity.ts:228`), which no student can reach through the pane.
-- **The teamless card is reachable two ways and says one thing.** The session route answers `"no_team"` for a linked account with no membership row (`activity.ts:175`), and the run-surface and stream routes answer 403 "Link Discord and finish joining a Cog\*Portal team first." for the same condition (`activity.ts:112`). A student only ever meets the first, because the second is unreachable once the session card has already stopped them.
-- **A run that ends while the pane is open collapses its own history.** The event list drops to its last three entries with a control reading "Show all {n}", and that collapse resets whenever the surface, stage, or status changes (`RunConsole.tsx:150`, `:179`). A student watching a run finish sees the list they were reading shrink under them.
-- **Discord's own error for a failed launch is not the portal's.** Everything up to callback type 12 is the bot's, and a bot that answers with a refusal sentence instead of a launch produces a chat message rather than a pane. A student who invoked `launch` outside the course guild gets an ephemeral sentence and no pane at all.
+- **`prompt: "none"` means no consent screen.** A student who has never authorized the application gets a rejection from the SDK, which lands on the startup card with Discord's message and nothing to press (`activity-main.tsx:226`).
+- **An activity link is recorded as "Discord user".** The session route stores that literal as the link's username (`activity.ts:227`), and the portal shows it: the consent panel reads "Connect Discord user to Cog?" (`ConnectionsPage.tsx:89`) and the linked account row is named "Discord user" (`apps/portal/worker/routes/connections.ts:123`). The bot stores "Ada (@student)" (`apps/discord-bot/src/commands.ts:92`).
+- **Each check mints a link.** Every session read for an unlinked student creates a new ten-minute link token (`activity.ts:227`); "Open the link again" opens the newest.
+- **Past an hour the stream cannot come back.** The session cookie lasts an hour (`activity.ts:19`). A socket already open keeps working, but once it drops, every upgrade is refused with 401 (`activity.ts:281`) and the header reads "Reconnecting…" indefinitely without naming the expired session.
+- **Compact removes most actions** with nothing saying they exist in the focused layout.
+- **A cancelled stage is drawn two ways.** The console marks it "×" with the label "stopped" (`RunConsole.tsx:80`); the Discord rail draws it as pending (`packages/discord-kit/src/rails.ts:25`). No code path produces `cancelled`.
+- **The stream route needs an upgrade header.** A plain GET answers 426 "Expected a WebSocket upgrade." (`activity.ts:286`), unreachable from the pane.
+- **The not-embedded card names a button that is often absent.** Home offers "Open live console" only when no retry, publish, promote or verify outranks it (`commands.ts:138`).
 
 ## Open questions and verification
 
-- **`prompt: "none"` with no recovery path.** A first-time user with no prior authorization sees the generic "The bench is still here." card and has nothing to press. Worth treating as a bug: either the prompt should be allowed to appear, or the rejection should be caught and turned into an authorize button. **Unverified** against a real Discord client.
-- **The placeholder display name.** `activity.ts:171` writes `"Discord user"` where the bot writes a real identity. Worth treating as a bug; the fix is to carry the username in the session cookie or to look it up. **Unverified**.
-- **Two different lifetimes, one sentence.** The connect card says the link expires in ten minutes, which is true of the link and of the state cookie and not of the one-hour activity session (`apps/discord-bot/src/commands.ts:247`, `activity.ts:19`). Whether an hour-old activity fails in a way a student can understand was not observed. **Unverified**.
-- **Neither card polls.** Both the not-linked and the teamless card tell the student to close and reopen, which is honest and is also the only recovery. Whether a student follows that instruction rather than pressing the button again was not observed. **Unverified**.
-- Whether Discord's proxy forwards the partitioned session cookie on the WebSocket upgrade was not confirmed from the code; the stream route requires the same session as every other route. **Unverified**.
-- Whether the compact layout is reachable in practice, and what a student makes of a console with no actions, was not observed. **Unverified**.
-- The activity's error surface and the bot's disagree by design or by accident: one shows the portal's sentence, the other replaces it. Which is correct is a product call and is carried to triage.
+- **No guild evidence.** No artifact shows the activity inside Discord on any build: not the handshake, the cookies through the proxy, the WebSocket upgrade through the proxy, layout modes, or `openExternalLink`.
+- **Local fixture evidence covers components, not the activity.** The link card's first and returning states render at 360px in the development gallery with inert buttons (`/tmp/cogshots/smoke/gal-Activity_connect_gat.png`, local, close to `2ff32fa`). The console component renders a failed hosted run with "See why it failed", Retry and Local "–" on the browser run surface page (`/tmp/cogshots/matched/pairs/b-run-surface-desk.png`, right half, local fixture). Neither was inside Discord.
+- **The not-embedded card was not reached.** The local probe opened `/?frame_id=smoke` (`/tmp/cogshots/smoke.mjs:76`), which counts as embedded, so `new DiscordSDK` threw "instance_id query param is not defined" at module load and the page was blank (`/tmp/cogshots/smoke/log.txt:26`, `activity-360.png`; `activity-main.tsx:38`). A real launch carries `instance_id`; the card a student sees outside Discord (no `frame_id`) is unobserved.
+- **`prompt: "none"` with no recovery** and **the "Discord user" placeholder** are read from code. Both are in Edge cases.
+- **The activity and the bot disagree about errors.** The activity shows the portal's sentence; the bot replaces it (`apps/discord-bot/src/index.ts:46`).
+- **Two confirmations for one action.** The console's verify reads "Run {sha} on the hosted benchmark? This uses one of the team's shared practice runs." and rerun reads "Start a new hosted lifecycle at this exact commit? The current result stays unchanged." (`RunConsole.tsx:272`, `:277`), while `/cog` uses different headings, sentences and button labels for the same actions (`commands.ts:551`, `:572`).
+- Hosted beta (`4984730`) differs: its console confirms every action with a bare "Confirm" (beta `RunConsole.tsx:566`; candidate `RunConsole.tsx:597` names the consequence), writes promote as "Use official attempt {n} of 3", with a dash glyph in place of the number when no attempt remains (beta `:271`; candidate `:274` reads `OFFICIAL_LIMIT`), has no "See why it failed" link (candidate `:341`), and reads "Safe event stream", "Waiting for the first structured event." and "Runs the same submission again." (beta `:414`, `:450`, `:347`; candidate `:440`, `:476`, `:373`). The identity routes and the gate logic are identical: beta `98eecac` and candidate `835013f` are the same patch to `apps/portal/worker/routes/activity.ts`, and `activity-gate.ts` matches byte for byte.
 
-Verified against Cog\*Portal commit `f74e087`.
+Read against Cog\*Portal commit `2ff32fa`.

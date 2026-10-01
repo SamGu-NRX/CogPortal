@@ -1,20 +1,20 @@
 # Scoring and refusals
 
-> **In flight.** The Week 3 refusal sentences about withheld image scores are being edited today, in `benchmarks/week3/language_search_benchmark/plugins.py` and `roles.py`. This document describes what that source says now, mid-edit; a verifier must re-read both files rather than trust the quotes below. One change is already on disk: `weights_diagnostic` used to end "Commit that file and run again." and now tells the team to keep the weights out of git and let `cogworks sync` carry them, which reverses the advice and pushes the sentence past the 240-character cap.
-
 ## Summary
 
-This document owns two questions. What has to be true for a number to appear on a run page, and every condition under which the platform declines to give one and the exact sentence it shows instead.
+This document owns two questions: what has to be true for a number to appear on a run page, and every condition under which the platform declines to give one, with the exact sentence it shows instead.
 
-Scoring is the last stage of a hosted run. The evaluate sandbox has already run the team's code and written a results file; the controller reads that file back, checks it against what the benchmark's `score()` can actually read, scores it, and posts one event carrying metrics, diagnostics, an optional difficulty curve, and a digest. There is no screen called "scoring". What a student sees is the RESULTS panel on the run page, the sentence above it, and, when the check refuses, a failure card with the code `E-OUTPUT`.
+Scoring is the last stage of a hosted run. The evaluate sandbox has run the team's code and written a results file; the controller reads that file back, checks it against what the benchmark's `score()` can read, scores it, and posts one `completed` event carrying metrics, diagnostics, an optional sweep, the wiring trace and a digest. There is no screen called "scoring". What a student sees is the finding at the top of the run page, the "Readings" section under it, and, when the check refuses, a failure card with the code `E-OUTPUT`.
 
-An invalid-output failure uses no quota. A completed evaluation with valid low or partial results still counts. The checks below decide whether predictions can be scored and what explanation the team receives.
+A failed execution uses no quota, including an `E-OUTPUT` refusal. A completed evaluation with low or partial results counts. See [credit and quota](../cross-cutting/credit-and-quota.md).
 
 ## The simple case
 
-The team's code finishes. The controller reads `/tmp/cog-predictions.json`, parses it, counts the results against the cases, checks their shape, and hands them to `score()`. Back come named numbers and diagnostics.
+The team's code finishes. The controller reads `/tmp/cog-predictions.json`, parses it, counts the results against the cases, checks their shape, and hands them to `score()`. Back come named numbers, the scorer's notes, and for two benchmarks a sweep.
 
-The run page leads with the scorer's first diagnostic, set large under the kicker "What this run shows" (`apps/portal/src/components/Finding.tsx:32`), draws the difficulty curve if the benchmark published one, shows the wiring trace if discovery found the team's functions by running them, and only then, in a panel labelled `RESULTS`, prints the primary metric big beside a list of the supporting ones. The number is last on purpose.
+The run page leads with the scorer's first note, set as the largest type on the page under the label "What this run shows" (`apps/portal/src/components/Finding.tsx:3`), with the rest of the notes as small lines beneath it. The sweep curve comes next when the benchmark published one, then the wiring trace, then a section headed "Readings" with the primary metric on the first row and the supporting metrics in a table below (`apps/portal/src/routes/RunDetailPage.tsx:474`, `:525`). The number is last on purpose.
+
+Observed hosted on beta, run `run_f93ba19397` (Recognition practice, `4984730` lineage): the finding read "2 of 10 queries for the newly enrolled person were called unknown rather than named. That is the cutoff being strict, not a descriptor problem.", the wiring trace named `get_descriptor.file_descriptors` with its shapes, and the primary read `0.9250` above supporting rows at three decimals. The runner, contracts and run-event handler are byte-identical between that build and `2ff32fa`; the page layout around them is not (see the last section).
 
 ## The ask, event by event
 
@@ -23,11 +23,11 @@ stateDiagram-v2
     [*] --> evaluating : the sandbox runs the team's code
     evaluating --> failed : the process exits nonzero
     evaluating --> reading : the process exits 0
-    reading --> refused : the file will not parse, or holds a non-finite number
+    reading --> refused : the file holds a non-finite number, or is not a list
     reading --> checking : the file parsed as a list
-    checking --> refused : the count, the element type, or a field is wrong
+    checking --> refused : the count, an element type, or a field is wrong
     checking --> scoring : the results are the shape score() reads
-    scoring --> scored : metrics, diagnostics, a digest
+    scoring --> scored : metrics, notes, a digest
     scoring --> our_fault : score() raised
     scored --> withheld : Week 3 dropped what it did not measure
     refused --> [*]
@@ -39,100 +39,115 @@ stateDiagram-v2
 
 ### Asking
 
-Nothing is asked. Scoring is not something a student starts; it is what happens to the file their code wrote. What was decided earlier still binds it: the commit, the benchmark id, and whether this run scores the public split or the hidden one (`apps/portal/worker/execution/runner.ts:78`).
+Nothing is asked. Scoring is what happens to the file the team's code wrote. What was decided earlier still binds it: the commit, the benchmark id and version, and whether this run scores the public practice split or the hidden official one.
 
 ### Answered without work
 
-One condition ends scoring before any of the team's results are read. The controller compares five fields of the loaded plugin against the five the job named: benchmark id, version, contract version, plugin version, scorer version. Any mismatch fails at once with category `data_download`, phase `contract_check`, and `infrastructure=True`, carrying the detail "Trusted benchmark plugin version does not match the run job." (`apps/runner-modal/src/cogworks_runner/modal_app.py:926`).
+One condition ends a run before any of the team's results are read. After preparation the controller loads the trusted plugin and compares five fields against the job: benchmark id, version, contract version, plugin version, scorer version. Any mismatch fails with category `data_download`, phase `contract_check`, `infrastructure=True`, and the detail "Trusted benchmark plugin version does not match the run job." (`apps/runner-modal/src/cogworks_runner/modal_app.py:1273`).
 
-The student reads a card headed "Benchmark data is not ready", code `E-DATA`, explaining that a data bundle "could not be downloaded or did not match its reviewed checksum" (`packages/contracts/src/failures.ts:54`). Nothing was downloaded and no checksum was compared. The failure uses no quota, but the wrong sentence can still misdirect the team.
+The student reads a card titled "Benchmark data is not ready", code `E-DATA`, whose explanation says a data bundle "either could not be downloaded or did not match its reviewed checksum" (`packages/contracts/src/failures.ts:43`). Nothing was downloaded and no checksum was compared. The live console calls the same failure "The hosted runner could not finish" and Discord calls it "Runner unavailable", because `data_download` has no entry in the event-code map and falls to `run.failed.provider` (`apps/portal/worker/services/run-surfaces.ts:72`, `apps/portal/src/components/RunConsole.tsx:52`, `apps/portal/worker/services/discord-messages.ts:96`). See [B-21](../bug-triage.md).
 
 ### The work begins
 
-The controller reads predictions after evaluation exits. Invalid output produces a failed execution without quota use. Valid output continues to scoring; only a completed evaluation counts.
+The controller reads the predictions after evaluation exits. Invalid output fails the execution without using quota. Valid output goes on to scoring, and only a completed evaluation counts.
 
 ### While it works
 
-Nothing streams. The `evaluating` heartbeat posts every 2 seconds until the lane returns (`modal_app.py:901`), then the controller posts one final `evaluating` status at `case_count / case_count` (`modal_app.py:2305`) and only then runs the prediction check.
-
-Checking predictions before scoring lets the portal distinguish malformed output from a trusted scorer failure. Both failures use no quota, but the explanations call for different repairs.
+Nothing streams. The evaluating heartbeat repeats `0` of `N` cases while the sandbox runs, the controller then posts `N` of `N` (`modal_app.py:2246`, `:2258`), and only then runs the prediction check. The check runs before the phase moves to `scoring` on purpose: anything raised once the phase is `scoring` becomes category `scorer` with `infrastructure=True`, which tells the team the platform broke (`modal_app.py:2259`, `:2310`).
 
 ### How it ends
 
-On success, one `completed` event with the metrics, up to 32 diagnostics of up to 240 characters each, the sweep and the wiring trace when they exist, and a sha256 of the predictions (`modal_app.py:2329`). A practice run gets the sanitized student log back with it; an official run gets null, because the hidden split's contents must not travel (`modal_app.py:2347`).
+On success, one `completed` event with the metrics, up to 32 notes of up to 600 characters each, the sweep and the wiring trace when they exist, the paths of any synced weight files the run fetched, and a sha256 of the predictions (`modal_app.py:2283`). A practice run sends the sanitized student log; an official run sends none (`modal_app.py:2354`).
 
-On a refusal, one `failed` event with the category, the phase, a detail capped at 240 characters, and `infrastructure: false`. No metrics are sent, so the run page shows the failure card and no RESULTS panel at all.
+A note longer than 600 characters is split between words into several notes rather than cut (`modal_app.py:156`). The limit was 240 and cut five of the scorers' fixed templates mid-word; the comment records Week 1 notes at 315 characters and Week 2's abstention note at 392 (`modal_app.py:81`). Splitting a long note moves its second half into a small bullet under the finding, which the comment calls worse than one paragraph and better than losing it.
+
+The result is written to the runner's job store before it is sent, and a delivery that fails is retried by the function's own retry policy, up to five more attempts at 10 seconds doubling to 60 (`modal_app.py:2179`). A replay carries the same event id, so the portal applies it once.
+
+On a refusal, one `failed` event with the category, the phase, a detail of at most 240 characters cut at a word with " ..." appended when it had to be cut (`modal_app.py:127`, `:141`), and `infrastructure: false`. No metrics are sent, so the run page shows the failure card and no "Readings" section.
 
 ## What produces a metric
 
-A metric is not a number the platform computes. It is a key `score()` returned, wrapped in presentation the plugin declares (`modal_app.py:2156`).
+A metric is a key `score()` returned, wrapped in presentation the plugin declares (`modal_app.py:2054`).
 
 | Field | Where it comes from | What a student sees |
 | --- | --- | --- |
 | `key` | The key `score()` returned. | Nothing directly. |
-| `label` | `metric_labels`, else the key title-cased. | The row name. A metric missing from `metric_labels` arrives as a machine-made title, which is how "Retrieval Mrr Verbatim" once reached a run page (`benchmarks/week3/language_search_benchmark/plugins.py:259`). |
+| `label` | `metric_labels`, else the key title-cased. | The row name. |
 | `value` | `float()` of the score. | The number. |
 | `unit` | Always `None` on this path. | Nothing. |
-| `higher_is_better` | True unless the key is in `lower_is_better`. | An up or down arrow. |
-| `primary` | True for the one key `_primary_for_run` names (`modal_app.py:2143`). | Which number is set large, and what the leaderboard sorts on. |
-| `precision` | Fixed at 3. | Three decimals, always. |
-| `help` | `metric_help`. | One or two sentences, folded away until the row is clicked. |
+| `higher_is_better` | True unless the key is in `lower_is_better`. | An arrow, when the row may claim one (below). |
+| `primary` | True for the one key `_primary_for_run` names (`modal_app.py:2041`). | The first row of "Readings", and what the leaderboard sorts on. |
+| `precision` | 4 for the primary, 3 for the rest (`modal_app.py:2097`). | Four or three decimals. The local runner uses the same rule, so local and hosted print the same digits. |
+| `help` | `metric_help`. | Open under the primary; folded under a supporting row until the row is clicked. |
 | `role` | `metric_roles`: `scored`, `floor`, `reported`, `diagnostic`, `plotted`. | How the row is drawn, or whether it is drawn. |
 | `relates_to` | `metric_relations`. | Which row a floor or probe attaches to. |
 
-Absent fields are omitted from the wire rather than sent as null, so a reader can tell "this benchmark has no explanation" from "the explanation is empty" (`python/cogbench/src/cogbench/models.py:50`). `precision` being fixed at 3 is the reason every hosted number reads to three decimals whatever it measures, including `retrieval_median_rank`, which is a rank and has no fractional part to show.
+Roles change the drawing and nothing else, and the page reads `role` and `relatesTo`, never a metric's name.
 
-Roles change the drawing and nothing else. A floor renders inline as the scale of the metric it belongs to, as `floor 0.162`, with no arrow, because an arrow on a floor is advice to raise a number the submission does not control (`apps/portal/src/components/MetricBlock.tsx:77`). A `reported` probe renders indented under the score it shadows, marked `not scored`. A `plotted` metric gets no row, because the curve above prints its value beside its point.
+- **Floor.** Drawn on the row of the metric it belongs to as `floor 0.010`, at that metric's precision, with no arrow (`apps/portal/src/components/MetricBlock.tsx:257`). A floor of the primary sits under the primary with its own help text open (`MetricBlock.tsx:155`). A floor whose parent is absent keeps a row of its own, still without an arrow (`MetricBlock.tsx:408`).
+- **Reported.** Indented under the score it shadows and marked `not scored` (`MetricBlock.tsx:264`). It keeps an arrow only when the benchmark said lower is better.
+- **Diagnostic.** Grouped last under "Diagnostics", with the line "These look at one part of the pipeline more closely." (`MetricBlock.tsx:456`).
+- **Plotted.** No row, because the sweep prints its value beside its point.
 
-A metric declaring no role renders exactly as everything did before roles existed (`MetricBlock.tsx:93`). The whole arrangement reads `role` and `relatesTo` and never a metric's name, so a benchmark that grows a floor gets the right drawing without the page learning anything about that benchmark.
+Whether a row may claim a direction at all is decided once per run (`MetricBlock.tsx:53`). A run whose metrics carry no roles gets no arrows anywhere, because a floor and a score would arrive identical and the page will not guess. Week 2 declares no roles, so no Week 2 metric shows an arrow; Week 1 and Week 3 declare them.
 
-> Technical note: the primary metric is load-bearing. The RESULTS panel renders only when some metric carries `primary: true` (`apps/portal/src/routes/RunDetailPage.tsx:212`), and nothing on either side of the wire checks that exactly one does. A plugin naming a primary key its `score()` did not return would produce a succeeded run whose numbers are on the wire and absent from the page.
+When the team has an earlier succeeded run in the same mode on the same benchmark version, every row also carries an uncolored change against it ("+0.024", "same"), and a floor carries none (`MetricBlock.tsx:69`, `RunDetailPage.tsx:402`).
+
+What each benchmark kind sends, at the pinned submodule commits:
+
+| Benchmark | Primary | Floors and probes | Sweep | Notes |
+| --- | --- | --- | --- | --- |
+| `audio-identification` | `identification_score` | `chance_top1` and `trivial_baseline_top1`, both floors of the primary; `margin_separation` and `median_identify_seconds` reported | songs in the library | always at least one, ending "Outcome split over {n} scored queries: {counts}." |
+| `vision-recognition` | `recognition_score` | none declared | none | from `score_recognition` |
+| `vision-clustering` | `clustering_pairwise_f1` | none declared; `clustering_seed_spread` says in its help that it is "reported and never scored" and still renders as an ordinary row | none | a seed-spread note only when the spread is at least 0.15 or at most 0.02 |
+| `language-search` | `overall`, or a substitute when withheld | three floors, two `reported` verbatim probes, three `plotted` search rungs, seven diagnostics | how far the query is from the caption | the withheld note first when anything is withheld |
+
+Sources: `benchmarks/week1/audio_identification_benchmark/plugins.py:36`, `:82`; `benchmarks/week2/facial_recognition_benchmark/plugins.py:37`, `:220`, `:328`; `benchmarks/week3/language_search_benchmark/plugins.py:367`, `:405`, `:450` (pinned `4e516f3`, `a3dd948`, `94c7e64`).
+
+A clustering run whose spread falls between those bounds has no notes at all, and the finding slot then reads "The scorer didn't write a finding for this run. Its readings are below." (`RunDetailPage.tsx:494`). Observed locally on fixture data at `2ff32fa` for a language-search run with no notes (`final-2ff32fa/result-detail.txt`).
 
 ## The prediction check
 
-Every evaluate lane converges on one call from `execute_job` to `check_predictions` (`apps/runner-modal/src/cogworks_runner/prediction_validation.py`). One call site rather than four is the point: a fifth benchmark track added later is covered by construction rather than by remembering.
+Every evaluate lane converges on one call, `check_predictions` (`apps/runner-modal/src/cogworks_runner/prediction_validation.py:349`), so a lane added later is covered without anyone remembering to.
 
 ### Why the check exists
 
-The sandbox counts its own outputs before writing the file, and that count runs inside the student's own process. A module-level `atexit` handler rewrites `/tmp/cog-predictions.json` after the script's last write, so the bytes the controller reads are whatever the handler put there (`modal_app.py:1215`).
+The sandbox counts its own outputs before writing the file, but that count runs inside the student's own process, and a module-level `atexit` handler can rewrite the file afterwards. Two things go wrong without a second check, both measured against the real scorers (`prediction_validation.py:13`):
 
-Two things go wrong without a second check on the controller's side, and both were measured against the real scoring modules.
+- A short list is not a crash. `zip()` truncates, so four Week 1 results covering a submission's two correct queries score `identification_score` 1.0 where the honest twelve score 0.2.
+- A wrong element type is an uncaught error inside `score()`, which the controller would file as `scorer` with `infrastructure=True`, telling the team the platform broke.
 
-A short results list is not a crash. `zip()` truncates, so four Week 1 results covering a submission's two correct queries score `identification_score` 1.0 where the honest twelve score 0.2, and one perfect Week 2 clustering scenario out of four scores `clustering_pairwise_f1` 1.0 against 0.54. A short list inflates the score.
-
-A wrong element type is an uncaught `AttributeError` inside `score()`, and `execute_job` labels anything raised during the scoring phase as `scorer` with `infrastructure=True`. That copy incorrectly tells the team the platform broke. Invalid output should be explained as invalid output, regardless of the free-failure policy.
-
-The most expensive case is null embeddings. Week 3's `text_first_relevant_ranks` excludes a caption from its own results by writing negative infinity on the score matrix diagonal, then sorts by score descending. With an all-NaN matrix the diagonal is the only non-NaN entry, and numpy sorts NaN after every real value including positive infinity, so each caption ranks itself first and every co-caption lands at rank 1. Against the public-evaluation text block, an honest random submission scores `text_mrr` 0.0101 and an every-value-null one scores 1.0000, with `overall` going 0.0034 to 0.3333 (`modal_app.py:1440`). The exclusion that makes the metric meaningful is what the NaN defeats.
+The most expensive case is a JSON `null` in an embedding. numpy turns it into NaN without raising, and Week 3's caption ranking then puts every caption's partner at rank 1: an honest random submission scores `text_mrr` 0.0101 and an every-value-null one scores 1.0000 (`prediction_validation.py:227`).
 
 ### Every sentence the check shows
 
-All of these carry `output_invalid`, `evaluating`, and `infrastructure=False` (`modal_app.py:1890`). Like every failure, they use no quota. The phase is `evaluating` and not `scoring` because what is wrong is the submission's results, and naming the scoring phase would put the platform's name on a step that never ran.
+All carry `output_invalid`, phase `evaluating`, and `infrastructure=False` (`prediction_validation.py:274`). The phase is `evaluating` because what is wrong is the submission's results, and naming the scoring phase would put the platform's name on a step that never ran.
 
-A number that is not finite, caught during the parse rather than by a walk afterwards, because a walk cannot see `1e400` (`modal_app.py:1359`):
+A number that is not finite, caught during the parse because a walk afterwards cannot see `1e400` (`prediction_validation.py:146`):
 
 > "Your results hold the value {}, which is not a finite number. A NaN or an infinity here usually comes from a division by zero or an average over an empty list. Check the numbers your adapter returns."
 
-A top-level value that is not a list (`modal_app.py:1377`). Each lane calls `list()` on what it returns, and `list()` coerces rather than checks: a top-level object becomes a list of its keys, so `{"a": 1, "b": 2}` reaches the count check looking like two results.
+A top-level value that is not a list, since `list()` would turn an object into its keys (`prediction_validation.py:164`):
 
 > "Your submission's results came back as {}, and scoring reads a list holding one result per case. Check what your adapter returns."
 
-The wrong number of results (`modal_app.py:1588`), checked for every benchmark including the v1 lane:
+The wrong number of results, checked for every benchmark including the v1 lane (`prediction_validation.py:373`). It no longer assumes the team built the list, because on the v2 lanes the platform's driver builds it:
 
-> "Your submission returned {} results for {} cases. Scoring pairs them up in order, so it needs exactly one result per case. Look for a case your code skipped, or a filter that dropped some."
+> "Scoring received {} results for {} cases and needs one per case. If your adapter builds this list, check its length. Otherwise, tell course staff."
 
-An element of the wrong type (`modal_app.py:1611`). Compared with `type()` and not `isinstance()`, because a string passes every sequence check while scoring iterates it one character at a time; measured, a two-character string in Week 2's `known` field clears the length guard and scores as two correct labels.
+An element of the wrong type, compared with `type()` because a string passes every sequence check and is then scored one character at a time (`prediction_validation.py:395`):
 
 > "Result {} came back as {}, and this benchmark scores {} for each case. Check what your adapter returns for that case."
 
-A cluster label that is not a string or a number (`modal_app.py:1626`). Cluster labels are dictionary keys twice over inside scoring, so a list or dict label is an uncaught `TypeError`.
+A cluster label that is not a string or a number (`prediction_validation.py:410`):
 
 > "In result {}, label {} came back as {}. Cluster labels have to be strings or numbers; only which labels match each other matters, never what they are called."
 
-A field that should hold a list and does not (`modal_app.py:1646`). A field that is absent is normal, because a failed case writes `{"ok": False, "error": ...}` with none of these fields and scoring reads that shape on purpose.
+A field that should hold a list and does not (`prediction_validation.py:430`). An absent field is normal, because a failed case writes `{"ok": False, "error": ...}` and scoring reads that shape on purpose.
 
 > "In result {}, \"{}\" came back as {} where scoring reads a list. Check what your adapter puts in that field."
 
-Four sentences cover the fields handed to numpy, where the check goes to the leaves because a JSON `null` reaches numpy as NaN without raising (`modal_app.py:1505`). A row that is not a list; an empty row, refused because a zero-width matrix scored `text_mrr` 0.6667 on a four-caption case where honest work scored less, since an empty row makes every pair tie; rows of different lengths, refused because numpy raises `ValueError` on a ragged list and an uncaught raise once the phase is `scoring` would incorrectly blame the scorer; and a leaf that is not a number, where only the first offender is named because a submission that got this wrong usually got it wrong everywhere.
+Four sentences cover the fields handed to numpy, where the check goes to the leaves (`prediction_validation.py:308`, `:319`, `:329`, `:343`):
 
 > "In result {}, row {} of \"{}\" came back as {}. Each row holds one list of numbers."
 >
@@ -142,130 +157,125 @@ Four sentences cover the fields handed to numpy, where the check goes to the lea
 >
 > "In result {}, \"{}\" holds {} at row {}, position {}, where scoring reads a number. A null here becomes a NaN and cannot be scored."
 
-Two more belong to Week 2 recognition, and they live where the shuffled batches still exist, before the two-batch payload is turned back into the lifecycle shape `score()` reads (`modal_app.py:1799`). The second stops the coercion that turned `{"before_enrollment": "abc", "after_enrollment": "d"}` into a clean dict of lists that cleared every length guard.
+Two more belong to Week 2 recognition and run before the shuffled batches are put back in order (`prediction_validation.py:490`, `:501`):
 
 > "Each recognition scenario has to return a mapping of labels, and one came back as {}."
 >
 > "In result {}, \"{}\" came back as {}, and recognize returns one label per image. Check what your adapter returns for that batch."
 
-Only `scores` may be null, because Week 1's driver writes `"scores": None` when the submission returned candidates without them (`modal_app.py:1422`). A boolean cluster label is allowed, because scoring treats `True` as 1 and returns a correct partition for it, and refusing a payload that scores correctly would discard a valid result. Ranking rows may be ragged and empty, because a query that matched nothing legitimately returns none and is scored as a miss. The plain words the sentences use for types come from one table: "a dictionary", "a list", "a string", "a true/false value", "a number", "None" (`modal_app.py:1309`).
+Allowed on purpose: a null `scores` field (Week 1's driver writes it), a boolean cluster label (scoring treats it as 0 or 1 and returns a correct partition), and ragged or empty ranking rows (a query that matched nothing is a miss). The type words come from one table: "a dictionary", "a list", "a string", "a true/false value", "a number", "None" (`prediction_validation.py:96`).
+
+A predictions file that is not valid JSON at all is not dressed up as a shape problem. It raises during the evaluating phase and becomes a `provider` failure with `infrastructure=True`.
 
 ### What the failure card says around them
 
-The sentence above is the failure's `detail`. It arrives inside a card whose title, explanation, action, and repro command come from a static catalog keyed on the category, and the `output_invalid` entry was written before this check existed (`packages/contracts/src/failures.ts:137`):
+The sentence above is the failure's detail, shown open in the card. The title, the explanation behind "Show details", the next step and the copyable command come from a static catalog keyed on the category (`packages/contracts/src/failures.ts:119`):
 
 > "Predictions did not match the schema"
 >
 > "Your adapter returned output that failed schema validation. Extra fields, wrong types, and values outside the allowed range are all rejected."
 >
-> "Validate your output locally with the schema check, correct the prediction shape, and run practice again before promoting."
+> "Validate your output locally with the schema check and correct the prediction shape."
 
-Three of those claims do not describe what ran. Extra fields are not rejected; the check reads only the fields the shape table names and ignores the rest. No value range is checked anywhere. And the copyable command, `cogworks test --benchmark {benchmark}`, runs the contract check, which is a different check and does not validate a predictions file. The vision override goes further and says "out-of-range boxes are all rejected" (`failures.ts:208`), which is object-detection vocabulary; Week 2 scores recognition and clustering and has no boxes.
-
-Failure cost no longer comes from a category default. Invalid-output failures use no quota, just like other failures.
+with `cogworks test --benchmark {benchmark}` beneath. Three claims in it are not true of the check: extra fields are ignored, no value range is checked, and `cogworks test` scores the small test cases rather than running a schema check. The vision override says "out-of-range boxes are all rejected" (`failures.ts:187`), and Week 2 has no boxes; the language override says "ids outside the pinned image pool, and more than k results are all rejected" (`failures.ts:210`), and the controller checks neither, since a ranking row may hold any number or numeric string of any length (`prediction_validation.py:258`). The detail sentence beside the card is exact.
 
 ## The difficulty curve
 
-A benchmark with a difficulty knob publishes a `last_sweep` after `score()`, and the controller turns it into the curve the run page draws (`modal_app.py:2207`). Fewer than two points is not a curve, so one point is dropped rather than drawn, which would claim a trend from a single measurement. A plugin that grew a sweep without declaring its `sweep_x_key` and `sweep_y_key` gets no curve instead of a wrong one. Up to 24 points are read, each label capped at 40 characters, and the wire requires between 2 and 24 points with every `y` between 0 and 1 (`packages/contracts/src/protocol.ts:54`).
+A benchmark with a difficulty knob publishes `last_sweep` after `score()`, and the controller turns it into the curve (`modal_app.py:2107`). Fewer than two points is not drawn, because one point drawn as a curve would claim a trend. A plugin without `sweep_x_key` and `sweep_y_key` gets no curve rather than a wrong one. Up to 24 points, labels capped at 40 characters, and every `y` between 0 and 1 (`packages/contracts/src/protocol.ts:60`). The curve is labeled with the metric it plots, read from `sweep_metric` when the plugin declares one, so Week 3's search rungs no longer appear under the label "overall".
 
-Week 3's four points are the four query rewrites, from the caption unchanged to the furthest, so its x values are 0 through 3 and mean nothing on their own. Those points carry names, and the page prints the endpoint labels and reads them to a screen reader, which would otherwise say "from 0.95 at 0 to 0.03 at 3". Week 1's x is a real count of songs and reads correctly as itself.
+Week 1's x is a count of songs. Week 3's four points are the query rewrites from the caption unchanged to the furthest; their x values are 0 to 3, and the page prints and reads aloud the rung names instead. The page marks the largest single fall of at least 0.1; the comment says that threshold is a judgment and no study of real curves backs it (`apps/portal/src/components/SweepTrace.tsx:57`). With an earlier comparable run on the same axis, that run's curve is drawn dashed behind this one.
 
-A withheld Week 3 run has no curve. `_rung_curve` reads `search_mrr_{rung}` out of the metrics dictionary after the withheld keys have been popped, finds none, and returns an empty list (`benchmarks/week3/language_search_benchmark/plugins.py:353`). That is the right outcome and it is worth naming, because the curve is the part of the page a team is told to read.
+A Week 3 run with the search side withheld has no curve, because `_rung_curve` reads `search_mrr_{rung}` after those keys were dropped (`benchmarks/week3/language_search_benchmark/plugins.py:614`). When the image side is withheld and the search cases still ran, the curve is drawn.
 
 ## Week 3 withholds the overall
 
-Week 3 is the only benchmark that withholds. When the image side never bound, the retrieval and search cases never ran; the driver would score those as zero, and an overall averaged over them is a number nobody measured. So the image-side scores and the overall are dropped, their floors stay on the wire, the primary becomes `text_mrr`, and a diagnostic naming the team's own save path is inserted at position 0 (`plugins.py:340`). Being first, it becomes the sentence the run page sets large under "What this run shows".
+Week 3 is the only benchmark that withholds. When a surface of the search never bound, its cases never ran; the driver would score them as zero, and an overall averaged over them is a number nobody measured (`plugins.py:497`). Decision record: `docs/design/discovery-v2-brief.md`, "Absent weights".
 
-Two measured reasons this is not a preference. One team's first end-to-end run scored search 0.0 into an overall of 0.4183 with its prepare step bound to the wrong argument order. An independent review found a median rank published at 100.0 from retrieval cases that never ran. Decision record: `docs/design/discovery-v2-brief.md`, "Absent weights", decided 2026-09-02.
+`_withheld` decides what goes (`plugins.py:574`):
 
-There are four sentences, all beginning `overall withheld: `.
+| What did not bind | Dropped | Primary becomes |
+| --- | --- | --- |
+| The image side | `overall`, `retrieval_mrr*`, `retrieval_recall_at*`, `retrieval_median_rank*`, and `search_mrr*` unless the search cases ran anyway | `text_mrr` |
+| The database or the search function, image side bound | `overall`, `search_mrr*` | `retrieval_mrr` |
 
-**The base case,** no weights and no save call found (`plugins.py:424`, `roles.py:855`). It stands alone only when the discovery root is unknown; otherwise `roles.weights_diagnostic` extends it, and that is the most actionable form the platform produces, because it reads the team's own `save()` call and their own `.gitignore` (`roles.py:847`).
+Floors stay. A floor whose scored partner was dropped (`chance_mrr`, `search_chance`) renders as its own row without an arrow, and `text_chance` sits under the primary.
 
-> "overall withheld: the image side has no trained weights to measure."
+The leading note is built as "overall withheld: {reason} The {image|search} side is not measured; {what still counts}." (`plugins.py:558`), where the last part reads "your caption score is" or "your caption and search scores are" from the metrics that survived. It is then split into one note per sentence (`plugins.py:139`), so the finding is only the first sentence and the instruction lands in the bullets beneath. For the common case, no weights and a save call found (`roles.py:911`, `:930`):
+
+> Finding: "overall withheld: this run found no file in this repository that loads as a (512, D) projection, so there is no image embedding to score."
 >
-> "overall withheld: the image side has no trained weights to measure. Your {} saves to {} ({}:{}), and it matches .gitignore line {}. Keep that weights file out of git. Then run `cogworks run` locally and `cogworks sync`; the hosted run will fetch the weights the local run used."
->
-> "overall withheld: the image side has no trained weights to measure. Nothing under this repository loads as a (512, D) projection and no source file saves one, so there is no image embedding to score. Keep the weights your training run produces out of git. Then run `cogworks run` locally and `cogworks sync`; the hosted run will fetch the weights the local run used."
+> Bullets: "Your {} saves to {} ({}:{}), and it matches .gitignore line {}." / "Keep that weights file out of git." / "Then run `cogworks run` locally and `cogworks sync`; the hosted run will fetch the weights the local run used." / "The image side is not measured; your caption score is."
 
-The last two are the working tree as of today. Before today's edit the first ended ". Commit that file and run again." and the second ended " Commit the weights your training run produces and try again." The advice is now the opposite of what it was, and it depends on `cogworks sync` carrying the weights, which is itself in flight (see [`../terminal/sync.md`](../terminal/sync.md)). This case drops `retrieval_mrr*`, `retrieval_recall_at*`, `retrieval_median_rank*`, `search_mrr*`, and `overall`, and makes `text_mrr` primary (`plugins.py:376`).
+The other image-side reasons, each the `{reason}` slot:
 
-**Weights found but nothing used them** (`plugins.py:431`). Saying "no trained weights" here would send the team to commit a file that is already committed.
+- No weights and no save call: the same lead, then "It found no code that saves one either." and "Keep the weights your training run produces out of git." before the same sync instruction (`roles.py:918`).
+- Weights loaded and nothing used them: "your trained weights loaded from {}, but this run found no function it could use to turn image descriptors into vectors. Why: {}" with discovery's own words cut at 180 characters (`plugins.py:942`).
+- The image function ran and its answer was refused: "this run could not use what your image function returned. Why: {}" (`plugins.py:928`).
+- Several projection files: "several files in this repository load as a (512, D) projection and nothing in your code loads one of them by name, so this run could not tell which one to score. The files are {}. Load one by name in the script you run, or remove the others, and run again.", or, when the code loads more than one, "...your code loads more than one of them... Keep the load for the one you score, drop the rest, and run again." (`plugins.py:73`, `:81`).
+- Anything else: "this run found no function it could use to turn image descriptors into vectors. It looks for one that takes the descriptor array and returns one row per image, in the same space as your caption vectors." (`benchmarks/week3/language_search_benchmark/discovered.py:60`, `:83`).
 
-> "overall withheld: your trained weights were read from {}, but no function in this repository turned descriptors into vectors with them: {}"
-
-**No search function** (`plugins.py:388`). This one drops `search_mrr*` only and leads with `retrieval_mrr`, because the caption and retrieval sides were measured.
-
-> "overall withheld: no function in this repository answered a query with image ids, so the search side is not measured; caption and retrieval scores are. The search found {}: {}"
-
-**Several weight files and no load call to choose between them** (`plugins.py:563`). Refusing the whole repository would throw away a text side that works over a question about the image side.
-
-> "overall withheld: several files in this repository load as a (512, D) projection and no load call in your code says which one to score: {}. Load one of them by name in the script you run, or remove the others, and run again."
-
-Three of the four are longer than the 240 characters `execute_job` truncates a diagnostic to (`modal_app.py:2334`), which is the wire's own limit (`packages/contracts/src/protocol.ts:111`). Measured from the source strings on a representative repository: the save-call form is 311 characters and loses its last 71, cutting inside "Then run `cogworks run` locally and `cogwo"; the no-save-call form is 366 and loses 126. The ambiguous-weights sentence is 222 characters before its file list is interpolated, so any list longer than 18 characters truncates it, and the list is the point of it. Before today's edit the save-call form was 197 characters and fit.
+Every other unbound surface is said once more as "Also, {reason}", and when there are any, the last of the withheld notes is "A surface here can fail to bind because an earlier one did, so start with the first." (`plugins.py:550`, `:566`). The sentences are cut by the benchmark, at 180 characters for discovery's words, so they fit the 240-character cap of a saved local report as well as the 600-character hosted one.
 
 ## Modifiers
 
 | Modifier | Set before the ask | Changed while it works |
 | --- | --- | --- |
-| Who you are | No effect. There is no privileged view: an instructor sees the same metrics, the same refusal sentence, and the same withheld set a student does. | No effect. |
-| Where your team and repository stand | Decides what there is to score. A repository whose modules will not import never reaches this stage; one whose image side never bound reaches it and has numbers withheld. | No effect. A push mid-run does not change what is scored. |
-| Which week's benchmark | Decides which shape-table entry applies (`modal_app.py:1407`), which sentences are reachable, and whether withholding exists at all. Week 3 is the only benchmark that withholds; Week 2 clustering is the only one whose elements are a flat list rather than a dictionary. A v2 benchmark with no table entry still gets the count check, which is the deliberate failure mode for a week added later. | No effect. |
-| Practice or leaderboard | Practice retains a sanitized log; official evaluation suppresses it. Invalid-output failures use no quota in either mode. | Mode is fixed for the execution. |
-| Flags, options, and where you are typing | Nothing a student types reaches this stage. The same scoring runs locally through `cogworks run`, capped the same way (`python/cogbench/src/cogbench/models.py:129`). Discord shows the primary metric and up to 300 characters of a refusal headline. | No effect. |
+| Who you are | No effect. An instructor sees the same metrics, sentences and withheld set as the team. | No effect. |
+| Where your team and repository stand | Decides what there is to score. A repository whose modules will not import never reaches this stage; one whose image side never bound reaches it and has numbers withheld. A repository that declared its own `submission.py` has no wiring trace. | No effect. A push mid-run does not change what is scored. |
+| Which week's benchmark | Decides the shape-table entry (`prediction_validation.py:194`), which sentences are reachable, which roles exist, whether there is a sweep, and whether withholding exists. A v2 benchmark with no table entry still gets the count check. | No effect. |
+| Practice or leaderboard | Practice scores the public split and keeps the log; official scores the hidden split and keeps no log. The "Readings" heading says "Public practice split." or "Hidden official split." (`RunDetailPage.tsx:530`). Invalid output uses no quota in either mode. | Mode is fixed for the execution. |
+| Flags, options, and where you are typing | Nothing a student types reaches this stage. The local runner scores the same way and uses the same precision rule. Discord shows the primary and up to four other metrics; the run surface shows every metric. | No effect. |
 
 ## Cancel and interrupt
 
 | Event | Before the work begins | While it works |
 | --- | --- | --- |
-| You stop it yourself | No cancel button on this stage. Closing the run page changes nothing; the run outlives every browser watching it. | No effect. Scoring is a few hundred milliseconds of controller work with no cancellation path. |
-| You do something else mid-way | Starting a second run for the same benchmark returns `active_run_exists` before anything happens. | The same. The run keeps the lock until it reaches a terminal state. |
-| A teammate acts at the same time | A teammate pushing a commit does not change this run, which is about the commit it resolved. | The same. Two teammates watching see the same metrics arrive together. |
-| The network or the portal fails | No effect; nothing has been sent. | The `completed` event is retried three times with 0.25 s doubling backoff, honoring `Retry-After`, on 429, 500, 502, 503, and 504 (`modal_app.py:844`). If all three fail the run is scored, the portal never hears, and the stale-run reaper settles it an hour later as a provider failure. |
-| The page or the process goes away | No effect. | A killed controller loses the metrics: the predictions file lives in a sandbox terminated in a `finally` block, and nothing re-reads it. The reaper settles the run. |
-| The thing being measured changes | The plugin's five version fields are compared against the job before any results are read, and a mismatch fails as `data_download`. | No effect. The plugin object was loaded before the sandbox ran. |
-| The platform refuses or credit runs out | Admission already reserved capacity. | Invalid output fails the execution and frees that reservation without adding to used quota. |
+| You stop it yourself | No cancel control exists for a hosted run. Closing the run page changes nothing. | No effect. Scoring is a short piece of controller work with no cancellation path. |
+| You do something else mid-way | A second start for the same benchmark returns `active_run_exists`. | The same. The run keeps the lock until it is terminal. |
+| A teammate acts at the same time | A push does not change this run. | Two teammates watching see the same numbers arrive. |
+| The network or the portal fails | No effect; nothing has been sent. | The `completed` event is retried three times inside one attempt on 429, 500, 502, 503 and 504, honoring `Retry-After` (`modal_app.py:1114`), then redelivered by up to five function retries from the stored outcome. A 400 is not retried. If the portal's stale sweep fails the run first, one hour after it was created (`apps/portal/worker/execution/maintenance.ts:21`), a late result is stored on the failed run and shown inside the failure card under "Recorded before it stopped" (`RunDetailPage.tsx:221`); the run stays failed. |
+| The page or the process goes away | No effect. | A controller killed after scoring but before writing its outcome loses the result; one killed after writing it is redelivered on retry. Otherwise the stale sweep settles the run with "The execution provider stopped reporting progress." (`maintenance.ts:34`). |
+| The thing being measured changes | A plugin whose five version fields disagree with the job fails as `data_download` before any results are read. | No effect. The plugin was loaded before evaluation. |
+| The platform refuses or credit runs out | Admission already reserved capacity. | Invalid output fails the execution and frees the reservation without adding to used quota. |
 
 ## Interactions with other systems
 
 **Who may do this.** Nobody does it. Scoring runs on the controller with no actor, and the result belongs to the run.
 
-**The team owns it.** Every metric, diagnostic, and refusal is about the team's repository at one commit. There are no per-person numbers here and no field shaped like one.
+**The team owns it.** Every metric, note and refusal is about the team's repository at one commit. No field is shaped like a per-person number.
 
-**Credit.** Failure categories explain the problem rather than decide cost. Failed executions use no quota. Valid completed evaluations count, including partial or low results. See [credit and quota](../cross-cutting/credit-and-quota.md).
+**Credit.** The category explains the problem and does not decide cost. See [credit and quota](../cross-cutting/credit-and-quota.md).
 
-**What the portal claims.** A withheld number is never rendered as zero, and a refusal is a sentence with a reason rather than a failure. Both words are defined in [`../foundations/what-the-portal-claims.md`](../foundations/what-the-portal-claims.md).
+**What the portal claims.** A withheld number is never drawn as zero; with no primary at all the "Readings" section opens with "This run has no overall score. Everything the scorer could measure is below." (`RunDetailPage.tsx:579`). The words are defined in [`../foundations/what-the-portal-claims.md`](../foundations/what-the-portal-claims.md).
 
-**What the benchmark supplied.** Week 3 hands the team's code a GloVe table and an image descriptor pool; Week 1 hands it an id-to-name table over the enrolled songs. The local report discloses this and the hosted run page does not. See [`../cross-cutting/what-the-benchmark-supplied.md`](../cross-cutting/what-the-benchmark-supplied.md).
+**What the benchmark supplied.** Week 3 hands the team's code a GloVe table and the image descriptors; Week 1 hands its query step an id-to-name table. Only `cogworks check --json` shows that. A run that fetched synced weights says so under the run title. See [`../cross-cutting/what-the-benchmark-supplied.md`](../cross-cutting/what-the-benchmark-supplied.md).
 
-**Live updates and reconnection.** No metric is streamed. The run surface carries phase names and a progress pair while the run works; numbers appear only at the terminal event.
+**Live updates and reconnection.** No metric streams. The run page polls every 2 seconds and the numbers appear with the terminal event.
 
-**Discord.** The team channel gets a bubble carrying the primary metric and, at terminal, up to 300 characters of a refusal headline. It is the most truncated view of any claim the platform makes.
+**Discord.** The bubble shows the primary in its heading and up to four other metrics, picked by order and not by role, so a floor or a plotted rung can take a line and gets a gauge bar like a score (`apps/portal/worker/services/discord-messages.ts:164`). It shows no notes.
 
-**Configuration.** Nothing here is configurable. The shape table, the nullable field set, the matrix fields, and the 32-by-240 diagnostic cap are constants.
+**Configuration.** Nothing here is configurable. The shape table, the nullable field set, the matrix fields, the 32-note and 600-character caps and the 240-character detail cap are constants.
 
 ## Edge cases
 
-- **The floors of withheld metrics disappear from the page.** Week 3 keeps `chance_mrr` and `search_chance` on the wire when their scored partners are dropped, which is what "keeps their floors" means in the glossary. The page renders neither. A floor is filtered out of the row list because it has a `relatesTo`, and it is drawn inline only on the row it points at, which no longer exists (`MetricBlock.tsx:203`). On a base-case withheld run the supporting list is empty, and `text_chance` is invisible too, because its partner `text_mrr` is the primary and `PrimaryMetric` takes no floor (`MetricBlock.tsx:15`). **Unverified** against a rendered page.
-- **A withheld run can be promoted, and the leaderboard does not say so.** Nothing in the promote path checks which key is primary (`apps/portal/worker/services/run-actions.ts:335`), and the leaderboard sorts every entry by its own primary value and titles the column from the first entry's label (`apps/portal/worker/services/leaderboard.ts:90`, `apps/portal/src/routes/LeaderboardPage.tsx:202`). A Week 3 team whose image side never bound would publish a `text_mrr` into the same column as other teams' `overall`. **Unverified.**
-- **The v1 lane still does what the rest stopped doing.** `_evaluate` slices `stderr[-240:]` and picks its category with `"prediction" in normalized` (`modal_app.py:1690`), which is the pattern `_last_error_line` replaced and the shape `_platform_owned_evaluation_failure` argues against. Reachable only for a benchmark whose contract version is not v2, and all four production ids declare v2, so it is dead weight rather than a live hole today.
-- **A NaN that reached a metric used to hang the run.** `json.dumps` re-emits `NaN`, and `JSON.parse` in the Worker rejects the literal token and answers 400. The run was scored, the event was dropped, and the run never reached a terminal state, which reads as a hung run rather than a refusal (`modal_app.py:1327`). The parse hooks and `value: z.number().finite()` on the wire (`protocol.ts:9`) close it from both ends.
-- **An empty results list is refused as a count mismatch.** A team whose adapter returned nothing reads "Your submission returned 0 results for 3 cases", which is accurate and does not name the more likely cause.
-- **A run with no metrics cannot be reported at all.** The wire requires at least one (`protocol.ts:110`), so an empty score set would 400 the completed event and hang the run in the same shape as the NaN case. No benchmark does this today.
-- **The first result is legitimately wider than the rest.** Week 1 and Week 3 attach the adapter's mapping log to `outputs[0]` only, so element 0 carries a `mappings` field the others do not, and the check allows it.
-- **The refusal sentences were written to fit.** Every sentence in [Every sentence the check shows](#every-sentence-the-check-shows) is under the 240 characters `execute_job` truncates a detail to, the longest being the count mismatch at about 200. That is not luck: the non-finite sentence carries a comment saying it was kept under the cap, since a refusal cut mid-sentence loses the half that helps (`modal_app.py:1357`). The Week 3 withheld sentences travel as diagnostics rather than as a detail and were not held to the same bar.
-- **One refusal passes a library's words through.** When `restore_recognition_outputs` raises, its message becomes the detail verbatim, sliced at 240 (`modal_app.py:1863`). That message was written for a caller and not for a student, and it is the only refusal in this stage whose wording nobody on this side chose.
+- **A withheld Week 3 primary is treated as comparable with `overall` elsewhere.** The run page compares only the same key, but the Runs list heads its reading column with the first run's primary label and announces that label for every row (`apps/portal/src/components/RunList.tsx:40`, `:138`), the leaderboard sorts every entry by its own primary value (`apps/portal/worker/services/leaderboard.ts:108`), and Discord's team best takes the highest primary of any key (`apps/portal/worker/services/run-surfaces.ts:198`). A team without trained weights shows its `text_mrr` under "Overall" and ranks it against other teams' overall.
+- **The v1 lane still guesses.** `_evaluate` keeps the last 240 characters of stderr and picks `output_invalid` when the text contains "prediction" (`modal_app.py:1668`). Reachable only for a benchmark whose contract is not v2, and all four production ids are v2.
+- **An empty results list is a count mismatch.** "Scoring received 0 results for 3 cases" is accurate and does not name the likelier cause.
+- **A run with no metrics cannot be reported.** The wire requires at least one (`protocol.ts:162`), and the worker answers 400, which the runner does not retry. No benchmark does this today.
+- **The first result is wider than the rest.** Weeks 1 and 3 attach the mapping log to `outputs[0]`, and the check allows it. Week 3 then appends each line to the notes as "adapter: {}" (`plugins.py:501`).
+- **One refusal passes a library's words through.** When restoring a recognition scenario raises, its message becomes the detail sliced at 240 characters with no word boundary (`prediction_validation.py:508`).
+- **Week 1's provenance line comes last.** Week 1 appends its mapping notes after its own, so a note its driver put first renders as the last bullet (`benchmarks/week1/audio_identification_benchmark/metrics.py:307`). See [`../cross-cutting/what-the-benchmark-supplied.md`](../cross-cutting/what-the-benchmark-supplied.md).
 
 ## Open questions and verification
 
-- A plugin-version mismatch raises `data_download`, so the student reads `E-DATA` "Benchmark data is not ready" and an explanation about a checksum, for what is really version drift between the deployed image and the job (`modal_app.py:926`). `contract_invalid` or `provider` would be truthful. Worth treating as a bug. It also falls through to `run.failed.provider` in the live console, because `data_download` has no entry in the code map (`apps/portal/worker/services/run-surfaces.ts:55`), so the two surfaces disagree about one failure.
-- The 240-character diagnostic cap truncates three of the four Week 3 withheld sentences, and today's edit makes the most common one 71 characters too long, cutting the instruction it exists to give. Measured from the source strings, not observed on a page. The cap is a wire limit, so the fix is a shorter sentence rather than a larger cap.
-- The static copy around an `output_invalid` refusal describes a check the platform does not run: it claims extra fields and out-of-range values are rejected, and its copyable command runs the contract check rather than anything that reads a predictions file (`failures.ts:137`, `failures.ts:208`). A student who follows the card's advice runs the wrong command. Worth treating as a bug; the detail sentence beside it is already exact.
-- Whether an orphaned floor really renders nowhere was traced through `SupportingMetrics` and not observed. **Unverified.**
-- The `evaluating` progress counter is decorative. It reports `0/N` for the whole evaluation and then `N/N` (`modal_app.py:2293`, `modal_app.py:2305`), while the wire field carries `unit: "cases"` (`packages/contracts/src/schema.ts:485`), which promises per-case reporting the sandbox never provides. The console draws a bar from it (`apps/portal/src/components/RunConsole.tsx:212`). Carried to triage.
-- Nothing validates that exactly one metric is primary, on either side of the wire. The consequence, a succeeded run with no RESULTS panel, was reasoned from `RunDetailPage.tsx:212` and not reproduced. **Unverified.**
-- Withholding depends on discovery. `_unmeasured_image_side` reads the binding's own record of what did not bind and treats an unmarked error as evidence that the image side did run (`plugins.py:417`), so a repository that declared its own `submission.py` and never went through discovery would have zeros averaged into an overall rather than withheld. No 2026 repository declares one, so this is a latent path rather than an observed one. **Unverified.**
-- Whether a student can tell a `reported` probe from a scored metric at a glance was not observed. The row is indented and marked `not scored`, which reads correctly in the source. **Unverified.**
-- The Week 3 sentences are being edited today. Re-read `plugins.py` and `roles.py` before trusting any quote in [Week 3 withholds the overall](#week-3-withholds-the-overall).
+- A plugin-version mismatch is filed as `data_download`, so the run page says "Benchmark data is not ready", the console "The hosted runner could not finish" and Discord "Runner unavailable" for what is version drift (`modal_app.py:1273`). The same category is used when a synced weight file cannot be fetched (`modal_app.py:1575`), where the card's words about a benchmark data bundle are describing the team's own weight file. [B-21](../bug-triage.md).
+- The `E-OUTPUT` catalog copy promises checks that do not run and offers `cogworks test` as a schema check (`failures.ts:121`, `:187`, `:210`). Carried to triage.
+- A withheld Week 3 primary is listed, ranked and celebrated as if it were the overall (Runs list, leaderboard, Discord team best). Carried to triage. **Unverified** on a rendered page.
+- The Week 3 withheld note is split one sentence per note, so the instruction to sync weights is a small bullet rather than the finding. That is the benchmark's stated intent (`plugins.py:536`); whether students read past the first sentence was not observed.
+- Week 2 declares no roles, so `clustering_seed_spread`, which its help calls "reported and never scored", renders as an ordinary supporting row, and no Week 2 row carries a direction arrow. Whether that is acceptable is a benchmark-side decision.
+- Nothing validates that exactly one metric is primary. A run with none now shows "This run has no overall score." rather than hiding everything; a run with two shows the first.
+- **Hosted beta (`4984730`) differs:** the run page sets the primary inside a "RESULTS" panel with no change column and no "Readings" heading (beta `apps/portal/src/routes/RunDetailPage.tsx:288` against `2ff32fa` `RunDetailPage.tsx:525`), and its Runs list has no column heading, so the withheld-primary mislabel above is candidate-only (beta `apps/portal/src/components/RunList.tsx:31` against `2ff32fa` `RunList.tsx:40`). The runner, contracts, run-event handler, leaderboard sort and Discord message builder are identical.
+- **Hosted beta (`4984730`) differs:** beta's `pipeline.py` passes a per-item `None` through an element read (beta `468655c`); `2ff32fa` still indexes it (`python/cogbench/src/cogbench/pipeline.py:834`). On beta run `run_f5fc5babe5` that crash failed Evaluate as `E-RUNTIME` "Your code raised an exception" before scoring was reached. Same-commit Retry `run_f93ba19397` succeeded on beta after the fix.
+- Every `SCORE-*` item except a fixture observation of floor rendering is `not run`. Week 3 withholding, the prediction-check sentences and the version-mismatch card need hosted runs against prepared repositories.
 
-Verified against Cog\*Portal commit `a0e8eac` for quota policy; unchanged scorer descriptions retain their earlier references.
+Read against Cog\*Portal commit `2ff32fa`.

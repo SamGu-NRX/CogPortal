@@ -60,7 +60,9 @@ Before this moment an interrupt leaves nothing behind. After it, something survi
 
 What updates, what streams, what the student can still do, and what is disabled.
 
-The browser polls or streams depending on the surface. A run page polls every 2 seconds while the run is not terminal. The live run surface holds a WebSocket with exponential backoff to 8 seconds. The connections page polls every 4 seconds until at least one device exists, and does not stop when the student simply parks there (`apps/portal/src/lib/queries.ts:120`). The setup page polls every 2.5 seconds until four checks are verified.
+The browser polls or streams depending on the surface. A run page polls every 2 seconds while the run is not terminal, and the Runs page polls at the same rate while the team has an active run (`ACTIVE_RUN_POLL_MS`, `packages/contracts/src/schema.ts:1521`; `apps/portal/src/lib/queries.ts:48`, `:75`). The live run surface holds a WebSocket and reconnects after 1, 2, 4, then 8 seconds (`apps/portal/src/lib/run-surface-stream.ts:57-61`). The connections page polls every 4 seconds until at least one device exists, and does not stop while the student leaves the page open (`apps/portal/src/lib/queries.ts:134`). The setup page polls every 2.5 seconds until every visible machine step for the chosen benchmark is verified or ticked by hand (`apps/portal/src/lib/queries.ts:294`).
+
+A page that was hidden, or restored from the browser's back/forward cache, conceals everything about the account until a fresh session read answers. The same account gets the same page back; a different account reloads the document (`apps/portal/src/components/RestoreGate.tsx:130`). This is what stops a shared lab machine from showing the previous student's page after a sign-out.
 
 The terminal draws a spinner only when stderr is a terminal. Piped to a file or run in CI it goes silent and prints only the report, because a spinner in a log is thousands of escape codes nobody reads (`python/cogbench/src/cogbench/progress.py`).
 
@@ -70,7 +72,7 @@ The sandbox sends a heartbeat every 2 seconds carrying the current phase.
 
 What is committed, what is shown, where the student lands, and the failure path.
 
-A finished hosted run has a status, a set of metrics, possibly a wiring trace, possibly a refusal, and a set of diagnostics capped at 32 items of 240 characters each. A finished local run has a JSON file on disk. A finished device link has a token and an expiry. A finished promotion has a leaderboard entry.
+A finished hosted run has a status, a set of metrics, possibly a wiring trace, possibly a refusal, and a set of diagnostics capped at 32 items of 600 characters each (`packages/contracts/src/schema.ts:234`). A finished local run has a JSON file on disk. A finished device link has a token and an expiry. A finished promotion has a leaderboard entry.
 
 The failure path is never a bare status. Every failure carries a category, a phase, a detail sentence written for a reader, and a flag saying whether the platform owns it. See [`the-run.md`](the-run.md#when-a-run-fails).
 
@@ -147,7 +149,8 @@ Every feature document fills the same seven rows, in this order. These are the d
 
 - The three-actor disagreement (browser session, device token, Discord link) is inferred from the code paths, not observed. **Unverified.**
 - Whether a `QueryError` gate redirect is visible as a flash on a fast connection was not measured. **Unverified.**
-- The connections page polls every 4 seconds forever while no device is linked (`apps/portal/src/lib/queries.ts:120`). Whether that is intentional or an oversight is a product call; it is carried to triage.
-- No document in this set observed a real Ctrl+C mid-run. What the CLI does is read from the handler; whether the live session's `failed` event actually lands before the process exits was not confirmed. **Unverified.**
+- The connections page polls every 4 seconds forever while no device is linked (`apps/portal/src/lib/queries.ts:134`). Whether that is intentional or an oversight is a product call; it is carried to triage as B-28.
+- No document in this set observed a real Ctrl+C mid-run. What the CLI does is read from the handler (`python/cogbench/src/cogbench/cli.py:1356`); whether the live session's `failed` event actually lands before the process exits was not confirmed. **Unverified.**
+- The restore concealment is read from code. The failure it repairs (B-43) was observed at `49f6a98`; no pass has yet observed the repair.
 
-Verified against Cog\*Portal commit `a0e8eac` for hosted quota policy; unchanged descriptions retain earlier references.
+Read against Cog\*Portal commit `2ff32fa`.
