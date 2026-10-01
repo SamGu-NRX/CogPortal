@@ -35,13 +35,13 @@ export interface BenchmarkPackage {
  * reaches that through this page, which serves whichever pin its own deploy
  * carries, but `--portal` at an older deployment does.
  *
- * `5c8efc6` is the beta commit that pinned Language `9e4dcff`. Its SDK is the
- * one the hosted images bake: #58's resolver fix (replaying a candidate keeps
- * the identities the resolver inferred) on top of #53, with install advice
- * naming the same Language commit as `benchmarks/week3`.
+ * `7e135c9` is this branch's commit that pinned Language `13a164e`. Its SDK
+ * code is `5c8efc6`'s, the one the hosted images bake (#58's resolver fix on
+ * top of #53); only the install advice moved, so it names the same Language
+ * commit as `benchmarks/week3`, which carries the data fetch command.
  */
 export const COGBENCH_SOURCE =
-  "git+https://github.com/SamGu-NRX/CogPortal.git@5c8efc68a0d8e739cc007b5055ee7759ce10dc27#subdirectory=python/cogbench";
+  "git+https://github.com/SamGu-NRX/CogPortal.git@7e135c9b13b57b9d284709f6b65df171af15f6c9#subdirectory=python/cogbench";
 
 const WEEK1_AUDIO: BenchmarkPackage = {
   distribution: "cogworks-week1-audio-benchmark",
