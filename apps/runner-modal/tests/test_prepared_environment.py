@@ -55,6 +55,26 @@ def require_packages(*names):
         raise unittest.SkipTest("Optional test dependencies are absent: " + ", ".join(missing))
 
 
+#: The groups `cogbench.plugins.load_benchmark` searches, in its order.
+BENCHMARK_GROUPS = ("cogworks.benchmarks.v2", "cogworks.benchmarks.v1")
+
+
+def require_registered_benchmark(benchmark_id):
+    """Require registration for tests that use the plugin loader.
+
+    Earlier tests add Week 2 source to sys.path even in other CI lanes, where
+    its entry points are absent. Check registration without catching loader
+    errors, so a registered but broken plugin still fails the test.
+    """
+    require_benchmark(benchmark_id)
+    from cogbench.plugins import plugin_names
+
+    if not any(benchmark_id in plugin_names(group) for group in BENCHMARK_GROUPS):
+        raise unittest.SkipTest(
+            "{} has no plugin registration in this test environment".format(benchmark_id)
+        )
+
+
 def job(benchmark_id="language-search"):
     return {
         "preparedArtifactId": "im-snapshot",
@@ -99,6 +119,50 @@ class DependencyGateTest(unittest.TestCase):
         with mock.patch.object(importlib.util, "find_spec", side_effect=ImportError("broken installation")):
             with self.assertRaisesRegex(ImportError, "broken installation"):
                 require_benchmark("language-search")
+
+    def test_importable_but_unregistered_benchmark_is_a_skip(self):
+        # The Week 1 and Week 3 CI lanes, where the submodule is checked out
+        # and another test module has already put it on sys.path.
+        with mock.patch.object(importlib.util, "find_spec", return_value=object()):
+            with mock.patch("cogbench.plugins.plugin_names", return_value=[]):
+                with self.assertRaisesRegex(unittest.SkipTest, "no plugin registration"):
+                    require_registered_benchmark("vision-recognition")
+
+    def test_registered_benchmark_is_not_a_skip(self):
+        for group in BENCHMARK_GROUPS:
+            with self.subTest(group=group):
+                names = {group: ["vision-recognition"]}
+                with mock.patch.object(importlib.util, "find_spec", return_value=object()):
+                    with mock.patch("cogbench.plugins.plugin_names",
+                                    side_effect=lambda value: names.get(value, [])):
+                        require_registered_benchmark("vision-recognition")
+
+    def test_the_registration_gate_cannot_mask_a_loader_failure(self):
+        # Membership, never a caught PluginError: a plugin that is registered
+        # and fails to load has to reach the caller as that failure.
+        loader = mock.Mock(side_effect=RuntimeError("broken plugin"))
+        with mock.patch.object(importlib.util, "find_spec", return_value=object()):
+            with mock.patch("cogbench.plugins.plugin_names", return_value=["vision-recognition"]):
+                with mock.patch("cogbench.plugins.load_benchmark", loader):
+                    require_registered_benchmark("vision-recognition")
+        loader.assert_not_called()
+
+    def test_the_registration_gate_admits_exactly_what_loads_here(self):
+        # No mocks. Whatever this lane installed, a benchmark the gate admits
+        # must actually load, or the gate is letting work through that cannot
+        # run. Lanes with nothing installed skip.
+        from cogbench.plugins import load_benchmark
+
+        admitted = []
+        for benchmark_id in env.SANDBOX_CONTRACTS:
+            try:
+                require_registered_benchmark(benchmark_id)
+            except unittest.SkipTest:
+                continue
+            self.assertEqual(load_benchmark(benchmark_id).benchmark_id, benchmark_id)
+            admitted.append(benchmark_id)
+        if not admitted:
+            self.skipTest("No benchmark is installed here")
 
     def test_probe_contract_defect_is_not_a_skip_when_dependencies_exist(self):
         with mock.patch.object(importlib.util, "find_spec", return_value=object()):
@@ -304,7 +368,7 @@ class EvidenceTest(unittest.TestCase):
 
 class ProbeTest(unittest.TestCase):
     def check_paths_and_hashes(self, benchmark_id):
-        require_benchmark(benchmark_id)
+        require_registered_benchmark(benchmark_id)
         import cogbench
 
         observed = env.probe(benchmark_id)
@@ -378,20 +442,23 @@ class ProbeTest(unittest.TestCase):
         self.assertEqual(str(raised.exception), "Prepared environment platform imports could not be observed.")
 
     def check_cli(self, benchmark_id):
-        require_benchmark(benchmark_id)
+        require_registered_benchmark(benchmark_id)
         # Payload suites also expose source packages via sys.path. The child
         # must observe the same import roots rather than require an extra install.
         child_env = dict(os.environ, PYTHONPATH=os.pathsep.join(sys.path), PYTHONDONTWRITEBYTECODE="1")
         command = [sys.executable, "-m", "cogworks_runner.prepared_environment", benchmark_id]
         result = subprocess.run(command, env=child_env, capture_output=True, text=True, check=True)
-        self.assertEqual(json.loads(result.stdout), env.probe(benchmark_id))
         check = subprocess.run([
             sys.executable, "-c",
-            "import sys; from cogworks_runner.prepared_environment import probe; "
-            "probe(sys.argv[1]); assert 'cogworks_runner.modal_app' not in sys.modules; "
+            "import json, sys; from cogworks_runner.prepared_environment import probe; "
+            "print(json.dumps(probe(sys.argv[1]))); assert 'cogworks_runner.modal_app' not in sys.modules; "
             "assert 'modal' not in sys.modules", benchmark_id,
         ], env=child_env, capture_output=True, text=True)
         self.assertEqual(check.returncode, 0, check.stderr)
+        # The suite can import an installed benchmark before another test adds
+        # its checkout to sys.path. Compare two fresh interpreters so both
+        # resolve the same source path, without reusing the parent module cache.
+        self.assertEqual(json.loads(result.stdout), json.loads(check.stdout))
 
     def test_audio_cli(self):
         self.check_cli("audio-identification")
