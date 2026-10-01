@@ -14,6 +14,7 @@ import {
 } from "@cogworks/contracts/schema";
 import type { StreamState } from "@/lib/run-surface-stream";
 import type { RunSurfaceMutationInput } from "@/lib/api";
+import { Code } from "./Code";
 import { Veil } from "./Veil";
 
 type Mutation = "verify_hosted" | "promote_official" | "publish_result" | "rerun_hosted";
@@ -358,6 +359,9 @@ export function RunConsole({
         )}
       </header>
 
+      {/* `compact` is the console's own width, not the window's: a 352px tile
+          can sit on a 768px screen, so the tile reads no breakpoint. Names
+          stack under the mark where a quarter of the row cannot hold both. */}
       <ol className="grid grid-cols-4 border-b border-rule" aria-label="Run lifecycle">
         {STAGES.map((stage) => {
           const mark = stageMark(snapshot, stage.id);
@@ -365,10 +369,13 @@ export function RunConsole({
             <li
               key={stage.id}
               aria-current={stage.id === snapshot.stage ? "step" : undefined}
-              className={`flex items-center justify-center gap-2 border-r border-rule-soft px-2 last:border-r-0 sm:justify-start sm:px-4 ${compact ? "min-h-11" : "min-h-14"}`}
+              className={`flex flex-col items-center justify-center gap-0.5 border-r border-rule-soft px-1 py-1.5 last:border-r-0 ${compact ? "min-h-11" : "min-h-14 sm:flex-row sm:justify-start sm:gap-2 sm:px-4 sm:py-0"}`}
             >
-              <span className={`font-mono text-[15px] ${mark === "×" ? "text-detect" : mark === "○" ? "text-ink-faint" : "text-verify"}`} aria-hidden="true">{mark}</span>
-              <span className={`${compact ? "hidden sm:inline" : "hidden min-[420px]:inline"} text-[11px] font-medium uppercase tracking-[0.05em]`}>{stage.label}</span>
+              <span className={`font-mono text-[15px] leading-none ${mark === "×" ? "text-detect" : mark === "○" ? "text-ink-faint" : "text-verify"}`} aria-hidden="true">{mark}</span>
+              {/* The gallery's 360px viewport leaves a 277px compact row.
+                  Four-pixel padding keeps "Published" on one line with the
+                  loaded font; narrower rows can still wrap rather than clip. */}
+              <span className={`text-center leading-tight font-medium uppercase tracking-[0.05em] [overflow-wrap:anywhere] ${compact ? "text-[10px]" : "text-[10px] sm:text-[11px]"}`}>{stage.label}</span>
               <span className="sr-only">{mark === "✓" ? "complete" : mark === "●" ? "active" : mark === "×" ? "failed" : "pending"}</span>
             </li>
           );
@@ -516,7 +523,9 @@ export function RunConsole({
             <div className="u-kicker">{showCommand ? "Run locally" : "Confirm action"}</div>
             <h2 id="run-action-title" className="mt-2 text-2xl">{showCommand ? "Back to the bench" : ACTION_COPY[pendingAction ?? "run_again"]}</h2>
             {showCommand ? (
-              <code className="mt-4 block overflow-x-auto border border-rule bg-paper-sunken/45 p-3 text-[12px]">cogworks run --benchmark {snapshot.benchmark.id} --live</code>
+              <div className="mt-4">
+                <Code lang="bash" code={`cogworks run --benchmark ${snapshot.benchmark.id} --live`} wrap />
+              </div>
             ) : <p className="mt-3 text-[14px] text-ink-secondary">{confirmation}</p>}
             <div className="mt-6 flex justify-end gap-2">
               <button type="button" className="min-h-11 border border-rule px-4 text-[13px]" onClick={closeDialog}>Close</button>

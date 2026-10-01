@@ -1,15 +1,19 @@
 import { Copy01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useRef, useState } from "react";
+import { CodeContent, type CodeLang } from "./CodeContent";
 
 /** A copyable command line: mono, single action, 44px target. */
 export function CopyBlock({
   text,
   className = "",
   wrap = false,
+  lang = "bash",
 }: {
   text: string;
   className?: string;
+  /** `text` for a string with no syntax to read, like a signed token. */
+  lang?: CodeLang;
   /** Let a long command wrap instead of scrolling out of view.
    *
    *  Turn it on when the tail is worth reading: the pinned install is 189
@@ -50,7 +54,7 @@ export function CopyBlock({
 
   return (
     <div className={`flex flex-wrap items-stretch gap-0 ${className}`}>
-      <code
+      <div
         // A scrolling box has to be reachable by keyboard to be scrollable by
         // one, the way the run console's log is. A wrapped block scrolls
         // nowhere, so it takes no tab stop.
@@ -59,10 +63,12 @@ export function CopyBlock({
           wrap
             ? "whitespace-pre-wrap [overflow-wrap:anywhere]"
             : "overflow-x-auto whitespace-pre focus-visible:outline-offset-[-2px]"
-        }`}
+        } [&_pre]:m-0 [&_pre]:bg-transparent [&_pre]:p-0 [&_pre]:font-mono [&_pre]:text-[12.5px] [&_pre]:[white-space:inherit] [&_pre]:[overflow-wrap:inherit]`}
       >
-        {text}
-      </code>
+        {/* Not focusable: this box is already the tab stop when it scrolls,
+            and a wrapped one deliberately has none. */}
+        <CodeContent code={text} lang={lang} plainAs="code" focusable={false} />
+      </div>
       <button
         type="button"
         onClick={copy}

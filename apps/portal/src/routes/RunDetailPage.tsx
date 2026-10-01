@@ -1,3 +1,5 @@
+import { ArrowLeft01Icon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import { Link, useNavigate, useParams } from "react-router";
 import { ApiRequestError } from "@/lib/api";
 import { OFFICIAL_LIMIT, isTerminal } from "@cogworks/contracts/schema";
@@ -94,9 +96,10 @@ export function RunDetailPage() {
     <div className="anim-rise mx-auto w-full max-w-4xl py-12">
       <Link
         to="/dashboard"
-        className="font-mono text-[11px] tracking-[0.09em] text-ink-secondary uppercase hover:text-ink"
+        className="inline-flex items-center gap-1 font-mono text-[11px] tracking-[0.09em] text-ink-secondary uppercase hover:text-ink"
       >
-        ← Dashboard
+        <HugeiconsIcon icon={ArrowLeft01Icon} size={12} strokeWidth={1.8} aria-hidden="true" />
+        Dashboard
       </Link>
 
       {run.surfaceId && (

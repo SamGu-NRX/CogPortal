@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import type { Module, RunFailure, RunMode } from "@cogworks/contracts/schema";
 import { resolveFailureCopy } from "@cogworks/contracts/failures";
 import { PHASE_LABELS } from "@/lib/run-meta";
-import { CopyBlock } from "./CopyBlock";
+import { Code } from "./Code";
 import { Panel } from "./Panel";
 import { RefusalCard, type Refusal } from "./RefusalCard";
 import { Veil } from "./Veil";
@@ -68,7 +68,9 @@ export function FailureCard({
             {copy?.reproCommand && (
               <div>
                 <div className="u-kicker">Reproduce locally</div>
-                <CopyBlock className="mt-1.5" text={copy.reproCommand} />
+                <div className="mt-1.5">
+                  <Code code={copy.reproCommand} lang="bash" wrap />
+                </div>
               </div>
             )}
             {children}

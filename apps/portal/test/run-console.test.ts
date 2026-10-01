@@ -139,3 +139,47 @@ test("hosted stage never presents the completed local event tail as current work
   assert.match(html, /Fetching repository/);
   assert.doesNotMatch(html, /Run complete/);
 });
+
+test("every lifecycle stage is named at every width, and the tile ignores the window", () => {
+  // Two failures at one site. A 768px window around a 352px tile satisfied
+  // `sm:`, turning the inline labels on inside it; the section is
+  // overflow-hidden, so they were clipped, measured at 352px client against
+  // 362px scroll. Hiding them instead left four unlabelled statuses. Stacking
+  // the name under the mark is what fits, so nothing has to be dropped.
+  const lifecycle = (compact: boolean) => {
+    const html = renderToStaticMarkup(React.createElement(RunConsole, {
+      snapshot: snapshot("running"),
+      streamState: "live",
+      compact,
+    }));
+    const start = html.indexOf('aria-label="Run lifecycle"');
+    assert.notEqual(start, -1, "the lifecycle row is always rendered");
+    return html.slice(start, html.indexOf("</ol>", start));
+  };
+
+  const tile = lifecycle(true);
+  assert.doesNotMatch(tile, /sm:|min-\[420px\]/, "no viewport breakpoint decides a tile's layout");
+
+  // Every stage is named, drawn and not merely announced. The mark beside it
+  // is aria-hidden, so a hidden name leaves four unlabelled statuses.
+  for (const label of ["Local", "Hosted", "Official", "Published"]) {
+    assert.match(tile, new RegExp(`>${label}<`), label);
+  }
+  assert.doesNotMatch(tile, /class="(hidden|sr-only)[^"]*">(Local|Hosted|Official|Published)</);
+  assert.match(tile, /class="sr-only">active</, "the state stays on its own span");
+  // Stacked, because a quarter of a tile does not fit a mark and a word in a
+  // row. This is the class that keeps them from being clipped.
+  assert.match(tile, /flex flex-col/);
+
+  // The full console fills the window, so the window is the right thing for it
+  // to measure. It stacks the same way when narrow and takes the inline row at
+  // `sm:`, which is the first width where a quarter of it fits mark and name
+  // side by side.
+  const full = lifecycle(false);
+  assert.match(full, /flex flex-col/);
+  assert.match(full, /sm:flex-row sm:justify-start sm:gap-2 sm:px-4 sm:py-0/);
+  for (const label of ["Local", "Hosted", "Official", "Published"]) {
+    assert.match(full, new RegExp(`>${label}<`), label);
+  }
+  assert.doesNotMatch(full, /class="(hidden|sr-only)[^"]*">(Local|Hosted|Official|Published)</);
+});
