@@ -1376,10 +1376,17 @@ def _timeout_key(candidate: Candidate) -> Tuple[Any, ...]:
 
     Two candidates can share a label (a pooled object replaced by another of
     the same type), and the value kept in `_TIMED_OUT` holds the callable so
-    its id is not reused while the search runs.
+    its id is not reused while the search runs. The tuning is part of the
+    call even when the plan is empty, because `_arguments` appends it.
     """
 
-    return (id(candidate.call), candidate.plan, candidate.keywords, candidate.keyword_plan)
+    return (
+        id(candidate.call),
+        candidate.plan,
+        candidate.keywords,
+        candidate.keyword_plan,
+        repr(candidate.tuning),
+    )
 
 
 def _record_raise(candidate: Candidate, error: BaseException) -> None:

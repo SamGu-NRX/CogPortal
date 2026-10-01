@@ -3957,6 +3957,26 @@ class AFunctionTooSlowForOneItemIsNotCalledAgain(unittest.TestCase):
         self.assertIsNone(refusal)
         self.assertEqual([step.label for step in binding.steps], ["theirs.embed"])
 
+    def test_a_tuned_call_is_still_tried(self):
+        """A plain shape's tuning is appended when the call is made, so its
+        plan is the same as the untuned call's and only the tuning differs."""
+
+        module = _written(
+            "theirs",
+            "import time\n"
+            "def embed(texts, scale=None):\n"
+            "    if scale is None:\n"
+            "        time.sleep(30)\n"
+            "    return [[float(len(text)) * scale, 1.0] for text in texts]\n",
+        )
+        text = Stage("text", per_item=True, produces=_vectors, tunings=(2.0,))
+
+        binding, refusal = self._resolve(module, (text,))
+
+        self.assertIsNone(refusal)
+        self.assertEqual([step.label for step in binding.steps], ["theirs.embed"])
+        self.assertEqual(binding.steps[0].tuning, 2.0)
+
     def test_another_callable_with_the_same_label_is_still_called(self):
         def slow(item):
             time.sleep(30)
