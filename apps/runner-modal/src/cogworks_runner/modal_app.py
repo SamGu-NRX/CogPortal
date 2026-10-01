@@ -101,7 +101,7 @@ DIAGNOSTIC_LIMIT = 600
 #: put a remainder.
 DETAIL_LIMIT = 240
 
-#: `protocol.ts` caps `sanitizedLog` here, on completed and failed events.
+#: `protocol.ts` caps a completed event's `sanitizedLog` here.
 LOG_LIMIT = 8 * 1024
 
 def _receiver_units(text: str) -> int:
@@ -1051,15 +1051,6 @@ except Exception as error:
         "message": str(error)[:500],
         "where": where,
     })))
-    # The log a successful run keeps, kept for a failed one too, with the
-    # traceback last so the bounded buffer's tail holds it.
-    buffer.write(traceback.format_exc())
-    try:
-        pathlib.Path("/tmp/cog-student.log").write_bytes(buffer.value().encode("utf-8", "replace"))
-    except OSError:
-        # Student code can make this path unwritable. The log is display only,
-        # and a second traceback here would end stderr and replace the record.
-        pass
     raise SystemExit(2)
 encoded = json.dumps(predictions).encode("utf-8")
 # 8 MiB was sized when the Week 3 sandbox ran six cases with one retrieval
@@ -1714,7 +1705,7 @@ def _evaluate(job: Dict[str, Any], snapshot_id: str, inputs: List[Any]) -> Tuple
         )
         process.wait()
         if process.returncode != 0:
-            raise _evaluation_failure(job, sandbox, process, started)
+            raise _evaluation_failure(job, process, started)
         predictions = load_predictions(
             sandbox.filesystem.read_text("/tmp/cog-predictions.json")
         )
@@ -1773,7 +1764,7 @@ def _evaluate_v2(
         )
         process.wait()
         if process.returncode != 0:
-            raise _evaluation_failure(job, sandbox, process, started)
+            raise _evaluation_failure(job, process, started)
         predictions = load_predictions(
             sandbox.filesystem.read_text("/tmp/cog-predictions.json")
         )
@@ -1842,7 +1833,7 @@ def _evaluate_week3(
         if process.returncode != 0:
             # _week3_cases already decoded and validated the same artifacts
             # in this process, before the sandbox ran.
-            raise _evaluation_failure(job, sandbox, process, started)
+            raise _evaluation_failure(job, process, started)
         predictions = load_predictions(
             sandbox.filesystem.read_text("/tmp/cog-predictions.json")
         )
@@ -1909,7 +1900,7 @@ def _evaluate_week1(
             # the sandbox starts, so a corpus fault is caught there by a party
             # the submission cannot reach.
             raise _evaluation_failure(
-                job, sandbox, process, started,
+                job, process, started,
                 # Measured on carti4ce/week1_capstone; see `_timed_out`.
                 "Every song has to be enrolled and every query answered inside "
                 "that window; a database that is re-read or rewritten once per "
@@ -1937,7 +1928,7 @@ def _evaluate_week1(
 
 
 def _evaluation_failure(
-    job: Dict[str, Any], sandbox: Any, process: Any, started: float, timeout_advice: str = ""
+    job: Dict[str, Any], process: Any, started: float, timeout_advice: str = ""
 ) -> RunnerFailure:
     """The failure for an evaluation process that exited nonzero, in every lane.
 
@@ -1957,23 +1948,11 @@ def _evaluation_failure(
             ).strip(),
             False,
         )
-    log = None
-    if job["mode"] == "practice":  # official runs never send a log, so never read one
-        # Written by the sandbox's own failure handler, and absent when the
-        # process was killed or exited before reaching it. The submission can
-        # replace it, and `read_bytes` downloads a whole file, so only a plain
-        # file no larger than the handler writes is read: its buffer keeps
-        # `maxOutputBytes` characters and a one-line marker, at most four
-        # bytes of UTF-8 each.
-        path = "/tmp/cog-student.log"
-        try:
-            info = sandbox.filesystem.stat(path)
-            if info.is_file() and info.size <= 4 * job["runtime"]["maxOutputBytes"] + 256:
-                log = sandbox.filesystem.read_bytes(path).decode("utf-8", "replace")
-        except Exception:
-            pass
+    # The detail comes from the record the sandbox writes to stderr. No log
+    # file is read: the submission can replace it, and Modal's supported
+    # filesystem API only transfers whole files.
     detail = _last_error_line(process.stderr.read().decode("utf-8", "replace"))
-    return RunnerFailure("student_runtime", "evaluating", detail, False, log=log)
+    return RunnerFailure("student_runtime", "evaluating", detail, False)
 
 
 def _platform_owned_evaluation_failure() -> None:
@@ -2113,8 +2092,8 @@ def _last_error_line(value: str) -> str:
 def _wire_log(job: Dict[str, Any], log: Optional[str]) -> Optional[str]:
     """A practice run's log as the event carries it; official runs send none.
 
-    Bounded in the receiver's units. A slice by code points let an astral
-    character count twice against `protocol.ts`'s cap, which answers 400 and
+    Bounded in the receiver's units: a slice by code points can count an
+    astral character twice against `protocol.ts`'s cap, which answers 400 and
     loses the whole terminal event rather than the end of the log.
     """
 
@@ -2122,8 +2101,8 @@ def _wire_log(job: Dict[str, Any], log: Optional[str]) -> Optional[str]:
         return None
     if _receiver_units(log) <= LOG_LIMIT:
         return log
-    # Head and tail, as the sandbox's buffer keeps them: a failed run's
-    # traceback is at the end, and a prefix alone dropped it.
+    # Head and tail, as the sandbox's buffer keeps them, so the benchmark's
+    # closing lines survive along with the start.
     marker = "\n[log shortened to fit]\n"
     half = (LOG_LIMIT - len(marker)) // 2
     return _take_units(log, half)[0] + marker + _take_units(log[::-1], half)[0][::-1]
@@ -2406,7 +2385,6 @@ def execute_job(job_value: Dict[str, Any]) -> None:
             category = "provider"
             failure_phase = phase
             infrastructure = True
-        log = error.log if isinstance(error, RunnerFailure) else None
         failed = reporter.build(
             "failed",
             failure={
@@ -2416,7 +2394,6 @@ def execute_job(job_value: Dict[str, Any]) -> None:
                 "infrastructure": infrastructure,
                 **({"refusal": refusal} if refusal else {}),
             },
-            sanitizedLog=_wire_log(job, log),
         )
         print("run failed: {}".format(detail), file=sys.stderr)
         _finish(job, {"status": "failed", "event": failed, "delivered": False}, "failed")
