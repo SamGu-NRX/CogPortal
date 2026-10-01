@@ -451,10 +451,7 @@ export function SupportingMetrics({
       {main.length > 0 && list(main)}
       {diagnostics.length > 0 && (
         <div className={main.length > 0 ? "mt-6" : undefined}>
-          <p className="u-label">Diagnostics</p>
-          <p className="mt-0.5 mb-1 text-[13px] text-ink-faint">
-            These look at one part of the pipeline more closely.
-          </p>
+          <p className="mb-1 u-label">Diagnostics</p>
           {list(diagnostics)}
         </div>
       )}

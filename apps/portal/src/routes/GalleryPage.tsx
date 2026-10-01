@@ -494,8 +494,8 @@ export function GalleryPage() {
 
       <h2 className="mt-10 font-serif text-xl font-semibold text-ink">A result without the ranked measure</h2>
       <p className="mb-4 max-w-prose text-[13px] text-ink-faint">
-        The newest attempt reported text MRR and no overall. The log names each row's
-        measure, and its console says why Publish is missing.
+        The newest attempt reported text MRR and no overall. Each row names its
+        measure; the console says why Publish is missing.
       </p>
       <Panel label="RUN LOG">
         <RunList runs={MIXED_HISTORY} connectedFullName="demo/repo" publishedRunId="run_00000000a2" />
@@ -506,8 +506,7 @@ export function GalleryPage() {
 
       <h2 className="mt-10 font-serif text-xl font-semibold text-ink">Activity connect gate</h2>
       <p className="mb-2 max-w-prose text-[13px] text-ink-faint">
-        Reaching these for real needs a Discord launch and an unlinked account. The buttons
-        are inert here.
+        Needs a Discord launch and an unlinked account for real. Buttons are inert.
       </p>
       <div className="grid gap-6 sm:grid-cols-2">
         {GATES.map((example) => (
@@ -559,10 +558,8 @@ export function GalleryPage() {
         Supporting metrics, floors
       </h2>
       <p className="mb-2 mt-2 text-[13px] text-ink-faint">
-        Left: a floor beside the metric it is the scale of, drawn inside that
-        row. Right: the same floor with its parent withheld. It used to be
-        filtered out of the table with nowhere else to go, so the number
-        vanished. Neither draws a direction arrow.
+        Left: a floor inside its metric's row. Right: the same floor with its
+        parent withheld. Neither draws a direction arrow.
       </p>
       <div className="grid gap-4 sm:grid-cols-2">
         <Panel label="FLOOR WITH ITS PARENT">
@@ -577,20 +574,14 @@ export function GalleryPage() {
         Results with no overall score
       </h2>
       <p className="mb-2 mt-2 text-[13px] text-ink-faint">
-        A benchmark can withhold the primary and still have measured plenty.
-        The page used to gate the whole results block on having one, so this
-        state showed a pipeline, a Promote button and a log and nothing else.
-        Left: what a withheld run has to say for itself. Right: the same
-        metrics in a run that recorded no roles at all, which is every result
-        stored before the portal kept them — the values stay, the direction
-        claims go, because a floor and a scored metric are indistinguishable
-        in that state.
+        Left: a run that withheld its primary. Right: the same metrics with no
+        roles recorded (results stored before the portal kept them), so no
+        direction claims.
       </p>
       <div className="grid gap-4 sm:grid-cols-2">
         <Panel label="NO OVERALL SCORE">
           <p className="max-w-prose text-[14px] leading-[1.6] text-ink">
-            This run has no overall score. Everything the scorer could measure
-            is below.
+            This run has no overall score.
           </p>
           <div className="mt-4">
             <SupportingMetrics metrics={WITHHELD} rolesRecorded />
@@ -605,11 +596,8 @@ export function GalleryPage() {
         Setup rail, when the progress read fails
       </h2>
       <p className="mb-2 mt-2 text-[13px] text-ink-faint">
-        Both rails hold identical commands, all of them finished. On the left
-        CogPortal read its evidence. On the right that request failed, which
-        produces the same empty verified set as a student who has run nothing:
-        numbered boxes would report finished work as work nobody did, so each
-        step shows a dash and claims nothing.
+        Identical finished commands. Left: evidence read. Right: the read
+        failed, so each step shows a dash and claims nothing.
       </p>
       <div className="grid gap-4 sm:grid-cols-2">
         <Panel label="EVIDENCE READ">
@@ -625,8 +613,8 @@ export function GalleryPage() {
 
       <h2 className="mt-12 font-serif text-xl font-semibold text-ink">Wiring trace</h2>
       <p className="mb-2 mt-2 text-[13px] text-ink-faint">
-        The second identifier is 200 characters, the longest the contract
-        allows. It has to wrap inside the column, not be cut off at the edge.
+        The second identifier is 200 characters, the contract's maximum. It
+        must wrap, not clip.
       </p>
       <Panel className="mt-4">
         <WiringTrace steps={LONG_WIRING} />
@@ -636,11 +624,8 @@ export function GalleryPage() {
         A clean run, whose chart is the whole finding
       </h2>
       <p className="mt-1 max-w-prose text-[13px] text-ink-faint">
-        Week 3 stopped repeating its chance baselines as notes, so a run that
-        went well now arrives with no diagnostics at all. The curve is then the
-        only thing in the panel, and it keeps the same introduction rather than
-        opening unlabelled. Only a successful weighted Language run reaches this
-        state, which is why it is here.
+        A clean weighted Language run arrives with no diagnostics, so the curve
+        is the whole panel and keeps the finding's label.
       </p>
       <Panel className="mt-4">
         <div className="u-kicker mb-2">{FINDING_KICKER}</div>
