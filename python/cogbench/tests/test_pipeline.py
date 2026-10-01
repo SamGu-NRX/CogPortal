@@ -3840,6 +3840,10 @@ def _token_lists(value):
     )
 
 
+def _strings(value):
+    return isinstance(value, list) and all(isinstance(row, str) for row in value)
+
+
 def _vectors(value):
     return isinstance(value, list) and all(
         isinstance(row, list) and len(row) == 2 for row in value
@@ -3860,6 +3864,8 @@ class AFunctionTooSlowForOneItemIsNotCalledAgain(unittest.TestCase):
         "    time.sleep(30)\n"
         "def tokenize(text):\n"
         "    return text.split()\n"
+        "def clean(text):\n"
+        "    return text.lower()\n"
         "def embed(tokens):\n"
         "    return [float(len(tokens)), 1.0]\n"
     )
@@ -3875,12 +3881,10 @@ class AFunctionTooSlowForOneItemIsNotCalledAgain(unittest.TestCase):
             return resolve_chain(Role("search", tuple(stages)), [module], fixture)
 
     def _two_stages(self, produces=_vectors):
-        # A side input that takes nothing comes first, as Week 3's
-        # course_data does, so the slow function is also seen timing out
-        # with no arguments before it times out on an item.
+        # Both stages hand over one string per item, so the second stage's
+        # items are the same kind as the first's.
         return (
-            Stage("data", fit=True, optional=True, fixture=(), produces=dict),
-            Stage("tokens", per_item=True, produces=_token_lists),
+            Stage("clean", per_item=True, produces=_strings),
             Stage("text", per_item=True, produces=produces),
         )
 
@@ -3891,11 +3895,11 @@ class AFunctionTooSlowForOneItemIsNotCalledAgain(unittest.TestCase):
 
         self.assertIsNone(refusal)
         self.assertEqual(
-            [step.label for step in binding.steps], ["theirs.tokenize", "theirs.embed"]
+            [step.label for step in binding.steps], ["theirs.clean", "theirs.embed"]
         )
-        # Nothing, the whole list, then its first item. The second stage
-        # would have paid for its own list and item again.
-        self.assertEqual(module.CALLS, [0, ["a b", "c"], "a b"])
+        # The whole list and its first item, then the second stage's list.
+        # Its first item is a string again, which already ran out of time.
+        self.assertEqual(module.CALLS, [["a b", "c"], "a b", ["a b", "c"]])
 
     def test_a_refusal_names_it(self):
         module = _written("theirs", self.SOURCE)
@@ -3917,6 +3921,30 @@ class AFunctionTooSlowForOneItemIsNotCalledAgain(unittest.TestCase):
 
         self.assertEqual(len(module.CALLS), 6)
 
+    def test_looking_up_a_timeout_never_hashes_or_compares_their_classes(self):
+        class Refuses(type):
+            def __hash__(cls):
+                raise ValueError("no hashing this class")
+
+            def __eq__(cls, other):
+                raise ValueError("no comparing this class")
+
+        class Theirs(metaclass=Refuses):
+            pass
+
+        def slow(item):
+            time.sleep(30)
+
+        def fast(items):
+            return [1.0, 1.0]
+
+        with patch("cogbench.pipeline.CALL_TIMEOUT_SECONDS", 1), pipeline._scratch_cwd():
+            pipeline._call(Candidate("theirs.slow", slow, "theirs"), ([Theirs()],), 0)
+            ok, value = pipeline._call(Candidate("theirs.fast", fast, "theirs"), ([Theirs()],), 0)
+
+        self.assertTrue(ok)
+        self.assertEqual(value, [1.0, 1.0])
+
     def test_a_kind_of_input_it_timed_out_on_does_not_stop_another(self):
         """Week 3's text stage is probed with whole captions, because the
         tokens stage is fusible, and later with the token lists the tokens
@@ -3928,12 +3956,15 @@ class AFunctionTooSlowForOneItemIsNotCalledAgain(unittest.TestCase):
             "import time\n"
             "def caption_processor(text):\n"
             "    return text.split()\n"
-            "def embed_text(tokens):\n"
-            "    if isinstance(tokens, str):\n"
+            "def embed_text(tokens=None):\n"
+            "    if tokens is None or isinstance(tokens, str):\n"
             "        time.sleep(30)\n"
             "    return [float(len(tokens)), 1.0]\n",
         )
+        # Its default is slow too, and Week 3 calls it with nothing first, in
+        # the course_data fit. Neither timeout says anything about tokens.
         stages = (
+            Stage("data", fit=True, optional=True, fixture=(), produces=dict),
             Stage("tokens", per_item=True, produces=_token_lists, fusible=True),
             Stage(
                 "text",
