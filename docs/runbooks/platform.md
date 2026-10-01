@@ -585,11 +585,12 @@ This is a staged demo candidate accepted on source and offline install evidence
 only. A GitHub VCS install and live sync belong to the native rehearsal, and
 nothing here has been deployed or installed into an environment.
 
-One related hazard while reading receipts: `git ls-files` lists 18 files under
-`build/`, including ten under `python/cogbench/build/lib/cogbench/`, while
-`stale_build_trees` in `apps/runner-modal/tools/deploy.py:62-67` sweeps only
-`benchmarks/week{1,2,3}/build`. Probe receipts are unaffected, because the
-manifests come from importing each package rather than from walking a path.
+One related hazard while reading receipts: the repository tracks a few files
+under `build/` directories. None of them reaches an image, because every source
+copy leaves out `build/` at any depth (`is_build_junk` in
+`apps/runner-modal/src/cogworks_runner/modal_app.py`). Probe receipts are
+unaffected either way, because the manifests come from importing each package
+rather than from walking a path.
 
 Keep the receipts, and read them rather than counting them. The probe refuses
 to overwrite an existing receipt, so a file at the expected path may describe

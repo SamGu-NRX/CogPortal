@@ -232,25 +232,49 @@ def add_source_dir(image: "modal.Image", local: Path, remote: str) -> "modal.Ima
     `*.egg-info` or `__pycache__` copied into the image can shadow the
     package actually installed there, which fails much later and much more
     confusingly than a build error.
+
+    A stale `build/` is the worst of these. Modal's copy layer keeps each
+    file's bytes and mode but not its mtime, so every copied file has the same
+    one, and setuptools' `build_py` only replaces a file in `build/lib` with a
+    strictly newer source. So `pip install /opt/weekN` installs whatever the
+    developer's last local build left there. The beta v45 release found Week
+    3's `build/` holding 94c7e64's `plugins.py` after the submodule had moved
+    to 9e4dcff; that image would have shipped the old Language finding.
     """
 
-    return image.add_local_dir(str(local), remote, copy=True, ignore=BUILD_JUNK)
+    return image.add_local_dir(str(local), remote, copy=True, ignore=is_build_junk)
 
 
-#: Glob patterns excluded from every source copy. `~=` is Modal's "match this
-#: as a .dockerignore pattern" prefix; `**/` makes each one match at any depth.
-BUILD_JUNK = [
-    "~=**/__pycache__",
-    "~=**/*.pyc",
-    "~=**/.pytest_cache",
-    "~=**/.ruff_cache",
-    "~=**/.mypy_cache",
-    "~=**/*.egg-info",
-    "~=**/.git",
-    "~=**/.venv",
-    "~=**/build",
-    "~=**/dist",
-]
+#: Directory names a source copy never carries, at any depth.
+BUILD_JUNK = frozenset(
+    {
+        "__pycache__",
+        ".pytest_cache",
+        ".ruff_cache",
+        ".mypy_cache",
+        ".git",
+        ".venv",
+        "build",
+        "dist",
+    }
+)
+
+
+def is_build_junk(relative: Path) -> bool:
+    """Modal's `ignore` predicate: True excludes the file.
+
+    Modal calls it with each file's path relative to the copied directory.
+    This used to be a list of patterns written as `"~=**/build"`. Modal reads
+    a list as .dockerignore patterns and has no `~=` prefix, so every entry
+    matched nothing and all of these directories were copied. A predicate has
+    no pattern syntax to get wrong, and the tests can run it without Modal
+    installed.
+    """
+
+    return relative.suffix == ".pyc" or any(
+        part in BUILD_JUNK or part.endswith(".egg-info") for part in relative.parts
+    )
+
 
 #: Staging unless the environment says otherwise, both here and inside every
 #: container: Modal re-imports this module to resolve a deployed function, so
