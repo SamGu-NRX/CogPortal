@@ -10,7 +10,7 @@ Three builds matter, and the status table has a column for each:
 - **`4984730`, the earlier hosted beta.** Pre-redesign. It shares every server, runner and contract file with `2ff32fa` except `apps/portal/worker/routes/team.ts`, one comment in `run-actions.ts`, and `python/cogbench/src/cogbench/pipeline.py`.
 - **`ed2b194`, the deployed redesigned beta.** `2ff32fa` merged with `4984730`, so it has the redesign plus #46, #53 and CLI pin `b6bbffb`. It is live as Worker version `0b452503-80b8-44bc-b60d-a04a38cc5175`, the runner is unchanged at Modal v44 from `4984730`, and all eight CI lanes pass. A Deployed cell of "as candidate" means the deployed build behaves as `2ff32fa` for that entry.
 
-A fourth commit, `cbd8266`, is a local repair branch on `ed2b194` for B-13 and B-14. It has been reviewed and tested, and it is not deployed.
+A fourth commit, `cbd8266`, is a local repair branch on `ed2b194` for B-13 and B-14. It has been reviewed and tested, its B-13 recovery path was accepted locally on fixture data, and it is not deployed.
 
 Each Status line names its evidence:
 
@@ -38,7 +38,7 @@ On the two design critiques raised during review: "The scorer didn't write a fin
 
 ### Next repairs and evidence gaps
 
-In order of user-visible impact on the deployed build. B-13 and B-14 (repaired on `cbd8266`, needs deploy and a lost-heartbeat check) and B-68 (producer repair owned by Opus worker `0e3d690b` on benchmark pin `94c7e64`) are already in hand and are not repeated.
+In order of user-visible impact on the deployed build. B-13 and B-14 (repaired on `cbd8266`; B-13's recovery path accepted locally on fixture data; not deployed) and B-68 (producer repair owned by Opus worker `0e3d690b` on benchmark pin `94c7e64`) are already in hand and are not repeated. Items 1, 2 and 5 are assigned for repair, item 3 is a separate finite repair, and item 4 is under investigation. Each describes the behavior wanted and where it lives today.
 
 1. **Make an evaluation failure say only what the runner knows, and carry where it happened (B-45, B-46, B-11).** Today a platform crash reads "Your code raised an exception" with one line, no location and no log, and Retry is a page away, on a console that names the failure differently. This is what made B-44 cost an afternoon. `apps/runner-modal/src/cogworks_runner/modal_app.py:941`, `:1740`, `:2005-2038`, `:2318-2327`; `packages/contracts/src/failures.ts:87-96`; `apps/portal/worker/routes/runner-events.ts:247-260`; `apps/portal/src/routes/RunDetailPage.tsx:96-123`. Product call on the wording; fix for the detail.
 2. **Make the Discord consent state what the link authorizes (B-49).** `apps/portal/src/routes/ConnectionsPage.tsx:84`, `:111` say Cog can't start an official evaluation; `apps/discord-bot/src/commands.ts:557-571` and `apps/portal/worker/rpc.ts:94-102` let `/cog` promote and publish. A trust-language break on a consent screen, on every build.
@@ -54,12 +54,12 @@ Remaining evidence gaps, with commands, are in [`verification/README.md`](verifi
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | B-07 | Nothing lets a student leave a team, and only a team admin can let them out | high | open | same | as candidate | portal | product call |
 | B-08 | Uploaded weights are keyed to a commit, and nothing tells the student that | high | open | same | as candidate | terminal, sandbox | product call |
-| B-11 | Week 2 never attributes a timeout, so a killed run receives the wrong failure explanation | high | open | same | as candidate | sandbox | fix |
+| B-11 | Week 2 never attributes a timeout, so a killed run receives the wrong failure explanation | high | open, assigned for repair | same | as candidate | sandbox | fix |
 | B-13 | An interrupted `--live` run leaves the session running and the team's bubble frozen forever | high | open, repaired on `cbd8266`, not deployed | same | same; repair on `cbd8266` | terminal, discord | fix |
 | B-44 | A Week 2 recognition run crashes when a describe step returns None for a faceless photo | high | fixed on deployed `ed2b194`; open in `2ff32fa` source | fixed | fixed (`468655c`) | sandbox, terminal | fix |
-| B-45 | Every evaluation failure is told as "Your code raised an exception", including the platform's own | high | open | same | as candidate | sandbox, portal | product call |
+| B-45 | Every evaluation failure is told as "Your code raised an exception", including the platform's own | high | open, assigned for repair | same | as candidate | sandbox, portal | product call |
 | B-47 | The candidate's setup page installs a CLI older than the candidate, whose link consent says scores are never sent | high | fixed on deployed `ed2b194`; open in `2ff32fa` source | fixed | fixed (pin `b6bbffb`) | portal, terminal | fix |
-| B-49 | The Discord consent copy says Cog cannot start an official evaluation; `/cog` can | high | open | same | as candidate | portal, discord | product call |
+| B-49 | The Discord consent copy says Cog cannot start an official evaluation; `/cog` can | high | open, assigned for repair | same | as candidate | portal, discord | product call |
 | B-02 | Linking a device before joining a team leaves the terminal polling silently | medium | open | same | as candidate | terminal, portal | fix |
 | B-04 | The "supplied" disclosure never reaches the hosted run page | medium | open | same | as candidate | sandbox, portal | product call |
 | B-14 | A caller-specific GitHub failure is cached as the team's history for thirty minutes | medium | open, repaired on `cbd8266`, not deployed | differs: guards cache write | cache write guarded (`610e04a`) | portal | fix |
@@ -72,14 +72,14 @@ Remaining evidence gaps, with commands, are in [`verification/README.md`](verifi
 | B-27 | A batch of live events applies partially and reports failure | medium | open | same | as candidate | portal | fix |
 | B-28 | The connections page polls forever while no device is linked | medium | open | same | as candidate | portal | fix |
 | B-29 | A member added from the team page or the admin console gets write access the portal never checked | medium | open | same | as candidate | portal | fix |
-| B-46 | A failed hosted run carries one line: no exception class, no location, no log, none of the team's prints | medium | open | same | as candidate | sandbox, portal | fix |
-| B-48 | Staff without a team are routed into student onboarding and cannot reach Connections | medium | open | same | as candidate | portal | fix |
-| B-50 | The leaderboard and team pages rank runs with different primary metrics together | medium | open | differs: no list heading | as candidate | portal, discord | product call |
+| B-46 | A failed hosted run carries one line: no exception class, no location, no log, none of the team's prints | medium | open, assigned for repair | same | as candidate | sandbox, portal | fix |
+| B-48 | Staff without a team are routed into student onboarding and cannot reach Connections | medium | open, assigned for repair | same | as candidate | portal | fix |
+| B-50 | The leaderboard and team pages rank runs with different primary metrics together | medium | open, measure under investigation | differs: no list heading | as candidate | portal, discord | product call |
 | B-51 | Team pages call a result public while the leaderboard hides it, and its attempts stay spent | medium | open | not checked | as candidate | portal | fix |
 | B-52 | A board resolves `?benchmark=` to the highest version even when it is inactive | medium | open | same | as candidate | portal | fix |
 | B-53 | The admin page says "No hosted runs yet" for a team whose every run failed | medium | open | same | as candidate | portal | fix |
 | B-54 | A refused concurrent hosted start leaves a run-less console record that breaks `/cog` home and the Activity for the team | medium | open | same | as candidate | portal, discord | fix |
-| B-55 | A channel the bot can no longer write is retried every two seconds forever | medium | open | same | same; 403 loop confirmed | discord | fix |
+| B-55 | A channel the bot can no longer write is retried every two seconds forever | medium | open, separate finite repair | same | same; 403 loop confirmed | discord | fix |
 | B-56 | The Discord leaderboard shows one arbitrary board and never marks the student's team | medium | open | same | as candidate | discord | fix |
 | B-57 | The bind prompt says only shared local runs will post; every hosted run posts | medium | open | same | as candidate | discord | product call |
 | B-58 | A signed-out browser loses the run a Discord or Activity link pointed at | medium | open | same | as candidate | portal, discord | fix |
@@ -161,7 +161,7 @@ Remaining evidence gaps, with commands, are in [`verification/README.md`](verifi
 - **Severity:** `high`. The student is told their code raised when it ran out of time, and is denied the one message that says what to change.
 - **Decision needed:** `fix`.
 - **Raised by:** [`sandbox/timeouts-and-limits.md`](sandbox/timeouts-and-limits.md#open-questions-and-verification)
-- **Status:** open; code read at `2ff32fa`. Same on beta.
+- **Status:** open; code read at `2ff32fa`. Same on beta. The release owner has assigned the repair; nothing has changed in source yet.
 
 ### B-13: An interrupted `--live` run leaves the session running and the team's bubble frozen forever
 
@@ -172,7 +172,7 @@ Remaining evidence gaps, with commands, are in [`verification/README.md`](verifi
 - **Severity:** `high`. It is visible to the whole team, permanent, the student who caused it cannot clear it, and each one is an endless edit loop on a shared token.
 - **Decision needed:** `fix`. Age out a local session with no event for some multiple of the two-second heartbeat.
 - **Raised by:** [`terminal/run.md`](terminal/run.md#open-questions-and-verification), [`discord/channel-messages.md`](discord/channel-messages.md#open-questions-and-verification), [`cross-cutting/live-updates.md`](cross-cutting/live-updates.md#open-questions-and-verification)
-- **Status:** open, repair active elsewhere. Confirmed by Sol's reliability pass (local live runs stay `running` after the CLI heartbeat stops). Source repair on `cbd8266` (`683d7ea`, `3a08b61`, `25d4bdc`, `cbd8266`, on top of deployed `ed2b194`): a silent live run is shown as lost contact on the web console and in `/cog`, and a late result is still delivered if its first publication fails. Reviewed and tested, website consumer included; not deployed, and native local runtime QA and the cache/liveness PR publication are in progress. Do not start a second implementation. Byte-identical on beta.
+- **Status:** open, repair active elsewhere. Confirmed by Sol's reliability pass (local live runs stay `running` after the CLI heartbeat stops). Source repair on `cbd8266` (`683d7ea`, `3a08b61`, `25d4bdc`, `cbd8266`, on top of deployed `ed2b194`): a silent live run is shown as lost contact on the web console and in `/cog`, and a late result is still delivered if its first publication fails. Reviewed and tested, website consumer included; not deployed, and native local runtime QA and the cache/liveness PR publication are in progress. Do not start a second implementation. Byte-identical on beta. Local acceptance on `cbd8266` passed with limits (`beta-qa/cbd8266-recovery-acceptance.md`). One disposable session, `localrun_48f82c0a6d27ed4330d1dcf5c8396a99`, was driven through the real local start and event endpoints. It showed "Lost contact · evaluating" with no progress bar and `aria-busy=false`. A real heartbeat restored live progress without a refresh, and a late completed report turned the console to "Bench clear", which a refresh kept. The "Run again" dialog handed focus back correctly, and nothing overflowed at 390 and 768 px. Limits: the result was a declared fixture, not student code. Lost contact was reached by aging timestamps and refreshing, not by a natural two-minute silence. No Discord bubble, Activity or hosted run was involved. Dark Reader recolored the stills, so they show state and layout, not palette. Still not deployed.
 
 ### B-44: A Week 2 recognition run crashes when a describe step returns None for a faceless photo
 
@@ -194,7 +194,7 @@ Remaining evidence gaps, with commands, are in [`verification/README.md`](verifi
 - **Severity:** `high`. It assigns a fault the platform cannot observe, on the most common hosted failure.
 - **Decision needed:** `product call`. Choose the claim the copy makes (for example "The evaluation raised an exception" plus where), and whether Retry stays offered for categories the catalog calls non-retryable.
 - **Raised by:** [`portal/the-run-page.md`](portal/the-run-page.md#open-questions-and-verification), [`sandbox/discovery.md`](sandbox/discovery.md#open-questions-and-verification), [`sandbox/timeouts-and-limits.md`](sandbox/timeouts-and-limits.md#open-questions-and-verification), [`foundations/the-run.md`](foundations/the-run.md#open-questions-and-verification), [`foundations/what-the-portal-claims.md`](foundations/what-the-portal-claims.md#open-questions-and-verification), [`sandbox/scoring-and-refusals.md`](sandbox/scoring-and-refusals.md#open-questions-and-verification)
-- **Status:** open. Observed on hosted beta (`hosted-run_f5fc5babe5/failed-dom.txt`, E-RUNTIME · Evaluate); the runner and contracts are byte-identical at `2ff32fa`. Same on beta.
+- **Status:** open. Observed on hosted beta (`hosted-run_f5fc5babe5/failed-dom.txt`, E-RUNTIME · Evaluate); the runner and contracts are byte-identical at `2ff32fa`. Same on beta. The release owner has assigned the repair; nothing has changed in source yet.
 
 ### B-47: The candidate's setup page installs a CLI older than the candidate, whose link consent says scores are never sent
 
@@ -216,7 +216,7 @@ Remaining evidence gaps, with commands, are in [`verification/README.md`](verifi
 - **Severity:** `high`. A consent screen that understates what it grants breaks the trust rule at the moment it matters most.
 - **Decision needed:** `product call`. Say that Discord can promote and publish, or remove those actions from Discord.
 - **Raised by:** [`discord/commands.md`](discord/commands.md#open-questions-and-verification)
-- **Status:** open; code read at `2ff32fa`. Same on beta (beta `ConnectionsPage.tsx:71`, `:95`).
+- **Status:** open; code read at `2ff32fa`. Same on beta (beta `ConnectionsPage.tsx:71`, `:95`). The release owner has assigned the repair; nothing has changed in source yet.
 
 ## Medium
 
@@ -352,7 +352,7 @@ Remaining evidence gaps, with commands, are in [`verification/README.md`](verifi
 - **Severity:** `medium`. The student cannot learn what went wrong, which is the question the platform exists to answer.
 - **Decision needed:** `fix`.
 - **Raised by:** [`portal/the-run-page.md`](portal/the-run-page.md#open-questions-and-verification), [`sandbox/timeouts-and-limits.md`](sandbox/timeouts-and-limits.md#open-questions-and-verification)
-- **Status:** open. Observed on hosted beta in `hosted-run_f5fc5babe5/failed-dom.txt` (no log region); same code at `2ff32fa`. The fixture provider scripts a log for failed runs (`pairs/b-run-failed-desk.png`), which hides this locally.
+- **Status:** open. Observed on hosted beta in `hosted-run_f5fc5babe5/failed-dom.txt` (no log region); same code at `2ff32fa`. The fixture provider scripts a log for failed runs (`pairs/b-run-failed-desk.png`), which hides this locally. The release owner has assigned the repair; nothing has changed in source yet.
 
 ### B-48: Staff without a team are routed into student onboarding and cannot reach Connections
 
@@ -363,7 +363,7 @@ Remaining evidence gaps, with commands, are in [`verification/README.md`](verifi
 - **Severity:** `medium`. Every staff member meets it on their first sign-in, and the path it offers is the student's.
 - **Decision needed:** `fix`.
 - **Raised by:** [`portal/sign-in.md`](portal/sign-in.md#open-questions-and-verification), [`foundations/identity-and-roles.md`](foundations/identity-and-roles.md#open-questions-and-verification), [`portal/join-or-make-a-team.md`](portal/join-or-make-a-team.md#open-questions-and-verification)
-- **Status:** open; code read at `2ff32fa`. Beta's `App.tsx` is identical, so the routing is the same there.
+- **Status:** open; code read at `2ff32fa`. Beta's `App.tsx` is identical, so the routing is the same there. The release owner has assigned the repair; nothing has changed in source yet.
 
 ### B-50: The leaderboard and team pages rank runs with different primary metrics together
 
@@ -374,7 +374,7 @@ Remaining evidence gaps, with commands, are in [`verification/README.md`](verifi
 - **Severity:** `medium`. A public order that compares two measures.
 - **Decision needed:** `product call`.
 - **Raised by:** [`portal/the-leaderboard.md`](portal/the-leaderboard.md#open-questions-and-verification), [`portal/promote-to-the-leaderboard.md`](portal/promote-to-the-leaderboard.md#open-questions-and-verification), [`sandbox/scoring-and-refusals.md`](sandbox/scoring-and-refusals.md#open-questions-and-verification), [`foundations/what-the-portal-claims.md`](foundations/what-the-portal-claims.md#open-questions-and-verification)
-- **Status:** open; code read at `2ff32fa`. Board and bubble same on beta; beta's run list has no column heading.
+- **Status:** open; code read at `2ff32fa`. Board and bubble same on beta; beta's run list has no column heading. The release owner is investigating which measure each board ranks by; nothing has changed in source yet.
 
 ### B-51: Team pages call a result public while the leaderboard hides it, and its attempts stay spent
 
@@ -429,7 +429,7 @@ Remaining evidence gaps, with commands, are in [`verification/README.md`](verifi
 - **Severity:** `medium`. One team's channel change spends the shared rate limit indefinitely.
 - **Decision needed:** `fix`.
 - **Raised by:** [`discord/channel-messages.md`](discord/channel-messages.md#open-questions-and-verification)
-- **Status:** open. The 403 delivery loop is confirmed as preexisting in the reliability work. Treat it as a finite follow-up: stop retrying a surface whose channel answers 403 or 404 and record why, without a new retry framework.
+- **Status:** open. The 403 delivery loop is confirmed as preexisting in the reliability work. It is a separate, finite repair from B-13: stop retrying a surface whose channel answers 403 or 404 and record why, without a new retry framework.
 
 ### B-56: The Discord leaderboard shows one arbitrary board and never marks the student's team
 

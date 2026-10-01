@@ -70,7 +70,7 @@ Every document is drafted from code (step 3). Step 4 has been done only where a 
 
 ### Verification
 
-Drafting reads the code; verification watches the platform. The `verification/` directory holds one checklist per flow, each item a single observable claim with setup, steps, expected result, a priority, and what it needs. A tester runs them, records `pass`, `fail`, or `blocked` in the Result column, and files every failure in [`bug-triage.md`](bug-triage.md) with the item's ID. A document moves from `drafted` to `verified` in the coverage table only when every P1 and P2 item for it has passed or been filed.
+Drafting reads the code; verification watches the platform. The `verification/` directory holds one checklist per flow, each item a single observable claim with setup, steps, expected result, a priority, and what it needs. A tester runs them, records `pass`, `fail`, or `blocked` in the Result column, and files every failure in [`bug-triage.md`](bug-triage.md) with the item's ID. A document moves from `drafted` to `verified` in the coverage table only when every P1 and P2 item for it has passed or been filed. The checklists are a coverage inventory for choosing what to check, not a release gate.
 
 `bug-triage.md` is the other half: every behavior the documents flagged as a likely defect, deduplicated, with reproduction steps, the reason in the code, a severity, and the decision the product team needs.
 
@@ -162,7 +162,7 @@ cross-cutting/
 
 ## Coverage
 
-Status is one of `not started`, `drafted`, or `verified`. Every document is `drafted` against `2ff32fa`. None is `verified`: no document has every P1 and P2 item passed or filed, and the evidence gaps above block most of them.
+Status is one of `not started`, `drafted`, or `verified`. Every document is `drafted` against `2ff32fa`. None is `verified`: no document has every P1 and P2 item passed or filed. That measures the description's checking, not the product's readiness.
 
 | Document | Status |
 | --- | --- |

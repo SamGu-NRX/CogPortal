@@ -15,6 +15,8 @@ Each file has one table per document. Each row is an item with a stable ID (`STA
 
 Priorities: **P1** is an established fact, a claim many documents depend on, or a suspected bug. **P2** is an ordinary claim. **P3** is a number, a color, or a timing.
 
+The tables are a coverage inventory, not a release gate. They list every claim the documents make so that a pass can pick from them and nothing is forgotten. The release owner chooses which journeys and risks to exercise; a useful delivery does not wait for all 401 rows.
+
 ## How to run a pass
 
 1. **Bring up the surfaces.**
@@ -22,12 +24,12 @@ Priorities: **P1** is an established fact, a claim many documents depend on, or 
    - The terminal: `.venv-test/bin/python -m cogbench` from inside a checkout of a test team repository, or install the CLI into that virtualenv and use `cogworks` directly. Point it at the dev portal with `--portal http://localhost:PORT`, which is allowed precisely because the host is loopback.
    - Discord: the course guild, with the bot deployed against the same portal. There is no way to exercise `/cog` without a guild; every item that needs one is marked `discord` in its Needs column.
    - The sandbox: a hosted practice run started from the dev portal. Most sandbox claims are only observable through the run page, which is why they are checklisted here rather than under `portal/`.
-2. **Confirm the build.** Every document says ``Read against Cog*Portal commit `2ff32fa` ``. Run `git rev-parse --short HEAD` on the portal you are testing, and for hosted work record the deployed Worker's commit too. Hosted beta (`4984730`) is a different build: record its results as beta, never as the candidate. Record which CLI is installed as well (see `terminal.md`); the setup page pins one that is older than the tree.
+2. **Confirm the build.** Every document says ``Read against Cog*Portal commit `2ff32fa` ``. Run `git rev-parse --short HEAD` on the portal you are testing, and for hosted work record the deployed Worker version too. Hosted beta is now `ed2b194` (Worker version `0b452503-80b8-44bc-b60d-a04a38cc5175`), which is `2ff32fa` merged with the earlier hosted beta `4984730`; its setup page pins CLI `b6bbffb`. Label every result with the build it ran on. Results already recorded against `4984730`, `2ff32fa` or `cbd8266` keep their labels. Record which CLI is installed as well (see `terminal.md`).
 3. **Keep the documents open beside the product.** Read the linked section before each item. The item is a summary; the section is the claim.
-4. **Work through P1 first across all four files, then P2, then P3.**
+4. **Run the journeys and risks the release owner has prioritized.** Within those, take P1 rows before P2 and P3.
 5. **Record `pass`, `fail`, or `blocked`** in the Result column, with a note for anything other than a clean pass. A fail is something the document says that the product does not do. A blocked item could not be run: no guild, no second account, a prior failure in the way.
 6. **File every fail in [`bug-triage.md`](../bug-triage.md).** If the entry exists, add a Status line quoting the item ID. If not, add an entry with the item ID under "Raised by". A fail is not automatically a product defect; sometimes the document is wrong and the fix is to the document. The Status line says which.
-7. **Promote a document to `verified`** in the [coverage table](../README.md#coverage) only when every P1 and P2 item for it has passed or been filed.
+7. **Promote a document to `verified`** in the [coverage table](../README.md#coverage) only when every P1 and P2 item for it has passed or been filed. `verified` is a documentation status: it says the description has been checked, not that the product may ship.
 
 ## What the tester needs, by value in the Needs column
 
@@ -37,7 +39,7 @@ Priorities: **P1** is an established fact, a claim many documents depend on, or 
 - **`owner`**, **`staff`**, **`TA`**: an account listed in `PLATFORM_OWNER_LOGINS`, one added to the staff roster, and one assigned to a team. These are three different views of the admin page and each has to be checked separately.
 - **`device`**: a machine that has run `cogworks link` against this portal. A device is not a session; signing out of the browser does not unlink it.
 - **`discord`**: the course guild with the bot present, plus a text channel the team can bind. The activity additionally needs a voice channel and a Discord client that supports embedded apps.
-- **`offline`**: the network genuinely unavailable, not just a devtools toggle. The toggle does not fail an in-flight WebSocket the way pulling the cable does, and several live-update claims turn on exactly that difference.
+- **`offline`**: a controlled network failure for the request under test, such as a blocked route, a proxy that drops the connection, or the browser's offline mode. Use whichever establishes the behavior and record which one. A browser's offline toggle may not close an already-open WebSocket, so a live-update claim needs a method that does. Nobody's own machine needs to be disconnected.
 - **`piped`**: the CLI's stdout or stderr redirected to a file. `cogworks check`'s progress spinner renders only when stderr is a terminal, so a piped run and a terminal run are two different observations of the same command.
 - **`week 3`**: a repository whose Week 3 image side does not bind. Several of the most important refusal claims cannot be seen any other way.
 - **`none`**: nothing beyond a signed-in student and the default setup.
@@ -58,7 +60,7 @@ Three builds matter, and every Result names one:
 
 - **`2ff32fa`, the source and UI candidate.** What the documents describe. Observed only locally, on fixture data.
 - **`ed2b194`, the deployed redesigned beta.** `2ff32fa` merged with hosted beta `4984730` (so it carries #46, #53 and CLI pin `b6bbffb`), live as Worker version `0b452503-80b8-44bc-b60d-a04a38cc5175` with the runner unchanged at Modal v44 from `4984730`. All eight CI lanes pass. Observed in the combined local acceptance (`CogPortal-qa-video-20260930/outputs/beta-qa/ed2b194-acceptance.md`) and one real hosted Language run plus a real CLI pass (`beta-qa/live-language-ed2b194/README.md`).
-- **`cbd8266`, a local repair branch on `ed2b194`.** Source fixes for B-13 and B-14, reviewed and tested, website consumer included. Not deployed; nothing here is observed on it.
+- **`cbd8266`, a local repair branch on `ed2b194`.** Source fixes for B-13 and B-14, reviewed and tested, website consumer included. Not deployed. Its B-13 recovery path was accepted locally on fixture data (`beta-qa/cbd8266-recovery-acceptance.md`); see B-13 for the limits.
 
 | File | Items | pass, local fixture | pass on deployed `ed2b194` | fail | retired | not run, partial or beta only |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -69,13 +71,13 @@ Three builds matter, and every Result names one:
 
 A local fixture `pass` shows a screen renders a state on seeded, Simulated data. A deployed `pass` was exercised end to end on `ed2b194`. Rows marked `on beta only` came from the two pre-redesign hosted Recognition runs (`4984730` lineage).
 
-No document is `verified`; each still has P1 or P2 items behind one of the gaps below.
+No document is `verified`; each still has P1 or P2 items behind one of the gaps below. That says how much of the description has been checked, not whether the product is ready.
 
 ## Evidence gaps
 
 Covered since the last revision, on deployed `ed2b194`: a fresh hosted Language run (`run_d11b5e5e2e`, succeeded, 9 cases, 19 metrics, 15 m 38 s, of which Install was 7 m 37 s with progress shown throughout), and the current CLI's `check --update-setup`, `run` and `sync` with Setup reaching 5/5. The CLI pass reused local source equal to the `b6bbffb` pin and needed course packages added by hand, so it does not prove a fresh setup from the page's lines alone.
 
-What still blocks `verified`, with what each needs. The release owner schedules these.
+What still blocks `verified`, with what each needs. The release owner decides which of these matter for a given delivery.
 
 | Gap | What it unblocks | Needs | Command or procedure |
 | --- | --- | --- | --- |
@@ -83,7 +85,7 @@ What still blocks `verified`, with what each needs. The release owner schedules 
 | Hosted Audio and Clustering | Every benchmark kind other than Recognition and Language | One repository of each, on `ed2b194` | One hosted practice run each; read the finding line and readings. |
 | Official promotion and publication | `PROMOTE-*`, `RUNREC-04`, `CROSS-15`, B-51, B-67 | A succeeded practice run and one official attempt to spend | Promote, let it finish, publish, open the board signed out. |
 | Fresh setup from the page's lines | `SETUP-*` install rows, `CHECK-01` | A fresh course conda env with nothing preinstalled | Run each Setup line as printed, then `cogworks check --benchmark <id> --update-setup`. |
-| Live session after a lost heartbeat | B-13 on the deployed repair | `cbd8266` deployed, a linked device and a bound channel | `cogworks run --benchmark <id> --live`, close the terminal mid-run, watch the console and bubble move to lost contact. |
+| Live session after a lost heartbeat, deployed | B-13 once `cbd8266` is deployed; the local fixture path already passed | `cbd8266` deployed, a linked device and a bound channel | `cogworks run --benchmark <id> --live`, close the terminal mid-run, wait out the real two-minute silence, and watch the console and the Discord bubble move to lost contact. |
 | Persistent instructor writes | `ADMIN-*` mutations, B-53, B-65, B-66 | An owner, a second staff login, a TA assignment | Add staff, assign a TA, rotate the code, close enrollment, assign and remove a member; read each as owner and as TA. |
 | Discord and the Activity | Every `discord.md` row, B-49, B-54 to B-58, B-64 | The course guild with the bot on `ed2b194`, a bindable channel, two linked members | Link from `/cog`, bind a channel, start a hosted run, promote from `/cog`, open the Activity. |
 | Physical phone | The 390 px claims, all emulated | An iPhone and an Android phone | Walk sign-in to the Runs page and a failed run page. |
