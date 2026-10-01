@@ -7,6 +7,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { StaticRouter } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Window } from "happy-dom";
+import { MotionConfig } from "motion/react";
 import {
   BenchmarkSchema,
   DashboardSchema,
@@ -21,7 +22,7 @@ import {
 import { RunList } from "../src/components/RunList.tsx";
 import { TrackSwitcher } from "../src/components/TrackSwitcher.tsx";
 import { runTitle } from "../src/lib/run-meta.ts";
-import { DashboardPage } from "../src/routes/DashboardPage.tsx";
+import { DashboardPage, Marked } from "../src/routes/DashboardPage.tsx";
 
 /**
  * The Runs page names runs in words and says what a finished run cost. Both
@@ -260,4 +261,18 @@ test("track tabs: arrows move focus without selecting, activating selects, focus
   // Pressing the tab already selected does not reload it.
   await act(async () => tabs()[1]!.click());
   assert.deepEqual(selected, [VISION.id]);
+});
+
+test("the finished-run highlighter starts fully drawn under reduced motion", () => {
+  // The first rendered frame, not the end state: both modes end at scaleX(1),
+  // so only the starting frame shows whether a draw would run. "never" proves
+  // the check can tell the two apart.
+  const stroke = (reducedMotion: "always" | "never") =>
+    renderToStaticMarkup(
+      React.createElement(MotionConfig, { reducedMotion },
+        React.createElement(Marked, null, "Finished just now.")),
+    ).match(/<span aria-hidden="true"[^>]*>/)?.[0] ?? "";
+
+  assert.match(stroke("always"), /transform:scaleX\(1\)/);
+  assert.match(stroke("never"), /transform:scaleX\(0\)/);
 });

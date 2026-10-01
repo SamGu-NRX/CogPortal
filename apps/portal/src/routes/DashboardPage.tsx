@@ -1,4 +1,4 @@
-import { motion } from "motion/react";
+import { motion, useReducedMotionConfig } from "motion/react";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Link, useSearchParams } from "react-router";
 import {
@@ -462,15 +462,20 @@ function finishedSummary(
 /**
  * A highlighter stroke drawn under a sentence, left to right, once. Used only
  * for a run that finished while the student watched, which is the moment the
- * page exists for. Under reduced motion the stroke is simply there
- * (MotionConfig reducedMotion="user" drops the transform).
+ * page exists for. Under reduced motion the stroke renders already drawn.
+ *
+ * The check is explicit because MotionConfig reducedMotion="user" does not
+ * cover this: Motion 12.42 only drops animations on its positional keys (x,
+ * scaleX, width...), and a raw `transform` string is not one of them.
+ * Exported for test/runs-page.test.ts.
  */
-function Marked({ children }: { children: ReactNode }) {
+export function Marked({ children }: { children: ReactNode }) {
+  const still = useReducedMotionConfig();
   return (
     <span className="relative isolate inline-block">
       <motion.span
         aria-hidden="true"
-        initial={{ transform: "scaleX(0)" }}
+        initial={still ? false : { transform: "scaleX(0)" }}
         animate={{ transform: "scaleX(1)" }}
         transition={{ duration: 0.28, ease: EASE_OUT, delay: 0.12 }}
         className="absolute inset-x-[-3px] bottom-[0.08em] -z-10 h-[0.62em] origin-left rounded-[2px] bg-marker/80"
