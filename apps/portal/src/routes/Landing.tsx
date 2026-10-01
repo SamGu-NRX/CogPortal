@@ -25,10 +25,10 @@ import { pendingConnectionReturn } from "@/lib/pending-return";
  */
 export function Landing() {
   const { data: session } = useSession();
-  const authed = Boolean(session?.user);
   const template = session?.auth.templateRepo ?? null;
   const pendingReturn = session?.user ? pendingConnectionReturn() : null;
   if (pendingReturn) return <Navigate to={pendingReturn} replace />;
+  const next = session?.user ? nextStagePath(session) : null;
 
   return (
     <div className="page !max-w-[64rem]">
@@ -46,9 +46,13 @@ export function Landing() {
           </p>
 
           <div className="mt-8 flex flex-wrap items-center gap-3">
-            {authed ? (
-              <Link to={nextStagePath(session!)} className={buttonClass("primary", "px-6")}>
-                {session!.team ? "Open your runs" : "Continue setting up"}
+            {next ? (
+              <Link to={next} className={buttonClass("primary", "px-6")}>
+                {next === "/dashboard"
+                  ? "Open your runs"
+                  : next === "/admin"
+                    ? "Open Admin"
+                    : "Continue setting up"}
                 <HugeiconsIcon icon={ArrowRight01Icon} size={16} strokeWidth={2} aria-hidden="true" />
               </Link>
             ) : (

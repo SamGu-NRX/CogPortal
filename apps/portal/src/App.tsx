@@ -22,6 +22,7 @@ import { SetupPage } from "@/routes/SetupPage";
 import { SignInPage } from "@/routes/SignInPage";
 import { TeamPage } from "@/routes/TeamPage";
 import { rememberConnectionReturn, rememberDroppedDeviceLink } from "@/lib/pending-return";
+import { canOpenAdmin } from "@/lib/roles";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -30,9 +31,12 @@ const queryClient = new QueryClient({
 });
 
 /** Where the student's onboarding actually stands (plan §1 success path):
- *  sign in → join cohort → connect repository → dashboard. */
+ *  sign in → join cohort → connect repository → dashboard. Staff and TAs run
+ *  the course from the admin console and need no team, so without one that is
+ *  where they belong; with one, their runs come first like anyone's. */
 export function nextStagePath(session: Session): string {
   if (!session.user) return "/signin";
+  if (!session.team && canOpenAdmin(session.user)) return "/admin";
   if (!session.cohort) return "/join";
   if (!session.team) return "/connect";
   return "/dashboard";
@@ -72,11 +76,15 @@ export function RequireStage({
     return <Navigate to="/signin" replace />;
   }
   const owed = (stage !== "user" && !session.cohort) || (stage === "team" && !session.team);
-  if (owed && location.pathname === "/connections") {
-    rememberDroppedDeviceLink(`${location.pathname}${location.search}${location.hash}`);
+  if (owed) {
+    if (location.pathname === "/connections") {
+      rememberDroppedDeviceLink(`${location.pathname}${location.search}${location.hash}`);
+    }
+    // A team page sends whoever lacks a team to their own next stage: the
+    // onboarding step a student owes, or the console for staff. /connect is
+    // itself onboarding, asked for by name, so it only ever owes a cohort.
+    return <Navigate to={stage === "team" ? nextStagePath(session) : "/join"} replace />;
   }
-  if (stage !== "user" && !session.cohort) return <Navigate to="/join" replace />;
-  if (stage === "team" && !session.team) return <Navigate to="/connect" replace />;
   return <Concealed status className="flex flex-1 flex-col">{children}</Concealed>;
 }
 
@@ -92,7 +100,7 @@ export function RequireStaff({ children }: { children: ReactNode }) {
   }
   if (isPending || !session) return <LoadingMark />;
   if (!session.user) return <Navigate to="/signin" replace />;
-  if (session.user.platformRole !== "staff" && !session.user.isTa) {
+  if (!canOpenAdmin(session.user)) {
     return <Navigate to="/" replace />;
   }
   return <Concealed status className="flex flex-1 flex-col">{children}</Concealed>;
