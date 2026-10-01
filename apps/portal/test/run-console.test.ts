@@ -25,6 +25,7 @@ function snapshot(status: RunSurfaceSnapshot["status"]): RunSurfaceSnapshot {
     createdAt: started,
     updatedAt: started + 8_000,
     finishedAt: status === "running" ? null : started + 8_000,
+    silentSince: null,
     elapsedMs: 8_000,
     progress: { current: 18, total: 40, unit: "cases" },
     primaryMetric: status === "succeeded" ? {
@@ -101,6 +102,37 @@ test("compact Activity layout keeps lifecycle context but omits the detail surfa
   assert.match(html, /Run lifecycle/);
   assert.doesNotMatch(html, /Safe event stream/);
   assert.doesNotMatch(html, /Run reference/);
+});
+
+test("a silent local run shows when it was last heard, not live progress, until it reports again", () => {
+  const silent = snapshot("running");
+  silent.silentSince = silent.updatedAt;
+  silent.actions = ["open_console", "open_portal", "run_again"];
+  for (const compact of [false, true]) {
+    const html = renderToStaticMarkup(React.createElement(RunConsole, {
+      snapshot: silent,
+      streamState: "live",
+      compact,
+    }));
+    assert.match(html, /Lost contact · evaluating/);
+    assert.match(html, /Last heard /);
+    assert.doesNotMatch(html, />Live</, "the socket is live; the run is not");
+    assert.doesNotMatch(html, /role="progressbar"/);
+    assert.doesNotMatch(html, /anim-live/);
+    assert.match(html, /aria-busy="false"/);
+    assert.match(html, /its result will appear here/);
+    assert.equal((html.match(/>Run again</g) ?? []).length, 1, "one way to run it again, in either layout");
+  }
+
+  // The next snapshot after a heartbeat clears silentSince; the console holds no state of its own.
+  const html = renderToStaticMarkup(React.createElement(RunConsole, {
+    snapshot: snapshot("running"),
+    streamState: "live",
+  }));
+  assert.match(html, /On the bench · evaluating/);
+  assert.match(html, /role="progressbar"/);
+  assert.match(html, /aria-busy="true"/);
+  assert.doesNotMatch(html, /Lost contact/);
 });
 
 test("hosted stage never presents the completed local event tail as current work", () => {

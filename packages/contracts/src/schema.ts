@@ -720,6 +720,13 @@ export const RunSurfaceSnapshotSchema = z.object({
   createdAt: z.number().int(),
   updatedAt: z.number().int(),
   finishedAt: z.number().int().nullable(),
+  /**
+   * When the portal last heard from a local run it has since stopped hearing
+   * from. Status stays "running": silence means contact was lost, not that
+   * the run failed, and a result that arrives later still replaces this.
+   * Null while events arrive, once the run finishes, and for hosted runs.
+   */
+  silentSince: z.number().int().nullable().default(null),
   elapsedMs: z.number().int().nonnegative(),
   progress: RunProgressSchema.nullable(),
   primaryMetric: MetricSchema.nullable(),

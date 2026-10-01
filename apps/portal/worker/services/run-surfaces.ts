@@ -41,6 +41,16 @@ import { acceptedRunPredicate, readRunAccounting } from "./run-accounting";
 
 const MAX_SURFACE_EVENTS = 250;
 
+/**
+ * How long a running local session may go without an event before the portal
+ * says it has lost contact. The CLI heartbeats every two seconds, but its
+ * sender is serial and gives up on one event only after three 15-second
+ * attempts (python/cogbench/src/cogbench/client.py), so a slow portal alone
+ * can open a gap of about 46 seconds. Two minutes clears that; no measured
+ * distribution of real gaps backs the exact figure.
+ */
+const LOCAL_SILENCE_MS = 2 * 60 * 1000;
+
 function sharedStatus(status: string): RunSurfaceSnapshot["status"] {
   if (status === "succeeded" || status === "failed" || status === "cancelled") return status;
   return "running";
@@ -302,7 +312,13 @@ export async function readRunSurfaceSnapshot(
   const createdAt = current.createdAt;
   const finishedAt = current.finishedAt;
   const now = Date.now();
-  const elapsedMs = Math.max(0, (finishedAt ?? now) - createdAt);
+  // The row stays running, so a late heartbeat or completed report is
+  // accepted as usual and clears this.
+  const silentSince = stage === "local" && local?.status === "running"
+    && now - local.updatedAt >= LOCAL_SILENCE_MS
+    ? local.updatedAt
+    : null;
+  const elapsedMs = Math.max(0, (finishedAt ?? silentSince ?? now) - createdAt);
   const events = eventRows.map(streamEvent).filter((item): item is RunStreamEvent => item !== null).reverse();
   const currentEvents = events.filter((event) => event.sourceRunId === current.id);
   const databasePhase = stage === "local" ? local?.phase ?? current.status : current.status;
@@ -344,7 +360,8 @@ export async function readRunSurfaceSnapshot(
   const promotionRefusal = stage === "hosted" && status === "succeeded" && promotionEligibility?.eligible === false
     ? promotionEligibility.reason : null;
   const actions: RunSurfaceAction[] = ["open_console", "open_portal"];
-  if (stage === "local" && status !== "running") {
+  // A silent run may never report again, so the way forward is offered now.
+  if (stage === "local" && (status !== "running" || silentSince !== null)) {
     actions.push("run_again");
     if (status === "succeeded" && !local?.dirty && !localRefusal) {
       actions.splice(2, 0, "verify_hosted");
@@ -413,6 +430,7 @@ export async function readRunSurfaceSnapshot(
     createdAt,
     updatedAt: surface.updatedAt,
     finishedAt,
+    silentSince,
     elapsedMs,
     progress: latestProgress,
     primaryMetric,

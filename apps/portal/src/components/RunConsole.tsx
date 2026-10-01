@@ -87,13 +87,24 @@ function statusCopy(snapshot: RunSurfaceSnapshot): string {
   if (snapshot.status === "cancelled") return "Stopped before completion";
   if (snapshot.status === "succeeded") return "Bench clear";
   const phase = snapshot.phase.replaceAll("_", " ");
-  return `On the bench · ${phase}`;
+  return snapshot.silentSince === null ? `On the bench · ${phase}` : `Lost contact · ${phase}`;
+}
+
+/** An abandoned session can sit for days, so past today the date is shown too. */
+function formatHeard(ms: number): string {
+  const heard = new Date(ms);
+  const today = heard.toDateString() === new Date().toDateString();
+  return heard.toLocaleString([], today
+    ? { hour: "numeric", minute: "2-digit" }
+    : { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
 function connectionCopy(snapshot: RunSurfaceSnapshot, streamState: StreamState): string {
   if (snapshot.status === "succeeded") return "Complete";
   if (snapshot.status === "failed") return "Stopped";
   if (snapshot.status === "cancelled") return "Cancelled";
+  // The socket can be live while the run it reports on has gone quiet.
+  if (snapshot.silentSince !== null) return `Last heard ${formatHeard(snapshot.silentSince)}`;
   if (streamState === "live") return "Live";
   if (streamState === "closed") return "Snapshot";
   return "Reconnecting…";
@@ -144,6 +155,8 @@ export function RunConsole({
 }) {
   const headingRef = useRef<HTMLHeadingElement>(null);
   const retryFocusedRef = useRef(false);
+  const runAgainFocusedRef = useRef(false);
+  const dialogOpenerRef = useRef<HTMLElement | null>(null);
   const retryInFlightRef = useRef(false);
   const logRef = useRef<HTMLUListElement>(null);
   const logFocusedRef = useRef(false);
@@ -163,9 +176,13 @@ export function RunConsole({
   const [showCommand, setShowCommand] = useState(false);
   const [historyExpanded, setHistoryExpanded] = useState(false);
   const terminal = snapshot.status !== "running";
+  // Still running as far as the portal knows, but its CLI has gone quiet. The
+  // next snapshot clears this when the run reports again or finishes.
+  const silent = snapshot.status === "running" && snapshot.silentSince !== null;
   const timelineEvents = collapseRepeatedRunEvents(currentEvents);
   const failed = snapshot.status === "failed";
   const retryOffered = snapshot.actions.includes("retry") && currentRunId !== null && Boolean(onAction);
+  const runAgainOffered = (failed || silent) && snapshot.stage === "local" && snapshot.actions.includes("run_again");
 
   const retry = async () => {
     if (!retryOffered || !onAction || !currentRunId || retryInFlightRef.current || busyAction) return;
@@ -183,6 +200,15 @@ export function RunConsole({
       retryFocusedRef.current = false;
     }
   }, [retryOffered]);
+
+  // A silent run that reports again takes its Run again button with it.
+  useLayoutEffect(() => {
+    if (!runAgainOffered && runAgainFocusedRef.current) {
+      headingRef.current?.focus();
+      runAgainFocusedRef.current = false;
+    }
+  }, [runAgainOffered]);
+
   const failureEvent = [...currentEvents].reverse().find((event) => event.code.startsWith("run.failed."));
   const failureReason = snapshot.refusalHeadline || (failureEvent ? EVENT_COPY[failureEvent.code] : null);
   // A failed run's folded summary ends at its failure and never says the run
@@ -257,9 +283,14 @@ export function RunConsole({
     setPendingAction(null);
     setShowCommand(false);
     dialogRef.current?.close();
+    // The button that opened the dialog may have gone while it was open.
+    const opener = dialogOpenerRef.current;
+    dialogOpenerRef.current = null;
+    if (opener) (opener.isConnected ? opener : headingRef.current)?.focus();
   };
 
   const ask = (action: RunSurfaceAction) => {
+    dialogOpenerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     if (action === "run_again") {
       setShowCommand(true);
       return;
@@ -278,7 +309,9 @@ export function RunConsole({
   const progressRatio = snapshot.progress
     ? Math.min(1, snapshot.progress.current / snapshot.progress.total)
     : null;
-  const statusTone = snapshot.status === "running"
+  const statusTone = silent
+    ? "bg-ink-faint"
+    : snapshot.status === "running"
     ? "anim-live bg-detect"
     : snapshot.status === "succeeded"
       ? "bg-verify"
@@ -297,8 +330,8 @@ export function RunConsole({
   return (
     <section
       className={`run-console mx-auto w-full overflow-hidden rounded-surface border border-rule bg-paper-raised shadow-[0_1px_0_rgb(27_31_36/0.04),0_18px_40px_-28px_rgb(27_31_36/0.3)] ${embedded ? "max-w-[72rem]" : "max-w-6xl"}`}
-      aria-label={`Live run for ${snapshot.benchmark.title}`}
-      aria-busy={snapshot.status === "running"}
+      aria-label={`${silent ? "Run" : "Live run"} for ${snapshot.benchmark.title}`}
+      aria-busy={snapshot.status === "running" && !silent}
       data-compact={compact || undefined}
     >
       <header className={`border-b border-rule px-4 ${compact ? "py-3.5" : "py-5 sm:px-6 sm:py-6"}`}>
@@ -347,11 +380,18 @@ export function RunConsole({
             See why it failed
           </button>
         )}
-        {failed && snapshot.stage === "local" && snapshot.actions.includes("run_again") && (
+        {silent && (
+          <p className="mt-5 max-w-[60ch] border-t border-rule-soft pt-3.5 text-[14px] leading-[1.55] text-ink-secondary" role="status" aria-live="polite">
+            If @{snapshot.actor.login}'s run is still going, its result will appear here when it finishes. If it was stopped, run it again.
+          </p>
+        )}
+        {runAgainOffered && (
           <div className="mt-4">
             <button
               type="button"
-              className={buttonClass("primary")}
+              className={buttonClass(failed ? "primary" : "ghost")}
+              onFocus={() => { runAgainFocusedRef.current = true; }}
+              onBlur={() => { runAgainFocusedRef.current = false; }}
               onClick={() => ask("run_again")}
             >
               Run again
@@ -383,7 +423,7 @@ export function RunConsole({
           </p>
         )}
         {error && <p role="alert" className="mt-4 border-l-2 border-detect pl-3 text-[13.5px] text-detect-deep">{error}</p>}
-        {snapshot.status === "running" && (
+        {snapshot.status === "running" && !silent && (
           <div className="mt-5 border-t border-rule-soft pt-3.5" role="status" aria-live="polite">
             <div className="mb-2 flex min-w-0 items-center justify-between gap-3">
               <span className="min-w-0 truncate text-[14px] font-semibold first-letter:uppercase">{currentStepCopy(snapshot)}</span>
@@ -437,7 +477,7 @@ export function RunConsole({
       <div className="grid md:grid-cols-[minmax(0,1fr)_17rem]">
         <div className="relative border-b border-rule md:border-r md:border-b-0">
           <div className="flex min-h-12 items-center justify-between gap-3 border-b border-rule-soft px-4 py-2 sm:px-5">
-            <span className="u-label">{terminal ? "Run summary" : "Live events"}</span>
+            <span className="u-label">{terminal ? "Run summary" : silent ? "Events so far" : "Live events"}</span>
             {terminal && (failed || timelineEvents.length > 3) && (
               <button
                 type="button"
@@ -463,7 +503,7 @@ export function RunConsole({
             onFocus={() => { logFocusedRef.current = true; }}
             onBlur={() => { logFocusedRef.current = false; }}
             tabIndex={terminal && !historyExpanded ? undefined : 0}
-            aria-label={terminal ? "Run event summary" : "Live run events"}
+            aria-label={terminal ? "Run event summary" : silent ? "Run events so far" : "Live run events"}
             className={`log-scroll bg-paper-sunken/30 focus-visible:outline-offset-[-2px] ${terminal && !historyExpanded ? "" : "h-[min(34vh,18rem)] overflow-y-auto"}`}
             onScroll={(event) => {
               const node = event.currentTarget;
@@ -473,7 +513,7 @@ export function RunConsole({
             }}
           >
             {visibleEvents.length ? visibleEvents.map((event) => <EventLine key={event.eventId} event={event} />) : (
-              <li className="px-5 py-12 text-center text-[13.5px] text-ink-faint">{!terminal ? "Waiting for the first event from the runner." : timelineEvents.length ? "This run's events are under Show details." : "No structured events were recorded."}</li>
+              <li className="px-5 py-12 text-center text-[13.5px] text-ink-faint">{silent ? "Nothing arrived before contact was lost." : !terminal ? "Waiting for the first event from the runner." : timelineEvents.length ? "This run's events are under Show details." : "No structured events were recorded."}</li>
             )}
           </ul>
           {!terminal && newEvents > 0 && (
@@ -516,7 +556,8 @@ export function RunConsole({
             </p>
           )}
           <div className="mt-6 grid gap-2">
-            {snapshot.actions.filter((action) => !failed && ACTION_COPY[action]).map((action) => (
+            {/* A failed or silent local run offers Run again in the header. */}
+            {snapshot.actions.filter((action) => !failed && !silent && ACTION_COPY[action]).map((action) => (
               <button
                 key={action}
                 type="button"
