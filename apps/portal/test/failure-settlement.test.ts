@@ -8,8 +8,9 @@ import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import type { Database } from "../worker/db/client.ts";
 import type { Env } from "../worker/env.ts";
-import { cohorts, officialAttempts, runs, teams } from "../worker/db/schema.ts";
+import { cohorts, outboxEvents, runPhases, runs, teams } from "../worker/db/schema.ts";
 import { maintainPlatform } from "../worker/execution/maintenance.ts";
+import { readRunAccounting } from "../worker/services/run-accounting.ts";
 import { syncRun } from "../worker/execution/sync.ts";
 
 // Exercise real SQLite transactions through the same D1 methods as the Worker.
@@ -133,8 +134,7 @@ interface RunOptions {
   refundedAt?: number | null;
 }
 
-/** An official run with its attempt claimed, the state a real promotion leaves. */
-async function claimedRun(db: Database, options: RunOptions): Promise<void> {
+async function seedRun(db: Database, options: RunOptions): Promise<void> {
   const mode = options.mode ?? "official";
   const benchmarkId = options.benchmarkId ?? VISION;
   await db.insert(runs).values({
@@ -162,25 +162,6 @@ async function claimedRun(db: Database, options: RunOptions): Promise<void> {
     lastEventSequence: -1,
     surfaceId: null,
   });
-  if (mode !== "official") return;
-  await db.insert(officialAttempts).values({
-    id: `attempt_${options.id}`,
-    teamId: options.teamId,
-    benchmarkId,
-    benchmarkVersion: options.benchmarkVersion ?? 1,
-    runId: options.id,
-    attemptNumber: 1,
-    consumed: false,
-    claimedAt: options.createdAt ?? NOW,
-  });
-}
-
-async function attemptExists(db: Database, runId: string): Promise<boolean> {
-  const rows = await db
-    .select({ id: officialAttempts.id })
-    .from(officialAttempts)
-    .where(eq(officialAttempts.runId, runId));
-  return rows.length > 0;
 }
 
 async function runRow(db: Database, runId: string) {
@@ -194,13 +175,15 @@ for (const mode of ["practice", "official"] as const) {
     test(`${mode} fixture ${branch} failure leaves no charged evaluation or reservation`, async () => {
       const { db } = freshDb();
       await seedTeams(db, ["team_a"]);
-      await claimedRun(db, { id: "run_1", teamId: "team_a", mode, branch });
+      await seedRun(db, { id: "run_1", teamId: "team_a", mode, branch });
       const row = await runRow(db, "run_1");
       const failed = await syncRun(db, row, NOW + FIXTURE_RUN_MS);
       assert.equal(failed.status, "failed");
       assert.equal(failed.failureConsumedAttempt, false);
       assert.equal(failed.refundedAt, null);
-      assert.equal(await attemptExists(db, row.id), false);
+      assert.deepEqual(await readRunAccounting(db, { teamId: "team_a", allBenchmarks: true }), {
+        practiceUsed: 0, officialUsed: 0, practiceReserved: 0, officialReserved: 0, activeRuns: 0,
+      });
       assert.deepEqual(await syncRun(db, row, NOW + 1_000), failed, "a stale poll cannot revive the failure");
     });
   }
@@ -208,12 +191,14 @@ for (const mode of ["practice", "official"] as const) {
   test(`${mode} reaper failure releases capacity and remains terminal on repeated ticks`, async () => {
     const { db, binding } = freshDb();
     await seedTeams(db, ["team_a"]);
-    await claimedRun(db, { id: "run_1", teamId: "team_a", mode, provider: "modal", status: "preparing" });
+    await seedRun(db, { id: "run_1", teamId: "team_a", mode, provider: "modal", status: "preparing" });
     await maintainPlatform(maintenanceEnv(binding, "900"), NOW + 900_001);
     const failed = await runRow(db, "run_1");
     assert.equal(failed.status, "failed");
     assert.equal(failed.failureConsumedAttempt, false);
-    assert.equal(await attemptExists(db, failed.id), false);
+    assert.deepEqual(await readRunAccounting(db, { teamId: "team_a", allBenchmarks: true }), {
+      practiceUsed: 0, officialUsed: 0, practiceReserved: 0, officialReserved: 0, activeRuns: 0,
+    });
     await maintainPlatform(maintenanceEnv(binding, "900"), NOW + 1_800_000);
     assert.deepEqual(await runRow(db, "run_1"), failed);
   });
@@ -224,39 +209,40 @@ test("repeated submission failures have no arbitrary refund limit", async () => 
   await seedTeams(db, ["team_a"]);
   for (let index = 1; index <= 7; index += 1) {
     const id = `run_${index}`;
-    await claimedRun(db, { id, teamId: "team_a", branch: "heavy-model" });
+    await seedRun(db, { id, teamId: "team_a", branch: "heavy-model" });
     const failed = await syncRun(db, await runRow(db, id), NOW + FIXTURE_RUN_MS);
     assert.equal(failed.status, "failed");
     assert.equal(failed.failureConsumedAttempt, false);
-    assert.equal(await attemptExists(db, id), false);
   }
 });
 
 for (const path of ["fixture", "reaper"] as const) {
-  test(`${path} failure and reservation release roll back together`, async () => {
+  test(`${path} terminal write failure rolls back earlier phase or outbox writes`, async () => {
     const { db, binding, sqlite } = freshDb();
     await seedTeams(db, ["team_a"]);
-    await claimedRun(db, { id: "run_1", teamId: "team_a", provider: path === "fixture" ? "fixture" : "modal" });
+    await seedRun(db, { id: "run_1", teamId: "team_a", provider: path === "fixture" ? "fixture" : "modal" });
     const before = await runRow(db, "run_1");
-    sqlite.exec(`CREATE TRIGGER interrupt_release BEFORE DELETE ON official_attempts
-      BEGIN SELECT RAISE(ABORT, 'release interrupted'); END`);
+    sqlite.exec(`CREATE TRIGGER interrupt_terminal BEFORE UPDATE OF status ON runs
+      BEGIN SELECT RAISE(ABORT, 'terminal write interrupted'); END`);
     const settle = () => path === "fixture"
       ? syncRun(db, before, NOW + FIXTURE_RUN_MS)
       : maintainPlatform(maintenanceEnv(binding, "900"), NOW + 900_001);
     await assert.rejects(settle());
     assert.deepEqual(await runRow(db, "run_1"), before);
-    assert.equal(await attemptExists(db, "run_1"), true);
-    sqlite.exec("DROP TRIGGER interrupt_release");
+    assert.deepEqual(await db.select().from(runPhases), []);
+    assert.deepEqual(await db.select().from(outboxEvents), []);
+    sqlite.exec("DROP TRIGGER interrupt_terminal");
     await settle();
     assert.equal((await runRow(db, "run_1")).status, "failed");
-    assert.equal(await attemptExists(db, "run_1"), false);
+    assert.equal((await db.select().from(outboxEvents)).length, path === "reaper" ? 1 : 0);
+    assert.equal((await db.select().from(runPhases)).length > 0, path === "fixture");
   });
 }
 
 test("a queued execution is reaped at the existing ten-minute threshold", async () => {
   const { db, binding } = freshDb();
   await seedTeams(db, ["team_a"]);
-  await claimedRun(db, { id: "run_1", teamId: "team_a", provider: "modal" });
+  await seedRun(db, { id: "run_1", teamId: "team_a", provider: "modal" });
   await maintainPlatform(maintenanceEnv(binding), NOW + 600_000);
   assert.equal((await runRow(db, "run_1")).status, "queued");
   await maintainPlatform(maintenanceEnv(binding), NOW + 600_001);

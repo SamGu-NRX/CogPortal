@@ -2,7 +2,7 @@ import type {
   RunStreamEventCode,
   RunSurfaceSnapshot,
 } from "@cogworks/contracts/schema";
-import { runSurfaceCurrentEvents } from "@cogworks/contracts/schema";
+import { runSurfaceCurrentEvents, runSurfaceCurrentRunId } from "@cogworks/contracts/schema";
 import { ACCENT_DETECT, ACCENT_INK, ACCENT_VERIFY } from "@cogworks/discord-kit/accents";
 import {
   IS_COMPONENTS_V2,
@@ -224,9 +224,13 @@ export function runSurfaceMessage(env: Env, snapshot: RunSurfaceSnapshot) {
     if (breakdown.length) children.push(separator(false), text(breakdown.join("\n")));
     children.push(separator(), text(rail));
 
-    const buttons: DiscordButton[] = terminalButtons(snapshot).map((spec) =>
-      button(`cog:surface:${snapshot.id}:${spec.action}`.slice(0, 100), spec.label, spec.style),
-    );
+    const currentRunId = runSurfaceCurrentRunId(snapshot);
+    const buttons: DiscordButton[] = terminalButtons(snapshot)
+      .filter((spec) => spec.action !== "retry" || currentRunId !== null)
+      .map((spec) => button(
+        `cog:surface:${snapshot.id}:${spec.action}${spec.action === "retry" ? `:${currentRunId}` : ""}`,
+        spec.label, spec.style,
+      ));
     const target = surfacePortalUrl(env, snapshot.id);
     if (target) buttons.push(linkButton(target, "Cog*Portal"));
     if (buttons.length) children.push(separator(false), actionRow(...buttons));

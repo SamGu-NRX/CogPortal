@@ -1,5 +1,5 @@
 import type { PortalRpcContract } from "@cogworks/contracts/discord";
-import type { RunSurfaceAction, RunSurfaceSnapshot } from "@cogworks/contracts/schema";
+import { RetryRunRequestSchema, runSurfaceCurrentRunId, type RunSurfaceAction, type RunSurfaceSnapshot } from "@cogworks/contracts/schema";
 import { ACCENT_DETECT, ACCENT_INK, ACCENT_VERIFY } from "@cogworks/discord-kit/accents";
 import {
   actionRow,
@@ -37,7 +37,7 @@ import {
 type View = "home" | "leaderboard" | "benchmarks" | "local" | "connect";
 type RequestedView = View | "share:leaderboard" | "bind-channel" | "bind-channel:confirm";
 
-type SurfaceMutation = "verify_hosted" | "promote_official" | "publish_result" | "rerun_hosted";
+type SurfaceMutation = "verify_hosted" | "promote_official" | "publish_result" | "rerun_hosted" | "retry";
 
 const VIEW_IDS = new Set<View>(["home", "leaderboard", "benchmarks", "local", "connect"]);
 
@@ -136,6 +136,7 @@ async function homeView(
       ? [separator(), actionRow(button("cog:bind-channel", "Use this as our team channel", 1))]
       : [];
   const priority: RunSurfaceAction[] = [
+    "retry",
     "publish_result",
     "promote_official",
     "verify_hosted",
@@ -143,13 +144,16 @@ async function homeView(
     "run_again",
     "rerun_hosted",
   ];
+  const currentRunId = latestSurface ? runSurfaceCurrentRunId(latestSurface) : null;
   const nextAction = latestSurface
-    ? priority.find((action) => latestSurface.actions.includes(action))
+    ? priority.find((action) => latestSurface.actions.includes(action)
+      && (action !== "retry" || currentRunId !== null))
     : undefined;
   const nextButton = nextAction && latestSurface
     ? button(
-        `cog:surface:${latestSurface.id}:${nextAction}`,
+        `cog:surface:${latestSurface.id}:${nextAction}${nextAction === "retry" ? `:${currentRunId}` : ""}`,
         {
+          retry: "Retry",
           publish_result: "Publish result",
           promote_official: "Promote to official",
           verify_hosted: "Verify hosted",
@@ -441,9 +445,21 @@ function surfaceAction(interaction: DiscordInteraction): {
   surfaceId: string;
   action: string;
   confirmed: boolean;
+  runId?: string;
 } | null {
   const parts = interaction.data?.custom_id?.split(":") ?? [];
   if (parts.length < 4 || parts[0] !== "cog" || parts[1] !== "surface") return null;
+  if (parts[3] === "retry") {
+    const target = RetryRunRequestSchema.safeParse({ runId: parts[4] });
+    return {
+      surfaceId: parts[2] ?? "",
+      action: "retry",
+      confirmed: parts.length === 6 && parts[5] === "confirm",
+      runId: target.success && parts[4] !== "confirm"
+        && (parts.length === 5 || (parts.length === 6 && parts[5] === "confirm"))
+        ? target.data.runId : undefined,
+    };
+  }
   return {
     surfaceId: parts[2] ?? "",
     action: parts[3] ?? "",
@@ -476,6 +492,15 @@ async function surfaceActionView(
   const snapshot = await portal.getRunSurface(guildId, user.id, request.surfaceId);
   if (!snapshot) return message("That run surface is no longer available.");
   const fmt = emojiFormatter(interaction.application_id);
+  if (request.action === "retry") {
+    if (!request.runId) return message("That Retry button has no valid execution ID. Refresh the team bench.");
+    // Only the original button chooses a target. Confirmation replays must let
+    // the server settle that target even after the snapshot has moved on.
+    if (!request.confirmed && (!snapshot.actions.includes("retry")
+      || runSurfaceCurrentRunId(snapshot) !== request.runId)) {
+      return message("That Retry button is out of date. Refresh the team bench.");
+    }
+  }
   if (request.action === "run_again") {
     const result = await portal.getRerunCommand(guildId, user.id, request.surfaceId);
     return componentMessage(
@@ -500,6 +525,7 @@ async function surfaceActionView(
     "promote_official",
     "publish_result",
     "rerun_hosted",
+    "retry",
   ]);
   if (!mutations.has(request.action as SurfaceMutation)) return message("That run action is not available.");
   const action = request.action as SurfaceMutation;
@@ -509,6 +535,12 @@ async function surfaceActionView(
       SurfaceMutation,
       { title: string; detail: string; label: string; style: 1 | 4; extra?: string[] }
     > = {
+      retry: {
+        title: "Retry this run?",
+        detail: "This retries the failed execution with the same source and keeps the result in this view.",
+        label: "Retry",
+        style: 1,
+      },
       verify_hosted: {
         title: "Verify this exact commit?",
         detail: "A hosted run scores this exact commit on the course machines and records what it sees. It's practice, and it uses one of this benchmark's hosted practice runs.",
@@ -544,7 +576,7 @@ async function surfaceActionView(
           text(`### ${prompt.title}\n${receipt(snapshot, fmt, prompt.extra)}\n\n${prompt.detail}`),
           separator(),
           actionRow(
-            button(`cog:surface:${snapshot.id}:${action}:confirm`, prompt.label, prompt.style),
+            button(`cog:surface:${request.surfaceId}:${action}${action === "retry" ? `:${request.runId}` : ""}:confirm`, prompt.label, prompt.style),
             button("cog:home", "Not now", 2),
           ),
         ],
@@ -554,13 +586,15 @@ async function surfaceActionView(
   }
 
   const updated =
-    action === "verify_hosted"
-      ? await portal.verifyHosted(guildId, user.id, snapshot.id)
-      : action === "promote_official"
-        ? await portal.promoteOfficial(guildId, user.id, snapshot.id)
-        : action === "publish_result"
-          ? await portal.publishResult(guildId, user.id, snapshot.id)
-          : await portal.rerunHosted(guildId, user.id, snapshot.id);
+    action === "retry"
+      ? await portal.retryRun(guildId, user.id, request.surfaceId, request.runId!)
+      : action === "verify_hosted"
+        ? await portal.verifyHosted(guildId, user.id, snapshot.id)
+        : action === "promote_official"
+          ? await portal.promoteOfficial(guildId, user.id, snapshot.id)
+          : action === "publish_result"
+            ? await portal.publishResult(guildId, user.id, snapshot.id)
+            : await portal.rerunHosted(guildId, user.id, snapshot.id);
   const portalUrl = safePortalUrl(portalOrigin, `/run-surfaces/${updated.id}`);
   return componentMessage(
     [

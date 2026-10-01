@@ -8,10 +8,12 @@ import {
   ACTIVE_RUN_POLL_MS,
   isBenchmarkScopedStep,
   isTerminal,
+  shouldReplaceRunSurfaceSnapshot,
+  type RunSurfaceSnapshot,
   type AdminOverview,
   type AdminStaffRoster,
 } from "@cogworks/contracts/schema";
-import { api } from "./api";
+import { api, type RunSurfaceMutationInput } from "./api";
 import { CHECKLIST_MACHINE_STEPS } from "./setup-progress";
 
 /** Only used before the benchmark list resolves, as a first-render probe.
@@ -122,15 +124,12 @@ export function useRunSurface(surfaceId: string) {
 export function useMutateRunSurface() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({
-      surfaceId,
-      action,
-    }: {
-      surfaceId: string;
-      action: "verify_hosted" | "promote_official" | "publish_result" | "rerun_hosted";
-    }) => api.mutateRunSurface(surfaceId, action),
+    mutationFn: (input: RunSurfaceMutationInput) => input.action === "retry"
+      ? api.mutateRunSurface(input.surfaceId, "retry", { runId: input.runId })
+      : api.mutateRunSurface(input.surfaceId, input.action),
     onSuccess: (snapshot) => {
-      qc.setQueryData(["run-surface", snapshot.id], snapshot);
+      qc.setQueryData<RunSurfaceSnapshot>(["run-surface", snapshot.id], (current) =>
+        !current || shouldReplaceRunSurfaceSnapshot(current, snapshot) ? snapshot : current);
       void qc.invalidateQueries({ queryKey: ["dashboard"] });
       void qc.invalidateQueries({ queryKey: ["runs"] });
     },

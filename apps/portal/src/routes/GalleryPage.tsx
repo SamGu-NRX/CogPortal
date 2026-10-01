@@ -1,4 +1,5 @@
 import { CopyBlock } from "@/components/CopyBlock";
+import { FailureCard } from "@/components/FailureCard";
 import { Step, StepRail } from "@/components/StepRail";
 import { Finding } from "@/components/Finding";
 import { Panel } from "@/components/Panel";
@@ -326,6 +327,21 @@ export function GalleryPage() {
       <p className="mt-2 max-w-prose text-[14px] text-ink-secondary">
         States that need a specific run to reach. Development only.
       </p>
+
+      <section className="mt-10 space-y-3">
+        <h2 className="font-serif text-xl font-semibold text-ink">Failed execution with recorded findings</h2>
+        <p className="text-[13px] text-ink-faint">Saved failure details. Recovery actions belong to the current run console.</p>
+        <FailureCard
+          failure={{ category: "provider", phase: "evaluating", detail: "Runner stopped reporting before completion.", consumedAttempt: false }}
+          mode="official"
+          benchmarkId="audio-identification"
+          module="audio"
+        >
+          <p className="text-[13px] text-ink-secondary">Saved results</p>
+          <Finding sentence="The fingerprints were measured before execution stopped." />
+          <SupportingMetrics metrics={[metric()]} rolesRecorded={false} />
+        </FailureCard>
+      </section>
 
       <h2 className="mt-10 font-serif text-xl font-semibold text-ink">Finding</h2>
       {CASES.map((example) => (
