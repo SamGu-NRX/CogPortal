@@ -30,14 +30,15 @@ export interface BenchmarkPackage {
  * reaches that through this page, which serves whichever pin its own deploy
  * carries, but `--portal` at an older deployment does.
  *
- * `6facb9a` is the beta branch's own commit, so the CLI a student installs
- * here is the SDK this deploy was built with. The previous pin, `40d31a2`,
- * predated the report's `command` field, the adapter-file line in `check`,
- * and #12's interrupt and private-copy fixes. It was installed from this
- * exact URL and its files compared with the commit before this pin moved.
+ * `b6bbffb` is the beta branch's own commit, so the CLI a student installs
+ * here is the SDK the hosted images bake. It carries #53, which keeps a
+ * per-item None (a photo with no face) when a step reads one tuple element;
+ * the previous pin, `6facb9a`, raised on it locally just as hosted runs did.
+ * It was installed from this exact URL and its files compared with the
+ * commit before this pin moved.
  */
 export const COGBENCH_SOURCE =
-  "git+https://github.com/SamGu-NRX/CogPortal.git@6facb9af2468de3682abfb8cb6044ab27c2fceba#subdirectory=python/cogbench";
+  "git+https://github.com/SamGu-NRX/CogPortal.git@b6bbffbcc97a82f52f832cdeaa9da9df938b0c9a#subdirectory=python/cogbench";
 
 const WEEK1_AUDIO: BenchmarkPackage = {
   distribution: "cogworks-week1-audio-benchmark",
