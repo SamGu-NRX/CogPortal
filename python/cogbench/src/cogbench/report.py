@@ -15,7 +15,7 @@ function that returns the wrong thing is theirs to read.
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from .plugins import benchmark_install_command
 from .resolve import SubmissionReport
@@ -155,6 +155,23 @@ def _is_a_routine_skip(entry: Dict[str, object]) -> bool:
 
     detail = str(entry.get("detail", ""))
     return detail.startswith(("FileNotFoundError", "EOFError"))
+
+
+def _branch_rows(record: Dict[str, object]) -> Tuple[List[Tuple[str, str]], List[Tuple[str, str]]]:
+    """What a role made of branches bound and what it did not, as report rows.
+
+    Such a role leaves `chain` and the trace empty on purpose (see
+    `Submission.ready`), so without these rows a ready Week 3 check said its
+    code was wired up and named none of it. The side-input functions come
+    first because every branch was called with what they produced.
+    """
+
+    wired = [(name, label) for name, label in record.get("fits", [])]
+    wired += [
+        (name, " then ".join(labels)) for name, labels in record.get("branches", {}).items()
+    ]
+    not_found = [(name, entry["detail"]) for name, entry in record.get("missing", {}).items()]
+    return wired, not_found
 
 
 def render_check(
@@ -325,10 +342,13 @@ def render_check(
         (step.stage, step.function)
         for step in verdict.trace
     ] or [("", step) for step in chain]
+    not_found: List[Tuple[str, str]] = []
+    if not steps and attempt is None:
+        steps, not_found = _branch_rows(submission.record or {})
     if steps or attempt is not None:
         lines.append("")
         lines.append("Wired up:")
-        labels = [stage for stage, _ in steps]
+        labels = [stage for stage, _ in steps] + [branch for branch, _ in not_found]
         if attempt is not None:
             labels += ["store", "query"]
         # Sized to the widest label rather than fixed, because a function that
@@ -340,6 +360,10 @@ def render_check(
         if attempt is not None:
             lines.append("  {:<{}} {}".format("store", width, attempt.enroll))
             lines.append("  {:<{}} {}".format("query", width, attempt.query))
+        if not_found:
+            lines.append("Not wired up:")
+            for branch, detail in not_found:
+                lines.append("  {:<{}} {}".format(branch, width, detail))
 
     lines.append("")
     lines.append(verdict.headline)
