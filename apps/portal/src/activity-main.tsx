@@ -263,7 +263,7 @@ function ActivityApp() {
         <section className="w-full max-w-lg border border-rule bg-paper-raised p-7 shadow-[0_18px_55px_rgb(28_38_55/0.08)]">
           <div className="u-kicker">Discord Activity</div>
           <h1 className="mt-3 text-4xl">Open the live bench from Discord.</h1>
-          <p className="mt-4 text-[14px] text-ink-secondary">Use <code>/cog</code> in your team channel, then choose <strong>Open live console</strong>. Your linked Discord identity decides which team surfaces you can see.</p>
+          <p className="mt-4 text-[14px] text-ink-secondary">Use <code>/cog</code> in your team channel, then choose <strong>Open live console</strong>.</p>
           <a className="mt-6 inline-flex min-h-11 items-center bg-ink px-5 text-[13px] font-medium text-paper-raised" href={PORTAL_ORIGIN}>Open Cog*Portal</a>
         </section>
       </main>
@@ -339,7 +339,7 @@ function ActivityApp() {
           <section className="mx-auto mt-[12vh] max-w-lg border border-rule bg-paper-raised p-7 text-center">
             <div className="u-kicker">Bench ready</div>
             <h1 className="mt-3 text-4xl">No shared runs yet.</h1>
-            <p className="mt-4 text-[14px] text-ink-secondary">Start with <code>cogworks run --live</code>. Cog will keep one message and this console current for the team.</p>
+            <p className="mt-4 text-[14px] text-ink-secondary">Start one with <code>cogworks run --live</code>.</p>
           </section>
         )}
       </main>

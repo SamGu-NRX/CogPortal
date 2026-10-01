@@ -210,8 +210,8 @@ export function RunDetailPage() {
           // student needs at the moment a run fails.
           note={
             run.mode === "official"
-              ? "A failed official attempt doesn't use up one of your team's attempts."
-              : "A run that fails doesn't count against your team's practice runs."
+              ? "A failed official attempt doesn't use one up."
+              : "A failed run doesn't count against your practice runs."
           }
         >
           <FailureCard
@@ -264,17 +264,6 @@ export function RunDetailPage() {
 
       {/* ── Pipeline ── */}
       <Section title="Pipeline" first={live}>
-        {live && (
-          <p className="mb-4 max-w-[60ch] text-[14.5px] leading-[1.55] text-ink-secondary">
-            Still running. This page checks back on its own, and what the run
-            shows will appear here once it has been scored.
-          </p>
-        )}
-        {run.status === "succeeded" && duration && (
-          <p className="mb-4 text-[14.5px] text-ink-secondary">
-            Every stage finished, <span className="u-tnum">{duration}</span> from start to end.
-          </p>
-        )}
         <PhaseRail status={run.status} failure={run.failure} phases={run.phases} showTimings />
         {run.status === "queued" && (
           <p className="mt-5 max-w-[60ch] text-[14px] leading-[1.55] text-ink-secondary">
@@ -284,7 +273,7 @@ export function RunDetailPage() {
         {live && (
           <p className="mt-5 border-t border-rule-soft pt-3 font-mono text-[12px] text-ink-faint">
             {run.mode === "official"
-              ? "Hidden evaluation; logs are suppressed."
+              ? "Logs are kept back for official attempts."
               : "Updates every 2 s."}
           </p>
         )}
@@ -486,13 +475,7 @@ function Results({
           The number is below, where a reading sits under the trace that
           explains it. */}
       <section aria-label={FINDING_KICKER} className="mt-10">
-        <NoteAfter
-          note={
-            hasFinding
-              ? "The benchmark's scorer wrote this sentence from the numbers it measured, so it only says what the run observed."
-              : undefined
-          }
-        >
+        <NoteAfter>
           {hasFinding ? (
             <Finding sentence={run.diagnostics[0]} supporting={run.diagnostics.slice(1)} />
           ) : (
@@ -502,11 +485,9 @@ function Results({
             <div>
               <p className="u-label">{FINDING_KICKER}</p>
               <p className="mt-2 max-w-[36rem] font-serif text-[19px] leading-[1.4] text-ink-secondary italic sm:text-[21px]">
-                {run.sweep
-                  ? "The scorer didn't write a sentence for this run. Its curve is below, with the readings under it."
-                  : hasReadings
-                    ? "The scorer didn't write a finding for this run. Its readings are below."
-                    : "The scorer didn't write a finding or record any readings for this run."}
+                {run.sweep || hasReadings
+                  ? "The scorer didn't write a finding for this run."
+                  : "The scorer didn't write a finding or record any readings for this run."}
               </p>
             </div>
           )}
@@ -552,22 +533,18 @@ function Results({
                 <Link to={`/runs/${previous.id}`} className="u-link not-italic">
                   {previousTag}
                 </Link>
-                , your team's previous {run.mode === "official" ? "official attempt" : "practice run"}
+                , your previous {run.mode === "official" ? "official attempt" : "practice run"}
                 {previous.branch !== "detached" ? <> on {previous.branch}</> : null}.
               </span>
-            ) : run.mode === "practice" ? (
-              "These come from the public practice split. An official attempt reruns the same commit on hidden inputs, so its numbers can differ."
-            ) : run.parentRunId ? (
+            ) : run.mode === "official" && run.parentRunId ? (
               <>
-                These come from the hidden official split, so they can differ from{" "}
+                Promoted from{" "}
                 <Link to={`/runs/${run.parentRunId}`} className="u-link not-italic">
                   {runNumberLabel(run.parentRunId)}
                 </Link>
-                , the practice run this attempt was promoted from.
+                .
               </>
-            ) : (
-              "These come from the hidden official split, so they can differ from a practice run of the same commit."
-            )
+            ) : undefined
           }
         >
           {previous && (
@@ -590,8 +567,7 @@ function Results({
             // Named, not manufactured. A zero or an invented overall would be
             // a score the scorer refused to give.
             <p className="max-w-[60ch] border-b border-rule pb-4 text-[14.5px] leading-[1.6] text-ink">
-              This run has no overall score. Everything the scorer could
-              measure is below.
+              This run has no overall score.
             </p>
           )}
           <div className="mt-1">
@@ -723,10 +699,7 @@ function PromoteSection({
   const remaining = quota ? Math.max(0, quota.officialLimit - quota.officialUsed) : null;
 
   return (
-    <Section
-      title="Official attempt"
-      note={`Official attempts are shared by the whole team, ${OFFICIAL_LIMIT} per benchmark version, and an attempt that fails doesn't use one up.`}
-    >
+    <Section title="Official attempt">
       {/* The server refuses a promotion of a run that is not about the
           connected repository, or whose saved environment can no longer be
           reused, so the control is not offered. Saying why beats a button
@@ -745,18 +718,15 @@ function PromoteSection({
       ) : run.promotedTo ? (
         <>
           <p className="max-w-[60ch] text-[14.5px] leading-[1.55] text-ink-secondary">
-            This run was promoted to {officialAttemptLabel(run.promotedTo.attemptNumber)}, which
-            reruns <span className="font-mono text-[13px] text-ink">{run.shortSha}</span> against
-            the hidden inputs.
+            Promoted to {officialAttemptLabel(run.promotedTo.attemptNumber)}.
           </p>
           <PromotedAttemptLink promotedTo={run.promotedTo} />
         </>
       ) : (
         <>
           <p className="max-w-[60ch] text-[14.5px] leading-[1.55] text-ink-secondary">
-            Promoting reruns <span className="font-mono text-[13px] text-ink">{run.shortSha}</span>{" "}
-            against the hidden official inputs, with logs suppressed. Only an official attempt can
-            go on the leaderboard.
+            Reruns <span className="font-mono text-[13px] text-ink">{run.shortSha}</span> on the
+            hidden inputs, with logs kept back. Only official attempts can go on the leaderboard.
           </p>
           <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-3">
             <ConfirmButton
@@ -772,16 +742,18 @@ function PromoteSection({
               disabled={!quota || exhausted}
             />
             {remaining !== null && (
-              <span className="u-tnum font-mono text-[12.5px] text-ink-secondary">
-                {remaining} official {remaining === 1 ? "attempt" : "attempts"} left
+              <span className="text-[14px] text-ink-secondary">
+                <span className="u-tnum font-semibold text-ink">
+                  {remaining} of {quota?.officialLimit ?? OFFICIAL_LIMIT}
+                </span>{" "}
+                official attempts left for the team on this version; a failed one doesn't count.
               </span>
             )}
           </div>
           {exhausted && (
             <p className="mt-3 max-w-[60ch] text-[14px] leading-[1.55] text-detect-deep">
-              All official attempts are used for this benchmark version. Your
-              existing successful official runs can still be selected for the
-              leaderboard.
+              All official attempts on this version are used. You can still
+              publish any successful official attempt.
             </p>
           )}
           {/* Here, under the button that failed. This used to sit in the
@@ -805,14 +777,7 @@ function PromoteSection({
 function PublishSection({ run }: { run: RunDetail }) {
   const select = useSelectResult();
   return (
-    <Section
-      title={run.selected ? "Published" : "Publish"}
-      note={
-        run.selected
-          ? undefined
-          : "The leaderboard shows one result per team, and it's whichever official run you choose."
-      }
-    >
+    <Section title={run.selected ? "Published" : "Publish"}>
       {run.selected ? (
         <p className="flex max-w-[60ch] items-baseline gap-2 text-[14.5px] leading-[1.55] text-ink">
           <HugeiconsIcon
@@ -836,8 +801,8 @@ function PublishSection({ run }: { run: RunDetail }) {
       ) : (
         <>
           <p className="max-w-[60ch] text-[14.5px] leading-[1.55] text-ink-secondary">
-            You can switch to another successful official run at any time,
-            at no cost.
+            The leaderboard shows one result per team. You can switch to another successful
+            official run at any time, at no cost.
           </p>
           <ConfirmButton
             variant="primary"

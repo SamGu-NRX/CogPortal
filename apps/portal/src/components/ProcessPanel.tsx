@@ -8,7 +8,6 @@ import { EASE_OUT } from "@/lib/motion";
 import { useTeamProcess } from "@/lib/queries";
 import { LoadingMark, QueryError } from "./Feedback";
 import { MemberAvatar } from "./MemberAvatar";
-import { Annotated } from "./Note";
 import { ShaChip } from "./ShaChip";
 
 /**
@@ -20,9 +19,7 @@ import { ShaChip } from "./ShaChip";
  * The constraint that shapes every decision below: no per-person totals, no
  * percentages, no badges, no ordering of members, anywhere. A stage says who
  * touched it, never how much. Anything that could be read as a grade by a
- * seventeen-year-old is not drawn, whatever caveat sits beside it. The margin
- * note says this to the students too, because a list of names beside stages
- * is exactly where a reader goes looking for a scoreboard.
+ * seventeen-year-old is not drawn, whatever caveat sits beside it.
  *
  * It is drawn as a page of the team's notebook: the findings written out,
  * then the pipeline's stages on one time axis with the day the pipeline first
@@ -37,7 +34,6 @@ export function ProcessPanel({ members }: { members: TeamDetail["members"] }) {
   const [open, setOpen] = useState(readStoredOpen);
   const reduced = useReducedMotion();
   const bodyId = useId();
-  const noteId = useId();
   const titleId = useId();
 
   const toggle = () => {
@@ -52,16 +48,13 @@ export function ProcessPanel({ members }: { members: TeamDetail["members"] }) {
       <div className="border-t border-rule pt-5 lg:max-w-[42rem]">
         {/* The heading is the toggle, so the whole title row is the hit
             target and a screen reader hears "Where the work went, expanded"
-            in one breath. The note is its description rather than part of
-            its name, and stays on the page when the section is closed, so a
-            closed section still says what it reads and why. */}
+            in one breath. */}
         <h2 id={titleId} className="text-[1.375rem] text-ink">
           <button
             type="button"
             onClick={toggle}
             aria-expanded={open}
             aria-controls={bodyId}
-            aria-describedby={noteId}
             className="group -mx-2 flex min-h-11 w-[calc(100%+1rem)] items-center justify-between gap-3 rounded-control px-2 text-left"
           >
             <span>Where the work went</span>
@@ -80,31 +73,21 @@ export function ProcessPanel({ members }: { members: TeamDetail["members"] }) {
         </h2>
       </div>
 
-      <Annotated
-        className="mt-2"
-        note={
-          <span id={noteId}>
-            We read your recent commits and your runs. A stage shows who has worked on it, never
-            how much, so nothing here counts anything per person.
-          </span>
-        }
-      >
-        <div id={bodyId}>
-          {open && (
-            <div className="anim-reveal">
-                <div className="pt-1 pb-1">
-                  {process.isError ? (
-                    <QueryError error={process.error} retry={() => void process.refetch()} />
-                  ) : process.data ? (
-                    <Signals signals={process.data} members={members} />
-                  ) : (
-                    <LoadingMark label="Reading commits and runs" />
-                  )}
-                </div>
+      <div id={bodyId} className="mt-2 lg:max-w-[42rem]">
+        {open && (
+          <div className="anim-reveal">
+            <div className="pt-1 pb-1">
+              {process.isError ? (
+                <QueryError error={process.error} retry={() => void process.refetch()} />
+              ) : process.data ? (
+                <Signals signals={process.data} members={members} />
+              ) : (
+                <LoadingMark label="Reading commits and runs" />
+              )}
             </div>
-          )}
-        </div>
-      </Annotated>
+          </div>
+        )}
+      </div>
     </section>
   );
 }
@@ -221,18 +204,14 @@ function Stages({
   const stages = Object.entries(signals.stageFootprint);
   const reason = stages.find(([, activity]) => activity.unavailableReason)?.[1].unavailableReason;
 
+  // With no scored run there is no stage map at all, so the section is left
+  // out; the findings above already say no run has scored.
+  if (stages.length === 0) return null;
+
   return (
     <section className="mt-7">
       <h3 className="u-label">Stages of the pipeline</h3>
-      {/* No stages beats an unreadable history: with no scored run there is no
-          stage map at all, so there is nothing for a history reason to be
-          about. The findings above still carry that reason. */}
-      {stages.length === 0 ? (
-        <p className="mt-1.5 max-w-prose text-[14.5px] text-ink-secondary">
-          Stages appear here after a run scores. The run is what tells the portal which week's
-          pipeline to read your files against.
-        </p>
-      ) : reason ? (
+      {reason ? (
         <p className="mt-1.5 max-w-prose text-[14.5px] text-ink-secondary">
           Stages aren't shown here because {reason}.
         </p>
