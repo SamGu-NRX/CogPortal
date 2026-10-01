@@ -2,7 +2,6 @@ import { useState } from "react";
 import { Navigate, useNavigate } from "react-router";
 import { Button } from "@/components/Button";
 import { DroppedLinkNotice } from "@/components/DroppedLinkNotice";
-import { Annotated } from "@/components/Note";
 import { OnboardingPath } from "@/components/OnboardingPath";
 import { ApiRequestError } from "@/lib/api";
 import { useJoinCohort, useSession } from "@/lib/queries";
@@ -48,22 +47,9 @@ export function JoinPage() {
       <DroppedLinkNotice className="mt-8 max-w-[27rem]" />
       <header className="mt-10 max-w-[27rem]">
         <h1 className="text-[clamp(2rem,1.5rem+2vw,2.5rem)] text-ink">Join the cohort</h1>
-        <p className="mt-3 text-[16px] leading-[1.6] text-ink-secondary">
-          A cohort is this summer's class. Your instructor's join code puts you
-          in it, so you'll see your classmates' teams and this year's
-          leaderboard.
-        </p>
       </header>
 
-      <Annotated
-        className="mt-8 gap-y-4 max-lg:max-w-[27rem]"
-        note={
-          <>
-            You only do this once. Everyone in the class uses the same code, so
-            if you don't have it, a classmate or a TA does.
-          </>
-        }
-      >
+      <div className="mt-8 max-w-[27rem]">
         <form onSubmit={submit}>
           <label htmlFor="join-code" className="u-label block">
             Join code
@@ -100,7 +86,7 @@ export function JoinPage() {
             Join the cohort
           </Button>
         </form>
-      </Annotated>
+      </div>
     </div>
   );
 }

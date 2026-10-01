@@ -125,7 +125,7 @@ export function queryErrorState(error: unknown): QueryErrorState {
         tone: "default",
         label: "SESSION ENDED",
         message:
-          "Your session ended, so the portal no longer recognizes this browser. Sign in again to continue.",
+          "Your session ended. Sign in again to continue.",
         nextStep: null,
         retry: false,
         link: { to: "/signin", text: "Sign in" },
@@ -139,7 +139,7 @@ export function queryErrorState(error: unknown): QueryErrorState {
         tone: "default",
         label: "COHORT REQUIRED",
         message:
-          "This view belongs to a cohort, and you haven't joined one yet. Join with the code your instructor shared.",
+          "You haven't joined a cohort yet. Join with the code your instructor shared.",
         nextStep: null,
         retry: false,
         link: { to: "/join", text: "Join a cohort" },
@@ -153,7 +153,7 @@ export function queryErrorState(error: unknown): QueryErrorState {
         tone: "default",
         label: "TEAM REQUIRED",
         message:
-          "This view belongs to a team, and you're not on one yet. Connect a repository and the team exists.",
+          "You're not on a team yet.",
         nextStep: null,
         retry: false,
         link: { to: "/connect", text: "Connect a repository" },
