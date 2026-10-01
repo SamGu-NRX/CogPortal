@@ -76,7 +76,7 @@ A succeeded hosted practice candidate is required. Another active execution bloc
 
 A failed official execution does not require a new practice candidate merely to try again. Use Retry for that failure. Repeated promotion is not the recovery action; the current official execution remains attached to the same view.
 
-Publication has two: "Only a succeeded official run can be published." (`run-actions.ts:426`) and "Run not found.". It also runs the same live GitHub write-access check that promotion does (`run-actions.ts:416`), so the three permission sentences apply to it as well.
+Publication has two: "Only a succeeded official run can be published." (`run-actions.ts:426`) and "Run not found.". It also refuses a run the leaderboard can't rank, one scored under an older scorer or without the measure the board ranks, by name (`rankingRefusal` in `worker/services/run-eligibility.ts`). The run page and the console both carry that sentence in place of the Publish control, so a student reads it before confirming anything, and the team's existing public entry is untouched. It also runs the same live GitHub write-access check that promotion does (`run-actions.ts:416`), so the three permission sentences apply to it as well.
 
 When the client cannot read a reason it substitutes one: "The promotion couldn't be started. Try again." on the run page (`RunDetailPage.tsx:308`), and "That action could not be completed." on the console (`apps/portal/src/routes/RunSurfacePage.tsx:56`).
 
