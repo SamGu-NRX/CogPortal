@@ -177,8 +177,9 @@ async function homeView(
   const fmt = emojiFormatter(interaction.application_id);
   const latestLine = latestSurface
     ? metaLine([
-        `${fmt(surfaceMark(latestSurface.status))} **${latestSurface.benchmark.title}**`,
+        `${fmt(surfaceMark(latestSurface))} **${latestSurface.benchmark.title}**`,
         latestSurface.stage,
+        latestSurface.silentSince !== null ? "lost contact" : null,
         latestSurface.primaryMetric ? `**${metricValue(latestSurface.primaryMetric)}**` : null,
       ])
     : `${fmt("cog_flask")} The bench is ready. No shared runs yet.`;
@@ -223,10 +224,11 @@ async function homeView(
   );
 }
 
-function surfaceMark(status: RunSurfaceSnapshot["status"]): EmojiName {
+function surfaceMark({ status, silentSince }: RunSurfaceSnapshot): EmojiName {
   if (status === "succeeded") return "cog_done";
   if (status === "failed" || status === "cancelled") return "cog_fail";
-  return "cog_active";
+  // Still running as far as the portal knows, but nothing has been heard.
+  return silentSince === null ? "cog_active" : "cog_pend";
 }
 
 async function connectView(
