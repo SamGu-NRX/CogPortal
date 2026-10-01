@@ -54,30 +54,36 @@ It does not settle everything, and the checklist marks the difference. These ite
 
 ## Results so far
 
-The tables were re-read against `2ff32fa` on 2026-10-01 and carry 401 items. A Result moved only where an existing artifact exercised the whole claim on a named build; reading code moved nothing.
+Three builds matter, and every Result names one:
 
-| File | Items | pass (candidate) | fail | retired | not run, partial or beta only |
-| --- | --- | --- | --- | --- | --- |
-| `portal.md` | 166 | 29 | 2 | 2 | 133 |
-| `terminal.md` | 86 | 0 | 0 | 1 | 85 |
-| `discord.md` | 45 | 0 | 0 | 0 | 45 |
-| `sandbox.md` | 104 | 6 | 0 | 1 | 97 |
+- **`2ff32fa`, the source and UI candidate.** What the documents describe. Observed only locally, on fixture data.
+- **`ed2b194`, the deployed redesigned beta.** `2ff32fa` merged with hosted beta `4984730` (so it carries #46, #53 and CLI pin `b6bbffb`), live as Worker version `0b452503-80b8-44bc-b60d-a04a38cc5175` with the runner unchanged at Modal v44 from `4984730`. All eight CI lanes pass. Observed in the combined local acceptance (`CogPortal-qa-video-20260930/outputs/beta-qa/ed2b194-acceptance.md`) and one real hosted Language run plus a real CLI pass (`beta-qa/live-language-ed2b194/README.md`).
+- **`cbd8266`, a local repair branch on `ed2b194`.** Source fixes for B-13 and B-14, reviewed and tested, website consumer included. Not deployed; nothing here is observed on it.
 
-Nearly every `pass` is a **local fixture** observation: a screenshot or clip of the redesign on seeded data, labeled Simulated. It shows that a screen renders a state, not that the state is reached by real execution. The `fail` rows cite their artifact. Rows marked `on beta only` were exercised by the two hosted Recognition runs on beta (`4984730` lineage) and stay `not run` for the candidate.
+| File | Items | pass, local fixture | pass on deployed `ed2b194` | fail | retired | not run, partial or beta only |
+| --- | --- | --- | --- | --- | --- | --- |
+| `portal.md` | 166 | 28 | 3 | 2 | 2 | 131 |
+| `terminal.md` | 86 | 0 | 1 | 0 | 1 | 84 |
+| `discord.md` | 45 | 0 | 0 | 0 | 0 | 45 |
+| `sandbox.md` | 104 | 6 | 1 | 0 | 1 | 96 |
 
-No document is `verified`, because each still has P1 or P2 items that need one of the gaps below.
+A local fixture `pass` shows a screen renders a state on seeded, Simulated data. A deployed `pass` was exercised end to end on `ed2b194`. Rows marked `on beta only` came from the two pre-redesign hosted Recognition runs (`4984730` lineage).
+
+No document is `verified`; each still has P1 or P2 items behind one of the gaps below.
 
 ## Evidence gaps
 
-These are the observations that block `verified`, with what each needs. The release owner schedules them after the combined UI acceptance; none needs work in this directory first.
+Covered since the last revision, on deployed `ed2b194`: a fresh hosted Language run (`run_d11b5e5e2e`, succeeded, 9 cases, 19 metrics, 15 m 38 s, of which Install was 7 m 37 s with progress shown throughout), and the current CLI's `check --update-setup`, `run` and `sync` with Setup reaching 5/5. The CLI pass reused local source equal to the `b6bbffb` pin and needed course packages added by hand, so it does not prove a fresh setup from the page's lines alone.
+
+What still blocks `verified`, with what each needs. The release owner schedules these.
 
 | Gap | What it unblocks | Needs | Command or procedure |
 | --- | --- | --- | --- |
-| Fresh hosted Language execution | `SCORE-*` withheld and finding rows, `CROSS-14`/`-15`, `BOARD-10`, B-50, B-68 | A Modal-backed portal at the combined build, a Language repository with and one without a trained `(512, D)` projection | Start a hosted practice run of each, then promote and publish the withheld one and open the Language board and the team channel. |
-| Hosted Audio and Clustering | Every benchmark kind other than Recognition | Same, with an Audio and a Clustering repository | One hosted practice run each; read the finding line and readings. |
-| Recognition on the candidate | B-44 and B-45 on the combined build | A Modal image built from the combined tree after `git submodule sync --recursive && git submodule update --init` | Hosted practice run of `SamGu-NRX/week2_capstone@29f9cf94` on `vision-recognition` v2. Before #53 is ported, expect E-RUNTIME "'NoneType' object is not subscriptable". |
-| Current CLI setup, link, run and sync | Every `terminal.md` row, `SETUP-*` CLI rows, B-02, B-16, B-47, B-59 | A fresh course conda env and a test team | Run the setup page's tool line, then `cogworks link --portal <origin>`, `cogworks status`, `cogworks check --benchmark <id> --update-setup`, `cogworks run --benchmark <id>`, `cogworks sync`. Record `direct_url.json` first. |
-| Live session after a lost heartbeat | B-13 (repair active in Opus thread `58cdb791`) | A linked device and a bound channel | `cogworks run --benchmark <id> --live`, then close the terminal window mid-run; watch the bubble and the console for an hour. |
-| Instructor write operations | `ADMIN-*` mutations, B-53, B-65, B-66 | An owner account, a second staff login, a TA assignment | Add staff, assign a TA, rotate the code, close enrollment, assign a student, remove a member; read each result as owner and as the TA. |
-| Discord and the Activity | Every `discord.md` row, B-49, B-54 to B-58, B-64 | The course guild with the bot registered against the combined portal, a bindable channel, two linked members | Link from `/cog`, bind a channel, start a hosted run from the browser, promote from `/cog`, open the Activity. |
-| Physical phone | The 390 px claims, which were emulated | An iPhone and an Android phone | Walk sign-in to the Runs page and a failed run page. |
+| A withheld Language run | `SCORE-01` to `-04`, `RUNPAGE-02`/`-03`, `BOARD-10`, B-50 | A Language repository with no trained `(512, D)` projection, on `ed2b194` | Hosted practice run, then promote and publish it and open the Language board. |
+| Hosted Audio and Clustering | Every benchmark kind other than Recognition and Language | One repository of each, on `ed2b194` | One hosted practice run each; read the finding line and readings. |
+| Official promotion and publication | `PROMOTE-*`, `RUNREC-04`, `CROSS-15`, B-51, B-67 | A succeeded practice run and one official attempt to spend | Promote, let it finish, publish, open the board signed out. |
+| Fresh setup from the page's lines | `SETUP-*` install rows, `CHECK-01` | A fresh course conda env with nothing preinstalled | Run each Setup line as printed, then `cogworks check --benchmark <id> --update-setup`. |
+| Live session after a lost heartbeat | B-13 on the deployed repair | `cbd8266` deployed, a linked device and a bound channel | `cogworks run --benchmark <id> --live`, close the terminal mid-run, watch the console and bubble move to lost contact. |
+| Persistent instructor writes | `ADMIN-*` mutations, B-53, B-65, B-66 | An owner, a second staff login, a TA assignment | Add staff, assign a TA, rotate the code, close enrollment, assign and remove a member; read each as owner and as TA. |
+| Discord and the Activity | Every `discord.md` row, B-49, B-54 to B-58, B-64 | The course guild with the bot on `ed2b194`, a bindable channel, two linked members | Link from `/cog`, bind a channel, start a hosted run, promote from `/cog`, open the Activity. |
+| Physical phone | The 390 px claims, all emulated | An iPhone and an Android phone | Walk sign-in to the Runs page and a failed run page. |
