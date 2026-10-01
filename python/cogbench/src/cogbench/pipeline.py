@@ -1345,77 +1345,57 @@ _THEIR_ROOT: Optional["Path"] = None
 #: alive until the search ends.
 _RAISED: List[Raised] = []
 
-#: Each plain function or class that ran out of its own `CALL_TIMEOUT_SECONDS`
-#: clock on a single item during this search, keyed by the way it was called
-#: (see `_timeout_key`) and the kinds of argument it was given (see `_kinds`).
-#: `_call` does not make that call again on arguments of those kinds. The
-#: value holds the candidate and the argument types, so no id in the key is
-#: reused while the search runs. Cleared with the scratch directory.
+#: Every call of a plain function or class that ran out of its own
+#: `CALL_TIMEOUT_SECONDS` clock during this search, by `_exact_call`. `_call`
+#: does not make the same call again. The value holds the callable and every
+#: argument the key names, so no id in a key is reused while the search runs.
+#: Cleared with the scratch directory.
 #:
-#: One item, as `_mapped` passes it, is the smallest piece of a stage's input,
-#: so a function that cannot answer it in time is doing work of its own, and
-#: every later stage, form and branch pass repeats that work for the same no.
-#: The kinds stay in the key because a function can be slow on one type and
-#: quick on another: Week 3's text stage is probed with whole captions and,
-#: after tokenizing, with token lists, and an embedder that times out on a
-#: caption string still binds on the tokens. A timeout with no arguments is
-#: not taken as evidence about other kinds either, because a default can be
-#: the slow path.
-#:
-#: Any other timeout stays a single no. A whole batch can be what made a call
-#: slow: Week 3's IDF fit passes all 414,113 COCO captions and the text branch
-#: then passes 75. So can a call with no arguments, whose defaults may load
-#: everything, or a folder reader dry-called before the benchmark writes its
-#: folder. A shape that also passes a side input is a different call, because
-#: a missing `idfs` can be what sends a function off to compute its own.
-#: Methods are left out because their cost depends on the object they run on,
-#: and so is a timeout from a clock some caller set, which says nothing about
-#: this call.
+#: Only the same call: the same function object handed the same argument
+#: objects, or item k of the same container in a per-item spread. A stage,
+#: shape, branch pass or form that reaches it again repeats work that already
+#: ran out of time on exactly these inputs. Nothing wider is inferred from a
+#: timeout, because the input can be what made it slow: the IDF fit passes
+#: all 414,113 COCO captions and the text branch then 75; a caption string
+#: and a token list can take different paths through one embedder; a default
+#: can load everything. Left out are methods, whose cost depends on the object
+#: they run on; `self_only` calls, which include folder readers dry-called
+#: before the benchmark writes their folder; and a timeout from a clock some
+#: caller set, which says nothing about this call.
 #:
 #: Measured on a 2026 Language repository in the course environment:
 #: `train.prep_data`, which parses all of GloVe and embeds every COCO
 #: caption, ran out of the clock 13 times in one check, 132 of its 295
-#: seconds against a 300-second limit. Three of those repeated a single-item
-#: call on the same kinds of argument.
-_TIMED_OUT: Dict[Tuple[Any, ...], Tuple[Candidate, Tuple[type, ...]]] = {}
+#: seconds against a 300-second limit, and `train.train` twice. Six of those
+#: fifteen were the same call made again.
+_TIMED_OUT: Dict[Tuple[Any, ...], Tuple[Any, ...]] = {}
 
 
-def _timeout_key(candidate: Candidate) -> Tuple[Any, ...]:
-    """The callable itself and the arguments the shape fills, not the label.
+def _exact_call(
+    candidate: Candidate,
+    args: Sequence[Any],
+    keywords: Dict[str, Any],
+    spread: Optional[Tuple[Any, int, Any]],
+) -> Tuple[Any, ...]:
+    """This call, as the function and the identity of what it is handed.
 
-    Two candidates can share a label (a pooled object replaced by another of
-    the same type), and the value kept in `_TIMED_OUT` holds the callable so
-    its id is not reused while the search runs. The tuning is part of the
-    call even when the plan is empty, because `_arguments` appends it.
+    ``spread`` is ``(container, index, item)`` for a per-item call. The item
+    is named by its container and index rather than by its own id, because
+    indexing an array makes a new row object every time. Only ids are hashed,
+    so a value or class of theirs is never hashed or compared.
     """
 
+    named: List[Any] = []
+    for arg in args:
+        if spread is not None and arg is spread[2]:
+            named.append(("item", id(spread[0]), spread[1]))
+        else:
+            named.append(id(arg))
     return (
         id(candidate.call),
-        candidate.plan,
-        candidate.keywords,
-        candidate.keyword_plan,
-        repr(candidate.tuning),
+        tuple(named),
+        tuple(sorted((name, id(value)) for name, value in keywords.items())),
     )
-
-
-def _kinds(positional: Sequence[Any]) -> Tuple[type, ...]:
-    """Each argument's type, then the first element's for a list or tuple.
-
-    The element is what separates the captions the text stage starts from
-    and the token lists it gets after tokenizing. Types are only compared by
-    identity and keyed by `id`, so a class of theirs is never hashed or
-    compared, and only an exact built-in list or tuple is indexed.
-    """
-
-    found: List[type] = []
-    for value in positional:
-        kind = type(value)
-        found.append(kind)
-        if (kind is list or kind is tuple) and value:
-            found.append(type(value[0]))
-        else:
-            found.append(type(None))
-    return tuple(found)
 
 
 def _record_raise(candidate: Candidate, error: BaseException) -> None:
@@ -1550,23 +1530,24 @@ def _their_root(modules: Sequence[Any]) -> Optional["Path"]:
 
 
 def _call(
-    candidate: Candidate, positional: Sequence[Any], index: Optional[int] = None
+    candidate: Candidate,
+    positional: Sequence[Any],
+    index: Optional[int] = None,
+    *,
+    spread: Optional[Tuple[Any, int, Any]] = None,
 ) -> Tuple[bool, Any]:
     """Call one candidate under a clock. Any failure is just a no.
 
     ``positional`` is what the chain carries: the value, or the arguments a
     fixture is made of. Everything else the call needs is on the candidate as
     a plan, and is filled in here so that this call and the one a scored run
-    makes later are produced by the same lines.
+    makes later are produced by the same lines. ``spread`` names the item of
+    a per-item call (see `_exact_call`).
 
     A no caused by their own code raising is written down first (see
     `_record_raise`); the search does not read it, and a refusal does.
     """
 
-    if candidate.attribute is None and _TIMED_OUT:
-        kinds = tuple(id(kind) for kind in _kinds(positional))
-        if (_timeout_key(candidate), kinds) in _TIMED_OUT:
-            return False, None
     if candidate.self_only:
         args, keywords = (), {}
     else:
@@ -1578,23 +1559,19 @@ def _call(
         inspect.signature(candidate.call).bind(*args, **keywords)
     except (TypeError, ValueError):
         return False, None
+    exact = None
+    if candidate.attribute is None and not candidate.self_only and _SCRATCH is not None:
+        exact = _exact_call(candidate, args, keywords, spread)
+        if exact in _TIMED_OUT:
+            return False, None
     own_clock = not hasattr(signal, "getitimer") or signal.getitimer(signal.ITIMER_REAL)[0] == 0
     try:
         result = _under_clock(
             lambda: _publish(candidate, _rebound(candidate, positional)(*args, **keywords))
         )
     except BaseException as error:  # noqa: BLE001 - student code raises anything
-        if (
-            isinstance(error, _Timeout)
-            and own_clock
-            and _SCRATCH is not None
-            and index is not None
-            and candidate.attribute is None
-        ):
-            kinds = _kinds(positional)
-            _TIMED_OUT.setdefault(
-                (_timeout_key(candidate), tuple(id(kind) for kind in kinds)), (candidate, kinds)
-            )
+        if isinstance(error, _Timeout) and own_clock and exact is not None:
+            _TIMED_OUT.setdefault(exact, (candidate, args, keywords, spread))
         _record_raise(candidate, error)
         return False, None
     return True, result
@@ -1685,6 +1662,7 @@ def probe_sources(
     extras: Optional[Dict[str, Any]] = None,
     identities: Sequence[Any] = (),
     skip_forms: FrozenSet[int] = frozenset(),
+    first: bool = False,
 ) -> List[Tuple[Candidate, Any]]:
     """Which candidates accept the benchmark's own input and return something.
 
@@ -1694,7 +1672,8 @@ def probe_sources(
 
     ``extras`` is the pool of side inputs a stage may declare (see
     ``Stage.extras``); ``identities`` names the items the benchmark is passing
-    (see ``Stage.identity``).
+    (see ``Stage.identity``). ``first`` stops at the first candidate that
+    is accepted, for a caller that only ever uses that one.
     """
 
     accepted: List[Tuple[Candidate, Any]] = []
@@ -1727,6 +1706,8 @@ def probe_sources(
         # only one element of it is this stage's output.
         if stage.produces is None or _safe_produces(stage, value):
             accepted.append((replace(bound, form=which), value))
+            if first:
+                break
     return accepted
 
 
@@ -2442,7 +2423,7 @@ def _mapped(candidate: Candidate, fixture: Sequence[Any]) -> Tuple[bool, Any]:
     for index, item in enumerate(items):
         # The index goes with the call: the only thing that differs between
         # items is which one's name the identity slot holds.
-        ok, value = _call(candidate, (item,) + rest, index)
+        ok, value = _call(candidate, (item,) + rest, index, spread=(items, index, item))
         if not ok or value is None:
             return False, None
         produced.append(value)
@@ -3438,8 +3419,13 @@ def _fit(
     their own table back is not a substitution.
     """
 
+    # Only the first hit is used, so the candidates after it are not called.
+    # Calling them was speculative work with nothing to gain: on the Week 3
+    # course trace the IDF fit went on from `compute_idfs` to 13 more calls
+    # and 10.8 seconds, 10.2 of them a `train.prep_data` timeout on all
+    # 414,113 captions.
     hits = probe_sources(
-        stage, candidates, stage.fixture, extras=pool, identities=identities
+        stage, candidates, stage.fixture, extras=pool, identities=identities, first=True
     )
     if hits:
         candidate, value = hits[0]
@@ -3629,11 +3615,11 @@ def _too_slow_to_probe() -> Tuple[str, ...]:
     """
 
     return tuple(
-        "{} was still running after {} seconds when the check passed it a "
-        "single item, so the check didn't call it that way again. If the benchmark "
-        "should use it, it has to answer within that time, without loading "
-        "the full dataset or training first.".format(label, CALL_TIMEOUT_SECONDS)
-        for label in sorted({candidate.label for candidate, _types in _TIMED_OUT.values()})
+        "{} was still running after {} seconds, so the check didn't make that "
+        "same call again. If the benchmark should use it, it has to answer "
+        "within that time, without loading the full dataset or training "
+        "first.".format(label, CALL_TIMEOUT_SECONDS)
+        for label in sorted({held[0].label for held in _TIMED_OUT.values()})
     )
 
 
