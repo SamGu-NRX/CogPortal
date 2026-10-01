@@ -38,13 +38,6 @@ export function Landing() {
           <h1 className="mt-3 max-w-[16ch] text-[clamp(2.5rem,1.6rem+3.4vw,3.75rem)] text-ink">
             See how your capstone holds up as the problem gets harder.
           </h1>
-          <p className="mt-5 max-w-[50ch] text-[17px] leading-[1.6] text-ink-secondary">
-            We run the code your team already wrote, on your machine as often as
-            you like and on ours from the commit you pushed. Each run comes back
-            as a sentence about what your pipeline did, with the numbers
-            underneath.
-          </p>
-
           <div className="mt-8 flex flex-wrap items-center gap-3">
             {next ? (
               <Link to={next} className={buttonClass("primary", "px-6")}>
@@ -79,12 +72,8 @@ export function Landing() {
             hosted practice run does not wait on a local one. */}
         <ol className="mt-8 grid gap-x-10 gap-y-9 sm:grid-cols-2 lg:grid-cols-4">
           <Step n={1} title="Bring a repository">
-            <p>
-              Your team works in one GitHub repository, and every hosted run
-              starts from it rather than from somebody's laptop.
-            </p>
             {template ? (
-              <p className="mt-2">
+              <p>
                 Fork{" "}
                 <a
                   href={`https://github.com/${template}`}
@@ -102,37 +91,28 @@ export function Landing() {
                   />
                   <span className="sr-only"> (opens GitHub)</span>
                 </a>{" "}
-                or bring one your team already has.
+                or use one your team already has.
               </p>
             ) : (
-              <p className="mt-2">
-                One your team already has is fine. If your instructor shares a
-                template, forking it is the easy start.
-              </p>
+              <p>One GitHub repository per team. Every hosted run starts from it.</p>
             )}
           </Step>
 
           <Step n={2} title="Set up your machine">
-            <p>
-              Clone it, activate your week's course environment, and install
-              the CogWorks tool. The setup page has the exact commands for your
-              track.
-            </p>
+            <p>The setup page has the exact commands for your track.</p>
           </Step>
 
           <Step n={3} title="Practice on your machine">
             <p>
               <code className="font-mono text-[13px] text-ink">cogworks run</code>{" "}
-              scores your code with the same checks and scorer a hosted run
-              uses, and local runs are unlimited.
+              uses the hosted scorer, as often as you like.
             </p>
           </Step>
 
           <Step n={4} title="Run it on ours">
             <p>
-              A hosted run repeats that scoring from the commit you pushed.
-              Each benchmark gives your team {PRACTICE_LIMIT} practice runs and{" "}
-              {OFFICIAL_LIMIT} official attempts, and you choose which official
+              {PRACTICE_LIMIT} practice runs and {OFFICIAL_LIMIT} official attempts
+              per benchmark, from the commit you pushed. You choose which official
               result is shown.
             </p>
           </Step>

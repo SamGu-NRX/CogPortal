@@ -59,43 +59,31 @@ export function AdminPage() {
       {/* Staff without a team land here from a device or Discord link the
           portal couldn't approve; this says so before the console does. */}
       <DroppedLinkNotice teamOptional className="mb-8 max-w-[34rem]" />
-      <PageHeader
-        eyebrow={isOwner ? "Instructor console" : "TA workspace"}
-        title={cohort.name}
-        lede={
-          isOwner
-            ? "Open a team to see who's on it and what it last published."
-            : "The teams assigned to you. Open one to see who's on it and to add or remove a student."
-        }
-      />
+      <PageHeader eyebrow={isOwner ? "Instructor console" : "TA workspace"} title={cohort.name} />
 
       {isOwner && cohort.joinCode ? (
         <Enrollment cohort={{ ...cohort, joinCode: cohort.joinCode }} />
       ) : null}
 
-      <PageSection
-        id="admin-teams"
-        title="Teams"
-        aside={<Count n={teams.length} />}
-        note="A team the platform has never run anything for sorts first, since it's the one worth opening."
-      >
-        {teams.length === 0 ? (
-          // Staff sees assigned teams only.
-          <p className="text-[15px] text-ink-secondary">
-            {isOwner ? "No teams yet." : "No teams assigned to you yet."}
-          </p>
-        ) : (
-          <ul className="overflow-hidden rounded-surface border border-rule bg-paper-raised">
-            {triageOrder(teams).map((team) => (
-              <TeamRow
-                key={team.id}
-                team={team}
-                canAssignTas={isOwner}
-                suggestions={unassigned.map((student) => student.login)}
-              />
-            ))}
-          </ul>
-        )}
+      <PageSection id="admin-teams" title="Teams" aside={<Count n={teams.length} />}>
+        <div className="lg:max-w-[42rem]">
+          {teams.length === 0 ? (
+            <p className="text-[15px] text-ink-secondary">
+              {isOwner ? "No teams yet." : "No teams assigned to you yet."}
+            </p>
+          ) : (
+            <ul className="overflow-hidden rounded-surface border border-rule bg-paper-raised">
+              {triageOrder(teams).map((team) => (
+                <TeamRow
+                  key={team.id}
+                  team={team}
+                  canAssignTas={isOwner}
+                  suggestions={unassigned.map((student) => student.login)}
+                />
+              ))}
+            </ul>
+          )}
+        </div>
       </PageSection>
 
       {isOwner ? <UnassignedSection unassigned={unassigned} teams={teams} /> : null}
@@ -223,11 +211,6 @@ function Enrollment({
             />
             {cohort.active ? "Enrollment open" : "Enrollment closed"}
           </p>
-          <p className="mt-0.5 text-[13.5px] leading-snug text-ink-secondary">
-            {cohort.active
-              ? "Anyone with this code can join the cohort."
-              : "The code is refused until you open enrollment again."}
-          </p>
         </div>
       </div>
 
@@ -286,7 +269,7 @@ function Enrollment({
                     }
                   >
                     {cohort.active
-                      ? "New students can't join until you open it again. Everyone already in the cohort keeps their place."
+                      ? "New students can't join. Everyone already in keeps their place."
                       : "Anyone with the code can join again."}
                   </EnrollmentAction>
                   <EnrollmentAction
@@ -305,8 +288,7 @@ function Enrollment({
                       />
                     }
                   >
-                    Makes a new code at once. Use it if this one reached people outside the
-                    course.
+                    For a code that reached people outside the course.
                   </EnrollmentAction>
                   {patch.error && (
                     <p role="alert" className="text-[14px] text-detect-deep">
@@ -657,37 +639,43 @@ function UnassignedSection({
       id="admin-unassigned"
       title="Students without a team"
       aside={<Count n={unassigned.length} />}
-      note="Assigning here places the student on the team's roster. They still need collaborator access to the team's fork to push."
     >
-      {unassigned.length === 0 ? (
-        <p className="text-[15px] text-ink-secondary">Everyone in the cohort has a team.</p>
-      ) : (
-        <ul className="divide-y divide-rule-soft border-y border-rule-soft">
-          {unassigned.map((student) => (
-            <UnassignedRow
-              key={student.login}
-              student={student}
-              teams={options}
-              onAssigned={(team) =>
-                setAssigned((prev) => ({
-                  team,
-                  student: student.name ?? student.login,
-                  seq: (prev?.seq ?? 0) + 1,
-                }))
-              }
-            />
-          ))}
-        </ul>
-      )}
-      {assigned ? (
-        // The portal only claims what it can see, and the add response
-        // (worker/routes/admin.ts) is the portal's own roster: it says
-        // nothing about collaborator access on the fork, so this line does
-        // not either.
-        <p key={assigned.seq} role="status" className="anim-rise mt-3 text-[14px] text-ink">
-          Added {assigned.student} to {assigned.team}.
-        </p>
-      ) : null}
+      <div className="lg:max-w-[42rem]">
+        {unassigned.length === 0 ? (
+          <p className="text-[15px] text-ink-secondary">Everyone in the cohort has a team.</p>
+        ) : (
+          <>
+            <ul className="divide-y divide-rule-soft border-y border-rule-soft">
+              {unassigned.map((student) => (
+                <UnassignedRow
+                  key={student.login}
+                  student={student}
+                  teams={options}
+                  onAssigned={(team) =>
+                    setAssigned((prev) => ({
+                      team,
+                      student: student.name ?? student.login,
+                      seq: (prev?.seq ?? 0) + 1,
+                    }))
+                  }
+                />
+              ))}
+            </ul>
+            {/* Assigning only touches the portal's roster; push access is
+                GitHub's to grant, and the portal can't see whether it was. */}
+            <p className="mt-2 text-[13.5px] text-ink-faint">
+              To push, they also need collaborator access on the team's fork.
+            </p>
+          </>
+        )}
+        {assigned ? (
+          // The add response is the portal's roster only; it says nothing
+          // about collaborator access on the fork, so neither does this line.
+          <p key={assigned.seq} role="status" className="anim-rise mt-3 text-[14px] text-ink">
+            Added {assigned.student} to {assigned.team}.
+          </p>
+        ) : null}
+      </div>
     </PageSection>
   );
 }
@@ -771,83 +759,90 @@ function StaffSection() {
       id="admin-staff"
       title="Platform staff"
       aside={roster.data ? <Count n={roster.data.entries.length + roster.data.owners.length} /> : null}
-      note="Staff open this console and see the teams assigned to them. Owners come from the deployment's configuration, so this list can't remove them."
     >
-      {roster.isPending ? (
-        <LoadingMark label="Loading roster" />
-      ) : roster.isError ? (
-        <QueryError error={roster.error} retry={() => void roster.refetch()} />
-      ) : (
-        <>
-          <ul className="divide-y divide-rule-soft border-y border-rule-soft">
-            {roster.data.owners.map((login) => (
-              <li key={`owner:${login}`} className="flex min-h-12 items-center gap-3 py-1.5">
-                <Person login={login} name={null} />
-                <span
-                  className="shrink-0 px-2 text-[13px] font-semibold text-ink-secondary"
-                  title="Set in the deployment's configuration, so this list cannot remove it."
-                >
-                  Owner
-                </span>
-              </li>
-            ))}
-            {roster.data.entries.map((entry) => (
-              <li key={entry.login} className="flex min-h-12 flex-wrap items-center gap-x-3 py-1.5">
-                <span className="flex min-w-0 flex-1 items-center gap-2.5">
-                  <MemberAvatar login={entry.login} avatarUrl={null} size={24} />
-                  <span className="min-w-0">
-                    <span className="block truncate text-[14.5px] font-semibold text-ink">
-                      {entry.name ?? entry.login}
-                    </span>
-                    <span className="block truncate text-[12.5px] text-ink-faint">
-                      {entry.name ? (
-                        <span className="font-mono">{entry.login}</span>
-                      ) : (
-                        // An entry is a login string, so a typo looks exactly
-                        // like somebody who has not signed in yet. Saying which
-                        // beats leaving an entry that quietly grants nothing.
-                        <span title="Nobody with this login has signed in. If the spelling is wrong, this grants nothing.">
-                          not signed in yet
-                        </span>
-                      )}
-                      <span className="hidden sm:inline">
-                        {" · "}added by {entry.grantedBy} {formatTimeAgo(entry.grantedAt)}
+      <div className="lg:max-w-[42rem]">
+        {roster.isPending ? (
+          <LoadingMark label="Loading roster" />
+        ) : roster.isError ? (
+          <QueryError error={roster.error} retry={() => void roster.refetch()} />
+        ) : (
+          <>
+            <ul className="divide-y divide-rule-soft border-y border-rule-soft">
+              {roster.data.owners.map((login) => (
+                <li key={`owner:${login}`} className="flex min-h-12 items-center gap-3 py-1.5">
+                  <span className="flex min-w-0 flex-1 items-center gap-2.5">
+                    <MemberAvatar login={login} avatarUrl={null} size={24} />
+                    <span className="min-w-0">
+                      <span className="block truncate text-[14.5px] font-semibold text-ink">{login}</span>
+                      {/* Said on the row, since it is the reason the row has no Remove. */}
+                      <span className="block text-[12.5px] leading-snug text-ink-faint">
+                        set in deployment config, can't be removed here
                       </span>
                     </span>
                   </span>
-                </span>
-                <RemoveButton
-                  armedLabel="Confirm, access ends"
-                  subject={`${entry.login} from platform staff`}
-                  armedSubject={entry.login}
-                  busy={remove.isPending && remove.variables === entry.login}
-                  disabled={remove.isPending}
-                  onConfirm={() => remove.mutate(entry.login)}
-                />
-              </li>
-            ))}
-          </ul>
-          {roster.data.entries.length === 0 && (
+                  <span className="shrink-0 px-2 text-[13px] font-semibold text-ink-secondary">
+                    Owner
+                  </span>
+                </li>
+              ))}
+              {roster.data.entries.map((entry) => (
+                <li key={entry.login} className="flex min-h-12 flex-wrap items-center gap-x-3 py-1.5">
+                  <span className="flex min-w-0 flex-1 items-center gap-2.5">
+                    <MemberAvatar login={entry.login} avatarUrl={null} size={24} />
+                    <span className="min-w-0">
+                      <span className="block truncate text-[14.5px] font-semibold text-ink">
+                        {entry.name ?? entry.login}
+                      </span>
+                      <span className="block truncate text-[12.5px] text-ink-faint">
+                        {entry.name ? (
+                          <span className="font-mono">{entry.login}</span>
+                        ) : (
+                          // An entry is a login string, so a typo looks exactly
+                          // like somebody who has not signed in yet. Saying which
+                          // beats leaving an entry that quietly grants nothing.
+                          <span title="Nobody with this login has signed in. If the spelling is wrong, this grants nothing.">
+                            not signed in yet
+                          </span>
+                        )}
+                        <span className="hidden sm:inline">
+                          {" · "}added by {entry.grantedBy} {formatTimeAgo(entry.grantedAt)}
+                        </span>
+                      </span>
+                    </span>
+                  </span>
+                  <RemoveButton
+                    armedLabel="Confirm, access ends"
+                    subject={`${entry.login} from platform staff`}
+                    armedSubject={entry.login}
+                    busy={remove.isPending && remove.variables === entry.login}
+                    disabled={remove.isPending}
+                    onConfirm={() => remove.mutate(entry.login)}
+                  />
+                </li>
+              ))}
+            </ul>
+            {/* Said beside the form at every roster size: adding a login
+                grants nothing until that person is assigned teams. */}
             <p className="mt-3 text-[14px] text-ink-secondary">
-              No staff added yet. Owners already have access; add a GitHub login below to give
-              someone else the same view.
+              {roster.data.entries.length === 0 && "No staff added yet. "}Staff see only the teams
+              assigned to them.
             </p>
-          )}
 
-          <LoginForm
-            id="add-staff"
-            label="Add staff"
-            submit="Add staff"
-            busy={add.isPending}
-            onSubmit={(login) => add.mutateAsync(login).then(() => true, () => false)}
-          />
-          {error && (
-            <p role="alert" className="mt-2 text-[13.5px] text-detect-deep">
-              {error}
-            </p>
-          )}
-        </>
-      )}
+            <LoginForm
+              id="add-staff"
+              label="Add staff"
+              submit="Add staff"
+              busy={add.isPending}
+              onSubmit={(login) => add.mutateAsync(login).then(() => true, () => false)}
+            />
+            {error && (
+              <p role="alert" className="mt-2 text-[13.5px] text-detect-deep">
+                {error}
+              </p>
+            )}
+          </>
+        )}
+      </div>
     </PageSection>
   );
 }

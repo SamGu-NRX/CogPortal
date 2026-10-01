@@ -64,9 +64,8 @@ export const STATUS_LABELS: Record<RunStatus, string> = {
  * ended somewhere in the next five; the range is the honest number.
  */
 export const QUEUED_WAIT_NOTE =
-  "Nothing has reported back yet, which is usually a short wait for a free " +
-  "machine. If nothing arrives within ten to fifteen minutes we stop waiting " +
-  "and mark this run failed, so it won't sit here all afternoon.";
+  "Nothing has reported back yet. If nothing does within 10 to 15 minutes, " +
+  "we mark the run failed.";
 
 export type StatusTone = "live" | "good" | "bad" | "muted";
 

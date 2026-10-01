@@ -7,7 +7,6 @@ import type { Session } from "@cogworks/contracts/schema";
 import { Button, buttonClass } from "@/components/Button";
 import { LoadingMark, QueryError } from "@/components/Feedback";
 import { GitHubIcon } from "@/components/GitHubIcon";
-import { Annotated } from "@/components/Note";
 import { OnboardingPath } from "@/components/OnboardingPath";
 import { ApiRequestError } from "@/lib/api";
 import { useDevLogin, useSession } from "@/lib/queries";
@@ -132,23 +131,9 @@ export function SignInPage() {
 
       <header className="mt-10 max-w-[27rem]">
         <h1 className="text-[clamp(2rem,1.5rem+2vw,2.5rem)] text-ink">Sign in</h1>
-        <p className="mt-3 text-[16px] leading-[1.6] text-ink-secondary">
-          We use your GitHub account, so there's no new password to keep track of.
-        </p>
       </header>
 
-      {/* The note sits beside the action it explains, not the title: on a
-          phone it then reads between the lede and the button. */}
-      <Annotated
-        className="mt-7 gap-y-4 max-lg:max-w-[27rem]"
-        note={
-          <>
-            Your team's code already lives on GitHub. Signing in shares your
-            profile and email address; reading your team's repository is a
-            separate, read-only step later.
-          </>
-        }
-      >
+      <div className="mt-7 max-w-[27rem]">
         {oauthError && (
           <div
             role="alert"
@@ -187,8 +172,14 @@ export function SignInPage() {
               </p>
             </>
           )}
+          {/* Consent at the button: what signing in shares, and that the
+              repository read is asked for separately. */}
+          <p className="mt-3 text-[13.5px] leading-[1.5] text-ink-secondary">
+            Shares your GitHub profile and email. Reading your team's repository is a
+            separate, read-only step.
+          </p>
         </div>
-      </Annotated>
+      </div>
 
       {auth?.devAuthEnabled && (
         <details
@@ -239,10 +230,7 @@ export function SignInPage() {
                 {devError}
               </p>
             )}
-            <div className="mt-5 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-              <p className="text-[13.5px] text-ink-secondary">
-                Or skip ahead as a student already on a team.
-              </p>
+            <div className="mt-4">
               <button
                 type="button"
                 disabled={devLogin.isPending}

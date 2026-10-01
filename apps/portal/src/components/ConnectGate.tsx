@@ -13,7 +13,6 @@ const COPY: Record<
   {
     kicker: string;
     title: string;
-    body: string;
     open: string;
     waitingTitle: string;
     check: string;
@@ -24,7 +23,6 @@ const COPY: Record<
   link: {
     kicker: "One connection",
     title: "Link Cog*Portal to see your team's bench.",
-    body: "Cog*Portal knows you by your GitHub sign-in, which lives in your browser, so the link happens there.",
     open: "Link Cog*Portal",
     waitingTitle: "Once you've linked it in the browser, check here.",
     check: "Check the link",
@@ -34,12 +32,11 @@ const COPY: Record<
   team: {
     kicker: "One step left",
     title: "You're linked, but not on a team yet.",
-    body: "Connect your fork in the browser to join or start your team.",
     open: "Finish team setup",
     waitingTitle: "Once you're on a team, check here.",
     check: "Check for your team",
     reopen: "Open team setup again",
-    unchanged: "You're linked, but we don't see a team for you yet. Finish in the browser, then check again.",
+    unchanged: "We don't see a team for you yet. Finish in the browser, then check again.",
   },
 };
 
@@ -85,9 +82,6 @@ export function ConnectGate({
         >
           {waiting ? copy.waitingTitle : copy.title}
         </h1>
-        {!waiting && !compact && (
-          <p className="mt-3 text-[15px] leading-[1.55] text-ink-secondary">{copy.body}</p>
-        )}
       </div>
       <Button
         className={compact ? "mt-4 w-full" : "mt-6"}

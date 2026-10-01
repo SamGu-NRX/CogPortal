@@ -317,7 +317,8 @@ function TeamHeading({ team }: { team: TeamDetail }) {
 
 /** Members, and for a team admin the door: add cohort students without a
  *  team, remove anyone but a team admin. Portal membership only; a GitHub
- *  collaborator invite is still what lets them push, and the margin says so. */
+ *  collaborator invite is still what lets them push, and the palette says so
+ *  when someone is added. */
 function PeopleSection({ team }: { team: TeamDetail }) {
   const [adding, setAdding] = useState(false);
   const { data: session } = useSession();
@@ -327,23 +328,10 @@ function PeopleSection({ team }: { team: TeamDetail }) {
   const toggleRef = useRef<HTMLButtonElement>(null);
   const restoreFocus = () => toggleRef.current?.focus();
 
-  const note = team.isAdmin ? (
-    <>
-      Adding someone here puts them on the team in the portal. Invite them as a collaborator on
-      the fork too, so they can push.
-    </>
-  ) : (
-    <>
-      A team admin adds and removes people. Admin means admin on the team's GitHub repository,
-      so that's where the role is granted.
-    </>
-  );
-
   return (
     <PageSection
       id="team-people"
       title="People"
-      note={note}
       aside={
         team.isAdmin ? (
           <span className="relative">
@@ -364,69 +352,73 @@ function PeopleSection({ team }: { team: TeamDetail }) {
             </button>
             <MemberPalette open={adding} onClose={() => setAdding(false)} triggerRef={toggleRef} />
           </span>
-        ) : undefined
+        ) : (
+          // Where the missing Add button would be: who can change the list,
+          // and that the role comes from GitHub rather than this page.
+          <span className="text-[13px] text-ink-faint">GitHub repository admins manage people</span>
+        )
       }
     >
-      <ul className="divide-y divide-rule-soft">
-        {team.members.map((m, i) => {
-          const isMe = me !== null && m.login.toLowerCase() === me;
-          return (
-            // The login is the display name, and two development accounts can
-            // share one (demo@dev.local beside a GitHub "demo"); GitHub logins
-            // are unique, so the index only ever breaks a tie the server made.
-            <li key={`${m.login}:${i}`} className="flex min-h-16 items-center gap-3.5 py-2.5">
-              <MemberAvatar login={m.login} avatarUrl={m.avatarUrl} size={36} />
-              <span className="min-w-0 flex-1">
-                <span className="flex items-baseline gap-2">
-                  <span className="truncate text-[15.5px] font-semibold text-ink">
-                    {m.name ?? m.login}
+      <div className="lg:max-w-[42rem]">
+        <ul className="divide-y divide-rule-soft">
+          {team.members.map((m, i) => {
+            const isMe = me !== null && m.login.toLowerCase() === me;
+            return (
+              // The login is the display name, and two development accounts can
+              // share one (demo@dev.local beside a GitHub "demo"); GitHub logins
+              // are unique, so the index only ever breaks a tie the server made.
+              <li key={`${m.login}:${i}`} className="flex min-h-16 items-center gap-3.5 py-2.5">
+                <MemberAvatar login={m.login} avatarUrl={m.avatarUrl} size={36} />
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-baseline gap-2">
+                    <span className="truncate text-[15.5px] font-semibold text-ink">
+                      {m.name ?? m.login}
+                    </span>
+                    {isMe && <span className="shrink-0 text-[13px] text-ink-faint">you</span>}
                   </span>
-                  {isMe && <span className="shrink-0 text-[13px] text-ink-faint">you</span>}
+                  {m.name && m.name !== m.login && (
+                    <span className="block truncate font-mono text-[12.5px] text-ink-faint">
+                      {m.login}
+                    </span>
+                  )}
                 </span>
-                {m.name && m.name !== m.login && (
-                  <span className="block truncate font-mono text-[12.5px] text-ink-faint">
-                    {m.login}
-                  </span>
-                )}
-              </span>
-              {ROLE_LABELS[m.role] && (
-                <span className="shrink-0 text-[13px] font-semibold text-ink-secondary">
-                  {ROLE_LABELS[m.role]}
-                </span>
-              )}
-              {team.isAdmin && m.role !== "admin" && (
-                <RemoveMember login={m.login} onRemoved={restoreFocus} />
-              )}
-            </li>
-          );
-        })}
-      </ul>
-
-      <h3 className="mt-6 u-label">Teaching staff</h3>
-      {team.tas.length > 0 ? (
-        <ul className="mt-1 divide-y divide-rule-soft">
-          {team.tas.map((ta) => (
-            <li key={ta.login} className="flex min-h-14 items-center gap-3.5 py-2">
-              <MemberAvatar login={ta.login} avatarUrl={ta.avatarUrl} size={30} />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-[15px] font-semibold text-ink">
-                  {ta.name ?? ta.login}
-                </span>
-                {ta.name && (
-                  <span className="block truncate font-mono text-[12.5px] text-ink-faint">
-                    {ta.login}
+                {ROLE_LABELS[m.role] && (
+                  <span className="shrink-0 text-[13px] font-semibold text-ink-secondary">
+                    {ROLE_LABELS[m.role]}
                   </span>
                 )}
-              </span>
-              <span className="shrink-0 text-[13px] font-semibold text-ink-secondary">TA</span>
-            </li>
-          ))}
+                {team.isAdmin && m.role !== "admin" && (
+                  <RemoveMember login={m.login} onRemoved={restoreFocus} />
+                )}
+              </li>
+            );
+          })}
         </ul>
-      ) : (
-        <p className="mt-1.5 text-[14.5px] text-ink-secondary">
-          No TA is assigned yet; your instructors assign them.
-        </p>
-      )}
+
+        <h3 className="mt-6 u-label">Teaching staff</h3>
+        {team.tas.length > 0 ? (
+          <ul className="mt-1 divide-y divide-rule-soft">
+            {team.tas.map((ta) => (
+              <li key={ta.login} className="flex min-h-14 items-center gap-3.5 py-2">
+                <MemberAvatar login={ta.login} avatarUrl={ta.avatarUrl} size={30} />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[15px] font-semibold text-ink">
+                    {ta.name ?? ta.login}
+                  </span>
+                  {ta.name && (
+                    <span className="block truncate font-mono text-[12.5px] text-ink-faint">
+                      {ta.login}
+                    </span>
+                  )}
+                </span>
+                <span className="shrink-0 text-[13px] font-semibold text-ink-secondary">TA</span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-1.5 text-[14.5px] text-ink-secondary">No TA assigned yet.</p>
+        )}
+      </div>
     </PageSection>
   );
 }
@@ -457,36 +449,34 @@ function RemoveMember({ login, onRemoved }: { login: string; onRemoved: () => vo
 
 function RepositorySection({ team }: { team: TeamDetail }) {
   return (
-    <PageSection
-      id="team-repository"
-      title="Repository"
-      note="Every hosted run starts from this repository. If you change it, the team keeps its run history and official attempts."
-    >
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
-        <a
-          href={team.repo.url}
-          target="_blank"
-          rel="noreferrer"
-          className="group inline-flex min-h-11 min-w-0 items-center gap-2.5 text-ink"
-        >
-          <GitHubIcon className="size-[18px] shrink-0" />
-          <span className="truncate font-mono text-[14.5px] underline decoration-rule-strong underline-offset-4 transition-colors duration-150 group-hover:decoration-ink">
-            {team.repo.fullName}
+    <PageSection id="team-repository" title="Repository">
+      <div className="lg:max-w-[42rem]">
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+          <a
+            href={team.repo.url}
+            target="_blank"
+            rel="noreferrer"
+            className="group inline-flex min-h-11 min-w-0 items-center gap-2.5 text-ink"
+          >
+            <GitHubIcon className="size-[18px] shrink-0" />
+            <span className="truncate font-mono text-[14.5px] underline decoration-rule-strong underline-offset-4 transition-colors duration-150 group-hover:decoration-ink">
+              {team.repo.fullName}
+            </span>
+            <HugeiconsIcon
+              icon={ArrowUpRight01Icon}
+              size={14}
+              strokeWidth={1.8}
+              className="shrink-0 text-ink-faint"
+              aria-hidden="true"
+            />
+            <span className="sr-only">(opens GitHub)</span>
+          </a>
+          <span className="font-mono text-[12.5px] text-ink-faint">
+            default branch {team.repo.defaultBranch}
           </span>
-          <HugeiconsIcon
-            icon={ArrowUpRight01Icon}
-            size={14}
-            strokeWidth={1.8}
-            className="shrink-0 text-ink-faint"
-            aria-hidden="true"
-          />
-          <span className="sr-only">(opens GitHub)</span>
-        </a>
-        <span className="font-mono text-[12.5px] text-ink-faint">
-          default branch {team.repo.defaultBranch}
-        </span>
+        </div>
+        {team.isAdmin && <ChangeRepository currentFullName={team.repo.fullName} />}
       </div>
-      {team.isAdmin && <ChangeRepository currentFullName={team.repo.fullName} />}
     </PageSection>
   );
 }
@@ -542,7 +532,7 @@ function ChangeRepository({ currentFullName }: { currentFullName: string }) {
       tabIndex={-1}
       className="anim-rise mt-4 rounded-surface border border-rule bg-paper-raised p-4 sm:p-5"
     >
-      <p id={labelId} className="u-label mb-3">Pick the repository your next run should start from</p>
+      <p id={labelId} className="u-label mb-3">Pick the repository your next run starts from</p>
       {repos.isPending ? (
         <LoadingMark label="Listing repositories" />
       ) : repos.isError ? (
@@ -572,7 +562,7 @@ function ChangeRepository({ currentFullName }: { currentFullName: string }) {
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <ConfirmButton
           label={selected ? `Switch to ${selected.fullName}` : "Change repository"}
-          confirmLabel="Confirm, history stays with the team"
+          confirmLabel="Confirm, history and attempts stay with the team"
           onConfirm={() => {
             if (!selected) return;
             change.mutate(selected.fullName, {
