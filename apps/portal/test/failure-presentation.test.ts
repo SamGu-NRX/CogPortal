@@ -564,7 +564,10 @@ test("a result the board can't rank says why where Publish would be, and keeps i
   assert.ok(container.textContent.includes(unranked));
   assert.equal([...container.querySelectorAll("button")]
     .some((node) => node.textContent.includes("Publish to leaderboard")), false);
-  assert.match(container.textContent, /images were not measured/);
+  const finding = [...container.querySelectorAll("p")]
+    .find((node) => node.textContent.includes("images were not measured"));
+  assert.ok(finding);
+  assert.equal(finding.closest('[aria-hidden="true"]'), null);
 });
 
 test("the repository answer outranks the ranking one, as it does on the server", async (t) => {
