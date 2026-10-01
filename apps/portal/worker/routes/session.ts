@@ -72,7 +72,7 @@ export function registerSessionRoutes(app: Hono<AppEnv>): void {
         fixtureRepository(),
         "write",
         "Demo Team",
-        "admin",
+        { fixture: true },
       );
     }
 

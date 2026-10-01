@@ -227,7 +227,7 @@ export function registerGithubRoutes(app: Hono<AppEnv>): void {
       repository,
       permission,
       body.teamName,
-      fixture ? "admin" : permission,
+      { fixture },
     );
     return respond(c, SessionSchema, await authToSession(c.env, await getAuth(c)));
   });

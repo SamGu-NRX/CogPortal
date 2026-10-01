@@ -129,20 +129,14 @@ export async function getTeamDetail(
 }
 
 /**
- * The caller's role on their team, re-read from GitHub and written back.
+ * The caller's role, re-read from GitHub and written back. The team read and
+ * every settings gate use it, so the controls and the gate agree.
  *
- * Team settings follow admin on the team's GitHub repository, and the stored
- * role only records the last answer GitHub gave. Some rows never had one: an
- * add from the team page or the admin console stores "write" without asking,
- * because adding someone here does not make them a collaborator there, and a
- * promotion or demotion on GitHub changes nothing here. So the team read and
- * every settings action ask again, and the controls the page shows come from
- * the same answer as the gate that enforces them.
- *
- * When GitHub can't be asked, the stored role stands. The team page still
- * renders through an outage and an admin GitHub confirmed earlier keeps their
- * settings, but nobody is raised, because only a successful read writes
- * "admin". The local fixture repository has no collaborators to ask.
+ * A stored role can be stale or never verified: a portal add stores "write"
+ * without asking GitHub, because it does not make anyone a collaborator.
+ * When GitHub can't be asked, the stored role stands, so the page renders
+ * through an outage and an admin confirmed earlier keeps settings; only a
+ * successful read writes "admin". The local fixture has no one to ask.
  */
 export async function reconcileTeamRole(
   c: Context<AppEnv>,
@@ -461,9 +455,6 @@ async function teamRoster(db: Database, teamId: string): Promise<RosterMember[]>
 export function registerTeamRoutes(app: Hono<AppEnv>): void {
   app.get("/team", async (c) => {
     const auth = await requireTeam(c);
-    // The settings controls this answer shows have to agree with the gate,
-    // so the read asks GitHub too. A failed check keeps the stored role
-    // rather than failing the page.
     await reconcileTeamRole(c, auth);
     const detail = await getTeamDetail(getDb(c.env), auth.team.id, auth.user.id);
     return respond(c, TeamDetailSchema, detail);

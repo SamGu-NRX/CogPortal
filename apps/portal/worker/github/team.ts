@@ -32,16 +32,10 @@ export function fixtureRepository(): ConnectRepository {
 }
 
 /**
- * Creates the team for `repository` or joins the one that already holds it,
- * storing `permission`, the caller's GitHub permission on the repository.
- *
- * The creator is stored with the same permission as anyone else. Team
- * settings follow admin on the GitHub repository, and a write collaborator
- * who starts the team is not an admin there.
- *
- * `creatorRole` exists for the local fixture repository, which has no GitHub
- * collaborators to ask; its callers pass "admin" so the settings flow can be
- * reached in development.
+ * Stores `permission`, the caller's GitHub permission, for creators and
+ * joiners alike. The local fixture repository has no collaborators to ask, so
+ * `fixture` makes its creator admin and leaves an existing membership as it
+ * is, which keeps a repeated development demo login from changing the role.
  */
 export async function connectTeam(
   db: Database,
@@ -50,7 +44,7 @@ export async function connectTeam(
   repository: ConnectRepository,
   permission: TeamRole,
   teamName: string | undefined,
-  creatorRole: TeamRole = permission,
+  { fixture = false }: { fixture?: boolean } = {},
 ): Promise<TeamRow> {
   let [team] = await db
     .select()
@@ -84,14 +78,15 @@ export async function connectTeam(
       .from(teams)
       .where(and(eq(teams.cohortId, cohortId), eq(teams.repoFullName, repository.fullName)))
       .limit(1);
-    if (team?.id === teamId) membershipRole = creatorRole;
+    if (fixture && team?.id === teamId) membershipRole = "admin";
   }
   if (!team) throw new ApiHttpError(500, "provider_unconfigured", "Team could not be created.");
-  // An existing membership keeps its role: a repeated development demo
-  // login lands here, and the team read re-checks every role with GitHub.
-  await db
+  const membership = db
     .insert(teamMembers)
-    .values({ teamId: team.id, userId, role: membershipRole })
-    .onConflictDoNothing({ target: [teamMembers.teamId, teamMembers.userId] });
+    .values({ teamId: team.id, userId, role: membershipRole });
+  const target = [teamMembers.teamId, teamMembers.userId];
+  await (fixture
+    ? membership.onConflictDoNothing({ target })
+    : membership.onConflictDoUpdate({ target, set: { role: membershipRole } }));
   return team;
 }

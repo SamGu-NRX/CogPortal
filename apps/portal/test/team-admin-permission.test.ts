@@ -19,6 +19,7 @@ import type { Database } from "../worker/db/client.ts";
 import { accounts, cohorts, teamMembers, teams, users } from "../worker/db/schema.ts";
 import type { AppEnv, Env } from "../worker/env.ts";
 import { handleError } from "../worker/http/errors.ts";
+import { connectTeam, fixtureRepository } from "../worker/github/team.ts";
 import { registerGithubRoutes } from "../worker/routes/github.ts";
 import { registerTeamRoutes } from "../worker/routes/team.ts";
 import { registerTeamMembershipRoutes } from "../worker/routes/team-membership.ts";
@@ -300,6 +301,33 @@ test("concurrent creators keep their own GitHub roles on one shared team", async
     assert.equal(row.teamId, team.id);
     assert.equal(row.role, role);
   }
+});
+
+test("a real connect by an existing member stores the permission it just verified", async (t) => {
+  // The route refuses a member before asking GitHub, so this is reached by a
+  // second submit racing the first; it must not keep an older role.
+  const h = await harness(t);
+  const person = await h.signIn("Ada");
+  await seedTeam(h, person, "write");
+  const repository = {
+    id: 101, sourceRepositoryId: null, owner: "course", name: "current", fullName: CURRENT_REPO,
+    url: `https://github.com/${CURRENT_REPO}`, defaultBranch: "main", description: null,
+  };
+  await connectTeam(h.db, "cohort_test", person.userId, repository, "admin", undefined);
+  assert.equal((await membership(h, person)).role, "admin");
+  await connectTeam(h.db, "cohort_test", person.userId, repository, "write", undefined);
+  assert.equal((await membership(h, person)).role, "write");
+});
+
+test("the fixture creator stays admin across repeated demo connects", async (t) => {
+  const h = await harness(t, false);
+  const creator = await h.signIn("Ada");
+  const joiner = await h.signIn("Grace");
+  for (const person of [creator, creator, joiner]) {
+    await connectTeam(h.db, "cohort_test", person.userId, fixtureRepository(), "write", "Demo Team", { fixture: true });
+  }
+  assert.equal((await membership(h, creator)).role, "admin");
+  assert.equal((await membership(h, joiner)).role, "write");
 });
 
 test("an added provisional writer regains GitHub admin controls on the next team read", async (t) => {
