@@ -9,6 +9,7 @@ import type {
   RunSurfaceSnapshot,
 } from "@cogworks/contracts/schema";
 import {
+  OFFICIAL_LIMIT,
   collapseRepeatedRunEvents,
   runSurfaceCurrentEvents,
   runSurfaceCurrentRunId,
@@ -16,7 +17,9 @@ import {
 } from "@cogworks/contracts/schema";
 import type { StreamState } from "@/lib/run-surface-stream";
 import type { RunSurfaceMutationInput } from "@/lib/api";
+import { buttonClass } from "./Button";
 import { Code } from "./Code";
+import { SimulatedChip } from "./SimulatedChip";
 import { Veil } from "./Veil";
 
 type Mutation = "verify_hosted" | "promote_official" | "publish_result" | "rerun_hosted";
@@ -107,11 +110,11 @@ function EventLine({ event }: { event: RunStreamEvent }) {
     ? ` · ${event.progress.current}/${event.progress.total} ${event.progress.unit}`
     : "";
   return (
-    <li className="run-event grid grid-cols-[3.75rem_minmax(0,1fr)] gap-3 border-b border-rule-soft px-4 py-3 last:border-b-0">
-      <time className="font-mono text-[11px] text-ink-faint u-tnum">
+    <li className="run-event grid grid-cols-[3.75rem_minmax(0,1fr)] gap-3 border-b border-rule-soft px-4 py-2.5 last:border-b-0 sm:px-5">
+      <time className="font-mono text-[12px] text-ink-faint u-tnum">
         {event.elapsedMs == null ? "—" : formatElapsed(event.elapsedMs)}
       </time>
-      <span className="min-w-0 text-[13px] text-ink-secondary">
+      <span className="min-w-0 text-[13.5px] text-ink-secondary">
         {EVENT_COPY[event.code]}{progress}
       </span>
     </li>
@@ -268,7 +271,7 @@ export function RunConsole({
   const confirmation = pendingAction === "verify_hosted"
     ? `Run ${snapshot.shortSha} on the hosted benchmark? This uses one of the team's shared practice runs.`
     : pendingAction === "promote_official"
-    ? `Use official attempt ${snapshot.nextOfficialAttempt ?? "—"} of 3 for ${snapshot.benchmark.title} at ${snapshot.shortSha}?`
+    ? `Use ${snapshot.nextOfficialAttempt === null ? "an official attempt" : `official attempt ${snapshot.nextOfficialAttempt} of ${OFFICIAL_LIMIT}`} for ${snapshot.benchmark.title} at ${snapshot.shortSha}?`
     : pendingAction === "publish_result"
       ? `Publish ${snapshot.shortSha} to the public leaderboard?`
       : "Start a new hosted lifecycle at this exact commit? The current result stays unchanged.";
@@ -281,51 +284,74 @@ export function RunConsole({
       ? "bg-verify"
       : "bg-detect";
 
+  const confirmAction = pendingAction === "verify_hosted"
+    ? "Run it hosted"
+    : pendingAction === "promote_official"
+      ? snapshot.nextOfficialAttempt === null
+        ? "Use an official attempt"
+        : `Use attempt ${snapshot.nextOfficialAttempt} of ${OFFICIAL_LIMIT}`
+      : pendingAction === "publish_result"
+        ? "Publish"
+        : "Start a new run";
+
   return (
     <section
-      className={`run-console mx-auto w-full overflow-hidden border border-rule bg-paper-raised shadow-[0_18px_55px_rgb(28_38_55/0.08)] ${embedded ? "max-w-[72rem]" : "max-w-6xl"}`}
+      className={`run-console mx-auto w-full overflow-hidden rounded-surface border border-rule bg-paper-raised shadow-[0_1px_0_rgb(27_31_36/0.04),0_18px_40px_-28px_rgb(27_31_36/0.3)] ${embedded ? "max-w-[72rem]" : "max-w-6xl"}`}
       aria-label={`Live run for ${snapshot.benchmark.title}`}
       aria-busy={snapshot.status === "running"}
       data-compact={compact || undefined}
     >
-      <header className={`border-b border-rule px-4 ${compact ? "py-3" : "py-4 sm:px-6 sm:py-5"}`}>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <span className={`size-2 ${statusTone}`} aria-hidden="true" />
-            <span className="u-kicker">{statusCopy(snapshot)}</span>
-            {snapshot.simulated && (
-              <span className="border border-ochre/30 bg-ochre/8 px-2 py-0.5 font-mono text-[10px] tracking-[0.08em] text-ochre">SIMULATED</span>
-            )}
+      <header className={`border-b border-rule px-4 ${compact ? "py-3.5" : "py-5 sm:px-6 sm:py-6"}`}>
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <span className={`size-2 shrink-0 rounded-[1.5px] ${statusTone}`} aria-hidden="true" />
+            <span className={`text-[13.5px] font-semibold ${failed ? "text-detect-deep" : snapshot.status === "succeeded" ? "text-verify-deep" : "text-ink"}`}>
+              {statusCopy(snapshot)}
+            </span>
+            {snapshot.simulated && <SimulatedChip />}
           </div>
-          <span className="font-mono text-[11px] text-ink-faint" aria-live="polite">
+          <span className="font-mono text-[12px] text-ink-faint" aria-live="polite">
             {connectionCopy(snapshot, streamState)}
           </span>
         </div>
-        <div className={`${compact ? "mt-3" : "mt-5"} grid gap-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-end`}>
+        {/* No breakpoint in the tile, for the reason the lifecycle row below
+            gives: Discord can put a 352px tile on a 768px screen. */}
+        <div className={`${compact ? "mt-2.5" : "mt-4"} grid gap-4 ${compact ? "" : "md:grid-cols-[minmax(0,1fr)_auto] md:items-end"}`}>
           <div className="min-w-0">
-            <h1 ref={headingRef} tabIndex={-1} className="text-[clamp(1.55rem,4vw,2.45rem)]">{snapshot.benchmark.title}</h1>
-            <p className={`${compact ? "mt-1" : "mt-2"} flex flex-wrap gap-x-3 gap-y-1 text-[13px] text-ink-secondary`}>
-              <span>{snapshot.team.name}</span><span aria-hidden="true">·</span>
-              <span>@{snapshot.actor.login}</span><span aria-hidden="true">·</span>
-              <code>{snapshot.shortSha}</code><span aria-hidden="true">·</span>
-              <span className="u-tnum">{formatElapsed(snapshot.elapsedMs)}</span>
+            <h1 ref={headingRef} tabIndex={-1} className={compact ? "text-[1.5rem]" : "text-[clamp(1.6rem,1.2rem+1.8vw,2.4rem)]"}>{snapshot.benchmark.title}</h1>
+            <p className={`${compact ? "mt-1" : "mt-2"} flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[13.5px] text-ink-secondary`}>
+              <span>{snapshot.team.name}</span><span aria-hidden="true" className="text-ink-faint">·</span>
+              <span>@{snapshot.actor.login}</span><span aria-hidden="true" className="text-ink-faint">·</span>
+              <code className="font-mono text-[12.5px]">{snapshot.shortSha}</code><span aria-hidden="true" className="text-ink-faint">·</span>
+              <span className="u-tnum font-mono text-[12.5px]">{formatElapsed(snapshot.elapsedMs)}</span>
             </p>
           </div>
           {snapshot.status === "succeeded" && snapshot.primaryMetric && (
             <div className="min-w-36 border-l-2 border-verify pl-4">
-              <div className="u-kicker">{snapshot.primaryMetric.label}</div>
-              <div className="mt-1 font-serif text-3xl font-semibold u-tnum">{formatMetric(snapshot)}</div>
+              <div className="text-[13px] font-semibold text-ink-secondary">{snapshot.primaryMetric.label}</div>
+              <div className="u-tnum mt-0.5 font-mono text-[24px] font-medium text-ink">{formatMetric(snapshot)}</div>
             </div>
           )}
         </div>
         {failed && failureReason && (
-          <p className="mt-3 max-w-prose break-words text-[13px] text-ink-secondary">{failureReason}</p>
+          <p className="mt-3 max-w-[60ch] text-[15px] leading-[1.5] break-words text-ink">{failureReason}</p>
+        )}
+        {/* The run page carries the failure's own note and its next step;
+            the console only says that it failed. A local run has no page. */}
+        {failed && onOpenRun && currentRunId && snapshot.stage !== "local" && (
+          <button
+            type="button"
+            className="u-link mt-1 inline-flex min-h-11 items-center text-[14px]"
+            onClick={() => onOpenRun(currentRunId)}
+          >
+            See why it failed
+          </button>
         )}
         {failed && snapshot.stage === "local" && snapshot.actions.includes("run_again") && (
           <div className="mt-4">
             <button
               type="button"
-              className="u-pressable min-h-11 border border-ink bg-ink px-5 text-[13px] font-medium text-paper-raised"
+              className={buttonClass("primary")}
               onClick={() => ask("run_again")}
             >
               Run again
@@ -333,10 +359,10 @@ export function RunConsole({
           </div>
         )}
         {retryOffered && (
-          <div className="mt-4">
+          <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2">
             <button
               type="button"
-              className="u-pressable min-h-11 border border-ink bg-ink px-5 text-[13px] font-medium text-paper-raised aria-disabled:opacity-60"
+              className={buttonClass("primary")}
               aria-disabled={busyAction !== null}
               onFocus={() => { retryFocusedRef.current = true; }}
               onBlur={() => { retryFocusedRef.current = false; }}
@@ -344,7 +370,7 @@ export function RunConsole({
             >
               {busyAction === "retry" ? "Retrying…" : "Retry"}
             </button>
-            <p className="mt-2 text-[12px] text-ink-secondary">Runs the same submission again.</p>
+            <p className="text-[13.5px] text-ink-secondary">Runs the same commit again.</p>
           </div>
         )}
         {/* The slot Retry would occupy. The server only sends this when the
@@ -352,23 +378,23 @@ export function RunConsole({
             case we can name; its absence says nothing about quota or access.
             The compact tile has no sidebar, so a source refusal goes here. */}
         {failed && !retryOffered && (snapshot.retryRefusal ?? (compact ? snapshot.sourceRefusal : null)) && (
-          <p className="mt-4 max-w-prose text-[12px] leading-relaxed text-ink-secondary">
+          <p className="mt-4 max-w-[60ch] text-[13.5px] leading-relaxed text-ink-secondary">
             {snapshot.retryRefusal ?? snapshot.sourceRefusal}
           </p>
         )}
-        {error && <p role="alert" className="mt-4 border-l-2 border-detect pl-3 text-[12px] text-detect-deep">{error}</p>}
+        {error && <p role="alert" className="mt-4 border-l-2 border-detect pl-3 text-[13.5px] text-detect-deep">{error}</p>}
         {snapshot.status === "running" && (
-          <div className="mt-4 border-t border-rule-soft pt-3" role="status" aria-live="polite">
+          <div className="mt-5 border-t border-rule-soft pt-3.5" role="status" aria-live="polite">
             <div className="mb-2 flex min-w-0 items-center justify-between gap-3">
-              <span className="min-w-0 truncate text-[13px] font-medium capitalize">{currentStepCopy(snapshot)}</span>
+              <span className="min-w-0 truncate text-[14px] font-semibold first-letter:uppercase">{currentStepCopy(snapshot)}</span>
               {snapshot.progress && (
-                <span className="shrink-0 font-mono text-[11px] text-ink-secondary u-tnum">
+                <span className="shrink-0 font-mono text-[12px] text-ink-secondary u-tnum">
                   {snapshot.progress.current}/{snapshot.progress.total} {snapshot.progress.unit}
                 </span>
               )}
             </div>
             <div
-              className="h-1.5 overflow-hidden bg-paper-sunken"
+              className="h-1 overflow-hidden rounded-full bg-paper-sunken"
               role="progressbar"
               aria-label={`${currentStepCopy(snapshot)} progress`}
               aria-valuemin={snapshot.progress ? 0 : undefined}
@@ -387,7 +413,7 @@ export function RunConsole({
       {/* `compact` is the console's own width, not the window's: a 352px tile
           can sit on a 768px screen, so the tile reads no breakpoint. Names
           stack under the mark where a quarter of the row cannot hold both. */}
-      <ol className="grid grid-cols-4 border-b border-rule" aria-label="Run lifecycle">
+      <ol className="grid grid-cols-4 border-b border-rule bg-paper/60" aria-label="Run lifecycle">
         {STAGES.map((stage) => {
           const { mark, tone, label } = STAGE_MARKS[stageStates[stage.id]];
           return (
@@ -400,7 +426,7 @@ export function RunConsole({
               {/* The gallery's 360px viewport leaves a 277px compact row.
                   Four-pixel padding keeps "Published" on one line with the
                   loaded font; narrower rows can still wrap rather than clip. */}
-              <span className={`text-center leading-tight font-medium uppercase tracking-[0.05em] [overflow-wrap:anywhere] ${compact ? "text-[10px]" : "text-[10px] sm:text-[11px]"}`}>{stage.label}</span>
+              <span className={`text-center leading-tight font-semibold [overflow-wrap:anywhere] ${stage.id === snapshot.stage ? "text-ink" : "text-ink-secondary"} ${compact ? "text-[11.5px]" : "text-[11.5px] sm:text-[13px]"}`}>{stage.label}</span>
               <span className="sr-only">{label}</span>
             </li>
           );
@@ -408,14 +434,14 @@ export function RunConsole({
       </ol>
 
       {!compact && (
-      <div className="grid md:grid-cols-[minmax(0,1fr)_15rem]">
+      <div className="grid md:grid-cols-[minmax(0,1fr)_17rem]">
         <div className="relative border-b border-rule md:border-r md:border-b-0">
-          <div className="flex items-center justify-between border-b border-rule-soft px-4 py-3">
-            <span className="u-kicker">{terminal ? "Run summary" : "Safe event stream"}</span>
+          <div className="flex min-h-12 items-center justify-between gap-3 border-b border-rule-soft px-4 py-2 sm:px-5">
+            <span className="u-label">{terminal ? "Run summary" : "Live events"}</span>
             {terminal && (failed || timelineEvents.length > 3) && (
               <button
                 type="button"
-                className="min-h-9 px-2 text-[11px] text-ink-secondary underline decoration-rule underline-offset-4"
+                className="u-link inline-flex min-h-11 items-center px-1 text-[13px] text-ink-secondary"
                 ref={historyToggleRef}
                 aria-expanded={historyExpanded}
                 onClick={() => setHistoryExpanded((expanded) => !expanded)}
@@ -425,10 +451,10 @@ export function RunConsole({
             )}
           </div>
           {failed && historyExpanded && recordedMetrics.length > 0 && (
-            <div className="space-y-2 border-b border-rule-soft px-4 py-3 text-[12px] text-ink-secondary">
-              <p>Saved results</p>
+            <div className="space-y-1 border-b border-rule-soft px-4 py-3 text-[13px] text-ink-secondary sm:px-5">
+              <p className="font-semibold">Saved results</p>
               {recordedMetrics.map((metric) => (
-                <p key={metric.key}>{metric.label}: {metric.value.toFixed(metric.precision)}{metric.unit ? ` ${metric.unit}` : ""}</p>
+                <p key={metric.key} className="u-tnum">{metric.label}: {metric.value.toFixed(metric.precision)}{metric.unit ? ` ${metric.unit}` : ""}</p>
               ))}
             </div>
           )}
@@ -447,13 +473,13 @@ export function RunConsole({
             }}
           >
             {visibleEvents.length ? visibleEvents.map((event) => <EventLine key={event.eventId} event={event} />) : (
-              <li className="px-5 py-12 text-center text-[13px] text-ink-faint">{!terminal ? "Waiting for the first structured event." : timelineEvents.length ? "This run's events are under Show details." : "No structured events were recorded."}</li>
+              <li className="px-5 py-12 text-center text-[13.5px] text-ink-faint">{!terminal ? "Waiting for the first event from the runner." : timelineEvents.length ? "This run's events are under Show details." : "No structured events were recorded."}</li>
             )}
           </ul>
           {!terminal && newEvents > 0 && (
             <button
               type="button"
-              className="absolute bottom-3 left-1/2 min-h-9 -translate-x-1/2 border border-rule bg-ink px-3 text-[12px] text-paper-raised shadow-md"
+              className="absolute bottom-3 left-1/2 min-h-9 -translate-x-1/2 rounded-full border border-ink bg-ink px-3.5 text-[13px] font-semibold text-paper-raised shadow-md"
               onClick={() => {
                 logRef.current?.scrollTo({
                   top: logRef.current.scrollHeight,
@@ -469,14 +495,14 @@ export function RunConsole({
         </div>
 
         <aside className="p-4 sm:p-5">
-          <div className="u-kicker">Run reference</div>
-          <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-[12px]">
+          <div className="u-label">Run reference</div>
+          <dl className="mt-3 grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 text-[13px]">
             <dt className="text-ink-faint">Repository</dt>
-            <dd className="min-w-0 truncate font-mono">
+            <dd className="min-w-0 truncate font-mono text-[12.5px]" title={snapshot.source?.fullName}>
               {snapshot.source ? snapshot.source.fullName : "not recorded"}
             </dd>
-            <dt className="text-ink-faint">Commit</dt><dd className="min-w-0 truncate font-mono">{snapshot.sha}</dd>
-            <dt className="text-ink-faint">Branch</dt><dd className="min-w-0 truncate font-mono">{snapshot.branch ?? "detached"}</dd>
+            <dt className="text-ink-faint">Commit</dt><dd className="min-w-0 truncate font-mono text-[12.5px]" title={snapshot.sha}>{snapshot.sha}</dd>
+            <dt className="text-ink-faint">Branch</dt><dd className="min-w-0 truncate font-mono text-[12.5px]">{snapshot.branch ?? "detached"}</dd>
             <dt className="text-ink-faint">Workspace</dt><dd>{snapshot.dirty ? "Uncommitted changes" : "Clean"}</dd>
           </dl>
           {/* The server refuses these for a run that is not about the connected
@@ -485,7 +511,7 @@ export function RunConsole({
               its controls. One sentence: the source answer comes first on the
               server, so it is the one that applies. */}
           {(snapshot.sourceRefusal ?? snapshot.promotionRefusal) && (
-            <p className="mt-4 max-w-prose text-[12px] leading-relaxed text-ink-secondary">
+            <p className="mt-4 max-w-prose text-[13px] leading-relaxed text-ink-secondary">
               {snapshot.sourceRefusal ?? snapshot.promotionRefusal}
             </p>
           )}
@@ -495,7 +521,10 @@ export function RunConsole({
                 key={action}
                 type="button"
                 disabled={busyAction !== null}
-                className={`u-pressable min-h-11 border px-3 text-left text-[12px] font-medium transition-colors duration-150 disabled:opacity-50 ${action === "promote_official" || action === "publish_result" ? "border-detect bg-detect text-paper-raised" : "border-rule bg-paper-raised hover:border-ink-secondary"}`}
+                className={buttonClass(
+                  action === "promote_official" || action === "publish_result" ? "official" : "ghost",
+                  "w-full !justify-start px-4 text-[14px]",
+                )}
                 onClick={() => ask(action)}
               >
                 {busyAction === action ? "Working…" : ACTION_COPY[action]}
@@ -505,15 +534,15 @@ export function RunConsole({
                 hosted action silently disappears, so the one fact that
                 explains the missing button was the one thing not said. */}
             {snapshot.dirty && snapshot.stage === "local" && snapshot.status === "succeeded" && (
-              <p className="text-[12px] leading-relaxed text-ink-secondary">
+              <p className="text-[13px] leading-relaxed text-ink-secondary">
                 Hosted verification needs a commit. Commit and push this work,
                 then run it again.
               </p>
             )}
             {onOpenPortal && (
-              <button type="button" className="inline-flex min-h-11 items-center gap-1 px-3 text-left text-[12px] text-ink-secondary underline decoration-rule underline-offset-4" onClick={onOpenPortal}>
+              <button type="button" className="u-link inline-flex min-h-11 items-center gap-1 text-left text-[13.5px] text-ink-secondary" onClick={onOpenPortal}>
                 Open Cog*Portal
-                <HugeiconsIcon icon={ArrowUpRight01Icon} size={12} strokeWidth={1.8} aria-hidden="true" />
+                <HugeiconsIcon icon={ArrowUpRight01Icon} size={13} strokeWidth={1.8} aria-hidden="true" />
               </button>
             )}
           </div>
@@ -526,12 +555,12 @@ export function RunConsole({
           <Veil count={snapshot.executionHistory.length} peek={0} moreLabel="Show run history" fewerLabel="Hide run history">
             <ol className="divide-y divide-rule-soft" aria-label="Run history">
               {snapshot.executionHistory.map((run) => (
-                <li key={run.id} className="flex flex-wrap items-center justify-between gap-2 py-3 text-[12px]">
+                <li key={run.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5 text-[13.5px]">
                   <div>
-                    <p className="capitalize">{run.mode} · {run.status.replaceAll("_", " ")}{run.id === currentRunId ? " · Current" : ""}</p>
-                    <time className="text-ink-faint" dateTime={new Date(run.createdAt).toISOString()}>{new Date(run.createdAt).toLocaleString()}</time>
+                    <p className="first-letter:uppercase">{run.mode} · {run.status.replaceAll("_", " ")}{run.id === currentRunId ? " · current" : ""}</p>
+                    <time className="font-mono text-[12px] text-ink-faint" dateTime={new Date(run.createdAt).toISOString()}>{new Date(run.createdAt).toLocaleString()}</time>
                   </div>
-                  {onOpenRun && <button type="button" className="min-h-11 px-2 underline decoration-rule underline-offset-4" onClick={() => onOpenRun(run.id)}>View details<span className="sr-only"> for {run.mode} run from {new Date(run.createdAt).toLocaleString()}</span></button>}
+                  {onOpenRun && <button type="button" className="u-link inline-flex min-h-11 items-center px-1 text-[13.5px]" onClick={() => onOpenRun(run.id)}>View details<span className="sr-only"> for {run.mode} run from {new Date(run.createdAt).toLocaleString()}</span></button>}
                 </li>
               ))}
             </ol>
@@ -543,27 +572,29 @@ export function RunConsole({
         <dialog
           ref={dialogRef}
           aria-labelledby="run-action-title"
-          className="m-auto w-[calc(100%-2rem)] max-w-md border border-rule bg-paper-raised p-5 text-ink shadow-2xl backdrop:bg-ink/45 anim-rise"
+          className="m-auto w-[calc(100%-2rem)] max-w-md rounded-surface border border-rule bg-paper-raised p-6 text-ink shadow-2xl backdrop:bg-ink/40 anim-rise"
           onCancel={(event) => { event.preventDefault(); closeDialog(); }}
           // The restore gate closes open dialogs natively; follow it.
           onClose={() => { if (pendingAction || showCommand) closeDialog(); }}
           onMouseDown={(event) => { if (event.target === event.currentTarget) closeDialog(); }}
         >
-            <div className="u-kicker">{showCommand ? "Run locally" : "Confirm action"}</div>
-            <h2 id="run-action-title" className="mt-2 text-2xl">{showCommand ? "Back to the bench" : ACTION_COPY[pendingAction ?? "run_again"]}</h2>
+            <div className="u-label">{showCommand ? "Run locally" : "Confirm action"}</div>
+            <h2 id="run-action-title" className="mt-1.5 text-[24px]">{showCommand ? "Back to the bench" : ACTION_COPY[pendingAction ?? "run_again"]}</h2>
             {showCommand ? (
               <div className="mt-4">
                 <Code lang="bash" code={`cogworks run --benchmark ${snapshot.benchmark.id} --live`} wrap />
               </div>
-            ) : <p className="mt-3 text-[14px] text-ink-secondary">{confirmation}</p>}
-            <div className="mt-6 flex justify-end gap-2">
-              <button type="button" className="min-h-11 border border-rule px-4 text-[13px]" onClick={closeDialog}>Close</button>
+            ) : <p className="mt-3 text-[14.5px] leading-[1.55] text-ink-secondary">{confirmation}</p>}
+            <div className="mt-6 flex flex-wrap justify-end gap-2">
+              <button type="button" className={buttonClass("ghost")} onClick={closeDialog}>Close</button>
+              {/* Named by its consequence, the way every confirm in the portal
+                  is, so the button says what pressing it does. */}
               {pendingAction && (
-                <button type="button" className="min-h-11 bg-detect px-4 text-[13px] font-medium text-paper-raised" onClick={() => {
+                <button type="button" className={buttonClass(pendingAction === "promote_official" || pendingAction === "publish_result" ? "official" : "primary")} onClick={() => {
                   const action = pendingAction;
                   setPendingAction(null);
                   void onAction?.({ surfaceId: snapshot.id, action });
-                }}>Confirm</button>
+                }}>{confirmAction}</button>
               )}
             </div>
         </dialog>

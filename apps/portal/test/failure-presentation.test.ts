@@ -69,28 +69,34 @@ function page(t: TestContext, record: RunDetail) {
 }
 
 for (const mode of ["practice", "official"] as const) {
-  test(`${mode} failure keeps diagnostics behind reversible details without a replacement-run action`, async (t) => {
+  test(`${mode} failure shows its exception open, keeps the rest behind reversible details, and offers no replacement run`, async (t) => {
     const { window, container } = await mount(t, page(t, run({ mode })));
     assert.match(container.textContent, /Run failed/);
     assert.match(container.textContent, /Your code raised an exception/);
     assert.match(container.textContent, /recorded\/source/);
     assert.match(container.textContent, /detached/);
-    assert.match(container.textContent, /RUN _123/);
-    assert.doesNotMatch(container.querySelector("h1")?.textContent ?? "", /RUN _123/);
+    assert.match(container.textContent, /Run #_123/);
+    assert.doesNotMatch(container.querySelector("h1")?.textContent ?? "", /Run #_123/);
     assert.doesNotMatch(container.textContent, /consumed|refund|Run practice again|Retry/);
+    // The runner's one line about an exception in the submission is what a
+    // student debugs from, so it is shown open; the catalog's longer
+    // explanation is what waits behind the reversible details.
     const detail = [...container.querySelectorAll("pre")].find((node) => node.textContent.includes("fixture exception"));
-    assert.ok(detail?.closest('[aria-hidden="true"][inert]'));
+    assert.ok(detail);
+    assert.equal(detail.closest('[aria-hidden="true"]'), null);
+    const explanation = [...container.querySelectorAll("p")].find((node) => node.textContent.includes("unhandled exception"));
+    assert.ok(explanation?.closest('[aria-hidden="true"][inert]'));
     assert.equal(container.textContent.includes("practice traceback"), mode === "practice");
     const toggle = [...container.querySelectorAll("button")].find((node) => node.textContent === "Show details");
     assert.ok(toggle);
     toggle.focus();
     await act(async () => toggle.click());
     assert.equal(toggle.getAttribute("aria-expanded"), "true");
-    assert.equal(detail.closest('[aria-hidden="true"]'), null);
+    assert.equal(explanation.closest('[aria-hidden="true"]'), null);
     assert.equal(window.document.activeElement, toggle);
     await act(async () => toggle.click());
     assert.equal(toggle.getAttribute("aria-expanded"), "false");
-    assert.ok(detail.closest('[aria-hidden="true"][inert]'));
+    assert.ok(explanation.closest('[aria-hidden="true"][inert]'));
     assert.equal(window.document.activeElement, toggle);
   });
 }

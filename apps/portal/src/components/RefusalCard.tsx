@@ -1,5 +1,4 @@
 import { Fragment, type ReactNode } from "react";
-import { Panel } from "./Panel";
 import { WiringTrace } from "./WiringTrace";
 
 /**
@@ -9,10 +8,11 @@ import { WiringTrace } from "./WiringTrace";
  *
  * It offers no diagnosis. The platform cannot know which of their lines is
  * wrong, and a confident wrong guess costs a team more time than saying
- * nothing does. Two tokens are printed in ink: where the run stopped, and the
- * exception class an import raised. Everything else is context for those two
- * and is set in ink-secondary, so the card has exactly as many focal points as
- * it has facts a team can act on.
+ * nothing does. Beyond the headline, three things are printed in ink: where
+ * the run stopped, the exception class an import raised, and the command to
+ * run next. Everything else is context for those and is set in ink-secondary,
+ * so the card has exactly as many focal points as it has facts a team can act
+ * on.
  */
 export interface Refusal {
   status: string;
@@ -115,25 +115,35 @@ export function RefusalCard({
   // hand-off to go look at; "REFUSED AT CONTRACT CHECK" only tells them when.
   const refusedAt = stageFromHeadline(refusal.headline) ?? stage;
 
+  // No frame of its own: it is always read inside the failure card, and a
+  // box inside that box would be one more edge between the student and the
+  // sentence.
   return (
-    <Panel>
+    <div>
       <div className="font-mono text-[12.5px] leading-[1.7] text-ink-secondary">
         <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
-          <h2 className="font-mono text-[12.5px] font-normal tracking-[0.08em] uppercase">
+          <h3 className="font-mono text-[12.5px] font-normal">
             refused
             {refusedAt ? <> at <span className="text-ink">{refusedAt}</span></> : null}
-          </h2>
+          </h3>
           {aside}
         </div>
 
+        {/* The one sentence the student acts on, so it is set as the card's
+            title rather than as another mono line. */}
         {refusal.headline && (
-          <p className="mt-3 break-words text-ink">{refusal.headline}</p>
+          <p className="mt-2 max-w-[36rem] font-serif text-[22px] leading-[1.3] font-[480] break-words text-ink sm:text-[26px]">
+            {refusal.headline}
+          </p>
         )}
 
-        <dl className="mt-4 grid grid-cols-[9ch_minmax(0,1fr)] gap-x-[1ch] gap-y-2">
+        {/* A label column from 640px; on a phone each label sits over its
+            row, because three nested columns in 300px wrap a file name one
+            letter per line. */}
+        <dl className="mt-5 grid grid-cols-1 gap-x-[1ch] gap-y-0.5 border-t border-detect/20 pt-4 sm:grid-cols-[9ch_minmax(0,1fr)] sm:gap-y-2">
           {lastReturn && (
             <>
-              <dt>after</dt>
+              <dt className="max-sm:mt-2.5 max-sm:text-ink-faint max-sm:first:mt-0">after</dt>
               <dd className="min-w-0 break-words">
                 {lastReturn.function} returned {lastReturn.returned}
               </dd>
@@ -142,17 +152,17 @@ export function RefusalCard({
 
           {refusal.skipped.length > 0 && (
             <>
-              <dt>not read</dt>
+              <dt className="max-sm:mt-2.5 max-sm:text-ink-faint max-sm:first:mt-0">not read</dt>
               <dd className="min-w-0">
                 {refusal.skipped.length === 1
                   ? "1 module, which may hold what the run looked for"
                   : `${refusal.skipped.length} modules, any of which may hold what the run looked for`}
-                <div className="mt-1.5 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-[2ch] gap-y-1.5">
+                <div className="mt-1.5 grid grid-cols-1 gap-x-[2ch] gap-y-1.5 sm:grid-cols-[max-content_minmax(0,1fr)]">
                   {refusal.skipped.map((file, index) => {
                     const fix = refusalFix(file.reason);
                     return (
                       <Fragment key={`${file.module}:${index}`}>
-                        <div className="break-words">{file.module}</div>
+                        <div className="break-words text-ink-secondary max-sm:mt-1.5">{file.module}</div>
                         <div className="min-w-0 break-words">
                           <Raised message={file.reason} />
                           {file.owner !== "theirs" && (
@@ -161,14 +171,14 @@ export function RefusalCard({
                             // graded run installs is our absence, and letting
                             // it sit unlabelled beside a syntax error of theirs
                             // reads as one more thing they got wrong.
-                            <span className="text-[11px] tracking-[0.06em] uppercase">
+                            <span className="text-ink-faint">
                               {" "}
                               ({file.owner})
                             </span>
                           )}
                           {fix && (
                             <div className="mt-0.5 flex gap-x-[2ch]">
-                              <span className="tracking-[0.06em] uppercase">fix</span>
+                              <span className="text-detect-deep">fix</span>
                               <span className="min-w-0 break-words">{fix}</span>
                             </div>
                           )}
@@ -183,9 +193,9 @@ export function RefusalCard({
 
           {refusal.errors.length > 0 && (
             <>
-              <dt>raised</dt>
+              <dt className="max-sm:mt-2.5 max-sm:text-ink-faint max-sm:first:mt-0">raised</dt>
               <dd className="min-w-0">
-                <div className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-[2ch] gap-y-1.5">
+                <div className="grid grid-cols-1 gap-x-[2ch] gap-y-1.5 sm:grid-cols-[max-content_minmax(0,1fr)]">
                   {refusal.errors.map((error) => (
                     <Fragment key={`${error.file}:${error.line}:${error.message}`}>
                       <div className="break-words">
@@ -206,13 +216,13 @@ export function RefusalCard({
             </>
           )}
 
-          <dt>next</dt>
+          <dt className="max-sm:mt-2.5 max-sm:text-ink-faint max-sm:first:mt-0">next</dt>
           <dd className="min-w-0 break-words">
             {/* Present only when the platform honestly knows it: a package it
                 can name, a file it could not read. Most refusals have none,
                 and an invented next step is worse than an absent one. */}
             {refusal.nextStep && <div>{refusal.nextStep}</div>}
-            <div className={refusal.nextStep ? "mt-1" : ""}>
+            <div className={`break-words text-ink ${refusal.nextStep ? "mt-1" : ""}`}>
               cogworks check --benchmark {benchmarkId} --update-setup
             </div>
           </dd>
@@ -220,10 +230,10 @@ export function RefusalCard({
       </div>
 
       {refusal.trace.length > 0 && (
-        <div className="mt-5 border-t border-rule-soft pt-4">
+        <div className="mt-5 border-t border-detect/20 pt-4">
           <WiringTrace steps={refusal.trace} incomplete />
         </div>
       )}
-    </Panel>
+    </div>
   );
 }

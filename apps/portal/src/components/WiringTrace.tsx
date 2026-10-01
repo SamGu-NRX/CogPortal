@@ -38,22 +38,28 @@ export function WiringTrace({
 
   return (
     <div>
-      <div className="u-kicker">
+      <div className="u-label">
         {incomplete ? "How far your code was followed" : "Your code, as it was run"}
       </div>
-      <ol className="mt-3 space-y-2.5">
+      {/* An ordered list on one rule, because it is a real sequence: each
+          function was handed what the one before it returned. */}
+      <ol className="mt-3 border-l border-rule pl-4">
         {steps.map((step, index) => (
-          <li key={`${index}:${step.function}`} className="grid gap-x-4 gap-y-1 sm:grid-cols-[9rem_1fr]">
-            <div className="pt-[0.15em] font-mono text-[11px] uppercase tracking-wide text-ink-faint">
-              {step.stage}
-            </div>
+          <li
+            key={`${index}:${step.function}`}
+            className="relative grid gap-x-5 gap-y-0.5 py-1.5 sm:grid-cols-[8.5rem_minmax(0,1fr)]"
+          >
+            {/* A tick on the rule for each hand-off, like a pencil mark on a
+                margin line. */}
+            <span aria-hidden="true" className="absolute top-[1.05em] -left-4 h-px w-2.5 bg-rule-strong" />
+            <div className="text-[13.5px] text-ink-secondary">{step.stage}</div>
             <div className="min-w-0">
               <div className="break-all font-mono text-[13px] text-ink">{step.function}</div>
               {(step.received || step.returned) && (
                 // The shapes are the reproduction a team debugs from. They are
                 // the platform's whole contribution to a chain that runs and
                 // answers wrongly: what ran, on what, and what came back.
-                <div className="mt-0.5 font-mono text-[11px] leading-relaxed text-ink-faint">
+                <div className="mt-0.5 font-mono text-[12px] leading-relaxed text-ink-faint">
                   {step.received && <span>took {step.received}</span>}
                   {step.received && step.returned && <span aria-hidden="true"> · </span>}
                   {step.returned && <span>returned {step.returned}</span>}

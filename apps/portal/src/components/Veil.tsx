@@ -105,18 +105,18 @@ export function Veil({
             });
           }
         }}
-        className={`u-pressable relative flex min-h-12 w-full items-center justify-between gap-4 border border-rule bg-paper-raised/85 px-4 py-2.5 text-left backdrop-blur-[3px] transition-colors duration-150 hover:border-ink-secondary hover:bg-paper-raised ${
+        className={`u-pressable relative flex min-h-12 w-full items-center justify-between gap-4 rounded-control border border-rule bg-paper-raised/85 px-4 py-2.5 text-left backdrop-blur-[3px] transition-colors duration-150 hover:border-ink-secondary hover:bg-paper-raised ${
           open
             ? "mt-2 border-rule-soft"
-            : "-mt-px shadow-[0_2px_8px_rgb(28_38_55/0.06)]"
+            : "-mt-px shadow-[0_2px_8px_rgb(27_31_36/0.06)]"
         }`}
       >
         <span>
-          <span className="block text-[13.5px] font-medium text-ink">
+          <span className="block text-[14px] font-semibold text-ink">
             {open ? fewerLabel : moreLabel}
           </span>
           {detail && (
-            <span className="block font-mono text-[10.5px] text-ink-faint">
+            <span className="block text-[12.5px] text-ink-faint">
               {detail}
             </span>
           )}

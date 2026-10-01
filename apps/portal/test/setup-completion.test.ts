@@ -111,7 +111,7 @@ async function renderComplete(t: test.TestContext, byHand: string[]) {
       React.createElement(MemoryRouter, null, React.createElement(SetupPage)),
     ),
   ));
-  const panel = [...container.querySelectorAll("section")].find((section) => section.textContent?.includes("SETUP COMPLETE"));
+  const panel = [...container.querySelectorAll("section")].find((section) => section.textContent?.includes("Setup complete"));
   assert.ok(panel, "the completion panel did not render");
   return { text: panel.textContent ?? "", verificationGreen: panel.classList.contains("bg-verify-wash") };
 }

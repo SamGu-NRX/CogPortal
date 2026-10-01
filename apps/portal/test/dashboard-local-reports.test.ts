@@ -187,7 +187,7 @@ test("reports no track shows get their own group, labelled by benchmark and with
 test("the panel appears for untracked reports alone, with no empty track table", () => {
   const html = render({ scoped: [], untracked: [INACTIVE] });
 
-  assert.match(html, /LOCAL REPORTS/);
+  assert.match(html, /id="local-reports-heading"/);
   assert.match(untrackedGroup(html), /Song Identification/);
   // The track table is absent rather than empty.
   assert.doesNotMatch(html, /Self-reported local CogBench results<\/caption>/);
@@ -211,5 +211,5 @@ test("a failed untracked list shows the panel's error rather than a partial tabl
 test("nothing renders while there are no reports anywhere", () => {
   const html = render({ scoped: [], untracked: [] });
 
-  assert.doesNotMatch(html, /LOCAL REPORTS/);
+  assert.doesNotMatch(html, /local-reports-heading/);
 });

@@ -59,11 +59,11 @@ export function CopyBlock({
         // one, the way the run console's log is. A wrapped block scrolls
         // nowhere, so it takes no tab stop.
         tabIndex={wrap ? undefined : 0}
-        className={`min-w-0 flex-1 border border-rule bg-paper-sunken px-3 py-2.5 font-mono text-[12.5px] text-ink ${
+        className={`min-w-0 flex-1 rounded-l-surface border border-rule bg-paper-sunken/70 px-3.5 py-2.5 font-mono text-[13px] text-ink ${
           wrap
             ? "whitespace-pre-wrap [overflow-wrap:anywhere]"
             : "overflow-x-auto whitespace-pre focus-visible:outline-offset-[-2px]"
-        } [&_pre]:m-0 [&_pre]:bg-transparent [&_pre]:p-0 [&_pre]:font-mono [&_pre]:text-[12.5px] [&_pre]:[white-space:inherit] [&_pre]:[overflow-wrap:inherit]`}
+        } [&_pre]:m-0 [&_pre]:bg-transparent [&_pre]:p-0 [&_pre]:font-mono [&_pre]:text-[13px] [&_pre]:[white-space:inherit] [&_pre]:[overflow-wrap:inherit]`}
       >
         {/* Not focusable: this box is already the tab stop when it scrolls,
             and a wrapped one deliberately has none. */}
@@ -73,13 +73,18 @@ export function CopyBlock({
         type="button"
         onClick={copy}
         title="Copy command"
-        className="u-pressable flex min-w-11 items-center justify-center border border-l-0 border-rule bg-paper-raised px-3 transition-colors duration-150 hover:border-ink-secondary"
+        className="u-pressable flex min-w-11 items-center justify-center gap-1.5 rounded-r-surface border border-l-0 border-rule bg-paper-raised px-3 text-ink-secondary transition-colors duration-150 hover:text-ink"
       >
+        {copied && (
+          <span aria-hidden="true" className="anim-rise text-[12px] font-semibold text-verify-deep">
+            Copied
+          </span>
+        )}
         <HugeiconsIcon
           icon={copied ? Tick02Icon : Copy01Icon}
-          size={13}
+          size={15}
           strokeWidth={1.8}
-          className={copied ? "text-verify" : "text-ink-faint"}
+          className={copied ? "text-verify" : undefined}
           aria-hidden="true"
         />
         <span className="sr-only">Copy command</span>

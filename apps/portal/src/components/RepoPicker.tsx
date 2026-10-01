@@ -5,7 +5,7 @@ import { Veil } from "@/components/Veil";
 import { formatTimeAgo } from "@/lib/format";
 
 /**
- * Enriched repository radio-card list — shared by Connect and Team settings.
+ * Enriched repository radio-card list, shared by Connect and Team settings.
  * Shows what GitHub actually knows: description, fork status, last push.
  */
 export function RepoPicker({
@@ -91,54 +91,55 @@ function RepositoryOption({
 
   return (
     <label
-      className={`flex items-start gap-3 border bg-paper-raised px-4 py-3 transition-colors duration-150 ${
+      className={`relative flex items-start gap-3 rounded-surface border px-4 py-3.5 transition-[border-color,background-color] duration-150 ${
         disabled
-          ? "cursor-not-allowed opacity-55"
+          ? "cursor-not-allowed border-rule bg-paper-raised opacity-55"
           : picked
-            ? "cursor-pointer border-ink"
-            : "cursor-pointer border-rule hover:border-ink-secondary"
+            ? "cursor-pointer border-ink bg-paper-raised shadow-[inset_0_0_0_1px_var(--color-ink)]"
+            : "cursor-pointer border-rule bg-paper-raised hover:border-ink-secondary"
       }`}
     >
+      {/* Selection is ink. Detector red means consequence on this site, and
+          picking a repository has none until the button below is pressed. */}
       <input
         type="radio"
         name="repository"
         checked={picked}
         disabled={disabled}
         onChange={() => onPick(repo)}
-        className="mt-1 accent-[#c63d2f]"
+        className="mt-[3px] size-4 shrink-0 accent-ink"
       />
       <span className="min-w-0 flex-1">
         <span className="flex items-baseline justify-between gap-3">
-          <span className="truncate font-mono text-[13.5px] font-medium text-ink">
+          <span className="truncate font-mono text-[14px] font-medium text-ink">
             {repo.fullName}
           </span>
-          <span className="flex shrink-0 items-center gap-2">
+          <span className="flex shrink-0 items-center gap-2.5 text-[12.5px] text-ink-faint">
             {repo.isFork && (
-              <span className="flex items-center gap-1 font-mono text-[10px] tracking-[0.07em] text-ink-faint uppercase">
-                <HugeiconsIcon icon={GitForkIcon} size={11} strokeWidth={1.8} aria-hidden="true" />
-                fork
+              <span className="flex items-center gap-1">
+                <HugeiconsIcon icon={GitForkIcon} size={12} strokeWidth={1.8} aria-hidden="true" />
+                Fork
               </span>
             )}
-            {isCurrent ? (
-              <span className="font-mono text-[10px] tracking-[0.07em] text-verify-deep uppercase">
-                current
-              </span>
-            ) : repo.claimedByTeam ? (
-              <span className="font-mono text-[10px] tracking-[0.07em] text-ink-faint uppercase">
-                team · {repo.claimedByTeam}
-              </span>
-            ) : null}
+            {isCurrent && <span className="font-semibold text-verify-deep">Current</span>}
           </span>
         </span>
         {repo.description && (
           <span
             title={repo.description}
-            className="mt-0.5 line-clamp-1 block text-[12.5px] text-ink-secondary"
+            className="mt-1 line-clamp-1 block text-[14px] text-ink-secondary"
           >
             {repo.description}
           </span>
         )}
-        <span className="mt-1 block font-mono text-[11px] text-ink-faint">
+        {claimedByOther && (
+          <span className="mt-1 block text-[14px] text-ink">
+            {disableClaimed
+              ? `Already ${repo.claimedByTeam}'s repository`
+              : `Already ${repo.claimedByTeam}'s repository, so picking it joins that team`}
+          </span>
+        )}
+        <span className="mt-1 block font-mono text-[12.5px] text-ink-faint">
           {repo.defaultBranch}
           {repo.pushedAt != null && <> · updated {formatTimeAgo(repo.pushedAt)}</>}
         </span>
