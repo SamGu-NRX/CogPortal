@@ -208,7 +208,9 @@ def _update_setup(
     accepted = result.get("accepted")
     if not isinstance(accepted, list):
         raise PortalError("CogPortal returned an invalid setup response.")
-    print("setup: updated {}".format(", ".join(str(step) for step in accepted)))
+    # stderr, like every other setup line: after `--json` the document on
+    # stdout has to stay parseable.
+    print("setup: updated {}".format(", ".join(str(step) for step in accepted)), file=sys.stderr)
 
 
 def _report_kind(report: LocalReport) -> str:
@@ -236,6 +238,7 @@ def _print_report(report: LocalReport, as_json: bool = False) -> None:
             "`cogworks run --benchmark {}` scores the full practice set."
             .format(report.benchmark_id)
         )
+    labels = {metric.key: metric.label for metric in report.metrics}
     for metric in report.metrics:
         precision = max(metric.precision, 4) if metric.primary else metric.precision
         value = ("{:.%df}" % precision).format(metric.value)
@@ -244,7 +247,14 @@ def _print_report(report: LocalReport, as_json: bool = False) -> None:
         # the only evidence that a value is seconds.
         if not unit and metric.key.endswith("_seconds"):
             unit = "s"
-        print("{}: {}{}".format(metric.label, value, " " + unit if unit else ""))
+        line = "{}: {}{}".format(metric.label, value, " " + unit if unit else "")
+        # A floor comes from the dataset, not the submission. Printed as a
+        # plain row, "Chance MRR" read as one of the team's results; the run
+        # page draws it as the scale of the metric it relates to instead.
+        if metric.role == "floor":
+            parent = labels.get(metric.relates_to)
+            line += " (floor{}, set by the data)".format(" for " + parent if parent else "")
+        print(line)
     if report.repository.sha:
         print("commit: {}{}".format(report.repository.sha[:7], " (dirty)" if report.repository.dirty else ""))
     for diagnostic in report.diagnostics:
@@ -1163,12 +1173,23 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     file=sys.stderr,
                 )
             result = _check(args.benchmark, args.json, project_root)
-            if result == 0 and args.update_setup:
+            if args.update_setup and result == 0:
                 _update_setup(
                     None,
                     ("clone", "environment", "project", "wiring"),
                     project_root,
                     args.benchmark,
+                )
+            elif args.update_setup:
+                # The setup page tells a student whose box stays grey that the
+                # reason is in the terminal, so the skipped update says so.
+                # stderr keeps `--json` output parseable; the flush keeps this
+                # line after the report it refers to when output is piped.
+                sys.stdout.flush()
+                print(
+                    "setup: not updated, because the check didn't pass. "
+                    "Fix what it reported and run this command again.",
+                    file=sys.stderr,
                 )
             return result
         if args.command in ("test", "run"):
