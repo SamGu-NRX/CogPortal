@@ -267,12 +267,12 @@ function Stages({
  * The stages on one time axis, with the first end-to-end run ruled across
  * them.
  *
- * The axis spans the commits that were read. When older commits exist and
- * were not requested, its left edge is where the reading starts rather than
- * where the project did, and the edge says "history starts here" instead of
- * a bare date, so a stage that looks untouched is not mistaken for one nobody
- * worked on. A first scored run that falls before that edge is stated in
- * words rather than drawn: the axis has nothing to place it against.
+ * The axis spans the stage-file commits and the first scored run, which is
+ * all the signals give it. It cannot mark where the commits that were read
+ * begin: the oldest stage-file touch is not the oldest commit read (a README
+ * commit can come before it), and `historyWindow` carries no timestamp. So
+ * the run is always drawn, and when older commits were left unread the line
+ * under the bars says a stage may have started before its bar does.
  */
 function StageRail({
   stages,
@@ -307,19 +307,14 @@ function StageRail({
       </p>
     );
   }
-  let start = Math.min(...times);
-  let end = Math.max(...times);
-  // Before the window means before anything we read, so it cannot be drawn.
-  const lightBeforeWindow = firstScoredAt !== null && windowed && firstScoredAt < start;
-  if (firstScoredAt !== null && !lightBeforeWindow) {
-    start = Math.min(start, firstScoredAt);
-    end = Math.max(end, firstScoredAt);
-  }
+  if (firstScoredAt !== null) times.push(firstScoredAt);
+  const start = Math.min(...times);
+  const end = Math.max(...times);
   // A whole week's work can land on one day, and then every bar would be at
   // the same point with a zero-width span to divide by.
   const width = end - start || 1;
   const at = (epochMs: number) => ((epochMs - start) / width) * 100;
-  const light = firstScoredAt !== null && !lightBeforeWindow ? at(firstScoredAt) : null;
+  const light = firstScoredAt !== null ? at(firstScoredAt) : null;
 
   return (
     <div className="mt-3">
@@ -431,33 +426,24 @@ function StageRail({
       <div className="mt-2 grid grid-cols-1 gap-x-4 sm:grid-cols-[7.5rem_minmax(0,1fr)]">
         <span aria-hidden="true" className="hidden sm:block" />
         <div className="flex items-baseline justify-between gap-3 border-t border-rule pt-1.5 font-mono text-[12px] text-ink-faint">
-          <span className="u-tnum">
-            {windowed ? (
-              <span className="u-note text-[13.5px]">history starts here</span>
-            ) : (
-              day(start)
-            )}
-          </span>
+          <span className="u-tnum">{day(start)}</span>
           <span className="u-tnum">{day(end)}</span>
         </div>
       </div>
 
       {firstScoredAt !== null && (
         <p className="mt-3 flex items-center gap-2.5 text-[13.5px] text-ink-secondary sm:pl-[calc(7.5rem+1rem)]">
-          {light !== null && (
-            <span aria-hidden="true" className="inline-block h-4 border-l border-dashed border-ink/55" />
-          )}
+          <span aria-hidden="true" className="inline-block h-4 border-l border-dashed border-ink/55" />
           <span>
             <span className="u-note text-[14.5px]">First scored end to end</span>{" "}
             <span className="u-tnum font-mono text-[12.5px] text-ink-faint">{day(firstScoredAt)}</span>
-            {lightBeforeWindow && ", before the commits read here"}
           </span>
         </p>
       )}
       {/* Two bare dates are a mystery; one line says how to read the bars. */}
       <p className="mt-2 text-[13px] text-ink-faint sm:pl-[calc(7.5rem+1rem)]">
         {windowed
-          ? "Each bar spans the commits we read for that stage."
+          ? "Each bar spans the commits we read for that stage. Older commits weren't read, so a stage may have started earlier."
           : "Each bar runs from a stage's first commit to its most recent."}
       </p>
     </div>

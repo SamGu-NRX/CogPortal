@@ -138,6 +138,7 @@ function Enrollment({
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [changing, setChanging] = useState(false);
   const [rotated, setRotated] = useState(0);
+  const foldRef = useRef<HTMLDivElement>(null);
   const reduce = useReducedMotion();
   const foldId = useId();
   const titleId = useId();
@@ -231,7 +232,14 @@ function Enrollment({
           type="button"
           aria-expanded={changing}
           aria-controls={foldId}
-          onClick={() => setChanging((open) => !open)}
+          onClick={(event) => {
+            // Safari doesn't focus a clicked button, so focus can still be on
+            // an action inside the fold; going inert would drop it to the body.
+            if (changing && foldRef.current?.contains(document.activeElement)) {
+              event.currentTarget.focus();
+            }
+            setChanging(!changing);
+          }}
           className="u-pressable inline-flex min-h-11 items-center gap-1.5 rounded-control px-2 text-[14px] font-semibold text-ink-secondary transition-colors duration-150 hover:text-ink"
         >
           Change enrollment
@@ -244,12 +252,21 @@ function Enrollment({
             <HugeiconsIcon icon={ArrowDown01Icon} size={15} strokeWidth={1.8} />
           </motion.span>
         </button>
+        {/* Rotating never changes whether enrollment is open, so what the new
+            code does is read from the cohort as it is now, including after
+            enrollment is opened or closed later. */}
         {rotated > 0 && (
           <p key={rotated} role="status" className="anim-rise px-2 pb-3 text-[14px] text-ink">
-            The new code works now, and the old one no longer does.
+            {cohort.active
+              ? "The new code works now, and the old one no longer does."
+              : "The old code no longer works. The new one will once you open enrollment."}
           </p>
         )}
-        <div id={foldId}>
+        {/* The wrapper stays mounted, so these flip the moment the fold
+            closes; the actions inside are still on screen for the exit
+            animation and must not take focus or be read out meanwhile. Only
+            the toggle closes the fold, and it takes focus back first. */}
+        <div ref={foldRef} id={foldId} inert={!changing} aria-hidden={!changing}>
           <AnimatePresence initial={false}>
             {changing && (
               <motion.div
