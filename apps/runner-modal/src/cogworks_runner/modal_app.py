@@ -1947,12 +1947,12 @@ def _evaluation_failure(
 
     Only two outcomes, and no platform-fault branch: see
     `_platform_owned_evaluation_failure`. A timeout is decided from elapsed
-    time and the return code. Anything else is `student_runtime`, the
+    time alone. Anything else is `student_runtime`, the
     category for "the evaluation raised", which the portal words without
     claiming whose code it was, because nothing here can establish that.
     """
 
-    if _timed_out(job, started, process.returncode):
+    if _timed_out(job, started):
         return RunnerFailure(
             "timeout",
             "evaluating",
@@ -1961,12 +1961,14 @@ def _evaluation_failure(
             ).strip(),
             False,
         )
-    try:
-        # Written by the sandbox's own failure handler; absent when the
-        # process was killed or exited before reaching it.
-        log = sandbox.filesystem.read_text("/tmp/cog-student.log")
-    except Exception:
-        log = None
+    log = None
+    if job["mode"] == "practice":  # official runs never send a log, so never read one
+        try:
+            # Written by the sandbox's own failure handler; absent when the
+            # process was killed or exited before reaching it.
+            log = sandbox.filesystem.read_text("/tmp/cog-student.log")
+        except Exception:
+            pass
     detail = _last_error_line(process.stderr.read().decode("utf-8", "replace"))
     return RunnerFailure("student_runtime", "evaluating", detail, False, log=log)
 
@@ -2008,8 +2010,8 @@ def _platform_owned_evaluation_failure() -> None:
 
     The remaining ways a run can fail through no fault of the submission are
     the ones the controller observes
-    from outside: a process killed for time or memory, which `_timed_out`
-    decides from elapsed seconds and the return code, and provider faults,
+    from outside: a process killed for time, which `_timed_out` decides from
+    elapsed seconds, and provider faults,
     which surface as exceptions here rather than as text from in there.
 
     Not a real function. Somewhere to put the reasoning, referenced from each
@@ -2017,7 +2019,7 @@ def _platform_owned_evaluation_failure() -> None:
     """
 
 
-def _timed_out(job: Dict[str, Any], started: float, returncode: int) -> bool:
+def _timed_out(job: Dict[str, Any], started: float) -> bool:
     """Whether the sandbox killed the process for exceeding its wall clock.
 
     Modal enforces the sandbox timeout by killing the process, and a killed
@@ -2031,18 +2033,15 @@ def _timed_out(job: Dict[str, Any], started: float, returncode: int) -> bool:
     per song and `query_details` reloads it per query, so its cost grows with
     the catalog rather than with the clip.
 
-    Two signals, either sufficient. Elapsed time at or past the budget is the
-    reliable one. SIGKILL surfacing as -9 or 137 is the corroborating one, kept
-    because a process killed slightly early should still read as a timeout.
+    Elapsed time, measured here, is the only signal. Modal reports its own
+    timeout as return code -1 at the budget (see TheBlindSpot in
+    test_limit_attribution.py), which this catches. Two other rungs were
+    removed because the submission controls them: "killed" near the end of
+    stderr, and a kill signal as the return code, which `os._exit(137)`
+    produces in a second.
     """
 
-    budget = float(job["runtime"]["timeoutSeconds"])
-    if time.time() - started >= budget * 0.95:
-        return True
-    # No stderr check. A third rung read "killed" near the end of stderr,
-    # which the submission writes, and once every lane shared this check a
-    # fast `raise RuntimeError("killed")` was reported as a timeout.
-    return returncode in (-9, 137, -15, 143)
+    return time.time() - started >= float(job["runtime"]["timeoutSeconds"]) * 0.95
 
 
 def _last_error_line(value: str) -> str:

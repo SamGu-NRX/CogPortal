@@ -180,20 +180,17 @@ class TimeoutAttribution(unittest.TestCase):
     def test_elapsed_at_the_budget_is_a_timeout(self):
         job = self._job(900)
         started = time.time() - 999
-        self.assertTrue(TIMED_OUT(job, started, 1))
+        self.assertTrue(TIMED_OUT(job, started))
 
-    def test_sigkill_is_a_timeout_even_slightly_early(self):
-        job = self._job(900)
-        started = time.time() - 500
-        self.assertTrue(TIMED_OUT(job, started, -9))
-        self.assertTrue(TIMED_OUT(job, started, 137))
+    # A kill signal well before the budget is not a timeout: the submission
+    # can exit with 137 itself. test_evaluation_failure drives that per lane.
 
     def test_a_fast_crash_is_not_a_timeout(self):
         """The case this must never swallow: a real student exception."""
 
         job = self._job(900)
         started = time.time() - 12
-        self.assertFalse(TIMED_OUT(job, started, 1))
+        self.assertFalse(TIMED_OUT(job, started))
 
     # A submission printing "killed" can no longer claim a timeout: stderr is
     # not an input. test_evaluation_failure drives that through every lane.

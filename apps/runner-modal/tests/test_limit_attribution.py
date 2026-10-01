@@ -232,16 +232,15 @@ class TheBlindSpot(unittest.TestCase):
     def test_the_reachable_timeout_path_does_not_depend_on_the_message(self):
         """Why the blind spot is survivable today.
 
-        `_timed_out` reads elapsed time and the returncode, so a killed process
-        is a timeout even with empty stderr. Modal's ContainerProcess.wait
-        reports its own timeout as returncode -1, and at the budget that is
+        `_timed_out` reads elapsed time only, so a killed process is a
+        timeout even with empty stderr. Modal's ContainerProcess.wait reports
+        its own timeout as returncode -1, and at the budget that is
         recognized.
         """
 
         job = {"runtime": {"timeoutSeconds": 900}}
-        self.assertTrue(TIMED_OUT(job, time.time() - 900, -1))
-        self.assertTrue(TIMED_OUT(job, time.time() - 880, 1))
-        self.assertTrue(TIMED_OUT(job, time.time() - 5, -9))
+        self.assertTrue(TIMED_OUT(job, time.time() - 900))
+        self.assertTrue(TIMED_OUT(job, time.time() - 880))
 
     def test_the_timeout_signal_check_does_not_cover_minus_one_early(self):
         """The exact edge, recorded rather than asserted to be correct.
@@ -250,12 +249,12 @@ class TheBlindSpot(unittest.TestCase):
         timeout. That is the right call on the evidence available: -1 is also
         what Modal reports for an unexpected exit status
         (container_process.py:176-179), so treating it as a timeout would let a
-        crash be relabelled. Recorded here because it is the one case where the
-        two mechanisms leave a gap, and a future OOM report may land in it.
+        crash be relabelled. Recorded here because a future OOM report may
+        land in it.
         """
 
         job = {"runtime": {"timeoutSeconds": 900}}
-        self.assertFalse(TIMED_OUT(job, time.time() - 10, -1))
+        self.assertFalse(TIMED_OUT(job, time.time() - 10))
 
     def test_the_substring_classifier_is_still_the_only_memory_detection(self):
         """A guard, so a real fix removes this test rather than passing beside it.

@@ -61,8 +61,8 @@ stateDiagram-v2
     contract_check --> evaluating : the evaluate sandbox starts, its own 900 s
     evaluating --> settled : the process exits on its own
     evaluating --> stopped : the process is killed
-    stopped --> timeout : elapsed, or a kill signal, or the last resort
-    stopped --> crash : none of the three fired
+    stopped --> timeout : elapsed reached 95% of the budget
+    stopped --> crash : it had not
     install_failed --> [*]
     timeout --> [*]
     crash --> [*]
@@ -95,17 +95,15 @@ Two independent mechanisms decide, and they cover different paths.
 
 ### The process came back
 
-Week 1 and Week 3 record a start time before `sandbox.exec` and call `_timed_out` when the return code is nonzero (`modal_app.py:1893`, `modal_app.py:1976`). It reads three signals, in this order (`modal_app.py:2077`):
+Every evaluate lane records a start time before `sandbox.exec` and, when the return code is nonzero, hands the result to `_evaluation_failure`, which calls `_timed_out`. It reads one signal: **elapsed time at or past 95 percent of the budget**, which is 855 seconds against 900. The controller measures it, so a submission cannot forge it. Modal reports its own timeout as return code -1 at the budget, which this catches.
 
-1. **Elapsed time at or past 95 percent of the budget**, which is 855 seconds against 900. This is the reliable one, and a submission cannot forge it.
-2. **A return code in `(-9, 137, -15, 143)`**, the SIGKILL and SIGTERM shapes. Kept as corroboration, so a process killed slightly early still reads as a timeout.
-3. **The word "killed" in the last 200 characters of stderr, lowercased.** Last, and explicitly a last resort, because it reads student-influenced text.
+Two other signals used to count and were removed because the submission controls them: a kill-signal return code (`os._exit(137)` produces one in a second) and the word "killed" near the end of stderr. Until the lanes shared one function, Week 2 and the legacy lane checked nothing at all, so a vision run killed at its budget read as an exception (B-11).
 
 The docstring carries the measurement the function exists for: `carti4ce/week1_capstone` reached 999 seconds against a 900 second budget on the evaluation corpus, because its `database.add` rewrites the whole pickle per song and `query_details` reloads it per query, so its cost grows with the catalog rather than with the clip. The same submission also finished at 875 and 898 seconds on two earlier hosted runs, which is a coin flip against the budget (`runner.ts:113`).
 
 The budget was deliberately not raised. A budget wide enough for a database that grows with the catalog is a budget that no longer means anything, and the failure is now legible: the timeout names the budget and that shape of database instead of saying "Evaluation failed." (`runner.ts:123`).
 
-The ordering of the three signals is what stops the obvious attack. A team that raises `RuntimeError("killed")` five seconds in fails signals one and two, and signal three is checked against the last 200 characters only, so a long traceback pushes the word out of the window. `test_failure_attribution.py:202` pins that case.
+A team that raises `RuntimeError("killed")` or exits with 137 five seconds in gets an ordinary evaluation failure. `test_evaluation_failure.py` pins both cases in every lane.
 
 ### An exception came back instead
 

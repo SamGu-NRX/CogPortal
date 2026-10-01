@@ -200,34 +200,43 @@ class _Sandbox:
         pass
 
 
-def _lane(lane: str, sandbox: _Sandbox):
+def _lane(lane: str, sandbox: _Sandbox, elapsed: float = 1.0, mode: str = "practice"):
+    """Run one lane's failure path; `elapsed` is what the controller's clock saw."""
+
     encoders = (
         mock.patch("cogworks_runner.week1_payload.encode_payload", return_value=b""),
         mock.patch("cogworks_runner.week2_payload.encode_cases", return_value=(b"", [])),
         mock.patch("cogworks_runner.week3_payload.encode_payload", return_value=b""),
     )
+    readings = iter([0.0])
+    clock = types.SimpleNamespace(time=lambda: next(readings, elapsed))
     space = functions(
         lane, "_evaluation_failure", "_last_error_line", "_timed_out", "_fit",
         "_take_units", "_receiver_units", app=object(), EVALUATE_SCRIPT="script",
-        WEEK1_STUDENT_PYTHON="python", WEEK3_STUDENT_PYTHON="python",
+        WEEK1_STUDENT_PYTHON="python", WEEK3_STUDENT_PYTHON="python", time=clock,
         modal=types.SimpleNamespace(Image=types.SimpleNamespace(from_id=lambda value: object()),
                                     Sandbox=types.SimpleNamespace(create=lambda **kwargs: sandbox)),
     )
+    value = job()
+    value["mode"] = mode
     with encoders[0], encoders[1], encoders[2]:
         try:
-            space[lane](job(), "im-saved", [])
+            space[lane](value, "im-saved", [])
         except space["RunnerFailure"] as failure:
             return failure
     raise AssertionError("{} did not fail".format(lane))
 
 
 class EveryLaneDecidesTheSameWay(unittest.TestCase):
-    def test_a_killed_process_is_a_timeout_in_every_lane(self):
-        """B-11: the Week 2 lane never checked, so a kill read as an exception."""
+    def test_a_process_stopped_at_the_budget_is_a_timeout_in_every_lane(self):
+        """B-11: the Week 2 lane never checked, so a kill read as an exception.
+
+        Modal reports its own timeout as return code -1 at the budget.
+        """
 
         for lane in LANES:
             with self.subTest(lane=lane):
-                failure = _lane(lane, _Sandbox(137, "", None))
+                failure = _lane(lane, _Sandbox(-1, "", None), elapsed=900)
                 self.assertEqual((failure.category, failure.infrastructure), ("timeout", False))
                 self.assertIn("900 second budget", str(failure))
 
@@ -236,7 +245,7 @@ class EveryLaneDecidesTheSameWay(unittest.TestCase):
 
         for lane in LANES:
             with self.subTest(lane=lane):
-                said = str(_lane(lane, _Sandbox(-9, "", None)))
+                said = str(_lane(lane, _Sandbox(-1, "", None), elapsed=900))
                 self.assertEqual("song" in said, lane == "_evaluate_week1", said)
 
     def test_an_exception_carries_its_detail_and_log_and_stays_out_of_infrastructure(self):
@@ -247,6 +256,25 @@ class EveryLaneDecidesTheSameWay(unittest.TestCase):
                 self.assertEqual((failure.category, failure.infrastructure), ("student_runtime", False))
                 self.assertEqual(str(failure), "TypeError: bad\nat m.py:3, in f")
                 self.assertEqual(failure.log, "printed\nTraceback ...\n")
+
+    def test_exiting_with_a_kill_code_is_not_a_timeout(self):
+        """`os._exit(137)` is one line of student code; only the clock decides."""
+
+        for lane in LANES:
+            for code in (-9, 137, -15, 143):
+                with self.subTest(lane=lane, code=code):
+                    self.assertEqual(_lane(lane, _Sandbox(code, "", None)).category, "student_runtime")
+
+    def test_an_official_run_never_reads_the_log(self):
+        """It would never be sent, and the file is the submission's to make huge."""
+
+        class Watched(_Sandbox):
+            def read_text(self, path):
+                raise AssertionError("read " + path)
+
+        failure = _lane("_evaluate_v2", Watched(2, 'COG_ERROR: {"type": "E", "message": "m"}\n', "x"), mode="official")
+        self.assertEqual(failure.category, "student_runtime")
+        self.assertIsNone(failure.log)
 
     def test_printing_killed_is_not_a_timeout(self):
         """The word was a third timeout signal, read from text the team writes."""
