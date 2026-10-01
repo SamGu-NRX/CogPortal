@@ -61,8 +61,8 @@ const WEEK2_VISION: BenchmarkPackage = {
 // one of its methods. The SDK no longer lends a run the object discovery
 // built, so 6dc63fe, which called the encoder first, failed CI run 35766833651.
 // 9e4dcff (#6) adds a finding that leads a clean run with search against
-// retrieval; it changes no metric, dataset, contract or scorer. 7e3c3fa adds
-// `python -m language_search_benchmark.fetch` and names it where a cold
+// retrieval; it changes no metric, dataset, contract or scorer. 13a164e (#7)
+// adds `python -m language_search_benchmark.fetch` and names it where a cold
 // check used to send students to `cogworks test`; it changes no scoring
 // either. No staging image has run either revision yet.
 // 6dc63fe is the revision verified on staging (run_28df471772), where earlier
@@ -71,7 +71,7 @@ const WEEK2_VISION: BenchmarkPackage = {
 const WEEK3_LANGUAGE: BenchmarkPackage = {
   distribution: "cogworks-week3-language-benchmark",
   source:
-    "git+https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git@7e3c3fa362b118524863d3d2ce854583c69a0aac",
+    "git+https://github.com/SamGu-NRX/cogworks-week3-language-benchmark.git@13a164eab8107fdf320ec53b2f39ed095188375e",
   dataCommand: "python -m language_search_benchmark.fetch",
 };
 

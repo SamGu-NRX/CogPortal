@@ -7,7 +7,7 @@ const sources = [
   ["audio-identification", "cogworks-week1-audio-benchmark", "4e516f39ffbeefe579e093260b2865eb354c17a7"],
   ["vision-recognition", "cogworks-week2-vision-benchmark", "a3dd948d0c108fabf070b4f159acdecd4d6c3897"],
   ["vision-clustering", "cogworks-week2-vision-benchmark", "a3dd948d0c108fabf070b4f159acdecd4d6c3897"],
-  ["language-search", "cogworks-week3-language-benchmark", "7e3c3fa362b118524863d3d2ce854583c69a0aac"],
+  ["language-search", "cogworks-week3-language-benchmark", "13a164eab8107fdf320ec53b2f39ed095188375e"],
 ] as const;
 
 function commands(benchmarkId: string) {
