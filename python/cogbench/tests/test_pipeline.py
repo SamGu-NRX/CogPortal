@@ -3935,6 +3935,62 @@ class AFunctionTooSlowForOneItemIsNotCalledAgain(unittest.TestCase):
         self.assertIsNone(refusal)
         self.assertEqual([step.label for step in binding.steps], ["theirs.embed"])
 
+    def test_a_shape_that_passes_a_side_input_is_still_tried(self):
+        """Without its IDF table this function computes one from scratch; with
+        the table the search supplies, it answers at once."""
+
+        module = _written(
+            "theirs",
+            "import time\n"
+            "def compute_idfs(corpus):\n"
+            "    return {word: 1.0 for text in corpus for word in text.split()}\n"
+            "def embed(text, idfs=None):\n"
+            "    if idfs is None:\n"
+            "        time.sleep(30)\n"
+            "    return [float(len(text)), 1.0]\n",
+        )
+        idfs = Stage("idfs", fit=True, fixture=(["a b"],), produces=dict)
+        text = Stage("text", per_item=True, produces=_vectors, extras=("idfs",))
+
+        binding, refusal = self._resolve(module, (idfs, text))
+
+        self.assertIsNone(refusal)
+        self.assertEqual([step.label for step in binding.steps], ["theirs.embed"])
+
+    def test_another_callable_with_the_same_label_is_still_called(self):
+        def slow(item):
+            time.sleep(30)
+
+        def fast(item):
+            return [1.0, 1.0]
+
+        with patch("cogbench.pipeline.CALL_TIMEOUT_SECONDS", 1), pipeline._scratch_cwd():
+            self.assertEqual(
+                pipeline._call(Candidate("encoder (Encoder)", slow, "pool"), ("a",), 0), (False, None)
+            )
+            ok, value = pipeline._call(Candidate("encoder (Encoder)", fast, "pool"), ("a",), 0)
+
+        self.assertTrue(ok)
+        self.assertEqual(value, [1.0, 1.0])
+
+    def test_a_callers_clock_running_out_is_not_this_functions_timeout(self):
+        calls = []
+
+        def answers_later(item):
+            calls.append(item)
+            if len(calls) == 1:
+                time.sleep(30)
+            return [1.0, 1.0]
+
+        candidate = Candidate("theirs.answers_later", answers_later, "theirs")
+        previous = signal.signal(signal.SIGALRM, pipeline._raise_timeout)
+        self.addCleanup(signal.signal, signal.SIGALRM, previous)
+        with pipeline._scratch_cwd():
+            signal.setitimer(signal.ITIMER_REAL, 0.2)
+            self.assertEqual(pipeline._call(candidate, ("a",), 0), (False, None))
+            signal.setitimer(signal.ITIMER_REAL, 0)
+            self.assertEqual(pipeline._call(candidate, ("a",), 0), (True, [1.0, 1.0]))
+
     def test_a_timeout_on_a_large_input_still_lets_it_bind_on_a_small_one(self):
         """Week 3's IDF fit passes the whole caption corpus. A function too
         slow for that is still the right one for the 75 captions after it."""
