@@ -843,6 +843,7 @@ def _handing(
     values: Dict[Tuple[str, ...], Dict[str, Any]],
     scope: Tuple[str, ...],
     models: Mapping[str, Any] = {},
+    input_form: Optional[Callable[[], Sequence[Any]]] = None,
 ) -> Callable[[Candidate], Candidate]:
     """The last word on one step's call: what this reading hands it.
 
@@ -894,7 +895,18 @@ def _handing(
         for name in wanted:
             supplied[name] = given(step, name)
         if "identity" in slots:
-            supplied["identity"] = tuple(handed.identities())
+            names = handed.identities()
+            if not names:
+                # Discovery derives every stage's names from the first step's
+                # selected form. Recompute them on this reading, not from the
+                # old supplied names, which may contain expired fixture paths.
+                if input_form is None:
+                    case = handed.case()
+                    form = case.for_chain((step,)) if isinstance(case, Fixtures) else case
+                else:
+                    form = input_form()
+                names = identities_for((), form)
+            supplied["identity"] = tuple(names)
         put = replace(step, supplied=supplied)
         if "pooled" in step.supplied:
             # This step is not one of their functions: it is the object the
@@ -1087,11 +1099,14 @@ def _renewed(
     def run_fits(scope: Tuple[str, ...]) -> None:
         for name, fit in fits_at.get(scope, ()):
             where = fit._fit_provenance
-            step = project.rebind(fit, _handing(handed, values, scope, models))
             case = handed.fit_case(scope, where.stage_index)
             forms = case if isinstance(case, Fixtures) else (case,)
+            form = forms[fit.form or 0]
+            step = project.rebind(fit, _handing(
+                handed, values, scope, models, input_form=lambda: form,
+            ))
             try:
-                produced = step.bound(*tuple(forms[fit.form or 0]))
+                produced = step.bound(*tuple(form))
             except BaseException as error:  # noqa: BLE001 - their function
                 raise Unmapped(
                     "fit_failed", fit.label,
@@ -1100,16 +1115,25 @@ def _renewed(
             values.setdefault(scope, {})[name] = produced
             renewed_fits.append((name, step))
 
-    def renew(steps: Sequence[Candidate], scope: Tuple[str, ...]):
+    def selected_form(case: Callable[[], Any], steps: Sequence[Candidate]):
+        def selected():
+            fixture = case()
+            return fixture.for_chain(steps) if isinstance(fixture, Fixtures) else fixture
+
+        return selected
+
+    def renew(steps: Sequence[Candidate], scope: Tuple[str, ...], case: Callable[[], Any]):
+        form = selected_form(case, steps)
         return tuple(
-            project.rebind(step, _handing(handed, values, scope, models)) for step in steps
+            project.rebind(step, _handing(handed, values, scope, models, form)) for step in steps
         )
 
     run_fits(here)
     branches: Dict[str, Tuple[Candidate, ...]] = {}
     outputs: Dict[str, Any] = {}
+    inputs: Dict[str, Callable[[], Any]] = {}
 
-    def output_of(name: str) -> Callable[[], Any]:
+    def input_of(name: str) -> Callable[[], Any]:
         # What this branch's fixture sees is fixed now, at its turn, as the
         # search's pool held it when the branch bound: the role's own values,
         # then every earlier branch in binding order, each overwriting a fit of
@@ -1122,12 +1146,24 @@ def _renewed(
             if key not in earlier
         }}
         chains = {other: steps for other, steps in branches.items() if other != name}
+        made: List[Any] = []
+
+        def case() -> Any:
+            if not made:
+                if name not in by_name:
+                    raise Unmapped("branch_input", name, "the binding has no declared input")
+                made.append(_branch_input(by_name[name], handed, seen, here, chains, earlier))
+            return made[0]
+
+        return case
+
+    def output_of(name: str) -> Callable[[], Any]:
 
         def make() -> Any:
             if name not in outputs:
                 outputs[name] = _produced_by(
-                    by_name[name], branches[name], handed, seen, here, chains,
-                    earlier,
+                    by_name[name], branches[name], handed, {}, here, {},
+                    input_case=inputs[name],
                 )
                 values.setdefault(here, {})[name] = outputs[name]
             return outputs[name]
@@ -1140,7 +1176,8 @@ def _renewed(
     for name, chain in binding.branches.items():
         scope = here + (name,)
         run_fits(scope)
-        branches[name] = renew(chain, scope)
+        inputs[name] = input_of(name)
+        branches[name] = renew(chain, scope, inputs[name])
         if name not in by_name:
             continue
         makers[name] = output_of(name)
@@ -1161,7 +1198,7 @@ def _renewed(
             run_fits(left)
     return replace(
         binding,
-        steps=branches[mine] if mine is not None else renew(binding.steps, scope),
+        steps=branches[mine] if mine is not None else renew(binding.steps, scope, handed.case),
         fits=tuple(renewed_fits),
         branches=branches,
         _reach=tuple(
@@ -1170,6 +1207,10 @@ def _renewed(
                 _handing(
                     handed, values,
                     here + (step.branch,) if step.branch else scope, models,
+                    selected_form(inputs[step.branch], binding.branches[step.branch])
+                    if step.branch else selected_form(
+                        inputs[mine] if mine is not None else handed.case, binding.steps,
+                    ),
                 ),
             )
             for step in binding._reach
@@ -1177,25 +1218,15 @@ def _renewed(
     )
 
 
-def _produced_by(
+def _branch_input(
     branch: Role,
-    chain: Sequence[Candidate],
     handed: Handed,
     values: Dict[Tuple[str, ...], Dict[str, Any]],
     here: Tuple[str, ...],
     bound: Dict[str, Tuple[Candidate, ...]],
     earlier: Mapping[str, Callable[[], Any]] = {},
 ) -> Any:
-    """What one branch's renewed chain produces, run on this reading.
-
-    The search kept the value the branch produced and put it in the pool; that
-    value belongs to the modules the search filled, so it is made again here
-    instead of being carried. The branch's own input is made the way the
-    search made it, through `pipeline._fixture_for`: a plain fixture as it is,
-    a callable one asked for a fixture with this reading's pool and this
-    reading's chains, because a week whose branch input is its own text chain
-    applied to a query string cannot be given the search's answer.
-    """
+    """The branch's input, rebuilt with this reading's earlier outputs."""
 
     from .pipeline import _Broken, _UNREADY, _fixture_for
 
@@ -1229,11 +1260,31 @@ def _produced_by(
             "branch_input", branch.name,
             "its input could not be made again: {}".format(type(case.error).__name__),
         ) from None
-    if case is _UNREADY or not chain:
+    if case is _UNREADY:
         raise Unmapped(
             "branch_input", branch.name,
             "its input is not available on this reading",
         )
+    return case
+
+
+def _produced_by(
+    branch: Role,
+    chain: Sequence[Candidate],
+    handed: Handed,
+    values: Dict[Tuple[str, ...], Dict[str, Any]],
+    here: Tuple[str, ...],
+    bound: Dict[str, Tuple[Candidate, ...]],
+    earlier: Mapping[str, Callable[[], Any]] = {},
+    input_case: Optional[Callable[[], Any]] = None,
+) -> Any:
+    """Run the branch on the same fresh case used to derive its identities."""
+
+    case = input_case() if input_case is not None else _branch_input(
+        branch, handed, values, here, bound, earlier,
+    )
+    if not chain:
+        raise Unmapped("branch_input", branch.name, "its input is not available on this reading")
     forms = case if isinstance(case, Fixtures) else (case,)
     try:
         value = chain[0].bound(*tuple(forms[chain[0].form or 0]))
