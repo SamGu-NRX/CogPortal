@@ -148,9 +148,9 @@ algorithm, not our infrastructure.
 passes. The sandbox is importing benchmark code other than this checkout's.
 A local `build/` used to cause this, because setuptools installed it in place
 of the source; the source copies now leave it out (`is_build_junk` in
-`modal_app.py`). Run `tools/probe_prepared_environment.py` against the image
-id the run used: its receipt says whether the installed benchmark matches the
-accepted source.
+`modal_app.py`). Run `apps/runner-modal/tools/probe_prepared_environment.py`
+against the image id the run used. If the installed benchmark is not the
+accepted source, it exits 1 and says how many files are missing, extra or changed.
 
 **`modal.exception.ExecutionError: ... was modified during build process`.**
 A file changed while the image copied it, almost always `.pytest_cache`

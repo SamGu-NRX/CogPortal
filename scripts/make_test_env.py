@@ -45,8 +45,9 @@ VENV = ROOT / ".venv-test"
 PYTHON = "3.11"
 
 #: Not in any image's package list, and needed to run the suites rather than
-#: to run student code.
-TOOLING = ("pytest",)
+#: to run student code. pip because `uv venv` installs none, and
+#: `test_source_copy.py` runs the image's own `pip install` command.
+TOOLING = ("pytest", "pip")
 
 #: The reference application two Week 2 suites import lives in a directory
 #: rather than a package, and its own scikit-image import is what makes the

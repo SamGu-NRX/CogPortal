@@ -585,10 +585,9 @@ This is a staged demo candidate accepted on source and offline install evidence
 only. A GitHub VCS install and live sync belong to the native rehearsal, and
 nothing here has been deployed or installed into an environment.
 
-One related hazard while reading receipts: `git ls-files` lists 18 files under
-`build/`, including ten under `python/cogbench/build/lib/cogbench/`. None of
-them reaches an image: the images copy `python/cogbench/src` rather than its
-parent, and every copy leaves out `build/` at any depth (`is_build_junk` in
+One related hazard while reading receipts: the repository tracks a few files
+under `build/` directories. None of them reaches an image, because every source
+copy leaves out `build/` at any depth (`is_build_junk` in
 `apps/runner-modal/src/cogworks_runner/modal_app.py`). Probe receipts are
 unaffected either way, because the manifests come from importing each package
 rather than from walking a path.
