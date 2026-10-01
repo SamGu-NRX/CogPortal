@@ -17,8 +17,9 @@ import { MemberAvatar } from "./MemberAvatar";
  * and says who was added, because the row leaving this list is otherwise the
  * only sign it worked.
  *
- * The GitHub caveat (adding here grants no push access) is said once, beside
- * the team's member list, rather than again in here.
+ * The GitHub caveat (adding here grants no push access) rides on that
+ * confirmation, because the moment after an add is when inviting them on
+ * GitHub is the next thing to do.
  */
 export function MemberPalette({
   open,
@@ -246,8 +247,8 @@ export function MemberPalette({
               </p>
             ) : (
               <>
-                <p role="status" className={added ? "text-[13px] text-ink" : "sr-only"}>
-                  {added ? `Added ${added} to the team.` : ""}
+                <p role="status" className={added ? "text-[13px] leading-snug text-ink" : "sr-only"}>
+                  {added ? `Added ${added}. Invite them to the fork on GitHub so they can push.` : ""}
                 </p>
                 {!added && (
                   // Keys only mean something with a keyboard; a phone gets nothing here.
