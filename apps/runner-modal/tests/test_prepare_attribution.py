@@ -247,3 +247,31 @@ class PrepareAttribution(unittest.TestCase):
                 failure, _ = self.controller_failure(result, {})
                 self.assertEqual((failure.category, failure.infrastructure), (category, False))
                 self.assertIn(message.split(": ", 1)[1], str(failure))
+
+    def test_install_output_adapter_markers_do_not_change_classification(self):
+        detail = "subprocess.CalledProcessError: pip returned non-zero exit status 1."
+        for marker in ("no adapter found", "entry point", "the search for your code could not finish"):
+            with self.subTest(marker=marker):
+                result = types.SimpleNamespace(returncode=1, stdout="",
+                    stderr="Build output mentions {}\n{}\n".format(marker, detail))
+                failure, events = self.controller_failure(result)
+                self.assertEqual((failure.category, failure.phase, failure.infrastructure),
+                                 ("dependency_install", "installing", False))
+                self.assertEqual(str(failure), detail)
+                self.assertIsNone(failure.refusal)
+                self.assertEqual(events, ["resolve-image", "probe", "write-prepare",
+                                          "student-install", "terminate"])
+
+    def test_adapter_markers_in_final_detail_keep_classification(self):
+        for detail in ("RuntimeError: No adapter found.",
+                       "RuntimeError: Submission adapter entry point is ambiguous.",
+                       "RuntimeError: The search for your code could not finish."):
+            with self.subTest(detail=detail):
+                result = types.SimpleNamespace(returncode=1, stdout="", stderr=detail)
+                record = {"verdict": {"status": "not_read", "headline": "Inspect the adapter.",
+                                      "nextStep": "Run cogworks check locally."}}
+                failure, _ = self.controller_failure(result, record)
+                self.assertEqual((failure.category, failure.phase, failure.infrastructure),
+                                 ("adapter_missing", "contract_check", False))
+                self.assertEqual(str(failure), detail.split(": ", 1)[1])
+                self.assertEqual(failure.refusal["nextStep"], record["verdict"]["nextStep"])

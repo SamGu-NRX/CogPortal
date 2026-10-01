@@ -1576,8 +1576,11 @@ def _prepare(job: Dict[str, Any], reporter: LiveReporter) -> Tuple[str, Dict[str
                 raise RunnerFailure("data_download", "preparing", detail, False)
             # These messages select advice, never refund eligibility: the
             # installation and discovery process can execute student code.
-            if ("no adapter found" in normalized or "entry point" in normalized
-                    or "the search for your code could not finish" in normalized):
+            # Earlier pip output can mention adapters even when installation
+            # failed, so only the final error detail identifies discovery.
+            detail_normalized = detail.lower()
+            if ("no adapter found" in detail_normalized or "entry point" in detail_normalized
+                    or "the search for your code could not finish" in detail_normalized):
                 raise RunnerFailure(
                     "adapter_missing", "contract_check", detail, False, refusal
                 )
