@@ -145,7 +145,17 @@ export function SweepTrace({
   const roomy = points.length <= 6;
   const xTicks = roomy ? points : [points[0], last];
 
-  const spoken = points.map((point) => `${point.y.toFixed(2)} at ${tick(point)}`).join(", ");
+  // The label is the drawing for a screen reader, so it carries both curves.
+  // With a previous run each series is named the way the key names it.
+  const series = (list: Point[]) =>
+    list.map((point) => `${point.y.toFixed(2)} at ${tick(point)}`).join(", ");
+  const measure = `${sweep.metric.replace(/_/g, " ")} against ${sweep.axis}`;
+  const fall = markedPoint ? ` The largest fall comes after ${tick(markedPoint)}.` : "";
+  const spoken = ghost
+    ? `${measure}. This run: ${series(points)}.${fall} ${
+        previousLabel ?? "Previous run"
+      }, before this one: ${series(ghost)}.`
+    : `${measure}: ${series(points)}.${fall}`;
 
   return (
     // Capped rather than fluid. An SVG stretched to a wide container scales
@@ -157,9 +167,7 @@ export function SweepTrace({
           viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
           className="w-full overflow-visible"
           role="img"
-          aria-label={`${sweep.metric.replace(/_/g, " ")} against ${sweep.axis}: ${spoken}.${
-            markedPoint ? ` The largest fall comes after ${tick(markedPoint)}.` : ""
-          }`}
+          aria-label={spoken}
         >
           {/* Two rules, no grid. The eye reads the shape, and the points are
               labeled, so gridlines would only add ink. */}

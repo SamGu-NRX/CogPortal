@@ -1,8 +1,9 @@
 import type { ReactNode } from "react";
 import { ArrowLeft01Icon, ArrowRight01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { skipToken, useQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router";
-import { ApiRequestError } from "@/lib/api";
+import { api, ApiRequestError } from "@/lib/api";
 import {
   OFFICIAL_LIMIT,
   isTerminal,
@@ -67,6 +68,11 @@ export function RunDetailPage() {
   // Cached alongside the dashboard: supplies quota, selection context, and
   // the team's earlier runs this one is compared against.
   const dashboard = useDashboard(runBenchmarkId, Boolean(runQuery.data));
+  const previous =
+    runQuery.data?.status === "succeeded"
+      ? previousComparable(runQuery.data, dashboard.data?.runs)
+      : null;
+  const previousDetail = usePreviousRunDetail(previous?.id ?? null);
 
   if (runQuery.isPending) return <LoadingMark label="Reading run record" />;
   if (runQuery.isError) {
@@ -92,7 +98,6 @@ export function RunDetailPage() {
   // than a link up in the corner. See FailureCard.
   const consoleIsNextStep =
     failed && !run.refusal && Boolean(failureCopy?.retryable) && Boolean(run.surfaceId);
-  const previous = previousComparable(run, dashboard.data?.runs);
   const duration =
     run.finishedAt != null ? formatDurationMs(run.finishedAt - run.createdAt) : null;
   const practiceLog = run.mode === "practice" ? run.log : null;
@@ -126,8 +131,10 @@ export function RunDetailPage() {
           {sessionData?.auth.executionProvider === "fixture" && <SimulatedChip />}
         </div>
         {/* Smaller than the finding on purpose: the title names the run, and
-            the finding is what the page is for, so it gets the largest type. */}
-        <h1 className="mt-2 text-[clamp(1.55rem,1.35rem+0.9vw,1.75rem)] text-ink">
+            the finding is what the page is for, so it gets the largest type.
+            A branch name can be one long unbroken word, which without
+            `anywhere` widens the page past a phone's screen. */}
+        <h1 className="mt-2 text-[clamp(1.55rem,1.35rem+0.9vw,1.75rem)] [overflow-wrap:anywhere] text-ink">
           {runTitle(run)}
         </h1>
         {/* Each item leads with its separator; the row starts one separator left
@@ -235,16 +242,9 @@ export function RunDetailPage() {
           sweep, the wiring and every supporting number behind an absence,
           which is the one case where a student most needs to see what the
           scorer did manage to do. */}
-      {run.status === "succeeded" &&
-        (previous ? (
-          <WithRun id={previous.id}>
-            {(previousDetail) => (
-              <Results run={run} previous={previous} previousDetail={previousDetail} />
-            )}
-          </WithRun>
-        ) : (
-          <Results run={run} previous={null} previousDetail={null} />
-        ))}
+      {run.status === "succeeded" && (
+        <Results run={run} previous={previous} previousDetail={previousDetail} />
+      )}
 
       {/* ── The one decision a finished run offers ── */}
       {run.status === "succeeded" && run.mode === "practice" && (
@@ -414,11 +414,24 @@ function previousComparable(run: RunDetail, runs: RunSummary[] | undefined): Run
   );
 }
 
-/** Reads another run's record for a child, through the same query the page
- *  uses, so it shares the cache with that run's own page. */
-function WithRun({ id, children }: { id: string; children: (run: RunDetail | null) => ReactNode }) {
-  const query = useRun(id);
-  return <>{children(query.data ?? null)}</>;
+/**
+ * The previous comparable run's record, under the same cache key as `useRun`
+ * so it is shared with that run's own page.
+ *
+ * A hook on the page rather than `useRun` in a wrapper component. The
+ * dashboard that names the previous run can arrive after the page is up, and
+ * a wrapper that appeared at that moment put `Results` under a new parent:
+ * React remounted the readings, which closed an open row and dropped its
+ * focus to the body. `useRun` cannot be switched off, so this skips the fetch
+ * while there is nothing to compare against. The previous run has succeeded,
+ * so it needs none of `useRun`'s polling.
+ */
+function usePreviousRunDetail(id: string | null): RunDetail | null {
+  const query = useQuery({
+    queryKey: ["run", id],
+    queryFn: id === null ? skipToken : () => api.run(id),
+  });
+  return query.data ?? null;
 }
 
 function Results({
@@ -519,14 +532,15 @@ function Results({
           }
           note={
             previous ? (
-              <>
+              // Names a branch, which can be one long unbroken word.
+              <span className="[overflow-wrap:anywhere]">
                 Changes are against{" "}
                 <Link to={`/runs/${previous.id}`} className="u-link not-italic">
                   {previousTag}
                 </Link>
                 , your team's previous {run.mode === "official" ? "official attempt" : "practice run"}
                 {previous.branch !== "detached" ? <> on {previous.branch}</> : null}.
-              </>
+              </span>
             ) : run.mode === "practice" ? (
               "These come from the public practice split. An official attempt reruns the same commit on hidden inputs, so its numbers can differ."
             ) : run.parentRunId ? (
