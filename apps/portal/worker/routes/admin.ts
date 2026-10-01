@@ -33,7 +33,8 @@ import {
 import { ApiHttpError } from "../http/errors";
 import { parseBody, respond } from "../http/respond";
 import { isUniqueConstraintError } from "./team";
-import { acceptedRunPredicate, readUsedRunsByTeam } from "../services/run-accounting";
+import { readUsedRunsByTeam } from "../services/run-accounting";
+import { rankingRefusal } from "../services/run-eligibility";
 
 const AdminCohortSchema = z.object({
   slug: z.string(),
@@ -88,21 +89,30 @@ async function readAdminTeamSummaries(
       .orderBy(asc(users.githubLogin)),
     // Admin team totals intentionally span every benchmark and version.
     readUsedRunsByTeam(db, teamWhere),
-    // Every team's qualifying selections, newest first; the first per team is
-    // the one shown.
+    // Every team's selections, newest first. The first per team that the
+    // board would rank is the one shown (`rankingRefusal` below).
     db
       .select({
         teamId: leaderboardSelections.teamId,
+        run: {
+          mode: runs.mode,
+          status: runs.status,
+          refundedAt: runs.refundedAt,
+          scorerVersion: runs.scorerVersion,
+        },
+        benchmark: {
+          scorerVersion: benchmarks.scorerVersion,
+          primaryMetricKey: benchmarks.primaryMetricKey,
+        },
+        metricKey: runMetrics.key,
         value: runMetrics.value,
         benchmarkName: benchmarks.title,
         benchmarkVersion: leaderboardSelections.benchmarkVersion,
       })
       .from(leaderboardSelections)
-      // Left, not inner. leaderboard_selections carries no foreign key to
-      // benchmarks (db/schema.ts), so an inner join would delete a real
-      // published score from this console whenever its catalog row is
-      // missing. The name is nullable for the same reason; the version comes
-      // from the selection itself and is always there.
+      // Left joins, so a selection with no catalog row or no reading for the
+      // ranked measure still arrives and is refused by the same rule the
+      // board uses, rather than vanishing in SQL for a different reason.
       .leftJoin(
         benchmarks,
         and(
@@ -110,16 +120,16 @@ async function readAdminTeamSummaries(
           eq(benchmarks.version, leaderboardSelections.benchmarkVersion),
         ),
       )
-      .innerJoin(
+      .leftJoin(
         runMetrics,
         and(
           eq(runMetrics.runId, leaderboardSelections.runId),
-          eq(runMetrics.isPrimary, true),
+          eq(runMetrics.key, benchmarks.primaryMetricKey),
         ),
       )
       .innerJoin(runs, eq(runs.id, leaderboardSelections.runId))
       .innerJoin(teams, eq(teams.id, leaderboardSelections.teamId))
-      .where(and(teamWhere, eq(runs.mode, "official"), acceptedRunPredicate()))
+      .where(teamWhere)
       .orderBy(desc(leaderboardSelections.selectedAt)),
   ]);
   const roleOrder: Record<TeamMember["role"], number> = {
@@ -128,7 +138,8 @@ async function readAdminTeamSummaries(
     write: 2,
   };
   return teamRows.map((team) => {
-    const latest = published.find((row) => row.teamId === team.id);
+    const latest = published.find((row) => row.teamId === team.id &&
+      rankingRefusal(row.run, row.benchmark, row.metricKey === null ? [] : [{ key: row.metricKey }]) === null);
     const usage = used.get(team.id);
     return {
       id: team.id,

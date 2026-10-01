@@ -221,3 +221,92 @@ test("current recognition alone does not complete the family", async (t) => {
   assert.equal((await getLeaderboardReadModel(h.env, RECOGNITION)).entries.length, 1);
   assert.deepEqual((await getFamilyLeaderboardReadModel(h.env)).entries, []);
 });
+
+/* ── One measure per board ─────────────────────────────────────────────
+ * Language's catalog ranks `overall`. A partial result has no overall and its
+ * producer flags text MRR as primary instead, so ranking by the run's own
+ * primary flag put a 0.95 text MRR above a 0.40 overall. */
+
+const LANGUAGE = "language-search";
+
+type LanguageMetric = readonly [key: string, value: number, primary: boolean, higherIsBetter?: boolean];
+
+async function addLanguageRun(db: Database, id: string, teamId: string, metrics: readonly LanguageMetric[]) {
+  const [benchmark] = await db.select().from(benchmarks)
+    .where(and(eq(benchmarks.id, LANGUAGE), eq(benchmarks.version, 1)));
+  assert.ok(benchmark);
+  assert.equal(benchmark.primaryMetricKey, "overall");
+  await db.insert(runs).values({
+    id, teamId, benchmarkId: LANGUAGE, benchmarkVersion: 1,
+    contractVersion: benchmark.contractVersion, mode: "official", status: "succeeded",
+    branch: "main", sha: "a".repeat(40), repositoryId: FIXTURE_REPO.repositoryId,
+    createdAt: 10, finishedAt: 20, provider: "modal", scorerVersion: benchmark.scorerVersion,
+  });
+  for (const [key, value, isPrimary, higherIsBetter = true] of metrics) {
+    await db.insert(runMetrics).values({ runId: id, key, label: key, value, higherIsBetter, isPrimary, precision: 4 });
+  }
+  return id;
+}
+
+const FULL: readonly LanguageMetric[] = [["overall", 0.4, true], ["text_mrr", 0.7, false]];
+const PARTIAL: readonly LanguageMetric[] = [["text_mrr", 0.95, true]];
+
+test("the Language board ranks overall and keeps a partial selection stored but unranked", async (t) => {
+  const h = freshDb();
+  t.after(h.close);
+  await selectRun(h.db, await addLanguageRun(h.db, "full", "team_demo", FULL));
+  await selectRun(h.db, await addLanguageRun(h.db, "partial", "team_eigenfaces", PARTIAL));
+  const selections = await h.db.select().from(leaderboardSelections);
+
+  const board = await getLeaderboardReadModel(h.env, LANGUAGE);
+  assert.deepEqual(board.entries.map((entry) => [entry.rank, entry.primaryMetric.key, entry.primaryMetric.value]),
+    [[1, "overall", 0.4]]);
+  assert.deepEqual(board.entries[0].supportingMetrics.map((metric) => [metric.key, metric.primary]), [["text_mrr", false]]);
+  assert.deepEqual(await h.db.select().from(leaderboardSelections), selections);
+});
+
+test("publishing a result without the ranked measure is refused by name and keeps the previous selection", async (t) => {
+  const h = freshDb();
+  t.after(h.close);
+  const actor = await actorFor(h.db);
+  await selectRun(h.db, await addLanguageRun(h.db, "full", "team_demo", FULL));
+  const before = await h.db.select().from(leaderboardSelections);
+  await addLanguageRun(h.db, "partial", "team_demo", PARTIAL);
+
+  await assert.rejects(publishOfficialRun(h.env, actor, "partial"), (error: unknown) => {
+    assert.ok(error instanceof ApiHttpError);
+    assert.deepEqual([error.status, error.code], [409, "not_selectable"]);
+    assert.match(error.message, /ranks teams by "overall", and this run didn't report it/);
+    return true;
+  });
+  assert.deepEqual(await h.db.select().from(leaderboardSelections), before);
+  assert.deepEqual((await getLeaderboardReadModel(h.env, LANGUAGE)).entries.map((entry) => entry.primaryMetric.value), [0.4]);
+  // The partial run's findings are untouched.
+  assert.deepEqual((await h.db.select().from(runMetrics).where(eq(runMetrics.runId, "partial"))).map((row) => row.key), ["text_mrr"]);
+});
+
+test("one direction orders the board, and two refuse to rank", async (t) => {
+  const h = freshDb();
+  t.after(h.close);
+  await selectRun(h.db, await addLanguageRun(h.db, "demo", "team_demo", [["overall", 0.3, true, false]]));
+  await selectRun(h.db, await addLanguageRun(h.db, "eigen", "team_eigenfaces", [["overall", 0.2, true, false]]));
+  assert.deepEqual((await getLeaderboardReadModel(h.env, LANGUAGE)).entries.map((entry) => entry.primaryMetric.value), [0.2, 0.3]);
+
+  await h.db.update(runMetrics).set({ higherIsBetter: true }).where(eq(runMetrics.runId, "eigen"));
+  await assert.rejects(getLeaderboardReadModel(h.env, LANGUAGE),
+    /"overall" under scorer retrieval-v4 is stored as both higher-is-better and lower-is-better/);
+});
+
+test("a selection its own board leaves out doesn't count toward the family", async (t) => {
+  const h = freshDb();
+  t.after(h.close);
+  await selectRun(h.db, await addRun(h.db, "recognition"));
+  await selectRun(h.db, await addRun(h.db, "clustering", CLUSTERING));
+  assert.equal((await getFamilyLeaderboardReadModel(h.env)).entries.length, 1);
+
+  // The family reads two supporting keys, but the Recognition board ranks
+  // recognition_score; without it the selection isn't published anywhere.
+  await h.db.delete(runMetrics).where(and(eq(runMetrics.runId, "recognition"), eq(runMetrics.key, "recognition_score")));
+  assert.deepEqual((await getLeaderboardReadModel(h.env, RECOGNITION)).entries, []);
+  assert.deepEqual((await getFamilyLeaderboardReadModel(h.env)).entries, []);
+});

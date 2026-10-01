@@ -16,6 +16,7 @@ import {
   discordAccounts,
   leaderboardSelections,
   localRunSessions,
+  runMetrics,
   runPhases,
   runs,
   runSurfaces,
@@ -34,12 +35,13 @@ import { randomHex } from "../util/id";
 import { sha256Hex } from "../util/crypto";
 import { publishRunSurface } from "./run-surfaces";
 import {
-  canPublishOfficialRun,
   currentSurfaceRun,
   existingPromotion,
   fixtureRetryRefusal,
   NO_CONSOLE_PROMOTION_REFUSAL,
   type ExistingPromotion,
+  rankingRefusal,
+  runStateRefusal,
   savedEnvironmentEligibility,
 } from "./run-eligibility";
 import { insertRunWithCapacity, readRunAccounting } from "./run-accounting";
@@ -480,26 +482,22 @@ export async function publishOfficialRun(env: Env, actor: RunActor, runId: strin
     .limit(1);
   if (!row) throw new ApiHttpError(404, "not_found", "Run not found.");
   const run = await syncRun(db, row);
-  if (!canPublishOfficialRun(run)) {
-    throw new ApiHttpError(409, "not_selectable", run.refundedAt !== null
-      ? "This attempt was refunded, so its findings can't be published. Choose another official run."
-      : "Only a succeeded official run can be published.");
-  }
+  // The run's own state answers before its source does, and the source
+  // before the catalog and metric checks below.
+  const stateRefusal = runStateRefusal(run);
+  if (stateRefusal) throw new ApiHttpError(409, "not_selectable", stateRefusal);
   // A published result is the team's public claim about its connected
   // repository. An existing selection is left alone; this refuses a new one.
   requireRunSource(actor, run, "publish a result");
   const [benchmark] = await db
-    .select({ scorerVersion: benchmarks.scorerVersion })
+    .select({ scorerVersion: benchmarks.scorerVersion, primaryMetricKey: benchmarks.primaryMetricKey })
     .from(benchmarks)
     .where(and(eq(benchmarks.id, run.benchmarkId), eq(benchmarks.version, run.benchmarkVersion)))
     .limit(1);
-  if (!benchmark || run.scorerVersion !== benchmark.scorerVersion) {
-    throw new ApiHttpError(
-      409,
-      "not_selectable",
-      "This run used different scoring rules and can't appear in the current ranking.",
-    );
-  }
+  const metrics = await db.select({ key: runMetrics.key }).from(runMetrics).where(eq(runMetrics.runId, run.id));
+  // Refused before the write, so the team's current selection stays as it was.
+  const refusal = rankingRefusal(run, benchmark, metrics);
+  if (refusal) throw new ApiHttpError(409, "not_selectable", refusal);
   await db
     .insert(leaderboardSelections)
     .values({

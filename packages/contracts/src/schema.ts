@@ -755,6 +755,10 @@ export const RunSurfaceSnapshotSchema = z.object({
   refusalHeadline: z.string().max(600).nullable().default(null),
   // A successful practice can lack a reusable environment without losing its findings.
   promotionRefusal: z.string().max(600).nullable().default(null),
+  /** Why Publish is absent from a finished official run's `actions`: it used
+   *  an older scorer, or didn't report the measure the leaderboard ranks. Its
+   *  findings stay readable either way. */
+  publicationRefusal: z.string().max(600).nullable().default(null),
   /** Deterministic recorded-input refusal only. Null does not establish
    * authorization, capacity, or provider/weight availability. */
   retryRefusal: z.string().max(600).nullable().default(null),

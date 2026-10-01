@@ -369,6 +369,44 @@ test("admin totals span benchmarks and versions without per-version quota denomi
   assert.equal(team.published?.benchmarkVersion, 2);
 });
 
+test("the overview calls a selection published only when its board would rank it", async () => {
+  // The newest selection is a partial result with no "overall", flagged
+  // primary on text MRR. Its board leaves it out, so the console must too.
+  const h = harness();
+  await h.seedCohorts();
+  await h.seedTeam("team_partial");
+  const owner = await h.signIn(OWNER, null);
+  const scopes = [
+    { id: "test_audio", title: "Audio identification", key: "overall", value: 0.4, selectedAt: 1 },
+    { id: "test_language", title: "Semantic search", key: "text_mrr", value: 0.95, selectedAt: 2 },
+  ];
+  for (const scope of scopes) {
+    await h.db.insert(benchmarks).values({
+      id: scope.id, version: 1, title: scope.title, contractVersion: "test-v1", entryPointName: scope.id,
+      module: "language", summary: "Test", active: true, primaryMetricKey: "overall",
+    });
+    const runId = `${scope.id}_official`;
+    await h.db.insert(runs).values({
+      id: runId, teamId: "team_partial", benchmarkId: scope.id, benchmarkVersion: 1, contractVersion: "test-v1",
+      mode: "official", status: "succeeded", branch: "main", sha: "a".repeat(40), createdAt: 1,
+    });
+    await h.db.insert(runMetrics).values({
+      runId, key: scope.key, label: scope.key, value: scope.value, higherIsBetter: true, isPrimary: true, precision: 3,
+    });
+    await h.db.insert(leaderboardSelections).values({
+      teamId: "team_partial", benchmarkId: scope.id, benchmarkVersion: 1, runId, selectedAt: scope.selectedAt,
+    });
+  }
+  const published = async () => {
+    const result = await h.call("GET", "/admin/overview", { cookie: owner });
+    assert.equal(result.status, 200);
+    return result.body.teams[0].published;
+  };
+  assert.deepEqual(await published(), { score: 0.4, benchmarkName: "Audio identification", benchmarkVersion: 1 });
+  await h.db.delete(leaderboardSelections).where(eq(leaderboardSelections.benchmarkId, "test_audio"));
+  assert.equal(await published(), null);
+});
+
 test("the overview reads every team at once and keeps each team's figures on its own row", async () => {
   // It used to spend six D1 queries per team, and D1's free plan documents a
   // limit of 50 per invocation, which that passes at about eight live teams.

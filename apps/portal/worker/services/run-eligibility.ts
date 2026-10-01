@@ -127,3 +127,42 @@ export function canPublishOfficialRun(
   // Late findings remain readable, but a returned attempt cannot publish them.
   return run.mode === "official" && run.status === "succeeded" && run.refundedAt === null;
 }
+
+/** The part of `rankingRefusal` that reads only the run's own row, for a
+ *  caller that has to answer it before reading the catalog. */
+export function runStateRefusal(run: Pick<RunRow, "mode" | "status" | "refundedAt">): string | null {
+  if (canPublishOfficialRun(run)) return null;
+  return run.refundedAt !== null
+    ? "This attempt was refunded, so its findings can't be published. Choose another official run."
+    : "Only a succeeded official run can be published.";
+}
+
+/**
+ * Why this official run can't stand on the benchmark's current leaderboard,
+ * or null when it can.
+ *
+ * A board ranks one measure: the catalog's `primaryMetricKey`, produced by the
+ * catalog's current scorer. A run's own `isPrimary` flag is a different fact.
+ * A partial Language result flags the text MRR it could compute because it has
+ * no `overall` (plugins.py in the language benchmark), and ranking that
+ * against another team's `overall` compares two different numbers.
+ *
+ * Publication, both boards and every "published" label answer from this, so
+ * none of them can call a selection published that the board leaves out. A
+ * refused selection stays stored; it just isn't claimed.
+ */
+export function rankingRefusal(
+  run: Pick<RunRow, "mode" | "status" | "refundedAt" | "scorerVersion">,
+  benchmark: Pick<BenchmarkRow, "scorerVersion" | "primaryMetricKey"> | null | undefined,
+  metrics: readonly { key: string }[],
+): string | null {
+  const state = runStateRefusal(run);
+  if (state) return state;
+  if (!benchmark || run.scorerVersion !== benchmark.scorerVersion) {
+    return "This run used different scoring rules and can't appear in the current ranking.";
+  }
+  if (!metrics.some((metric) => metric.key === benchmark.primaryMetricKey)) {
+    return `The leaderboard ranks teams by "${benchmark.primaryMetricKey}", and this run didn't report it, so it can't be published. What it did report stays readable here.`;
+  }
+  return null;
+}

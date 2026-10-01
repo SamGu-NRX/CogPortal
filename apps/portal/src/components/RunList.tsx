@@ -35,9 +35,13 @@ export function RunList({
 }) {
   if (runs.length === 0) return null;
 
-  // Every run on one benchmark version reports the same primary metric, so
-  // the column says once what the number is.
-  const metricLabel = runs.find((run) => run.primaryMetric)?.primaryMetric?.label ?? "Reading";
+  // When every scored run reports the same measure, the column says once
+  // what the number is. A partial result can lead with a different one (a
+  // Language run with no overall reports its text MRR), and then the column
+  // is a plain "Reading" and each row names its own measure.
+  const measures = new Set(runs.flatMap((run) => (run.primaryMetric ? [run.primaryMetric.key] : [])));
+  const mixed = measures.size > 1;
+  const metricLabel = mixed ? "Reading" : runs.find((run) => run.primaryMetric)?.primaryMetric?.label ?? "Reading";
   const row = (run: RunSummary) => (
     <RunRow
       key={run.id}
@@ -45,6 +49,7 @@ export function RunList({
       connectedFullName={connectedFullName}
       published={run.id === publishedRunId}
       metricLabel={metricLabel}
+      namesMeasure={mixed}
     />
   );
 
@@ -84,11 +89,14 @@ function RunRow({
   connectedFullName,
   published,
   metricLabel,
+  namesMeasure,
 }: {
   run: RunSummary;
   connectedFullName?: string;
   published: boolean;
   metricLabel: string;
+  /** The history mixes measures, so this row says which one its number is. */
+  namesMeasure: boolean;
 }) {
   // Empty for a run still moving: the status in the same row already says
   // where it is, and a dash in the reading column reads as a result that came
@@ -135,8 +143,17 @@ function RunRow({
             run.failure ? "text-detect-deep" : "font-semibold text-ink"
           }`}
         >
-          {reading && <span className="sr-only">{run.failure ? "Failure code" : metricLabel} </span>}
+          {reading && (
+            <span className="sr-only">
+              {run.failure ? "Failure code" : run.primaryMetric?.label ?? metricLabel}{" "}
+            </span>
+          )}
           {reading}
+          {namesMeasure && run.primaryMetric && (
+            <span aria-hidden="true" className="mt-0.5 block font-sans text-[12px] font-normal text-ink-faint">
+              {run.primaryMetric.label}
+            </span>
+          )}
         </span>
         <span className="col-start-2 row-start-2 text-right text-[13px] whitespace-nowrap text-ink-faint sm:col-start-auto sm:row-start-auto">
           {formatTimeAgo(run.createdAt)}
