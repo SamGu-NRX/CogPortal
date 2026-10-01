@@ -19,7 +19,6 @@ class RunnerFailure(RuntimeError):
         detail: str,
         infrastructure: bool,
         refusal: Optional[Dict[str, Any]] = None,
-        log: Optional[str] = None,
     ):
         super().__init__(detail)
         self.category = category
@@ -31,8 +30,3 @@ class RunnerFailure(RuntimeError):
         #: stalled, the shape their last function returned, the modules that
         #: could not be read, and the one next thing to do.
         self.refusal = refusal
-        #: What the evaluation printed before it stopped, traceback last, when
-        #: the sandbox got far enough to write it. Display only: `execute_job`
-        #: sends it for practice runs exactly as it sends a completed run's
-        #: log, and nothing reads it to decide the category.
-        self.log = log

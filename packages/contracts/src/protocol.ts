@@ -334,9 +334,10 @@ export const RunEventV1Schema = z.discriminatedUnion("type", [
        */
       refusal: RefusalSchema.optional(),
     }),
-    /** What a practice evaluation printed before it stopped, traceback last,
-     *  with the same cap and the same practice-only rule as a completed run.
-     *  Optional because a failure before evaluation has nothing to send. */
+    /** A practice run's output before it failed, under the completed event's
+     *  cap and practice-only rule. The current runner never sends it: the
+     *  file is the submission's to replace, and Modal's supported filesystem
+     *  API only transfers whole files. */
     sanitizedLog: z.string().max(8 * 1024).nullable().optional(),
   }),
 ]);

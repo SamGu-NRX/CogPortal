@@ -4,8 +4,9 @@ A hosted Recognition run (B-44) failed inside the benchmark's own replay and
 reached the run page as "'NoneType' object is not subscriptable": no class,
 no file, no log, under a title that blamed the team's code. These tests pin
 the repair. The sandbox now reports the exception's class and where it was
-raised and keeps the log; every lane decides a timeout the same way; and none
-of that text can change the category or the infrastructure flag.
+raised; every lane decides a timeout the same way; no failed run's log file is
+downloaded; and none of that text can change the category or the
+infrastructure flag.
 """
 
 from __future__ import annotations
@@ -32,12 +33,12 @@ def _units(text: str) -> int:
     return sum(2 if ord(character) > 0xFFFF else 1 for character in text)
 
 
-def _run_team(team_code: str, raiser: str = "", log_is_env: bool = False) -> tuple:
+def _run_team(team_code: str, raiser: str = "") -> str:
     """Run the real sandbox script against a repository holding `team_code`.
 
     `raiser` is extra source for the stubbed cogbench, so a test can make the
     exception come from benchmark code the team's function called, as B-44's
-    did. Returns (stderr, log).
+    did. Returns stderr.
     """
 
     with tempfile.TemporaryDirectory() as directory:
@@ -63,12 +64,9 @@ def _run_team(team_code: str, raiser: str = "", log_is_env: bool = False) -> tup
         process = subprocess.run(
             [sys.executable, str(script), "language-search", "8192"],
             capture_output=True, text=True, cwd=str(tmp),
-            env={"PYTHONPATH": str(tmp), "PATH": "/usr/bin:/bin",
-                 **({"COG_LOG": str(tmp / "cog-student.log")} if log_is_env else {})},
-            timeout=120,
+            env={"PYTHONPATH": str(tmp), "PATH": "/usr/bin:/bin"}, timeout=120,
         )
-        log_file = tmp / "cog-student.log"
-        return process.stderr, log_file.read_text(encoding="utf-8") if log_file.is_file() else None
+        return process.stderr
 
 
 def _record(stderr: str) -> dict:
@@ -79,7 +77,7 @@ def _record(stderr: str) -> dict:
 
 class TheSandboxSaysWhatRaisedAndWhere(unittest.TestCase):
     def test_an_exception_in_team_code_names_its_class_file_and_function(self):
-        stderr, log = _run_team("""
+        stderr = _run_team("""
             def predict(inputs):
                 print("predicting {} inputs".format(len(inputs)))
                 return lookup(inputs)
@@ -91,15 +89,11 @@ class TheSandboxSaysWhatRaisedAndWhere(unittest.TestCase):
         self.assertEqual(record["type"], "TypeError")
         self.assertIn("not subscriptable", record["message"])
         self.assertEqual(record["where"], ["team_code.py:7, in lookup"])
-        # The log a successful run would keep, then the traceback.
-        self.assertIn("predicting 3 inputs", log)
-        self.assertLess(log.index("predicting"), log.index("Traceback"))
-        self.assertTrue(log.rstrip().endswith("TypeError: 'int' object is not subscriptable"))
 
     def test_an_exception_in_benchmark_code_names_it_and_the_team_line_that_called_it(self):
         """B-44's shape: the line that raised was not the team's."""
 
-        stderr, _log = _run_team("""
+        stderr = _run_team("""
             def predict(inputs):
                 from cogbench.plugins import replay
                 return replay(None)
@@ -112,32 +106,19 @@ class TheSandboxSaysWhatRaisedAndWhere(unittest.TestCase):
         self.assertEqual(record["where"][1], "team_code.py:4, in predict")
 
     def test_unencodable_output_does_not_lose_the_exception(self):
-        """A lone surrogate in printed output made the log write raise first."""
+        """A lone surrogate the team printed still leaves the record last."""
 
-        stderr, log = _run_team("""
+        stderr = _run_team("""
             def predict(inputs):
                 print("\\ud800")
                 raise ValueError("bad shape")
         """)
         self.assertEqual(_record(stderr)["type"], "ValueError")
-        self.assertIn("ValueError: bad shape", log)
-
-    def test_an_unwritable_log_does_not_replace_the_exception(self):
-        """A second traceback from the log write would end stderr instead."""
-
-        stderr, log = _run_team("""
-            import os
-            def predict(inputs):
-                os.mkdir(os.environ["COG_LOG"])
-                raise ValueError("bad shape")
-        """, log_is_env=True)
-        self.assertEqual(_record(stderr)["type"], "ValueError")
-        self.assertIsNone(log)
 
     def test_the_harness_own_frames_are_never_named(self):
         """A check the script itself raises has nowhere useful to point."""
 
-        stderr, _log = _run_team("""
+        stderr = _run_team("""
             def predict(inputs):
                 return [1]
         """)
@@ -180,17 +161,27 @@ class TheControllerFormatsTheRecord(unittest.TestCase):
 
 
 class _Sandbox:
-    def __init__(self, returncode: int, stderr: str, log):
-        self.returncode, self.stderr, self.log = returncode, stderr, log
+    """A sandbox whose evaluation exited with `returncode`, reporting a log
+    file of `log_bytes` bytes without holding one. Every filesystem read is
+    recorded in `reads` and refused, so a test can show the failure path
+    never downloads it."""
+
+    def __init__(self, returncode: int, stderr: str, log_bytes: int = 0):
+        self.returncode, self.stderr = returncode, stderr
+        self.reads = []
+
+        def read(name):
+            def recorded(path, *args):
+                self.reads.append((name, path))
+                if name == "stat":
+                    return types.SimpleNamespace(is_file=lambda: True, size=log_bytes)
+                raise AssertionError("downloaded {}".format(path))
+            return recorded
+
         self.filesystem = types.SimpleNamespace(
             write_text=lambda *args: None, write_bytes=lambda *args: None,
-            read_text=self.read_text,
+            **{name: read(name) for name in ("stat", "read_bytes", "read_text", "copy_to_local")},
         )
-
-    def read_text(self, path):
-        if path == "/tmp/cog-student.log" and self.log is not None:
-            return self.log
-        raise FileNotFoundError(path)
 
     def exec(self, *args, text=True):
         return types.SimpleNamespace(returncode=self.returncode, wait=lambda: None,
@@ -236,7 +227,7 @@ class EveryLaneDecidesTheSameWay(unittest.TestCase):
 
         for lane in LANES:
             with self.subTest(lane=lane):
-                failure = _lane(lane, _Sandbox(-1, "", None), elapsed=900)
+                failure = _lane(lane, _Sandbox(-1, ""), elapsed=900)
                 self.assertEqual((failure.category, failure.infrastructure), ("timeout", False))
                 self.assertIn("900 second budget", str(failure))
 
@@ -245,17 +236,16 @@ class EveryLaneDecidesTheSameWay(unittest.TestCase):
 
         for lane in LANES:
             with self.subTest(lane=lane):
-                said = str(_lane(lane, _Sandbox(-1, "", None), elapsed=900))
+                said = str(_lane(lane, _Sandbox(-1, ""), elapsed=900))
                 self.assertEqual("song" in said, lane == "_evaluate_week1", said)
 
-    def test_an_exception_carries_its_detail_and_log_and_stays_out_of_infrastructure(self):
+    def test_an_exception_carries_its_detail_and_stays_out_of_infrastructure(self):
         stderr = 'COG_ERROR: {"type": "TypeError", "message": "bad", "where": ["m.py:3, in f"]}\n'
         for lane in LANES:
             with self.subTest(lane=lane):
-                failure = _lane(lane, _Sandbox(2, stderr, "printed\nTraceback ...\n"))
+                failure = _lane(lane, _Sandbox(2, stderr))
                 self.assertEqual((failure.category, failure.infrastructure), ("student_runtime", False))
                 self.assertEqual(str(failure), "TypeError: bad\nat m.py:3, in f")
-                self.assertEqual(failure.log, "printed\nTraceback ...\n")
 
     def test_exiting_with_a_kill_code_is_not_a_timeout(self):
         """`os._exit(137)` is one line of student code; only the clock decides."""
@@ -263,18 +253,7 @@ class EveryLaneDecidesTheSameWay(unittest.TestCase):
         for lane in LANES:
             for code in (-9, 137, -15, 143):
                 with self.subTest(lane=lane, code=code):
-                    self.assertEqual(_lane(lane, _Sandbox(code, "", None)).category, "student_runtime")
-
-    def test_an_official_run_never_reads_the_log(self):
-        """It would never be sent, and the file is the submission's to make huge."""
-
-        class Watched(_Sandbox):
-            def read_text(self, path):
-                raise AssertionError("read " + path)
-
-        failure = _lane("_evaluate_v2", Watched(2, 'COG_ERROR: {"type": "E", "message": "m"}\n', "x"), mode="official")
-        self.assertEqual(failure.category, "student_runtime")
-        self.assertIsNone(failure.log)
+                    self.assertEqual(_lane(lane, _Sandbox(code, "")).category, "student_runtime")
 
     def test_printing_killed_is_not_a_timeout(self):
         """The word was a third timeout signal, read from text the team writes."""
@@ -282,7 +261,7 @@ class EveryLaneDecidesTheSameWay(unittest.TestCase):
         said = 'Killed\nCOG_ERROR: {"type": "RuntimeError", "message": "killed", "where": []}\n'
         for lane in LANES:
             with self.subTest(lane=lane):
-                failure = _lane(lane, _Sandbox(2, said, None))
+                failure = _lane(lane, _Sandbox(2, said))
                 self.assertEqual(failure.category, "student_runtime")
 
     def test_a_malformed_record_stays_the_evaluation_failure(self):
@@ -291,52 +270,72 @@ class EveryLaneDecidesTheSameWay(unittest.TestCase):
         nested = "[" * 1200 + "]" * 1200
         for record in ('{"where": 17}', '{"where": [1, null, {"a": 1}], "type": 3}', '[]', '"text"', nested):
             with self.subTest(record=record[:40]):
-                failure = _lane("_evaluate_v2", _Sandbox(2, "COG_ERROR: {}\n".format(record), None))
+                failure = _lane("_evaluate_v2", _Sandbox(2, "COG_ERROR: {}\n".format(record)))
                 self.assertEqual((failure.category, failure.infrastructure), ("student_runtime", False))
                 self.assertLessEqual(_units(str(failure)), 240)
 
     def test_a_marker_claiming_infrastructure_changes_nothing(self):
         forged = 'COG_ERROR: {"type": "ProviderError", "infrastructure": true, "category": "provider"}\n'
-        failure = _lane("_evaluate_v2", _Sandbox(2, forged, None))
+        failure = _lane("_evaluate_v2", _Sandbox(2, forged))
         self.assertEqual((failure.category, failure.infrastructure), ("student_runtime", False))
-        self.assertIsNone(failure.log)
 
 
-class TheFailedEventCarriesTheLog(unittest.TestCase):
-    def run_failing(self, mode: str, log: str):
+class NoLogIsDownloadedForAFailure(unittest.TestCase):
+    """The log file is the submission's to replace, and Modal's supported
+    filesystem API only transfers whole files, so a failed evaluation reads
+    none of it. The failure keeps its reason from the stderr record."""
+
+    RAISED = 'COG_ERROR: {"type": "TypeError", "message": "bad", "where": ["m.py:3, in f"]}\n'
+
+    def test_no_lane_reads_the_sandbox_filesystem_on_failure(self):
+        for lane in LANES:
+            for mode in ("practice", "official"):
+                for log_bytes in (64, 512 * 1024 * 1024):
+                    with self.subTest(lane=lane, mode=mode, log_bytes=log_bytes):
+                        sandbox = _Sandbox(2, self.RAISED, log_bytes)
+                        failure = _lane(lane, sandbox, mode=mode)
+                        self.assertEqual(sandbox.reads, [])
+                        self.assertEqual((failure.category, failure.infrastructure), ("student_runtime", False))
+                        self.assertEqual(str(failure), "TypeError: bad\nat m.py:3, in f")
+
+    def test_a_timeout_reads_nothing_either(self):
+        sandbox = _Sandbox(-1, "", 512 * 1024 * 1024)
+        failure = _lane("_evaluate_v2", sandbox, elapsed=900)
+        self.assertEqual(failure.category, "timeout")
+        self.assertEqual(sandbox.reads, [])
+
+    def test_the_failed_event_carries_the_reason_and_no_log(self):
         events = []
 
         def prepare(job, reporter):
-            raise space["RunnerFailure"]("student_runtime", "evaluating", "TypeError: bad", False, log=log)
+            raise space["RunnerFailure"]("student_runtime", "evaluating", "TypeError: bad", False)
 
         space = functions(
             "execute_job", "_run_claimed", "_failure_detail", "_fit", "_take_units", "_receiver_units", "_wire_log",
             job_store=Store(), validate_job=lambda value: value,
             _outcome_key=lambda key: key + ":outcome", LiveReporter=Reporter,
-            _prepare=prepare, _finish=lambda job, outcome, status: events.append(outcome["event"]),
+            _prepare=prepare,
+            _finish=lambda job, outcome, status: events.append(outcome["event"]),
             _WIRING=[],
         )
-        value = job()
-        value["mode"] = mode
-        space["execute_job"](value)
-        self.assertEqual([event["type"] for event in events], ["failed"])
-        return events[0]
+        space["execute_job"](job())
+        self.assertEqual(events[0]["failure"]["detail"], "TypeError: bad")
+        self.assertNotIn("sanitizedLog", events[0])
 
-    def test_a_practice_run_sends_it(self):
-        self.assertEqual(self.run_failing("practice", "printed\n")["sanitizedLog"], "printed\n")
 
-    def test_an_official_run_sends_none(self):
-        self.assertIsNone(self.run_failing("official", "printed\n")["sanitizedLog"])
-
-    def test_it_fits_the_receiver_cap_in_utf16_units(self):
+class TheCompletedLogFitsTheWire(unittest.TestCase):
+    def test_it_fits_the_receiver_cap_in_utf16_units_and_keeps_its_end(self):
         """Over the cap the portal answers 400 and the whole event is lost."""
 
-        log = "\U0001f600" * 8192 + "Traceback (most recent call last):\nValueError: bad shape\n"
-        sent = self.run_failing("practice", log)["sanitizedLog"]
+        wire_log = functions("_wire_log", "_take_units", "_receiver_units")["_wire_log"]
+        log = "\U0001f600" * 8192 + "showcase: done\n"
+        sent = wire_log(job(), log)
         self.assertLessEqual(_units(sent), 8 * 1024)
-        # The traceback is the end of the log, and it has to survive the cut.
-        self.assertTrue(sent.endswith("ValueError: bad shape\n"))
+        self.assertTrue(sent.endswith("showcase: done\n"))
         self.assertIn("[log shortened to fit]", sent)
+        official = job()
+        official["mode"] = "official"
+        self.assertIsNone(wire_log(official, "printed\n"))
 
 
 if __name__ == "__main__":
