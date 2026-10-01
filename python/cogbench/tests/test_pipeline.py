@@ -3834,11 +3834,23 @@ class ClockOwnershipTests(unittest.TestCase):
                 self.assertIs(signal.getsignal(signal.SIGALRM), self.previous_handler)
 
 
-class AFunctionThatRanOutOfTheClockIsNotCalledAgain(unittest.TestCase):
+def _token_lists(value):
+    return isinstance(value, list) and all(
+        isinstance(row, list) and all(isinstance(word, str) for word in row) for row in value
+    )
+
+
+def _vectors(value):
+    return isinstance(value, list) and all(
+        isinstance(row, list) and len(row) == 2 for row in value
+    )
+
+
+class AFunctionTooSlowForOneItemIsNotCalledAgain(unittest.TestCase):
     """A Week 3 repository's `train.prep_data()` loads all of GloVe and every
-    COCO caption, whatever it is passed. Every fit stage, shape and branch
-    pass called it again, each call ran to the ten-second clock, and the
-    check stopped at its five-minute limit with no report."""
+    COCO caption, whatever it is passed. Every stage, shape and branch pass
+    called it again, each call ran to the ten-second clock, and the check
+    stopped at its five-minute limit with no report."""
 
     SOURCE = (
         "import time\n"
@@ -3846,8 +3858,10 @@ class AFunctionThatRanOutOfTheClockIsNotCalledAgain(unittest.TestCase):
         "def prepare_everything(seed=0):\n"
         "    CALLS.append(seed)\n"
         "    time.sleep(30)\n"
-        "def embed(texts):\n"
-        "    return [[float(len(text)), 1.0] for text in texts]\n"
+        "def tokenize(text):\n"
+        "    return text.split()\n"
+        "def embed(tokens):\n"
+        "    return [float(len(tokens)), 1.0]\n"
     )
 
     def setUp(self):
@@ -3856,40 +3870,35 @@ class AFunctionThatRanOutOfTheClockIsNotCalledAgain(unittest.TestCase):
         if signal.getitimer(signal.ITIMER_REAL)[0]:
             self.skipTest("the test runner already owns an alarm")
 
-    def _role(self, produces, fits=None):
-        # Two side inputs that take nothing, as Week 3's course_data and
-        # text_embedder do, then a per-item first stage.
-        fits = fits if fits is not None else (
-            Stage("data", fit=True, optional=True, fixture=(), produces=dict),
-            Stage("tools", fit=True, optional=True, fixture=(), produces=callable),
-        )
-        return Role("search", tuple(fits) + (Stage("text", per_item=True, produces=produces),))
-
-    def _resolve(self, module, produces, fits=None):
+    def _resolve(self, module, stages, fixture=(["a b", "c"],)):
         with patch("cogbench.pipeline.CALL_TIMEOUT_SECONDS", 1):
-            started = time.monotonic()
-            found = resolve_chain(self._role(produces, fits), [module], (["a", "bb"],))
-        return found, time.monotonic() - started
+            return resolve_chain(Role("search", tuple(stages)), [module], fixture)
 
-    def test_it_runs_once_and_the_rest_of_the_repository_still_binds(self):
+    def _two_stages(self, produces=_vectors):
+        return (
+            Stage("tokens", per_item=True, produces=_token_lists),
+            Stage("text", per_item=True, produces=produces),
+        )
+
+    def test_the_first_stage_tries_it_and_the_next_stage_does_not(self):
         module = _written("theirs", self.SOURCE)
 
-        (binding, refusal), elapsed = self._resolve(
-            module, lambda value: isinstance(value, list) and len(value) == 2
-        )
+        binding, refusal = self._resolve(module, self._two_stages())
 
         self.assertIsNone(refusal)
-        self.assertEqual([step.label for step in binding.steps], ["theirs.embed"])
-        self.assertEqual(module.CALLS, [0])
-        self.assertLess(elapsed, 3)
+        self.assertEqual(
+            [step.label for step in binding.steps], ["theirs.tokenize", "theirs.embed"]
+        )
+        # The whole list, then its first item. The second stage would have
+        # paid for both again.
+        self.assertEqual(module.CALLS, [["a b", "c"], "a b"])
 
     def test_a_refusal_names_it(self):
         module = _written("theirs", self.SOURCE)
 
-        (binding, refusal), _ = self._resolve(module, lambda value: False)
+        binding, refusal = self._resolve(module, self._two_stages(lambda value: False))
 
         self.assertIsNone(binding)
-        self.assertEqual(module.CALLS, [0])
         self.assertTrue(
             any(note.startswith("theirs.prepare_everything was still running")
                 for note in refusal.notes),
@@ -3899,10 +3908,32 @@ class AFunctionThatRanOutOfTheClockIsNotCalledAgain(unittest.TestCase):
     def test_the_next_search_calls_it_again(self):
         module = _written("theirs", self.SOURCE)
 
-        self._resolve(module, lambda value: False)
-        self._resolve(module, lambda value: False)
+        self._resolve(module, self._two_stages())
+        self._resolve(module, self._two_stages())
 
-        self.assertEqual(module.CALLS, [0, 0])
+        self.assertEqual(len(module.CALLS), 4)
+
+    def test_a_timeout_with_no_arguments_still_lets_it_bind_on_input(self):
+        """A default can load everything when the argument it stands in for
+        is missing; given the captions, the same function answers at once."""
+
+        module = _written(
+            "theirs",
+            "import time\n"
+            "def embed(texts=None):\n"
+            "    if texts is None:\n"
+            "        time.sleep(30)\n"
+            "        texts = []\n"
+            "    return [[float(len(text)), 1.0] for text in texts]\n",
+        )
+        nothing = Stage("data", fit=True, optional=True, fixture=(), produces=dict)
+
+        binding, refusal = self._resolve(
+            module, (nothing, Stage("text", per_item=True, produces=_vectors))
+        )
+
+        self.assertIsNone(refusal)
+        self.assertEqual([step.label for step in binding.steps], ["theirs.embed"])
 
     def test_a_timeout_on_a_large_input_still_lets_it_bind_on_a_small_one(self):
         """Week 3's IDF fit passes the whole caption corpus. A function too
@@ -3920,8 +3951,8 @@ class AFunctionThatRanOutOfTheClockIsNotCalledAgain(unittest.TestCase):
             "idfs", fit=True, optional=True, fixture=(["x"] * 10,), produces=dict
         )
 
-        (binding, refusal), _ = self._resolve(
-            module, lambda value: isinstance(value, list) and len(value) == 2, fits=(corpus,)
+        binding, refusal = self._resolve(
+            module, (corpus, Stage("text", per_item=True, produces=_vectors))
         )
 
         self.assertIsNone(refusal)

@@ -175,6 +175,8 @@ class CheckTests(unittest.TestCase):
         def step(label):
             return Candidate(label, lambda value: value, label.split(".")[0])
 
+        slow = "train.prep_data was still running after 10 seconds."
+
         submission = Submission(
             scored("ready", 1.0),
             branches={
@@ -182,7 +184,10 @@ class CheckTests(unittest.TestCase):
                 "image": (step("model.Model"),),
             },
             fits=(("idfs", step("embedder.compute_idfs")),),
-            missing={"search": Refusal("search", (), "query", "nothing accepted the input")},
+            missing={
+                name: Refusal(name, (), name, "nothing accepted the input", notes=(slow,))
+                for name in ("prepare", "search")
+            },
         )
         text = "\n".join(render_check(
             benchmark="language-search",
@@ -197,7 +202,11 @@ class CheckTests(unittest.TestCase):
         self.assertRegex(text, r"idfs +embedder\.compute_idfs")
         self.assertRegex(text, r"text +embedder\.tokenize then embedder\.embed_text")
         self.assertRegex(text, r"image +model\.Model")
-        self.assertRegex(text, r"Not wired up:\n  search +nothing accepted the input")
+        self.assertRegex(
+            text,
+            r"Not wired up:\n  prepare +nothing accepted the input\n  search +nothing accepted the input",
+        )
+        self.assertEqual(text.count(slow), 1)
         self.assertIn("cogworks run --benchmark language-search", text)
 
     def test_a_ready_repository_ends_with_the_command_to_run(self):

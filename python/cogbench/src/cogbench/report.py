@@ -157,21 +157,29 @@ def _is_a_routine_skip(entry: Dict[str, object]) -> bool:
     return detail.startswith(("FileNotFoundError", "EOFError"))
 
 
-def _branch_rows(record: Dict[str, object]) -> Tuple[List[Tuple[str, str]], List[Tuple[str, str]]]:
+def _branch_rows(
+    record: Dict[str, object],
+) -> Tuple[List[Tuple[str, str]], List[Tuple[str, str]], List[str]]:
     """What a role made of branches bound and what it did not, as report rows.
 
     Such a role leaves `chain` and the trace empty on purpose (see
     `Submission.ready`), so without these rows a ready Week 3 check said its
     code was wired up and named none of it. The side-input functions come
-    first because every branch was called with what they produced.
+    first because every branch was called with what they produced. The notes
+    of the branches that did not bind come last, once each, because every
+    branch of one search shares them.
     """
 
     wired = [(name, label) for name, label in record.get("fits", [])]
     wired += [
         (name, " then ".join(labels)) for name, labels in record.get("branches", {}).items()
     ]
-    not_found = [(name, entry["detail"]) for name, entry in record.get("missing", {}).items()]
-    return wired, not_found
+    missing = record.get("missing", {})
+    not_found = [(name, entry["detail"]) for name, entry in missing.items()]
+    notes: List[str] = []
+    for entry in missing.values():
+        notes += [note for note in entry.get("notes", []) if note not in notes]
+    return wired, not_found, notes
 
 
 def render_check(
@@ -343,8 +351,9 @@ def render_check(
         for step in verdict.trace
     ] or [("", step) for step in chain]
     not_found: List[Tuple[str, str]] = []
+    not_found_notes: List[str] = []
     if not steps and attempt is None:
-        steps, not_found = _branch_rows(submission.record or {})
+        steps, not_found, not_found_notes = _branch_rows(submission.record or {})
     if steps or attempt is not None:
         lines.append("")
         lines.append("Wired up:")
@@ -364,6 +373,9 @@ def render_check(
             lines.append("Not wired up:")
             for branch, detail in not_found:
                 lines.append("  {:<{}} {}".format(branch, width, detail))
+            for note in not_found_notes:
+                lines.append("")
+                lines.extend(_wrapped(note))
 
     lines.append("")
     lines.append(verdict.headline)

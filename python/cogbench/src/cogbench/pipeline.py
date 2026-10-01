@@ -1345,22 +1345,25 @@ _THEIR_ROOT: Optional["Path"] = None
 #: alive until the search ends.
 _RAISED: List[Raised] = []
 
-#: The plain functions and classes this search called with no arguments that
-#: ran out of `CALL_TIMEOUT_SECONDS`, by label. `_call` does not call one
-#: again. Cleared with the scratch directory.
+#: The plain functions and classes that ran out of `CALL_TIMEOUT_SECONDS` on a
+#: single item during this search, by label. `_call` does not call one again.
+#: Cleared with the scratch directory.
 #:
-#: With nothing passed, the time was the function's own work, and another
-#: shape, form, branch pass or per-item spread repeats it for the same no.
-#: A timeout on a call that did pass something stays a single no, because
-#: an input can be what made it slow: Week 3's IDF fit passes all 414,113
-#: COCO captions, and the text branch then passes 75. Methods are left out
-#: because their cost depends on the object they run on.
+#: One item, as `_mapped` passes it, is the smallest piece of a stage's input,
+#: so a function that cannot answer it in time is doing work of its own, and
+#: every later shape, form and branch pass repeats that work for the same no.
+#: Any other timeout stays a single no. A whole batch can be what made a call
+#: slow: Week 3's IDF fit passes all 414,113 COCO captions and the text branch
+#: then passes 75. So can a call with no arguments, whose defaults may load
+#: everything, or a folder reader dry-called before the benchmark writes its
+#: folder. Methods are left out because their cost depends on the object
+#: they run on.
 #:
 #: Measured on a 2026 Language repository in the course environment:
 #: `train.prep_data`, which parses all of GloVe and embeds every COCO
-#: caption, ran out of the clock 13 times in one check and took 132 of its
-#: 295 seconds, against a 300-second limit. Its first timeout was a call
-#: with no arguments.
+#: caption, ran out of the clock 13 times in one check, 132 of its 295
+#: seconds against a 300-second limit. Eight of those timeouts came after
+#: its first single-item timeout.
 _TIMED_OUT: Set[str] = set()
 
 
@@ -1530,8 +1533,7 @@ def _call(
         if (
             isinstance(error, _Timeout)
             and _SCRATCH is not None
-            and not args
-            and not keywords
+            and index is not None
             and candidate.attribute is None
         ):
             _TIMED_OUT.add(candidate.label)
@@ -2991,6 +2993,7 @@ def _resolve_branches(
             (),
             missing,
             "nothing produced the {} the later steps need".format(missing),
+            notes=_folders_we_could_not_fill() + _too_slow_to_probe(),
         )
 
     def _attempt(
@@ -3568,8 +3571,8 @@ def _too_slow_to_probe() -> Tuple[str, ...]:
     """
 
     return tuple(
-        "{} was still running after {} seconds when the check called it with "
-        "no arguments, so the check didn't call it again. If the benchmark "
+        "{} was still running after {} seconds when the check passed it a "
+        "single item, so the check didn't call it again. If the benchmark "
         "should use it, it has to answer within that time, without loading "
         "the full dataset or training first.".format(label, CALL_TIMEOUT_SECONDS)
         for label in sorted(_TIMED_OUT)
@@ -3625,6 +3628,7 @@ def _resolve_chain(
             (),
             missing,
             "nothing produced the {} the later steps need".format(missing),
+            notes=_folders_we_could_not_fill() + _too_slow_to_probe(),
         )
     stages = tuple(stage for stage in role.stages if not stage.fit)
     if not stages:
