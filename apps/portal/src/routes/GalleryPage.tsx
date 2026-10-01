@@ -452,7 +452,7 @@ export function GalleryPage() {
 
       <section className="mt-10 space-y-3">
         <h2 className="font-serif text-xl font-semibold text-ink">Failed execution with recorded findings</h2>
-        <p className="text-[13px] text-ink-faint">Saved failure details. Recovery actions belong to the current run console.</p>
+        <p className="text-[13px] text-ink-faint">Saved failure details. Retry needs the run's console to accept one, so none is drawn here.</p>
         <FailureCard
           failure={{ category: "provider", phase: "evaluating", detail: "Runner stopped reporting before completion.", consumedAttempt: false }}
           mode="official"
@@ -473,6 +473,22 @@ export function GalleryPage() {
           mode="practice"
           benchmarkId="audio-identification"
           module="audio"
+        />
+
+        {/* B-44's shape: the line that raised was the benchmark's replay, and
+            the team's own function is the caller. The runner can't say whose
+            fault that is, so the card says where and offers both remedies. */}
+        <h3 className="pt-4 font-serif text-lg font-semibold text-ink">…an exception the runner can't attribute</h3>
+        <FailureCard
+          failure={{
+            category: "student_runtime",
+            phase: "evaluating",
+            detail: "TypeError: 'NoneType' object is not subscriptable\nat cogbench/pipeline.py:834, in replay\ncalled from face_rec/describe.py:41, in describe",
+            consumedAttempt: false,
+          }}
+          mode="practice"
+          benchmarkId="vision-recognition"
+          module="vision"
         />
       </section>
 

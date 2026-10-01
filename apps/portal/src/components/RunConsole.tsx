@@ -44,7 +44,7 @@ const EVENT_COPY: Record<RunStreamEvent["code"], string> = {
   "run.failed.repository": "Repository could not be prepared",
   "run.failed.dependencies": "Dependencies could not be installed",
   "run.failed.contract": "Benchmark contract needs attention",
-  "run.failed.runtime": "Submission stopped during evaluation",
+  "run.failed.runtime": "Evaluation stopped on an exception",
   "run.failed.timeout": "Evaluation reached its time limit",
   "run.failed.memory": "Evaluation reached its memory limit",
   "run.failed.output": "Submission returned an invalid output",

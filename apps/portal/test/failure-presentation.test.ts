@@ -69,37 +69,55 @@ function page(t: TestContext, record: RunDetail) {
 }
 
 for (const mode of ["practice", "official"] as const) {
-  test(`${mode} failure shows its exception open, keeps the rest behind reversible details, and offers no replacement run`, async (t) => {
-    const { window, container } = await mount(t, page(t, run({ mode })));
+  test(`${mode} exception says what failed without blaming the team, with where it was raised`, async (t) => {
+    const detail = "TypeError: 'NoneType' object is not subscriptable\nat cogbench/pipeline.py:834, in replay";
+    const { container } = await mount(t, page(t, run({
+      mode, failure: { category: "student_runtime", phase: "evaluating", consumedAttempt: false, detail },
+    })));
     assert.match(container.textContent, /Run failed/);
-    assert.match(container.textContent, /Your code raised an exception/);
+    assert.match(container.textContent, /The evaluation stopped on an exception/);
+    assert.doesNotMatch(container.textContent, /Your code raised|your submission raised/);
     assert.match(container.textContent, /recorded\/source/);
-    assert.match(container.textContent, /detached/);
     assert.match(container.textContent, /Run #_123/);
     assert.doesNotMatch(container.querySelector("h1")?.textContent ?? "", /Run #_123/);
+    // The claim, the evidence and both next steps are all open: there is
+    // nothing left to fold, so no "Show details" either.
+    const evidence = [...container.querySelectorAll("pre")].find((node) => node.textContent === detail);
+    assert.ok(evidence);
+    assert.equal(evidence.closest('[aria-hidden="true"]'), null);
+    const explanation = [...container.querySelectorAll("p")].find((node) => node.textContent === "The error below shows what was raised and where.");
+    assert.equal(explanation?.closest('[aria-hidden="true"]'), null);
+    assert.match(container.textContent, /If it points to a file in your repository/);
+    // A repeat can't fix a deterministic bug in the benchmark, so the copy
+    // doesn't suggest one would.
+    assert.doesNotMatch(container.textContent, /worth a try|one process/);
+    assert.ok([...container.querySelectorAll("button")].every((node) => node.textContent !== "Show details"));
+    // No surface recorded, so nothing can be retried from here.
     assert.doesNotMatch(container.textContent, /consumed|refund|Run practice again|Retry/);
-    // The runner's one line about an exception in the submission is what a
-    // student debugs from, so it is shown open; the catalog's longer
-    // explanation is what waits behind the reversible details.
-    const detail = [...container.querySelectorAll("pre")].find((node) => node.textContent.includes("fixture exception"));
-    assert.ok(detail);
-    assert.equal(detail.closest('[aria-hidden="true"]'), null);
-    const explanation = [...container.querySelectorAll("p")].find((node) => node.textContent.includes("unhandled exception"));
-    assert.ok(explanation?.closest('[aria-hidden="true"][inert]'));
     assert.equal(container.textContent.includes("practice traceback"), mode === "practice");
-    const toggle = [...container.querySelectorAll("button")].find((node) => node.textContent === "Show details");
-    assert.ok(toggle);
-    toggle.focus();
-    await act(async () => toggle.click());
-    assert.equal(toggle.getAttribute("aria-expanded"), "true");
-    assert.equal(explanation.closest('[aria-hidden="true"]'), null);
-    assert.equal(window.document.activeElement, toggle);
-    await act(async () => toggle.click());
-    assert.equal(toggle.getAttribute("aria-expanded"), "false");
-    assert.ok(explanation.closest('[aria-hidden="true"][inert]'));
-    assert.equal(window.document.activeElement, toggle);
   });
 }
+
+test("a failure the submission caused shows its evidence open and folds the explanation", async (t) => {
+  const { window, container } = await mount(t, page(t, run({
+    failure: { category: "output_invalid", phase: "evaluating", consumedAttempt: false, detail: "returned 3 predictions for 5 cases" },
+  })));
+  const detail = [...container.querySelectorAll("pre")].find((node) => node.textContent.includes("returned 3 predictions"));
+  assert.ok(detail);
+  assert.equal(detail.closest('[aria-hidden="true"]'), null);
+  const explanation = [...container.querySelectorAll("p")].find((node) => node.textContent.includes("failed schema validation"));
+  assert.ok(explanation?.closest('[aria-hidden="true"][inert]'));
+  const toggle = [...container.querySelectorAll("button")].find((node) => node.textContent === "Show details");
+  assert.ok(toggle);
+  toggle.focus();
+  await act(async () => toggle.click());
+  assert.equal(toggle.getAttribute("aria-expanded"), "true");
+  assert.equal(explanation.closest('[aria-hidden="true"]'), null);
+  assert.equal(window.document.activeElement, toggle);
+  await act(async () => toggle.click());
+  assert.ok(explanation.closest('[aria-hidden="true"][inert]'));
+  assert.equal(window.document.activeElement, toggle);
+});
 
 test("failed late findings stay hidden history, with no publication or promotion", async (t) => {
   const metric = { key: "accuracy", label: "Late accuracy", value: 0.1, unit: null, primary: true, precision: 3, higherIsBetter: true, role: null, relatesTo: null, help: null };
@@ -319,7 +337,7 @@ for (const mode of ["practice", "official"] as const) {
       });
       await act(async () => { root.render(element(next)); release(); await pending; });
       assert.equal(window.document.activeElement, container.querySelector("h1"));
-      assert.doesNotMatch(container.textContent, /Submission stopped during evaluation/);
+      assert.doesNotMatch(container.textContent, /Evaluation stopped on an exception/);
       const history = container.querySelector('[aria-label="Run history"]');
       assert.ok(history?.closest('[aria-hidden="true"][inert]'));
       const toggle = [...container.querySelectorAll("button")].find((button) => button.textContent === "Show run history");
@@ -548,4 +566,195 @@ test("a result already published keeps saying so after the repository changes", 
   assert.match(container.textContent, /public entry/);
   assert.match(container.textContent, /See it on the leaderboard/);
   assert.doesNotMatch(container.textContent, /no longer connected to/);
+});
+
+/** The run page with the failed run's surface already read, and a route for
+ *  the run Retry starts, so a navigation can be observed. */
+function retryClient(t: TestContext, record: RunDetail, snapshot: ReturnType<typeof retrySnapshot>) {
+  const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, gcTime: Infinity, retry: false } } });
+  client.setQueryData(["run", record.id], record);
+  client.setQueryData(["session"], { auth: { executionProvider: "fixture" } });
+  client.setQueryData(["benchmarks"], []);
+  client.setQueryData(["dashboard", record.benchmarkId], {
+    quota: { officialUsed: 1, officialLimit: 3, practiceUsed: 2, practiceLimit: 10 },
+  });
+  client.setQueryData(["run-surface", snapshot.id], snapshot);
+  t.after(() => client.clear());
+  return client;
+}
+
+function retryPage(t: TestContext, record: RunDetail, snapshot: ReturnType<typeof retrySnapshot>) {
+  const client = retryClient(t, record, snapshot);
+  return React.createElement(QueryClientProvider, { client },
+    React.createElement(MemoryRouter, { initialEntries: [`/runs/${record.id}`] },
+      React.createElement(Routes, null,
+        React.createElement(Route, { path: "/runs/run_retry", element: React.createElement("p", null, "retry run page") }),
+        React.createElement(Route, { path: "/runs/:runId", element: React.createElement(RunDetailPage) }))));
+}
+
+function eligible(mode: "practice" | "official" = "practice", overrides: Record<string, unknown> = {}) {
+  const base = retrySnapshot(mode);
+  return RunSurfaceSnapshotSchema.parse({
+    ...base,
+    practiceRunId: mode === "practice" ? "run_failed_123" : base.practiceRunId,
+    officialRunId: mode === "official" ? "run_failed_123" : null,
+    ...overrides,
+  });
+}
+
+function stubFetch(t: TestContext, respond: (url: string, init: RequestInit) => Response | Promise<Response>) {
+  const previous = globalThis.fetch;
+  const calls: { url: string; init: RequestInit }[] = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), init: init ?? {} });
+    return respond(String(url), init ?? {});
+  };
+  t.after(() => { globalThis.fetch = previous; });
+  return calls;
+}
+
+async function settle(until: () => boolean) {
+  const deadline = Date.now() + 1_000;
+  while (!until() && Date.now() < deadline) {
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+  }
+}
+
+test("an exception on the run page offers Retry with its consequence and opens the new run", async (t) => {
+  const snapshot = eligible();
+  const calls = stubFetch(t, () => Response.json(RunSurfaceSnapshotSchema.parse({
+    ...snapshot, status: "running", phase: "queued", executionGeneration: 2, finishedAt: null,
+    practiceRunId: "run_retry", actions: [],
+  })));
+  const record = run({ surfaceId: snapshot.id });
+  const { container } = await mount(t, retryPage(t, record, snapshot));
+  assert.match(container.textContent, /Runs bbbbbbb again\. It counts as a practice run only if it finishes\./);
+  const retry = [...container.querySelectorAll("button")].find((node) => node.textContent === "Retry");
+  assert.ok(retry);
+  await act(async () => retry.click());
+  await settle(() => container.textContent.includes("retry run page"));
+  // Success also refreshes the dashboard; only one Retry may be sent.
+  const retries = calls.filter((call) => call.url === `/api/run-surfaces/${snapshot.id}/actions/retry`);
+  assert.equal(retries.length, 1);
+  assert.deepEqual(JSON.parse(String(retries[0].init.body)), { runId: "run_failed_123" });
+  assert.match(container.textContent, /retry run page/);
+});
+
+test("an official Retry names the attempt it can use before it starts", async (t) => {
+  const snapshot = eligible("official");
+  const calls = stubFetch(t, () => Response.json(snapshot));
+  const { container } = await mount(t, retryPage(t, run({ mode: "official", surfaceId: snapshot.id }), snapshot));
+  assert.match(container.textContent, /on the hidden inputs\. It uses an official attempt only if it finishes\./);
+  const retry = [...container.querySelectorAll("button")].find((node) => node.textContent?.includes("Retry"));
+  assert.ok(retry);
+  await act(async () => retry.click());
+  assert.equal(calls.length, 0, "the first press only arms");
+  assert.match(retry.textContent ?? "", /Confirm, uses an attempt if it finishes/);
+});
+
+test("a refused Retry says why in place and keeps the failed run", async (t) => {
+  const snapshot = eligible();
+  stubFetch(t, () => Response.json(
+    { error: { code: "quota_exhausted", message: "The completed-evaluation quota is exhausted." } }, { status: 409 }));
+  const { container } = await mount(t, retryPage(t, run({ surfaceId: snapshot.id }), snapshot));
+  const retry = [...container.querySelectorAll("button")].find((node) => node.textContent === "Retry");
+  assert.ok(retry);
+  await act(async () => retry.click());
+  await settle(() => container.querySelector('[role="alert"]') !== null);
+  assert.equal(container.querySelector('[role="alert"]')?.textContent, "The completed-evaluation quota is exhausted.");
+  assert.match(container.textContent, /The evaluation stopped on an exception/);
+});
+
+test("Retry is not offered where the server would refuse it or the catalog says it can't help", async (t) => {
+  await t.test("a failure that was already retried links its retry instead", async (t) => {
+    const snapshot = eligible("practice", {
+      practiceRunId: "run_retry", actions: [],
+      executionHistory: [
+        { id: "run_failed_123", mode: "practice", status: "failed", retryOfRunId: null, createdAt: 1000, finishedAt: 8000 },
+        { id: "run_retry", mode: "practice", status: "queued", retryOfRunId: "run_failed_123", createdAt: 9000, finishedAt: null },
+      ],
+    });
+    const { container } = await mount(t, retryPage(t, run({ surfaceId: snapshot.id }), snapshot));
+    assert.ok([...container.querySelectorAll("button")].every((node) => node.textContent !== "Retry"));
+    const link = [...container.querySelectorAll("a")].find((node) => node.getAttribute("href") === "/runs/run_retry");
+    assert.ok(link?.closest("p")?.textContent?.startsWith("Retried as"));
+  });
+  await t.test("recorded inputs the server can't send again", async (t) => {
+    const snapshot = eligible("practice", { actions: [], retryRefusal: "The recorded weights are no longer available." });
+    const { container } = await mount(t, retryPage(t, run({ surfaceId: snapshot.id }), snapshot));
+    assert.doesNotMatch(container.textContent, /Retry/);
+    assert.match(container.textContent, /recorded weights are no longer available/);
+  });
+  await t.test("a failure the submission caused (B-45)", async (t) => {
+    const snapshot = eligible();
+    const { container } = await mount(t, retryPage(t, run({
+      surfaceId: snapshot.id,
+      failure: { category: "output_invalid", phase: "evaluating", consumedAttempt: false, detail: "bad shape" },
+    }), snapshot));
+    assert.ok([...container.querySelectorAll("button")].every((node) => node.textContent !== "Retry"));
+  });
+  await t.test("a platform failure leads with Retry", async (t) => {
+    const snapshot = eligible();
+    const { container } = await mount(t, retryPage(t, run({
+      surfaceId: snapshot.id,
+      failure: { category: "provider", phase: "evaluating", consumedAttempt: false, detail: null },
+    }), snapshot));
+    assert.ok([...container.querySelectorAll("button")].some((node) => node.textContent === "Retry"));
+  });
+});
+
+test("Retry sends one request however fast it is pressed, then focuses the run it started", async (t) => {
+  const snapshot = eligible();
+  let release!: (response: Response) => void;
+  const calls = stubFetch(t, (url) => url.endsWith("/actions/retry")
+    ? new Promise<Response>((resolve) => { release = resolve; })
+    : Response.json({}, { status: 404 }));
+  const record = run({ surfaceId: snapshot.id });
+  const client = retryClient(t, record, snapshot);
+  // The successor's own record, so the page it lands on renders a heading.
+  client.setQueryData(["run", "run_retry"], run({ id: "run_retry", status: "queued", failure: null, surfaceId: snapshot.id }));
+  const { container, window } = await mount(t, React.createElement(QueryClientProvider, { client },
+    React.createElement(MemoryRouter, { initialEntries: [`/runs/${record.id}`] },
+      React.createElement(Routes, null,
+        React.createElement(Route, { path: "/runs/:runId", element: React.createElement(RunDetailPage) })))));
+  const retry = [...container.querySelectorAll("button")].find((node) => node.textContent === "Retry");
+  assert.ok(retry);
+  await act(async () => { retry.click(); retry.click(); });
+  assert.equal(calls.filter((call) => call.url.endsWith("/actions/retry")).length, 1);
+  await act(async () => {
+    release(Response.json(RunSurfaceSnapshotSchema.parse({
+      ...snapshot, status: "running", phase: "queued", executionGeneration: 2, finishedAt: null,
+      practiceRunId: "run_retry", actions: [],
+    })));
+  });
+  await settle(() => window.document.activeElement?.tagName === "H1");
+  assert.equal(window.document.activeElement, container.querySelector("h1"));
+  assert.match(container.querySelector("h1")?.textContent ?? "", /Practice run/);
+});
+
+test("an eligibility read that fails says so and can be checked again", async (t) => {
+  const snapshot = eligible();
+  let answer = 500;
+  const calls = stubFetch(t, (url) => url === `/api/run-surfaces/${snapshot.id}`
+    ? (answer === 500 ? Response.json({ error: { code: "internal", message: "down" } }, { status: 500 }) : Response.json(snapshot))
+    : Response.json({}, { status: 404 }));
+  const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, gcTime: Infinity, retry: false } } });
+  const record = run({ surfaceId: snapshot.id });
+  client.setQueryData(["run", record.id], record);
+  client.setQueryData(["session"], { auth: { executionProvider: "fixture" } });
+  client.setQueryData(["benchmarks"], []);
+  t.after(() => client.clear());
+  const { container } = await mount(t, React.createElement(QueryClientProvider, { client },
+    React.createElement(MemoryRouter, { initialEntries: [`/runs/${record.id}`] },
+      React.createElement(Routes, null,
+        React.createElement(Route, { path: "/runs/:runId", element: React.createElement(RunDetailPage) })))));
+  await settle(() => container.textContent.includes("Couldn't check"));
+  assert.match(container.textContent, /Couldn't check whether this run can be retried\./);
+  answer = 200;
+  const again = [...container.querySelectorAll("button")].find((node) => node.textContent === "Check again");
+  assert.ok(again);
+  await act(async () => again.click());
+  await settle(() => [...container.querySelectorAll("button")].some((node) => node.textContent === "Retry"));
+  assert.ok([...container.querySelectorAll("button")].some((node) => node.textContent === "Retry"));
+  assert.ok(calls.filter((call) => call.url === `/api/run-surfaces/${snapshot.id}`).length >= 2);
 });

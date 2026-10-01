@@ -69,7 +69,7 @@ def functions(*names, **globals_):
                  "RunnerFailure": RunnerFailure, "check_predictions": check_predictions,
                  "load_predictions": load_predictions,
                  "restore_v2_predictions": restore_v2_predictions,
-                 "DETAIL_LIMIT": 240, "DIAGNOSTIC_LIMIT": 600,
+                 "DETAIL_LIMIT": 240, "DIAGNOSTIC_LIMIT": 600, "LOG_LIMIT": 8 * 1024,
                  **globals_}
     exec(compile(ast.Module(nodes, []), str(SOURCE), "exec"), namespace)
     return namespace
@@ -254,7 +254,7 @@ class PreparedRestore(unittest.TestCase):
         events = []
         forbidden = lambda *args, **kwargs: self.fail("reuse reached preparation or evaluation before compatibility")
         space = functions(
-            "execute_job", "_failure_detail", "_fit", "_take_units", "_receiver_units",
+            "execute_job", "_failure_detail", "_fit", "_take_units", "_receiver_units", "_wire_log",
             job_store=Store(), validate_job=lambda value: value,
             _outcome_key=lambda key: key + ":outcome", LiveReporter=Reporter,
             _prepare=forbidden, _load_benchmark=forbidden, _evaluate_v2=forbidden,
@@ -345,8 +345,8 @@ raise ValueError("my own bug")
             terminate=lambda: None,
         )
         space = functions(
-            "_evaluate_v2", "_last_error_line", "_fit", "_take_units",
-            "_receiver_units", app=object(), EVALUATE_SCRIPT="real script tested above",
+            "_evaluate_v2", "_evaluation_failure", "_timed_out", "_last_error_line", "_fit",
+            "_take_units", "_receiver_units", app=object(), EVALUATE_SCRIPT="real script tested above",
             modal=types.SimpleNamespace(Image=types.SimpleNamespace(from_id=lambda value: object()),
                                         Sandbox=types.SimpleNamespace(create=lambda **kwargs: sandbox)),
         )

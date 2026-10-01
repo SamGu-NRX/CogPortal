@@ -151,7 +151,9 @@ test("a Language run on null-descriptor stores and logs the Language failure", a
   assert.ok(languageDetail, "null-descriptor has no Language wording to compare against");
 
   assert.equal(run.failureDetail, languageDetail);
-  assert.ok(run.log.includes(languageDetail), "the log's last line is the same detail");
+  // The card's detail is the exception line and then where it was raised;
+  // the log ends on the exception line, as a traceback does.
+  assert.ok(run.log.endsWith(languageDetail.split("\n")[0]!), "the log's last line is the same exception");
   assert.ok(run.log.includes('File "search.py", line 52, in embed_text'));
   assert.doesNotMatch(run.log, /faces\.py|recognize/);
 });
@@ -161,7 +163,7 @@ test("a Vision run on null-descriptor keeps the Vision failure", async () => {
   const visionDetail = scriptedFailure("null-descriptor").detail;
 
   assert.equal(run.failureDetail, visionDetail);
-  assert.ok(run.log.includes(visionDetail));
+  assert.ok(run.log.endsWith(visionDetail.split("\n")[0]!));
   assert.ok(run.log.includes('File "faces.py", line 87, in recognize'));
   assert.doesNotMatch(run.log, /search\.py|embed_text/);
 });

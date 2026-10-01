@@ -14,17 +14,20 @@ import { Veil } from "./Veil";
  * stopped) is under "Show details", reversible, so the card opens on the
  * three lines that matter.
  *
- * Which next action is offered follows the catalog's `retryable` flag, which
- * says whether running the same commit again can answer differently:
+ * Which next action is offered follows the catalog's `remedy`:
  *
- * - Not retryable means the cause is in the submission (an exception, a bad
- *   output shape, a timeout). Running it again would fail the same way, so the
- *   next action is the catalog's local reproduction, and the runner's detail
- *   line is shown open because it is the evidence the student debugs from.
- * - Retryable means the cause was on the platform's side or in a cache. The
- *   next action is the caller's `next` (the run's console, which can run it
- *   again), and the catalog's escalation to staff waits in the details rather
- *   than being the first thing a student is told to do.
+ * - "fix": the runner observed the cause in what the submission did (a bad
+ *   output shape, a timeout, an install). Running it again would fail the same
+ *   way, so the next action is the catalog's local reproduction, and the
+ *   runner's detail line is shown open because it is the evidence the student
+ *   debugs from.
+ * - "retry": the cause was on the platform's side or in a cache. The next
+ *   action is the caller's `next` (Retry), and the catalog's escalation to
+ *   staff waits in the details rather than being the first thing a student is
+ *   told to do.
+ * - "either": the evaluation raised and nobody can say whose line it was. The
+ *   detail (class, message, where) is open, and both the reproduction and
+ *   `next` are offered.
  *
  * A refusal replaces the title and detail with the refusal itself, which says
  * the same thing in the team's own function names.
@@ -46,8 +49,7 @@ export function FailureCard({
   module?: Module;
   refusal?: Refusal | null;
   collapsed?: boolean;
-  /** The next action for a failure the platform can try again, such as a link
-   *  to the run's console. Ignored when the cause is in the submission. */
+  /** Retry, for a failure whose remedy allows one. Ignored for "fix". */
   next?: ReactNode;
   /** Evidence belonging to this failed physical execution, never current results. */
   children?: ReactNode;
@@ -62,13 +64,15 @@ export function FailureCard({
     );
   }
 
-  const ours = Boolean(copy?.retryable);
+  const ours = copy?.remedy === "retry";
   const stage = failure ? PHASE_LABELS[failure.phase] : null;
-  // The detail is the runner's one line about this execution. For a failure
-  // in the submission it is the exception or the offending value, and it is
-  // shown; for one on our side it is machinery, and it waits in the details.
+  // The detail is the runner's account of this execution. For an exception or
+  // a failure in the submission it is the evidence, and it is shown; for one
+  // on our side it is machinery, and it waits in the details.
   const openDetail = !refusal && !ours && failure?.detail ? failure.detail : null;
-  const hasDetails = Boolean(copy && !refusal) || Boolean(children);
+  // An "either" card already shows its explanation and actions, so without
+  // recorded evidence there is nothing to fold.
+  const hasDetails = Boolean(copy && !refusal && copy.remedy !== "either") || Boolean(children);
 
   return (
     <Panel tone="alert">
@@ -97,7 +101,7 @@ export function FailureCard({
             <h2 className="mt-1.5 max-w-[36rem] font-serif text-[24px] leading-[1.25] text-ink sm:text-[28px]">
               {copy.title}
             </h2>
-            {ours && (
+            {copy.remedy !== "fix" && (
               <p className="mt-2 max-w-[60ch] text-[14.5px] leading-[1.55] text-ink-secondary">
                 {copy.explanation}
               </p>
@@ -118,6 +122,7 @@ export function FailureCard({
                     <Code code={copy.reproCommand} lang="bash" wrap />
                   </div>
                 )}
+                {copy.remedy === "either" && next && <div className="mt-4">{next}</div>}
               </div>
             ) : (
               next && <div className="mt-4">{next}</div>
@@ -129,9 +134,9 @@ export function FailureCard({
       {hasDetails && (
         <div className="mt-5">
           <Veil count={1} peek={0} moreLabel="Show details" fewerLabel="Hide details">
-            {copy && !refusal && (
+            {copy && !refusal && copy.remedy !== "either" && (
               <div className="space-y-3">
-                {!ours && (
+                {copy.remedy === "fix" && (
                   <p className="max-w-[60ch] text-[14px] leading-[1.55] text-ink-secondary">
                     {copy.explanation}
                   </p>
