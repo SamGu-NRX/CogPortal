@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { dirname, join } from "node:path";
-import { test } from "node:test";
+import { test, type TestContext } from "node:test";
 import { fileURLToPath } from "node:url";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
@@ -20,6 +20,7 @@ import {
   cliDevices,
   cohorts,
   localRunSessions,
+  runSurfaces,
   teamMembers,
   teams,
   users,
@@ -120,11 +121,11 @@ async function seed(db: Database, teamRepoId: number | null = FIXTURE_REPO.repos
   });
 }
 
-function runtime(binding: unknown): Env {
+function runtime(binding: unknown, vars: Pick<Env, "DISCORD_BOT_TOKEN"> = {}): Env {
   // SAFETY: these routes use the test D1 shim and hub assigned below, not ASSETS.
   const env = {
     DB: binding, ENVIRONMENT: "development", DEV_AUTH: "disabled",
-    EXECUTION_PROVIDER: "fixture", PUBLIC_ORIGIN: "https://portal.example",
+    EXECUTION_PROVIDER: "fixture", PUBLIC_ORIGIN: "https://portal.example", ...vars,
   } as Env;
   env.RUN_SURFACES = runSurfaceHubs(env).namespace;
   return env;
@@ -335,10 +336,10 @@ for (const [name, over, expected] of [
  * the way the CLI does: one at a time while running, and its final event in a
  * batch with the history before it.
  */
-async function liveRun() {
+async function liveRun(vars: Pick<Env, "DISCORD_BOT_TOKEN"> = {}) {
   const { db, binding } = freshDb();
   await seed(db);
-  const env = runtime(binding);
+  const env = runtime(binding, vars);
   const hubs = runSurfaceHubs(env);
   env.RUN_SURFACES = hubs.namespace;
   const surfaceId = `surface_${SESSION.slice(-20)}`;
@@ -493,3 +494,134 @@ test("a result accepted while publication fails still reaches the console", asyn
   assert.equal(delivered.silentSince, null);
   assert.equal(run.hub.scheduledAlarm, null, "a finished run stops ticking");
 });
+
+const CHANNEL = "123456789012345678";
+const MESSAGE = "223456789012345678";
+
+/** Binds the run's surface to a team channel. Discord answers with whatever
+ *  `answer` returns at the time, and every request the hub sends is kept. */
+async function discordChannel(t: TestContext, run: Awaited<ReturnType<typeof liveRun>>) {
+  await run.db.update(runSurfaces).set({ discordChannelId: CHANNEL }).where(eq(runSurfaces.id, run.surfaceId));
+  const discord = {
+    answer: (): Response => new Response(null, { status: 403 }),
+    requests: [] as string[],
+  };
+  t.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
+    const url = new URL(String(input));
+    assert.equal(url.host, "discord.com", "only Discord is reached over the network");
+    discord.requests.push(`${init?.method} ${url.pathname}`);
+    return discord.answer();
+  });
+  return discord;
+}
+
+function logged(mock: { mock: { calls: Array<{ arguments: unknown[] }> } }, event: string): number {
+  return mock.mock.calls.filter((call) => String(call.arguments[0]).includes(`"event":"${event}"`)).length;
+}
+
+/**
+ * A channel the bot may not write to answers every retry the same way, and
+ * enough refused requests get the sender's IP blocked for every team. The hub
+ * keeps ticking for the console and lost-contact detection, and asks Discord
+ * again only when something new is published.
+ */
+for (const [name, status] of [["a 401", 401], ["a 403", 403], ["no bot token", null]] as const) {
+  test(`a channel refused with ${name} is not asked again on every tick`, async (t) => {
+    const warned = t.mock.method(console, "warn", () => undefined);
+    const failed = t.mock.method(console, "error", () => undefined);
+    const run = await liveRun(status === null ? {} : { DISCORD_BOT_TOKEN: "bot-token" });
+    const discord = await discordChannel(t, run);
+    discord.answer = () => new Response(null, { status: status ?? 200 });
+    const asked = status === null ? 0 : 1;
+
+    await run.send(heartbeat(0));
+    await run.hub.alarm();
+    assert.equal(discord.requests.length, asked);
+    assert.equal(logged(warned, "run_surface_delivery_refused"), asked);
+
+    const shown = run.hub.messages.length;
+    await run.hub.alarm();
+    await run.hub.alarm();
+    assert.equal(run.hub.messages.length, shown + 2, "the console still updates on every tick");
+    assert.notEqual(run.hub.scheduledAlarm, null, "a live run keeps ticking");
+    assert.equal(discord.requests.length, asked, "the ticks did not ask Discord again");
+
+    await run.goSilent();
+    await run.hub.alarm();
+    assert.notEqual(run.hub.messages.at(-1)!.silentSince, null, "silence still reads as lost contact");
+    assert.equal(run.hub.scheduledAlarm, null);
+
+    // An accepted late result is a publication, so Discord gets one more try.
+    assert.equal((await run.send(completed(1))).duplicate, false);
+    await run.hub.alarm();
+    assert.equal(run.hub.messages.at(-1)!.status, "succeeded");
+    assert.equal(discord.requests.length, asked * 2);
+    assert.equal(logged(warned, "run_surface_delivery_refused"), asked * 2);
+    assert.equal(run.hub.scheduledAlarm, null, "a settled run with a refused channel goes quiet");
+    assert.equal(logged(failed, "run_surface_tick_failed"), 0);
+  });
+}
+
+test("a publication after a refusal tries Discord again and can deliver", async (t) => {
+  t.mock.method(console, "warn", () => undefined);
+  const run = await liveRun({ DISCORD_BOT_TOKEN: "bot-token" });
+  const discord = await discordChannel(t, run);
+  await run.send(heartbeat(0));
+  await run.hub.alarm();
+  assert.deepEqual(discord.requests, [`POST /api/v10/channels/${CHANNEL}/messages`]);
+
+  // Staff give the permission back. Nothing is sent until the run reports.
+  discord.answer = () => Response.json({ id: MESSAGE });
+  await run.hub.alarm();
+  assert.equal(discord.requests.length, 1);
+  await run.send(heartbeat(1));
+  await run.hub.alarm();
+  assert.equal(discord.requests.length, 2);
+  const [surface] = await run.db.select().from(runSurfaces).where(eq(runSurfaces.id, run.surfaceId));
+  assert.equal(surface.discordMessageId, MESSAGE);
+
+  // Delivered again, so the live tick goes back to editing the message.
+  await run.hub.alarm();
+  assert.equal(discord.requests.at(-1), `PATCH /api/v10/channels/${CHANNEL}/messages/${MESSAGE}`);
+});
+
+test("a rate limit on a settled run waits as long as Discord asks", async (t) => {
+  const run = await liveRun({ DISCORD_BOT_TOKEN: "bot-token" });
+  const discord = await discordChannel(t, run);
+  discord.answer = () => Response.json({ retry_after: 30 }, { status: 429 });
+  await run.send(heartbeat(0));
+  assert.equal((await run.send(completed(1))).duplicate, false);
+  const before = Date.now();
+  await run.hub.alarm();
+  const alarm = run.hub.scheduledAlarm;
+  assert.ok(alarm !== null && alarm >= before + 30_000 && alarm <= Date.now() + 30_000, `alarm at ${alarm}`);
+
+  discord.answer = () => Response.json({ id: MESSAGE });
+  await run.hub.alarm();
+  assert.equal(discord.requests.length, 2);
+  assert.equal(run.hub.scheduledAlarm, null);
+});
+
+for (const [name, answer] of [
+  ["a 502", () => new Response(null, { status: 502 })],
+  ["a network error", () => { throw new TypeError("fetch failed"); }],
+] as const) {
+  test(`${name} from Discord on a settled run is retried on the next tick`, async (t) => {
+    const failed = t.mock.method(console, "error", () => undefined);
+    const run = await liveRun({ DISCORD_BOT_TOKEN: "bot-token" });
+    const discord = await discordChannel(t, run);
+    discord.answer = answer;
+    await run.send(heartbeat(0));
+    assert.equal((await run.send(completed(1))).duplicate, false);
+    const before = Date.now();
+    await run.hub.alarm();
+    const alarm = run.hub.scheduledAlarm;
+    assert.ok(alarm !== null && alarm >= before + 2_000 && alarm <= Date.now() + 2_000, `alarm at ${alarm}`);
+    assert.equal(logged(failed, "run_surface_tick_failed"), 1);
+
+    discord.answer = () => Response.json({ id: MESSAGE });
+    await run.hub.alarm();
+    assert.equal(discord.requests.length, 2);
+    assert.equal(run.hub.scheduledAlarm, null);
+  });
+}

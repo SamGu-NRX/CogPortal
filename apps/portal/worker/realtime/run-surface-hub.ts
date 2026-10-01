@@ -14,6 +14,16 @@ function ticking(snapshot: RunSurfaceSnapshot): boolean {
   return snapshot.status === "running" && snapshot.silentSince === null;
 }
 
+/** Whether Discord refused the request itself, so a retry gets the same
+ *  answer: any 4xx but 429 (401 token, 403 channel permission, 404 channel
+ *  gone; a deleted message was already reposted by `syncRunSurfaceMessage`).
+ *  Discord temporarily blocks an IP after 10,000 requests answered 401, 403
+ *  or 429 in ten minutes, and every team's messages are sent from this
+ *  Worker. */
+function refusedByDiscord(error: unknown): error is DiscordRequestError {
+  return error instanceof DiscordRequestError && error.status >= 400 && error.status < 500 && error.status !== 429;
+}
+
 export class RunSurfaceHub extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -94,6 +104,10 @@ export class RunSurfaceHub extends DurableObject<Env> {
   private async snapshot(surfaceId: string, publish: boolean): Promise<RunSurfaceSnapshot> {
     return this.serialize(async () => {
       await this.ctx.storage.put("surfaceId", surfaceId);
+      // A publication is the only thing that lifts a delivery refusal: see alarm().
+      if (publish) {
+        await this.ctx.storage.put("publications", (await this.ctx.storage.get<number>("publications") ?? 0) + 1);
+      }
       const armBy = async (next: number) => {
         const currentAlarm = await this.ctx.storage.getAlarm();
         if (currentAlarm == null || next < currentAlarm) await this.ctx.storage.setAlarm(next);
@@ -146,11 +160,24 @@ export class RunSurfaceHub extends DurableObject<Env> {
   async alarm(): Promise<void> {
     const surfaceId = await this.ctx.storage.get<string>("surfaceId");
     if (!surfaceId) return;
-    let snapshot: RunSurfaceSnapshot;
+    const retrySoon = async (error: unknown) => {
+      console.error(
+        JSON.stringify({
+          event: "run_surface_tick_failed",
+          surfaceId,
+          message: error instanceof Error ? error.message : "unknown",
+        }),
+      );
+      await this.ctx.storage.setAlarm(Date.now() + TICK_MS);
+    };
+    let read: { snapshot: RunSurfaceSnapshot; publication: number; refused: boolean } | null;
     try {
-      const result = await this.serialize(async () => {
+      read = await this.serialize(async () => {
         try {
-          return await this.readAndBroadcast(surfaceId);
+          const snapshot = await this.readAndBroadcast(surfaceId);
+          const publication = await this.ctx.storage.get<number>("publications") ?? 0;
+          const refused = await this.ctx.storage.get<number>("deliveryRefused") === publication;
+          return { snapshot, publication, refused };
         } catch (error) {
           if (!(error instanceof ApiHttpError) || error.status !== 404) throw error;
           // Keep the sequence even if context disappears temporarily. Cleanup
@@ -167,25 +194,34 @@ export class RunSurfaceHub extends DurableObject<Env> {
           return null;
         }
       });
-      if (!result) return;
-      snapshot = result;
-      await syncRunSurfaceMessage(this.env, snapshot);
     } catch (error) {
-      if (error instanceof DiscordRequestError && error.retryAfterMs) {
-        await this.ctx.storage.setAlarm(Date.now() + error.retryAfterMs);
-        return;
-      }
-      console.error(
-        JSON.stringify({
-          event: "run_surface_tick_failed",
-          surfaceId,
-          message: error instanceof Error ? error.message : "unknown",
-        }),
-      );
-      await this.ctx.storage.setAlarm(Date.now() + TICK_MS);
+      // A failed read may be hiding an accepted result; keep trying.
+      await retrySoon(error);
       return;
     }
-    if (ticking(snapshot)) await this.ctx.storage.setAlarm(Date.now() + TICK_MS);
+    if (!read) return;
+    // A refused message is not retried on every tick: the run still ticks for
+    // the website and lost-contact detection, but Discord is asked again only
+    // after the next publication. Recording the publication the read saw,
+    // rather than a flag, lets one that lands mid-request still get its try.
+    // Without a bot token (local development) nothing can be sent at all.
+    if (!read.refused && this.env.DISCORD_BOT_TOKEN) {
+      try {
+        await syncRunSurfaceMessage(this.env, read.snapshot);
+      } catch (error) {
+        if (error instanceof DiscordRequestError && error.retryAfterMs) {
+          await this.ctx.storage.setAlarm(Date.now() + error.retryAfterMs);
+          return;
+        }
+        if (!refusedByDiscord(error)) {
+          await retrySoon(error);
+          return;
+        }
+        console.warn(JSON.stringify({ event: "run_surface_delivery_refused", surfaceId, status: error.status }));
+        await this.ctx.storage.put("deliveryRefused", read.publication);
+      }
+    }
+    if (ticking(read.snapshot)) await this.ctx.storage.setAlarm(Date.now() + TICK_MS);
   }
 
   webSocketMessage(socket: WebSocket, message: string | ArrayBuffer): void {
