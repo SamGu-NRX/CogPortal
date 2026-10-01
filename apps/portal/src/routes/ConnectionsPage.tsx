@@ -81,16 +81,19 @@ export function ConnectionsPage() {
       <PageHeader
         eyebrow="Your account"
         title="Connections"
-        lede="GitHub is who you are here. Discord and the CogWorks tool connect to that account without ever receiving your GitHub token, and neither can submit an official result."
+        lede="GitHub is who you are here. Discord and the CogWorks tool connect to that account without ever receiving your GitHub token, and only Discord can act on your team's hosted runs."
       />
 
       {discordToken && (
         <Panel
           label={preview.isSuccess ? `Connect ${preview.data.username} to Cog?` : "Discord request"}
           description={
-            preview.isSuccess
-              ? "Cog can privately show this account your team's status and synced local reports. A leaderboard is shared to a channel only when you choose to share it."
-              : undefined
+            preview.isSuccess ? (
+              <>
+                Once linked, this Discord account can work on your team's runs as you, in{" "}
+                <code className="font-mono text-[0.92em] text-ink">/cog</code> and the Activity.
+              </>
+            ) : undefined
           }
           className="mt-10 max-w-[42rem]"
         >
@@ -107,9 +110,27 @@ export function ConnectionsPage() {
             </div>
           ) : (
             <div>
-              <p className="text-[13.5px] leading-[1.55] text-ink-faint">
-                Cog receives neither source code nor your GitHub token, and it can't start an
-                official evaluation.
+              {/* What the link grants, read off the bot's own actions
+                  (apps/discord-bot/src/commands.ts, worker/rpc.ts). No promise
+                  of a confirmation here: the Activity retries a failed run,
+                  official ones included, without asking (RunConsole). */}
+              <dl className="space-y-3 text-[14px] leading-[1.55]">
+                <div className="sm:grid sm:grid-cols-[9.5rem_minmax(0,1fr)] sm:gap-x-6">
+                  <dt className="u-label text-ink">Shows you privately</dt>
+                  <dd className="mt-0.5 text-ink-secondary sm:mt-0">
+                    Your team's status and its synced local reports.
+                  </dd>
+                </div>
+                <div className="sm:grid sm:grid-cols-[9.5rem_minmax(0,1fr)] sm:gap-x-6">
+                  <dt className="u-label text-ink">Does as you</dt>
+                  <dd className="mt-0.5 text-ink-secondary sm:mt-0">
+                    Starts and retries hosted runs, spends official attempts and publishes a result
+                    to the leaderboard.
+                  </dd>
+                </div>
+              </dl>
+              <p className="mt-4 text-[13.5px] leading-[1.55] text-ink-faint">
+                Cog never receives your source code or your GitHub token.
               </p>
               <div className="mt-5 flex flex-wrap gap-2">
                 <Button
@@ -153,7 +174,7 @@ export function ConnectionsPage() {
       {userCode && !deviceApproved && (
         <Panel
           label="Approve this device"
-          description="It can upload the local reports you choose to sync. It gets no access to your repository and can't run or promote a benchmark."
+          description="It reports from this machine: check results, the local reports you sync, and runs you share live. It gets no access to your repository and can't start a hosted run or publish a result."
           className="mt-10 max-w-[42rem]"
         >
           <p className="text-[14px] text-ink-secondary">
@@ -247,7 +268,7 @@ export function ConnectionsPage() {
 
         <Connection
           title="Discord"
-          note="Cog, the course bot, can show you your team's status and synced reports in private. A leaderboard reaches a channel only when you choose to share it."
+          note="Cog, the course bot, shows you your team's status and synced reports in private. It can also start and retry hosted runs, spend official attempts and publish a result as you."
         >
           {discord ? (
             <>
@@ -257,7 +278,7 @@ export function ConnectionsPage() {
                 action={
                   <ConfirmButton
                     label="Unlink"
-                    confirmLabel="Confirm, Cog stops seeing your team"
+                    confirmLabel="Confirm, this account loses access"
                     onConfirm={() => unlinkDiscord.mutate()}
                     busy={unlinkDiscord.isPending}
                     className="px-4 !text-[13.5px]"
@@ -284,9 +305,11 @@ export function ConnectionsPage() {
           last
           note={
             <>
-              A linked device can report <code className="font-mono text-[0.88em] text-ink not-italic">check</code> results
-              and upload a local report you choose to sync. It can't touch your repository or start a
-              run.
+              A linked device reports from your machine:{" "}
+              <code className="font-mono text-[0.88em] text-ink not-italic">check</code> results, the local
+              reports you sync, and runs you share with{" "}
+              <code className="font-mono text-[0.88em] text-ink not-italic">--live</code>. It can't touch your
+              repository or start a hosted run.
             </>
           }
         >

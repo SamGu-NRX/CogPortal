@@ -14,13 +14,16 @@ import { useAccountRevealed } from "@/components/RestoreGate";
 import { firstName } from "@/lib/format";
 import { EASE_OUT } from "@/lib/motion";
 import { useLogout } from "@/lib/queries";
+import { canOpenAdmin } from "@/lib/roles";
 
 type IconType = typeof DashboardSquare01Icon;
 
 /**
  * Header account menu: what belongs to the person rather than the team. The
  * team's own pages are tabs in the header (components/Shell.tsx), so the menu
- * only repeats a way forward for someone who has no team yet.
+ * only repeats a way forward for a student who has no team yet. Staff without
+ * a team get neither that nor Connections: Admin is their way forward, already
+ * a header tab, and linking Discord or a device needs a team to act on.
  *
  * Origin-aware scale from the trigger, 180ms ease-out in and 120ms out, no
  * spring, instant under reduced motion. Full menu-button keyboard behavior.
@@ -37,6 +40,7 @@ export function UserMenu({
   teamName?: string | null;
 }) {
   const [open, setOpen] = useState(false);
+  const staffWithoutTeam = !hasTeam && canOpenAdmin(user);
   // A concealed menu is inert, but its document key handler is not, so an
   // open menu would keep swallowing arrow keys on the page behind it.
   const revealed = useAccountRevealed();
@@ -215,11 +219,15 @@ export function UserMenu({
               {teamName && <p className="truncate text-[13px] text-ink-secondary">{teamName}</p>}
             </div>
             <div role="separator" className="mb-1.5 border-t border-rule-soft" />
-            {!hasTeam && (
+            {!hasTeam && !staffWithoutTeam && (
               <MenuLink to={nextPath} icon={DashboardSquare01Icon} label="Continue setup" />
             )}
-            <MenuLink to="/connections" icon={LinkSquare01Icon} label="Connections" />
-            <div role="separator" className="my-1.5 border-t border-rule-soft" />
+            {!staffWithoutTeam && (
+              <>
+                <MenuLink to="/connections" icon={LinkSquare01Icon} label="Connections" />
+                <div role="separator" className="my-1.5 border-t border-rule-soft" />
+              </>
+            )}
             <button
               role="menuitem"
               type="button"

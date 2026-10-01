@@ -9,7 +9,8 @@ import { useSession } from "@/lib/queries";
 /**
  * The way back depends on who is reading. A signed-in student is sent to the
  * step they still owe (or their runs), which is almost always where the
- * broken link meant to go; anyone else gets the front page.
+ * broken link meant to go; staff without a team go to Admin, and anyone else
+ * gets the front page.
  */
 export function NotFound() {
   const { pathname } = useLocation();
@@ -21,7 +22,9 @@ export function NotFound() {
     ? "Go to the front page"
     : session!.team
       ? "Go to your runs"
-      : "Continue getting started";
+      : home === "/admin"
+        ? "Go to Admin"
+        : "Continue getting started";
 
   return (
     <div className="page page-narrow anim-rise">
