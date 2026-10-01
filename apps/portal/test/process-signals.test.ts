@@ -677,6 +677,23 @@ test("the process route does not cache a GitHub 401 and reads history again afte
   assert.equal(cached[0].historyQuality, HISTORY_EMPTY);
 });
 
+test("a failed token lookup is not stored as the team's history", async () => {
+  // History is stored per team, so storing one caller's missing credentials
+  // showed every teammate "could not be read" for thirty minutes.
+  const route = await processRoute(() => Response.json([]));
+  // With no GitHub account, Better Auth's token lookup throws.
+  await route.db.delete(accounts);
+  const failed = await route.request();
+  assert.equal(failed.historyQuality, HISTORY_FETCH_FAILED);
+  assert.deepEqual(route.tokens, [], "GitHub was never asked");
+  assert.deepEqual(await route.db.select().from(teamProcessSignals), []);
+
+  await route.storeToken("current-token");
+  const recovered = await route.request();
+  assert.equal(recovered.historyQuality, HISTORY_EMPTY);
+  assert.deepEqual(route.tokens, ["Bearer current-token"]);
+});
+
 async function scoredRun(db: Database, id: string, finishedAt: number) {
   await db.insert(runs).values({
     id, teamId: "team_test", repositoryId: 111,

@@ -284,9 +284,11 @@ async function readCommitHistory(
     const githubToken = githubConfigured(c.env)
       ? await getGithubToken(authFor(c), userId, c.req.raw.headers)
       : null;
-    result = githubToken
-      ? await fetchCommitHistory(team.repoFullName, team.defaultBranch, githubToken)
-      : { ok: false, reason: "fetch_failed" };
+    // With no token, GitHub was never asked. Whether this caller has no token
+    // or the lookup failed, that is about the caller, not the repository, so
+    // it is not stored where a teammate's visit would read it.
+    if (!githubToken) return { result: { ok: false, reason: "fetch_failed" }, checkedAt: now };
+    result = await fetchCommitHistory(team.repoFullName, team.defaultBranch, githubToken);
   }
 
   // Storing a GitHub 401 would keep asking the student to sign in again
