@@ -2,7 +2,7 @@
 
 How to run this file: work from a checkout of a test team repository that you can push to, with `.venv-test/bin/python` on `PATH` or the CLI installed into that virtualenv. Point every command at the dev portal with `--portal http://localhost:PORT`, which is allowed because the host is loopback. Start from an unlinked device: `rm ~/.cogbench/config.json` (or set `COGBENCH_CONFIG` to a throwaway path, which is safer and is what these items assume). Clear `.cogbench/reports/` between sections where an item says so. Most items here are scriptable; the ones marked `tty` in the Needs column render only to a terminal and must be watched.
 
-Record which CLI is installed before running anything: `python -c "import importlib.metadata as m; print(m.distribution('cogworks-benchmark').read_text('direct_url.json'))"`. The candidate's setup page installs CogPortal `40d31a2`, hosted beta's installs `b6bbffb`, and this tree is `2ff32fa`; several expected results differ by CLI and say so. No current CLI setup, run or sync has been exercised against either portal, so every row here is `not run` unless it names a local render.
+Record which CLI is installed before running anything: `python -c "import importlib.metadata as m; print(m.distribution('cogworks-benchmark').read_text('direct_url.json'))"`. The candidate's setup page installs CogPortal `40d31a2`, hosted beta's installs `b6bbffb`, and this tree is `2ff32fa`; several expected results differ by CLI and say so. The only hosted CLI evidence is one Language pass on deployed `ed2b194` with CLI source equal to `b6bbffb` (`live-language-ed2b194/`), recorded in CHECK-12 and REPORT-03. Every other row is `not run` unless it names a local render.
 
 ## terminal/status.md
 

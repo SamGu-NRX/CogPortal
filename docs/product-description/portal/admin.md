@@ -18,7 +18,7 @@ The console has two shapes. An owner gets the whole page; everyone else gets the
 
 Every login comparison goes through one `normalizeLogin`, which trims and lowercases, so a row written by one path is never invisible to another (`roles.ts:12-22`).
 
-Nobody on this page can open a team's run pages. Run and run-surface endpoints answer only for the caller's own team (`apps/portal/worker/routes/runs.ts:25`, `apps/portal/worker/routes/run-surfaces.ts:25`), and a TA is not on the team. The console shows totals and the latest published score, and links to nothing.
+Being staff or a TA opens no team's run pages. Run and run-surface endpoints answer only for the caller's own team (`apps/portal/worker/routes/runs.ts:25`, `apps/portal/worker/routes/run-surfaces.ts:25`), so an owner, staff member or TA sees runs only for a team they are a member of, and a TA assignment is not membership. The console shows totals and the latest published score, and links to nothing.
 
 ## The simple case
 
@@ -55,12 +55,15 @@ stateDiagram-v2
     loading --> console : an owner
     console --> armed : first press of a remove or Rotate
     ta_workspace --> armed : first press of Remove
-    armed --> console : four seconds pass, or Escape
+    armed --> console : four seconds pass, or Escape (owner)
+    armed --> ta_workspace : four seconds pass, or Escape (TA)
     console --> acting : a one-step control, or a confirmed arm
     ta_workspace --> acting : Add, or a confirmed Remove
-    acting --> console : the response repaints the section
+    acting --> console : the response repaints the section (owner)
+    acting --> ta_workspace : the response repaints the section (TA)
     acting --> refused : the server declines with a sentence
-    refused --> console
+    refused --> console : owner
+    refused --> ta_workspace : TA
     home --> [*]
     failed --> [*]
 ```

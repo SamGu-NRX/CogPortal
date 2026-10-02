@@ -8,7 +8,7 @@ It is registered into the course guild only (`apps/discord-bot/scripts/register-
 
 A second command is not a chat command. `launch` is a Discord Activity Entry Point, described "Open the CogWorks live bench", registered globally and app-handled so Discord adds no channel post, and answered with callback type 12 and no message (`command-payloads.mjs:23`, `apps/discord-bot/src/index.ts:97`). What it opens is [`the-activity.md`](the-activity.md).
 
-Every reply is ephemeral except the leaderboard a student deliberately shares. Every message the bot sends carries `allowed_mentions: { parse: [] }`, so nothing it prints can ping anyone (`apps/discord-bot/src/interaction.ts:77`).
+Every reply is ephemeral except the leaderboard a student deliberately shares. Every `/cog` reply carries `allowed_mentions: { parse: [] }`, so nothing it prints can ping anyone (`apps/discord-bot/src/interaction.ts:77`). The team nudges the portal posts into a channel do not set it ([`channel-messages.md`](channel-messages.md#edge-cases)).
 
 Everything here is read from code and the bot's tests. No guild run of this build exists, so nothing below is observed.
 

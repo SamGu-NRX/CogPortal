@@ -93,7 +93,7 @@ A published run changes what everyone sees on the leaderboard: the team name, it
 
 | Modifier | Set before the ask | Changed while it works |
 | --- | --- | --- |
-| Who you are | Both acts need current GitHub write access, checked live (`run-actions.ts:118`). Every team member sees the controls. There is no approval step: any member can spend the team's attempts alone. | No effect within the request. |
+| Who you are | Both acts need current GitHub write access, checked live (`run-actions.ts:118`), except on the development fixture repository, which skips the check (`:122`). Every team member sees the controls. There is no approval step: any member can spend the team's attempts alone. | No effect within the request. |
 | Where your team and repository stand | A run from a repository the team has left is refused by source, and its page says so instead of offering the control. Promotion also needs the saved environment to match the connected repository's id. | An admitted official run keeps its recorded source. |
 | Which week's benchmark | Attempts and publication are per benchmark and version, so Recognition, Clustering, Language and Audio each have three attempts and one public entry. Vision Overall is computed from the Recognition and Clustering entries ([the leaderboard](the-leaderboard.md#what-the-overall-standings-actually-require)). | A version deactivated between reading and pressing is refused with "That benchmark version is not active." |
 | Practice or leaderboard | Promotion is the only path from practice to official, and it is one-way. The dataset changes from `practice-v1` to the benchmark's official version. A self-reported local report can never be promoted; the Runs page labels those "Self-reported, not promotable" (`DashboardPage.tsx:284`). | The practice run is unchanged and keeps its page and log. |
@@ -113,7 +113,7 @@ A published run changes what everyone sees on the leaderboard: the team name, it
 
 ## Interactions with other systems
 
-**Who may do this.** Any team member with current GitHub write access. No second signature and no per-person allowance.
+**Who may do this.** Any team member with current GitHub write access, or any member of a team on the development fixture repository, which skips the check. No second signature and no per-person allowance.
 
 **The team owns it.** The attempt, the official run and the public entry are the team's. The console records who started the console; the leaderboard names no person.
 

@@ -109,7 +109,7 @@ Nothing in the panel is a count per person. The stage rows say who, never how mu
 
 ### Co-author credit
 
-GitHub records one author per commit; a pair working in one editor adds the second person as a `Co-authored-by:` trailer. A commit's people are its author plus every trailer that resolves to someone on the team: a GitHub noreply address, then an email the portal has for a member, then a trailer name that is literally a member's login (`process-signals.ts:236-249`). Anything else is dropped, which is the only thing keeping bots and outside collaborators off a team's stage rows, and it means an outside collaborator's work silently does not appear.
+GitHub records one author per commit; a pair working in one editor adds the second person as a `Co-authored-by:` trailer. A commit's people are its author plus every trailer that resolves to someone on the team: a GitHub noreply address, then an email the portal has for a member, then a trailer name that is literally a member's login (`process-signals.ts:236-249`). A trailer that resolves to nobody on the team is dropped (`:251-258`). That rule is what keeps bots and outside collaborators named only in a trailer off a team's stage rows, and it means their share of a commit silently does not appear. The commit's author is always kept, member or not, so an outside collaborator who authored a commit does appear (see [Edge cases](#edge-cases)).
 
 ## Modifiers
 

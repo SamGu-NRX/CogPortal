@@ -80,7 +80,7 @@ Historical runs marked refunded under the earlier policy stay excluded (`run-acc
 
 | Modifier | Set before the ask | Changed while it works |
 | --- | --- | --- |
-| Who you are | Starting anything needs current GitHub write access. There is no per-person allowance; any member can spend the team's places. Staff see completed totals on the admin page. | A role change does not change how an admitted run counts. |
+| Who you are | Starting anything needs current GitHub write access, except on the development fixture repository, which skips the check (`run-actions.ts:122`). There is no per-person allowance; any member can spend the team's places. Staff see completed totals on the admin page. | A role change does not change how an admitted run counts. |
 | Where your team and repository stand | Usage belongs to the team, across repository changes. A run from a repository the team has left still counts if it completed. | Leaving a team does not move its usage. |
 | Which week's benchmark | Each benchmark and version has its own ten and three. One active run per benchmark spans its versions. | A run counts against the version it was admitted on. |
 | Practice or leaderboard | Separate limits. Publishing is free and repeatable. | Retry keeps the failed run's mode and counts against that mode. |
@@ -100,7 +100,7 @@ Historical runs marked refunded under the earlier policy stay excluded (`run-acc
 
 ## Interactions with other systems
 
-**Who may do this.** Current repository write permission. Quota grants nothing.
+**Who may do this.** Current repository write permission; the development fixture repository skips the check. Quota grants nothing.
 
 **The team owns it.** Usage is the team's. No surface divides it by person.
 

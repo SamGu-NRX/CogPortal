@@ -10,8 +10,9 @@ thirteen audited 2026 repositories carries packaging or a root `submission.py`, 
 normal path, and every hosted score rests on the platform's choice of which function is, say, the
 peak finder.
 
-It happens twice per hosted run. The prepare sandbox searches to decide whether there is anything to
-score; the evaluate sandbox searches again to rebuild the binding it then runs over every case. A
+A practice run searches twice. The prepare sandbox searches to decide whether there is anything to
+score; the evaluate sandbox searches again to rebuild the binding it then runs over every case. An
+official attempt reuses its practice run's prepared environment, so it searches only in Evaluate. A
 student never watches either search. They see the result: a wiring trace on a successful run, a
 refusal card on a run where nothing could be bound, or an ordinary failure card when the bound
 pipeline broke during evaluation. Everything before the search is [`prepare.md`](prepare.md);

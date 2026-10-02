@@ -31,7 +31,7 @@ runs." (`apps/portal/src/routes/RunDetailPage.tsx:197`).
 
 | Limit | Value | Where set | What a student notices |
 | --- | --- | --- | --- |
-| Prepare sandbox wall clock | 900 s | `apps/portal/worker/execution/runner.ts:166`, applied `modal_app.py:1514` | Prepare stops. Reported as an install failure, not a timeout. |
+| Prepare sandbox wall clock | 900 s | `apps/portal/worker/execution/runner.ts:166`, applied `modal_app.py:1514` | Prepare stops. Never reported as a timeout: an install failure or a provider failure, depending on how Modal reports the kill (see Edge cases). |
 | Evaluate sandbox wall clock | 900 s, its own budget | the same field, applied in each evaluate lane (`modal_app.py:1653`, `:1715`, `:1786`, `:1868`) | A timeout card for audio and language; a runtime failure for vision. |
 | Memory | 4096 MB for `audio-identification` and `language-search`, 2048 MB for both vision benchmarks; requested as 512 MB to that ceiling | `runner.ts:162`, `modal_app.py:1513` | "Memory limit exceeded" when Modal's message says so; otherwise something else. |
 | CPU | up to 1 core, at least 0.5 | `runner.ts:126`, `modal_app.py:1512` | Nothing directly. Why laptop timings do not carry over. |
@@ -60,8 +60,9 @@ The 8192-byte output cap keeps the first and last halves and drops the middle, b
 writes its showcase lines after the submission into the same stream and a head-only cap let a chatty
 submission evict them (`modal_app.py:765`). The run page folds the practice log under "Show the log"
 with "{n} lines, capped" whether or not anything was dropped
-(`apps/portal/src/components/LogView.tsx:33`). The predictions cap runs inside the student's own
-process, so it is advice; the controller re-checks shape, not size (see
+(`apps/portal/src/components/LogView.tsx:33`). The predictions cap is checked inside the student's
+own process, so it is not a trust boundary, but it is enforced: an oversized result fails the run,
+usually as a runtime failure (see Edge cases). The controller re-checks shape, not size (see
 [`scoring-and-refusals.md`](scoring-and-refusals.md)).
 
 ### Where the numbers came from
@@ -244,13 +245,18 @@ Every limit above is a literal in source.
 - **"15-minute" is written in a second package.** The card's explanation, under "Show details", says
   "Your submission ran past the 15-minute wall-time ceiling and was stopped." (`failures.ts:101`),
   while the runner interpolates the real budget (B-35).
-- **A prepare that runs out of time or memory is called an install failure.** `_prepare` has no clock
-  check; an empty stderr becomes "The run failed before producing a result." under E-INSTALL
-  (`modal_app.py:2021`, `:1584`). Discovery runs inside prepare for every 2026 repository, so a slow
-  search or a heavy import is the likely route, not pip.
+- **A prepare that runs out of time or memory is never called a timeout or a memory failure.**
+  `_prepare` has no clock check. If Modal reports the kill as a nonzero return code, an empty stderr
+  becomes "The run failed before producing a result." under E-INSTALL (`modal_app.py:2021`, `:1584`).
+  If it raises instead, the run fails E-PROVIDER with "Preparation provider failed: …"
+  (`modal_app.py:1590-1596`), a card that says the hosted execution could not finish. Which one happens
+  has not been recorded (see the open questions). Discovery runs inside prepare for every 2026
+  repository, so a slow search or a heavy import is the likely route, not pip.
 - **The predictions cap is a runtime failure.** The 64 MiB check raises outside the script's own
   handler (`modal_app.py:1035`), so it surfaces through the traceback as E-RUNTIME "Your code raised
-  an exception" on every current benchmark.
+  an exception" on every current benchmark. The one exception: the Audio and Language lanes test for
+  a timeout first, so an oversized result that arrives after 95% of the budget reads E-TIMEOUT
+  there (`modal_app.py:1815`, `:1896`, `:1995-1997`).
 - **The 16-step cap is silent**, unlike the log, which says how much it dropped.
 - **Nothing states the memory ceiling or the budget before a run hits it.** Neither number is on the
   run page, the dashboard, or in `cogworks check`.

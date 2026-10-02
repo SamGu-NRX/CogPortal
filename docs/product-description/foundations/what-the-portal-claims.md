@@ -86,9 +86,9 @@ When the portal's execution provider is the fixture rather than Modal, every run
 
 ### No per-person numbers
 
-No number is attributed to an individual, in any form, including privately. A seventeen-year-old reads any per-person number as a grade regardless of the caveats.
+The rule is that no number is attributed to an individual, in any form, including privately. A seventeen-year-old reads any per-person number as a grade regardless of the caveats.
 
-A test fails the build on a field shaped like one (`python/cogbench/tests/test_process.py:10`), and the team nudges are written to the same rule (`apps/portal/worker/services/team-nudges.ts`). The local reports table dropped its author column for the same reason. Three places still print a login beside a score: Discord's local view leads each line with the author's login in bold before the result (`apps/discord-bot/src/commands.ts:373`), the run bubble puts "by {name}" on the line under the score in its heading (`discord-messages.ts:142`), and the live run surface shows "@{login}" beside the primary metric (`apps/portal/src/components/RunConsole.tsx:324`). See the open questions.
+Parts of the code enforce it. A test fails the build on a field shaped like one (`python/cogbench/tests/test_process.py:10`), and the team nudges are written to the same rule (`apps/portal/worker/services/team-nudges.ts`). The local reports table dropped its author column for the same reason. Three places break the rule today by printing a login beside a score: Discord's local view leads each line with the author's login in bold before the result (`apps/discord-bot/src/commands.ts:373`), the run bubble puts "by {name}" on the line under the score in its heading (`discord-messages.ts:142`), and the live run surface shows "@{login}" beside the primary metric (`apps/portal/src/components/RunConsole.tsx:324`). See the open questions.
 
 ## The five verdicts
 

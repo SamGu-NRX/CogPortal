@@ -8,7 +8,7 @@ There are four kinds of supplied thing and the platform treats them differently:
 
 1. **What a step was handed.** Built on every search, shown only by `cogworks check --json`.
 2. **Weights from the team's own local run.** Named under the title of the practice run that fetched them, and not on the official attempt promoted from it.
-3. **Glue code somebody else wrote.** A Week 1 sentence that nothing can trigger any more.
+3. **Glue code somebody else wrote.** A Week 1 sentence that nothing in the current tree triggers, though a team's own `submission.py` still can.
 4. **The image itself.** The same for every team and disclosed per run to nobody.
 
 [`foundations/what-the-portal-claims.md`](../foundations/what-the-portal-claims.md) owns the word *supplied*. This document owns where it goes.
@@ -142,7 +142,7 @@ The record does carry the seed: `hashRandomization` and `hashSeed` sit beside `s
 
 - The supplied rows never reach the hosted run page. [B-04](../bug-triage.md): the claim in the `resolve.py` comment is gone, the gap is not.
 - An official attempt's page omits the synced weights its reused environment scored with (`runner.ts:169`, `modal_app.py:2295`, `RunDetailPage.tsx:177`). Carried to triage.
-- The instructor-adapter sentence is dead copy with nothing to trigger it, and would render as the last bullet if anything did (`drivers.py:316`, `metrics.py:307`). Remove it, or document what a student-written declaration means.
+- Nothing in the current tree triggers the instructor-adapter sentence. Only a team's own non-student `PROVENANCE` would, and the sentence would then render as the last bullet (`drivers.py:316`, `metrics.py:307`). Remove it, or document what a student-written declaration means.
 - No pass observed `cogworks check --json` against a real repository; the row shapes are read from `python/cogbench/tests/test_resolve.py:947` and `:1205`. **Unverified.**
 - Whether the image's contribution should be disclosed per run is a product question. The case against silence is that no surface tells a student which packages their code may import.
 - **Hosted beta (`4984730`) does not differ** for anything in this document. The resolver, runner, protocol, run-event handler and the weights line are identical between the two builds.

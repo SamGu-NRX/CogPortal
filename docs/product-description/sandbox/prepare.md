@@ -222,10 +222,13 @@ and wall clock come from the job; see [`timeouts-and-limits.md`](timeouts-and-li
 - **A weight-file failure reads as benchmark data.** E-DATA's explanation is about "The fixed
   benchmark data bundle" and staff repairing "the private evaluation volume" (`failures.ts:45`);
   the line naming the team's file is under "Show details".
-- **A killed or out-of-memory prepare reads as an install failure.** `_prepare` has no elapsed-time
-  check. An empty stderr becomes "The run failed before producing a result." (`modal_app.py:2021`)
-  under E-INSTALL, whose next step is `python -m pip install --constraint constraints.txt .`
-  (`failures.ts:38`), a file no 2026 repository has.
+- **A killed or out-of-memory prepare is never told as one.** `_prepare` has no elapsed-time check.
+  If Modal reports the kill as a nonzero return code, an empty stderr becomes "The run failed before
+  producing a result." (`modal_app.py:2021`) under E-INSTALL, whose next step is
+  `python -m pip install --constraint constraints.txt .` (`failures.ts:38`), a file no 2026
+  repository has. If Modal raises instead, it becomes E-PROVIDER, "Preparation provider failed: …"
+  (`modal_app.py:1590-1596`). Which path Modal takes is unrecorded
+  ([`timeouts-and-limits.md`](timeouts-and-limits.md#open-questions-and-verification)).
 - **The rung comment names a file nothing reads.** `modal_app.py:605` says a repository can declare
   its binding through `cogworks.toml`. Prepare never opens one; the only trace is the root reason
   "declared in cogworks.toml" in `discover.py:511`. A team that writes one is told nothing.

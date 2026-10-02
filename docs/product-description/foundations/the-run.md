@@ -43,7 +43,7 @@ stateDiagram-v2
 
 Access, source and capacity are checked before an execution is admitted, and checked again for every Retry.
 
-**Who is asking, and may they.** Every start, promotion, publication and Retry asks GitHub whether the account still has write access to the connected repository (`apps/portal/worker/services/run-actions.ts:118`). The refusals are "Sign in to GitHub on Cog*Portal before changing a run." (`:125`), "GitHub access expired. Sign in to Cog*Portal again." (`:135`), and "Current write permission to the connected repository is required." (`:138`). Portal, Activity and CogBot share this one function, so eligibility rendered in an earlier snapshot is never trusted (`:674`).
+**Who is asking, and may they.** Every start, promotion, publication and Retry asks GitHub whether the account still has write access to the connected repository (`apps/portal/worker/services/run-actions.ts:118`). The one exception is the development fixture repository, which skips the lookup (`:122`). The refusals are "Sign in to GitHub on Cog*Portal before changing a run." (`:125`), "GitHub access expired. Sign in to Cog*Portal again." (`:135`), and "Current write permission to the connected repository is required." (`:138`). Portal, Activity and CogBot share this one function, so eligibility rendered in an earlier snapshot is never trusted (`:674`).
 
 **Which commit.** The branch is resolved to a SHA before anything starts, and that SHA is what the run is about for the rest of its life. A branch GitHub cannot resolve gets "GitHub has no branch named {branch}." (`:306`).
 
@@ -174,7 +174,7 @@ Twelve categories exist in the catalog (`packages/contracts/src/failures.ts:21`)
 
 ## Interactions with other systems
 
-**Who may do this.** Current write access to the connected repository, rechecked against GitHub on every start, promotion, publication and Retry. See [`the-team-and-the-repository.md`](the-team-and-the-repository.md).
+**Who may do this.** Current write access to the connected repository, rechecked against GitHub on every start, promotion, publication and Retry, except on the development fixture repository, which skips the check. See [`the-team-and-the-repository.md`](the-team-and-the-repository.md).
 
 **The team owns it.** Every run belongs to the team. The run's console records who created it and the console shows `@login`; the run page and the Runs list name no person.
 
