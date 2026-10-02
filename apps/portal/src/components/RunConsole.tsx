@@ -17,7 +17,8 @@ import {
 } from "@cogworks/contracts/schema";
 import type { StreamState } from "@/lib/run-surface-stream";
 import type { RunSurfaceMutationInput } from "@/lib/api";
-import { buttonClass } from "./Button";
+import { useFocusFallback } from "@/lib/focus";
+import { Button, buttonClass } from "./Button";
 import { Code } from "./Code";
 import { SimulatedChip } from "./SimulatedChip";
 import { Veil } from "./Veil";
@@ -157,6 +158,8 @@ export function RunConsole({
   const retryFocusedRef = useRef(false);
   const runAgainFocusedRef = useRef(false);
   const dialogOpenerRef = useRef<HTMLElement | null>(null);
+  // A published or rerun result can take the focused action away.
+  const keepActionFocus = useFocusFallback(() => headingRef.current);
   const retryInFlightRef = useRef(false);
   const logRef = useRef<HTMLUListElement>(null);
   const logFocusedRef = useRef(false);
@@ -289,8 +292,11 @@ export function RunConsole({
     if (opener) (opener.isConnected ? opener : headingRef.current)?.focus();
   };
 
-  const ask = (action: RunSurfaceAction) => {
-    dialogOpenerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  // The opener is passed in rather than read from document.activeElement:
+  // Safari and Firefox on macOS don't focus a button on click, so the active
+  // element can be whatever the student had focused before.
+  const ask = (action: RunSurfaceAction, opener: HTMLElement) => {
+    dialogOpenerRef.current = opener;
     if (action === "run_again") {
       setShowCommand(true);
       return;
@@ -392,7 +398,7 @@ export function RunConsole({
               className={buttonClass(failed ? "primary" : "ghost")}
               onFocus={() => { runAgainFocusedRef.current = true; }}
               onBlur={() => { runAgainFocusedRef.current = false; }}
-              onClick={() => ask("run_again")}
+              onClick={(event) => ask("run_again", event.currentTarget)}
             >
               Run again
             </button>
@@ -555,21 +561,21 @@ export function RunConsole({
           <p role="status" className="max-w-prose text-[13px] leading-relaxed text-ink-secondary [&:not(:empty)]:mt-4">
             {snapshot.sourceRefusal ?? snapshot.promotionRefusal ?? snapshot.publicationRefusal}
           </p>
-          <div className="mt-6 grid gap-2">
+          <div className="mt-6 grid gap-2" {...keepActionFocus}>
             {/* A failed or silent local run offers Run again in the header. */}
             {snapshot.actions.filter((action) => !failed && !silent && ACTION_COPY[action]).map((action) => (
-              <button
+              // aria-disabled, not disabled, while another action is pending:
+              // the confirm returns focus here, and a disabled button drops it.
+              <Button
                 key={action}
-                type="button"
-                disabled={busyAction !== null}
-                className={buttonClass(
-                  action === "promote_official" || action === "publish_result" ? "official" : "ghost",
-                  "w-full !justify-start px-4 text-[14px]",
-                )}
-                onClick={() => ask(action)}
+                variant={action === "promote_official" || action === "publish_result" ? "official" : "ghost"}
+                className="w-full !justify-start px-4 text-[14px]"
+                busy={busyAction === action}
+                aria-disabled={busyAction !== null || undefined}
+                onClick={(event) => { if (busyAction === null) ask(action, event.currentTarget); }}
               >
-                {busyAction === action ? "Working…" : ACTION_COPY[action]}
-              </button>
+                {ACTION_COPY[action]}
+              </Button>
             ))}
             {/* The reference above states "Uncommitted changes" and the
                 hosted action silently disappears, so the one fact that
@@ -632,7 +638,7 @@ export function RunConsole({
               {pendingAction && (
                 <button type="button" className={buttonClass(pendingAction === "promote_official" || pendingAction === "publish_result" ? "official" : "primary")} onClick={() => {
                   const action = pendingAction;
-                  setPendingAction(null);
+                  closeDialog();
                   void onAction?.({ surfaceId: snapshot.id, action });
                 }}>{confirmAction}</button>
               )}

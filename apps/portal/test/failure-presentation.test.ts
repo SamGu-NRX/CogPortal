@@ -398,6 +398,96 @@ for (const compact of [false, true]) {
   });
 }
 
+
+/** Identity, reported by tag and text: assert.equal on two DOM nodes formats
+ *  both whole graphs on failure, which can stall the runner. */
+function assertFocused(actual: Element | null | undefined, expected: Element | null | undefined, message: string) {
+  const describe = (node: Element | null | undefined) => (node ? `${node.tagName} "${node.textContent?.trim().slice(0, 40)}"` : String(node));
+  assert.ok(actual === expected, `${message}: focus is on ${describe(actual)}, expected ${describe(expected)}`);
+}
+
+/** A published-ready official result whose actions both ask first. */
+function publishableSnapshot() {
+  return RunSurfaceSnapshotSchema.parse({
+    ...retrySnapshot("official"), status: "succeeded", phase: "succeeded", events: [],
+    actions: ["open_console", "open_portal", "publish_result", "rerun_hosted"],
+  });
+}
+
+const buttonNamed = (scope: { querySelectorAll: (selector: string) => ArrayLike<HTMLButtonElement> }, name: string) => {
+  const found = [...scope.querySelectorAll("button")].find((button) => button.textContent === name);
+  assert.ok(found, `no button named ${name}`);
+  return found;
+};
+
+// Safari and Firefox on macOS don't focus a button on click, so the element
+// focused before the click is still focused when the dialog opens.
+for (const dismiss of ["Escape", "Close"] as const) {
+  test(`${dismiss} returns focus to the clicked opener, not the element focused before the click`, async (t) => {
+    const { container, window } = await mount(t, React.createElement(RunConsole, {
+      snapshot: publishableSnapshot(), streamState: "closed", onAction: async () => {},
+    }));
+    const publish = buttonNamed(container, "Publish result");
+    const elsewhere = buttonNamed(container, "Rerun hosted");
+    elsewhere.focus();
+    await act(async () => publish.click());
+    const dialog = container.querySelector("dialog");
+    assert.ok(dialog?.open);
+    if (dismiss === "Escape") {
+      await act(async () => { dialog.dispatchEvent(new window.Event("cancel", { cancelable: true })); });
+    } else {
+      await act(async () => buttonNamed(dialog, "Close").click());
+    }
+    assert.equal(container.querySelector("dialog"), null);
+    assertFocused(window.document.activeElement, publish, "focus");
+  });
+}
+
+test("a confirmed action keeps focus on its opener while pending, then on the heading once the action is gone", async (t) => {
+  const snapshot = publishableSnapshot();
+  const requests: RunSurfaceMutationInput[] = [];
+  const element = (value = snapshot, busy: "publish_result" | null = null) => React.createElement(RunConsole, {
+    snapshot: value, streamState: "closed", busyAction: busy,
+    onAction: async (input: RunSurfaceMutationInput) => { requests.push(input); },
+  });
+  const { container, root, window } = await mount(t, element());
+  const publish = buttonNamed(container, "Publish result");
+  buttonNamed(container, "Rerun hosted").focus();
+  await act(async () => publish.click());
+  await act(async () => buttonNamed(container.querySelector("dialog")!, "Publish").click());
+  assert.deepEqual(requests, [{ surfaceId: snapshot.id, action: "publish_result" }]);
+  assert.equal(container.querySelector("dialog"), null);
+  assertFocused(window.document.activeElement, publish, "confirming must not drop focus to the page");
+
+  await act(async () => root.render(element(snapshot, "publish_result")));
+  assert.equal(publish.disabled, false, "a disabled button would lose focus");
+  assert.equal(publish.getAttribute("aria-busy"), "true");
+  assertFocused(window.document.activeElement, publish, "focus");
+  const rerun = buttonNamed(container, "Rerun hosted");
+  assert.equal(rerun.getAttribute("aria-disabled"), "true");
+  await act(async () => rerun.click());
+  assert.equal(container.querySelector("dialog"), null, "a second action can't open while one is pending");
+
+  await act(async () => root.render(element({ ...snapshot, published: true, actions: ["open_console", "open_portal", "rerun_hosted"] })));
+  assert.equal(publish.isConnected, false);
+  assertFocused(window.document.activeElement, container.querySelector("h1"), "focus");
+});
+
+test("a dialog whose opener left while it was open closes onto the heading", async (t) => {
+  const snapshot = publishableSnapshot();
+  const element = (value = snapshot) => React.createElement(RunConsole, { snapshot: value, streamState: "closed", onAction: async () => {} });
+  const { container, root, window } = await mount(t, element());
+  buttonNamed(container, "Rerun hosted").focus();
+  const publish = buttonNamed(container, "Publish result");
+  await act(async () => publish.click());
+  await act(async () => root.render(element({ ...snapshot, actions: ["open_console", "open_portal", "rerun_hosted"] })));
+  const dialog = container.querySelector("dialog");
+  assert.ok(dialog?.open);
+  await act(async () => { dialog.dispatchEvent(new window.Event("cancel", { cancelable: true })); });
+  assert.equal(publish.isConnected, false);
+  assertFocused(window.document.activeElement, container.querySelector("h1"), "focus");
+});
+
 test("server refusal keeps recovery absent and physical details link only to recorded consoles", async (t) => {
   const snapshot = { ...retrySnapshot(), actions: [], sourceRefusal: "The recorded repository is no longer connected." };
   const { container } = await mount(t, React.createElement(RunConsole, { snapshot, streamState: "closed", onAction: async () => { throw new Error("must not run"); } }));
