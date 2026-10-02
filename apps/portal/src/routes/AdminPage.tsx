@@ -13,6 +13,7 @@ import { PageHeader } from "@/components/Note";
 import { PageSection } from "@/components/PageSection";
 import { RemoveButton } from "@/components/RemoveButton";
 import { ApiRequestError } from "@/lib/api";
+import { useFocusFallback } from "@/lib/focus";
 import { formatTimeAgo } from "@/lib/format";
 import { EASE_OUT } from "@/lib/motion";
 import {
@@ -351,14 +352,21 @@ function LoginForm({
   onSubmit: (login: string) => Promise<boolean>;
 }) {
   const [value, setValue] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
   const listId = `${id}-suggestions`;
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault();
         if (!value.trim() || busy) return;
+        const form = e.currentTarget;
         void onSubmit(value.trim()).then((added) => {
-          if (added) setValue("");
+          if (!added) return;
+          setValue("");
+          // The cleared field disables the focused submit button, and a
+          // disabled button drops focus to the page. The field is where the
+          // next login goes.
+          if (form.contains(document.activeElement)) inputRef.current?.focus();
         });
       }}
       className="mt-3"
@@ -368,6 +376,7 @@ function LoginForm({
       </label>
       <div className="mt-1.5 flex items-center gap-2">
         <input
+          ref={inputRef}
           id={id}
           value={value}
           onChange={(e) => setValue(e.target.value)}
@@ -633,6 +642,17 @@ function UnassignedSection({
     null,
   );
   const options = teams.map((team) => ({ id: team.id, name: team.name }));
+  // An assigned student's row leaves the list with its focused select. Focus
+  // goes to the row that moved up into its place (or the new last row), and
+  // after the last student to the line saying who was added.
+  const listRef = useRef<HTMLDivElement>(null);
+  const addedRef = useRef<HTMLParagraphElement>(null);
+  const focusedRow = useRef(0);
+  const selects = () => [...(listRef.current?.querySelectorAll<HTMLSelectElement>("select") ?? [])];
+  const keepFocus = useFocusFallback(() => {
+    const remaining = selects();
+    return remaining[Math.min(focusedRow.current, remaining.length - 1)] ?? addedRef.current;
+  });
 
   return (
     <PageSection
@@ -640,7 +660,16 @@ function UnassignedSection({
       title="Students without a team"
       aside={<Count n={unassigned.length} />}
     >
-      <div className="lg:max-w-[42rem]">
+      <div
+        ref={listRef}
+        className="lg:max-w-[42rem]"
+        onFocus={(event) => {
+          const row = selects().findIndex((select) => select === document.activeElement);
+          if (row >= 0) focusedRow.current = row;
+          keepFocus.onFocus(event);
+        }}
+        onBlur={keepFocus.onBlur}
+      >
         {unassigned.length === 0 ? (
           <p className="text-[15px] text-ink-secondary">Everyone in the cohort has a team.</p>
         ) : (
@@ -671,7 +700,7 @@ function UnassignedSection({
         {assigned ? (
           // The add response is the portal's roster only; it says nothing
           // about collaborator access on the fork, so neither does this line.
-          <p key={assigned.seq} role="status" className="anim-rise mt-3 text-[14px] text-ink">
+          <p key={assigned.seq} ref={addedRef} tabIndex={-1} role="status" className="anim-rise mt-3 text-[14px] text-ink">
             Added {assigned.student} to {assigned.team}.
           </p>
         ) : null}
