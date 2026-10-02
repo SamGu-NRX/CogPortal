@@ -37,6 +37,7 @@ import { publishRunSurface } from "./run-surfaces";
 import {
   currentSurfaceRun,
   existingPromotion,
+  failureAllowsRetry,
   fixtureRetryRefusal,
   NO_CONSOLE_PROMOTION_REFUSAL,
   type ExistingPromotion,
@@ -573,6 +574,10 @@ export async function retryRun(
   const successor = () => db.select().from(runs).where(eq(runs.retryOfRunId, failed.id)).limit(1);
   // A replay stays bound to this failure even if its successor has also failed.
   if ((await successor()).length) return;
+  if (!failureAllowsRetry(failed)) {
+    throw new ApiHttpError(409, "invalid_request",
+      "This commit would fail the same way again. Fix the cause in your code, then start a new run.");
+  }
   const attached = await db.select().from(runs).where(eq(runs.surfaceId, surfaceId));
   const current = currentSurfaceRun(attached, "official") ?? currentSurfaceRun(attached, "practice");
   if (current?.id !== failed.id) {

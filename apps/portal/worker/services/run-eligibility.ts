@@ -1,3 +1,4 @@
+import { FAILURE_CATALOG } from "@cogworks/contracts/failures";
 import { PreparedEnvironmentV1Schema, type PreparedEnvironmentV1 } from "@cogworks/contracts/protocol";
 import type { PromotedTo } from "@cogworks/contracts/schema";
 import type { BenchmarkRow, RunRow, TeamRow } from "../db/schema";
@@ -83,6 +84,21 @@ export function fixtureRetryRefusal(
     || run.runtimeVersion !== benchmark.runtimeVersion
     || run.datasetVersion !== (run.mode === "official" ? benchmark.datasetVersion : "practice-v1");
   return changed ? "The recorded benchmark configuration has changed. Start a new candidate." : null;
+}
+
+/**
+ * Whether a failure's own category allows running the same commit again.
+ *
+ * The catalog's "fix" remedy means the runner saw the cause in what the
+ * submission did (an install, a timeout, the memory limit, the output shape),
+ * so the same commit fails the same way. Failed executions use no quota, so
+ * without this a known-bad commit could be resent indefinitely on hosted
+ * compute. An uncategorized failure stays retryable: nothing says it was the
+ * submission. Admission and the console both read this, so the console never
+ * offers a Retry that admission refuses.
+ */
+export function failureAllowsRetry(run: Pick<RunRow, "failureCategory">): boolean {
+  return run.failureCategory === null || FAILURE_CATALOG[run.failureCategory].remedy !== "fix";
 }
 
 /** Retry links, not timestamps, identify the execution currently on the console. */
