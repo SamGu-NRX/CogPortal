@@ -1548,6 +1548,21 @@ def _student_python(job: Dict[str, Any]) -> str:
     return student_python(job["benchmark"]["id"], ENVIRONMENT.PY38_VENV)
 
 
+def _terminate_sandbox(sandbox: modal.Sandbox, phase: str) -> None:
+    # Cleanup cannot change what the run measured or why it failed. Report
+    # provider errors to operators, keeping the student outcome intact.
+    # Cancellation and preemption still escape so Modal can stop the input.
+    try:
+        sandbox.terminate()
+    except Exception as error:
+        print(
+            "sandbox cleanup failed during {}: {}: {}. Termination is unconfirmed.".format(
+                phase, type(error).__name__, error
+            ),
+            file=sys.stderr,
+        )
+
+
 def _prepare(job: Dict[str, Any], reporter: LiveReporter) -> Tuple[str, Dict[str, Any]]:
     sandbox = None
     try:
@@ -1676,7 +1691,7 @@ def _prepare(job: Dict[str, Any], reporter: LiveReporter) -> Tuple[str, Dict[str
         ) from error
     finally:
         if sandbox is not None:
-            sandbox.terminate()
+            _terminate_sandbox(sandbox, "preparing")
 
 
 #: Filled by the controller when an evaluate sandbox reported which of the
@@ -1768,7 +1783,7 @@ def _evaluate(job: Dict[str, Any], snapshot_id: str, inputs: List[Any]) -> Tuple
         ) from error
     finally:
         if sandbox is not None:
-            sandbox.terminate()
+            _terminate_sandbox(sandbox, "evaluating")
 
 
 def _evaluate_v2(
@@ -1832,7 +1847,7 @@ def _evaluate_v2(
         ) from error
     finally:
         if sandbox is not None:
-            sandbox.terminate()
+            _terminate_sandbox(sandbox, "evaluating")
 
 
 def _evaluate_week3(
@@ -1893,7 +1908,7 @@ def _evaluate_week3(
         ) from error
     finally:
         if sandbox is not None:
-            sandbox.terminate()
+            _terminate_sandbox(sandbox, "evaluating")
 
 
 def _evaluate_week1(
@@ -1965,7 +1980,7 @@ def _evaluate_week1(
         ) from error
     finally:
         if sandbox is not None:
-            sandbox.terminate()
+            _terminate_sandbox(sandbox, "evaluating")
 
 
 def _evaluation_failure(
