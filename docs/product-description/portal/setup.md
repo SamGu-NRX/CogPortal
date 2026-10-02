@@ -2,73 +2,52 @@
 
 ## Summary
 
-The setup guide takes a student from "the portal knows my team" to "my machine can run the benchmark". Five shell commands in run order, each under a title and a sentence saying why it matters, each with a small box in the left gutter that fills when CogPortal has seen that command's result. Nothing on it is ticked by hand. Every filled box is evidence the `cogworks` CLI sent from inside the team's own worktree, or a device the student linked.
+The setup guide takes a student from "the portal knows my team" to "my machine can run the benchmark". It is a numbered rail of five commands (four for a track with no packaged benchmark), each with a title, a margin note saying why, and a box that ticks when Cog\*Portal hears about it. A box ticks two ways: a linked device reports the step, which the page calls "Seen by the portal", or the student pastes a one-line check-off command into their terminal, which it calls "Checked off by you". Nothing is ticked from the browser.
 
-For one revision the page carried the five commands and nothing else, under five shell comments. It read to a person who already knew what each line did and to nobody else, and the titles and reasons were restored.
-
-It lives at `/setup` behind `RequireStage stage="team"`, so a visitor with no session goes to `/signin`, one with no cohort to `/join`, and one with no team to `/connect`, all with `replace` (`apps/portal/src/App.tsx:125`, `:59`, `:69`, `:70`). It is the last stop of the onboarding chain and the only page whose main content is text meant to be typed somewhere else.
-
-It is the one page in the product that spans two surfaces at once. The commands are printed in a browser and run in a terminal, and the only thing joining them is one HTTP call the student makes on purpose, by adding `--update-setup` to a command they were going to run anyway. Everything odd about the page follows from that split: the silence while it waits, several boxes filling at once, and the fact that a failure is reported in the terminal and never here.
-
-> Technical note: the sheet is a sheet rather than a numbered step list because of how evidence arrives. One `check` reports four facts in a single request, so several gutter cells fill together; numbered steps would imply they complete one at a time (`apps/portal/src/components/CommandSheet.tsx:16-23`).
+It lives at `/setup` behind `RequireStage stage="team"` (`apps/portal/src/App.tsx:137-144`) and is the Setup tab for every team member (`apps/portal/src/components/Shell.tsx:62`). It spans two surfaces: the commands are printed in a browser and run in a terminal, and the only things joining them are the CLI's `--update-setup` report and the check-off command, both of which the student sends on purpose.
 
 ## The simple case
 
-A student finishes connecting a repository and lands here. The masthead reads `Setup · 0 of 5 verified`, rendered uppercase by the `u-kicker` utility, so on screen it says SETUP · 0 OF 5 VERIFIED (`apps/portal/src/routes/SetupPage.tsx:107-110`, `apps/portal/src/styles/app.css:103-110`). The team's name is the heading (`:111`), the repository's full name is a mono link under it (`:123-130`), and a strip of member avatars, a member count, and an "Add" link to `/team` sit on the rule below (`:132-143`).
+A student arrives from the team step. A green note at the top says "You've created {team}" or "You're on {team}", names their teammates, and ends "Start with step 1 below, which clones the team's repository." (`apps/portal/src/routes/SetupPage.tsx:480-516`). It appears once; the page removes the router state that carried it (`SetupPage.tsx:57-68`).
 
-Then the sheet, labelled for assistive technology as "Setup commands, in run order" (`:146`). Five lines, each an italic comment over one command, each with an empty rule box in the gutter:
+The heading is "Set up your machine", with the team name and repository above it and the lede "Five commands get a fresh terminal ready to run {track} against your team's code. Keep this page open beside it, and the boxes tick themselves as your terminal reports back." (`SetupPage.tsx:282-304`). A track switcher sits on the right. Under it, small squares, "0 of 5 done", and "Watching for your terminal" with a pulsing dot (`SetupPage.tsx:313-335`).
 
-```
-# clone
-git clone {repo url}.git && cd {repo name}
+"Before you start" asks them to open a terminal and run `conda activate {env}`, with a note linking the CogWeb prerequisites and saying "The portal can't see your shell, so this one has no box." (`SetupPage.tsx:356-386`). Then the rail:
 
-# tool  (if "command not found": activate the course environment, then rerun)
-python -m pip install --upgrade --force-reinstall "cogworks-benchmark @ git+https://github.com/SamGu-NRX/CogPortal.git@{40-character commit}#subdirectory=python/cogbench"
+1. **Get the code.** `git clone {repo url}.git && cd {repo name}`.
+2. **Install the CogWorks tool.** `python -m pip install --upgrade --force-reinstall "cogworks-benchmark @ git+https://github.com/SamGu-NRX/CogPortal.git@40d31a2…#subdirectory=python/cogbench"`.
+3. **Install the {track} benchmark.** `python -m pip install "{dist} @ {source}" && python -m pip install --force-reinstall --no-deps "{dist} @ {source}"`.
+4. **Link this device.** `cogworks link --portal {origin}`.
+5. **Check that it finds your code.** `cogworks check --benchmark {id} --update-setup`.
 
-# benchmark for {track title}
-python -m pip install "{distribution} @ {pinned git source}"
+Titles come from `setupStepTitle` and commands from `setupCommandLines` (`apps/portal/src/lib/setup-progress.ts:243-256`, `:93-174`). Each command is in a highlighted block with its own copy button. Observed locally on fixture data: `/tmp/cogshots/matched/pairs/a-setup-desk.png` (right half, `~2ff32fa`).
 
-# link · opens the portal for approval
-cogworks link --portal {origin}
-
-# check · updates this page
-cogworks check --benchmark {benchmark id} --update-setup
-```
-
-They paste them in order. Nothing on the page changes while they work. When the check passes and its portal call lands, the page repaints within two and a half seconds: the boxes for clone, tool, benchmark, and check fill with ticks at once, the four commands drop to faint ink, and the masthead reaches SETUP · 5 OF 5 VERIFIED. The terminal, meanwhile, has printed one line naming what it sent: `setup: updated clone, environment, project, wiring` (`python/cogbench/src/cogbench/cli.py:158`).
-
-At five of five a SETUP COMPLETE panel replaces the quiet foot of the page, saying that this machine can find the repository and call the code, pointing at a local run first, and carrying "Open dashboard" as a filled button (`SetupPage.tsx`, the `complete` branch). It states what setup proves and what it does not: not a grade, and no claim that the code is good yet.
-
-If they stop halfway and close the tab, nothing is lost, because nothing on this page was holding the progress. The four machine steps live in the portal's database, written by the CLI, and the link cell reads the device list.
+They run the commands in order. Linking from inside the clone ticks step 1. When `check` passes, the CLI prints `setup: updated clone, environment, project, wiring` and steps 1, 2, 3 and 5 tick together within 2.5 seconds; step 4 ticks once the device exists. At five of five, a "Setup complete" panel replaces the footer.
 
 ## What each line says
 
-The five lines are the product, so they are quoted in full order. Each is built by `setupCommandLines` (`apps/portal/src/lib/setup-progress.ts:74-132`), which is the single place the sheet's contents are decided.
+Each step has a margin note (`SetupPage.tsx:199-257`):
 
-**Clone.** Comment `# clone`. Command `git clone {repo url}.git && cd {repo name}`, built from the team record (`setup-progress.ts:86-89`, `:153-154`). Its cell fills on the `clone` step.
+- **Get the code:** "You all work in this one repository, and every hosted run starts from it rather than from somebody's laptop."
+- **Install the CogWorks tool:** the `cogworks` commands come from this package, "pinned to one commit, so everyone reading this page installs the same tool." Under the command: "If pip answers `externally-managed-environment`, the course environment isn't active; activate it and run this again."
+- **Install the benchmark:** the scorer, its data and its checks live in their own package, "so this line changes when you switch tracks."
+- **Link this device:** what `check` and `sync` send, and that the device can be revoked from Connections. Under it: "It prints a short code and opens this portal so you can approve it."
+- **Check that it finds your code:** `check` reports which functions it wired up and "also confirms the steps above, so their boxes tick together." Under it: "If the box doesn't tick, the reason is in your terminal."
 
-**Tool.** Title "Install the CogWorks tool", above a sentence saying that `cogworks` is what reads the repository, works out which of the student's functions the benchmark should call, and scores them. Command `python -m pip install --upgrade --force-reinstall "cogworks-benchmark @ {COGBENCH_SOURCE}"` (`setup-progress.ts`, the `tool` line). Its cell fills on the `environment` step. The source is a PEP 508 direct reference to a forty character commit of the CogPortal repository itself (`apps/portal/src/lib/benchmark-packages.ts:25-26`), pinned like every other package on the page so that two students reading it install the same tool.
-
-`--force-reinstall` is there because the version does not change between pins. The package is 0.2.0 at every commit, pip treats an equal version as already satisfied, and `--upgrade` alone therefore exits zero and leaves the previous commit installed. Measured: an upgrade between two pins left the installed `direct_url.json` naming the old commit, and forcing it replaced the package. The tool declares no dependencies, so forcing it reinstalls nothing else. A test asserts the flag is present and that exactly one command in the sheet carries it, since a benchmark brings the packages its scorer needs and must never be forced (`apps/portal/test/command-sheet.test.ts`).
-
-**Benchmark.** Comment `# benchmark for {track title}`. Command `python -m pip install "{distribution} @ {source}"` (`setup-progress.ts:109-112`). Its cell fills on the `project` step. Each source is pinned to a forty character commit, which is the submodule commit recorded in `.gitmodules`; a submodule bump is also an edit to `benchmark-packages.ts` (`benchmark-packages.ts:1-11`). The two vision tracks share one distribution, so switching between recognition and clustering installs nothing new (`benchmark-packages.ts:39-45`). This line is present only when the selected track has a mapped package; a track with none shows no install line rather than a guessed one (`benchmark-packages.ts:60-64`), and the sheet is then four lines long and the masthead says "of 4".
-
-**Link.** Comment `# link · opens the portal for approval`. Command `cogworks link --portal {origin}`, where the origin is `window.location.origin` (`setup-progress.ts:117-120`, `SetupPage.tsx:76`). Its cell fills when the account has at least one CLI device, not when a particular machine is linked (`setup-progress.ts:159`).
-
-**Check.** Comment `# check · updates this page`. Command `cogworks check --benchmark {id} --update-setup` (`setup-progress.ts:125-128`). Its cell fills on the `wiring` step. The flag is load bearing and the code says so: without it the CLI returns without making a request, which would make the comment above the line false and leave the whole sheet grey forever (`setup-progress.ts:121-124`).
-
-Two commands that were on this page are gone. There is no `pip install -e .`: neither the course template nor any 2026 repository carries a `pyproject.toml` or `setup.py`, so that command failed for everyone who ran it, and the resolver reads the repository directly instead (`setup-progress.ts:103-108`). And the tool is no longer installed from the TestPyPI channel, because that channel and `main` both serve `cogworks-benchmark` 0.1.0, which has no resolver: a student who ran the old line got a `check` that could not search their repository (`setup-progress.ts:91-94`). A test pins both absences, along with the sheet's length and the shape of every pin (`apps/portal/test/command-sheet.test.ts:44-113`).
+`--force-reinstall` on the tool is there because the package is 0.2.0 at every pin and pip treats an equal version as installed; a measured `--upgrade` between pins left the old commit in place (`setup-progress.ts:117-121`). The benchmark line installs with dependencies first, then force-replaces only the benchmark with `--no-deps`, so course packages are never forced (`setup-progress.ts:140-141`, `apps/portal/test/setup-rail.test.ts:80`). Every package is pinned to a forty-character commit; the benchmark pins match the submodule commits (`apps/portal/src/lib/benchmark-packages.ts:40-67`). The two vision tracks share one distribution. A track with no mapped package has no install line and the lede says "Four".
 
 ## The ask, event by event
 
 ```mermaid
 stateDiagram-v2
     [*] --> loading : arrive at /setup
-    loading --> redirected : no session, no cohort, or no team
+    loading --> redirected : no session, cohort, or team
     loading --> failed : the team request errors
-    loading --> guiding : team and session resolve
-    guiding --> guiding : poll while a machine step is unverified
-    guiding --> complete : every line in the sheet is verified
+    loading --> guiding : team, track, setup state and devices resolve
+    guiding --> unknown : an evidence read fails
+    unknown --> guiding : Try again
+    guiding --> guiding : poll while a step is unticked
+    guiding --> complete : every line ticked
     complete --> [*] : polling stops
     redirected --> [*]
     failed --> [*]
@@ -76,157 +55,109 @@ stateDiagram-v2
 
 ### Asking
 
-Arriving on the route is the ask. Two things are decided before anything renders.
+Arriving is the ask. The page reads the team (repository and members), the track (`useTrack`), the setup state for that track, and the device list. It shows "Loading your team" until all four answer (`SetupPage.tsx:70`, `:123`, `:137-139`), so no command is rendered against a guessed benchmark.
 
-**Which team.** `GET /api/team` supplies the repository name and URL and the member list (`apps/portal/worker/routes/team.ts:119`). It decides the clone command, the heading, and the member strip.
-
-**Which benchmark.** `useTrack()` reads the active benchmark list and the browser's stored preference, and it decides both the benchmark id in the `check` command and whether the install line exists at all (`apps/portal/src/lib/track.ts:86`). The comment above the switcher says why the control is on this page: "Every command on this page names a benchmark, so the page has to show which one and let a student change it. Without this the default track silently decides what they're told to type." (`SetupPage.tsx:113-115`).
-
-While `useTeam()` is pending or the session has no user, the whole page is one line: "Loading your team" (`SetupPage.tsx:28`). Past three seconds that mark appends the whole seconds it has been waiting; see [`../cross-cutting/live-updates.md`](../cross-cutting/live-updates.md#the-loading-mark-names-its-own-wait).
-
-Nothing about who the student is or how they arrived is read any more. The page no longer branches on whether they created the team or joined it, and `ConnectPage` no longer sends that fact: both of its exits are a plain `navigate("/setup", { replace: true })` (`apps/portal/src/routes/ConnectPage.tsx:206`, `:358`).
+The track decides the benchmark id in step 5, the package in step 3, and which evidence counts. `GET /api/v1/setup/state?benchmarkId={id}` answers with four lists: steps the CLI reported with no benchmark, the same per benchmark, and the two again for check-offs, plus one signed check-off token per self-checkable step for that benchmark (`apps/portal/worker/routes/setup.ts:64-143`).
 
 ### Answered without work
 
-Three ways out before any content renders, all of them free.
+- A gate redirect to `/signin`, `/join` or `/connect`.
+- A failed team read: the error card with a retry (`SetupPage.tsx:71-77`).
+- A failed evidence read: the commands still render, because they come from the team and the track. The count reads "Progress unavailable", the squares disappear, the affected boxes show as unknown rather than empty, and an error card offers a retry (`SetupPage.tsx:146-154`, `:316-317`, `:344-351`). A failed device read marks only step 4 unknown (`setup-progress.ts:232-239`).
 
-- A gate redirect. `RequireStage` sends the student to `/signin`, `/join`, or `/connect` with `replace`, so the back button does not bounce them into the same gate.
-- A failed `GET /api/team`. The page renders a `QueryError` card whose wording is chosen by what the student can do about it rather than by which of the error codes arrived (`apps/portal/src/lib/query-error-state.ts:69`, `SetupPage.tsx:29-35`).
-- A session that has no user. Same loading mark as a pending team, indefinitely.
-
-Nothing is written in any of these cases. The page makes no request that changes anything, ever.
-
-> Technical note: the gate resolves after the session query, not before it, so a student on a slow connection sees "Loading" and then a redirect rather than an immediate bounce. That is the shared behavior of every gated route and is described in [`foundations/the-ask.md`](../foundations/the-ask.md#edge-cases).
+Nothing is written.
 
 ### The work begins
 
-There is no such moment on this page.
+The page itself never writes, apart from the owner-only reset. Three things from the terminal do, and each is free to repeat:
 
-The setup guide never writes to the portal. It issues three reads (`GET /api/team`, `GET /api/v1/connections`, `GET /api/v1/setup/state`) and renders them. Since the self-check box was removed, the browser has no way to produce a durable effect at all: the only `localStorage` keys left are a dismissal flag for the dashboard nudge and a dead key from the old checkbox guide that nothing writes and only the reset clears (`setup-progress.ts:19-36`).
-
-The moment that matters for this feature happens in a terminal. `cogworks check --benchmark {id} --update-setup` posts to `/api/v1/cli/setup/checks` and upserts one row per step (`apps/portal/worker/routes/setup.ts:87`). That is when a step stops being free to abandon, and it is described in [`terminal/check.md`](../terminal/check.md). The portal page only watches the result arrive.
-
-The one exception is owner-only and behind a deployment flag: "Reset guide" issues `DELETE /api/v1/setup/state`, which deletes every verification row for that user and team (`setup.ts:116`).
-
-> Technical note: the four steps land together because the CLI batches them, not because the page groups them. `check --update-setup` sends the list `("clone", "environment", "project", "wiring")` in one request, and only after the check itself returned 0 (`cli.py:617`). The server upserts each name and answers with the list it accepted (`setup.ts:85`). There is no partial state on the wire and no way for a student to report one step at a time.
-
-The dev rehearsal bar, when it renders, sits above everything else under the kicker "Dev rehearsal" (`SetupPage.tsx:216`). It holds three mode buttons labelled "Live state", "creator", and "member" (`:217-227`) and a "Reset guide" control on the right that arms to "Confirm reset" before firing (`:229-235`).
+- **`cogworks check --benchmark {id} --update-setup`**, only when the check exits 0 (`python/cogbench/src/cogbench/cli.py:1166-1172`). It posts `clone`, `environment`, `project` and `wiring` with the benchmark id. The portal stores `environment`, `project` and `wiring` against that benchmark and `clone` without one (`setup.ts:225-253`).
+- **`cogworks link`** run inside a git worktree with a GitHub remote posts `clone` alone (`cli.py:1273-1277`). Outside one it prints "setup: device linked; change into your team project before running `cogworks check --benchmark {id} --update-setup`." on stderr (`cli.py:1279-1284`).
+- **The check-off command.** Steps 1 to 3 each have a fold, "Tick this box from your terminal", while unticked (`SetupPage.tsx:555-600`). Inside: "Once the command above has worked, paste this into the same terminal. It records that you did this one step and sends nothing else; `check` confirms it for itself at the end." and a one-line Python command that POSTs to `/api/v1/setup/check-off?t={token}`. The server answers in the terminal with "CogPortal: '{step}' is checked off. Back to the browser with you." (`setup.ts:148-181`). Step 5 has no check-off; `wiring` is refused even with a forged token (`setup.ts:154`).
 
 ### While it works
 
-`useSetupState()` polls `GET /api/v1/setup/state` every 2.5 seconds and stops when `clone`, `environment`, `project`, and `wiring` are all present (`apps/portal/src/lib/queries.ts:264-272`). The stopping set is `CHECKLIST_MACHINE_STEPS`, deliberately smaller than the server's full list, and both the hook and the constant say why: the server's `SETUP_STEPS` also carries `test` and `run`, which are later learning milestones the sheet never shows, so waiting on every step kept a finished page polling forever (`queries.ts:265-267`, `setup-progress.ts:54-57`). `useConnections()` polls every 4 seconds until at least one CLI device exists, then stops (`queries.ts:120-121`).
+`useSetupState` polls every 2.5 seconds until the four steps are ticked for this track, by either source, then stops (`apps/portal/src/lib/queries.ts:280-312`). `useConnections` polls every 4 seconds until a device exists (`queries.ts:129-136`). While both run, the rail shows "Watching for your terminal".
 
-Everything else on the page is inert while it waits. The copy control works and the track switcher works. There is no spinner, no "waiting for your terminal" line, and no indication that the page is asking anything. A student who runs the check and watches the browser sees nothing for up to 2.5 seconds and then four cells fill at once.
+A box that ticks while the student watches is stamped and drawn in about half a second; one already ticked on arrival just shows (`apps/portal/src/components/StepRail.tsx:105-134`). A ticked step folds its command away with "Show command", and the label reads "Seen by the portal" or "Checked off by you"; a step that ticks while open stays open (`SetupPage.tsx:400-405`, `StepRail.tsx:222`). Screen readers hear "Verified. ", "Checked off from your terminal. ", "Progress unknown. " or "Not verified yet. " before each title (`StepRail.tsx:44-49`). The count says who ticked: ", seen by the portal" or ", checked off by you" (with "both" or "all" once there are two or more), or ": {n} seen by the portal, {m} checked off by you" when they are mixed (`SetupPage.tsx:456-461`).
 
-The sheet has one copy control, not one per line: a small "copy all" button in the top right of the frame, which changes to "copied" for 1.4 seconds (`CommandSheet.tsx:81-88`). It copies the commands joined by newlines and none of the comments, which are for reading rather than pasting (`CommandSheet.tsx:6-12`, and the test at `command-sheet.test.ts:118-125`). A clipboard write the browser refuses is swallowed, and the comment gives the fallback: the commands stay on screen to select by hand (`CommandSheet.tsx:48-50`).
-
-The masthead carries `aria-live="polite"` (`SetupPage.tsx:107`), so the move from "4 of 5" to "5 of 5" is announced. Each command also carries a screen-reader-only prefix, "Verified. " or "Not verified yet. ", so the gutter is not the only place its state exists (`CommandSheet.tsx:66-68`). The gutter cell itself is `aria-hidden` (`:100`).
-
-Only a newly filled cell animates. The tick enters on `anim-rise`, the same 200ms quartic the rest of the interface uses, and because only a newly mounted tick animates, a report that fills three cells does not re-run the one already filled (`CommandSheet.tsx:93-97`, pinned by `command-sheet.test.ts:143-164`). A filled line also drops its command to faint ink, which leaves the commands still to run as the only full-contrast text in the frame.
-
-Changing the track rewrites the benchmark id in the `check` command, and rewrites or removes the install line. It also changes which cells are filled, which it did not used to. Three of the four machine steps describe whichever environment is active rather than the machine: the tool install, the benchmark install and the check. CogWeb gives each week its own conda environment, so evidence recorded for one track is not evidence about another, and only the clone and the linked device carry over. A student who set up one track and switched sees those three cells open, with a sentence saying the ticked ones are about the machine and the empty ones are about the newly selected benchmark.
-
-The id recorded is a benchmark, and a benchmark stands in for a week, so the two vision tracks do not share evidence even though they share `week2`. That under-claims rather than over-claims, and the cost is a command that exits almost immediately.
-
-Rows written by a CLI that named no benchmark carry an empty scope. They stay readable and satisfy no track's claim; re-running `check` records a scoped row beside them. Changing the track can still change the denominator, so a switch from a mapped track to an unmapped one turns "2 of 5" into "2 of 4".
+Switching the track rewrites steps 3 and 5 and re-reads the evidence for the new benchmark. Steps 2, 3 and 5 are about one environment, so a track the student has not checked shows them open; step 1 and the device carry over. The switch says nothing about why boxes reopened.
 
 ### How it ends
 
-The page has no end. It stays on screen and stops polling when the four machine steps are verified.
+The page stays open and stops polling once complete. Complete means every line is ticked and no evidence read failed (`SetupPage.tsx:181`). The panel is "Setup complete" (`SetupPage.tsx:417-439`):
 
-Complete means `verified === total` from `setupCommandProgress`, which filters and counts the same array the sheet renders (`setup-progress.ts:163-170`, `SetupPage.tsx:81-82`). The comment above the count states the guarantee it buys: the masthead can never claim a number the sheet does not show, so a student can literally count the ticks and get the figure in the masthead (`SetupPage.tsx:79-80`). At completion the "Open dashboard" link becomes a filled button with an arrow; below completion it is the same words in quiet mono (`SetupPage.tsx:149-165`).
+- All seen by the portal: "Everything the portal can verify checks out. Your terminal found the repository and called your code.", drawn in the verified tone.
+- Any checked off: "Every step is ticked; the ones marked checked off are your own report rather than something the portal saw.", in the plain tone.
 
-The commands that come after setup are no longer on this page. They live in the dashboard's FIRST RUN panel, which prints `cogworks check`, `cogworks run`, and `cogworks sync` for the selected benchmark; see [`start-a-practice-run.md`](start-a-practice-run.md).
+Both continue "Whether the code is any good is what runs are for. Local runs are unlimited and score the same way, so start there:" with `cogworks run --benchmark {id}` and a "Go to Runs" button. Before completion the footer reads "No rush; the guide keeps your place. Hosted practice runs build from your pushed commit and don't need any of this, so you can start one from Runs whenever you like." (`SetupPage.tsx:441-448`).
 
-The same progress is echoed on the dashboard by a slim nudge reading "Getting set up", one small square per line, and "{verified} of {total} verified", which disappears at completion or when dismissed (`apps/portal/src/components/SetupNudge.tsx:57`, `:59-72`, `:53`). It builds the same array from the same function, and its own comment records the bug that motivated the sharing: the two used to disagree, the nudge saying "2 of 6 steps done" against the page's "0 of 6 verified", because the nudge counted milestones a student never typed, including the team's own existence (`SetupNudge.tsx:19-27`). Dismissal is permanent for that team and login, written to `cog-setup-dismissed:{teamId}:{login}` (`setup-progress.ts:19-21`, `:46-52`). The nudge shares this page's polling hooks, so a dashboard left open also polls the setup endpoint every 2.5 seconds until the four steps land.
+The Runs page carries the same count in a slim nudge, "Setup {done} of {total} done" with "Next: {step title}" linking to `/setup#step-{id}`, which scrolls to and focuses that step (`apps/portal/src/components/SetupNudge.tsx:94-108`, `SetupPage.tsx:127-133`). Dismissing it is permanent for that team and login and its label says "Setup stays in the tabs" (`SetupNudge.tsx:112`).
 
-## What a filled cell claims
+## What a tick claims
 
-There is one mark now, and it makes one claim: CogPortal observed the result of this command. Four of the five cells read CLI evidence, and the fifth reads the device list (`setup-progress.ts:12-15`).
+"Seen by the portal" means a device linked to this account reported the step from a directory whose GitHub remote names the team's repository. The portal checks that one fact and refuses the whole report otherwise (`setup.ts:200-209`). Package versions are recorded, not checked. Step 4 means this account has at least one device, not that this machine is linked (`setup-progress.ts:217`).
 
-That claim is weaker than it looks in two places, and both are worth stating outright.
-
-The four CLI cells say a linked device reported something, not that the portal looked at the machine. The portal checks exactly one thing in the payload, the repository the caller says they are standing in, and refuses the whole call when that disagrees with the team's (`setup.ts:74`). Everything else, the CLI version, the Python version, the installed benchmark and submission ids, is recorded evidence rather than a checked claim.
-
-The link cell is weaker still: it says a device token exists for this account, not that the device is the machine the student is looking at. A student with two laptops sees that cell filled from the other one.
-
-The rule behind both is in [`foundations/what-the-portal-claims.md`](../foundations/what-the-portal-claims.md#verified): the portal only says what it observed, and anything on a student's machine is theirs to confirm. The page no longer states that rule in prose, because it no longer needs to distinguish four strengths of claim. Nothing here can be advanced from the browser, and a test pins the consequence that matters most: a student working alone reaches five of five on CLI evidence plus one linked device, with no second member and no checkbox anywhere (`apps/portal/test/setup-contract.test.ts:83-92`).
+"Checked off by you" means someone ran a command carrying a token signed for this account, team, step and benchmark. It is the student's word. A later CLI report upgrades a check-off to seen; a check-off never downgrades a CLI report (`setup.ts:167-178`, `:249-251`). The completion panel claims verification only when every tick was seen (`SetupPage.tsx:182-184`).
 
 ## Modifiers
 
 | Modifier | Set before the ask | Changed while it works |
 | --- | --- | --- |
-| Who you are | Any signed-in member of a team sees the same sheet. The page no longer varies by whether the student created the team or joined it. An owner on a deployment with `ONBOARDING_DEV_TOOLS=enabled` additionally gets the dev rehearsal bar (`SetupPage.tsx:41`). An instructor with no team never reaches the page: the gate sends them to `/connect`. | A teammate accepting an invitation adds an avatar to the member strip and increments the member count on the next `useTeam()` read, which has no poll. It changes no cell and no count. |
-| Where your team and repository stand | The whole page is addressed to one team and one repository. The clone command is built from the team record (`setup-progress.ts:153-154`), and a test pins that it names the team's own repository rather than the template (`command-sheet.test.ts:111-116`). No team means no page. | Changing the team's repository from the team page rewrites the clone command on the next read. Verification rows are keyed on user, team and benchmark, not on the repository, so filled cells survive a repository change and now describe a directory the student no longer has. |
-| Which week's benchmark | The track switcher picks it, defaulting to the newest active module (`track.ts:80`). It sets the benchmark id in the `check` command, the distribution and pin in the install command, and the track title in that command's comment. | Switching mid-guide rewrites the commands under the student's cursor with no warning, and can change the denominator when one track has a mapped package and the other does not. A student who copied the old command and has not run it yet gets no indication that the page now says something else. |
-| Practice or leaderboard | No effect. Neither appears. The page is about the machine. | No effect. |
-| Flags, options, and where you are typing | `?replay=creator` and `?replay=member` are honored only for an owner on a dev-tools deployment (`SetupPage.tsx:62-66`). Every other query parameter is ignored. Copying is one button for the whole sheet; there is no print view. | Pressing a rehearsal button rewrites the query string with `replace` and blanks the evidence: `verifiedSteps` becomes an empty list and the device count becomes 0 (`SetupPage.tsx:74-75`). The commands themselves do not change, which is the point, and the comment says so: a rehearsing owner sees the sheet a student sees on day zero (`:68-69`). The live state is not lost, only not consulted. |
+| Who you are | Every member sees the same commands; evidence is per account. An owner on a deployment with `ONBOARDING_DEV_TOOLS=enabled` also gets a "Dev rehearsal" bar (`SetupPage.tsx:84`, `:602-638`). A staff member without a team never reaches the page. | Signing in as another account in another tab reloads this one on return (restore gate); the evidence query is keyed by login and team so one account's answer never shows for another (`queries.ts:286-289`). |
+| Where your team and repository stand | The clone command is the team's repository. | A repository change rewrites the clone command on the next team read. Evidence rows are keyed on user, team, step and benchmark, not repository, so ticks survive the change. |
+| Which week's benchmark | The switcher picks it: the browser's stored choice, else the first benchmark of the newest active module (`apps/portal/src/lib/track.ts:74-82`). It sets steps 3 and 5 and which evidence counts. | Switching re-reads evidence and can change the total between five and four. A command copied for the old track and not yet run gives no warning; a check-off copied for one track ticks only that track (`apps/portal/test/setup-check-off.test.ts:187`). |
+| Practice or leaderboard | No effect. The footer says hosted practice runs need none of this. | No effect. |
+| Flags, options, and where you are typing | `?replay=creator` or `?replay=member` only for a dev-tools owner. The check-off uses `HTTPSConnection` or `HTTPConnection` to match the page's protocol (`SetupPage.tsx:567`). | Rehearsal blanks the evidence and the device count, appends " · replaying {mode}" to the count, and hides check-offs (`SetupPage.tsx:156-180`, `:326`). |
 
 ## Cancel and interrupt
 
 | Event | Before the work begins | While it works |
 | --- | --- | --- |
-| You stop it yourself | There is nothing to stop. Leaving the page mid-load cancels three reads that changed nothing. | Same. The page holds no in-flight write of any kind. |
-| You do something else mid-way | Navigating away unmounts the queries and stops both polls; TanStack Query also pauses polling for a backgrounded tab (`queries.ts:257`). Returning refetches. | Same. Every cell is server state, so nothing about the sheet's position depends on the tab staying open. |
-| A teammate acts at the same time | A teammate joining before the page loads shows up in the member strip and the count. It changes no cell. | A teammate's own `check --update-setup` does not affect this student's page. Verification rows are keyed on user, team and benchmark (`setup.ts`), so each member fills in their own copy of the sheet. A team of four has four independent sheets. |
-| The network or the portal fails | A failed `GET /api/team` replaces the page with a `QueryError` card and a retry button. | A failed `GET /api/v1/setup/state` is silent: the page keeps the last good state and keeps polling. A student whose portal is down sees a sheet that simply never fills, with nothing saying why. |
-| The page or the process goes away | Nothing to lose. | Nothing to lose. Reload re-reads all three queries and repaints identically. |
-| The thing being measured changes | Nothing has been measured yet. | A benchmark version bump does not touch verification rows, and neither does a repository change. The filled cells are about commands, not about a target, and no version or commit is recorded with them. A submodule bump changes the pin printed in the install command without touching the cell that command filled. |
-| The platform refuses or credit runs out | Credit is not consulted. The page never spends anything and shows no quota. | The CLI's call is the one that can be refused. Three refusals reach the student in the terminal rather than here: no team (403, "Finish joining a team and connecting its repository first.", `setup.ts:71`), a mismatched directory (409, "This directory is {repositoryFullName}, but CogPortal expects {team repo}.", `setup.ts:81`), and a dead token ("This CogPortal connection is missing, expired, or revoked. Run `cogworks link --portal {}` and retry.", `cli.py:151`). The page shows no trace of any of them. |
+| You stop it yourself | Nothing to stop. | Same; the page holds no write. |
+| You do something else mid-way | Leaving stops both polls; returning refetches. | Same. Every tick is server state. |
+| A teammate acts at the same time | A teammate joining shows in the arrival note only. | A teammate's report ticks their own rail, not this one. |
+| The network or the portal fails | A failed team read shows the error card. | A failed evidence read is shown as unknown with a retry, not as unticked boxes. The CLI's report does not retry: one failure prints the reason and returns (`python/cogbench/src/cogbench/client.py:136-151`). |
+| The page or the process goes away | Nothing to lose. | A reload repaints the same ticks. The arrival note does not come back. |
+| The thing being measured changes | Nothing measured yet. | A pin change does not untick anything; ticks record no version. A check-off token expires after seven days and is stable for a day so the command does not change under the cursor (`apps/portal/worker/routes/setup-check-off-token.ts:16-22`); a stale one prints "CogPortal: this check-off command is stale. Copy a fresh one from the setup page." (`setup-check-off-token.ts:27-28`). |
+| The platform refuses or credit runs out | Credit is not consulted. | The CLI's report is refused in the terminal: "Finish joining a team and connecting its repository first." (`setup.ts:197`), "This directory is {repo}, but CogPortal expects {team repo}." (`setup.ts:207`), or "This CogPortal connection is missing, expired, or revoked. Run `cogworks link --portal {origin}` and retry." (`cli.py:200-203`). The page shows none of them. |
 
 ## Interactions with other systems
 
-**Who may do this.** Any signed-in student on a team, for their own progress only. There is no view of a teammate's sheet and no instructor view of one. The dev rehearsal bar requires both `session.user.isOwner` and `session.auth.onboardingDevToolsEnabled` (`SetupPage.tsx:41`), and the reset endpoint re-checks both server side, returning 404 "API route not found." rather than 403 when either fails (`setup.ts:110`). Answering a disabled endpoint as though it does not exist is the right shape: a 403 would confirm the route is real. Ownership here is the deployment's `PLATFORM_OWNER_LOGINS`, read from the environment and never from the database, for the reason set out in [`admin.md`](admin.md#three-roles).
+**Who may do this.** Any team member, for their own evidence. The CLI report authenticates the device, so the account that fills the rail is the account the machine was linked as. The check-off authenticates nothing but its signed token. The reset endpoint answers 404 unless the caller is an owner on a dev-tools deployment (`setup.ts:257-264`).
 
-The CLI's write path uses a different actor entirely. `POST /api/v1/cli/setup/checks` authenticates a device token, not a browser session (`setup.ts:58`), so the account that fills the sheet is the account the machine was linked as. A student signed in to the browser on one account and linked in the terminal on another watches a sheet that will never fill, with nothing on either surface saying the two disagree.
+**The team owns it.** The repository and the commands are the team's. The evidence is per person and team, because it is about a laptop.
 
-**The team owns it.** The repository, the members, and the commands are the team's. The verification rows are not: they are per user and per team, so "the guide" is really one sheet per person. That is the correct scope, because the sheet is about a laptop, and see [`foundations/the-team-and-the-repository.md`](../foundations/the-team-and-the-repository.md) for why almost everything else on the platform is not scoped this way.
+**Credit.** None spent, none shown.
 
-**Credit.** None spent, none shown. A student cannot learn their remaining practice runs from this page; the hosted quota belongs to the dashboard. See [`../cross-cutting/credit-and-quota.md`](../cross-cutting/credit-and-quota.md).
+**What the portal claims.** Two kinds of tick, kept apart in the mark, the label, the spoken prefix, the count and the completion panel. Owned by [`../foundations/what-the-portal-claims.md`](../foundations/what-the-portal-claims.md).
 
-**What the portal claims.** One mark, one claim, described above. Owned by [`foundations/what-the-portal-claims.md`](../foundations/what-the-portal-claims.md).
+**What the benchmark supplied.** Nothing is run here. Track titles, package pins and conda environment names come from `benchmark-packages.ts`.
 
-**What the benchmark supplied.** Nothing is run and nothing is scored. The only benchmark-derived content is the id in the `check` command and the distribution, pin, and title in the install command, which come from the selected track (`benchmark-packages.ts:53-58`).
+**Live updates and reconnection.** Two plain polls; the setup response is `Cache-Control: private, no-store` (`setup.ts:133`).
 
-**Live updates and reconnection.** Two polls, both plain HTTP: setup state every 2.5 seconds until four steps are verified, connections every 4 seconds until a device exists. No WebSocket, no reconnection logic, no backoff. A poll that fails is retried on the next tick. The setup response is served `Cache-Control: private, no-store` (`setup.ts:53`), so no intermediary holds a stale answer between ticks. Both polls are the fastest in the portal after the run surface, and both exist for the same reason: they are waiting on something happening in another window.
+**Discord.** Not mentioned on the page.
 
-**Discord.** Not mentioned anywhere on the page. A student who finishes setup gets no Discord message and no prompt to link an account. This is the only onboarding surface that never names the fourth surface.
-
-**Configuration.** The `link` command prints `window.location.origin` (`SetupPage.tsx:76`), so a student on a staging portal copies a command pointing at staging. `ONBOARDING_DEV_TOOLS=enabled` gates the rehearsal bar and the reset endpoint. The benchmark id comes from the browser's stored track preference. The tool's install source and every benchmark pin are compiled into the bundle from `benchmark-packages.ts`, so changing them is a deploy, not a setting.
+**Configuration.** The link command prints `window.location.origin`. The check-off command prints `window.location.host`. Both are signed by `BETTER_AUTH_SECRET`, so rotating it invalidates every copied check-off (`setup-check-off-token.ts:59-61`). The tool pin and benchmark pins are compiled into the bundle.
 
 ## Edge cases
 
-- **Linking a machine can fill the clone cell.** `cogworks link`, run inside a worktree with a GitHub `origin`, sends `("clone",)` on its own (`cli.py:678`). A student who links from inside the project sees the clone cell fill before running `check`. If they link from elsewhere, the CLI prints "setup: device linked; change into your team project before running `cogworks check --benchmark {} --update-setup`." on stderr instead (`cli.py:683`).
-- **The four cells fill together or not at all.** `check --update-setup` sends all four names in one call and only when the check itself returned 0 (`cli.py:617`). A student whose benchmark installs cleanly but whose repository the resolver cannot wire gets exit 2 and no portal update, so the clone and tool cells stay empty even though both commands succeeded. The page has no way to say "three of these four are fine".
-- **The update call does not retry.** `update_setup_checks` passes `retry=False` with a 10 second timeout, and the docstring gives the reason: "the student asked for one visible portal update, and a failure should return control with an actionable retry instead of becoming background telemetry." (`python/cogbench/src/cogbench/client.py:141`). One flaky moment means running the command again.
-- **`check --update-setup` cannot be pointed at a portal.** Only `run` declares `--portal` among the checking commands (`cli.py:85-88`), and `check` passes `None` to `_update_setup` (`cli.py:618`), so the portal comes from `COGPORTAL_URL` or the saved active portal. The `link` line on the sheet writes `--portal` in for the student, so the two commands on one page can name different portals if the environment disagrees with the browser.
-- **The sheet writes the portal the browser is serving.** The `link` command prints the origin the page is being served from (`SetupPage.tsx:76`), so a student reading a staging portal copies a command that links their machine to staging. The CLI's own precedence rule, `--portal` then `COGPORTAL_URL` then the saved active portal, does not apply here, because the page writes the flag in for them. See [`foundations/the-ask.md`](../foundations/the-ask.md#configuration-precedence).
-- **Test and run are steps the sheet never shows.** `SETUP_STEPS` on the server is six long, ending in `test` and `run` (`packages/contracts/src/schema.ts:927`), and `test --update-setup` and `run --update-setup` each send exactly one name (`cli.py:642`). Neither has a line here, and `CHECKLIST_MACHINE_STEPS` exists precisely so the poll does not wait on them (`setup-progress.ts:54-57`).
-- **Resetting reloads the page into a rehearsal.** "Reset guide" arms a `ConfirmButton` that changes its own label to "Confirm reset" (`SetupPage.tsx:229-235`), then deletes the server rows, clears the local keys, and does a full page assignment to `/setup?replay=creator` (`:94-101`). A failed reset renders nothing at all: the mutation has an `onSuccess` and no error path.
-- **The dead checkbox key is still cleared.** Nothing writes `cog-setup:{teamId}:{login}` any more, but the reset still removes it so a student who used the old checkbox guide is not left with an orphan entry (`setup-progress.ts:23-27`, `:31`).
-- **Nothing on the page tells a student what `--update-setup` sends.** `cogworks link` prints that sentence before the handshake (`cli.py:660`). The sheet's own comment on the check line says only that it "updates this page".
-- ~~**The install source is a branch, and the page does not say so.**~~ Resolved. The tool line pins a forty character commit like every other package on the page, and carries `--force-reinstall` because an equal version would otherwise leave the old commit installed. The step's own text says the tool is pinned to one commit so that everyone reading the page installs the same one.
-- **The commands name a benchmark even before the benchmark list resolves.** `useTrack()` returns the constant `vision-recognition` as `benchmarkId` until the query lands (`apps/portal/src/lib/queries.ts:18`, `track.ts:100`). The check command therefore renders a real, possibly wrong, command for one paint. The dashboard nudge avoids this by returning null while the track is pending, with a comment saying it is avoiding a count that renumbers itself (`SetupNudge.tsx:39-41`); the page itself does not wait.
-- **One active benchmark means no switcher.** `TrackSwitcher` renders plain text with no trigger when there is a single track, on the stated ground that "One track is not a choice." (`apps/portal/src/components/TrackSwitcher.tsx:118`). A cohort running one module sees a label where a control would otherwise be, and the label still carries the version, as `{title} · v{version}` (`:116`).
-- **The 409 for a wrong directory compares normalized names.** The server strips a trailing `.git` and lowercases both sides before comparing (`setup.ts:23`), so a remote written with different capitalization or with the `.git` suffix still matches. What does not match is a fork under a personal account, which is the case the sentence at `setup.ts:81` exists to name.
-- **A repeat run is not an error.** The upsert only rewrites `verifiedAt` (`setup.ts:96`), and the CLI prints `setup: updated {names}` with whatever the server accepted (`cli.py:158`). Running the check ten times leaves four rows and ten timestamps, and the page looks identical each time.
-- **The rehearsal modes blank the real device too.** A replay sets the verified list empty and the device count to zero (`SetupPage.tsx:74-75`), so an owner rehearsing sees their own linked machine reported as unlinked. That is correct for a rehearsal and confusing for anyone who forgot the query string is on; the masthead appends " · replaying creator" or " · replaying member" to say so (`:109`).
-- **The two rehearsal modes now differ only in the word.** `creator` and `member` blank the same two inputs and produce the same sheet, because nothing on the page varies by entry mode any more. The buttons remain, and the masthead prints whichever word is in the query string.
-- **There is no way to empty a cell from the browser.** Short of the owner-only reset, a verification row is permanent. A student who cloned into the wrong directory, ran the check, and then deleted the folder keeps four filled cells describing nothing.
-- **A copied sheet loses the gotcha.** "Copy all" carries the commands and none of the comments (`CommandSheet.tsx:6-12`), so the parenthetical telling a student what to do about `command not found` is on screen and not in the paste buffer.
+- **`check --update-setup` sends nothing when the check fails.** The flag is gated on exit 0 with no message (`cli.py:1166`). The page's "If the box doesn't tick, the reason is in your terminal." points at the check's own output.
+- **The tool pin is not this build.** The page installs the CLI at `40d31a2` (`benchmark-packages.ts:40-41`), an ancestor of `2ff32fa` with several later `python/cogbench` commits not in it.
+- **Test and run are steps the rail never shows.** `cogworks test --update-setup` and `run --update-setup` post `test` or `run` with no benchmark (`cli.py:1234-1239`); the server keeps them and the rail ignores them.
+- **"Copy" takes one command.** Each block copies its own line; there is no copy-all.
+- **Reset reloads into a rehearsal.** "Reset guide" arms to "Confirm, this clears your ticks", deletes the rows, clears local keys and loads `/setup?replay=creator`. A failed reset shows nothing (`SetupPage.tsx:269-276`, `:628-633`).
+- **There is no way to untick a box** short of the owner-only reset.
+- **Every return from the terminal rereads the session.** When the browser tab becomes hidden (a minimized window, another tab, or on most browsers a window fully covered), the restore gate conceals the rail and puts a loading mark over it until a fresh session read answers (`apps/portal/src/components/RestoreGate.tsx:135-156`, `:209-249`). On this page a student alternates between the two windows for every step.
+- **The check-off command contains a bearer token.** Anyone holding it can tick that one step for that account until it expires. It cannot do anything else.
 
 ## Open questions and verification
 
-- The setup guide never surfaces a failed `GET /api/v1/setup/state`. The page keeps polling and keeps showing stale state with no notice. Whether that is preferable to a card is a product call; it is carried to triage as a question, not a defect.
-- The page is silent for up to 2.5 seconds after a successful check, with nothing saying it is waiting. Whether a student runs the check twice because the first appeared to do nothing was not observed. **Unverified.**
-- The guide is written for a student working alone at a terminal, and every filled cell is reported by whoever ran the command. Whether a team where one member sets up a shared machine reads the other members' empty sheets as a problem was not established.
-- Whether a repository change should clear the verification rows is a product decision. Rows carry no benchmark and no repository (`apps/portal/worker/db/schema.ts`, `setupVerifications`), so a team that changes its repository keeps filled cells describing the old one.
-- Whether the `no_team` 403 at `setup.ts:71` is reachable was not confirmed. A device is linked from a browser session that has already passed the team gate, so an account with a live device and no team may be unreachable, the same open question `terminal/status.md` raises about the identical sentence.
-- The membership lookup in the CLI callback takes the first row with `limit(1)` and no ordering (`setup.ts:61`), the same pattern `terminal/status.md` flags on the device status route. Whether an account can hold two memberships at once was not confirmed from the schema; if it cannot, both are harmless.
-- The reset mutation has no error path (`SetupPage.tsx:94-101`), so an owner whose `DELETE` fails sees the button return to rest and nothing else. Low severity, since the control only exists on a dev-tools deployment, but it is a silent failure.
-- Whether a student reads an empty gutter cell as "not done yet" rather than as "broken" was not tested with anybody. The old page said so in a paragraph; this one says it only through the screen-reader prefix "Not verified yet. " (`CommandSheet.tsx:66-68`), which a sighted student never hears. **Unverified.**
-- The install line disappears entirely for a track with no mapped package, taking the denominator with it. Whether a student notices the sheet shrinking from five lines to four when they switch tracks was not observed. **Unverified.**
-- Nothing in the sheet records which benchmark a cell was filled against, so switching tracks after finishing leaves every cell filled while the install command underneath names a different distribution. Whether that matters depends on whether the two distributions can disagree about what a repository must provide, which was not established.
-- Whether the tick's 200ms rise reads as a response to running the check, or like an unrelated flicker two and a half seconds later, was not measured. **Unverified**: no browser was opened for this pass.
+- `check --update-setup` drops the flag silently when the check fails (`cli.py:1166`). B-16.
+- Whether a student reads the reopened boxes after a track switch as lost work was not observed; the page no longer explains it.
+- Whether a check-off for a step whose command failed misleads a student into a "Setup complete" panel was not observed. The panel's plain tone and sentence are the only signal.
+- The check-off route does not confirm the token's account is still on the token's team (`setup.ts:156-178`). A removed member's week-old command would write a row for a team they left. No student-visible effect was found.
+- Observed locally on fixture data at `2ff32fa`: three check-off commands answered 200 with "'clone' is checked off", "'environment'", "'project'", and after a refresh the rail read "3 of 5 done, all checked off by you" (`CogPortal-qa-video-20260930/outputs/beta-qa/final-2ff32fa/checkoff-responses.json`, `setup-after-refresh.txt`). No CLI report, device link or real install was exercised.
+- Hosted beta (`4984730`) differs: it pins the CLI at `b6bbffb`, which carries the per-item `None` fix (beta `apps/portal/src/lib/benchmark-packages.ts:41`, candidate `benchmark-packages.ts:41`); the conda step is a numbered "00 Start in the course environment" row, step 5 is "Prove the wiring", check-offs are always visible under "Done here? Run this in the same terminal and the box ticks itself.", and the footer reads "No rush. This page keeps your place." with "Open dashboard" (beta `apps/portal/src/routes/SetupPage.tsx:205`, `:292`, `:364`, `:369`, `:416`, candidate `SetupPage.tsx:356-386`, `:441-448`, `:555-600`, `setup-progress.ts:254`).
 
-Verified against Cog\*Portal commit `5a74e74`.
+Read against Cog\*Portal commit `2ff32fa`.

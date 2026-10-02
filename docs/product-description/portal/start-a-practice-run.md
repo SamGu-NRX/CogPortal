@@ -2,63 +2,52 @@
 
 ## What this document owns
 
-The route is `/dashboard`. This document owns its run controls and every state they can be in, from arriving on the page to the instant a run row exists: the branch select, the "Run practice benchmark" button, the sentence that replaces both when the quota is spent, and every way the ask can be refused before anything is written. It also owns the dashboard's two shapes, the single-panel page a team sees before its first run and the grid it sees afterwards, because a student reads them before deciding to press anything.
+The route is `/dashboard`, labeled `Runs` in the header (`apps/portal/src/components/Shell.tsx:61`). This document owns the page's launcher and every state it can be in, from arriving on the page to the instant a run row exists: the branch select, the "Run practice benchmark" button, what replaces them when the quota is spent or a run is moving, and every way the ask can be refused before anything is written. It also owns the page's two shapes, the first-run sheet and the bench a team sees afterwards, because a student reads them before deciding to press anything.
 
-It stops the moment the run row exists. [`watching-a-run.md`](watching-a-run.md) owns the `CURRENT RUN` panel that replaces these controls, the run page while a run is still moving, and the separate live console at `/run-surfaces/:surfaceId`. [`the-run-page.md`](the-run-page.md) owns the finished run at `/runs/:runId`. [`promote-to-the-leaderboard.md`](promote-to-the-leaderboard.md) owns the "Promote to official" control that shares this panel, the `PUBLISHED RESULT` panel, and the official quota.
+It stops the moment the run row exists. [`watching-a-run.md`](watching-a-run.md) owns the `Running now` card, the run page while a run is moving, and the console at `/run-surfaces/:surfaceId`. [`the-run-page.md`](the-run-page.md) owns `/runs/:runId` once the run has finished. [`promote-to-the-leaderboard.md`](promote-to-the-leaderboard.md) owns the promotion block that can sit inside the `Latest run` card or beside it.
 
 ## Summary
 
-Starting a practice run is one select and one button. The portal checks current repository access, resolves the branch to a commit and admits an execution. It reserves capacity while running. Only a completed evaluation uses one of the team's ten practice evaluations.
+Starting a practice run is one select and one button. The portal checks current repository access, resolves the branch to a commit and admits an execution. An active execution reserves capacity; only a completed evaluation uses one of the team's ten practice evaluations. See [credit and quota](../cross-cutting/credit-and-quota.md).
 
-One component, `CurrentRunPanel`, holds the controls and renders in one of three shapes (`apps/portal/src/routes/DashboardPage.tsx:301-495`). With a run in flight on the selected benchmark it is `CURRENT RUN` (`:329`), so a student never sees a start button and a running run at the same time, and never has to decide whether pressing it again would be safe. With no run in flight and no run in the team's history it is `FIRST RUN` (`:410`). Otherwise it is `START A RUN` (`:437`).
+The page is scoped to one benchmark, chosen by index tabs above the title when more than one track is open (`apps/portal/src/routes/DashboardPage.tsx:105-111`). The title is the benchmark's own, with its version beside it, the team name above it and the benchmark summary under it (`:120-138`). A `?benchmark=` link opens that track, stores it as the choice and drops the parameter from the address (`:57-76`).
 
-The page loads with three requests. `GET /api/dashboard?benchmark=` answers everything on the page in one payload: the benchmark, the team, the quota, the last resolved commit, the active run, the promotable candidate, the published selection, and up to fifty runs (`apps/portal/worker/routes/dashboard.ts:101`). `GET /api/github/repositories` supplies the branch list. `GET /api/v1/local-reports?benchmark=` fills the self-reported table at the bottom. Only the first blocks the page, and only the first repolls, every 2 seconds and only while it already knows about an active run (`apps/portal/src/lib/queries.ts:41-42`).
+The page loads with one blocking request, `GET /api/dashboard?benchmark=`, which carries the benchmark, the team, the quota, the last resolved commit for the connected repository, the active run, the promotable candidate, the published selection and up to fifty runs (`apps/portal/worker/routes/dashboard.ts:33-140`). The branch list and the local reports load beside it and never block. Only the dashboard query repolls, every 2 seconds and only while its payload names an active run (`apps/portal/src/lib/queries.ts:43-50`).
 
-The dashboard withholds a panel rather than showing an empty one. Every standing panel here reports something a run produced, so before the first run each would be a label over nothing, and the one thing to do would be spread across five of them (`DashboardPage.tsx:68-72`). `RUN LOG`, `ATTEMPT BUDGET`, `PUBLISHED RESULT`, and `LOCAL REPORTS` appear only once they hold a row.
+The page has two shapes (`DashboardPage.tsx:172-175`). A team with no runs on this benchmark version gets one sheet, `Run it for the first time`. A team with runs gets the bench: the latest run in words, the launcher, the run history, then the standing facts at the foot. The component's own comment states the order: is a run moving, what did the latest run show, what can we do next, what have we done before (`:44-51`).
 
-Everything on the page is scoped to one benchmark, chosen by the track switcher in the masthead. Quota, runs, the candidate, the published result, and the local reports table all change together when it changes.
-
-A practice run is the only kind of run this page can start, and it is the only kind that is cheap enough to be started casually: it is scored against a public split, its log is kept, and it is visible only to the team. An official run is never started here; it is made by promoting a practice run that succeeded. See [`../foundations/the-run.md`](../foundations/the-run.md) for the distinction and [`promote-to-the-leaderboard.md`](promote-to-the-leaderboard.md) for the act.
+A practice run is the only kind this page starts. An official run exists only by promoting a practice run that succeeded; see [`../foundations/the-run.md`](../foundations/the-run.md).
 
 ## The simple case
 
 ### Before the first run
 
-A student opens `/dashboard`. While the benchmark list and the dashboard payload load, the page shows a loading mark reading `Loading` (`DashboardPage.tsx:50`), which appends the whole seconds it has been waiting once the wait passes three; see [`../cross-cutting/live-updates.md`](../cross-cutting/live-updates.md#the-loading-mark-names-its-own-wait).
+A student opens `/dashboard`. While the track list and the payload load, the page shows a loading mark reading `Loading` (`DashboardPage.tsx:97`, `:143`), which counts seconds once the wait passes three; see [`../cross-cutting/live-updates.md`](../cross-cutting/live-updates.md#the-loading-mark-names-its-own-wait).
 
-A team with no runs then gets one panel, `FIRST RUN`, and nothing else (`DashboardPage.tsx:408-434`). It is two columns. On the left, a `Branch` label over a select of the repository's branches, a "Run practice benchmark" button beside it, and under both one mono line reading `10 of 10 hosted · 3 official · local unlimited` (`:414-417`). On the right, a code block with the three commands that do the same work on the student's own machine, spending nothing, each already carrying this benchmark's id (`:422-429`):
+A team with no runs gets the first-run sheet (`DashboardPage.tsx:676-744`). Its heading is "Run it for the first time", then "Nothing has run on {benchmark title} yet. There are two ways to start, and you can use both." (`:700-704`). Two sections follow:
 
-```
-cogworks check --benchmark {benchmark id}
-cogworks run --benchmark {benchmark id}
-cogworks sync
-```
+- **"Here, from your pushed commit"**, with "A hosted run scores the commit your branch points to on GitHub. One that succeeds can be promoted to one of your {n} official attempts, which score the hidden set." (`:707-712`), then the launcher: a `Branch` select, the "Run practice benchmark" button, and "{left} of {limit} hosted practice runs left on this version; a run that fails doesn't count." (`:624-656`).
+- **"On your machine, as often as you like"**, with "These need the CogWorks tool from Setup first. The commands already name this benchmark." (`:719-729`) and a code block carrying `cogworks check --benchmark {id}`, `cogworks run --benchmark {id}` and `cogworks sync` (`:731-739`).
 
-Under the panel, one faint mono line names the machine a hosted run gets: the repository's full name, the runtime version, `CPU`, and `network blocked during evaluation`, joined by middots and skipping any segment this session cannot name (`:75-82`, `:120`).
-
-That is the whole page. No run log, no budget cells, no published result, no local reports table.
+A margin note beside the sheet reads "Both kinds of run score your code the same way. Local runs have no limit, so that's usually where the iteration happens." (`:691-692`). Under the sheet, a `For reference` strip shows only the repository and `Hosted machine` as `{runtimeVersion} · CPU · network off while scoring` (`:793-822`). Observed locally on fixture data in `/tmp/cogshots/matched/pairs/a-dashboard-first-desk.png` (right half, near `2ff32fa`).
 
 ### After the first run
 
-They press the button. It goes busy. One `POST /api/runs/practice` carries the benchmark id and the branch name. The server checks their GitHub write access, resolves the branch to a forty-character commit, writes a run surface and a run row, lays down six empty phase rows, dispatches the job to Modal, and answers `201` with the new run id.
+The student presses the button. It goes busy. One `POST /api/runs/practice` carries the benchmark id and the branch (`apps/portal/src/lib/api.ts:247-251`). The server checks GitHub write access, resolves the branch to a forty-character commit, writes a run surface and a run row, lays down six empty phase rows, dispatches the job and answers `201` with the run id (`apps/portal/worker/routes/runs.ts:24-32`).
 
-The dashboard query is invalidated, refetches, and the panel becomes `CURRENT RUN`, holding the run's label, its branch and short commit, a phase rail, and the line `Updates every 2 s · started just now` (`DashboardPage.tsx:354-356`). It rises into place on the poll that first sees the run, so the swap reads as the panel changing rather than as a page reload (`:327-328`). The page does not navigate. The student is still on the dashboard and has to click the run label to reach the run page.
+The button stays busy until the dashboard has refetched, because the mutation returns the invalidation promise so "the stale zero-run dashboard" is replaced before it lets go (`queries.ts:480-489`). The page then changes shape to the bench. The page does not navigate; the run opens from its card.
 
-With a run in the history the page becomes a three-column grid (`:124`). `RUN LOG` sits under the run panel with a `{n} recorded` aside, and it too rises on the poll that first returns a row, so the log arrives rather than appearing already there (`:134-146`). In the right column, `CONNECTED SOURCE` names the repository, the commit under `last tested`, and one line about the environment a run gets: `{runtimeVersion} · CPU · network blocked during evaluation` (`:174-176`). `ATTEMPT BUDGET` draws the two quotas as countable cells rather than a bar, labelled `Hosted practice` and `Official attempts` (`:186-200`). `PUBLISHED RESULT` and `LOCAL REPORTS` follow.
+The bench, top to bottom (`DashboardPage.tsx:203-308`):
 
-Three of those five are themselves conditional, and each names the fact it is waiting on:
+- **The lead card.** `Running now` while a run is active, `Latest run` otherwise, with a status chip, the run's title as a link ("Practice run on main"), and `Run #XXXX · {shortSha}` (`:356-373`). A finished run is described in words: a failure as the catalog title plus "Stopped at {phase} {time ago}. Failed runs don't use your hosted budget."; a success as "Finished {time ago}." with the primary metric as a small data line under it (`:428-460`). The link under it reads "Open the run", "See what went wrong" or "Read what it found" (`:347-353`).
+- **"Start a practice run".** The launcher, with a margin note: "A hosted run scores the commit your branch points to, on our machine with the network off. Local runs score the same way with no limit, so that's usually where the iteration happens." (`:236-250`, `:311-313`). While a run is active the launcher is replaced by "Runs go one at a time on each benchmark, so the next one can start once this one finishes." (`:241-245`).
+- **"Run history".** One row per run, newest first, with a count aside that reads `{n} runs` or `the latest 50` (`:252-270`). Eight rows show; the rest fold under "Show {n} earlier runs" (`apps/portal/src/components/RunList.tsx:11`, `:67-77`).
+- **"Local reports"**, labeled "Self-reported, not promotable", only when a synced report exists or the query failed (`DashboardPage.tsx:277-304`).
+- **"For reference".** Repository, hosted machine, `Last tested commit`, the two quotas drawn as tallies, and `On the leaderboard` when the team has a published selection (`:793-886`).
 
-- `ATTEMPT BUDGET` renders only once something has been spent. The cells count what has been spent, so before anything is spent the panel would be ten empty boxes and a label (`:183-185`).
-- `PUBLISHED RESULT` renders only when the team has a published selection (`:203`).
-- `LOCAL REPORTS` renders when there is at least one synced report, or when the query failed (`:241`). Nothing renders while it is in flight, so the panel does not appear and then withdraw; a failed query still renders, because the fact that a self-reported number could not be read is a fact about this session (`:238-240`).
+Observed locally on fixture data in `pairs/b-dashboard-desk.png` (right half).
 
-`CONNECTED SOURCE` is the one panel that always renders once the grid does, and it keeps two empty states: "No repository connected." for a team with no repository (`:179`), and `nothing yet; start a practice run` where the last tested commit would go (`:170`).
-
-`RUN LOG` has no empty state at all. `RunList` returns null for an empty list, and the component says why: the dashboard withholds the whole panel until there is a row, and the one thing to do about an empty log is the button in `FIRST RUN` (`apps/portal/src/components/RunList.tsx:11-17`).
-
-`PUBLISHED RESULT` leads with which run is public and puts its number underneath, as a footnote rather than a headline: a mono line reading `attempt #{n} · {shortSha}`, then the primary metric's label and value in smaller type, then "View run" and "Leaderboard" links (`:209-232`). The reason is recorded in the code: a team ranks itself against a headline figure and does not against an identifier, and the run is what they would open next anyway (`:205-208`).
-
-Above all of it, until setup is finished, sits a slim strip reading `Getting set up`, a row of squares one per command on the setup sheet, `{verified} of {total} verified`, a `Continue` link to `/setup`, and a dismiss button (`apps/portal/src/components/SetupNudge.tsx:56-93`). It counts the same array the setup page renders, so the two figures cannot disagree. See [`setup.md`](setup.md).
+Above everything, until setup is finished, sits the setup strip; see [`setup.md`](setup.md).
 
 ## The ask, event by event
 
@@ -66,175 +55,137 @@ Above all of it, until setup is finished, sits a slim strip reading `Getting set
 stateDiagram-v2
     [*] --> reading : arrive on /dashboard
     reading --> gated : no user, no cohort, or no team
-    reading --> no_controls : practice quota spent
-    reading --> armed_first : no runs yet, FIRST RUN renders
-    reading --> armed : the team has run before, START A RUN renders
-    armed_first --> armed : a run row now exists
-    armed_first --> refused : permission, quota, active run, or benchmark version
-    armed_first --> committed : execution admitted, capacity reserved
-    armed --> refused : permission, quota, active run, or benchmark version
+    reading --> exhausted : practice quota spent, local command shown
+    reading --> moving : a run is active, launcher replaced
+    reading --> armed : launcher shown (first-run sheet or bench)
+    armed --> refused : permission, quota, active run, branch, or benchmark version
+    refused --> armed : the sentence appears under the button
     armed --> committed : execution admitted, capacity reserved
     committed --> queued : dispatched, 201 returned
     committed --> failed_at_once : dispatch rejected, run marked failed, 502
-    refused --> armed : the sentence appears under the button
     queued --> [*] : watching-a-run.md takes over
     failed_at_once --> [*] : the-run-page.md takes over
     gated --> [*]
-    no_controls --> [*]
+    exhausted --> [*]
+    moving --> [*]
 ```
 
 ### Asking
 
-The click captures two things and nothing else: the benchmark id and the branch.
+The click captures two things: the benchmark id and the branch.
 
-The benchmark id is not the one the track switcher is showing. It is `d.benchmark.id`, the id the server put in the dashboard payload it just served, and the code gives the reason: "The dashboard payload is already scoped to the selected track, so its own benchmark id is the one to run; anything else would start a run the student isn't looking at" (`DashboardPage.tsx:316-318`).
+The benchmark id is the one in the payload the page is showing, not whatever the tabs hold at that instant: "The dashboard payload is already scoped to the selected track, so its own benchmark id is the one to run; anything else would start a run the student isn't looking at" (`DashboardPage.tsx:602-605`).
 
-The branch is local component state, initialised once from the repository's default branch (`DashboardPage.tsx:321`). Because it is initialised once, it does not follow a track switch, a repository change, or a repository list that arrives late. See Edge cases.
+The branch is remembered in module state, so it survives a run starting and ending and a track switch, and falls back to the repository's default branch when the remembered one is no longer offered (`:585-608`). It lasts until a reload.
 
-Nothing is validated in the browser. The select only offers strings the server sent, so there is no client-side error state to write. The button is an ordinary button, not the two-step `ConfirmButton` used for promotion beneath it: spending a practice run is treated as reversible enough to fire on the first click, and spending an official attempt is not.
+Nothing is validated in the browser. The button fires on the first click; it is an ordinary button, not the arm-then-confirm `ConfirmButton` used for promotion, because a failed practice run costs nothing.
 
-Three things are deliberately not captured. There is no note, label, or message on a run, so a team running the same commit twice has nothing but the timestamp to say why. There is no choice of dataset or difficulty; the practice split is fixed. And there is no record of who pressed the button anywhere the dashboard can show, though the run surface keeps one.
+Nothing else is captured: no note on the run, no choice of split, and nothing the page shows about who pressed the button. The run surface records the starter; see [`watching-a-run.md`](watching-a-run.md).
 
-Before any of this, the route gate has already run. `RequireStage stage="team"` sends a student with no session to `/signin`, with no cohort to `/join`, and with no team to `/connect`, all with `replace` (`apps/portal/src/App.tsx:133`, `:59`, `:69`, `:70`). A student who reaches the dashboard has a team, and a team is created by connecting a repository, so the repository is always present in practice.
+The route gate runs first. `RequireStage stage="team"` sends a student with no session to `/signin`, no cohort to `/join`, and no team to `/connect` (`apps/portal/src/App.tsx:145-151`).
 
 ### Answered without work
 
-The ask can end with nothing recorded in six ways. The first is not an error at all; the rest come back from the server as one sentence under the button (`DashboardPage.tsx:400-406` in `FIRST RUN`, `:445-451` in `START A RUN`).
+**The controls are not there.** With the practice quota spent, the launcher is replaced by "All {limit} hosted practice runs on this version are used. Local runs score the same way and have no limit:" and a code block with `cogworks run --benchmark {id}` (`DashboardPage.tsx:612-622`). This replaced the earlier dead end; the sentence still does not say that a new benchmark version starts a new count.
 
-**The controls are not there.** With the practice quota spent, the select and the button are replaced by a sentence: "All 10 hosted practice runs are used. Local practice stays unlimited." (`DashboardPage.tsx:367-371`). Nothing is disabled; the controls are absent from the document, so there is no greyed-out button to hover for a reason.
+**A run is moving.** The launcher is replaced by the one-at-a-time sentence above. Nothing to press.
 
-The replacement is written into the shared `launcher`, so `FIRST RUN` would show it too, but that combination cannot happen: the server computes `practiceUsed` and the run list from the same query, scoped to the same benchmark and version (`dashboard.ts:42-52`, `:105`, `:114`), so a spent quota always implies at least one run and therefore the grid rather than `FIRST RUN`.
+Everything else comes back from the server as one sentence under the button (`DashboardPage.tsx:663-669`):
 
-The sentence names one way forward, local practice, which costs nothing. It no longer points at promotion, which was true of the sentence it replaced and is not something this panel can promise: the promotion control lives further down the same panel and exists only when there is a successful practice run to promote. It is a dead end for hosted practice on that benchmark version, and it does not say the one thing that would change that, which is that a new benchmark version starts the count again.
+- **A run is already in progress.** `409 active_run_exists`. The server writes "A run is already active for this benchmark." (`apps/portal/worker/services/run-actions.ts:256`); the page rewrites it to "A run is already in progress; runs go one at a time per benchmark." (`DashboardPage.tsx:665-667`). This is the only code the page rewrites.
+- **GitHub says no.** `403`: "Sign in to GitHub on Cog\*Portal before changing a run." with no stored token, "GitHub access expired. Sign in to Cog\*Portal again." when the permission lookup throws, "Current write permission to the connected repository is required." below write (`run-actions.ts:125`, `:135`, `:138`).
+- **The branch does not resolve.** `409`, "GitHub has no branch named {branch}." (`run-actions.ts:300-307`).
+- **The quota is spent anyway.** `409 quota_exhausted`, "The practice-run quota is exhausted." when completed plus reserved evaluations reach ten (`run-actions.ts:257-259`). Reachable when a teammate's run completes between this page's last read and the click.
+- **The hosted environment is not ready.** `409`, "This benchmark's hosted environment is not ready." when the benchmark row carries no sandbox contract (`run-actions.ts:262-266`).
+- **The benchmark version is not active.** `409`, "That benchmark version is not active." (`run-actions.ts:158`). A dashboard load naming an inactive benchmark is a `404` with "Active benchmark not found." (`dashboard.ts:47`).
 
-**A run is already in progress.** `409 active_run_exists`. The server writes "A run is already active for this benchmark." (`apps/portal/worker/services/run-actions.ts:205`) and the dashboard replaces it with its own: "A run is already in progress; runs go one at a time per benchmark." (`DashboardPage.tsx:402-404`). This is the only code the dashboard rewrites; every other failure is shown in the server's own words.
+Each of these leaves no run row, no quota and no Discord message. All but one also leave no surface row. The exception is a race: the surface is written before the capacity-guarded run insert (see below), so when a concurrent start wins the active slot or the last place, this request is refused with `active_run_exists` or `quota_exhausted` after its surface row exists. Nothing publishes that surface, and nothing removes it. Read from code, not observed: while it is among the team's ten most recently updated surfaces, the Activity's surface list and `GET /api/run-surfaces` fail, because building its snapshot throws "Run surface has no run." (`apps/portal/worker/services/run-surfaces.ts:300`, `apps/portal/worker/routes/activity.ts:246-258`).
 
-**GitHub says no.** Three sentences, all `403`, from the permission check that runs before anything else: "Sign in to GitHub on Cog\*Portal before changing a run." when the portal holds no GitHub token for the account (`run-actions.ts:86`), "GitHub access expired. Sign in to Cog\*Portal again." when the permission lookup throws (`run-actions.ts:96`), and "Current write permission to the connected repository is required." when the lookup succeeds and returns something below write (`run-actions.ts:99`).
-
-**The branch does not resolve,** and there is no sentence for it. Resolving a branch to a commit is unguarded on this path (`run-actions.ts:245`), unlike the exact-SHA path directly above it, which catches and answers "Push {shortSha} to GitHub first." (`run-actions.ts:233`) or "GitHub resolved a different commit." (`run-actions.ts:237`). What a student sees when the branch was deleted on GitHub was not determined; see Open questions.
-
-**The quota is spent anyway.** `409 quota_exhausted`, "The practice-run quota is exhausted." (`run-actions.ts:209`). Reachable whenever a teammate spends the last run between this page's last read and this click, which a page sitting on `START A RUN` never notices, because it does not poll.
-
-**The benchmark version is not active.** `409`, "That benchmark version is not active." (`run-actions.ts:119`), for a start; and a `404` carrying "Active benchmark not found." for a dashboard load naming a benchmark that is no longer active (`dashboard.ts:39`). Both are reachable when the week rolls over under an open tab.
-
-In every one of these, no run row, no surface row, no credit, and no Discord message.
-
-Three more failures are answered before the panel exists at all, by the page rather than the button. A session that expired under an open tab renders `SESSION ENDED` with "Your session ended, so the portal no longer recognizes this browser. Sign in again to continue." and a link to `/signin`. An account with no cohort renders `COHORT REQUIRED`, and one with no team renders `TEAM REQUIRED` with "This view belongs to a team, and you're not on one yet. Connect a repository and the team exists." Each is chosen by what the student can do about it rather than by which of the twenty-one error codes arrived (`apps/portal/src/lib/query-error-state.ts:121`).
+The page itself can fail before the launcher exists. A failed payload replaces the bench with a `QueryError` card and a "Back to start" link (`DashboardPage.tsx:144-151`). The card's label and sentence are chosen by what the student can do: `SESSION ENDED` with "Your session ended, so the portal no longer recognizes this browser. Sign in again to continue.", `COHORT REQUIRED`, `TEAM REQUIRED`, or `REQUEST DID NOT ARRIVE` (`apps/portal/src/lib/query-error-state.ts:84-160`).
 
 ### The work begins
 
-The execution becomes durable when admitted. Closing the page does not cancel it. Used quota counts completed evaluations, not every execution record; failure leaves history without spending quota. See [credit and quota](../cross-cutting/credit-and-quota.md).
+The execution becomes durable when it is admitted. Closing the page does not cancel it.
 
-Two things happen immediately before. The commit is resolved and frozen, and everything after this is about that forty-character SHA whatever the branch does next. Then a run surface row is written with `onConflictDoNothing` (`run-actions.ts:252`). That surface is the identity the live console, the Discord message, and any later promotion all hang off; see [`watching-a-run.md`](watching-a-run.md).
+Immediately before, the commit is resolved and frozen. Then a run surface is written with `onConflictDoNothing` (`run-actions.ts:312-330`). That surface is what the console, the Discord message and any later promotion hang off.
 
-One thing happens immediately after: six phase rows are laid down empty, one per pipeline phase (`run-actions.ts:142`), so the phase rail has a full skeleton to draw before a single event arrives from the sandbox.
+The run row is inserted with a capacity check in the same statement (`run-actions.ts:332-370`). A partial unique index makes two simultaneous starts behave like two sequential ones: one run, and `active_run_exists` for the loser (`:371-377`), or `quota_exhausted` when the winner took the last place, because the capacity check counts active runs (`run-accounting.ts:90-94`, `run-actions.ts:369`). Either way the loser's surface row, written just before, stays without a run. Then six empty phase rows (`:378`), the dispatch (`:379`), and the surface publish that posts or edits the Discord message (`:380`).
 
-> Technical note: the run id is `run_` plus ten hex characters and the surface id is `surface_` plus twenty (`run-actions.ts:250`). A rerun derives its successor surface id from a hash of the old one rather than fresh randomness (`run-actions.ts:450`), so re-running the same surface twice lands on the same successor rather than opening two.
-
-A partial unique index makes the concurrent case behave like the sequential one. Two students pressing the button at the same instant produce one run row, and the loser gets `active_run_exists` from the constraint rather than from the check that already passed (`run-actions.ts:310`). The comment calls this "a normal conflict", which is the right posture: the team is the unit, so two members starting a run at once is expected rather than exceptional.
-
-None of these writes share a transaction. The surface, the run, the phase skeleton, and the dispatch happen one after another, and a failure part way through leaves what came before it. The one place that is explicitly batched is the dispatch-failure cleanup, which is described under "How it ends".
+> Technical note: the run id is `run_` plus ten hex characters and the surface id `surface_` plus twenty (`run-actions.ts:312`, `:331`). The surface, the run, the phases and the dispatch are separate writes; a failure part way leaves what came before it.
 
 ### While it works
 
-There is almost no middle. The button shows its busy state, the mutation is one request, and everything else on the page stays live and interactive. No optimistic row appears in `RUN LOG`, and the quota line does not move until the server answers.
+The button shows its busy state for one request plus the refetch. No optimistic row appears and the quota line does not move until the refetch lands. The GitHub permission check and branch resolution are round trips inside the request, and nothing on screen says the portal is waiting on GitHub.
 
-The one part that can take real time is invisible. The GitHub permission check and the branch resolution are both round trips to GitHub made inside the request, with nothing on screen saying the portal is waiting on GitHub rather than on itself. A slow GitHub makes pressing "Run practice benchmark" look like a slow portal.
-
-Nothing else on the page is disabled while this happens. A student can switch tracks, open a run, or press "Promote to official" underneath, all of which the server will resolve on its own terms.
+Nothing else is disabled. A student can switch tabs or open a run while it works.
 
 ### How it ends
 
-On success the server answers `201` with `{ runId }`, and the mutation invalidates the dashboard query for that benchmark (`queries.ts:442-448`). The refetch is what swaps the panel; there is no local state change. For a team's first run the refetch does more than swap one panel: `d.runs.length` stops being zero, so the whole page changes shape from the single `FIRST RUN` panel to the three-column grid (`DashboardPage.tsx:72`, `:111-124`).
+On success the refetched payload names an active run, so the bench appears with `Running now` and the launcher becomes the one-at-a-time sentence. For a team's first run this is the whole page changing shape. A visually hidden live region announces `{run title} is {status}` (`DashboardPage.tsx:197-210`).
 
-**The dashboard does not navigate to the run it started.** The success handler invalidates and stops, so a second press before the refetch lands is refused with `active_run_exists`; the vanishing panel covers most of that window.
+On a dispatch failure that happened before anything reached Modal, the run is marked failed with category `provider`, phase `queued`, detail "The run could not be queued for Modal." and the button shows "The run could not be queued. Try again." (`run-actions.ts:205-227`). The record stays in history and uses no quota. A dispatch Modal may have accepted without acknowledging keeps its reservation until a callback or the stale-run sweep settles it (`:182-189`).
 
-On a dispatch failure the execution is marked failed. The team can read that record, but it uses no quota.
-
-Retry is a separate recovery action for that failed execution. It keeps the same recorded commit, configuration, mode and view. Starting changed code from this launcher creates a new candidate.
-
-Either way the student is left on the dashboard with one obvious next move: the run's label in `CURRENT RUN` or in `RUN LOG`, which is a link to the run page. That is where the rest of this run's life is described, in [`watching-a-run.md`](watching-a-run.md) and then [`the-run-page.md`](the-run-page.md).
+Retry for a failed execution lives in the run's console, not here; see [`the-run-page.md`](the-run-page.md#the-work-begins). Starting from this launcher always resolves the branch again.
 
 ## Modifiers
 
-Each row is read once, at the start of the request. Nothing in this table can change the outcome of a request already in flight.
-
-The one row that does real work here is the last: everything about this ask is decided by the branch, and the branch is the only thing the student can vary.
-
 | Modifier | Set before the ask | Changed while it works |
 | --- | --- | --- |
-| Who you are | Signed out, no cohort, or no team: the dashboard never renders and `RequireStage` redirects with `replace` (`App.tsx:133`). With a team the panel renders identically for every member; there is no per-member gate in the browser. The server gate is current GitHub write access on the connected repository, checked live on every start (`run-actions.ts:79`), so a member removed from the repository sees a working button and is refused by the server. An instructor gets no extra control here. | No effect. The permission check runs once, at the start of the request, and a change made on GitHub a moment later does not reach the answer already in flight. |
-| Where your team and repository stand | A team is created by connecting a repository, so the repository is effectively always present. If it is absent, the branch list computes to empty, leaving a select with no options beside a live button, and once the grid renders `CONNECTED SOURCE` shows "No repository connected." (`DashboardPage.tsx:179`). A team with no runs gets the `FIRST RUN` panel and no run log at all, and the repository's absence also drops it from the machine line under that panel, which skips any segment this session cannot name (`:75-82`). With runs but no resolved commit, `nothing yet; start a practice run` sits where the last tested commit goes (`:170`). | A teammate connecting a different repository invalidates the repositories query and the dashboard, so the branch list changes under the student. The selected branch does not follow it; see Edge cases. |
-| Which week's benchmark | The track switcher chooses which benchmark the whole page is about (`DashboardPage.tsx:101-106`). The choice lives in `localStorage` under `cogportal.track` and defaults to the last module in course order, audio then vision then language, because "A team opening the portal is almost always working on the most recent module that's open" (`apps/portal/src/lib/track.ts:20`). A stored id that is no longer active falls back to that default. It also decides the benchmark id printed in the three local commands inside `FIRST RUN` (`DashboardPage.tsx:422-429`). | Switching tracks mid-request does not cancel it. The run being started is the one the previous payload named, so a fast switch can start a run on the benchmark just left, and the invalidation afterwards is keyed to that benchmark rather than the one now on screen. A switch to a track the team has never run also changes the page's shape, because `d.runs` is per benchmark. |
-| Practice or leaderboard | This button always starts a practice run. Nothing anywhere starts an official run directly: official runs exist only by promoting a practice run that succeeded, using the control in the same panel. See [`promote-to-the-leaderboard.md`](promote-to-the-leaderboard.md). | No effect. A promotion started by a teammate mid-request makes a run active, so this request loses the race and is refused with `active_run_exists`. |
-| Flags, options, and where you are typing | The branch is the only option. There is no commit field and no way to start a hosted run on a commit that is not a branch tip from this page. The CLI and the Discord activity reach the same service with an exact SHA through the run surface; a run started that way with no branch records the literal string `detached` (`run-actions.ts:279`). Everything here is the same on a phone: the panel reflows and the controls do not change. | No effect. |
+| Who you are | Signed out, no cohort, or no team: `RequireStage` redirects (`App.tsx:145-151`). Every member sees the same page. The server gate is current GitHub write access, checked live on every start (`run-actions.ts:118-142`), so a member removed from the repository sees a working button and is refused. The development fixture repository skips the check (`:122`). An instructor gets no extra control. | No effect. The permission check runs once, inside the request. |
+| Where your team and repository stand | A team is created by connecting a repository. With no repository, the branch list is empty and `For reference` shows "No repository connected." (`DashboardPage.tsx:815`). `Last tested commit` is the newest run of the connected repository, matched on repository id, or "None recorded for this repository" (`:823-835`, `dashboard.ts:131-140`). | A teammate changing the repository invalidates the dashboard and branch list. A remembered branch the new list lacks falls back to the default (`DashboardPage.tsx:608`). |
+| Which week's benchmark | The tabs choose the benchmark the whole page is about. The choice lives in `localStorage` under `cogportal.track` and defaults to the most recent open module (`apps/portal/src/lib/track.ts:14-20`). One open track draws no tabs (`apps/portal/src/components/TrackSwitcher.tsx:92`). The local commands name this benchmark's id. | Switching tabs mid-request does not cancel it; the run is the one the earlier payload named. The bench is keyed by benchmark, so a switch remounts it (`DashboardPage.tsx:153`). |
+| Practice or leaderboard | This button always starts a practice run. Official runs come only from promotion. | A teammate's promotion makes a run active, so this request is refused with `active_run_exists`. |
+| Flags, options, and where you are typing | The branch is the only option; there is no commit field. The CLI and the Activity reach the same service with an exact SHA; a run started that way with no branch records `detached` and is titled "… on commit {shortSha}" (`run-actions.ts:341`, `apps/portal/src/lib/run-meta.ts:27-29`). On a phone the page is one column and the controls do not change. | No effect. |
 
 ## Cancel and interrupt
 
-The short version: nothing here can be cancelled, and everything before the run row can be abandoned for free.
-
 | Event | Before the work begins | While it works |
 | --- | --- | --- |
-| You stop it yourself | Nothing to stop. The panel has no cancel, and the button has no armed state; it fires on the first click. | There is no way to abort the request from the page, and no cancel endpoint exists anywhere in the platform. Closing the tab does not stop the server from writing the run row, and no code path can ever set a run to `cancelled`. |
-| You do something else mid-way | Navigating away before the click leaves nothing behind. | Navigating away mid-request abandons the response, not the request. The run is created, the browser never learns its id, and the student finds it in `RUN LOG` on their next visit. Two fast clicks are answered by the unique index: one run, and `active_run_exists` for the second (`run-actions.ts:310`). |
-| A teammate acts at the same time | A teammate's run started a moment earlier means this page is showing controls that are already stale. The dashboard repolls only while it already knows about an active run, so a page sitting on `START A RUN` does not poll at all and can stay stale for as long as the tab is open. The refusal on click is the only correction. | The active-run check and the unique index both run inside the request, so a second start is refused rather than queued behind the first. |
-| The network or the portal fails | A failed dashboard load replaces the whole page with a `QueryError` card and a "Back to start" link (`DashboardPage.tsx:51-58`). A failed repositories load is silent; see Open questions. A failed local-reports load is the one query whose failure renders a panel that would otherwise be absent, printing "Synced local reports are temporarily unavailable. Hosted and official results are unaffected." in place of the table (`:241`, `:247-250`), which is the only place on this page that names what is still trustworthy. | A request that never leaves the browser raises code `network` with "Could not reach the portal. Check your connection and try again." (`apps/portal/src/lib/api.ts:63`), shown under the button, and nothing was written. A request that reached the server and timed out on the way back may well have written a run row the student cannot see until they reload. |
-| The page or the process goes away | Nothing is pending, so nothing is lost. A reload re-reads everything. | The run row outlives every browser that was watching. On reload the dashboard shows `CURRENT RUN` for a run the student never saw start. |
-| The thing being measured changes | The branch list is a snapshot from a query that stays fresh for five minutes (`queries.ts:111`), so a branch deleted on GitHub inside that window is still offered in the select. | The commit is resolved once, inside the request, and the run is about that commit for the rest of its life; a push landing one second later is not in it. A benchmark version rolling over between page load and click is refused with "That benchmark version is not active." (`run-actions.ts:119`). |
-| The platform refuses or credit runs out | A stale page may still offer a start after a teammate uses the last available evaluation. Server admission decides whether there is room. | An active execution reserves capacity. Completion adds one to usage; failure does not. |
+| You stop it yourself | Nothing to stop. The button has no armed state. | No way to abort from the page, and no cancel endpoint exists. Closing the tab does not stop the server. |
+| You do something else mid-way | Navigating away leaves nothing behind. | The run is created and the browser never sees the response. The student finds it as `Running now` on the next visit. Two fast clicks give one run and `active_run_exists` (`run-actions.ts:371-377`). |
+| A teammate acts at the same time | A page with no active run does not poll, so a teammate's start is invisible until a refetch. The refusal on click is the correction. | The active-run check and the unique index both run inside the request, so a second start is refused, not queued. |
+| The network or the portal fails | A failed payload renders the `QueryError` card. A failed branch list now says so: "We couldn't load the branch list from GitHub, so only {branch} is offered. Reload the page to try again." (`DashboardPage.tsx:657-662`). A failed local-reports read prints "Synced local reports are temporarily unavailable. Hosted and official results are unaffected." (`:289-292`). | A request that never left the browser shows "Could not reach the portal. Check your connection and try again." (`apps/portal/src/lib/api.ts:71-76`) and nothing was written. A request that timed out on the way back may have written a run the student sees only after a reload. |
+| The page or the process goes away | Nothing pending. | The run outlives the browser. A reload shows `Running now`. |
+| The thing being measured changes | The branch list is fresh for five minutes (`queries.ts:125`), so a branch deleted inside that window is still offered; the start then fails with "GitHub has no branch named {branch}." | The commit is resolved once; a push one second later is not in this run. A version rolling over is refused with "That benchmark version is not active." |
+| The platform refuses or credit runs out | A stale page may offer a start after a teammate's run used the last evaluation. Admission decides. | An active execution reserves capacity. Completion adds one; failure does not. |
 
 ## Interactions with other systems
 
-**Who may do this.** Any team member with current write access to the connected repository. The browser does not check at all; the server checks live against GitHub on every start (`run-actions.ts:79`). The fixture repository is exempt and skips the check entirely (`run-actions.ts:83`), which is what lets a demo cohort run without GitHub.
+**Who may do this.** Any team member with current write access to the connected repository, checked by the server on every start. The fixture repository skips the check (`run-actions.ts:122`).
 
-**The team owns it.** The run belongs to the team, not to whoever pressed the button. It appears in `RUN LOG` for every member, it spends the team's shared quota, and nothing on the dashboard records who started it. The run surface does record it, and the live console prints that login; see [`watching-a-run.md`](watching-a-run.md) and [`../foundations/the-team-and-the-repository.md`](../foundations/the-team-and-the-repository.md).
+**The team owns it.** The run belongs to the team. Nothing on this page names who started it.
 
-**Credit.** Ten completed hosted practice evaluations per team and benchmark version. Failed executions use no quota. See [credit and quota](../cross-cutting/credit-and-quota.md).
+**Credit.** Ten completed hosted practice evaluations per team and benchmark version; failures use none. The launcher says so in its count line, and a failed lead card says "Failed runs don't use your hosted budget." (`DashboardPage.tsx:445`).
 
-**What the portal claims.** Nothing yet. The only claim this ask makes is the resolved commit, which the portal saw for itself and shows as a copyable chip under `last tested` (`DashboardPage.tsx:166-172`). The `LOCAL REPORTS` panel on the same page is the counter-example, labelled `SELF-REPORTED · NOT PROMOTABLE` (`:245`), listing a short commit with ` · dirty` where the tree was dirty or `not recorded` where there was none, `no primary metric` where the report carried none, and at most five rows before "showing the 5 newest of {n} synced reports" (`:264-288`). No row names who synced it. See [`../foundations/what-the-portal-claims.md`](../foundations/what-the-portal-claims.md).
+**What the portal claims.** Only the resolved commit, shown as a copyable chip under `Last tested commit`. The local reports are labeled "Self-reported, not promotable" with a margin note: "We show them as they arrived and can't check them, so they stay off the leaderboard." (`DashboardPage.tsx:283-285`, `:318-324`). See [`../foundations/what-the-portal-claims.md`](../foundations/what-the-portal-claims.md).
 
-**What the benchmark supplied.** Nothing yet. The page does print one fact about the environment the run will get, in two places: under the `FIRST RUN` panel as the machine line, repository included (`DashboardPage.tsx:75-82`, `:120`), and inside `CONNECTED SOURCE` once the grid renders, as `{runtimeVersion} · CPU · network blocked during evaluation` (`:174-176`).
+**What the benchmark supplied.** Nothing yet. The page states the environment once, as `Hosted machine` (`DashboardPage.tsx:818-822`).
 
-**Live updates and reconnection.** None here. The dashboard polls every 2 seconds only while it already knows about an active run (`queries.ts:41-42`), so this panel is exactly the state the page loaded with. See [`../cross-cutting/live-updates.md`](../cross-cutting/live-updates.md).
+**Live updates and reconnection.** None while no run is active. See [`../cross-cutting/live-updates.md`](../cross-cutting/live-updates.md).
 
-**Discord.** Starting a run creates a run surface and publishes it (`run-actions.ts:317`), which is what puts a message in the team's Discord channel when one is bound. Nothing on the dashboard says that pressing this button posts to Discord. See [`../discord/channel-messages.md`](../discord/channel-messages.md).
+**Discord.** Starting a run publishes its surface (`run-actions.ts:380`), which posts the team's channel message when a channel is bound. Nothing on the page says so. See [`../discord/channel-messages.md`](../discord/channel-messages.md).
 
-**Configuration.** `PRACTICE_LIMIT` is 10 and `OFFICIAL_LIMIT` is 3 (`schema.ts:1215-1216`). The dashboard reads both from the quota payload, except the promote button's confirm label, which imports `OFFICIAL_LIMIT` directly (`DashboardPage.tsx:475`). Under `EXECUTION_PROVIDER=fixture` a `simulated` chip appears beside the track switcher (`:105`) and run results are scripted rather than measured.
+**Configuration.** `PRACTICE_LIMIT` is 10 and `OFFICIAL_LIMIT` is 3 (`packages/contracts/src/schema.ts:1519-1520`). Under `EXECUTION_PROVIDER=fixture` a `Simulated` chip sits beside the team name (`DashboardPage.tsx:125`) and results are scripted.
 
 ## Edge cases
 
-- **The branch select does not follow anything.** `branch` is initialised from the default branch on the panel's first render and never re-initialised (`DashboardPage.tsx:321`). The panel unmounts when a run starts and remounts when it ends, so the selection resets to the default after every run. A student iterating on a feature branch chooses it again every single time.
-- **The quota reads differently in the two launch panels.** `FIRST RUN` prints all three numbers on one line, `{practiceLeft} of {limit} hosted · {officialLeft} official · local unlimited` (`DashboardPage.tsx:414-417`); `START A RUN` prints only `{practiceLeft} of {limit} hosted runs left` (`:441-443`) and leaves the official count to the `ATTEMPT BUDGET` panel, which is itself absent until something has been spent. A team that has never run therefore sees its official budget once, on the page it will never see again.
-- **A run still moving has an empty outcome column.** `RunList` prints the primary metric, or the failure's catalog code, or nothing at all (`RunList.tsx:25-29`). The comment gives the reason: the status chip in the same row already says where the run is, and a dash in the outcome column reads as a result that came back blank (`:22-24`).
-- **The machine line and `CONNECTED SOURCE` say the same thing differently.** Before the first run the environment is one faint line that leads with the repository (`DashboardPage.tsx:75-82`); afterwards the same facts are split, the repository into a link at the top of `CONNECTED SOURCE` and the rest into a line at its foot (`:174-176`). A team crossing that boundary sees the sentence it read yesterday rearranged.
-- **A run can fail before it reaches a container.** Its record stays in history, with no quota used.
-- **A surface can exist with no run.** The surface row is written before the run row and is not rolled back when the run insert throws for any reason other than the unique constraint. `buildRunSurfaceSnapshot` answers such a surface with a `404` carrying "Run surface has no run." (`apps/portal/worker/services/run-surfaces.ts:293`).
-- **Run labels can collide.** A run is shown as `RUN` plus the last four characters of its ten-hex-character id, uppercased (`apps/portal/src/lib/format.ts:38`). Two runs in one team's log can carry the same label, with nothing but position and timestamp to tell them apart.
-- **The quota resets on a version bump.** `practiceUsed` counts runs at the current benchmark version only (`dashboard.ts:47`). A team that used all ten gets ten more when the benchmark is republished, and the exhausted sentence never mentions it.
-- **`RUN LOG` shows at most fifty runs.** The dashboard serialises `allRuns.slice(0, 50)` (`dashboard.ts:100`) and its `{n} recorded` aside counts what it was given, so the count agrees with the list and both understate a longer history.
-- **The last tested commit is the newest run's, not the newest success.** `lastResolvedSha` is `allRuns[0]?.sha` (`dashboard.ts:110`), so a run that failed to fetch the repository still becomes what `CONNECTED SOURCE` calls `last tested`.
-- **A single-benchmark cohort has no switcher.** With one active benchmark the track control renders as plain text with no trigger, on the stated ground that "One track is not a choice." (`apps/portal/src/components/TrackSwitcher.tsx:118-119`), so nothing on the page suggests other tracks exist.
-- **The greeting is local.** The masthead reads "Good morning", "Good afternoon", or "Good evening" from the browser's own clock and the student's first name or login (`DashboardPage.tsx:90-94`, `apps/portal/src/lib/format.ts:43-44`). It is the only text on the page that is about the person rather than the team, and it survived a commit that deleted every other sentence which was not a fact about the team.
-- **The team name in the masthead is a link to the team page,** styled only by its hover underline (`DashboardPage.tsx:96-99`), so nothing at rest says it is clickable.
-- **A run started from the CLI or Discord appears here with no marker.** `RUN LOG` shows mode, status, branch, commit, outcome, and age, and nothing about where the run came from. A team that started one from a terminal and one from the dashboard cannot tell them apart on this page.
-- **`ATTEMPT BUDGET` draws one cell per allowed run** (`apps/portal/src/components/QuotaCells.tsx:33`), so the practice row is ten cells wide and wraps on a narrow screen. The numeric `{used}/{limit} used` above it (`:25`) is the reliable reading.
-- **A status change is announced without being shown.** The `CURRENT RUN` panel carries a visually hidden live region reading `{run label} is {status}` (`DashboardPage.tsx:335-337`), so a screen reader hears each phase change while the polling itself stays silent.
-- **The commit chip copies more than it shows.** `last tested` renders the first seven characters and copies all forty, briefly showing `copied` in their place (`apps/portal/src/components/ShaChip.tsx:36`). Where the clipboard is unavailable the copy fails silently and the short SHA stays on screen.
+- **Run titles repeat; the tag tells them apart.** Rows lead with "Practice run on {branch}" and carry `Run #XXXX`, the last four characters of the id, as the record (`RunList.tsx:111-127`). Two tags can still collide.
+- **A run still moving has an empty reading column.** The row prints the primary metric, the failure's code, or nothing (`RunList.tsx:93-100`).
+- **A row names its repository only when it differs** from the connected one, or reads "source not recorded" (`RunList.tsx:119-125`).
+- **The quota resets on a version bump.** Accounting is per benchmark version (`dashboard.ts:61-63`); the exhausted sentence does not say so.
+- **The history shows at most fifty runs** and says `the latest 50` when full (`DashboardPage.tsx:257-261`, `dashboard.ts:93`).
+- **A run that finishes while the page is open is marked once.** Its sentence gets a highlighter stroke drawn left to right, already drawn under reduced motion (`DashboardPage.tsx:81-95`, `:462-486`).
+- **The first-run sheet does not show the official count in the launcher line.** It names it in the sentence above the launcher instead; the bench shows both as tallies under `For reference`.
+- **A run started from the CLI or Discord has no marker** in the history beyond a `detached` title when it had no branch.
 
 ## Open questions and verification
 
-- A branch deleted on GitHub goes through an unguarded `resolveRef` on the start path (`run-actions.ts:245`), while the exact-SHA path beside it catches the same failure and writes a sentence. What the student reads was not determined. Worth treating as a bug. **Unverified.**
-- `DashboardPage` never surfaces a repositories error and silently degrades the branch list to the default branch alone (`DashboardPage.tsx:64-67`). A failed query, a still-loading query, and a genuinely single-branch repository are indistinguishable on screen. Carried to triage.
-- The dashboard's start mutation does not navigate to the run it started, while the run page's identical mutation does (`RunDetailPage.tsx:66-69`). Whether the panel swap is enough of a signal was not observed, and on a team's first run the swap is a whole page reshape rather than one panel. **Unverified.**
-- Whether a team reads `FIRST RUN` as the whole page or as a page that failed to load the rest was not observed. It is one panel and one line on an otherwise empty screen, which is the intent, and the intent has not been tested with anybody. **Unverified.**
-- The `FIRST RUN` panel names three CLI commands, `check`, `run`, and `sync`, but not `link`, so a student who reaches the dashboard without a linked device gets commands that work locally and a `sync` that will not. Whether that ordering causes trouble in practice was not established.
-- `cancelled` is a real status in the database enum (`apps/portal/worker/db/schema.ts:304`), the contract enum (`schema.ts:35`), `TERMINAL_STATUSES` (`schema.ts:40`), and the run surface projection (`services/run-surfaces.ts:40`), but no code path writes it and there is no cancel endpoint. A reader looking for a way to stop a run will not find one here, and there is nothing to find. Carried to triage.
-- The live GitHub permission check runs on every start (`run-actions.ts:79`), so a GitHub outage stops every hosted run behind a sentence about the student's own access. Whether that happens in practice was not established. **Unverified.**
-- Whether a student notices the branch select resetting after each run was not observed, and neither was how long the GitHub round trip inside the request usually takes. **Unverified.**
-- The exhausted-practice sentence and the exhausted-official sentence are written by different files and do not match in shape. Whether that is deliberate was not established; the official one is quoted in [`promote-to-the-leaderboard.md`](promote-to-the-leaderboard.md).
-- Whether the `TEAM REQUIRED` and `COHORT REQUIRED` cards are reachable on this route at all was not confirmed. `RequireStage` redirects before the dashboard mounts, so the mapping may only ever be reached by a session that expires between the gate and the request. **Unverified.**
-- Whether a select with no options is reachable, which needs a team whose repository is null, was not confirmed against the schema. If a team always has a repository, that branch is dead copy.
-- The dashboard stops polling the moment a run reaches a terminal status, so the panel the student is left with is the one the last poll produced. Whether the swap back to `START A RUN` is visible as a jump was not observed. **Unverified.**
-- Nothing on this page distinguishes a run started here from one started by the CLI or by Discord, and no timing was taken for how long the panel takes to flip after a start. **Unverified.**
+- Whether a team reads the first-run sheet as the whole page was not observed with anybody. The local fixture screenshot shows it renders. **Unverified** beyond `pairs/a-dashboard-first-desk.png`.
+- The page still does not navigate to the run it started; the lead card is the signal. Whether that is enough on a first run, where the whole page reshapes, was not observed.
+- The first-run sheet's command block assumes a linked device for `cogworks sync` and does not name `cogworks link`; it points at Setup instead (`DashboardPage.tsx:725-729`).
+- `cancelled` is in every status enum and the lead card has a sentence for it (`DashboardPage.tsx:457`), but nothing writes it. Carried to triage (B-37).
+- A GitHub outage stops every hosted start behind a sentence about the student's own access, because the permission check runs first (`run-actions.ts:128-136`). Not observed.
+- No hosted start from this page was observed on this build. The hosted beta run `run_f5fc5babe5` was started on beta's pre-redesign dashboard.
+- Hosted beta (`4984730`) differs: its dashboard is the panel grid `FIRST RUN`, `START A RUN`, `CURRENT RUN`, `RUN LOG`, `CONNECTED SOURCE`, `ATTEMPT BUDGET` (beta `apps/portal/src/routes/DashboardPage.tsx:148`, `:161`, `:200`, `:373`, `:457`, `:515`); the candidate replaces it with the bench (`DashboardPage.tsx:203-308`).
 
-Verified against Cog\*Portal commit `a0e8eac` for recovery policy; unchanged layout references retain the earlier draft. Assembled UI remains unverified.
+Read against Cog\*Portal commit `2ff32fa`.
