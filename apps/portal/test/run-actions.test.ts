@@ -7,10 +7,16 @@ import { fileURLToPath } from "node:url";
 import { and, eq, ne, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { Hono } from "hono";
+import { generateSignedCookie } from "hono/cookie";
 import { maintainPlatform } from "../worker/execution/maintenance.ts";
 import { buildRunJob, hmacSignature } from "../worker/execution/runner.ts";
 import { registerRunnerEventRoutes } from "../worker/routes/runner-events.ts";
-import { appendRunStreamEvent, buildRunSurfaceSnapshot, publishRunSurface } from "../worker/services/run-surfaces.ts";
+import {
+  appendRunStreamEvent,
+  buildRunSurfaceSnapshot,
+  listTeamRunSurfaceSnapshots,
+  publishRunSurface,
+} from "../worker/services/run-surfaces.ts";
 import { runSurfaceHubs } from "./fixtures/run-surface-hub.ts";
 import { FIXTURE_REPO } from "@cogworks/contracts/fixtures";
 import {
@@ -34,6 +40,7 @@ import {
   benchmarks,
   cliDevices,
   cohorts,
+  discordAccounts,
   leaderboardSelections,
   localRunSessions,
   officialAttempts,
@@ -51,6 +58,8 @@ import { ApiHttpError, handleError } from "../worker/http/errors.ts";
 import { createAuth } from "../worker/auth/better-auth.ts";
 import { registerRunRoutes } from "../worker/routes/runs.ts";
 import { registerDashboardRoutes } from "../worker/routes/dashboard.ts";
+import { registerRunSurfaceRoutes } from "../worker/routes/run-surfaces.ts";
+import { registerActivityRoutes } from "../worker/routes/activity.ts";
 import { runSourceRefusal } from "../worker/services/run-source.ts";
 import { savedEnvironmentEligibility } from "../worker/services/run-eligibility.ts";
 import { PreparedEnvironmentV1Schema, RunJobV1Schema } from "@cogworks/contracts/protocol";
@@ -1700,12 +1709,12 @@ test("legacy failed claims cannot block concurrent promotion into the last offic
   });
 });
 
-for (const admission of ["promotion", "practice Retry", "official Retry"] as const) {
+for (const admission of ["promotion", "practice Retry", "official Retry", "practice start"] as const) {
   test(`${admission} phase failure rolls back admission before dispatch`, async () => {
     const { db, binding } = freshDb();
     const actor = await seedPromotion(db);
     const failedId = admission === "official Retry" ? await seedOfficial(db, "failed") : PRACTICE_RUN_ID;
-    if (admission !== "promotion") {
+    if (admission === "practice Retry" || admission === "official Retry") {
       await db.update(runs).set({ status: "failed", provider: "fixture" }).where(eq(runs.id, failedId));
     }
     const before = await db.select().from(runs);
@@ -1717,13 +1726,18 @@ for (const admission of ["promotion", "practice Retry", "official Retry"] as con
       BEGIN SELECT RAISE(ABORT, 'test phase write failure'); END
     `);
     let dispatched = 0;
-    const runtime = env(binding, admission === "promotion" ? "modal" : "fixture", {
+    // Modal for the two that dispatch on success, so `dispatched` is a real check.
+    const runtime = env(binding, admission === "promotion" || admission === "practice start" ? "modal" : "fixture", {
       async send() { dispatched += 1; },
     });
     const admit = () => admission === "promotion"
       ? promotePracticeRun(runtime, actor, PRACTICE_RUN_ID)
-      : retryRun(runtime, actor, SURFACE_ID, failedId);
+      : admission === "practice start"
+        ? startPracticeRun(runtime, actor, { benchmarkId: BENCHMARK_ID, exactSha: "b".repeat(40) })
+        : retryRun(runtime, actor, SURFACE_ID, failedId);
+    const publishedBefore = hubPublications;
     await assert.rejects(admit(), /test phase write failure/);
+    assert.equal(hubPublications, publishedBefore, "a rolled-back admission was published");
     assert.deepEqual(await db.select().from(runs), before);
     assert.deepEqual(await db.select().from(runSurfaces), surfaces);
     assert.deepEqual(await db.select().from(runPhases), []);
@@ -1732,6 +1746,7 @@ for (const admission of ["promotion", "practice Retry", "official Retry"] as con
     await admit();
     assert.equal((await db.select().from(runs)).length, before.length + 1);
     assert.equal((await db.select().from(runPhases)).length, RUN_PHASES.length);
+    assert.equal(dispatched, runtime.EXECUTION_PROVIDER === "modal" ? 1 : 0);
   });
 }
 
@@ -2279,4 +2294,327 @@ test("a result without the ranked measure stays readable everywhere and is never
   assert.deepEqual([older.teamBest, older.published], [null, false]);
   assert.match(older.publicationRefusal ?? "", /different scoring rules/);
   assert.equal(RunDetailSchema.parse(await read(`/runs/${officialId}`)).publicationRefusal, older.publicationRefusal);
+});
+
+/* ── Consoles with nothing to show ─────────────────────────────────────── */
+
+// A practice start used to write its console before capacity admission, so a
+// refused start left a console with no run and no local session. The team's
+// list built every one of its ten newest consoles at once, and one such
+// console failed the portal list and the Activity's.
+
+const DISCORD_USER_ID = "discord_lister";
+const ACTIVITY_SESSION_SECRET = "activity-session-secret-long-enough";
+
+async function emptySurface(db: Database, id: string, updatedAt: number, localRunId: string | null = null) {
+  await db.insert(runSurfaces).values({
+    id,
+    teamId: "team_test",
+    createdByUserId: "user_test",
+    benchmarkId: BENCHMARK_ID,
+    benchmarkVersion: 1,
+    localRunId,
+    supersedesSurfaceId: null,
+    discordChannelId: null,
+    discordMessageId: null,
+    discordNonceGeneration: 0,
+    createdAt: updatedAt,
+    updatedAt,
+  });
+}
+
+async function runlessSurfaces(db: Database) {
+  const all = await db.select().from(runSurfaces);
+  const attached = new Set((await db.select({ surfaceId: runs.surfaceId }).from(runs)).map((row) => row.surfaceId));
+  const sessions = new Set((await db.select({ id: localRunSessions.id }).from(localRunSessions)).map((row) => row.id));
+  return all.filter((surface) => !attached.has(surface.id) && !(surface.localRunId && sessions.has(surface.localRunId)));
+}
+
+/** The portal's and the Activity's list routes, each signed in the way it
+ *  really is: a better-auth session and a signed Activity cookie. */
+async function teamLists(db: Database, binding: unknown) {
+  const runtime: Env = {
+    ...env(binding, "fixture"),
+    DEV_AUTH: "enabled",
+    BETTER_AUTH_SECRET: "a-secure-development-secret-32-chars",
+    BETTER_AUTH_URL: "http://localhost:5173",
+    DISCORD_CLIENT_ID: "activity-client",
+    DISCORD_CLIENT_SECRET: "activity-secret",
+    ACTIVITY_SESSION_SECRET,
+  };
+  const signIn = await createAuth(runtime).api.signUpEmail({
+    body: { email: "lister@example.test", password: "cogportal-local-dev-password", name: "Lister" },
+    returnHeaders: true,
+  });
+  await db.insert(teamMembers).values({ teamId: "team_test", userId: signIn.response.user.id, role: "write" });
+  await db.insert(discordAccounts).values({
+    discordUserId: DISCORD_USER_ID, userId: signIn.response.user.id, username: "lister", linkedAt: NOW,
+  });
+  const portalCookie = signIn.headers.getSetCookie().map((item) => item.split(";")[0]).join("; ");
+  const activityCookie = (await generateSignedCookie(
+    "cog_activity_session",
+    `${DISCORD_USER_ID}.${Date.now() + 60 * 60 * 1000}`,
+    ACTIVITY_SESSION_SECRET,
+  )).split(";")[0]!;
+  const app = new Hono<AppEnv>();
+  registerRunSurfaceRoutes(app);
+  registerActivityRoutes(app);
+  app.onError(handleError);
+  const get = async (path: string, cookie: string) => {
+    const response = await app.fetch(new Request(`http://localhost:5173${path}`, { headers: { cookie } }), runtime);
+    return { status: response.status, body: await response.json() as unknown };
+  };
+  return {
+    portal: () => get("/run-surfaces", portalCookie),
+    activity: () => get("/activity/run-surfaces", activityCookie),
+    one: (surfaceId: string) => get(`/run-surfaces/${surfaceId}`, portalCookie),
+  };
+}
+
+function listedIds(body: unknown): string[] {
+  return (body as Array<{ id: string }>).map((snapshot) => snapshot.id);
+}
+
+test("a start refused at the last practice slot leaves no console, and both lists still render", async () => {
+  const { db, binding } = freshDb();
+  await db.update(benchmarks).set({ active: false });
+  const actor = await seedPromotion(db);
+  const lists = await teamLists(db, binding);
+  for (let i = 1; i < 9; i++) await historyRun(db, `practice_${i}`);
+
+  const results = await Promise.allSettled([1, 2].map(() => startPracticeRun(env(binding, "fixture"), actor, {
+    benchmarkId: BENCHMARK_ID, exactSha: "a".repeat(40),
+  })));
+
+  const admitted = results.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
+  const refused = results.flatMap((result) => result.status === "rejected" ? [result.reason] : []);
+  assert.equal(admitted.length, 1);
+  assert.equal(refused.length, 1);
+  assert.ok(refused[0] instanceof ApiHttpError && refused[0].status === 409, String(refused[0]));
+  assert.deepEqual(await runlessSurfaces(db), []);
+  for (const list of [lists.portal, lists.activity]) {
+    const response = await list();
+    assert.equal(response.status, 200, JSON.stringify(response.body));
+    assert.deepEqual(new Set(listedIds(response.body)), new Set([SURFACE_ID, admitted[0]!.surfaceId]));
+  }
+});
+
+test("consoles with nothing to show cannot fail the lists or push a real console out of them", async () => {
+  const { db, binding } = freshDb();
+  await seedPromotion(db);
+  const lists = await teamLists(db, binding);
+  // More empty consoles than the list shows, every one newer than the real
+  // one, and one more that names a local session that does not exist.
+  for (let i = 0; i < 11; i++) await emptySurface(db, `surface_${"e".repeat(18)}${i.toString(16).padStart(2, "0")}`, NOW + 10_000 + i);
+  await emptySurface(db, `surface_${"d".repeat(20)}`, NOW + 20_000, "local_missing");
+
+  for (const list of [lists.portal, lists.activity]) {
+    const response = await list();
+    assert.equal(response.status, 200, JSON.stringify(response.body));
+    assert.deepEqual(listedIds(response.body), [SURFACE_ID]);
+  }
+});
+
+test("a single console with no run still answers 404", async () => {
+  const { db, binding } = freshDb();
+  await seedPromotion(db);
+  const lists = await teamLists(db, binding);
+  const emptyId = `surface_${"c".repeat(20)}`;
+  await emptySurface(db, emptyId, NOW + 10_000);
+
+  await assert.rejects(buildRunSurfaceSnapshot(env(binding, "fixture"), emptyId), {
+    status: 404, code: "not_found", message: "Run surface has no run.",
+  });
+  assert.equal((await lists.one(emptyId)).status, 404);
+});
+
+/** Runs `before` with the console's id ahead of each hub request, so a test can
+ *  change the database between the list's selection and one snapshot build. */
+function interceptHub(runtime: Env, before: (surfaceId: string) => Promise<Response | void>): Env {
+  const inner = runtime.RUN_SURFACES;
+  return {
+    ...runtime,
+    // SAFETY: snapshot callers use only idFromName and fetch(url, init).
+    RUN_SURFACES: {
+      idFromName: (name: string) => inner.idFromName(name),
+      get: (id: DurableObjectId) => ({
+        fetch: async (url: string, init: RequestInit) => {
+          const { surfaceId } = JSON.parse(String(init.body)) as { surfaceId: string };
+          const replaced = await before(surfaceId);
+          return replaced ?? inner.get(id).fetch(url, init);
+        },
+      }),
+    } as unknown as Env["RUN_SURFACES"],
+  };
+}
+
+test("a console whose context vanishes after selection is left out, and other failures still fail the list", async () => {
+  const { db, binding } = freshDb();
+  await seedPromotion(db);
+  const vanishing = `surface_${"b".repeat(20)}`;
+  const [surface] = await db.select().from(runSurfaces).where(eq(runSurfaces.id, SURFACE_ID));
+  await db.insert(runSurfaces).values({ ...surface!, id: vanishing, updatedAt: NOW + 10_000 });
+  await historyRun(db, "run_vanishing", { surfaceId: vanishing });
+
+  // Its run is deleted after the list selected it, so the real builder
+  // answers 404 for this console alone.
+  const vanished = interceptHub(env(binding, "fixture"), async (surfaceId) => {
+    if (surfaceId === vanishing) await db.delete(runs).where(eq(runs.id, "run_vanishing"));
+  });
+  assert.deepEqual((await listTeamRunSurfaceSnapshots(vanished, "team_test")).map((snapshot) => snapshot.id), [SURFACE_ID]);
+
+  // A hub that fails for another reason still fails the list.
+  await historyRun(db, "run_vanishing_again", { surfaceId: vanishing });
+  const broken = interceptHub(env(binding, "fixture"), async (surfaceId) =>
+    surfaceId === vanishing ? new Response("unavailable", { status: 500 }) : undefined);
+  await assert.rejects(listTeamRunSurfaceSnapshots(broken, "team_test"), /could not be updated/);
+
+  // So does a database error inside the real builder.
+  await db.run(sql`ALTER TABLE run_stream_events RENAME TO run_stream_events_hidden`);
+  await assert.rejects(listTeamRunSurfaceSnapshots(env(binding, "fixture"), "team_test"), (error: unknown) =>
+    !(error instanceof ApiHttpError && error.status === 404));
+});
+
+test("a list read between any two statements of a start never sees a console without its run", async () => {
+  const { db, binding } = freshDb();
+  await db.update(benchmarks).set({ active: false });
+  const actor = await seedPromotion(db);
+  const inner = binding as {
+    prepare(query: string): {
+      bind(...params: unknown[]): unknown;
+      execute(): unknown;
+      run(): unknown;
+      all(): Promise<unknown>;
+      raw(): Promise<unknown>;
+    };
+    batch(statements: unknown[]): Promise<unknown>;
+  };
+  const failures: string[] = [];
+  let reads = 0;
+  // Reads through the unwrapped binding, so the check itself is not paused.
+  const check = async () => {
+    reads += 1;
+    // The database first: building a snapshot syncs the run, and that sync
+    // writes any missing phases, which would hide a half-written admission.
+    for (const surface of await runlessSurfaces(db)) failures.push(`${surface.id} has no run`);
+    for (const run of await db.select().from(runs).where(ne(runs.id, PRACTICE_RUN_ID))) {
+      const phases = await db.select().from(runPhases).where(eq(runPhases.runId, run.id));
+      if (phases.length !== RUN_PHASES.length) failures.push(`${run.id} has ${phases.length} phases`);
+      const [surface] = await db.select().from(runSurfaces).where(eq(runSurfaces.id, run.surfaceId!));
+      if (!surface) failures.push(`${run.id} has no console`);
+    }
+    try {
+      await listTeamRunSurfaceSnapshots(env(binding, "fixture"), "team_test");
+    } catch (error) {
+      failures.push(String(error));
+    }
+  };
+  const paused = {
+    prepare(query: string) {
+      const statement = inner.prepare(query);
+      const outer = {
+        bind(...params: unknown[]) { statement.bind(...params); return outer; },
+        execute: () => statement.execute(),
+        run: async () => { const result = await statement.run(); await check(); return result; },
+        all: async () => { const result = await statement.all(); await check(); return result; },
+        raw: async () => { const result = await statement.raw(); await check(); return result; },
+      };
+      return outer;
+    },
+    async batch(statements: unknown[]) {
+      const result = await inner.batch(statements);
+      await check();
+      return result;
+    },
+  };
+
+  const started = await startPracticeRun(env(paused, "fixture"), actor, {
+    benchmarkId: BENCHMARK_ID, exactSha: "a".repeat(40),
+  });
+
+  assert.ok(reads > 3, `only ${reads} pauses`);
+  assert.deepEqual(failures, []);
+  const listed = await listTeamRunSurfaceSnapshots(env(binding, "fixture"), "team_test");
+  assert.ok(listed.some((snapshot) => snapshot.id === started.surfaceId));
+});
+
+test("concurrent replays of one rerun return the winner's run and keep its console", async () => {
+  const { db, binding } = freshDb();
+  await db.update(benchmarks).set({ active: false });
+  const actor = await seedPromotion(db);
+
+  const replays = await Promise.all([1, 2, 3].map(() => rerunHostedSurface(env(binding, "fixture"), actor, SURFACE_ID)));
+
+  const [first] = replays;
+  for (const replay of replays) assert.deepEqual(replay, first);
+  const successors = await db.select().from(runSurfaces).where(eq(runSurfaces.supersedesSurfaceId, SURFACE_ID));
+  assert.equal(successors.length, 1);
+  assert.equal(successors[0]!.id, first!.surfaceId);
+  assert.equal(successors[0]!.createdByUserId, actor.userId);
+  assert.deepEqual((await db.select().from(runs).where(eq(runs.surfaceId, first!.surfaceId))).map((run) => run.id), [first!.runId]);
+  assert.equal((await db.select().from(runPhases).where(eq(runPhases.runId, first!.runId))).length, RUN_PHASES.length);
+  // A later replay is the same answer, not a second run.
+  assert.deepEqual(await rerunHostedSurface(env(binding, "fixture"), actor, SURFACE_ID), first);
+  assert.deepEqual(await runlessSurfaces(db), []);
+});
+
+test("refused hosted verification leaves the local console and session exactly as they were", async () => {
+  const { db, binding } = freshDb();
+  await db.update(benchmarks).set({ active: false });
+  const actor = await seedPromotion(db);
+  await db.insert(cliDevices).values({
+    id: "device_1", userId: actor.userId, name: "laptop", tokenHash: "hash",
+    createdAt: 1, expiresAt: Date.now() + 86_400_000, lastUsedAt: null, revokedAt: null,
+  } as never);
+  await db.insert(localRunSessions).values({
+    id: "local_1",
+    teamId: "team_test",
+    userId: actor.userId,
+    deviceId: "device_1",
+    benchmarkId: BENCHMARK_ID,
+    benchmarkVersion: 1,
+    repositoryId: FIXTURE_REPO.repositoryId,
+    repositoryFullName: FIXTURE_REPO.fullName,
+    sha: "c".repeat(40),
+    branch: "main",
+    dirty: false,
+    status: "succeeded",
+    phase: "complete",
+    createdAt: 1,
+    updatedAt: 2,
+    lastEventSequence: 0,
+  } as never);
+  const localSurface = `surface_${"f".repeat(20)}`;
+  await emptySurface(db, localSurface, NOW + 10_000, "local_1");
+  for (let i = 1; i < 9; i++) await historyRun(db, `practice_${i}`);
+  const surfaceBefore = await db.select().from(runSurfaces).where(eq(runSurfaces.id, localSurface));
+  const sessionBefore = await db.select().from(localRunSessions);
+  const phasesBefore = await db.select().from(runPhases);
+  // The preflight count sees one slot left. The last success lands just before
+  // the admission batch, so the refusal comes from the SQL capacity guard.
+  const inner = binding as { prepare(query: string): unknown; batch(statements: unknown[]): Promise<unknown> };
+  let filled = false;
+  const racing = {
+    prepare: (query: string) => inner.prepare(query),
+    async batch(statements: unknown[]) {
+      if (!filled) {
+        filled = true;
+        await historyRun(db, "practice_9");
+      }
+      return inner.batch(statements);
+    },
+  };
+
+  await assert.rejects(
+    performRunSurfaceMutation(env(racing, "fixture"), actor, localSurface, "verify_hosted"),
+    (error: unknown) => error instanceof ApiHttpError && error.code === "quota_exhausted",
+  );
+
+  assert.ok(filled, "the refusal came from the preflight count, not the admission batch");
+  assert.deepEqual(await db.select().from(runSurfaces).where(eq(runSurfaces.id, localSurface)), surfaceBefore);
+  assert.deepEqual(await db.select().from(localRunSessions), sessionBefore);
+  assert.deepEqual(await db.select().from(runs).where(eq(runs.surfaceId, localSurface)), []);
+  assert.deepEqual(await db.select().from(runPhases), phasesBefore);
+  const listed = await listTeamRunSurfaceSnapshots(env(binding, "fixture"), "team_test");
+  assert.ok(listed.some((snapshot) => snapshot.id === localSurface), "the local console fell out of the list");
 });
