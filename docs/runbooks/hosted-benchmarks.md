@@ -172,8 +172,10 @@ accepted source, it exits 1 and says how many files are missing, extra or change
 
 **`modal.exception.ExecutionError: ... was modified during build process`.**
 A file changed while the image copied it, almost always `.pytest_cache`
-because tests were running. `BUILD_JUNK` in `modal_app.py` excludes the usual
-suspects; add the directory name there rather than deleting it by hand each time.
+because tests were running. `BUILD_JUNK` in
+`apps/runner-modal/src/cogworks_runner/source_tree.py` excludes the usual
+suspects, for the image copy and the release probe's manifests alike; add the
+directory name there rather than deleting it by hand each time.
 
 **`AttributeError: module 'modal' has no attribute 'runner'`.** `modal.runner`
 resolves through a lazy `__getattr__` with a curated name list that omits it;
