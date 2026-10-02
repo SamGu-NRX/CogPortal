@@ -724,9 +724,21 @@ function UnassignedRow({
   // Choosing a team only fills the field; Add commits. A select changes its
   // value on a typed letter in every browser, and on the arrow keys in some,
   // so assigning on change put a student on a team while a TA was still
-  // looking for the right one.
+  // looking for the right one. There is no form either: Chromium submits a
+  // form on Enter in its select, which assigned the team a type-ahead had
+  // just landed on.
   const [teamId, setTeamId] = useState("");
   const chosen = teams.find((option) => option.id === teamId);
+  const selectRef = useRef<HTMLSelectElement>(null);
+  const addRef = useRef<HTMLButtonElement>(null);
+  // A refetch can drop the chosen team. The field then shows "Choose a team…"
+  // again rather than whichever option happens to be first, and focus leaves
+  // Add before it becomes disabled.
+  useEffect(() => {
+    if (!teamId || chosen) return;
+    if (addRef.current === document.activeElement) selectRef.current?.focus();
+    setTeamId("");
+  }, [teamId, chosen]);
 
   return (
     <li data-unassigned className="flex flex-wrap items-center gap-x-4 gap-y-2 py-3">
@@ -738,23 +750,14 @@ function UnassignedRow({
           </span>
         )}
       </span>
-      <form
-        className="w-full sm:w-auto"
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (!chosen || add.isPending) return;
-          add.mutate(
-            { teamId: chosen.id, login: student.login },
-            { onSuccess: () => onAssigned(chosen.name) },
-          );
-        }}
-      >
+      <div className="w-full sm:w-auto">
         <span className="flex items-center gap-2">
           {/* aria-disabled while assigning, because a disabled select drops
               focus before the row it belongs to leaves the list. */}
           <select
+            ref={selectRef}
             aria-label={`Assign ${student.login} to a team`}
-            value={teamId}
+            value={chosen ? teamId : ""}
             disabled={teams.length === 0}
             aria-disabled={add.isPending || undefined}
             onChange={(e) => {
@@ -772,10 +775,18 @@ function UnassignedRow({
             ))}
           </select>
           <Button
-            type="submit"
+            ref={addRef}
+            type="button"
             variant="ghost"
             busy={add.isPending}
             disabled={!chosen}
+            onClick={() => {
+              if (!chosen || add.isPending) return;
+              add.mutate(
+                { teamId: chosen.id, login: student.login },
+                { onSuccess: () => onAssigned(chosen.name) },
+              );
+            }}
             aria-label={chosen ? `Add ${student.login} to ${chosen.name}` : undefined}
           >
             Add
@@ -788,7 +799,7 @@ function UnassignedRow({
               : "That assignment didn't go through. Try Add again."}
           </span>
         )}
-      </form>
+      </div>
     </li>
   );
 }

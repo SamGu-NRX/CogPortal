@@ -97,7 +97,7 @@ async function mount(t: TestContext, unassigned: string[], addGate: Promise<void
       await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
     }
   };
-  return { window, container, settle, requests };
+  return { window, container, settle, requests, client };
 }
 
 /** Picks a team the way the browser does, keyboard or pointer: the select's
@@ -112,7 +112,7 @@ async function choose(window: Window, select: HTMLSelectElement, teamName: strin
 }
 
 function addButtonFor(select: HTMLSelectElement): HTMLButtonElement {
-  const button = select.closest("form")?.querySelector<HTMLButtonElement>('button[type="submit"]');
+  const button = select.closest("li")?.querySelector<HTMLButtonElement>("button");
   assert.ok(button, "the row's Add button");
   return button;
 }
@@ -157,6 +157,22 @@ test("choosing a team, by keyboard or pointer, assigns nobody until Add is press
   assert.equal(select.isConnected, false);
 });
 
+test("Enter in the select assigns nobody, because the row has no form to submit", async (t) => {
+  const { window, container, settle, requests } = await mount(t, ["typing"]);
+  const select = container.querySelector<HTMLSelectElement>('select[aria-label="Assign typing to a team"]');
+  assert.ok(select);
+  // Chromium submits a form on Enter in a select; a type-ahead to "T" then
+  // Enter assigned Team A before this change.
+  assert.equal(select.closest("form"), null);
+  await choose(window, select, "Team A");
+  await act(async () => {
+    select.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  });
+  await settle();
+  assert.deepEqual(requests.filter((line) => line.startsWith("POST")), []);
+  assert.equal(select.isConnected, true);
+});
+
 test("assigning a student moves focus to the row that takes its place, then to the line saying who was added", async (t) => {
   const { window, container, settle } = await mount(t, ["first", "second", "third"]);
   const selectFor = (login: string) => container.querySelector<HTMLSelectElement>(`select[aria-label="Assign ${login} to a team"]`);
@@ -187,7 +203,7 @@ test("assigning a student moves focus to the row that takes its place, then to t
 test("the row stays focusable while its assignment is pending", async (t) => {
   let release!: () => void;
   const gate = new Promise<void>((resolve) => { release = resolve; });
-  const { window, container, settle } = await mount(t, ["only"], gate);
+  const { window, container, settle, requests } = await mount(t, ["only"], gate);
   const select = container.querySelector<HTMLSelectElement>('select[aria-label="Assign only to a team"]');
   assert.ok(select);
   try {
@@ -204,12 +220,32 @@ test("the row stays focusable while its assignment is pending", async (t) => {
     assertFocused(window.document.activeElement, button, "while pending");
     // A second press while pending sends nothing more.
     await act(async () => { button.click(); });
+    assert.deepEqual(requests.filter((line) => line.startsWith("POST")), ["POST /api/admin/teams/team_a/members"]);
   } finally {
     // A failed assertion must not leave the request waiting forever.
     release();
     await settle();
   }
   assert.equal(window.document.activeElement?.getAttribute("role"), "status");
+  assert.deepEqual(requests.filter((line) => line.startsWith("POST")), ["POST /api/admin/teams/team_a/members"], "still one request after it landed");
+});
+
+test("a refetch that drops the chosen team clears the choice and keeps focus off the disabled Add", async (t) => {
+  const { window, container, settle, requests, client } = await mount(t, ["waiting"]);
+  const select = container.querySelector<HTMLSelectElement>('select[aria-label="Assign waiting to a team"]');
+  assert.ok(select);
+  await choose(window, select, "Team B");
+  const button = addButtonFor(select);
+  button.focus();
+  await act(async () => {
+    client.setQueryData<AdminOverview>(["admin", "overview"], (current) =>
+      current ? { ...current, teams: current.teams.filter((entry) => entry.id !== "team_b") } : current);
+  });
+  await settle();
+  assert.equal(select.value, "", "the field says Choose a team… again, not the first remaining team");
+  assert.equal(button.disabled, true);
+  assertFocused(window.document.activeElement, select, "focus moved off Add before it was disabled");
+  assert.deepEqual(requests.filter((line) => line.startsWith("POST")), []);
 });
 
 test("a login form keeps focus in its field after the login is added", async (t) => {

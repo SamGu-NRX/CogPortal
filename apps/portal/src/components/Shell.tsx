@@ -5,6 +5,7 @@ import { AccountSlot, Concealed } from "@/components/RestoreGate";
 import { UserMenu } from "@/components/UserMenu";
 import { useSession } from "@/lib/queries";
 import { canOpenAdmin } from "@/lib/roles";
+import { useRouteFocusAndTitle } from "@/lib/route-focus";
 
 export function Wordmark() {
   return (
@@ -93,6 +94,8 @@ export function Shell() {
   // to create one they don't need.
   const onboarding = Boolean(session?.user && !team && !isStaff);
   const header = useHeaderOffset();
+  const main = useRef<HTMLElement>(null);
+  useRouteFocusAndTitle(main, header);
 
   const tabs = (
     <>
@@ -174,7 +177,7 @@ export function Shell() {
         </nav>
       </header>
 
-      <main id="main" className="u-gutter mx-auto flex w-full max-w-[70rem] flex-1 flex-col">
+      <main ref={main} id="main" className="u-gutter mx-auto flex w-full max-w-[70rem] flex-1 flex-col">
         <Outlet />
       </main>
 
