@@ -730,13 +730,14 @@ function UnassignedRow({
   const [teamId, setTeamId] = useState("");
   const chosen = teams.find((option) => option.id === teamId);
   const selectRef = useRef<HTMLSelectElement>(null);
-  const addRef = useRef<HTMLButtonElement>(null);
+  const controlsRef = useRef<HTMLDivElement>(null);
   // A refetch can drop the chosen team. The field then shows "Choose a team…"
   // again rather than whichever option happens to be first, and focus leaves
   // Add before it becomes disabled.
   useEffect(() => {
     if (!teamId || chosen) return;
-    if (addRef.current === document.activeElement) selectRef.current?.focus();
+    const active = document.activeElement;
+    if (active !== selectRef.current && controlsRef.current?.contains(active)) selectRef.current?.focus();
     setTeamId("");
   }, [teamId, chosen]);
 
@@ -750,7 +751,7 @@ function UnassignedRow({
           </span>
         )}
       </span>
-      <div className="w-full sm:w-auto">
+      <div ref={controlsRef} className="w-full sm:w-auto">
         <span className="flex items-center gap-2">
           {/* aria-disabled while assigning, because a disabled select drops
               focus before the row it belongs to leaves the list. */}
@@ -775,7 +776,6 @@ function UnassignedRow({
             ))}
           </select>
           <Button
-            ref={addRef}
             type="button"
             variant="ghost"
             busy={add.isPending}
