@@ -105,7 +105,7 @@ export function Landing() {
           <Step n={3} title="Practice on your machine">
             <p>
               <code className="font-mono text-[13px] text-ink">cogworks run</code>{" "}
-              uses the hosted scorer, as often as you like.
+              scores your code on the public practice set, as often as you like.
             </p>
           </Step>
 
