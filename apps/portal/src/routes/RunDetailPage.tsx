@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FocusEventHandler, type ReactNode } from "react";
 import { ArrowLeft01Icon, ArrowRight01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { skipToken, useQuery } from "@tanstack/react-query";
@@ -27,6 +27,7 @@ import { PhaseRail } from "@/components/PhaseRail";
 import { ShaChip } from "@/components/ShaChip";
 import { SimulatedChip } from "@/components/SimulatedChip";
 import { StatusChip } from "@/components/StatusChip";
+import { useFocusFallback } from "@/lib/focus";
 import { formatDateTime, formatDurationMs, runNumberLabel } from "@/lib/format";
 import {
   DEFAULT_BENCHMARK,
@@ -357,6 +358,8 @@ function Section({
   note,
   aside,
   first = false,
+  onFocus,
+  onBlur,
   children,
 }: {
   title: string;
@@ -364,10 +367,12 @@ function Section({
   aside?: ReactNode;
   /** Directly under the masthead, where a rule would separate nothing. */
   first?: boolean;
+  onFocus?: FocusEventHandler;
+  onBlur?: FocusEventHandler;
   children: ReactNode;
 }) {
   return (
-    <section className={first ? "mt-10" : "mt-12 border-t border-rule pt-6"}>
+    <section className={first ? "mt-10" : "mt-12 border-t border-rule pt-6"} onFocus={onFocus} onBlur={onBlur}>
       {/* The title stays above the note, so on a phone (where the note
           stacks over its work) a reader still meets the section's name
           first. */}
@@ -776,8 +781,12 @@ function PromoteSection({
 
 function PublishSection({ run }: { run: RunDetail }) {
   const select = useSelectResult();
+  // Publishing replaces the focused confirm with the sentence below; its
+  // leaderboard link is where a keyboard user goes next.
+  const leaderboardRef = useRef<HTMLAnchorElement>(null);
+  const keepFocus = useFocusFallback(() => leaderboardRef.current);
   return (
-    <Section title={run.selected ? "Published" : "Publish"}>
+    <Section title={run.selected ? "Published" : "Publish"} {...keepFocus}>
       {run.selected ? (
         <p className="flex max-w-[60ch] items-baseline gap-2 text-[14.5px] leading-[1.55] text-ink">
           <HugeiconsIcon
@@ -789,7 +798,7 @@ function PublishSection({ run }: { run: RunDetail }) {
           />
           <span>
             This result is your team's public entry.{" "}
-            <Link to={`/leaderboard?benchmark=${encodeURIComponent(run.benchmarkId)}`} className="u-link">
+            <Link ref={leaderboardRef} to={`/leaderboard?benchmark=${encodeURIComponent(run.benchmarkId)}`} className="u-link">
               See it on the leaderboard.
             </Link>
           </span>

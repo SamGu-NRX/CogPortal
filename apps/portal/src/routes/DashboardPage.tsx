@@ -24,6 +24,7 @@ import { StatusChip } from "@/components/StatusChip";
 import { TrackSwitcher, trackTabId } from "@/components/TrackSwitcher";
 import { ApiRequestError } from "@/lib/api";
 import { formatMetricValue, formatTimeAgo, runNumberLabel } from "@/lib/format";
+import { useFocusFallback } from "@/lib/focus";
 import { EASE_OUT } from "@/lib/motion";
 import {
   useBenchmarks,
@@ -193,6 +194,13 @@ function Bench({ d, finishedHere }: { d: Dashboard; finishedHere: string | null 
   const untracked = untrackedReports.data ?? [];
   const reportsFailed = localReports.isError || untrackedReports.isError;
 
+  // Starting, promoting or finishing a run replaces the control that held
+  // focus (the launcher, the promote confirm, the live card), which drops a
+  // keyboard user at the top of the page. Focus goes to the lead run's title
+  // instead.
+  const benchRef = useRef<HTMLDivElement>(null);
+  const keepFocus = useFocusFallback(() => benchRef.current?.querySelector<HTMLElement>("[data-lead-title]"));
+
   const announcement = active
     ? `${runTitle(active)} is ${STATUS_LABELS[active.status].toLowerCase()}`
     : lead && lead.id === finishedHere
@@ -200,7 +208,7 @@ function Bench({ d, finishedHere }: { d: Dashboard; finishedHere: string | null 
       : "";
 
   return (
-    <div className="mt-10 space-y-14">
+    <div ref={benchRef} className="mt-10 space-y-14" {...keepFocus}>
       {/* Status changes announce themselves; polling stays silent. This sits
           outside the lead card so the finish is heard even though the live
           card is replaced at that moment. */}
@@ -343,7 +351,11 @@ function LeadRun({
         <StatusChip status={run.status} />
       </div>
       <h2 id={headingId} className="mt-2 text-[clamp(1.375rem,1.2rem+0.8vw,1.75rem)]">
-        <Link to={`/runs/${run.id}`} className="decoration-rule-strong underline-offset-4 hover:underline">
+        <Link
+          to={`/runs/${run.id}`}
+          data-lead-title
+          className="decoration-rule-strong underline-offset-4 hover:underline"
+        >
           {runTitle(run)}
         </Link>
       </h2>

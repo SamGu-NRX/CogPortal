@@ -4,7 +4,7 @@ import * as React from "react";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import { StaticRouter } from "react-router";
+import { MemoryRouter, StaticRouter } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Window } from "happy-dom";
 import { MotionConfig } from "motion/react";
@@ -298,4 +298,121 @@ test("the finished-run highlighter starts fully drawn under reduced motion", () 
 
   assert.match(stroke("always"), /transform:scaleX\(1\)/);
   assert.match(stroke("never"), /transform:scaleX\(0\)/);
+});
+
+
+/** Identity, reported by tag and text: assert.equal on two DOM nodes formats
+ *  both whole graphs on failure, which can stall the runner. */
+function assertFocused(actual: Element | null | undefined, expected: Element | null | undefined, message: string) {
+  const describe = (node: Element | null | undefined) => (node ? `${node.tagName} "${node.textContent?.trim().slice(0, 40)}"` : String(node));
+  assert.ok(actual === expected, `${message}: focus is on ${describe(actual)}, expected ${describe(expected)}`);
+}
+
+/* ── Focus when the lead run changes under it ─────────────────────────── */
+
+async function mountDashboard(t: TestContext, first: Dashboard) {
+  const window = new Window({ url: "https://portal.example/dashboard" });
+  const globals = {
+    window, document: window.document, navigator: window.navigator,
+    HTMLElement: window.HTMLElement, Element: window.Element,
+    React, IS_REACT_ACT_ENVIRONMENT: true,
+    // A live run polls the dashboard; the test drives every answer through
+    // the cache instead, so a poll fails at once and the data stays.
+    fetch: async () => { throw new Error("no network in this test"); },
+  };
+  const previous = new Map(Object.keys(globals).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+  for (const [key, value] of Object.entries(globals)) {
+    Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
+  }
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity, gcTime: Infinity } } });
+  client.setQueryData(["session"], { auth: { executionProvider: "fixture" } });
+  client.setQueryData(["benchmarks"], [LANGUAGE]);
+  client.setQueryData(["dashboard", LANGUAGE.id], first);
+  client.setQueryData(["local-reports", LANGUAGE.id], []);
+  client.setQueryData(["untracked-local-reports"], []);
+  client.setQueryData(["repositories"], []);
+  const container = window.document.createElement("div");
+  window.document.body.append(container);
+  // SAFETY: Happy DOM implements the Element operations React DOM uses here.
+  const root = createRoot(container as unknown as Element);
+  t.after(async () => {
+    await act(async () => root.unmount());
+    client.clear();
+    await window.happyDOM.close();
+    for (const [key, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else Reflect.deleteProperty(globalThis, key);
+    }
+  });
+  await act(async () => root.render(
+    React.createElement(QueryClientProvider, { client },
+      React.createElement(MemoryRouter, { initialEntries: ["/dashboard"] }, React.createElement(DashboardPage))),
+  ));
+  // The query cache tells its observers on a zero-delay timer, so the
+  // re-render lands only after a macrotask.
+  const replace = (next: Dashboard) => act(async () => {
+    client.setQueryData(["dashboard", LANGUAGE.id], next);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  return { window, container, replace };
+}
+
+const buttonOrLink = (container: HTMLElement, name: string) => {
+  const found = [...container.querySelectorAll("button, a")].find((node) => node.textContent?.trim() === name);
+  assert.ok(found, `nothing named ${name}`);
+  return found as HTMLElement;
+};
+
+test("starting, finishing and promoting a run keep focus on the lead run instead of the page", async (t) => {
+  const done = run({ id: "run_0000000010" });
+  const { window, container, replace } = await mountDashboard(t, dashboard([done]));
+  const leadTitle = () => container.querySelector<HTMLElement>("[data-lead-title]");
+
+  // The launcher's button goes when the run it started becomes the live lead.
+  buttonOrLink(container, "Run practice benchmark").focus();
+  const live = run({ id: "run_0000000011", status: "evaluating", finishedAt: null, primaryMetric: null });
+  await replace(dashboard([live, done], { activeRun: live }));
+  assertFocused(window.document.activeElement, leadTitle(), "focus");
+  assert.equal(leadTitle()?.textContent, "Practice run on main");
+
+  // The live card is replaced by the finished one.
+  buttonOrLink(container, "Open the run").focus();
+  const finished = { ...live, status: "succeeded" as const, finishedAt: Date.now(), primaryMetric: done.primaryMetric };
+  await replace(dashboard([finished, done], { latestCandidate: { ...finished, sourceRefusal: null, promotedTo: null } }));
+  assertFocused(window.document.activeElement, leadTitle(), "focus");
+
+  // Promotion's confirm goes when the official attempt it started leads.
+  buttonOrLink(container, "Promote to official").click();
+  await act(async () => {});
+  const confirm = [...container.querySelectorAll("button")].find((node) => /^Confirm, uses attempt 1/.test(node.textContent ?? ""));
+  assert.ok(confirm);
+  confirm.focus();
+  const official = run({ id: "run_0000000012", mode: "official", attemptNumber: 1, status: "queued", finishedAt: null, primaryMetric: null });
+  await replace(dashboard([official, finished, done], { activeRun: official }));
+  assertFocused(window.document.activeElement, leadTitle(), "focus");
+  assert.equal(leadTitle()?.textContent, "Official attempt #1 on main");
+});
+
+test("a launcher removed after focus already left it doesn't pull focus back", async (t) => {
+  const done = run({ id: "run_0000000030" });
+  const { window, container, replace } = await mountDashboard(t, dashboard([done]));
+  const launch = buttonOrLink(container, "Run practice benchmark");
+  launch.focus();
+  // A click on plain text, or a run started from the CLI while reading elsewhere.
+  await act(async () => { launch.blur(); });
+  const live = run({ id: "run_0000000031", status: "evaluating", finishedAt: null, primaryMetric: null });
+  await replace(dashboard([live, done], { activeRun: live }));
+  assert.equal(launch.isConnected, false);
+  assertFocused(window.document.activeElement, window.document.body, "focus the student moved away stays away");
+});
+
+test("a lead run that changes doesn't take focus from a control that is still there", async (t) => {
+  const done = run({ id: "run_0000000020" });
+  const { window, container, replace } = await mountDashboard(t, dashboard([done]));
+  const row = container.querySelector<HTMLElement>('[aria-labelledby="history-heading"] a[href="/runs/run_0000000020"]');
+  assert.ok(row);
+  row.focus();
+  const live = run({ id: "run_0000000021", status: "evaluating", finishedAt: null, primaryMetric: null });
+  await replace(dashboard([live, done], { activeRun: live }));
+  assertFocused(window.document.activeElement, row, "focus");
 });
