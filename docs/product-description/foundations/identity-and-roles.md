@@ -152,5 +152,6 @@ A gate ends by rendering the child or replacing the URL. A returning tab ends on
 - Whether expired `device_authorizations` rows are ever deleted was not established.
 - The restore gate's reload on a changed account was tested in `apps/portal/test/restored-document.test.ts`; it was not observed in a browser at `2ff32fa`. Needs a two-account back/forward pass.
 - Hosted beta (`4984730`) differs: its header has only "Dashboard" and "Leaderboard" links and keeps Setup and Admin in the account menu (beta `apps/portal/src/components/Shell.tsx:54-55` against candidate `Shell.tsx:57-70`), and Revoke and Unlink fire on one press (beta `apps/portal/src/routes/ConnectionsPage.tsx:228-233`, `:275-280` against candidate `ConnectionsPage.tsx:258-264`, `:323-329`).
+- Local `17d26d9` differs: staff and TAs with no team land on `/admin`, and a team-gated page such as Connections sends them there too (`App.tsx:37-43`, `:79-89` at `17d26d9`). Observed on the local fixture build: `/signin`, `/dashboard` and `/setup` settled on `/admin`. A pending device link arrived there under "Your device link is on hold" and was not approved ([checkpoint](../verification/checkpoint-17d26d9.md)). Connections still needs a team, so linking Discord or a device still means joining one.
 
 Read against Cog\*Portal commit `2ff32fa`.

@@ -10,6 +10,7 @@ The feature documents were written from the code and the tests. This directory i
 | [terminal.md](terminal.md) | `terminal/*` |
 | [discord.md](discord.md) | `discord/*` |
 | [sandbox.md](sandbox.md) | `sandbox/*`, `cross-cutting/*`, and the `foundations/*` claims that are observable |
+| [checkpoint-17d26d9.md](checkpoint-17d26d9.md) | What was observed on the accepted beta `17d26d9` locally, kept apart from the rows above |
 
 Each file has one table per document. Each row is an item with a stable ID (`STATUS-04`, `RUNPAGE-12`), a priority, what it needs, the claim with a link to the document section, the setup, numbered steps, the expected result, and a Result column for the tester. Items that cannot be checked by hand are listed under each document as "Not checkable by hand".
 
@@ -76,6 +77,8 @@ No document is `verified`; each still has P1 or P2 items behind one of the gaps 
 ## Evidence gaps
 
 Covered since the last revision, on deployed `ed2b194`: a fresh hosted Language run (`run_d11b5e5e2e`, succeeded, 9 cases, 19 metrics, 15 m 38 s, of which Install was 7 m 37 s with progress shown throughout), and the current CLI's `check --update-setup`, `run` and `sync` with Setup reaching 5/5. The CLI pass reused local source equal to the `b6bbffb` pin and needed course packages added by hand, so it does not prove a fresh setup from the page's lines alone.
+
+Observed locally on `17d26d9` with the fixture provider, and recorded in [checkpoint-17d26d9.md](checkpoint-17d26d9.md) rather than in the rows: publication refused for a synthetic partial Language result (B-50), teamless staff routed to `/admin` (B-48), the staff roster note and empty TA workspace (B-66), the Connections grant copy (B-49), and a real CLI link, approval and revocation. None of it closes a gap below, which names `ed2b194` or a hosted run.
 
 What still blocks `verified`, with what each needs. The release owner decides which of these matter for a given delivery.
 

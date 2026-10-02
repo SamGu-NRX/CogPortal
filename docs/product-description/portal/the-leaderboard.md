@@ -160,5 +160,6 @@ The page states the rule in its footer, "vision-overall / v1. All three componen
 - Whether readers take score order without ranks as a ranking was not observed.
 - No hosted board was observed. The fixture screenshots show signed-out rendering and the empty state, not a populated multi-team board or the details table.
 - Hosted beta (`4984730`) differs: its page draws a rank column with the first rank in detector red, a tinted row and a `YOU` tag (beta `apps/portal/src/routes/LeaderboardPage.tsx:344`, `:355`, `:358`, `:369`), where the candidate has no ranks and a "Your team" mark (`LeaderboardPage.tsx:193`, `:375`). The server read model is the same on both.
+- Local `17d26d9` differs: the board ranks the catalog's `primary_metric_key` and leaves out a selection that lacks it (`leaderboard.ts:76-81` at `17d26d9`). On the local fixture build, a signed-out read returned `200` without the entry of a team whose selected run had its `overall` removed ([checkpoint](../verification/checkpoint-17d26d9.md)). The partial result was synthetic.
 
 Read against Cog\*Portal commit `2ff32fa`. Local fixture observations are named where used.

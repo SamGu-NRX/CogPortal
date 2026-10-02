@@ -43,8 +43,8 @@ In order of user-visible impact on the deployed build. B-13 and B-14 (repaired o
 1. **Make an evaluation failure say only what the runner knows, and carry where it happened (B-45, B-46, B-11).** Today a platform crash reads "Your code raised an exception" with one line, no location and no log, and Retry is a page away, on a console that names the failure differently. This is what made B-44 cost an afternoon. `apps/runner-modal/src/cogworks_runner/modal_app.py:941`, `:1740`, `:2005-2038`, `:2318-2327`; `packages/contracts/src/failures.ts:87-96`; `apps/portal/worker/routes/runner-events.ts:247-260`; `apps/portal/src/routes/RunDetailPage.tsx:96-123`. Product call on the wording; fix for the detail.
 2. **Make the Discord consent state what the link authorizes (B-49).** `apps/portal/src/routes/ConnectionsPage.tsx:84`, `:111` say Cog can't start an official evaluation; `apps/discord-bot/src/commands.ts:557-571` and `apps/portal/worker/rpc.ts:94-102` let `/cog` promote and publish. A trust-language break on a consent screen, on every build.
 3. **Stop retrying a channel that answers 403 (B-55).** A finite follow-up, not a new retry framework: record the refusal and stop that surface's delivery. `apps/portal/worker/realtime/run-surface-hub.ts:163-176`; `apps/portal/worker/services/discord-messages.ts:278`, `:292-297`.
-4. **One board, one measure (B-50).** A withheld Language run would be ranked by `text_mrr` among other teams' `overall`. `apps/portal/worker/services/leaderboard.ts:78`, `:108-112`. Product call. Evidence gap: the live run was fully bound, so a withheld run on `ed2b194` is still needed to observe it.
-5. **Send staff without a team to `/admin` (B-48).** `apps/portal/src/App.tsx:34-38`, `:129-136`; `apps/portal/src/components/UserMenu.tsx:218-221`. The first thing every instructor and TA meets. Read from code; persistent instructor writes are still unobserved.
+4. **One board, one measure (B-50).** A withheld Language run would be ranked by `text_mrr` among other teams' `overall`. `apps/portal/worker/services/leaderboard.ts:78`, `:108-112`. Product call. Evidence gap: the live run was fully bound, so a withheld run on `ed2b194` is still needed to observe it. Local `17d26d9` refuses publication of a run without the ranked measure; seen with a synthetic partial result ([checkpoint](verification/checkpoint-17d26d9.md)).
+5. **Send staff without a team to `/admin` (B-48).** `apps/portal/src/App.tsx:34-38`, `:129-136`; `apps/portal/src/components/UserMenu.tsx:218-221`. The first thing every instructor and TA meets. Read from code; persistent instructor writes are still unobserved. Local `17d26d9` routes them to `/admin`; seen on the local fixture build ([checkpoint](verification/checkpoint-17d26d9.md)).
 
 Remaining evidence gaps, with commands, are in [`verification/README.md`](verification/README.md#evidence-gaps): a withheld Language run, hosted Audio and Clustering, official promotion and publication, a fresh setup from the page's lines alone, the deployed lost-heartbeat repair, instructor writes, Discord and the Activity, and physical phones.
 
@@ -59,7 +59,7 @@ Remaining evidence gaps, with commands, are in [`verification/README.md`](verifi
 | B-44 | A Week 2 recognition run crashes when a describe step returns None for a faceless photo | high | fixed on deployed `ed2b194`; open in `2ff32fa` source | fixed | fixed (`468655c`) | sandbox, terminal | fix |
 | B-45 | Every evaluation failure is told as "Your code raised an exception", including the platform's own | high | open, assigned for repair | same | as candidate | sandbox, portal | product call |
 | B-47 | The candidate's setup page installs a CLI older than the candidate, whose link consent says scores are never sent | high | fixed on deployed `ed2b194`; open in `2ff32fa` source | fixed | fixed (pin `b6bbffb`) | portal, terminal | fix |
-| B-49 | The Discord consent copy says Cog cannot start an official evaluation; `/cog` can | high | open, assigned for repair | same | as candidate | portal, discord | product call |
+| B-49 | The Discord consent copy says Cog cannot start an official evaluation; `/cog` can | high | open in `2ff32fa`; Connections copy changed in `17d26d9`, seen locally | same | as candidate | portal, discord | product call |
 | B-02 | Linking a device before joining a team leaves the terminal polling silently | medium | open | same | as candidate | terminal, portal | fix |
 | B-04 | The "supplied" disclosure never reaches the hosted run page | medium | open | same | as candidate | sandbox, portal | product call |
 | B-14 | A caller-specific GitHub failure is cached as the team's history for thirty minutes | medium | open, repaired on `cbd8266`, not deployed | differs: guards cache write | cache write guarded (`610e04a`) | portal | fix |
@@ -73,8 +73,8 @@ Remaining evidence gaps, with commands, are in [`verification/README.md`](verifi
 | B-28 | The connections page polls forever while no device is linked | medium | open | same | as candidate | portal | fix |
 | B-29 | A member added from the team page or the admin console gets write access the portal never checked | medium | open | same | as candidate | portal | fix |
 | B-46 | A failed hosted run carries one line: no exception class, no location, no log, none of the team's prints | medium | open, assigned for repair | same | as candidate | sandbox, portal | fix |
-| B-48 | Staff without a team are routed into student onboarding and cannot reach Connections | medium | open, assigned for repair | same | as candidate | portal | fix |
-| B-50 | The leaderboard and team pages rank runs with different primary metrics together | medium | open, measure under investigation | differs: no list heading | as candidate | portal, discord | product call |
+| B-48 | Staff without a team are routed into student onboarding and cannot reach Connections | medium | open in `2ff32fa`; routing fixed in `17d26d9`, seen locally | same | as candidate | portal | fix |
+| B-50 | The leaderboard and team pages rank runs with different primary metrics together | medium | open in `2ff32fa`; publication refused in `17d26d9`, seen locally | differs: no list heading | as candidate | portal, discord | product call |
 | B-51 | Team pages call a result public while the leaderboard hides it, and its attempts stay spent | medium | open | not checked | as candidate | portal | fix |
 | B-52 | A board resolves `?benchmark=` to the highest version even when it is inactive | medium | open | same | as candidate | portal | fix |
 | B-53 | The admin page says "No hosted runs yet" for a team whose every run failed | medium | open | same | as candidate | portal | fix |
@@ -89,7 +89,7 @@ Remaining evidence gaps, with commands, are in [`verification/README.md`](verifi
 | B-62 | The E-OUTPUT card promises checks that do not run | medium | open | same | as candidate | sandbox, portal | fix |
 | B-64 | Discord and the console put a student's login beside a score | medium | open | same | as candidate | discord, portal | product call |
 | B-65 | A team creator with only GitHub write access loses settings on first save, which can leave the team with no admin | medium | open | same | as candidate | portal | product call |
-| B-66 | The staff roster promises a co-instructor "the same view"; they get an empty TA workspace | medium | open | differs: no promise copy | as candidate | portal | fix |
+| B-66 | The staff roster promises a co-instructor "the same view"; they get an empty TA workspace | medium | open in `2ff32fa`; copy fixed in `17d26d9`, seen locally | differs: no promise copy | as candidate | portal | fix |
 | B-68 | A clean Language run opens by saying the scorer wrote no finding | medium | open, producer repair active elsewhere | differs: says it below the metrics | confirmed live, `run_d11b5e5e2e` | portal, sandbox | product call |
 | B-03 | Two gates disagree about which team members Discord serves | low | latent | same | as candidate | discord | fix |
 | B-09b | Hosted practice confirmations say every run uses quota; only completed runs do | low | narrowed | same | as candidate | discord, portal | fix |
@@ -217,6 +217,7 @@ Remaining evidence gaps, with commands, are in [`verification/README.md`](verifi
 - **Decision needed:** `product call`. Say that Discord can promote and publish, or remove those actions from Discord.
 - **Raised by:** [`discord/commands.md`](discord/commands.md#open-questions-and-verification)
 - **Status:** open; code read at `2ff32fa`. Same on beta (beta `ConnectionsPage.tsx:71`, `:95`). The release owner has assigned the repair; nothing has changed in source yet.
+- **Status, local `17d26d9` (2026-10-02):** the Connections copy now states the grant (`ConnectionsPage.tsx:113`, `:251` at `17d26d9`). On the local fixture build the page read "Cog can start and retry hosted runs, spend official attempts and publish to the public leaderboard as you." Not observed: the Discord link confirmation panel, and `/cog` promoting or publishing ([checkpoint](verification/checkpoint-17d26d9.md)).
 
 ## Medium
 
@@ -364,6 +365,7 @@ Remaining evidence gaps, with commands, are in [`verification/README.md`](verifi
 - **Decision needed:** `fix`.
 - **Raised by:** [`portal/sign-in.md`](portal/sign-in.md#open-questions-and-verification), [`foundations/identity-and-roles.md`](foundations/identity-and-roles.md#open-questions-and-verification), [`portal/join-or-make-a-team.md`](portal/join-or-make-a-team.md#open-questions-and-verification)
 - **Status:** open; code read at `2ff32fa`. Beta's `App.tsx` is identical, so the routing is the same there. The release owner has assigned the repair; nothing has changed in source yet.
+- **Status, local `17d26d9` (2026-10-02):** routing fixed in source (`App.tsx:37-43`). On the local fixture build a synthetic teamless staff login opening `/signin`, `/dashboard` and `/setup` settled on `/admin`. A pending device link was held there with an explanation and not approved. Not observed: the account menu's wording, and linking Discord while on no team. Connections still needs a team ([checkpoint](verification/checkpoint-17d26d9.md)).
 
 ### B-50: The leaderboard and team pages rank runs with different primary metrics together
 
@@ -375,6 +377,7 @@ Remaining evidence gaps, with commands, are in [`verification/README.md`](verifi
 - **Decision needed:** `product call`.
 - **Raised by:** [`portal/the-leaderboard.md`](portal/the-leaderboard.md#open-questions-and-verification), [`portal/promote-to-the-leaderboard.md`](portal/promote-to-the-leaderboard.md#open-questions-and-verification), [`sandbox/scoring-and-refusals.md`](sandbox/scoring-and-refusals.md#open-questions-and-verification), [`foundations/what-the-portal-claims.md`](foundations/what-the-portal-claims.md#open-questions-and-verification)
 - **Status:** open; code read at `2ff32fa`. Board and bubble same on beta; beta's run list has no column heading. The release owner is investigating which measure each board ranks by; nothing has changed in source yet.
+- **Status, local `17d26d9` (2026-10-02):** the product call is made in source. Publication, the board and team best use the catalog's `primary_metric_key`, and a run without it cannot be published (`run-eligibility.ts:154-168` at `17d26d9`). On the local fixture build, an official run with only its `overall` row removed showed the refusal sentence in place of Publish. The API answered `409 not_selectable` and a signed-out board omitted the team ([checkpoint](verification/checkpoint-17d26d9.md)). The lead reports the stored selection was unchanged; the saved result does not record that. The partial result was synthetic. Not observed: the Runs list heading, Discord's team best, and a benchmark-produced withheld run.
 
 ### B-51: Team pages call a result public while the leaderboard hides it, and its attempts stay spent
 
@@ -540,6 +543,7 @@ Remaining evidence gaps, with commands, are in [`verification/README.md`](verifi
 - **Decision needed:** `fix`.
 - **Raised by:** [`portal/admin.md`](portal/admin.md#open-questions-and-verification)
 - **Status:** open. Roster copy visible in local fixture `pairs/b-admin-active-desk.png`; the empty workspace is read from code. Beta has the roster without the "same view" sentence.
+- **Status, local `17d26d9` (2026-10-02):** the roster note reads "Staff see only the teams assigned to them." (`AdminPage.tsx:827-828` at `17d26d9`). On the local fixture build a staff login added there saw the TA workspace with "No teams assigned to you yet.", which the note now predicts ([checkpoint](verification/checkpoint-17d26d9.md)).
 
 ### B-68: A clean Language run opens by saying the scorer wrote no finding
 

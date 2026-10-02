@@ -160,5 +160,6 @@ Discovery reaches one of five conclusions about a repository, plus the refusal a
 - The Discord 300-character cut is tested only by a tautology (`apps/discord-bot/test/refusal-message.test.ts:16`). [B-38](../bug-triage.md).
 - Floors render without an arrow: observed locally on fixture data at `2ff32fa` (`final-2ff32fa/result-detail.txt`: "Retrieval MRR / floor 0.010 / 0.212 / higher is better", the direction belonging to the score). A withheld run's orphan floors were not observed.
 - **Hosted beta (`4984730`) differs:** beta's Runs list has no reading-column heading, so the "Overall" mislabel is candidate-only (beta `apps/portal/src/components/RunList.tsx:31` against `2ff32fa` `RunList.tsx:40`), and beta keeps the per-item `None` fix that `2ff32fa` lacks (beta `468655c`, `python/cogbench/src/cogbench/pipeline.py:834` on `2ff32fa`).
+- Local `17d26d9` differs on the withheld primary: publication and the board use the catalog's ranked measure, and a run without it is refused. That refusal was observed on the local fixture build with a synthetic partial result ([checkpoint](../verification/checkpoint-17d26d9.md)). The Runs list heading and Discord's team best changed in `17d26d9` source and were not observed. The per-person login on the console (`RunConsole.tsx:357` at `17d26d9`) is unchanged.
 
 Read against Cog\*Portal commit `2ff32fa`.
