@@ -25,6 +25,7 @@ function team(id: string, name: string): AdminTeamSummary {
 }
 
 async function mount(t: TestContext, unassigned: string[], addGate: Promise<void> = Promise.resolve()) {
+  const requests: string[] = [];
   const window = new Window({ url: "https://portal.example/admin" });
   let overview: AdminOverview = {
     scope: "owner",
@@ -38,6 +39,7 @@ async function mount(t: TestContext, unassigned: string[], addGate: Promise<void
     sessionStorage: window.sessionStorage, HTMLElement: window.HTMLElement,
     React, IS_REACT_ACT_ENVIRONMENT: true,
     fetch: async (input: string, init: { method?: string; body?: string } = {}) => {
+      requests.push(`${init.method ?? "GET"} ${input}`);
       const body = JSON.parse(init.body ?? "{}") as { login?: string };
       const added = /^\/api\/admin\/teams\/([^/]+)\/members$/.exec(input);
       if (added && init.method === "POST") {
@@ -95,7 +97,24 @@ async function mount(t: TestContext, unassigned: string[], addGate: Promise<void
       await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
     }
   };
-  return { window, container, settle };
+  return { window, container, settle, requests };
+}
+
+/** Picks a team the way the browser does, keyboard or pointer: the select's
+ *  value changes and it fires `change`. Nothing else. */
+async function choose(window: Window, select: HTMLSelectElement, teamName: string) {
+  select.focus();
+  const option = [...select.options].find((entry) => entry.textContent === teamName);
+  assert.ok(option, `no option ${teamName}`);
+  // The native setter, so React's value tracker sees the change.
+  Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, "value")!.set!.call(select, option.value);
+  await act(async () => { select.dispatchEvent(new window.Event("change", { bubbles: true })); });
+}
+
+function addButtonFor(select: HTMLSelectElement): HTMLButtonElement {
+  const button = select.closest("form")?.querySelector<HTMLButtonElement>('button[type="submit"]');
+  assert.ok(button, "the row's Add button");
+  return button;
 }
 
 
@@ -116,17 +135,38 @@ async function waitFor(check: () => boolean, what: string) {
   assert.fail(`timed out waiting for ${what}`);
 }
 
+test("choosing a team, by keyboard or pointer, assigns nobody until Add is pressed", async (t) => {
+  const { window, container, settle, requests } = await mount(t, ["browsing"]);
+  const select = container.querySelector<HTMLSelectElement>('select[aria-label="Assign browsing to a team"]');
+  assert.ok(select);
+  const button = addButtonFor(select);
+  assert.equal(button.disabled, true, "nothing to add before a team is chosen");
+  // A typed letter or an arrow key moves a select through its options and
+  // fires change at each one; browsing past Team A to Team B is two changes.
+  await choose(window, select, "Team A");
+  await choose(window, select, "Team B");
+  await settle();
+  assert.deepEqual(requests.filter((line) => line.startsWith("POST")), [], "a change alone sends nothing");
+  assert.equal(select.isConnected, true);
+  assert.equal(button.disabled, false);
+  assert.equal(button.getAttribute("aria-label"), "Add browsing to Team B");
+
+  await act(async () => { button.click(); });
+  await settle();
+  assert.deepEqual(requests.filter((line) => line.startsWith("POST")), ["POST /api/admin/teams/team_b/members"]);
+  assert.equal(select.isConnected, false);
+});
+
 test("assigning a student moves focus to the row that takes its place, then to the line saying who was added", async (t) => {
   const { window, container, settle } = await mount(t, ["first", "second", "third"]);
   const selectFor = (login: string) => container.querySelector<HTMLSelectElement>(`select[aria-label="Assign ${login} to a team"]`);
   const assign = async (login: string, teamName: string) => {
     const select = selectFor(login);
     assert.ok(select);
-    select.focus();
-    const option = [...select.options].find((entry) => entry.textContent === teamName);
-    assert.ok(option);
-    Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, "value")!.set!.call(select, option.value);
-    await act(async () => { select.dispatchEvent(new window.Event("change", { bubbles: true })); });
+    await choose(window, select, teamName);
+    const button = addButtonFor(select);
+    button.focus();
+    await act(async () => { button.click(); });
     await settle();
     assert.equal(select.isConnected, false, "the assigned student leaves the list");
   };
@@ -144,24 +184,26 @@ test("assigning a student moves focus to the row that takes its place, then to t
   assert.equal(added?.textContent, "Added first to Team B.");
 });
 
-test("a select stays focusable while its assignment is pending", async (t) => {
+test("the row stays focusable while its assignment is pending", async (t) => {
   let release!: () => void;
   const gate = new Promise<void>((resolve) => { release = resolve; });
   const { window, container, settle } = await mount(t, ["only"], gate);
   const select = container.querySelector<HTMLSelectElement>('select[aria-label="Assign only to a team"]');
   assert.ok(select);
   try {
-    select.focus();
-    const option = [...select.options].find((entry) => entry.textContent === "Team A");
-    assert.ok(option);
-    Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, "value")!.set!.call(select, option.value);
-    await act(async () => { select.dispatchEvent(new window.Event("change", { bubbles: true })); });
+    await choose(window, select, "Team A");
+    const button = addButtonFor(select);
+    button.focus();
+    await act(async () => { button.click(); });
     // The mutation's pending state reaches the component on a later task.
     await waitFor(() => select.getAttribute("aria-disabled") === "true", "the pending assignment");
-    // A disabled select would drop focus in a browser before the row leaves.
+    // Disabled controls would drop focus in a browser before the row leaves.
     assert.equal(select.disabled, false);
-    assert.equal(select.getAttribute("aria-disabled"), "true");
-    assertFocused(window.document.activeElement, select, "while pending");
+    assert.equal(button.disabled, false);
+    assert.equal(button.getAttribute("aria-busy"), "true");
+    assertFocused(window.document.activeElement, button, "while pending");
+    // A second press while pending sends nothing more.
+    await act(async () => { button.click(); });
   } finally {
     // A failed assertion must not leave the request waiting forever.
     release();
