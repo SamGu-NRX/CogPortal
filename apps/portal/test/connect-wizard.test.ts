@@ -42,7 +42,7 @@ function sessionFor(team: boolean) {
 
 /** Stands in for the worker. The repository listing never answers; the join
  *  answers when the test releases it, as a real request takes a round trip. */
-function portal() {
+function portal(teams: typeof TEAM[] = [TEAM]) {
   let joined = false;
   let releaseJoin: (() => void) | null = null;
   const requests: string[] = [];
@@ -50,7 +50,7 @@ function portal() {
     const path = new URL(input, "https://portal.example").pathname;
     requests.push(path);
     if (path === "/api/session") return Response.json(sessionFor(joined));
-    if (path === "/api/cohorts/teams") return Response.json([TEAM]);
+    if (path === "/api/cohorts/teams") return Response.json(teams);
     if (path === "/api/github/repositories") return new Promise<Response>(() => {});
     if (path === "/api/team/join") {
       return new Promise<Response>((resolve) => {
@@ -112,8 +112,8 @@ function installGlobals(t: TestContext, extra: Record<string, unknown> = {}) {
   return { window, container, root, client, flush };
 }
 
-async function mountWizard(t: TestContext, entry: string) {
-  const server = portal();
+async function mountWizard(t: TestContext, entry: string, teams?: typeof TEAM[]) {
+  const server = portal(teams);
   const env = installGlobals(t, { fetch: server.fetch });
   // Imported after the globals exist: Motion decides at module load whether
   // it is running in a browser.
@@ -192,4 +192,31 @@ test("a join reaches /setup while the repository listing never answers", async (
 
   assert.match(container.textContent ?? "", /setup page/);
   assert.deepEqual(arrival(), { arrivedFrom: "joined", teamName: "Vision Squad" });
+});
+
+function cohortOf(count: number): typeof TEAM[] {
+  return Array.from({ length: count }, (_, index) => ({
+    ...TEAM,
+    id: `team_${index}`,
+    name: `Team ${index + 1}`,
+    repo: { fullName: `octo/team-${index + 1}`, url: `https://github.com/octo/team-${index + 1}` },
+  }));
+}
+
+const joinButtons = (container: HTMLElement) =>
+  [...container.querySelectorAll<HTMLButtonElement>('button[aria-label^="Join "]')]
+    .filter((button) => !button.closest("[inert]"));
+
+test("a short cohort lists every team rather than folding one or two away", async (t) => {
+  const { container } = await mountWizard(t, "/connect?path=join", cohortOf(7));
+
+  assert.equal(joinButtons(container).length, 7);
+  assert.doesNotMatch(container.textContent ?? "", /See \d+ more team/);
+});
+
+test("a long cohort folds the rest behind one press", async (t) => {
+  const { container } = await mountWizard(t, "/connect?path=join", cohortOf(8));
+
+  assert.equal(joinButtons(container).length, 5);
+  assert.match(container.textContent ?? "", /See 3 more teams/);
 });

@@ -30,6 +30,9 @@ import {
 } from "@/lib/queries";
 
 const JOIN_TEAMS_VISIBLE = 5;
+// Folding one or two teams away costs a press to save a row or two, and the
+// fold's own row is nearly as tall as what it hides, so a short list shows whole.
+const JOIN_TEAMS_MIN_FOLDED = 3;
 
 type WizardStep = "choice" | "join" | "start";
 
@@ -352,8 +355,10 @@ function JoinPath({
 
   // While filtering every match shows: folding search results away would
   // hide the answer to the question just asked.
-  const visible = filtering ? found : found.slice(0, JOIN_TEAMS_VISIBLE);
-  const folded = filtering ? [] : found.slice(JOIN_TEAMS_VISIBLE);
+  const foldAt =
+    filtering || found.length - JOIN_TEAMS_VISIBLE < JOIN_TEAMS_MIN_FOLDED ? found.length : JOIN_TEAMS_VISIBLE;
+  const visible = found.slice(0, foldAt);
+  const folded = found.slice(foldAt);
 
   return (
     <div className="mt-6">
