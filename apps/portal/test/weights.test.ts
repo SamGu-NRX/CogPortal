@@ -600,7 +600,6 @@ test("a weight uploaded under one spelling is found under another spelling of th
   assert.deepEqual(await weightManifest(bucket, "Course/Team", sha, [weight.path], [weight]), [weight]);
   assert.deepEqual(reads, [
     `weight-objects/Course/Team/${sha}/${SHA256_ABC}/model.pkl`,
-    `weights/Course/Team/${sha}/model.pkl`,
     `weight-objects/course/team/${sha}/${SHA256_ABC}/model.pkl`,
   ]);
   reads.length = 0;
@@ -641,10 +640,33 @@ test("an object stored under the run's exact spelling stays reachable, and a bad
   assert.deepEqual(reads, [exactKey, exactKey]);
 });
 
-test("the exact spelling's pre-digest object still wins over a lowercase key", async () => {
-  // Before lowercase uploads, a run spelled "Course/Team" read its content key
-  // and then its pre-digest key. That pair still comes first, so a valid legacy
-  // object is not shadowed by whatever the lowercase key holds.
+test("a resynced lowercase upload wins over a stale mixed-case pre-digest object", async () => {
+  // An upgraded deployment can hold an old mutable object under the run's
+  // exact spelling. A fresh sync writes the lowercase content-addressed key,
+  // and that has to repair the run rather than lose to the stale bytes.
+  const sha = "a".repeat(40);
+  const weight = { path: "model.pkl", size: 3, sha256: SHA256_ABC };
+  const legacyKey = `weights/Course/Team/${sha}/model.pkl`;
+  const lowercaseKey = `weight-objects/course/team/${sha}/${SHA256_ABC}/model.pkl`;
+  const objects = new Map<string, R2Object>([
+    [legacyKey, { size: 5, checksums: { sha256: hexBytes("b".repeat(64)) } } as R2Object],
+    [lowercaseKey, { size: 3, checksums: { sha256: hexBytes(SHA256_ABC) } } as R2Object],
+  ]);
+  const reads: string[] = [];
+  const bucket = { head: async (key: string) => { reads.push(key); return objects.get(key) ?? null; } };
+
+  assert.deepEqual(await weightManifest(bucket, "Course/Team", sha, [weight.path], [weight]), [weight]);
+  assert.equal((await headRecordedWeight(bucket, "Course/Team", sha, weight)).status, "matched");
+  assert.equal(reads.includes(legacyKey), false, "the pre-digest key is never read once a content key answers");
+
+  // With no content-addressed object anywhere, the stale legacy object is
+  // found and refused, never accepted.
+  objects.delete(lowercaseKey);
+  await assert.rejects(weightManifest(bucket, "Course/Team", sha, [weight.path], [weight]), /does not match this report/);
+  assert.equal((await headRecordedWeight(bucket, "Course/Team", sha, weight)).status, "mismatched");
+});
+
+test("a content-addressed object with a bad checksum is refused even beside a valid legacy one", async () => {
   const sha = "a".repeat(40);
   const weight = { path: "model.pkl", size: 3, sha256: SHA256_ABC };
   const legacyKey = `weights/Course/Team/${sha}/model.pkl`;
@@ -655,6 +677,6 @@ test("the exact spelling's pre-digest object still wins over a lowercase key", a
   ]);
   const bucket = { head: async (key: string) => objects.get(key) ?? null };
 
-  assert.equal((await headRecordedWeight(bucket, "Course/Team", sha, weight)).status, "matched");
-  assert.deepEqual(await weightManifest(bucket, "Course/Team", sha, [weight.path], [weight]), [weight]);
+  await assert.rejects(weightManifest(bucket, "Course/Team", sha, [weight.path], [weight]), /has no SHA-256 checksum/);
+  assert.equal((await headRecordedWeight(bucket, "Course/Team", sha, weight)).status, "mismatched");
 });
