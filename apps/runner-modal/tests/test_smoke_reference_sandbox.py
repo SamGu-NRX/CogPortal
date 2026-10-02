@@ -654,12 +654,28 @@ class CommandLine(unittest.TestCase):
             self.assertIn("sandbox contract", said)
 
     def test_an_environment_without_modal_is_a_refusal_not_a_traceback(self):
+        # The plugin is stood in for, so this runs where the benchmark
+        # submodule is absent (CI's week1/week2 lanes have no Week 3 package).
         with tempfile.TemporaryDirectory() as directory, \
                 mock.patch.object(smoke, "source_identity", return_value={"head": HEAD}), \
+                mock.patch.object(smoke, "load_benchmark", return_value=PluginAgreement.PLUGIN), \
                 mock.patch.object(smoke, "_load_runner", side_effect=ImportError("No module named 'modal'")):
             status, said = self._main(self._arguments(directory))
             self.assertEqual(status, 1)
             self.assertIn(".venv-deploy", said)
+            self.assertFalse((Path(directory) / "result.json").exists())
+
+    def test_a_missing_benchmark_plugin_is_a_refusal_not_a_traceback(self):
+        missing = smoke.PluginError("No installed benchmark plugin named 'language-search'.")
+        with tempfile.TemporaryDirectory() as directory, \
+                mock.patch.object(smoke, "source_identity", return_value={"head": HEAD}), \
+                mock.patch.object(smoke, "load_benchmark", side_effect=missing), \
+                mock.patch.object(smoke, "_load_runner", side_effect=AssertionError("imported modal_app")):
+            status, said = self._main(self._arguments(directory))
+            self.assertEqual(status, 1)
+            self.assertIn("language-search plugin isn't importable", said)
+            self.assertIn("benchmarks/week3", said)
+            self.assertNotIn("Traceback", said)
             self.assertFalse((Path(directory) / "result.json").exists())
 
     def test_a_score_with_unconfirmed_cleanup_is_incomplete_not_passed(self):
