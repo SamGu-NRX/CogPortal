@@ -501,9 +501,8 @@ production, so there is nothing to provision and nothing production can write.
 **Do not export `COGWORKS_RUNNER_TARGET`, `COGWORKS_RUNNER_SANDBOX_IMAGE_IDS`
 or `MODAL_RUNNER_URL` into your shell.** `deploy.py` clears the first two
 before it imports the controller, so a staging deploy stays staging. Nothing
-else does: `tools/diagnose_corpus.py` and `tools/smoke_week3_sandbox.py` import
-`modal_app` directly and would build against whichever app the exported value
-selects, and `tools/verify_dispatch.py` takes its default endpoint from
+else does: `tools/diagnose_corpus.py` imports `modal_app` directly and would
+build against whichever app the exported value selects, and `tools/verify_dispatch.py` takes its default endpoint from
 `MODAL_RUNNER_URL`. Pass the target per command instead.
 
 #### What to record, and what the receipts do not cover

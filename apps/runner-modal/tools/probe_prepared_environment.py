@@ -443,9 +443,7 @@ def observe_image(benchmark_id: str, image_id: str, timeout: int) -> Dict[str, A
     import modal  # noqa: PLC0415
     import modal.runner  # noqa: PLC0415
 
-    interpreter = student_python(benchmark_id, PY38_VENV)
     app = modal.App("cogworks-runner-probe")
-    observed = {}
     with modal.enable_output(), modal.runner.run_app(app):
         sandbox = modal.Sandbox.create(
             image=modal.Image.from_id(image_id),
@@ -456,39 +454,82 @@ def observe_image(benchmark_id: str, image_id: str, timeout: int) -> Dict[str, A
             block_network=True,
         )
         try:
-            probe = sandbox.exec(
-                interpreter, "-m", "cogworks_runner.prepared_environment", benchmark_id
-            )
-            probe.wait()
-            if probe.returncode != 0:
-                raise ProbeError(
-                    "The image could not state its execution contract: {}".format(
-                        (probe.stderr.read() or "").strip()[-400:]
-                    )
-                )
-            observed["observation"] = load_json(
-                probe.stdout.read(), "the compatibility probe's observation"
-            )
-
-            sandbox.filesystem.write_text(MANIFEST_SCRIPT, MANIFEST_REMOTE_PATH)
-            manifests = {}
-            for key, module, _local, _root in expected_trees(benchmark_id):
-                walk = sandbox.exec(interpreter, MANIFEST_REMOTE_PATH, module)
-                walk.wait()
-                if walk.returncode != 0:
-                    raise ProbeError(
-                        "Could not import and read {} inside {}: {}".format(
-                            module, image_id, (walk.stderr.read() or "").strip()[-400:]
-                        )
-                    )
-                root, files = validate_manifest_payload(
-                    load_json(walk.stdout.read(), "the {} manifest".format(key))
-                )
-                manifests[key] = {"root": root, "files": files}
-            observed["manifests"] = manifests
+            return observe_sandbox(sandbox, benchmark_id, image_id)
         finally:
             sandbox.terminate()
+
+
+def observe_sandbox(sandbox: Any, benchmark_id: str, image_id: str) -> Dict[str, Any]:
+    """The observation and manifests of a sandbox nothing has run in yet.
+
+    Separate from `observe_image` so `smoke_reference_sandbox.py` can establish
+    what its own sandbox holds before it uploads anything into it.
+    """
+
+    interpreter = student_python(benchmark_id, PY38_VENV)
+    observed = {}
+    probe = sandbox.exec(
+        interpreter, "-m", "cogworks_runner.prepared_environment", benchmark_id
+    )
+    probe.wait()
+    if probe.returncode != 0:
+        raise ProbeError(
+            "The image could not state its execution contract: {}".format(
+                (probe.stderr.read() or "").strip()[-400:]
+            )
+        )
+    observed["observation"] = load_json(
+        probe.stdout.read(), "the compatibility probe's observation"
+    )
+
+    sandbox.filesystem.write_text(MANIFEST_SCRIPT, MANIFEST_REMOTE_PATH)
+    manifests = {}
+    for key, module, _local, _root in expected_trees(benchmark_id):
+        walk = sandbox.exec(interpreter, MANIFEST_REMOTE_PATH, module)
+        walk.wait()
+        if walk.returncode != 0:
+            raise ProbeError(
+                "Could not import and read {} inside {}: {}".format(
+                    module, image_id, (walk.stderr.read() or "").strip()[-400:]
+                )
+            )
+        root, files = validate_manifest_payload(
+            load_json(walk.stdout.read(), "the {} manifest".format(key))
+        )
+        manifests[key] = {"root": root, "files": files}
+    observed["manifests"] = manifests
     return observed
+
+
+def expected_manifests(benchmark_id: str) -> Dict[str, List[Dict[str, str]]]:
+    """The accepted source manifests, read from this checkout."""
+
+    return {
+        key: source_manifest(local)
+        for key, _module, local, _root in expected_trees(benchmark_id)
+    }
+
+
+def receipt_from(
+    benchmark_id: str,
+    sandbox_contract: int,
+    image_id: str,
+    expected: Dict[str, List[Dict[str, str]]],
+    observed: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Compare what a sandbox reported with the accepted source, then build the receipt."""
+
+    manifests = {}
+    for key, _module, _local, _root in expected_trees(benchmark_id):
+        entry = observed["manifests"][key]
+        manifests[key] = {
+            "root": entry["root"],
+            "files": entry["files"],
+            "difference": compare_manifests(expected[key], entry["files"]),
+        }
+    return build_receipt(
+        benchmark_id, sandbox_contract, image_id, observed["observation"], manifests
+    )
 
 
 def probe_image(
@@ -498,24 +539,11 @@ def probe_image(
     # or empty tree is a mistake in this checkout, and finding it after the
     # sandbox has run would bill for an answer that was never usable.
     validate_probe_inputs(benchmark_id, image_id, sandbox_contract)
-    expected = {
-        key: source_manifest(local)
-        for key, _module, local, _root in expected_trees(benchmark_id)
-    }
+    # Captured before the call, so the comparison cannot pick up an edit made
+    # while the sandbox was running.
+    expected = expected_manifests(benchmark_id)
     observed = observe_image(benchmark_id, image_id, timeout)
-    manifests = {}
-    for key, _module, _local, _root in expected_trees(benchmark_id):
-        entry = observed["manifests"][key]
-        manifests[key] = {
-            "root": entry["root"],
-            "files": entry["files"],
-            # Against the manifests captured before the call, so the comparison
-            # cannot pick up an edit made while the sandbox was running.
-            "difference": compare_manifests(expected[key], entry["files"]),
-        }
-    return build_receipt(
-        benchmark_id, sandbox_contract, image_id, observed["observation"], manifests
-    )
+    return receipt_from(benchmark_id, sandbox_contract, image_id, expected, observed)
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
