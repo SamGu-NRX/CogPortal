@@ -16,6 +16,12 @@ import { publishOfficialRun, type RunActor } from "../worker/services/run-action
 const MIGRATIONS = join(dirname(fileURLToPath(import.meta.url)), "..", "migrations");
 const LOCAL_SEED = join(MIGRATIONS, "..", "scripts", "seed-local.sql");
 const UPGRADE = "0044_week2_recognition_v2.sql";
+// Later migrations that only add nullable columns, applied before the
+// pre-upgrade phase because these tests drive the current Drizzle schema,
+// which reads those columns, against the database 0044 upgrades. Neither
+// touches a benchmark, run or selection row, so the recognition transition
+// under test is the same; the check below keeps a data change out of here.
+const COLUMNS_ONLY_LATER = ["0046_official_dataset_digest.sql"];
 const RECOGNITION = "vision-recognition";
 const CLUSTERING = "vision-clustering";
 
@@ -25,7 +31,15 @@ function freshDb(beforeUpgrade = false) {
   const files = readdirSync(MIGRATIONS).filter((file) => file.endsWith(".sql")).sort();
   const upgradeAt = files.indexOf(UPGRADE);
   assert.ok(upgradeAt >= 0, `${UPGRADE} is missing`);
-  for (const file of beforeUpgrade ? files.slice(0, upgradeAt) : files) migrate(file);
+  for (const file of COLUMNS_ONLY_LATER) {
+    assert.ok(files.indexOf(file) > upgradeAt, `${file} must come after ${UPGRADE}`);
+    const statements = readFileSync(join(MIGRATIONS, file), "utf8")
+      .replace(/--.*$/gm, "").split(";").map((statement) => statement.trim()).filter(Boolean);
+    assert.ok(statements.every((statement) => /^ALTER TABLE \w+ ADD COLUMN /i.test(statement)),
+      `${file} must only add columns to run ahead of ${UPGRADE}`);
+  }
+  const early = beforeUpgrade ? [...files.slice(0, upgradeAt), ...COLUMNS_ONLY_LATER] : files;
+  for (const file of early) migrate(file);
   // The demo teams these tests run as come from the local seed, as under `pnpm dev`.
   sqlite.exec(readFileSync(LOCAL_SEED, "utf8"));
   const binding = {
@@ -59,7 +73,7 @@ function freshDb(beforeUpgrade = false) {
   const env = { DB: binding as unknown as Env["DB"] } as Env;
   return {
     db: getDb(env), env,
-    upgrade: () => files.slice(upgradeAt).forEach(migrate),
+    upgrade: () => files.filter((file) => !early.includes(file)).forEach(migrate),
     close: () => sqlite.close(),
   };
 }
