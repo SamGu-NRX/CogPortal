@@ -76,11 +76,20 @@ _LOCAL_PACKAGES = {
 }
 
 
+#: The name a requirement is imported by is not always the name pip installs
+#: it under, and `pip install PIL` or `pip install skimage` does not install
+#: what the probe failed to import. Names missing here are installed as spelt.
+_DISTRIBUTIONS = {
+    "PIL": "Pillow",
+    "skimage": "scikit-image",
+}
+
+
 def _how_to_install(absent) -> str:
     """The command that actually fixes it, which differs by where it lives."""
 
     lines = []
-    from_pypi = [name for name in absent if name not in _LOCAL_PACKAGES]
+    from_pypi = [_DISTRIBUTIONS.get(name, name) for name in absent if name not in _LOCAL_PACKAGES]
     if from_pypi:
         lines.append(
             "Install it with: {} -m pip install {}".format(
