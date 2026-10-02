@@ -2766,6 +2766,52 @@ for (const seeded of [SEEDED_WEIGHTS, "[]"] as const) {
   });
 }
 
+test("an official Modal Retry keeps both the remedy gate and its frozen dataset digest", async () => {
+  const { db, binding } = freshDb();
+  const actor = await seedPromotion(db);
+  await assert.rejects(promotePracticeRun(env(binding, "modal", {
+    async send() { throw new Error("dispatch unavailable"); },
+  }), actor, PRACTICE_RUN_ID));
+  const [failed] = await db.select().from(runs).where(eq(runs.mode, "official"));
+  assert.ok(failed?.dispatchJobJson);
+  assert.equal(RunJobV1Schema.parse(JSON.parse(failed.dispatchJobJson)).benchmark.datasetDigest, APPROVED_DIGEST);
+  assert.equal(failed.datasetDigest, APPROVED_DIGEST);
+  const runtime = env(binding, "modal", { async send() {} });
+  const successors = async () => db.select().from(runs).where(eq(runs.retryOfRunId, failed.id));
+  const refusedWith = async (message: string | RegExp) => {
+    const snapshot = await buildRunSurfaceSnapshot(runtime, SURFACE_ID);
+    assert.equal(snapshot.actions.includes("retry"), false);
+    await assert.rejects(retryRun(runtime, actor, SURFACE_ID, failed.id), (error: unknown) => {
+      assert.ok(error instanceof ApiHttpError);
+      assert.equal(error.status, 409);
+      if (typeof message === "string") assert.equal(error.message, message);
+      else assert.match(error.message, message);
+      return true;
+    });
+    assert.equal((await successors()).length, 0);
+  };
+
+  // The remedy gate: a failure the submission caused is not resent.
+  await db.update(runs).set({ failureCategory: "timeout" }).where(eq(runs.id, failed.id));
+  await refusedWith(/Retry isn't available for this failure/);
+  await db.update(runs).set({ failureCategory: failed.failureCategory }).where(eq(runs.id, failed.id));
+
+  // The digest binding: a changed approval is refused, never rebound, and a
+  // missing one gives the pause sentence.
+  await db.update(benchmarks).set({ datasetDigest: "e".repeat(64) }).where(eq(benchmarks.id, BENCHMARK_ID));
+  await refusedWith("Repository or benchmark/runtime configuration changed since this run.");
+  await db.update(benchmarks).set({ datasetDigest: null }).where(eq(benchmarks.id, BENCHMARK_ID));
+  await refusedWith("Official attempts for this benchmark are paused until course staff approve its dataset.");
+
+  // Unchanged approval and a retryable failure: the frozen job goes out again.
+  await db.update(benchmarks).set({ datasetDigest: APPROVED_DIGEST }).where(eq(benchmarks.id, BENCHMARK_ID));
+  await retryRun(runtime, actor, SURFACE_ID, failed.id);
+  const [successor] = await successors();
+  assert.ok(successor?.dispatchJobJson);
+  assert.equal(successor.datasetDigest, APPROVED_DIGEST);
+  assert.equal(RunJobV1Schema.parse(JSON.parse(successor.dispatchJobJson)).benchmark.datasetDigest, APPROVED_DIGEST);
+});
+
 test("a practice Retry that prepares afresh does not inherit the failed run's weights record", async () => {
   const { db, binding } = freshDb();
   const actor = await seedPromotion(db);
