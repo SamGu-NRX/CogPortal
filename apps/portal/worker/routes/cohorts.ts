@@ -13,17 +13,29 @@ export function registerCohortRoutes(app: Hono<AppEnv>): void {
     const auth = await requireUser(c);
     const body = await parseBody(c, JoinCohortRequestSchema);
     const db = getDb(c.env);
-    const [cohort] = await db
+    // join_code is not unique (an owner's rotation draws a random code and a
+    // closed cohort keeps its last one), so every match is read and the open
+    // one wins. A closed match only chooses the message.
+    const matches = await db
       .select()
       .from(cohorts)
-      .where(eq(cohorts.joinCode, body.code.toUpperCase()))
-      .limit(1);
-    if (!cohort) {
-      throw new ApiHttpError(403, "cohort_code_invalid", "The cohort join code is invalid.");
+      .where(eq(cohorts.joinCode, body.code.toUpperCase()));
+    const open = matches.filter((row) => row.active);
+    if (open.length > 1) {
+      // Picking one would enroll the student in a cohort nobody chose.
+      throw new ApiHttpError(
+        409,
+        "invalid_request",
+        "This code opens more than one cohort, so we can't tell which one you mean. Ask your instructor for a new code.",
+      );
     }
-    // Saying the code is right tells nobody anything new: only someone who
-    // already holds the current code reaches this branch.
-    if (!cohort.active) {
+    const [cohort] = open;
+    if (!cohort) {
+      if (!matches.length) {
+        throw new ApiHttpError(403, "cohort_code_invalid", "The cohort join code is invalid.");
+      }
+      // Saying the code is right tells nobody anything new: only someone who
+      // already holds the current code reaches this branch.
       throw new ApiHttpError(
         403,
         "forbidden",

@@ -206,6 +206,36 @@ test("a right code for a closed cohort says enrollment is closed, a wrong one do
   assert.equal(row?.cohortId, null);
 });
 
+test("a code shared with a closed cohort still enrolls the student in the open one", async () => {
+  const h = harness();
+  await h.seedCohorts();
+  // Re-insert the open cohort after the closed one, so a single-row read in
+  // storage order would find the closed one.
+  await h.db.update(cohorts).set({ joinCode: "SHARED" }).where(eq(cohorts.id, OTHER_COHORT));
+  const [open] = await h.db.select().from(cohorts).where(eq(cohorts.id, COHORT));
+  assert.ok(open);
+  await h.db.delete(cohorts).where(eq(cohorts.id, COHORT));
+  await h.db.insert(cohorts).values({ ...open, joinCode: "SHARED" });
+  const student = await h.signIn("student", null);
+  const joined = await h.call("POST", "/cohorts/join", { cookie: student, body: { code: "shared" } });
+  assert.equal(joined.status, 200);
+  const [row] = await h.db.select({ cohortId: users.cohortId }).from(users).where(eq(users.githubLogin, "student"));
+  assert.equal(row?.cohortId, COHORT);
+});
+
+test("a code two open cohorts share enrolls nobody and says why", async () => {
+  const h = harness();
+  await h.seedCohorts();
+  await h.db.update(cohorts).set({ joinCode: "SHARED", active: true });
+  const student = await h.signIn("student", null);
+  const ambiguous = await h.call("POST", "/cohorts/join", { cookie: student, body: { code: "SHARED" } });
+  assert.equal(ambiguous.status, 409);
+  assert.equal(ambiguous.body.error.code, "invalid_request");
+  assert.match(ambiguous.body.error.message, /more than one cohort/);
+  const [row] = await h.db.select({ cohortId: users.cohortId }).from(users).where(eq(users.githubLogin, "student"));
+  assert.equal(row?.cohortId, null);
+});
+
 test("admin removal of a team's creator is refused, not performed", async () => {
   const h = harness();
   await h.seedCohorts();
