@@ -11,7 +11,7 @@ PEP 668 managed and refuses `pip install`, and the deploy script imports both
 `modal` and `fastapi`.
 
     uv venv --python 3.11 .venv-deploy
-    uv pip install --python .venv-deploy/bin/python "modal>=1.0,<2" "fastapi>=0.115,<1"
+    uv pip install --python .venv-deploy/bin/python "modal>=1.5,<2" "fastapi>=0.115,<1"
 
     # The plugins, so the smoke test can build a manifest and score what the
     # sandbox returns. --no-deps: their pins target 3.8 for the sandbox, and
