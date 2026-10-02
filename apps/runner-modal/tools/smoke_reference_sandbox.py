@@ -409,9 +409,9 @@ def require_snapshot_ttl(modal: Any) -> None:
     """Refuse a Modal client that cannot give the snapshot an expiry.
 
     `snapshot_filesystem(ttl=)` arrived in modal 1.5.0 (2026-06-09). On an
-    older client the call raises TypeError only after both sandboxes have
-    been billed, and before 1.5 a snapshot never expired, so the reference
-    solution would stay in the workspace indefinitely.
+    older client the call raises TypeError only after the prepare sandbox has
+    run and been billed, and before 1.5 a snapshot never expired, so the
+    reference solution would stay in the workspace indefinitely.
     """
 
     method = getattr(getattr(modal, "Sandbox", None), "snapshot_filesystem", None)

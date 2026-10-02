@@ -11,6 +11,9 @@ PEP 668 managed and refuses `pip install`, and the deploy script imports both
 `modal` and `fastapi`.
 
     uv venv --python 3.11 .venv-deploy
+    # 1.5 rather than the runner's 1.4 floor: smoke_reference_sandbox.py sets
+    # snapshot_filesystem(ttl=), which modal 1.5.0 added, and refuses to start
+    # on an older client.
     uv pip install --python .venv-deploy/bin/python "modal>=1.5,<2" "fastapi>=0.115,<1"
 
     # The plugins, so the smoke test can build a manifest and score what the
