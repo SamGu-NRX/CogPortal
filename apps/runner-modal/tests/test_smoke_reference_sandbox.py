@@ -384,11 +384,15 @@ class Remote(unittest.TestCase):
                 raise receipt
             return receipt
 
+        self.evidence = {}
         with mock.patch.object(smoke.probe, "observe_sandbox", observing), \
                 mock.patch.object(smoke.probe, "receipt_from", receipt_from):
-            result = smoke.run_remote(_plan(), modal, runner, lambda line: None)
-        self.assertEqual(runner.app, "runner-app", "the runner's app must be restored")
-        self.assertEqual(modal.Image.from_name("x"), "named:x", "from_name must be restored")
+            try:
+                result = smoke.run_remote(_plan(), modal, runner, lambda line: None, self.evidence)
+            finally:
+                self.assertEqual(runner.app, "runner-app", "the runner's app must be restored")
+                self.assertEqual(modal.Image.from_name("x"), "named:x", "from_name must be restored")
+        result["evidence"] = self.evidence
         return result
 
     def test_a_clean_run_uses_the_exact_image_and_blocks_network_everywhere(self):
@@ -435,8 +439,27 @@ class Remote(unittest.TestCase):
 
     def test_every_sandbox_is_terminated_on_success(self):
         world = World()
-        self._run(world)
+        result = self._run(world)
         self.assertTrue(all(sandbox.terminated >= 1 for sandbox in world.sandboxes))
+        self.assertEqual(
+            [attempt["sandbox"] for attempt in result["evidence"]["cleanup"]],
+            [sandbox.object_id for sandbox in world.sandboxes],
+        )
+        self.assertTrue(smoke.cleanup_confirmed(result["evidence"]))
+
+    def test_a_failed_terminate_after_a_good_run_is_recorded_not_hidden(self):
+        world = World()
+
+        def evaluate_then_lose_the_api(job, snapshot_id, cases):
+            # Scoring succeeded; only the smoke's own final terminate calls fail.
+            world.terminate_raises = True
+            return [{"ok": True}], "student python 3.8.20\n"
+
+        result = self._run(world, evaluate=evaluate_then_lose_the_api)
+        self.assertFalse(smoke.cleanup_confirmed(result["evidence"]))
+        failed = [attempt for attempt in result["evidence"]["cleanup"] if not attempt["terminated"]]
+        self.assertTrue(failed)
+        self.assertIn("terminate failed", failed[0]["error"])
 
     def _fails(self, world, stage, **kwargs):
         with self.assertRaises(smoke.SmokeError) as caught:
@@ -492,7 +515,7 @@ class Remote(unittest.TestCase):
         with mock.patch.object(smoke.probe, "observe_sandbox", lambda *a: {}), \
                 mock.patch.object(smoke.probe, "receipt_from", lambda *a: RECEIPT), \
                 self.assertRaises(smoke.SmokeError) as caught:
-            smoke.run_remote(_plan(), modal, runner, lambda line: None)
+            smoke.run_remote(_plan(), modal, runner, lambda line: None, {})
         self.assertEqual(caught.exception.stage, "provenance")
 
     def test_a_student_failure_keeps_its_category_and_still_cleans_up(self):
@@ -512,6 +535,14 @@ class Remote(unittest.TestCase):
         with self.assertRaises(smoke.SmokeError) as caught:
             self._run(world)
         self.assertEqual(caught.exception.stage, "network")
+        self.assertFalse(smoke.cleanup_confirmed(self.evidence))
+
+    def test_a_failed_run_still_records_its_cleanup(self):
+        world = World(prepare_exit=1, prepare_stderr="RuntimeError: Source archive contains an unsafe path.\n")
+        with self.assertRaises(smoke.SmokeError):
+            self._run(world)
+        self.assertEqual(len(self.evidence["cleanup"]), 1)
+        self.assertTrue(smoke.cleanup_confirmed(self.evidence))
 
 
 BENCHMARK = types.SimpleNamespace(primary_metric="overall")
@@ -630,6 +661,32 @@ class CommandLine(unittest.TestCase):
             self.assertEqual(status, 1)
             self.assertIn(".venv-deploy", said)
             self.assertFalse((Path(directory) / "result.json").exists())
+
+    def test_a_score_with_unconfirmed_cleanup_is_incomplete_not_passed(self):
+        def remote(plan, modal, runner, say, evidence):
+            evidence["cleanup"] = [
+                {"sandbox": "sb-0", "terminated": True},
+                {"sandbox": "sb-1", "terminated": False, "error": "RuntimeError: gone"},
+            ]
+            return {"predictions": [{}], "log": "student python 3.8.20\n"}
+
+        prepared = {
+            "plan": _plan(), "runner": types.SimpleNamespace(RunnerFailure=RunnerFailure),
+            "benchmark": object(), "record": {},
+        }
+        fake = types.SimpleNamespace(__version__="1.5.4", runner=types.SimpleNamespace())
+        with tempfile.TemporaryDirectory() as directory, \
+                mock.patch.dict(sys.modules, {"modal": fake, "modal.runner": fake.runner}), \
+                mock.patch.object(smoke, "prepare_plan", return_value=prepared), \
+                mock.patch.object(smoke, "run_remote", remote), \
+                mock.patch.object(smoke, "score", return_value={"metrics": [
+                    {"key": "overall", "value": 0.1, "primary": True}]}):
+            status, _said = self._main(self._arguments(directory))
+            result = json.loads((Path(directory) / "result.json").read_text())
+        self.assertEqual(status, 1)
+        self.assertEqual(result["status"], "incomplete")
+        self.assertEqual(result["failure"]["stage"], "cleanup")
+        self.assertIn("outcome", result)
 
     def test_only_tracks_with_a_current_reference_are_offered(self):
         with tempfile.TemporaryDirectory() as directory, self.assertRaises(SystemExit):

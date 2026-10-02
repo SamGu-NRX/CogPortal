@@ -36,6 +36,9 @@ In order:
 5. The controller's own `check_predictions` and `_v2_metrics`, run here with
    this checkout's plugin, which step 2 showed is the image's.
 
+Cleanup is part of the result: if any sandbox does not acknowledge
+`terminate`, a scored run is recorded as "incomplete", not "passed".
+
 A pass shows that this image evaluates and scores the reference without
 network access. It does not cover the portal's queue, sign-in, signed callback
 or run page, the repository fetch, or the PyPI access a real prepare step has.
@@ -406,15 +409,20 @@ def _stderr(process: Any) -> str:
     return raw.decode("utf-8", "replace") if isinstance(raw, bytes) else (raw or "")
 
 
-def run_remote(plan: Plan, modal: Any, runner: Any, say: Callable[[str], None]) -> Dict[str, Any]:
-    """Everything that touches Modal. Returns the evidence; raises on any failure.
+def run_remote(
+    plan: Plan, modal: Any, runner: Any, say: Callable[[str], None], evidence: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Everything that touches Modal. Raises on any failure.
 
-    Owned sandboxes are terminated in `finally` whatever happens, including the
-    evaluation sandbox, which the runner also terminates.
+    `evidence` belongs to the caller and is filled as the run goes, so a failed
+    run's result still says what happened, including cleanup. Owned sandboxes
+    are terminated in `finally` whatever happens, including the evaluation
+    sandbox, which the runner also terminates; each attempt is recorded in
+    `evidence["cleanup"]`, and `cleanup_confirmed` reads it.
     """
 
     guards = Guards(modal.Sandbox.create)
-    evidence: Dict[str, Any] = {"sandboxes": [], "snapshotTtlSeconds": SNAPSHOT_TTL_SECONDS}
+    evidence.update({"cleanup": [], "snapshotTtlSeconds": SNAPSHOT_TTL_SECONDS})
     interpreter = probe.student_python(plan.benchmark_id, PY38_VENV)
     app = modal.App(SMOKE_APP)
     with contextlib.ExitStack() as stack:
@@ -499,15 +507,22 @@ def run_remote(plan: Plan, modal: Any, runner: Any, say: Callable[[str], None]) 
                     raise guards.refusals[0] from None
                 raise
             evidence["evaluateSeconds"] = round(time.time() - started, 1)
-            return {"evidence": evidence, "predictions": predictions, "log": log}
+            return {"predictions": predictions, "log": log}
         finally:
             for sandbox in guards.created:
-                evidence["sandboxes"].append(getattr(sandbox, "object_id", None))
+                attempt = {"sandbox": getattr(sandbox, "object_id", None), "terminated": True}
                 try:
                     sandbox.terminate()
-                except Exception as error:  # noqa: BLE001 - report, keep cleaning up
-                    say("could not terminate {}: {}".format(
-                        getattr(sandbox, "object_id", "a sandbox"), error))
+                except Exception as error:  # noqa: BLE001 - recorded; must not replace the run's own failure
+                    attempt.update(terminated=False, error="{}: {}".format(type(error).__name__, str(error)[:300]))
+                    say("could not terminate {}: {}".format(attempt["sandbox"], attempt["error"]))
+                evidence["cleanup"].append(attempt)
+
+
+def cleanup_confirmed(evidence: Dict[str, Any]) -> bool:
+    """Whether every sandbox this run created acknowledged a terminate call."""
+
+    return all(attempt["terminated"] for attempt in evidence.get("cleanup", []))
 
 
 def score(runner: Any, benchmark: Any, cases: List[Any], predictions: List[Any]) -> Dict[str, Any]:
@@ -672,13 +687,23 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     record["modalClient"] = modal.__version__
     plan = prepared["plan"]
     status = 1
+    record["execution"] = {}
     try:
-        remote = run_remote(plan, modal, runner, say)
-        record["execution"] = remote["evidence"]
+        remote = run_remote(plan, modal, runner, say, record["execution"])
         record["outcome"] = score(runner, prepared["benchmark"], plan.cases, remote["predictions"])
         record["studentLogHead"] = remote["log"][:2000]
-        record["status"] = "passed"
-        status = 0
+        if cleanup_confirmed(record["execution"]):
+            record["status"] = "passed"
+            status = 0
+        else:
+            # The score stands, but a sandbox may still be running, so this
+            # is not a clean pass.
+            record["status"] = "incomplete"
+            record["failure"] = {
+                "stage": "cleanup",
+                "detail": "Scored, but at least one sandbox did not acknowledge terminate; "
+                "see execution.cleanup.",
+            }
     except SmokeError as error:
         record["status"] = "failed"
         record["failure"] = {"stage": error.stage, "detail": str(error)[:1000]}
@@ -705,13 +730,17 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print("result not saved: {}".format(error), file=sys.stderr)
         print(json.dumps(record, indent=2, sort_keys=True))
         return 1
-    if status == 0:
-        say("PASSED, result in {}".format(arguments.result))
+    if "outcome" in record:
         for metric in record["outcome"]["metrics"]:
             say("  {:<28} {:.4f}{}".format(
                 metric["key"], metric["value"], "  (primary)" if metric.get("primary") else ""))
+    if not cleanup_confirmed(record["execution"]):
+        say("WARNING: cleanup not confirmed for every sandbox; see execution.cleanup")
+    if status == 0:
+        say("PASSED, result in {}".format(arguments.result))
     else:
-        say("FAILED at {}: {}".format(record["failure"]["stage"], record["failure"]["detail"]))
+        say("{} at {}: {}".format(
+            record["status"].upper(), record["failure"]["stage"], record["failure"]["detail"]))
         say("result in {}".format(arguments.result))
     return status
 
