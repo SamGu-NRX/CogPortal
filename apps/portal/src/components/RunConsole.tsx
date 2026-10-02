@@ -359,8 +359,10 @@ export function RunConsole({
           <div className="min-w-0">
             <h1 ref={headingRef} tabIndex={-1} className={compact ? "text-[1.5rem]" : "text-[clamp(1.6rem,1.2rem+1.8vw,2.4rem)]"}>{snapshot.benchmark.title}</h1>
             <p className={`${compact ? "mt-1" : "mt-2"} flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[13.5px] text-ink-secondary`}>
+              {/* The team and the commit, never the person who started it:
+                  a number beside a name reads as that student's grade. The
+                  actor stays in the server's records. */}
               <span>{snapshot.team.name}</span><span aria-hidden="true" className="text-ink-faint">·</span>
-              <span>@{snapshot.actor.login}</span><span aria-hidden="true" className="text-ink-faint">·</span>
               <code className="font-mono text-[12.5px]">{snapshot.shortSha}</code><span aria-hidden="true" className="text-ink-faint">·</span>
               <span className="u-tnum font-mono text-[12.5px]">{formatElapsed(snapshot.elapsedMs)}</span>
             </p>
@@ -388,7 +390,7 @@ export function RunConsole({
         )}
         {silent && (
           <p className="mt-5 max-w-[60ch] border-t border-rule-soft pt-3.5 text-[14px] leading-[1.55] text-ink-secondary" role="status" aria-live="polite">
-            If @{snapshot.actor.login}'s run is still going, its result will appear here. If it stopped, run it again.
+            If this run is still going, its result will appear here. If it stopped, run it again.
           </p>
         )}
         {runAgainOffered && (
